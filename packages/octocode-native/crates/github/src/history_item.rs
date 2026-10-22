@@ -12,11 +12,14 @@ pub struct HistoryItemResponse {
 }
 
 /// A history read that names only immutable objects: a commit by its full
-/// SHA, or a comparison of two full SHAs (`base...head`). Its body, and
-/// every page of it, never changes.
-fn pinned_history(segments: &[&str]) -> bool {
+/// SHA, a comparison of two full SHAs (`base...head`), or a file's contents
+/// at a full SHA (`?ref=`). Its body, and every page of it, never changes.
+fn pinned_history(segments: &[&str], query: &[(&str, String)]) -> bool {
     match segments {
         ["repos", _, _, "commits", sha] => super::content::is_full_sha(sha),
+        ["repos", _, _, "contents", _, ..] => query
+            .iter()
+            .any(|(key, value)| *key == "ref" && super::content::is_full_sha(value)),
         ["repos", _, _, "compare", refs] => refs.split_once("...").is_some_and(|(base, head)| {
             super::content::is_full_sha(base) && super::content::is_full_sha(head)
         }),
@@ -64,7 +67,7 @@ impl GitHubTransport {
         let (value, has_more) = self
             .revalidated_json(
                 RequestSpec::get(url),
-                pinned_history(segments),
+                pinned_history(segments, query),
                 context,
                 "history item",
             )
@@ -131,7 +134,7 @@ impl GitHubTransport {
     ) -> Result<(Bytes, bool), ProviderError> {
         let cached = self.cache.get(partition, &key).await;
         if pinned && let Some(cached) = cached.as_ref().filter(|value| value.etag.is_none()) {
-            return Ok((cached.bytes.clone(), !cached.resolved_ref.is_empty()));
+            return Ok((cached.bytes.clone(), cached.has_more));
         }
         if let Some(etag) = cached.as_ref().and_then(|value| value.etag.as_deref()) {
             spec.headers.insert(
@@ -149,7 +152,7 @@ impl GitHubTransport {
                     "GitHub returned 304 without a cached response",
                 )
             })?;
-            return Ok((cached.bytes, !cached.resolved_ref.is_empty()));
+            return Ok((cached.bytes, cached.has_more));
         }
         let has_more = response.next.is_some();
         let body = response.body;
@@ -169,8 +172,8 @@ impl GitHubTransport {
                         // A copy sized to the body: the response buffer may
                         // carry spare capacity the cache would not weigh.
                         bytes: Bytes::copy_from_slice(&body),
-                        // Non-empty marks a page with a next page.
-                        resolved_ref: response.next.map(String::from).unwrap_or_default(),
+                        resolved_ref: String::new(),
+                        has_more,
                     },
                     if pinned {
                         super::Retention::Pinned
@@ -188,9 +191,10 @@ impl GitHubTransport {
 mod tests {
     use super::pinned_history;
     use crate::{
-        CredentialSource, GitHubEndpoint, GitHubTransport, RequestBudget, RequestContext,
-        ResolvedCredential, RetryPolicy,
+        CredentialSource, GitHubEndpoint, GitHubTransport, RequestContext, ResolvedCredential,
+        RetryPolicy,
     };
+    use octocode_io::budget::RequestBudget;
     use std::time::Duration;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
@@ -224,6 +228,7 @@ mod tests {
                 max_retry_after: Duration::from_secs(1),
                 max_rate_limit_wait: Duration::from_secs(1),
             },
+            crate::GitHubBudget::relaxed(),
         )
         .unwrap();
         let context = || {
@@ -253,15 +258,33 @@ mod tests {
     #[test]
     fn commits_and_comparisons_of_full_shas_are_pinned() {
         let (a, b) = ("a".repeat(40), "b".repeat(40));
-        let compare = |refs: &str| pinned_history(&["repos", "o", "r", "compare", refs]);
-        assert!(pinned_history(&["repos", "o", "r", "commits", &a]));
+        let compare = |refs: &str| pinned_history(&["repos", "o", "r", "compare", refs], &[]);
+        assert!(pinned_history(&["repos", "o", "r", "commits", &a], &[]));
         assert!(compare(&format!("{a}...{b}")));
         assert!(!compare(&format!("{a}...main")));
         assert!(!compare(&format!("v1...{b}")));
         assert!(!compare(&format!("{a}...fork:{b}")));
         assert!(!compare(&format!("{}...{b}", &a[..12])));
         assert!(!compare(&format!("{a}..{b}")));
-        assert!(!pinned_history(&["repos", "o", "r", "commits", "main"]));
-        assert!(!pinned_history(&["repos", "o", "r", "pulls", "1"]));
+        assert!(!pinned_history(
+            &["repos", "o", "r", "commits", "main"],
+            &[]
+        ));
+        assert!(!pinned_history(&["repos", "o", "r", "pulls", "1"], &[]));
+        // A file's contents at a full SHA (a pull request's head text) is a
+        // blob that never changes; at a branch it moves.
+        let contents = |reference: &str| {
+            pinned_history(
+                &["repos", "o", "r", "contents", "src", "a.rs"],
+                &[("ref", reference.to_owned())],
+            )
+        };
+        assert!(contents(&a));
+        assert!(!contents("main"));
+        assert!(!contents(&a[..12]));
+        assert!(!pinned_history(
+            &["repos", "o", "r", "contents", "a.rs"],
+            &[]
+        ));
     }
 }

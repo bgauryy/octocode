@@ -7,8 +7,9 @@
 use super::{Reply, failure};
 use crate::policy::network::is_public;
 use crate::tools::judgment::ClassificationError;
-use octocode_github::{BodyError, BudgetStop, RequestBudget, read_bounded};
+use octocode_io::budget::{BudgetStop, RequestBudget};
 use octocode_io::http::{ClientPolicy, Proxy};
+use octocode_io::retry::{BodyError, read_bounded};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION};
 use std::net::{IpAddr, SocketAddr};
 use url::{Host, Url};

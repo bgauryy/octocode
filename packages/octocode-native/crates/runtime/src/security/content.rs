@@ -7,7 +7,7 @@ use crate::policy::{PolicyError, PolicyErrorCode};
 
 const MAX_STRING_LENGTH: usize = 10_000;
 /// Contract `limits.maxInputArrayItems`.
-const MAX_ARRAY_LENGTH: usize = crate::tools::id::MAX_INPUT_ARRAY_ITEMS;
+const MAX_ARRAY_LENGTH: usize = crate::id::MAX_INPUT_ARRAY_ITEMS;
 const MAX_DEPTH: usize = 20;
 
 /// Secret label recorded when the split-private-key window guard fires.
@@ -439,15 +439,15 @@ fn redact_split_private_key(text: &str, file_path: Option<&Path>) -> Option<Stri
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct ValidationResult {
-    pub sanitized_params: Map<String, Value>,
-    pub is_valid: bool,
-    pub has_secrets: bool,
+pub(crate) struct ValidationResult {
+    pub(crate) sanitized_params: Map<String, Value>,
+    pub(crate) is_valid: bool,
+    pub(crate) has_secrets: bool,
     pub warnings: Vec<String>,
     /// Dotted paths of the string leaves whose value sanitization rewrote
     /// (`matchString`, `keywords[]`, `outer.key`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub secret_fields: Vec<String>,
+    pub(crate) secret_fields: Vec<String>,
 }
 
 impl ValidationResult {
@@ -492,13 +492,17 @@ impl ContentSecurity {
 
     /// Opt-in: mask every email address in `text`. Callers gate this on
     /// `output.redactEmails` / `OCTOCODE_REDACT_EMAILS`.
-    pub fn redact_emails(&self, text: &str) -> String {
+    pub(crate) fn redact_emails(&self, text: &str) -> String {
         email_pattern()
             .replace_all(text, "[REDACTED-EMAIL]")
             .into_owned()
     }
 
-    pub fn sanitize_text(&self, content: &str, file_path: Option<&Path>) -> SanitizationResult {
+    pub(crate) fn sanitize_text(
+        &self,
+        content: &str,
+        file_path: Option<&Path>,
+    ) -> SanitizationResult {
         let path = file_path.map(|path| path.to_string_lossy());
         let native =
             octocode_engine::security::sanitizer::sanitize_content(content, path.as_deref());
@@ -509,7 +513,11 @@ impl ContentSecurity {
     /// `source_path` (`None`: no known file, the pathless output net). The
     /// path only says what language the text is in, so source code is not
     /// mistaken for configuration; every credential pattern still applies.
-    pub fn sanitize_leaf(&self, content: &str, source_path: Option<&str>) -> SanitizationResult {
+    pub(crate) fn sanitize_leaf(
+        &self,
+        content: &str,
+        source_path: Option<&str>,
+    ) -> SanitizationResult {
         let native = match source_path {
             Some(path) => octocode_engine::security::sanitizer::sanitize_leaf(content, path),
             None => octocode_engine::security::sanitizer::sanitize_content(content, None),
@@ -545,7 +553,7 @@ impl ContentSecurity {
         native
     }
 
-    pub fn validate_text_bytes(
+    pub(crate) fn validate_text_bytes(
         &self,
         bytes: &[u8],
         file_path: Option<&Path>,
@@ -559,7 +567,7 @@ impl ContentSecurity {
     /// before parsing shifts columns and can break the syntax a pattern
     /// matches. Every string a tool returns is still redacted by the
     /// response stage, as for directory scans that read files raw.
-    pub fn decode_source_bytes<'b>(
+    pub(crate) fn decode_source_bytes<'b>(
         &self,
         bytes: &'b [u8],
         max_bytes: usize,
@@ -579,7 +587,7 @@ impl ContentSecurity {
         Ok(String::from_utf8_lossy(bytes))
     }
 
-    pub fn validate_input_parameters(&self, params: &Value) -> ValidationResult {
+    pub(crate) fn validate_input_parameters(&self, params: &Value) -> ValidationResult {
         self.validate_parameters(params, None)
     }
 

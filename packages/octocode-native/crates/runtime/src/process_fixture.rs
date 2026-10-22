@@ -7,6 +7,10 @@
 //! ```
 //!
 //! The holder inherits the leader's stdio, so it keeps the output pipes open.
+//! A silent holder is `sleep` on Unix: it never writes, so it cannot die of
+//! a pipe the call has already closed. A re-executed test binary prints its
+//! harness banner first, and under load it printed it after the call had
+//! returned, died of the broken pipe and no longer held anything.
 //! It is reparented when `middle` exits, and with `detach` it also leaves the
 //! process group (`setsid`, Unix only): nothing can find it by walking
 //! parents or by group, which leaves only a Windows job to contain it.
@@ -26,6 +30,10 @@ const DETACH: &str = "OCTOCODE_FIXTURE_DETACH";
 const PIDFILE: &str = "OCTOCODE_FIXTURE_PIDFILE";
 /// Long enough that only a bounded wait can return before it ends.
 pub(crate) const HOLD: Duration = Duration::from_secs(30);
+/// How long past its timeout (or its command's end) a call may take to
+/// kill, reap and drain on a loaded machine: well under [`HOLD`] past the
+/// longest [`until_set_up`] timeout, so a call a holder delays still fails.
+pub(crate) const RETURN_SLACK: Duration = Duration::from_secs(8);
 
 /// What the leader does once `middle` has started the holder.
 #[derive(Clone, Copy)]
@@ -75,14 +83,16 @@ impl Tree {
         (command, Self { pidfile, _dir: dir })
     }
 
+    /// The holder's pid when `middle` has recorded it by now.
+    pub(crate) fn recorded_pid(&self) -> Option<u32> {
+        recorded_pid(&self.pidfile)
+    }
+
     /// The holder's pid, once `middle` has recorded it.
     pub(crate) fn holder_pid(&self) -> u32 {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            if let Some(pid) = std::fs::read_to_string(&self.pidfile)
-                .ok()
-                .and_then(|text| text.trim().parse().ok())
-            {
+            if let Some(pid) = self.recorded_pid() {
                 return pid;
             }
             assert!(
@@ -92,6 +102,27 @@ impl Tree {
             thread::sleep(Duration::from_millis(20));
         }
     }
+}
+
+/// The pid a fixture wrote to `pidfile`; `None` when it wrote none (or not
+/// all of it).
+pub(crate) fn recorded_pid(pidfile: &Path) -> Option<u32> {
+    std::fs::read_to_string(pidfile).ok()?.trim().parse().ok()
+}
+
+/// The first of `attempt`'s runs, one per timeout in `timeouts`, that set
+/// its fixture up before the timeout fired. A run's deadline starts at
+/// spawn, and under load it can fire before the command started the
+/// descendant the test checks: such a run tests nothing (`None`), so the
+/// next runs with a longer timeout.
+pub(crate) fn until_set_up<T>(
+    timeouts: &[Duration],
+    mut attempt: impl FnMut(Duration) -> Option<T>,
+) -> T {
+    timeouts
+        .iter()
+        .find_map(|timeout| attempt(*timeout))
+        .unwrap_or_else(|| panic!("the fixture never set up within any of {timeouts:?}"))
 }
 
 /// Polls until `pid` is gone; `false` when it is still alive after `within`.
@@ -162,7 +193,15 @@ fn fixture() {
             }
         }
         "middle" => {
-            let mut command = reexec(&holder(), &pidfile);
+            let mut command = match holder().as_str() {
+                #[cfg(unix)]
+                "holder" => {
+                    let mut sleep = Command::new("sleep");
+                    sleep.arg(HOLD.as_secs().to_string());
+                    sleep
+                }
+                role => reexec(role, &pidfile),
+            };
             #[cfg(unix)]
             if std::env::var(DETACH).as_deref() == Ok("1") {
                 use std::os::unix::process::CommandExt;
@@ -179,6 +218,7 @@ fn fixture() {
             // Left running on purpose: it is the process the tests look for.
             drop(holder);
         }
+        // The silent holder where there is no `sleep` (Windows).
         "holder" => thread::sleep(HOLD),
         "streamer" => {
             let deadline = Instant::now() + HOLD;

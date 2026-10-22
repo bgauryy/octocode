@@ -1,48 +1,44 @@
 //! One domain execution path for public tools and Jev's bounded read context.
-use super::{ExecutionContext, ExecutionError, dispatch, github, github_cache::GitHubContentCache};
+use super::{dispatch, github, github_cache::GitHubContentCache};
+use crate::execution::{ExecutionContext, ExecutionError};
+use crate::tools::lsp_search::lsp_search_query;
 use crate::{
     config::ConfigOutput,
+    id::{ToolFamily, ToolId},
     policy::path::PathPolicy,
+    response::outcome::DomainResult,
     security::ContentSecurity,
-    tools::{
-        ast_graph::AstTopologyRuntimeOptions,
-        id::{ToolFamily, ToolId},
-        local_fetch::LocalFetchRegex,
-        lsp_search::{LspExecutionConfig, prewarm},
-    },
+    tools::lsp_search::{LspExecutionConfig, prewarm},
+    tools::source_capture::SourceReader,
 };
 use octocode_github::ProviderError;
 use serde_json::Value;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, OnceLock},
 };
 
 pub(crate) struct DomainDispatcher {
     pub paths: Arc<PathPolicy>,
     pub security: Arc<ContentSecurity>,
-    pub regex: LocalFetchRegex,
     pub(super) github_services: Arc<OnceLock<Result<github::GitHubServices, ProviderError>>>,
     pub(super) github_cache: GitHubContentCache,
     pub(super) github_access: github::ResponseAccess,
     pub config: Arc<ConfigOutput>,
     /// Internal limits: the runtime's code constants.
-    pub limits: crate::runtime::RuntimeLimits,
+    pub limits: crate::execution::RuntimeLimits,
     pub home: PathBuf,
     pub handle: tokio::runtime::Handle,
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
-    pub local_views: Arc<crate::security::scan::SanitizedViewMemo>,
+    pub(crate) local_views: Arc<crate::security::scan::SanitizedViewMemo>,
     pub lsp_execution_config: Arc<LspExecutionConfig>,
-    pub availability: Arc<super::availability::ToolAvailability>,
+    pub availability: Arc<crate::execution::availability::ToolAvailability>,
     /// Provider readiness and an enabled goals surface, independent of the
     /// public clasify tool's availability.
-    pub selection_available: bool,
-    pub evaluator: crate::tools::judgment::Evaluator,
+    pub(crate) selection_available: bool,
+    pub(crate) evaluator: crate::tools::judgment::Evaluator,
     /// Registry answers for artifactSearch; `None` under memory storage.
-    pub artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
-    /// The call set `responseLength`: localFetch rows read their share of it
-    /// rather than the automatic page ([`local_page_chars`]).
-    pub explicit_window: bool,
+    pub(crate) artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
 }
 
 fn retained_access_error() -> crate::tools::judgment::ClassificationError {
@@ -53,8 +49,49 @@ fn retained_access_error() -> crate::tools::judgment::ClassificationError {
     )
 }
 
-impl DomainDispatcher {
-    pub(crate) fn retained_github_identity(
+impl SourceReader for DomainDispatcher {
+    fn paths(&self) -> &PathPolicy {
+        &self.paths
+    }
+
+    fn security(&self) -> &ContentSecurity {
+        &self.security
+    }
+
+    fn config(&self) -> &ConfigOutput {
+        &self.config
+    }
+
+    fn limits(&self) -> &crate::execution::RuntimeLimits {
+        &self.limits
+    }
+
+    fn home(&self) -> &Path {
+        &self.home
+    }
+
+    fn handle(&self) -> &tokio::runtime::Handle {
+        &self.handle
+    }
+
+    fn availability(&self) -> &crate::execution::availability::ToolAvailability {
+        &self.availability
+    }
+
+    fn evaluator(&self) -> &crate::tools::judgment::Evaluator {
+        &self.evaluator
+    }
+
+    fn execute(
+        &self,
+        tool: ToolId,
+        query: &Value,
+        context: &ExecutionContext,
+    ) -> Result<DomainResult, ExecutionError> {
+        DomainDispatcher::execute(self, tool, query, context)
+    }
+
+    fn retained_github_identity(
         &self,
         context: &ExecutionContext,
     ) -> Result<Option<String>, crate::tools::judgment::ClassificationError> {
@@ -66,7 +103,7 @@ impl DomainDispatcher {
         Ok(observed)
     }
 
-    pub(crate) fn validate_retained_github_identity(
+    fn validate_retained_github_identity(
         &self,
         expected: Option<&str>,
         context: &ExecutionContext,
@@ -93,29 +130,11 @@ impl DomainDispatcher {
         }
     }
 
-    pub(super) fn github_response_identity(
-        &self,
-        context: &ExecutionContext,
-    ) -> Result<String, ProviderError> {
-        self.github_services
-            .get_or_init(|| {
-                github::GitHubServices::new(
-                    self.config.clone(),
-                    &self.limits,
-                    self.home.clone(),
-                    self.github_cache.clone(),
-                )
-            })
-            .as_ref()
-            .map_err(Clone::clone)?
-            .response_identity(context, &self.handle)
-    }
-
-    pub(crate) fn text_capture_limit() -> usize {
+    fn text_capture_limit(&self) -> usize {
         crate::tools::local_fetch::MAX_SOURCE_BYTES as usize
     }
 
-    pub(crate) fn capture_local_text(
+    fn capture_local_text(
         &self,
         query: &Value,
         context: &ExecutionContext,
@@ -151,23 +170,14 @@ impl DomainDispatcher {
 
     /// Acquire source bytes through the same GitHub credential, commit
     /// resolution, byte cache and request budget as a file read.
-    pub(crate) fn capture_github_content(
+    fn capture_github_content(
         &self,
         query: &Value,
         context: &ExecutionContext,
         max_bytes: usize,
     ) -> Result<octocode_github::ContentResponse, crate::tools::judgment::ClassificationError> {
         let acquired = self
-            .github_services
-            .get_or_init(|| {
-                github::GitHubServices::new(
-                    self.config.clone(),
-                    &self.limits,
-                    self.home.clone(),
-                    self.github_cache.clone(),
-                )
-            })
-            .as_ref()
+            .github_services()
             .map_err(Clone::clone)
             .and_then(|services| {
                 services.capture_content(
@@ -201,6 +211,32 @@ impl DomainDispatcher {
             }
         })
     }
+}
+
+impl DomainDispatcher {
+    /// This runtime's GitHub services, built on first use and shared by
+    /// every row, capture and identity check after it.
+    fn github_services(&self) -> Result<&github::GitHubServices, &ProviderError> {
+        self.github_services
+            .get_or_init(|| {
+                github::GitHubServices::new(
+                    self.config.clone(),
+                    &self.limits,
+                    self.home.clone(),
+                    self.github_cache.clone(),
+                )
+            })
+            .as_ref()
+    }
+
+    pub(super) fn github_response_identity(
+        &self,
+        context: &ExecutionContext,
+    ) -> Result<String, ProviderError> {
+        self.github_services()
+            .map_err(Clone::clone)?
+            .response_identity(context, &self.handle)
+    }
 
     pub(super) fn selection_runtime(
         &self,
@@ -223,7 +259,7 @@ impl DomainDispatcher {
         tool: ToolId,
         query: &Value,
         context: &ExecutionContext,
-    ) -> Result<dispatch::DomainResult, ExecutionError> {
+    ) -> Result<DomainResult, ExecutionError> {
         let _enter = self.handle.enter();
         context.check()?;
         execute_row(|| match tool.family() {
@@ -241,16 +277,9 @@ impl DomainDispatcher {
         tool: ToolId,
         query: &Value,
         context: &ExecutionContext,
-    ) -> Result<dispatch::DomainResult, ExecutionError> {
+    ) -> Result<DomainResult, ExecutionError> {
         let selection = self.selection_runtime(context);
-        match self.github_services.get_or_init(|| {
-            github::GitHubServices::new(
-                self.config.clone(),
-                &self.limits,
-                self.home.clone(),
-                self.github_cache.clone(),
-            )
-        }) {
+        match self.github_services() {
             Ok(services) => services.execute_query(
                 tool,
                 query,
@@ -260,7 +289,6 @@ impl DomainDispatcher {
                     access: &self.github_access,
                 },
                 &self.security,
-                &self.regex,
                 &self.paths,
                 &selection,
             ),
@@ -272,25 +300,14 @@ impl DomainDispatcher {
         &self,
         query: &Value,
         context: &ExecutionContext,
-    ) -> Result<dispatch::DomainResult, ExecutionError> {
+    ) -> Result<DomainResult, ExecutionError> {
         let query = match dispatch::parse_query(query) {
             Ok(query) => query,
             Err(row) => return Ok(*row),
         };
         // Release tags are checked through the GitHub transport; without
         // usable GitHub services a lookup reads no tags.
-        let services = self
-            .github_services
-            .get_or_init(|| {
-                github::GitHubServices::new(
-                    self.config.clone(),
-                    &self.limits,
-                    self.home.clone(),
-                    self.github_cache.clone(),
-                )
-            })
-            .as_ref()
-            .ok();
+        let services = self.github_services().ok();
         let tags = services.map(|services| services.release_tags(context, &self.github_access));
         let env = self.config.credential_env();
         let call = crate::tools::artifact_search::ArtifactCall {
@@ -337,12 +354,12 @@ impl DomainDispatcher {
         &self,
         query: &Value,
         context: &ExecutionContext,
-    ) -> Result<dispatch::DomainResult, ExecutionError> {
+    ) -> Result<DomainResult, ExecutionError> {
         let query: crate::tools::lsp_search::LspSearchQuery = match dispatch::parse_query(query) {
             Ok(query) => query,
             Err(row) => return Ok(*row),
         };
-        let requested = query.path().map(str::to_owned);
+        let requested = lsp_search_query::path(&query).map(str::to_owned);
         self.handle.block_on(async {
             match within_request(
                 context,
@@ -373,7 +390,7 @@ impl DomainDispatcher {
                     // The same recovery every local tool gives a missing path.
                     if missing
                         && let Some(next) = requested.as_deref().and_then(|requested| {
-                            crate::tools::result::missing_path_lead(&self.paths, requested)
+                            crate::response::result::missing_path_lead(&self.paths, requested)
                         })
                     {
                         row.data["next"] = next;
@@ -389,24 +406,11 @@ impl DomainDispatcher {
         tool: ToolId,
         query: &Value,
         context: &ExecutionContext,
-    ) -> Result<dispatch::DomainResult, ExecutionError> {
-        let window = local_page_chars(
-            tool,
-            self.explicit_window.then_some(context),
-            self.limits.auto_page_chars,
-        );
+    ) -> Result<DomainResult, ExecutionError> {
+        let window = local_page_chars(tool, context, self.limits.auto_page_chars);
         let context = ExecutionContext {
             response_window: (window > 0).then_some(window),
             ..context.clone()
-        };
-        let topology = AstTopologyRuntimeOptions {
-            cargo: self
-                .config
-                .env_value(crate::config::environment::OCTOCODE_CARGO)
-                .map(str::to_owned),
-            cache_dir: crate::config::is_persistent_storage_enabled(&self.config.resolved)
-                .then(|| self.home.join("tmp").join("topology")),
-            response_window: context.response_window,
         };
         let selection = self.selection_runtime(&context);
         // `lsp.prewarm`: `targeted` warms the server an offered lspSearch
@@ -429,9 +433,7 @@ impl DomainDispatcher {
                     &dispatch::LocalEnv {
                         paths: &self.paths,
                         security: &self.security,
-                        regex: &self.regex,
                         views: &self.local_views,
-                        topology: &topology,
                         selection: Some(&selection),
                     },
                 )
@@ -520,19 +522,15 @@ mod within_request_tests {
 /// The characters one local row's own pages fill. Streamed listing and walk
 /// pages are cut at the automatic response window, which every call of a
 /// walk shares (an explicit `responseLength` is per call, so it never moves
-/// a page cut). localFetch continues by offset: under an explicit window
-/// (`explicit`, the row's context) its windows fill the row's share of that
-/// page ([`ExecutionContext::row_page_chars`]), else the automatic page.
-/// Either way the read share then fits its numbered rows into the response
-/// page, and each continues by its own `next.continueWindow`.
-fn local_page_chars(
-    tool: ToolId,
-    explicit: Option<&ExecutionContext>,
-    auto_page_chars: usize,
-) -> usize {
-    match explicit {
-        Some(context) if tool == ToolId::LocalFetch => context.row_page_chars(auto_page_chars),
-        _ => auto_page_chars,
+/// a page cut). localFetch continues by offset: its reader fits the row's
+/// share of the response page, the caller's or the automatic
+/// ([`ExecutionContext::row_page_chars`], see `response::read_share`), and
+/// each row continues by its own `next.continueWindow`.
+fn local_page_chars(tool: ToolId, context: &ExecutionContext, auto_page_chars: usize) -> usize {
+    if tool == ToolId::LocalFetch {
+        context.row_page_chars(auto_page_chars)
+    } else {
+        auto_page_chars
     }
 }
 
@@ -541,7 +539,7 @@ mod page_chars_tests {
     use super::*;
 
     #[test]
-    fn local_fetch_fills_the_rows_share_of_an_explicit_window_only() {
+    fn local_fetch_fills_the_rows_share_and_other_tools_the_automatic_page() {
         let context = |response_window| ExecutionContext {
             cancellation: tokio_util::sync::CancellationToken::new(),
             deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
@@ -549,14 +547,13 @@ mod page_chars_tests {
             response_window,
             github_credential: None,
         };
-        let fetch = |window| local_page_chars(ToolId::LocalFetch, Some(&context(window)), 20_000);
+        let fetch = |window| local_page_chars(ToolId::LocalFetch, &context(window), 20_000);
         assert_eq!(fetch(Some(5_000)), 5_000);
         assert_eq!(fetch(Some(50_000)), 50_000);
         assert_eq!(fetch(None), 20_000);
-        assert_eq!(local_page_chars(ToolId::LocalFetch, None, 20_000), 20_000);
         for tool in [ToolId::LocalSearch, ToolId::StructureSearch] {
             assert_eq!(
-                local_page_chars(tool, Some(&context(Some(5_000))), 20_000),
+                local_page_chars(tool, &context(Some(5_000)), 20_000),
                 20_000
             );
         }
@@ -566,10 +563,10 @@ mod page_chars_tests {
 /// A failed engine operation becomes one row; sibling rows keep executing.
 /// Worker-thread and FFI boundaries retain their own unwind containment.
 fn execute_row(
-    work: impl FnOnce() -> Result<dispatch::DomainResult, ExecutionError>,
-) -> Result<dispatch::DomainResult, ExecutionError> {
+    work: impl FnOnce() -> Result<DomainResult, ExecutionError>,
+) -> Result<DomainResult, ExecutionError> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).unwrap_or_else(|_| {
-        Ok(dispatch::DomainResult::failure(
+        Ok(DomainResult::failure(
             "executionFailed",
             "The tool row failed on pathological input.",
             Vec::new(),
@@ -587,10 +584,7 @@ mod row_tests {
         let rows = [true, false].map(|panics| {
             execute_row(|| {
                 assert!(!panics, "injected row failure with private input");
-                Ok(dispatch::DomainResult::payload(
-                    serde_json::json!({"value": 7}),
-                    None,
-                ))
+                Ok(DomainResult::payload(serde_json::json!({"value": 7}), None))
             })
             .expect("each row returns its own result")
         });

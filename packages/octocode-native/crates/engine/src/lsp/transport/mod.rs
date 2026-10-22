@@ -19,8 +19,8 @@ mod progress;
 mod push_diagnostics;
 mod server_requests;
 
-pub(crate) use connection::{CpuClock, JsonRpcConnection};
+pub(crate) use connection::JsonRpcConnection;
 pub use patience::with_caller_deadline;
-pub(crate) use patience::{CEILING_FACTOR, WaitBudget};
-pub(crate) use progress::{ProgressTracker, Readiness};
+pub(crate) use patience::{CEILING_FACTOR, CpuClock, WaitBudget};
+pub(crate) use progress::{ProgressTracker, Readiness, STARTUP_SETTLE_MS};
 pub(crate) use server_requests::ClientRequestContext;

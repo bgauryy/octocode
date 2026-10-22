@@ -493,14 +493,14 @@ export async function walk(client, first, key, max, { keepError = false, rowErro
  */
 export function cli(tool, input, { cwd = ROOT, env = {}, timeout, maxBuffer = 64 << 20 } = {}) {
   const started = performance.now();
-  const run = spawnSync(process.execPath, [path.join(ROOT, 'packages/octocode/out/octocode.js'), tool, JSON.stringify(input)], {
+  const run = spawnSync(process.execPath, [path.join(ROOT, 'packages/octocode/out/octocode.js'), tool, JSON.stringify(input), '--json'], {
     cwd, encoding: 'utf8', maxBuffer, env: { ...process.env, ...env }, ...(timeout === undefined ? {} : { timeout }),
   });
   return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '', error: run.error, ms: performance.now() - started };
 }
 
 /**
- * A CLI-only tool (contract `cliOnly`, e.g. astTopology) called through the
+ * A CLI-only tool (contract `cliOnly`, e.g. ghCloneRepo) called through the
  * built CLI, returned in the `call`/`follow` entry shape. `args` is the
  * complete input, so a `next.*` query runs verbatim. A next page is still exit 0.
  */

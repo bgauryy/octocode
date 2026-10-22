@@ -1,10 +1,7 @@
 import { describe, it, expect, assert } from 'vitest';
 import { GitHubSearchRepoBulkQuerySchema } from '@octocodeai/config/schema';
 import { LocalSearchBulkQuerySchema } from '@octocodeai/config/schema';
-import {
-  AstTopologyBulkQuerySchema,
-  StructureSearchBulkQuerySchema,
-} from '@octocodeai/config/schema';
+import { StructureSearchBulkQuerySchema } from '@octocodeai/config/schema';
 import { ArtifactSearchBulkQueryLocalSchema } from '@octocodeai/config/schema';
 
 const q0 = (
@@ -86,26 +83,6 @@ describe('Unified public pagination fields', () => {
         }).success
       ).toBe(false);
     }
-  });
-
-  it('astTopology pages results with page and pageSize only', () => {
-    const base = {
-      mainGoal: 'test goal',
-      reasoning: 'exercise pagination fields',
-      operation: 'cycles',
-      path: '.',
-    };
-    const query = q0(AstTopologyBulkQuerySchema, {
-      ...base,
-      page: 2,
-      pageSize: 20,
-    });
-    expect(query).toMatchObject({ page: 2, pageSize: 20 });
-    expect(
-      AstTopologyBulkQuerySchema.safeParse({
-        queries: [{ ...base, limit: 100 }],
-      }).success
-    ).toBe(false);
   });
 
   it('artifactSearch exposes page and pageSize only for keyword discovery', () => {

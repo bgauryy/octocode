@@ -1,7 +1,7 @@
 //! ghSearchCode query syntax.
 use super::GhSearchCodeQuery;
-use crate::tools::gh_shared::query::push;
-use octocode_github::{qualifier_value, quote_search_keyword, search_phrase};
+use crate::tools::gh_shared::query::SearchTerms;
+use octocode_github::{qualifier_value, search_phrase};
 
 /// The search query; `extension` narrows a multi-extension query to one of
 /// them (GitHub ANDs repeated `extension:` qualifiers).
@@ -16,24 +16,16 @@ pub(super) fn code(query: &GhSearchCodeQuery, extension: Option<&str>) -> String
         match_in,
         ..
     } = query;
-    let mut parts: Vec<String> = keywords
-        .iter()
-        .map(|v| quote_search_keyword(v))
-        .filter(|v| !v.is_empty())
-        .collect();
+    let mut terms = SearchTerms::new(keywords.iter().map(String::as_str));
     // `path` is a repository path prefix (schema contract); a dotted segment
     // such as `types/lodash.merge` is a directory, so never split it into a
     // `filename:` qualifier.
-    push(
-        &mut parts,
-        "filename",
-        filename.as_ref().map(|value| value.as_str()),
-    );
+    terms.text("filename", filename.as_ref().map(|value| value.as_str()));
     match extension {
-        Some(extension) => push(&mut parts, "extension", Some(extension)),
+        Some(extension) => terms.text("extension", Some(extension)),
         None => {
             for extension in extensions {
-                push(&mut parts, "extension", Some(extension.as_str()));
+                terms.text("extension", Some(extension.as_str()));
             }
         }
     }
@@ -44,16 +36,12 @@ pub(super) fn code(query: &GhSearchCodeQuery, extension: Option<&str>) -> String
             qualifier_value(path)
         };
         if !path.is_empty() {
-            parts.push(format!("path:{path}"));
+            terms.push(format!("path:{path}"));
         }
     }
-    if let Some(repo) = repo {
-        push(&mut parts, "repo", Some(&format!("{owner}/{repo}")));
-    } else {
-        push(&mut parts, "user", Some(owner));
-    }
-    push(&mut parts, "in", Some(&match_in.to_string()));
-    parts.join(" ").trim().into()
+    terms.scope(Some(owner.as_str()), repo.as_deref().map(String::as_str));
+    terms.text("in", Some(&match_in.to_string()));
+    terms.finish()
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! What the shared response stages ask about localFetch output.
 
-use crate::tools::output::{PathAnchor, TextShape, ToolOutput};
+use crate::response::output::{PathAnchor, TextShape, ToolOutput};
 use serde_json::Value;
 
 pub(crate) struct Output;
@@ -14,13 +14,13 @@ impl ToolOutput for Output {
     }
     fn error_hint(&self, code: &str) -> Option<&'static str> {
         match code {
-            "fileAccessFailed" => Some(crate::tools::output::LIST_FILES_HINT),
+            "fileAccessFailed" => Some(crate::response::output::LIST_FILES_HINT),
             // The message names the item; `repair` is the corrected read.
             // A malformed page cursor: the message names the bad offset.
             // `notAFile`: a directory's tree is its lead; a FIFO or device
             // has nothing to retry.
             "invalidPattern" | "invalidPagination" | "notAFile" => {
-                Some(crate::tools::output::NO_HINT)
+                Some(crate::response::output::NO_HINT)
             }
             _ => None,
         }
@@ -54,7 +54,7 @@ mod tests {
         assert!(matched.contains("matchString"), "{matched}");
         assert_eq!(
             Output.error_hint("invalidPagination"),
-            Some(crate::tools::output::NO_HINT)
+            Some(crate::response::output::NO_HINT)
         );
     }
 }

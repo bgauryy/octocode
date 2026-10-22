@@ -3,8 +3,8 @@
 //! fragments, redirects, size limits and the capture's read lead are unit
 //! tests over an injected fetcher (`source_capture::url`).
 
+use crate::runtime_clasify::{clasify, sent};
 use crate::support::{Run as _, Workspace, capture_allowed, clasify_runtime};
-use octocode_native::runtime::ToolRuntime;
 use serde_json::{Value, json};
 use wiremock::MockServer;
 
@@ -14,22 +14,6 @@ fn url_row(id: &str, url: &str) -> Value {
         "source": {"url": url},
         "questions": {"q": {"type":"noul","instructions":"Does the page say to restart?"}}
     })
-}
-
-async fn clasify(runtime: &ToolRuntime, rows: Vec<Value>) -> Value {
-    runtime
-        .run(
-            "clasify-url".into(),
-            "clasify".into(),
-            json!({"queries": rows}),
-        )
-        .await
-        .expect("clasify result")
-        .structured_content
-}
-
-async fn provider_requests(server: &MockServer) -> usize {
-    server.received_requests().await.unwrap_or_default().len()
 }
 
 #[tokio::test]
@@ -58,7 +42,7 @@ async fn memory_storage_refuses_a_url_source_before_any_work() {
         "{out}"
     );
     assert!(out["queries"][0].get("answers").is_none());
-    assert_eq!(provider_requests(&server).await, 0);
+    assert_eq!(sent(&server).await.len(), 0);
     assert!(
         !workspace.home.join("tmp/capture").exists(),
         "memory storage writes no capture"
@@ -80,7 +64,7 @@ async fn a_non_https_url_is_rejected_at_validation() {
         .await
         .expect_err("the contract admits only https URLs");
     assert_eq!(error.code, "invalidInput", "{error:?}");
-    assert_eq!(provider_requests(&server).await, 0);
+    assert_eq!(sent(&server).await.len(), 0);
     runtime.close().await;
 }
 
@@ -113,7 +97,7 @@ async fn a_url_source_needs_local_fetch_to_read_its_capture_back() {
         "{}",
         issues[0].message
     );
-    assert_eq!(provider_requests(&server).await, 0);
+    assert_eq!(sent(&server).await.len(), 0);
     runtime.close().await;
 }
 
@@ -134,7 +118,7 @@ async fn a_url_with_credentials_is_refused_before_any_work() {
         .expect_err("a credential in the URL is refused");
     assert_eq!(error.code, "invalidInput", "{error:?}");
     assert!(!format!("{error:?}").contains("hunter2"), "{error:?}");
-    assert_eq!(provider_requests(&server).await, 0);
+    assert_eq!(sent(&server).await.len(), 0);
     runtime.close().await;
 }
 
@@ -165,7 +149,7 @@ async fn internal_addresses_are_refused_per_row() {
         );
         assert!(row.get("answers").is_none());
     }
-    assert_eq!(provider_requests(&server).await, 0);
+    assert_eq!(sent(&server).await.len(), 0);
     let saved = std::fs::read_dir(workspace.home.join("tmp/capture/url"))
         .map(Iterator::count)
         .unwrap_or(0);

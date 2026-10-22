@@ -1,7 +1,7 @@
 //! Result rows: provider items mapped to the published row shapes.
+use crate::response::result::remove_null_fields;
 use crate::security::scan::{ContentScan, sanitize_provider_text};
 use crate::tools::gh_shared::commit::{commit_date, person, utc_date};
-use crate::tools::result::remove_null_fields;
 use octocode_github::ProviderError;
 use serde_json::{Value, json};
 use std::path::Path;

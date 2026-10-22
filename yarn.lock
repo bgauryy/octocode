@@ -1064,10 +1064,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 21.0.1
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=788e17&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=0936b7&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/251727c4a07bc08f91c6cb1a88847699170cea69371ee3eb27570e3a64693706a5603f871325038a598905d2caa9cf7c5b226176735da6dc795feb66fee0a4b2
+  checksum: 10c0/9baebfe6e8c6f7353518dea1cd9d3731bce9b215f0ca49d513bb64cb5c417460ef3acbda0ec1b21918e002c8b5f71918837f33d7973e3a75ec64562e8a9d4483
   languageName: node
   linkType: hard
 
@@ -3893,7 +3893,13 @@ __metadata:
   resolution: "octocode@workspace:packages/octocode"
   dependencies:
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-native": "npm:20.2.0"
+    "@octocodeai/octocode-native-darwin-arm64": "npm:20.2.0"
+    "@octocodeai/octocode-native-darwin-x64": "npm:20.2.0"
+    "@octocodeai/octocode-native-linux-arm64-gnu": "npm:20.2.0"
+    "@octocodeai/octocode-native-linux-x64-gnu": "npm:20.2.0"
+    "@octocodeai/octocode-native-linux-x64-musl": "npm:20.2.0"
+    "@octocodeai/octocode-native-win32-arm64-msvc": "npm:20.2.0"
+    "@octocodeai/octocode-native-win32-x64-msvc": "npm:20.2.0"
     "@types/node": "npm:^24.19.2"
     "@typescript/native-preview": "npm:7.0.0-dev.20260707.2"
     "@vitest/coverage-v8": "npm:^5.0.4"
@@ -3902,6 +3908,21 @@ __metadata:
     typescript: "npm:^6.0.3"
     vite: "npm:^8.3.4"
     vitest: "npm:^5.0.4"
+  dependenciesMeta:
+    "@octocodeai/octocode-native-darwin-arm64":
+      optional: true
+    "@octocodeai/octocode-native-darwin-x64":
+      optional: true
+    "@octocodeai/octocode-native-linux-arm64-gnu":
+      optional: true
+    "@octocodeai/octocode-native-linux-x64-gnu":
+      optional: true
+    "@octocodeai/octocode-native-linux-x64-musl":
+      optional: true
+    "@octocodeai/octocode-native-win32-arm64-msvc":
+      optional: true
+    "@octocodeai/octocode-native-win32-x64-msvc":
+      optional: true
   bin:
     octocode: ./out/octocode.js
   languageName: unknown

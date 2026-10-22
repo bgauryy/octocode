@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use octocode_engine::graph::SourceStamp;
+use octocode_engine::stamp::SourceStamp;
 pub(crate) use octocode_engine::text::ReadError;
 
 /// Metadata identity for cache reuse. On Unix the change time and inode are

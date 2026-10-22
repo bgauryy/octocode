@@ -9,11 +9,12 @@
 //! Every row evaluates through the shared [`Evaluator`]: one provider client,
 //! judgment cache, single flight, retry policy and accounting for this tool
 //! and retrieval `classifiers` alike.
-use crate::runtime::{ExecutionContext, ExecutionError, domain_dispatch::DomainDispatcher};
+use crate::execution::{ExecutionContext, ExecutionError};
+use crate::response::result::FailureKind;
 use crate::tools::judgment::{
     ClassificationError, EvaluationInput, Evaluator, Judged, stats::ClassificationUsage,
 };
-use crate::tools::result::FailureKind;
+use crate::tools::source_capture::SourceReader;
 use crate::tools::source_capture::{self, Captured};
 use serde_json::{Map, Value, json};
 
@@ -22,7 +23,7 @@ pub(crate) mod sections;
 
 /// clasify's output facts: rows are keyed query results with their own shape.
 pub(crate) struct Output;
-impl crate::tools::output::ToolOutput for Output {
+impl crate::response::output::ToolOutput for Output {
     fn fallback_hint(&self, _query: &Value) -> &'static str {
         "Inspect the questions, the state or source, and OCTOCODE_CLASSIFICATION_API."
     }
@@ -54,9 +55,9 @@ pub(crate) struct Receipts {
 /// The largest state one row judges (`clasify.semanticPolicy.maxStateChars`).
 pub(crate) fn max_state_chars(long_context: bool) -> usize {
     if long_context {
-        crate::tools::id::clasify_policy::MAX_LONG_CONTEXT_STATE_CHARS
+        crate::id::clasify_policy::MAX_LONG_CONTEXT_STATE_CHARS
     } else {
-        crate::tools::id::clasify_policy::MAX_STATE_CHARS
+        crate::id::clasify_policy::MAX_STATE_CHARS
     }
 }
 
@@ -73,10 +74,15 @@ struct Row {
 }
 
 enum Input {
-    State(Value),
-    Source(Value),
+    Judge(Target),
     Models,
     Sections(Value),
+}
+
+/// What an evaluation row judges: the caller's literal state or a source.
+enum Target {
+    State(Value),
+    Source(Value),
 }
 
 /// A row contract validation admitted. The provider receives the validated
@@ -89,9 +95,9 @@ fn parse(position: usize, row: &Value) -> Row {
     } else if row["operation"] == "models" {
         Input::Models
     } else if row.get("state").is_some() {
-        Input::State(row["state"].clone())
+        Input::Judge(Target::State(row["state"].clone()))
     } else {
-        Input::Source(row["source"].clone())
+        Input::Judge(Target::Source(row["source"].clone()))
     };
     Row {
         id: row["id"]
@@ -139,7 +145,7 @@ fn parse_rows(rows: &[Value]) -> Vec<Row> {
 pub(crate) fn call(
     evaluator: &Evaluator,
     rows: &[Value],
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     section_runtime: sections::Runtime<'_>,
 ) -> Result<Receipts, ExecutionError> {
@@ -149,25 +155,29 @@ pub(crate) fn call(
     let parsed = parse_rows(rows);
     let budget = evaluator.budget(context.deadline, context.cancellation.clone());
     let gate = evaluator.gate();
-    let section_budget = sections::Budget::new(dispatcher.limits.selection);
+    let section_budget = sections::Budget::new(dispatcher.limits().selection);
     let outcomes = std::thread::scope(|scope| {
         let tasks = parsed
             .iter()
             .map(|row| {
                 let (budget, gate, section_budget) = (&budget, &gate, &section_budget);
                 scope.spawn(move || {
-                    let _enter = dispatcher.handle.enter();
-                    if let Input::Sections(input) = &row.input {
-                        RowOutcome::Sections(sections::run(
+                    let _enter = dispatcher.handle().enter();
+                    match &row.input {
+                        Input::Sections(input) => RowOutcome::Sections(sections::run(
                             row,
                             input,
                             dispatcher,
                             context,
                             section_runtime,
                             section_budget,
-                        ))
-                    } else {
-                        evaluate_row(evaluator, row, dispatcher, context, budget, gate)
+                        )),
+                        Input::Models => RowOutcome::Models(
+                            dispatcher.handle().block_on(evaluator.models(budget, gate)),
+                        ),
+                        Input::Judge(target) => {
+                            evaluate_row(evaluator, row, target, dispatcher, context, budget, gate)
+                        }
                     }
                 })
             })
@@ -226,7 +236,7 @@ pub(crate) fn call(
     let first = kinds.first().copied().flatten();
     let failure = first.filter(|kind| kinds.iter().all(|other| *other == Some(*kind)));
     let mut structured = json!({ "queries": output });
-    crate::response::rows::sanitize_fields(&mut structured, &dispatcher.security, context)?;
+    crate::response::rows::sanitize_fields(&mut structured, dispatcher.security(), context)?;
     Ok(Receipts {
         structured,
         failure,
@@ -254,37 +264,26 @@ fn rejected(error: ClassificationError, captured: Option<Box<Captured>>) -> RowO
 fn evaluate_row(
     evaluator: &Evaluator,
     row: &Row,
-    dispatcher: &DomainDispatcher,
+    target: &Target,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
-    budget: &octocode_github::RequestBudget,
+    budget: &octocode_io::budget::RequestBudget,
     gate: &crate::providers::classification::gate::GateLease,
 ) -> RowOutcome {
     let max_chars = max_state_chars(row.long_context);
-    let (state, captured) = match &row.input {
-        Input::Sections(_) => {
-            return rejected(
-                ClassificationError::new(
-                    "invalidClassificationRequest",
-                    "Section assessment requires its bounded session executor.",
-                    "Use the sections operation.",
-                ),
-                None,
-            );
-        }
-        Input::Models => {
-            return RowOutcome::Models(dispatcher.handle.block_on(evaluator.models(budget, gate)));
-        }
+    let (state, captured) = match target {
         // Admission measured a literal state against the same budget.
-        Input::State(state) => (state.clone(), None),
-        Input::Source(source) => {
-            let captured = match source_capture::capture(source, dispatcher, context, max_chars) {
+        Target::State(state) => (state.clone(), None),
+        Target::Source(source) => {
+            let mut captured = match source_capture::capture(source, dispatcher, context, max_chars)
+            {
                 Ok(captured) => captured,
                 Err(error) => return rejected(error, None),
             };
             // The admission budget in serialized Unicode scalars: captured
             // identities, line labels and JSON escapes count too; no source
             // is judged from a silently shortened state.
-            if captured.state.to_string().chars().count() > max_chars {
+            if crate::tools::selection::serialized_chars(&captured.state) > max_chars {
                 return rejected(
                     ClassificationError::new(
                         "classificationContextTooLarge",
@@ -296,7 +295,12 @@ fn evaluate_row(
                     Some(Box::new(captured)),
                 );
             }
-            (captured.state.clone(), Some(Box::new(captured)))
+            // The answer row reports the capture's read and provenance, never
+            // its state.
+            (
+                std::mem::take(&mut captured.state),
+                Some(Box::new(captured)),
+            )
         }
     };
     let assets = match row
@@ -310,7 +314,7 @@ fn evaluate_row(
         Ok(assets) => assets,
         Err(error) => return rejected(error, captured),
     };
-    let judged = dispatcher.handle.block_on(evaluator.evaluate_prepared(
+    let judged = dispatcher.handle().block_on(evaluator.evaluate_prepared(
         EvaluationInput {
             state: &state,
             questions: &row.questions,
@@ -377,7 +381,7 @@ fn failed(row: &Row, error: &ClassificationError, captured: Option<&Captured>) -
 fn error_kind(error: &ClassificationError) -> FailureKind {
     error
         .failure
-        .unwrap_or_else(|| crate::runtime::failure_kind(&error.code))
+        .unwrap_or_else(|| crate::response::result::failure_kind(&error.code))
 }
 
 /// The batch rule the row schema cannot express: query ids stay unique so
@@ -411,7 +415,7 @@ fn source_reader(source: &Value) -> &str {
     source
         .get("tool")
         .and_then(Value::as_str)
-        .unwrap_or(crate::tools::id::ToolId::LocalFetch.as_str())
+        .unwrap_or(crate::id::ToolId::LocalFetch.as_str())
 }
 
 /// One issue for a row whose source reader this runtime does not enable.
@@ -419,7 +423,7 @@ fn source_reader(source: &Value) -> &str {
 pub(crate) fn unavailable_source_issues(
     query: &Value,
     prefix: &[String],
-    availability: &crate::runtime::availability::ToolAvailability,
+    availability: &crate::execution::availability::ToolAvailability,
 ) -> Vec<crate::contracts::ValidationIssue> {
     let mut sources = Vec::new();
     if let Some(source) = query.get("source") {

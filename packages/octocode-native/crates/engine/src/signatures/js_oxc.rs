@@ -26,14 +26,14 @@ use oxc_span::{GetSpan, SourceType, Span};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::deep_stack::{job_cancelled, run_on_deep_stack_with_timeout, with_thread_allocator};
 use crate::text::file_extension::JS_TS_EXTENSIONS;
 
 use super::{
-    deep_stack::{job_cancelled, run_on_deep_stack_with_timeout, with_thread_allocator},
     extractor::AST_EXECUTION_TIMEOUT,
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs as commonjs,
-    js_oxc_references::{CountTarget, record_import_uses, value_reference_counts},
+    js_oxc_references::{CountTarget, value_reference_counts},
     js_oxc_shared::{SpanPositions, module_export_name, property_key_name},
 };
 use crate::graph::{
@@ -275,7 +275,7 @@ fn extract_graph_facts_with_metadata_inner(
         }
         push_heritage_edges(&declarations, heritage, &mut edges);
 
-        let mut facts = GraphFactsDocument {
+        let facts = GraphFactsDocument {
             declarations,
             imports,
             exports,
@@ -285,7 +285,7 @@ fn extract_graph_facts_with_metadata_inner(
             diagnostics: parser_ret
                 .diagnostics
                 .into_iter()
-                .map(|diagnostic| diagnostic.message.to_string())
+                .map(|error| parse_error(error.message.to_string()))
                 .collect(),
             ..super::native_graph_facts(ext, file_path)
         };
@@ -307,7 +307,6 @@ fn extract_graph_facts_with_metadata_inner(
             })
             .collect();
         let reference_counts = value_reference_counts(&semantic, &line_index, &targets);
-        record_import_uses(&semantic, &line_index, &mut facts);
         Some(super::GraphFactsExtraction {
             facts,
             reference_counts,
@@ -348,11 +347,20 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFac
             diagnostics: parser_ret
                 .diagnostics
                 .into_iter()
-                .map(|diagnostic| diagnostic.message.to_string())
+                .map(|error| parse_error(error.message.to_string()))
                 .collect(),
             ..super::native_graph_facts(ext, file_path)
         })
     })
+}
+
+/// A parser error as a fact diagnostic.
+fn parse_error(message: String) -> crate::graph::GraphFactDiagnostic {
+    crate::graph::GraphFactDiagnostic {
+        code: crate::graph::GraphFactCode::ParseError,
+        message,
+        line: None,
+    }
 }
 
 fn collect_module_facts(
@@ -464,7 +472,6 @@ fn collect_module_facts(
                     local_range: Some(li.range(decl.id.span)),
                     resolution_hint: None,
                     module_scope: None,
-                    used_in: None,
                 });
             }
             _ => {}
@@ -520,7 +527,6 @@ fn collect_import_declaration(
                 local_range,
                 resolution_hint: None,
                 module_scope: None,
-                used_in: None,
             });
         }
     } else {
@@ -535,7 +541,6 @@ fn collect_import_declaration(
             local_range: None,
             resolution_hint: None,
             module_scope: None,
-            used_in: None,
         });
     }
 }

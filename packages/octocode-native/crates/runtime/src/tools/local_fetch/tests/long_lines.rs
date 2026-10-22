@@ -24,16 +24,8 @@ fn a_narrow_response_window_keeps_byte_pages_a_sensible_size() {
     let mut collected = String::new();
     let mut pages = 0;
     loop {
-        let read = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            &LocalFetchRegex,
-            Some(80),
-            None,
-        );
-        assert_eq!(read.status, "success", "{read:?}");
+        let read = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(80), None);
+        assert_eq!(read.status, ReadStatus::Success, "{read:?}");
         let page = read.pagination.as_ref().expect("pagination");
         assert_eq!(page.unit, WindowUnit::Bytes, "{page:?}");
         assert_eq!(page.offset, collected.len(), "pages are contiguous");
@@ -63,7 +55,7 @@ fn a_streamed_line_longer_than_its_window_is_read_to_its_last_byte() {
     let fixture = Fixture::new();
     let line = positional(super::super::large_source::WINDOW_BYTES + 900_000);
     // Streamed sources are those over the in-memory ceiling.
-    let outside = (super::super::executor::MAX_SOURCE_BYTES as usize).saturating_sub(line.len())
+    let outside = (super::super::acquire::MAX_SOURCE_BYTES as usize).saturating_sub(line.len())
         / "outside\n".len()
         + 1_000;
     let path = fixture.write(
@@ -78,7 +70,7 @@ fn a_streamed_line_longer_than_its_window_is_read_to_its_last_byte() {
         serde_json::json!({"ranges":["1-1"], "unit":"bytes", "offset":5_000_000, "length":100}),
     );
     let read = fetch(&inside, &paths);
-    assert_eq!(read.status, "success", "{read:?}");
+    assert_eq!(read.status, ReadStatus::Success, "{read:?}");
     assert!(!read.out_of_range, "{read:?}");
     assert_eq!(read.content.as_deref(), Some(&view[5_000_000..5_000_100]));
     let page = read.pagination.expect("pagination");

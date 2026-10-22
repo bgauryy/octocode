@@ -102,7 +102,7 @@ for (const [label, tool, query, field, want, never] of [
 // The window is the runtime's constant automatic page
 // (RuntimeLimits::DEFAULT.auto_page_chars); a workspace setting cannot move it.
 {
-  const limits = fs.readFileSync(path.join(ROOT, 'packages/octocode-native/crates/runtime/src/runtime/limits.rs'), 'utf8');
+  const limits = fs.readFileSync(path.join(ROOT, 'packages/octocode-native/crates/runtime/src/execution/limits.rs'), 'utf8');
   const WINDOW = Number(/auto_page_chars: ([\d_]+),/.exec(limits)[1].replaceAll('_', ''));
   const lineNumbers = text => [...String(text ?? '').matchAll(/^(\d+)\t/gm)].map(m => Number(m[1]));
   for (const [label, query] of [['default', {}], ['fullContent', { fullContent: true }]]) {

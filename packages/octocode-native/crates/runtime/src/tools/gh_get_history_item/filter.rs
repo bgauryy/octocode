@@ -3,7 +3,8 @@
 use super::HistoryItemRequest;
 use super::inventory::*;
 use super::util::{str_at, usize_at};
-use crate::tools::num::usize_of;
+use crate::num::usize_of;
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use globset::{GlobBuilder, GlobMatcher};
 use serde_json::Value;
 
@@ -62,8 +63,11 @@ impl FileFilter<'_> {
             in_scope,
         } = self.apply(files, patches);
         let count = kept.len();
-        let (files, page) =
-            state.paginate(kept, query.page(), Some(file_page_size(query, patches)));
+        let (files, page) = state.paginate(
+            kept,
+            gh_get_history_item_query::page(query),
+            Some(file_page_size(query, patches)),
+        );
         FilteredPage {
             files,
             page,
@@ -108,7 +112,7 @@ impl FileFilter<'_> {
     pub(super) fn matches(&self, file: &Value) -> bool {
         self.scope.is_none_or(|scope| scope.matches(file))
             && self.needle.is_none_or(|n| {
-                str_at(file, "/patch").is_some_and(|v| v.to_lowercase().contains(n))
+                str_at(file, "/patch").is_some_and(|v| super::text::contains_folded(v, n))
             })
     }
 }
@@ -188,13 +192,12 @@ pub(super) struct FileScope {
 impl FileScope {
     /// The scope `query` names; `None` when it names none.
     pub(super) fn from_query(query: &HistoryItemRequest) -> Result<Option<Self>, String> {
-        let paths = query
-            .include_patterns()
+        let paths = gh_get_history_item_query::include_patterns(query)
             .into_iter()
             .map(PathPattern::parse)
             .collect::<Result<Vec<_>, _>>()?;
         let (status, min_changes) = match &query.query {
-            crate::contracts::tool_types::GhGetHistoryItemQuery::PullRequest {
+            octocode_contract_types::GhGetHistoryItemQuery::PullRequest {
                 status,
                 min_changes,
                 ..

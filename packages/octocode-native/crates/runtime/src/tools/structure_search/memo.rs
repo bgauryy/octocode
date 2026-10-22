@@ -51,7 +51,7 @@ impl<'a> Seen<'a> {
         path: &'a std::path::Path,
         entry: &octocode_engine::types::FileSystemEntry,
     ) -> Self {
-        let directory = entry.entry_type == "directory";
+        let directory = entry.entry_type == octocode_engine::types::FileKind::Directory;
         Self {
             path,
             size: if directory {
@@ -125,14 +125,15 @@ static STORE: PageMemo<Walk> = PageMemo::new(TTL, MAX_ENTRIES, MAX_TOTAL_ROWS);
 /// The stored walk for `snapshot` when its entries are unchanged; a changed
 /// one is evicted.
 pub(super) fn get<T: Any + Send + Sync>(snapshot: &str, policy: &str) -> Option<Arc<T>> {
-    let (walk, proof) = STORE.get(snapshot, policy, |stored| {
-        (Arc::clone(&stored.walk), stored.proof.clone())
-    })?;
-    if proof.holds() {
-        return walk.downcast::<T>().ok();
-    }
-    evict(snapshot);
-    None
+    STORE
+        .get_current(
+            snapshot,
+            policy,
+            |stored| (Arc::clone(&stored.walk), stored.proof.clone()),
+            Some,
+        )?
+        .downcast::<T>()
+        .ok()
 }
 
 /// A stored walk: the entries it listed, whose stamps keep it current.

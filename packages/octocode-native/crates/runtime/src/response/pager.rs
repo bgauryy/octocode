@@ -4,23 +4,24 @@
 
 use base64::Engine as _;
 use serde_json::{Map, Value, json};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use tokio_util::sync::CancellationToken;
 
-use super::row_pages::paginate_rows_reserving;
+use super::row_pages::RowSource;
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResponsePageOptions {
-    pub response_offset: Option<usize>,
-    pub response_length: Option<usize>,
-    pub response_snapshot: Option<String>,
+pub(crate) struct ResponsePageOptions {
+    pub(crate) response_offset: Option<usize>,
+    pub(crate) response_length: Option<usize>,
+    pub(crate) response_snapshot: Option<String>,
     /// Opt-in: `"structured"` windows the serialized structuredContent
     /// envelope instead of the rendered text (default `None`/`"text"`).
-    pub response_scope: Option<String>,
+    pub(crate) response_scope: Option<String>,
     /// Host-set, never read from a query: render the text channel. Unset,
     /// only MCP renders it.
     #[serde(skip_deserializing)]
-    pub render_text: Option<bool>,
+    pub(crate) render_text: Option<bool>,
     #[serde(skip)]
     pub(crate) saved: Option<SavedResponse>,
 }
@@ -47,13 +48,13 @@ impl SavedResponse {
 }
 
 impl ResponsePageOptions {
-    pub fn structured_scope(&self) -> bool {
+    pub(crate) fn structured_scope(&self) -> bool {
         self.response_scope.as_deref() == Some("structured") && self.response_length.is_some()
     }
 
     /// Row-aware paging of structuredContent: every page is a complete JSON
     /// envelope holding whole result rows (or whole elements of a split row).
-    pub fn rows_scope(&self) -> bool {
+    pub(crate) fn rows_scope(&self) -> bool {
         self.response_scope.as_deref() == Some("rows") && self.response_length.is_some()
     }
 
@@ -81,12 +82,12 @@ impl ResponsePageOptions {
     /// drawing its text; otherwise `render` draws it, and a text past the
     /// budget pages too. Returns the text the response still needs (none for
     /// row pages, which carry their own JSON).
-    pub fn auto_paginate(
+    pub(crate) fn auto_paginate(
         &mut self,
         structured: &Value,
         auto_page: usize,
-        render: impl FnOnce() -> Option<String>,
-    ) -> Option<String> {
+        render: impl FnOnce() -> Option<Arc<String>>,
+    ) -> Option<Arc<String>> {
         if self.scoped() || auto_page == 0 {
             return render();
         }
@@ -115,17 +116,61 @@ impl ResponsePageOptions {
 }
 
 #[derive(Clone, Debug)]
-pub struct ResponseInput {
+pub(crate) struct ResponseInput {
     pub tool: String,
     pub query: Value,
     pub structured: Value,
-    pub rendered_text: Option<String>,
+    pub(crate) rendered_text: Option<Arc<String>>,
     pub is_error: bool,
     pub options: ResponsePageOptions,
     /// Each result row's remaining-page notes (by position), so a split
     /// row's parts re-render their disclosure
     /// ([`super::pages::take_remaining_notes`]).
     pub remaining: Vec<Vec<super::pages::Remaining>>,
+}
+
+/// A saved response's page memo: the text drawn for it, and the source its
+/// pages cut from, built from the saved envelope on the first read and shared
+/// by every later one, so no page read copies or re-plans the envelope.
+#[derive(Default)]
+pub(crate) struct SavedPages {
+    text: Mutex<Option<(bool, Arc<String>)>>,
+    source: OnceLock<SavedSource>,
+}
+
+enum SavedSource {
+    Rows(Box<RowSource>),
+    /// The serialized envelope a structured window slices.
+    Window(String),
+    /// The text a text window slices, and the envelope it renders.
+    Text {
+        envelope: Map<String, Value>,
+        text: Arc<String>,
+    },
+}
+
+impl SavedPages {
+    /// The envelope's text with or without transient telemetry
+    /// (`stripped`), drawn by `render` only the first time.
+    pub(crate) fn text(&self, stripped: bool, render: impl FnOnce() -> String) -> Arc<String> {
+        let mut cached = self.text.lock().unwrap_or_else(PoisonError::into_inner);
+        match cached.as_ref() {
+            Some((was_stripped, text)) if *was_stripped == stripped => Arc::clone(text),
+            _ => {
+                let text = Arc::new(render());
+                *cached = Some((stripped, Arc::clone(&text)));
+                text
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_text(&self) -> bool {
+        self.text
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+    }
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -137,7 +182,7 @@ pub struct TextContent {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PreparedResponse {
+pub(crate) struct PreparedResponse {
     pub content: Vec<TextContent>,
     pub structured_content: Value,
     pub is_error: bool,
@@ -145,30 +190,30 @@ pub struct PreparedResponse {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResponsePagination {
+pub(crate) struct ResponsePagination {
     pub scope: String,
-    pub current_page: usize,
-    pub total_pages: usize,
-    pub has_more: bool,
+    pub(crate) current_page: usize,
+    pub(crate) total_pages: usize,
+    pub(crate) has_more: bool,
     #[serde(rename = "offset")]
-    pub char_offset: usize,
+    pub(crate) char_offset: usize,
     #[serde(rename = "length")]
     pub char_length: usize,
     pub total_chars: usize,
     pub snapshot: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expected_snapshot: Option<String>,
+    pub(crate) expected_snapshot: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub changed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<bool>,
     #[serde(rename = "nextOffset", skip_serializing_if = "Option::is_none")]
-    pub next_char_offset: Option<usize>,
+    pub(crate) next_char_offset: Option<usize>,
     /// Set when this page exceeds the requested length because a fragment
     /// could not be divided further (one string or scalar, or a row skeleton).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oversized: Option<bool>,
-    /// The next page's call, built by [`crate::tools::result::Continuation`].
+    /// The next page's call, built by [`crate::response::result::Continuation`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<Value>,
 }
@@ -203,8 +248,8 @@ fn max_response_length(tool: &str) -> usize {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ResponsePagerConfig {
-    pub max_rendered_bytes: usize,
+pub(crate) struct ResponsePagerConfig {
+    pub(crate) max_rendered_bytes: usize,
 }
 
 impl Default for ResponsePagerConfig {
@@ -216,13 +261,13 @@ impl Default for ResponsePagerConfig {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ResponseError {
+pub(crate) enum ResponseError {
     Cancelled,
     StructuredContentMustBeObject,
     Unserializable,
 }
 
-pub struct ResponsePager {
+pub(crate) struct ResponsePager {
     config: ResponsePagerConfig,
 }
 
@@ -258,42 +303,73 @@ impl ResponsePager {
         }
     }
 
+    /// The page of a saved response `input` asks for, cut from `pages`
+    /// (built from `envelope` on the first read). `render` draws the text a
+    /// text window slices, unless the first page already drew it.
+    pub(crate) fn prepare_saved(
+        &self,
+        input: &ResponseInput,
+        envelope: &Value,
+        pages: &SavedPages,
+        render: impl FnOnce(&Value) -> String,
+        cancelled: &CancellationToken,
+    ) -> Result<PreparedResponse, ResponseError> {
+        if cancelled.is_cancelled() {
+            return Err(ResponseError::Cancelled);
+        }
+        let source = match pages.source.get() {
+            Some(source) => source,
+            None => {
+                let built = saved_source(envelope, input, pages, render)?;
+                pages.source.get_or_init(|| built)
+            }
+        };
+        if cancelled.is_cancelled() {
+            return Err(ResponseError::Cancelled);
+        }
+        match source {
+            SavedSource::Rows(rows) => cut_rows(rows, input),
+            SavedSource::Window(full) => cut_window(full, input),
+            SavedSource::Text { envelope, text } => {
+                if text.len() > self.config.max_rendered_bytes {
+                    return self.prepare_text(envelope.clone(), Arc::clone(text), input, cancelled);
+                }
+                let rows_key = rows_key(&input.tool);
+                text_page(paginate_text(text, &input.options), input, |whole| {
+                    if whole {
+                        return envelope.clone();
+                    }
+                    // A window's envelope drops what it windows: copy the rest.
+                    envelope
+                        .iter()
+                        .filter(|(key, _)| key.as_str() != "shared")
+                        .map(|(key, value)| {
+                            let value = if key == rows_key {
+                                Value::Array(Vec::new())
+                            } else {
+                                value.clone()
+                            };
+                            (key.clone(), value)
+                        })
+                        .collect()
+                })
+            }
+        }
+    }
+
     /// Row-aware pages: each page is a complete envelope of whole rows (or
     /// parts of split rows), and the text channel carries the same JSON.
     fn prepare_rows(
         &self,
-        mut structured: Map<String, Value>,
+        structured: Map<String, Value>,
         input: &ResponseInput,
         cancelled: &CancellationToken,
     ) -> Result<PreparedResponse, ResponseError> {
-        strip_row_telemetry(&mut structured);
-        // Row pages re-attach per-call provider facts to the row they came
-        // from; the snapshot and page plan never see them.
-        let volatile = take_volatile_fields(&mut structured);
-        // Same bytes as the Value form, without cloning the envelope first.
-        // Every page is bounded by its budget, so any envelope size pages.
-        let full = serde_json::to_string(&structured).map_err(|_| ResponseError::Unserializable)?;
-        let (mut envelope, mut pagination) = paginate_rows_reserving(
-            structured,
-            &full,
-            &input.options,
-            volatile,
-            &input.remaining,
-            crate::tools::id::ToolId::from_name(&input.tool),
-            &|pagination| pagination_block_chars(input, pagination),
-        );
+        let source = row_source(structured, input)?;
         if cancelled.is_cancelled() {
             return Err(ResponseError::Cancelled);
         }
-        pagination.next = continuation(input, &pagination);
-        if pagination.should_emit() || is_saved_replay(&input.options) {
-            envelope.insert(
-                "responsePagination".into(),
-                pagination_value(&pagination, &input.options)?,
-            );
-        }
-        let text = serde_json::to_string(&envelope).map_err(|_| ResponseError::Unserializable)?;
-        Ok(text_response(text, envelope, input.is_error))
+        cut_rows(&source, input)
     }
 
     /// Opt-in structured windowing: page the serialized envelope itself so
@@ -308,41 +384,18 @@ impl ResponsePager {
     ) -> Result<PreparedResponse, ResponseError> {
         strip_transient_telemetry(&mut structured);
         let full = Value::Object(structured).to_string();
-        let page = paginate_units(&full, &input.options, false);
         if cancelled.is_cancelled() {
             return Err(ResponseError::Cancelled);
         }
-        let mut windowed = Map::new();
-        windowed.insert(rows_key(&input.tool).into(), Value::Array(Vec::new()));
-        // A restart page carries a diagnostic message, not envelope
-        // bytes — keep it out of the concatenable window.
-        let restarting = page
-            .pagination
-            .as_ref()
-            .is_some_and(|p| p.restart == Some(true));
-        windowed.insert(
-            "responseWindow".into(),
-            json!(if restarting { "" } else { page.text.as_str() }),
-        );
-        if let Some(mut pagination) = page.pagination {
-            pagination.scope = "structuredContent".into();
-            pagination.next = continuation(input, &pagination);
-            if pagination.should_emit() || is_saved_replay(&input.options) {
-                windowed.insert(
-                    "responsePagination".into(),
-                    pagination_value(&pagination, &input.options)?,
-                );
-            }
-        }
-        Ok(text_response(page.text, windowed, input.is_error))
+        cut_window(&full, input)
     }
 
     /// A window of the rendered text; structuredContent mirrors the window
     /// unless one page covers everything.
     fn prepare_text(
         &self,
-        mut structured: Map<String, Value>,
-        text: String,
+        structured: Map<String, Value>,
+        text: Arc<String>,
         input: &ResponseInput,
         cancelled: &CancellationToken,
     ) -> Result<PreparedResponse, ResponseError> {
@@ -376,35 +429,148 @@ impl ResponsePager {
                 self.prepare_rows(structured, &paged, cancelled)
             };
         }
+        if input.options.response_length.is_none() {
+            // Unpaged: the text is the whole response, moved, not copied.
+            return Ok(text_response(
+                Arc::unwrap_or_clone(text),
+                structured,
+                input.is_error,
+            ));
+        }
         let page = paginate_text(&text, &input.options);
         if cancelled.is_cancelled() {
             return Err(ResponseError::Cancelled);
         }
-        if let Some(mut pagination) = page.pagination {
-            pagination.next = continuation(input, &pagination);
-            // The text page carries this window of the payload; repeating the
-            // whole payload in structuredContent would defeat pagination.
-            // A single page that covers everything keeps its results.
-            let whole =
-                pagination.char_offset == 0 && !pagination.has_more && pagination.restart.is_none();
-            if !whole {
-                if let Some(results) = structured.get_mut(rows_key(&input.tool)) {
-                    *results = Value::Array(Vec::new());
-                }
-                structured.remove("shared");
-                // MCP clients that read only structuredContent (and CLI JSON,
-                // which has one channel) must still see this page's window.
-                structured.insert("responseWindow".into(), json!(page.text));
-            }
-            if pagination.should_emit() || is_saved_replay(&input.options) {
-                structured.insert(
-                    "responsePagination".into(),
-                    pagination_value(&pagination, &input.options)?,
-                );
-            }
-        }
-        Ok(text_response(page.text, structured, input.is_error))
+        text_page(page, input, |_| structured)
     }
+}
+
+/// The row plan of `structured` at `input`'s page length, without the
+/// per-call telemetry a page never carries.
+fn row_source(
+    mut structured: Map<String, Value>,
+    input: &ResponseInput,
+) -> Result<RowSource, ResponseError> {
+    strip_row_telemetry(&mut structured);
+    // Row pages re-attach per-call provider facts to the row they came
+    // from; the snapshot and page plan never see them.
+    let volatile = take_volatile_fields(&mut structured);
+    // Same bytes as the Value form, without cloning the envelope first.
+    // Every page is bounded by its budget, so any envelope size pages.
+    let full = serde_json::to_string(&structured).map_err(|_| ResponseError::Unserializable)?;
+    Ok(RowSource::new(
+        structured,
+        &full,
+        &input.options,
+        volatile,
+        crate::id::ToolId::from_name(&input.tool),
+        &|pagination| pagination_block_chars(input, pagination),
+    ))
+}
+
+/// What a saved read's pages cut from, built from a copy of the saved
+/// envelope: its row plan, its serialized bytes, or its rendered text.
+fn saved_source(
+    envelope: &Value,
+    input: &ResponseInput,
+    pages: &SavedPages,
+    render: impl FnOnce(&Value) -> String,
+) -> Result<SavedSource, ResponseError> {
+    let Value::Object(structured) = envelope else {
+        return Err(ResponseError::StructuredContentMustBeObject);
+    };
+    let mut structured = structured.clone();
+    if input.options.rows_scope() {
+        return Ok(SavedSource::Rows(Box::new(row_source(structured, input)?)));
+    }
+    strip_transient_telemetry(&mut structured);
+    let structured = Value::Object(structured);
+    if input.options.structured_scope() {
+        return Ok(SavedSource::Window(structured.to_string()));
+    }
+    let text = pages.text(true, || render(&structured));
+    let Value::Object(envelope) = structured else {
+        unreachable!("the envelope was built as an object above");
+    };
+    Ok(SavedSource::Text { envelope, text })
+}
+
+/// One row page of `source`, with its pagination block and continuation.
+fn cut_rows(source: &RowSource, input: &ResponseInput) -> Result<PreparedResponse, ResponseError> {
+    let (mut envelope, mut pagination) =
+        source.page(&input.options, &input.remaining, &|pagination| {
+            pagination_block_chars(input, pagination)
+        });
+    pagination.next = continuation(input, &pagination);
+    if pagination.should_emit() || is_saved_replay(&input.options) {
+        envelope.insert(
+            "responsePagination".into(),
+            pagination_value(&pagination, &input.options)?,
+        );
+    }
+    let text = serde_json::to_string(&envelope).map_err(|_| ResponseError::Unserializable)?;
+    Ok(text_response(text, envelope, input.is_error))
+}
+
+/// One structured window of the serialized envelope `full`.
+fn cut_window(full: &str, input: &ResponseInput) -> Result<PreparedResponse, ResponseError> {
+    let page = paginate_units(full, &input.options, false);
+    let mut windowed = Map::new();
+    windowed.insert(rows_key(&input.tool).into(), Value::Array(Vec::new()));
+    // A restart page carries a diagnostic message, not envelope
+    // bytes — keep it out of the concatenable window.
+    let restarting = page
+        .pagination
+        .as_ref()
+        .is_some_and(|p| p.restart == Some(true));
+    windowed.insert(
+        "responseWindow".into(),
+        json!(if restarting { "" } else { page.text.as_str() }),
+    );
+    if let Some(mut pagination) = page.pagination {
+        pagination.scope = "structuredContent".into();
+        pagination.next = continuation(input, &pagination);
+        if pagination.should_emit() || is_saved_replay(&input.options) {
+            windowed.insert(
+                "responsePagination".into(),
+                pagination_value(&pagination, &input.options)?,
+            );
+        }
+    }
+    Ok(text_response(page.text, windowed, input.is_error))
+}
+
+/// A text window's response. The text page carries this window of the
+/// payload; repeating the whole payload in structuredContent would defeat
+/// pagination, so `structured(whole)` gives the envelope, and only a single
+/// page that covers everything keeps its results.
+fn text_page(
+    page: Page,
+    input: &ResponseInput,
+    structured: impl FnOnce(bool) -> Map<String, Value>,
+) -> Result<PreparedResponse, ResponseError> {
+    let Some(mut pagination) = page.pagination else {
+        return Ok(text_response(page.text, structured(true), input.is_error));
+    };
+    pagination.next = continuation(input, &pagination);
+    let whole = pagination.char_offset == 0 && !pagination.has_more && pagination.restart.is_none();
+    let mut structured = structured(whole);
+    if !whole {
+        if let Some(results) = structured.get_mut(rows_key(&input.tool)) {
+            *results = Value::Array(Vec::new());
+        }
+        structured.remove("shared");
+        // MCP clients that read only structuredContent (and CLI JSON,
+        // which has one channel) must still see this page's window.
+        structured.insert("responseWindow".into(), json!(page.text));
+    }
+    if pagination.should_emit() || is_saved_replay(&input.options) {
+        structured.insert(
+            "responsePagination".into(),
+            pagination_value(&pagination, &input.options)?,
+        );
+    }
+    Ok(text_response(page.text, structured, input.is_error))
 }
 
 /// One text content item beside `structured`.
@@ -470,7 +636,7 @@ fn is_saved_replay(options: &ResponsePageOptions) -> bool {
 }
 
 fn rows_key(tool: &str) -> &'static str {
-    crate::tools::id::ToolId::from_name(tool).map_or("results", |tool| tool.output().rows_key())
+    crate::id::ToolId::from_name(tool).map_or("results", |tool| tool.output().rows_key())
 }
 
 /// Per-row fields that describe how a call was served (e.g. cache warmth),
@@ -541,7 +707,10 @@ fn paginate_units(text: &str, options: &ResponsePageOptions, with_header: bool) 
     };
     let units = text.encode_utf16().collect::<Vec<_>>();
     let total = units.len();
-    let snapshot = format!("response-v1:{}", crate::digest::sha256(text.as_bytes()));
+    let snapshot = format!(
+        "response-v1:{}",
+        octocode_engine::digest::sha256(text.as_bytes())
+    );
     let length = requested_length.max(1);
     let requested_offset = options.response_offset.unwrap_or(0);
     let offset = requested_offset.min(total);
@@ -566,6 +735,7 @@ fn paginate_units(text: &str, options: &ResponsePageOptions, with_header: bool) 
                 snapshot,
                 options,
                 changed,
+                true,
             )),
         };
     }
@@ -604,8 +774,11 @@ fn paginate_units(text: &str, options: &ResponsePageOptions, with_header: bool) 
 }
 
 /// A restart page: the request cannot continue the response it names (its
-/// snapshot changed or is missing, or its offset is invalid). The caller
-/// resumes from offset 0.
+/// snapshot changed or is missing, or its offset is invalid). Its `next`
+/// resumes from offset 0. `has_more` is false only for a page past the end
+/// of an unchanged response: nothing follows the offset asked for, so a
+/// caller walking `next` while `hasMore` stops instead of reading page 1
+/// again.
 pub(super) fn restart_pagination(
     scope: &str,
     current_page: usize,
@@ -615,13 +788,14 @@ pub(super) fn restart_pagination(
     snapshot: String,
     options: &ResponsePageOptions,
     changed: bool,
+    has_more: bool,
 ) -> ResponsePagination {
     let expected = options.response_snapshot.clone();
     ResponsePagination {
         scope: scope.into(),
         current_page,
         total_pages,
-        has_more: true,
+        has_more,
         char_offset: offset,
         char_length: 0,
         total_chars,
@@ -641,8 +815,10 @@ fn build_continuation(
     request: &ResponsePageOptions,
     page: &ResponsePagination,
 ) -> Option<Value> {
-    let tool = crate::tools::id::ToolId::from_name(tool)?;
-    let next_offset = page.next_char_offset.filter(|_| page.has_more)?;
+    let tool = crate::id::ToolId::from_name(tool)?;
+    let next_offset = page
+        .next_char_offset
+        .filter(|_| page.has_more || page.restart == Some(true))?;
     let mut continuation = Map::new();
     if request.saved.is_none() && page.restart == Some(true) {
         let queries = query
@@ -667,7 +843,7 @@ fn build_continuation(
     } else if page.restart != Some(true) {
         continuation.insert("responseSnapshot".into(), json!(page.snapshot));
     }
-    Some(crate::tools::result::Continuation::input(tool, Value::Object(continuation)).build())
+    Some(crate::response::result::Continuation::input(tool, Value::Object(continuation)).build())
 }
 
 fn splits_pair(units: &[u16], offset: usize) -> bool {
@@ -738,954 +914,4 @@ fn total_pages(units: &[u16], length: usize) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn options(length: usize) -> ResponsePageOptions {
-        ResponsePageOptions {
-            response_length: Some(length),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn automatic_paging_accounts_for_both_output_channels() {
-        let structured = json!({"results": [{"index": 0, "data": {
-            "items": (0..100).map(|line| json!({"line": line, "value": "quoted \"evidence\""})).collect::<Vec<_>>()
-        }}]});
-        let mut options = ResponsePageOptions::default();
-        let text = options.auto_paginate(&structured, 1_000, || {
-            panic!("an envelope past the budget pages without drawing its text")
-        });
-        assert!(text.is_none() && options.rows_scope());
-        let mut options = ResponsePageOptions::default();
-        let text = options.auto_paginate(&json!({"results": []}), 1_000, || Some("😀".repeat(600)));
-        assert!(text.is_none() && options.rows_scope());
-        let mut options = ResponsePageOptions::default();
-        let text = options.auto_paginate(&json!({"results": []}), 1_000, || Some("fits".into()));
-        assert_eq!(text.as_deref(), Some("fits"));
-        assert!(!options.rows_scope());
-    }
-
-    /// An offset or snapshot without a length is not an explicit window: the
-    /// response keeps the automatic page, so it can never be served unpaged
-    /// past the contract's `responseLength` maximum.
-    #[test]
-    fn an_offset_or_snapshot_alone_keeps_the_automatic_page() {
-        let structured = json!({"results": [{"index": 0, "data": {"content": "x".repeat(5_000)}}]});
-        for mut options in [
-            ResponsePageOptions {
-                response_offset: Some(0),
-                ..Default::default()
-            },
-            ResponsePageOptions {
-                response_snapshot: Some("response-rows-v1:x".into()),
-                ..Default::default()
-            },
-        ] {
-            assert!(!options.explicit());
-            assert!(options.auto_paginate(&structured, 1_000, || None).is_none());
-            assert!(options.rows_scope());
-            assert_eq!(options.response_length, Some(1_000));
-        }
-        // A length alone pages whole rows at that length, not the automatic
-        // page; only a scoped window draws and windows as asked.
-        let mut sized = options(3_000);
-        assert!(sized.explicit() && !sized.scoped());
-        assert!(sized.auto_paginate(&structured, 1_000, || None).is_none());
-        assert!(sized.rows_scope());
-        assert_eq!(sized.response_length, Some(3_000));
-        let mut text = ResponsePageOptions {
-            response_scope: Some("text".into()),
-            ..options(3_000)
-        };
-        assert!(text.scoped());
-        let drawn = text.auto_paginate(&structured, 1_000, || Some("drawn".into()));
-        assert_eq!(drawn.as_deref(), Some("drawn"), "a text window stays text");
-        assert!(!text.rows_scope());
-        assert_eq!(text.response_length, Some(3_000));
-        // A response that fits the length is not windowed at all.
-        let mut fits = options(50_000);
-        let drawn = fits.auto_paginate(&structured, 1_000, || Some("drawn".into()));
-        assert_eq!(drawn.as_deref(), Some("drawn"));
-        assert_eq!(fits.response_length, None);
-    }
-
-    #[test]
-    fn a_single_indivisible_row_keeps_its_oversized_disclosure() {
-        let content = "whole source evidence ".repeat(300);
-        let prepared = ResponsePager::new(ResponsePagerConfig::default())
-            .prepare(
-                ResponseInput {
-                    tool: "localFetch".into(),
-                    query: json!({"queries": [{"path": "a.txt", "fullContent": true}]}),
-                    structured: json!({"results": [{"index": 0, "data": {"path": "a.txt", "content": content}}]}),
-                    rendered_text: None,
-                    is_error: false,
-                    options: ResponsePageOptions {
-                        response_length: Some(1_000),
-                        response_scope: Some("rows".into()),
-                        ..Default::default()
-                    },
-                    remaining: Vec::new(),
-                },
-                &CancellationToken::new(),
-            )
-            .expect("whole row");
-        let output = prepared.structured_content;
-        assert_eq!(output["results"][0]["data"]["content"], content);
-        let pagination = &output["responsePagination"];
-        assert_eq!(pagination["oversized"], true);
-        assert_eq!(pagination["hasMore"], false);
-        assert!(
-            pagination["length"]
-                .as_u64()
-                .is_some_and(|length| length > 1_000)
-        );
-        assert!(pagination.get("next").is_none());
-    }
-
-    #[test]
-    fn unicode_pages_reconstruct_exact_text_and_continuations_are_executable() {
-        let text = "a😀b\n🧪研究c😀";
-        for length in [1, 2, 3, 7] {
-            let mut offset = 0;
-            let mut snapshot = None;
-            let mut joined = String::new();
-            loop {
-                let result = paginate_text(
-                    text,
-                    &ResponsePageOptions {
-                        response_length: Some(length),
-                        response_offset: Some(offset),
-                        response_snapshot: snapshot.clone(),
-                        response_scope: None,
-                        render_text: None,
-                        saved: None,
-                    },
-                );
-                let page = result.pagination.expect("pagination");
-                joined.push_str(result.text.split_once('\n').expect("header").1);
-                snapshot = Some(page.snapshot.clone());
-                if !page.has_more {
-                    break;
-                }
-                offset = page.next_char_offset.expect("continuation");
-            }
-            assert_eq!(joined, text);
-        }
-    }
-
-    #[test]
-    fn snapshot_and_unicode_boundary_mismatches_restart() {
-        let first = paginate_text("a😀b", &options(1));
-        let snapshot = first.pagination.expect("page").snapshot;
-        let split = paginate_text(
-            "a😀b",
-            &ResponsePageOptions {
-                response_length: Some(1),
-                response_offset: Some(2),
-                response_snapshot: Some(snapshot),
-                response_scope: None,
-                render_text: None,
-                saved: None,
-            },
-        );
-        assert_eq!(split.pagination.expect("page").restart, Some(true));
-        let changed = paginate_text(
-            "changed",
-            &ResponsePageOptions {
-                response_length: Some(2),
-                response_offset: Some(2),
-                response_snapshot: Some("response-v1:stale".into()),
-                response_scope: None,
-                render_text: None,
-                saved: None,
-            },
-        );
-        assert_eq!(changed.pagination.expect("page").changed, Some(true));
-    }
-
-    fn structured_options(
-        length: usize,
-        offset: usize,
-        snapshot: Option<String>,
-    ) -> ResponsePageOptions {
-        ResponsePageOptions {
-            response_length: Some(length),
-            response_offset: Some(offset),
-            response_snapshot: snapshot,
-            response_scope: Some("structured".into()),
-            render_text: None,
-            saved: None,
-        }
-    }
-
-    #[test]
-    fn structured_scope_windows_the_envelope_and_pages_reassemble_exactly() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let envelope = json!({"results":[
-            {"index":0,"data":{"content":"alpha beta gamma delta epsilon"},"status":"empty"},
-            {"index":1,"data":{"content":"zeta eta theta iota kappa lambda"}}
-        ]});
-        let full = envelope.to_string();
-        let mut offset = 0;
-        let mut snapshot = None;
-        let mut joined = String::new();
-        loop {
-            let prepared = pager
-                .prepare(
-                    ResponseInput {
-                        remaining: Vec::new(),
-                        tool: "localFetch".into(),
-                        query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
-                        structured: envelope.clone(),
-                        rendered_text: None,
-                        is_error: false,
-                        options: structured_options(40, offset, snapshot.clone()),
-                    },
-                    &CancellationToken::new(),
-                )
-                .expect("page");
-            let out = prepared.structured_content;
-            // The windowed envelope stays schema-valid: results present.
-            assert_eq!(out["results"], json!([]));
-            let window = out["responseWindow"].as_str().expect("window");
-            // Window text carries no page header; content mirrors it.
-            assert_eq!(prepared.content[0].text, window);
-            joined.push_str(window);
-            // The final window carries no pagination: nothing remains.
-            let Some(pagination) = out.get("responsePagination") else {
-                break;
-            };
-            assert_eq!(pagination["scope"], "structuredContent");
-            assert_eq!(pagination["hasMore"], true, "{pagination}");
-            snapshot = Some(
-                pagination["snapshot"]
-                    .as_str()
-                    .expect("snapshot")
-                    .to_owned(),
-            );
-            // The continuation is executable and keeps the opt-in scope.
-            let next = &pagination["next"]["query"];
-            assert_eq!(next["responseScope"], "structured");
-            offset = pagination["nextOffset"].as_u64().expect("offset") as usize;
-        }
-        assert_eq!(
-            joined, full,
-            "concatenated windows must equal the envelope JSON"
-        );
-        assert_eq!(
-            serde_json::from_str::<Value>(&joined).expect("json"),
-            envelope
-        );
-    }
-
-    #[test]
-    fn structured_scope_restart_keeps_the_window_empty() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let prepared = pager
-            .prepare(
-                ResponseInput {
-                    remaining: Vec::new(),
-                    tool: "localFetch".into(),
-                    query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
-                    structured: json!({"results":[{"index":0,"data":{"content":"body"}}]}),
-                    rendered_text: None,
-                    is_error: false,
-                    options: structured_options(10, 5, Some("response-v1:stale".into())),
-                },
-                &CancellationToken::new(),
-            )
-            .expect("restart page");
-        let out = prepared.structured_content;
-        assert_eq!(out["responsePagination"]["restart"], json!(true));
-        assert_eq!(
-            out["responseWindow"], "",
-            "restart pages carry no envelope bytes"
-        );
-    }
-
-    /// Pages one response in `scope` at `length`, following each page's own
-    /// `nextOffset` and `snapshot` exactly as a caller copies them, and returns
-    /// every page's `(structuredContent, text)`.
-    fn walk_pages(
-        structured: &Value,
-        rendered_text: Option<&str>,
-        scope: &str,
-        length: usize,
-    ) -> Vec<(Value, String)> {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let mut options = ResponsePageOptions {
-            response_scope: Some(scope.into()),
-            ..options(length)
-        };
-        let mut pages = Vec::new();
-        loop {
-            let prepared = pager
-                .prepare(
-                    ResponseInput {
-                        remaining: Vec::new(),
-                        tool: "localSearch".into(),
-                        query: json!({"path":"a","matchString":"m"}),
-                        structured: structured.clone(),
-                        rendered_text: rendered_text.map(str::to_owned),
-                        is_error: false,
-                        options: options.clone(),
-                    },
-                    &CancellationToken::new(),
-                )
-                .expect("page");
-            let pagination = prepared.structured_content["responsePagination"].clone();
-            pages.push((
-                prepared.structured_content,
-                prepared.content[0].text.clone(),
-            ));
-            if pagination["hasMore"] != true {
-                break;
-            }
-            assert!(
-                pages.len() <= 20_000,
-                "{scope} length {length}: the walk must terminate"
-            );
-            options.response_offset = pagination["nextOffset"].as_u64().map(|v| v as usize);
-            options.response_snapshot = pagination["snapshot"].as_str().map(str::to_owned);
-        }
-        pages
-    }
-
-    /// Whole-response paging delivers every byte or row exactly once at every
-    /// page size, including sizes smaller than one code point or one row.
-    /// `text` and `structured` windows concatenate to the exact source;
-    /// `rows` pages are complete JSON envelopes that together carry each match
-    /// once. A page's body stays inside its length unless it is one
-    /// indivisible code point (`text`, `structured`) or fragment (`rows`).
-    #[test]
-    fn every_scope_delivers_each_byte_and_row_exactly_once_at_small_sizes() {
-        let text = "a😀b\n🧪研究c\\n😀 tail\nlast line é";
-        let envelope = json!({"results":[
-            {"index":0,"data":{"content":"alpha 😀 beta\ngamma 研究 delta"}},
-            {"index":1,"data":{"content":"zeta é eta"}}
-        ]});
-        let serialized = envelope.to_string();
-        for length in (1..=40).chain([64, 100, 257]) {
-            let pages = walk_pages(&envelope, Some(text), "text", length);
-            let joined: String = pages
-                .iter()
-                .map(|(_, page)| page.split_once('\n').expect("page header").1)
-                .collect();
-            assert_eq!(joined, text, "text length {length}");
-            for (structured, page) in &pages {
-                // One page that covers everything keeps its rows and adds no window.
-                if pages.len() > 1 {
-                    let window = structured["responseWindow"].as_str().expect("window");
-                    assert_eq!(window, page, "text length {length}: both channels");
-                }
-                // The last page finishes the response and carries no pagination.
-                if let Some(width) = structured["responsePagination"]["length"].as_u64() {
-                    assert!(
-                        width as usize <= length.max(2),
-                        "text length {length}: {width} units"
-                    );
-                }
-            }
-
-            let pages = walk_pages(&envelope, None, "structured", length);
-            let joined: String = pages
-                .iter()
-                .map(|(structured, _)| structured["responseWindow"].as_str().expect("window"))
-                .collect();
-            assert_eq!(joined, serialized, "structured length {length}");
-            for (structured, page) in &pages {
-                assert_eq!(structured["responseWindow"], json!(page));
-            }
-        }
-
-        const MATCHES: u64 = 12;
-        let matches = |file: &str| {
-            (0..MATCHES)
-                .map(|line| json!({"line": line, "value": format!("{file} item {line} 😀 é")}))
-                .collect::<Vec<_>>()
-        };
-        let rows = json!({"root":"/repo","results":[
-            {"index":0,"data":{"files":[{"path":"a.rs","matches":matches("a")}]}},
-            {"index":1,"data":{"content":"small"}},
-            {"index":2,"data":{"files":[{"path":"c.rs","matches":matches("c")}]}}
-        ]});
-        let mut expected: Vec<(u64, String, u64)> = (0..MATCHES)
-            .flat_map(|line| [(0, "a.rs".to_owned(), line), (2, "c.rs".to_owned(), line)])
-            .collect();
-        expected.sort();
-        for length in [1, 26, 64, 100, 257, 1_000, 50_000] {
-            let pages = walk_pages(&rows, None, "rows", length);
-            let mut seen = Vec::new();
-            let mut small = 0;
-            for (structured, text) in &pages {
-                let page: Value = serde_json::from_str(text).expect("a page is complete JSON");
-                assert_eq!(&page, structured, "rows length {length}: both channels");
-                let pagination = &structured["responsePagination"];
-                // The whole rendered page, pagination block included, fits.
-                let rendered = text.encode_utf16().count();
-                assert!(
-                    rendered <= length || pagination["oversized"] == true,
-                    "rows length {length}: {rendered} chars unflagged"
-                );
-                for row in structured["results"].as_array().expect("rows") {
-                    small += usize::from(row["data"]["content"] == "small");
-                    let index = row["index"].as_u64().expect("index");
-                    for file in row["data"]["files"].as_array().into_iter().flatten() {
-                        for item in file["matches"].as_array().expect("matches") {
-                            seen.push((
-                                index,
-                                file["path"].as_str().expect("path").to_owned(),
-                                item["line"].as_u64().expect("line"),
-                            ));
-                        }
-                    }
-                }
-            }
-            seen.sort();
-            assert_eq!(seen, expected, "rows length {length}");
-            assert_eq!(small, 1, "rows length {length}: the small row appears once");
-        }
-    }
-
-    /// A row page plus its `responsePagination` block is at most the
-    /// requested `responseLength`, at the lengths callers use, for a response
-    /// of many rows and for one broad row split into parts; pages still
-    /// deliver every match exactly once.
-    #[test]
-    fn a_row_page_with_its_pagination_block_fits_the_requested_length() {
-        let matches = |file: &str, count: u64| {
-            (0..count)
-                .map(|line| json!({"line": line, "value": format!("{file} item {line} 😀 é")}))
-                .collect::<Vec<_>>()
-        };
-        let responses = [
-            // Many small rows.
-            json!({"root":"/repo","results":(0..1_500).map(|index| json!({
-                "index": index,
-                "data": {"files":[{"path":format!("f{index}.rs"),"matches":matches("m", 3)}]}
-            })).collect::<Vec<_>>()}),
-            // One broad row.
-            json!({"root":"/repo","results":[
-                {"index":0,"data":{"files":[{"path":"a.rs","matches":matches("a", 3_000)}]}}
-            ]}),
-        ];
-        for (shape, response) in responses.iter().enumerate() {
-            let rendered = response.to_string().encode_utf16().count();
-            for length in [4_000, 20_000, 50_000] {
-                let pages = walk_pages(response, None, "rows", length);
-                assert_eq!(
-                    pages.len() > 1,
-                    rendered > length,
-                    "shape {shape} length {length}"
-                );
-                let mut seen = 0;
-                for (structured, text) in &pages {
-                    let page = text.encode_utf16().count();
-                    assert!(
-                        page <= length || structured["responsePagination"]["oversized"] == true,
-                        "shape {shape} length {length}: a {page}-char page"
-                    );
-                    for row in structured["results"].as_array().expect("rows") {
-                        for file in row["data"]["files"].as_array().expect("files") {
-                            seen += file["matches"].as_array().expect("matches").len();
-                        }
-                    }
-                }
-                let expected: usize = response["results"]
-                    .as_array()
-                    .expect("rows")
-                    .iter()
-                    .map(|row| {
-                        row["data"]["files"][0]["matches"]
-                            .as_array()
-                            .expect("m")
-                            .len()
-                    })
-                    .sum();
-                assert_eq!(seen, expected, "shape {shape} length {length}");
-            }
-        }
-    }
-
-    #[test]
-    fn default_scope_is_unchanged_by_the_new_field() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let envelope = json!({"results":[{"index":0,"data":{"content":"body"}}]});
-        let prepared = pager
-            .prepare(
-                ResponseInput {
-                    remaining: Vec::new(),
-                    tool: "localFetch".into(),
-                    query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
-                    structured: envelope.clone(),
-                    rendered_text: None,
-                    is_error: false,
-                    options: ResponsePageOptions::default(),
-                },
-                &CancellationToken::new(),
-            )
-            .expect("default");
-        assert_eq!(prepared.structured_content, envelope);
-        assert!(prepared.structured_content.get("responseWindow").is_none());
-    }
-
-    #[test]
-    fn a_text_page_covering_everything_keeps_structured_results() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let envelope = json!({"results":[{"index":0,"data":{"content":"body"}}]});
-        let prepared = pager
-            .prepare(
-                ResponseInput {
-                    remaining: Vec::new(),
-                    tool: "localFetch".into(),
-                    query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
-                    structured: envelope.clone(),
-                    rendered_text: Some("body".into()),
-                    is_error: false,
-                    options: ResponsePageOptions {
-                        response_length: Some(1_000),
-                        ..Default::default()
-                    },
-                },
-                &CancellationToken::new(),
-            )
-            .expect("page");
-        assert_eq!(prepared.structured_content["results"], envelope["results"]);
-        // A finished response carries no envelope pagination.
-        assert!(
-            prepared
-                .structured_content
-                .get("responsePagination")
-                .is_none(),
-            "{}",
-            prepared.structured_content
-        );
-    }
-
-    /// MCP hosts that surface only structuredContent must still receive the
-    /// page: a split text page carries its window in `responseWindow`.
-    #[test]
-    fn a_split_text_page_carries_its_window_in_structured_content() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let envelope = json!({"results":[{"index":0,"data":{"content":"body"}}]});
-        let text = "line1\nline2\nline3\nline4\n";
-        let mut options = options(12);
-        let mut joined = String::new();
-        loop {
-            let prepared = pager
-                .prepare(
-                    ResponseInput {
-                        remaining: Vec::new(),
-                        tool: "localFetch".into(),
-                        query: json!({"path":"a","mainGoal": "test", "reasoning":"r"}),
-                        structured: envelope.clone(),
-                        rendered_text: Some(text.into()),
-                        is_error: false,
-                        options: options.clone(),
-                    },
-                    &CancellationToken::new(),
-                )
-                .expect("page");
-            let structured = &prepared.structured_content;
-            assert_eq!(structured["results"], json!([]));
-            let window = structured["responseWindow"].as_str().expect("window");
-            assert_eq!(window, prepared.content[0].text);
-            joined.push_str(window.split_once('\n').map_or("", |(_, body)| body));
-            let pagination = &structured["responsePagination"];
-            if pagination["hasMore"] != true {
-                break;
-            }
-            options.response_offset = pagination["nextOffset"].as_u64().map(|v| v as usize);
-            options.response_snapshot = pagination["snapshot"].as_str().map(str::to_owned);
-        }
-        assert_eq!(joined, text);
-    }
-
-    #[test]
-    fn prepares_both_channels_with_compact_snapshot_continuation() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let result = pager
-            .prepare(
-                ResponseInput {
-                    remaining: Vec::new(),
-                    tool: "localFetch".into(),
-                    query: json!({"path":"a", "mainGoal":"g", "reasoning":"r", "extras":["stats"]}),
-                    structured: json!({"results":[]}),
-                    rendered_text: Some("line1\nline2\nline3".into()),
-                    is_error: false,
-                    options: options(8),
-                },
-                &CancellationToken::new(),
-            )
-            .expect("page");
-        assert_eq!(result.content.len(), 1);
-        let next = &result.structured_content["responsePagination"]["next"]["query"];
-        assert!(
-            next.get("queries").is_none(),
-            "saved reads do not repeat input"
-        );
-        assert!(
-            next["responseSnapshot"]
-                .as_str()
-                .expect("snapshot")
-                .starts_with("response-v1:")
-        );
-    }
-
-    #[test]
-    fn continuations_preserve_queries_only_when_starting_a_new_execution() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let queries = json!([
-            {"path":"/repo/a.ts", "mainGoal": "test", "reasoning":"read both", "extras":["stats","receipts"], "fullContent":true},
-            {"path":"/repo/b.ts", "mainGoal": "test", "reasoning":"read both", "ranges":["2-5"]}
-        ]);
-        for options in [
-            options(8),
-            ResponsePageOptions {
-                response_length: Some(8),
-                response_offset: Some(8),
-                response_snapshot: Some("response-v1:stale".into()),
-                response_scope: None,
-                render_text: None,
-                saved: None,
-            },
-        ] {
-            let restarting = options.response_offset.is_some();
-            let result = pager
-                .prepare(
-                    ResponseInput {
-                        remaining: Vec::new(),
-                        tool: "localFetch".into(),
-                        query: json!({"queries":queries}),
-                        structured: json!({"results":[]}),
-                        rendered_text: Some("line1\nline2\nline3".into()),
-                        is_error: false,
-                        options,
-                    },
-                    &CancellationToken::new(),
-                )
-                .expect("page");
-            crate::contracts::validate_output("localFetch", &result.structured_content)
-                .expect("continuation must satisfy the public output contract");
-            let next = &result.structured_content["responsePagination"]["next"]["query"];
-            crate::contracts::validate("localFetch", next.clone())
-                .expect("continuation must satisfy the public input contract");
-            if restarting {
-                assert_eq!(next["queries"], queries);
-                let prepared =
-                    crate::contracts::prepare_many_and_validate("localFetch", next.clone())
-                        .expect("restart is a new tool call");
-                assert_eq!(prepared.len(), 2);
-                for (prepared, original) in
-                    prepared.iter().zip(queries.as_array().expect("queries"))
-                {
-                    for (field, value) in original.as_object().expect("query") {
-                        assert_eq!(&prepared[field], value);
-                    }
-                }
-            } else {
-                assert!(next.get("queries").is_none());
-            }
-            assert_eq!(next["responseLength"], 8);
-            assert_eq!(next["responseSnapshot"].is_null(), restarting);
-            if restarting {
-                assert_eq!(next["responseOffset"], 0);
-            }
-        }
-    }
-
-    #[test]
-    fn frozen_line_boundary_empty_and_last_page_metadata_match() {
-        let line = paginate_text("0123456789\n0123456789abc", &options(15));
-        assert_eq!(
-            line.text.split_once('\n').expect("header").1,
-            "0123456789\n"
-        );
-        assert_eq!(line.pagination.expect("page").next_char_offset, Some(11));
-
-        let empty = paginate_text("", &options(100));
-        let empty_page = empty.pagination.expect("page");
-        assert_eq!(empty_page.total_chars, 0);
-        assert!(!empty_page.has_more);
-        assert_eq!(empty_page.next_char_offset, None);
-
-        let short = paginate_text("short", &options(100));
-        assert!(!short.pagination.expect("page").has_more);
-    }
-
-    #[test]
-    fn missing_snapshot_and_changed_beyond_end_return_typed_restart() {
-        let missing = paginate_text(
-            "a".repeat(100).as_str(),
-            &ResponsePageOptions {
-                response_length: Some(10),
-                response_offset: Some(10),
-                ..Default::default()
-            },
-        );
-        let missing_page = missing.pagination.expect("page");
-        assert_eq!(missing_page.restart, Some(true));
-        assert_eq!(missing_page.changed, Some(false));
-        assert_eq!(missing_page.next_char_offset, Some(0));
-
-        let stale = paginate_text(
-            "short",
-            &ResponsePageOptions {
-                response_length: Some(5),
-                response_offset: Some(500),
-                response_snapshot: Some("response-v1:stale".into()),
-                response_scope: None,
-                render_text: None,
-                saved: None,
-            },
-        );
-        let stale_page = stale.pagination.expect("page");
-        assert_eq!(stale_page.char_offset, 5);
-        assert_eq!(stale_page.char_length, 0);
-        assert_eq!(stale_page.changed, Some(true));
-    }
-
-    #[test]
-    fn cancellation_fails_before_cache_growth() {
-        let pager = ResponsePager::new(ResponsePagerConfig {
-            max_rendered_bytes: 4,
-        });
-        let input = ResponseInput {
-            remaining: Vec::new(),
-            tool: "tool".into(),
-            query: json!({}),
-            structured: json!({}),
-            rendered_text: Some("large".into()),
-            is_error: false,
-            options: options(2),
-        };
-        let cancelled = CancellationToken::new();
-        cancelled.cancel();
-        assert!(matches!(
-            pager.prepare(input, &cancelled),
-            Err(ResponseError::Cancelled)
-        ));
-    }
-
-    /// Rendered text past the byte ceiling is served as row pages with an
-    /// executable continuation, never a whole-call failure; walking the pages
-    /// returns every row exactly once.
-    #[test]
-    fn oversized_rendered_text_falls_back_to_row_pages() {
-        let pager = ResponsePager::new(ResponsePagerConfig {
-            max_rendered_bytes: 600,
-        });
-        let rows: Vec<Value> = (0..6)
-            .map(|index| json!({"index": index, "data": {"content": format!("{index}:{}", "x".repeat(200))}}))
-            .collect();
-        let structured = json!({"results": rows});
-        let text = "y".repeat(2_000);
-        let mut request = ResponsePageOptions::default();
-        let mut seen = Vec::new();
-        for _ in 0..20 {
-            let prepared = pager
-                .prepare(
-                    ResponseInput {
-                        remaining: Vec::new(),
-                        tool: "localFetch".into(),
-                        query: json!({"queries": [{"path": "a"}]}),
-                        structured: structured.clone(),
-                        rendered_text: Some(text.clone()),
-                        is_error: false,
-                        options: request.clone(),
-                    },
-                    &CancellationToken::new(),
-                )
-                .expect("an oversized response pages instead of failing");
-            let page = prepared.structured_content;
-            for row in page["results"].as_array().expect("rows") {
-                seen.push(row["index"].as_u64().expect("index"));
-            }
-            let text_len = prepared.content.iter().map(|c| c.text.len()).sum::<usize>();
-            assert!(text_len <= 2 * 600, "page text stays bounded: {text_len}");
-            let Some(next) = page["responsePagination"]["next"]["query"].as_object() else {
-                break;
-            };
-            assert_eq!(next["responseScope"], "rows", "{next:?}");
-            request = serde_json::from_value(Value::Object(next.clone())).expect("options");
-        }
-        assert_eq!(seen, vec![0, 1, 2, 3, 4, 5]);
-    }
-
-    /// One row too large for any row page falls back to envelope
-    /// windows that concatenate back to the exact envelope JSON.
-    #[test]
-    fn oversized_single_row_falls_back_to_concatenable_windows() {
-        let pager = ResponsePager::new(ResponsePagerConfig {
-            max_rendered_bytes: 600,
-        });
-        let structured = json!({"results": [{"index": 0, "data": {"content": "z".repeat(2_000)}}]});
-        let mut request = ResponsePageOptions::default();
-        let mut joined = String::new();
-        for _ in 0..50 {
-            let prepared = pager
-                .prepare(
-                    ResponseInput {
-                        remaining: Vec::new(),
-                        tool: "localFetch".into(),
-                        query: json!({"queries": [{"path": "a"}]}),
-                        structured: structured.clone(),
-                        rendered_text: Some("y".repeat(2_000)),
-                        is_error: false,
-                        options: request.clone(),
-                    },
-                    &CancellationToken::new(),
-                )
-                .expect("pages");
-            let page = prepared.structured_content;
-            joined.push_str(page["responseWindow"].as_str().expect("window"));
-            let Some(next) = page["responsePagination"]["next"]["query"].as_object() else {
-                break;
-            };
-            assert_eq!(next["responseScope"], "structured", "{next:?}");
-            request = serde_json::from_value(Value::Object(next.clone())).expect("options");
-        }
-        assert_eq!(
-            serde_json::from_str::<Value>(&joined).expect("windows join"),
-            structured
-        );
-    }
-
-    /// Cold call, then the copied continuation served from a warm cache: the
-    /// per-row `cache` telemetry must not read as a source change.
-    #[test]
-    fn cache_warmth_does_not_restart_a_copied_continuation() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let envelope = |warm: bool| {
-            let rows = (0..3)
-                .map(|index| {
-                    let mut row = json!({"index":index,"data":{"content":"x".repeat(300)}});
-                    if warm {
-                        row["cache"] = json!(1);
-                    }
-                    row
-                })
-                .collect::<Vec<_>>();
-            json!({"shared":{"commitSha":"abc"},"results":rows})
-        };
-        for scope in ["rows", "structured"] {
-            let prepare = |warm: bool, offset: Option<usize>, snapshot: Option<String>| {
-                pager
-                    .prepare(
-                        ResponseInput {
-                            remaining: Vec::new(),
-                            tool: "ghGetFileContent".into(),
-                            query: json!({"queries":[{"owner":"o","repo":"r","path":"a"}]}),
-                            structured: envelope(warm),
-                            rendered_text: None,
-                            is_error: false,
-                            options: ResponsePageOptions {
-                                response_length: Some(400),
-                                response_offset: offset,
-                                response_snapshot: snapshot,
-                                response_scope: Some(scope.into()),
-                                render_text: None,
-                                saved: None,
-                            },
-                        },
-                        &CancellationToken::new(),
-                    )
-                    .expect("page")
-                    .structured_content
-            };
-            let cold = prepare(false, None, None);
-            let pagination = &cold["responsePagination"];
-            assert_eq!(pagination["hasMore"], true, "{scope}: {cold}");
-            let next = pagination["next"]["query"].clone();
-            let warm = prepare(
-                true,
-                next["responseOffset"].as_u64().map(|x| x as usize),
-                next["responseSnapshot"].as_str().map(str::to_owned),
-            );
-            let page = &warm["responsePagination"];
-            assert!(page.get("restart").is_none(), "{scope}: {warm}");
-            assert!(page.get("changed").is_none(), "{scope}: {warm}");
-            assert_eq!(page["snapshot"], pagination["snapshot"], "{scope}");
-            assert!(!warm.to_string().contains("\"cache\""), "{scope}: {warm}");
-        }
-    }
-
-    /// Two executions of a batch with a GitHub error row differ only in
-    /// the provider's per-call facts; the copied continuation must page on.
-    #[test]
-    fn provider_request_ids_do_not_restart_a_copied_continuation() {
-        let pager = ResponsePager::new(ResponsePagerConfig::default());
-        let envelope = |call: usize| {
-            let mut rows = (0..3)
-                .map(|index| json!({"index":index,"data":{"content":"x".repeat(300)}}))
-                .collect::<Vec<_>>();
-            rows.push(json!({"index":3,"status":"error","data":{
-                "error":"Repository, resource, or path not found","errorCode":"notFound",
-                "httpStatus":404,
-                "requestId":format!("{call:X}F4:376635:800A3C:A22BF9:6ABD2D60"),
-                "rateLimit":{"remaining":100_000 + call,"resetEpochSeconds":1_700_000_000 + call,"retryAfterSeconds":call},
-                "retryAfterSeconds":call}}));
-            json!({"results":rows})
-        };
-        for scope in ["rows", "structured"] {
-            let prepare = |call: usize, offset: Option<usize>, snapshot: Option<String>| {
-                pager
-                    .prepare(
-                        ResponseInput {
-                            remaining: Vec::new(),
-                            tool: "ghGetFileContent".into(),
-                            query: json!({"queries":[{"owner":"o","repo":"r","path":"a"}]}),
-                            structured: envelope(call),
-                            rendered_text: None,
-                            is_error: false,
-                            options: ResponsePageOptions {
-                                response_length: Some(400),
-                                response_offset: offset,
-                                response_snapshot: snapshot,
-                                response_scope: Some(scope.into()),
-                                render_text: None,
-                                saved: None,
-                            },
-                        },
-                        &CancellationToken::new(),
-                    )
-                    .expect("page")
-                    .structured_content
-            };
-            let mut offset = None;
-            let mut snapshot = None;
-            let mut error_rows = Vec::new();
-            for call in 1..20 {
-                let page = prepare(call * 4096, offset, snapshot.clone());
-                let pagination = &page["responsePagination"];
-                assert!(
-                    pagination.get("restart").is_none(),
-                    "{scope} call {call}: {page}"
-                );
-                error_rows.extend(
-                    page["results"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter(|row| row["status"] == "error")
-                        .cloned(),
-                );
-                if pagination["hasMore"] != true {
-                    break;
-                }
-                let next = &pagination["next"]["query"];
-                offset = next["responseOffset"].as_u64().map(|x| x as usize);
-                snapshot = next["responseSnapshot"].as_str().map(str::to_owned);
-            }
-            if scope == "rows" {
-                // Row pages keep the facts of the execution that served them.
-                assert_eq!(error_rows.len(), 1, "{error_rows:?}");
-                assert!(error_rows[0]["data"]["requestId"].is_string());
-                assert!(error_rows[0]["data"]["rateLimit"]["remaining"].is_number());
-            }
-        }
-    }
-}
+mod tests;

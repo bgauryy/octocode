@@ -1,10 +1,13 @@
 //! Bounded assessment over a frozen resource/section/question plan.
 use super::{ClassificationError, EvaluationInput, Row};
 use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
-use crate::runtime::{ExecutionContext, SelectionLimits, domain_dispatch::DomainDispatcher};
-use crate::tools::id::ToolId;
+use crate::execution::{ExecutionContext, SelectionLimits};
+use crate::id::ToolId;
+use crate::providers::classification::gate::call_cap;
+use crate::response::result::Continuation;
 use crate::tools::judgment::stats::ClassificationUsage;
-use crate::tools::result::Continuation;
+use crate::tools::source_capture::SourceReader;
+use futures_util::{StreamExt as _, stream};
 use octocode_io::flight::KeyedFlight;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -81,7 +84,7 @@ impl Sessions {
 
     fn key(&self, access: &[u8; 32], id: &str) -> CacheKey {
         CacheKey {
-            namespace: "section-assessment-v1".into(),
+            namespace: "section-assessment-v2".into(),
             scope: format!("{}:{}", self.policy, hex::encode(access)),
             resource: id.into(),
         }
@@ -136,9 +139,9 @@ impl Sessions {
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime<'a> {
-    pub sessions: &'a Sessions,
+    pub(crate) sessions: &'a Sessions,
     pub access: [u8; 32],
-    pub can_resume: bool,
+    pub(crate) can_resume: bool,
 }
 
 pub(super) struct Budget {
@@ -204,6 +207,8 @@ impl Budget {
 struct Unit {
     metadata: Value,
     state: Value,
+    /// The state's serialized Unicode scalars, counted once at capture.
+    chars: usize,
     cells: Vec<Option<Value>>,
     emitted: bool,
 }
@@ -267,12 +272,12 @@ fn error_value(error: &ClassificationError) -> Value {
 pub(super) fn run(
     row: &Row,
     input: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     runtime: Runtime<'_>,
     shared: &Budget,
 ) -> Result<Outcome, ClassificationError> {
-    let evaluator = &dispatcher.evaluator;
+    let evaluator = dispatcher.evaluator();
     let (mut session, ordinal) = if let Some(assessment) = input["assessment"].as_str() {
         let (id, ordinal) = decode(assessment).ok_or_else(|| {
             unavailable("The assessment token is malformed; no source or provider was called.")
@@ -281,7 +286,7 @@ pub(super) fn run(
         let ticket = runtime.sessions.flights.join(key.resource.clone());
         let wait_budget = evaluator.budget(context.deadline, context.cancellation.clone());
         let _turn = dispatcher
-            .handle
+            .handle()
             .block_on(wait_budget.wait(ticket.turn()))
             .map_err(|_| unavailable("The call stopped while waiting for the assessment transaction; nothing was judged."))?;
         let _process_lock = runtime.sessions.transaction_lock(&key, context)?;
@@ -334,15 +339,7 @@ pub(super) fn run(
             return Ok(outcome);
         }
         validate_sources(&session, dispatcher, context)?;
-        return assess_and_save(
-            &mut session,
-            ordinal,
-            row,
-            dispatcher,
-            context,
-            runtime,
-            shared,
-        );
+        return assess_and_save(&mut session, ordinal, dispatcher, context, runtime, shared);
     } else {
         (
             capture::create(
@@ -367,29 +364,16 @@ pub(super) fn run(
         outcome.output["error"] = error_value(&unavailable(reason));
         return Ok(outcome);
     }
+    // The batch saves the whole frozen plan before any provider request
+    // (and after it), so a fresh plan needs no save of its own.
     let key = runtime.sessions.key(&runtime.access, &session.id);
     let _process_lock = runtime.sessions.transaction_lock(&key, context)?;
-    if runtime.can_resume && !runtime.sessions.save(key, session.clone(), context) {
-        return Ok(terminal(
-            &mut session,
-            "The complete frozen plan could not be retained within storage limits; no inference ran.",
-            ClassificationUsage::default(),
-        ));
-    }
-    assess_and_save(
-        &mut session,
-        ordinal,
-        row,
-        dispatcher,
-        context,
-        runtime,
-        shared,
-    )
+    assess_and_save(&mut session, ordinal, dispatcher, context, runtime, shared)
 }
 
 fn validate_sources(
     session: &Session,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<(), ClassificationError> {
     for resource in &session.resources {
@@ -407,10 +391,7 @@ fn pending_cost(session: &Session) -> (usize, usize) {
         .flat_map(|resource| &resource.units)
         .filter(|unit| unit.cells.iter().any(Option::is_none))
         .fold((0usize, 0usize), |(units, chars), unit| {
-            (
-                units + 1,
-                chars.saturating_add(unit.state.to_string().chars().count()),
-            )
+            (units + 1, chars.saturating_add(unit.chars))
         })
 }
 
@@ -418,8 +399,9 @@ fn settle_unsupported(session: &mut Session, limits: SelectionLimits) -> usize {
     let mut settled = 0;
     for resource in &mut session.resources {
         for unit in &mut resource.units {
-            let chars = unit.state.to_string().chars().count();
-            if chars > super::max_state_chars(session.long_context) || chars > limits.max_chars {
+            if unit.chars > super::max_state_chars(session.long_context)
+                || unit.chars > limits.max_chars
+            {
                 let error = error_value(&ClassificationError::new(
                     "classificationContextTooLarge",
                     "This exact target and its supporting context exceed the serialized state limit.",
@@ -440,13 +422,12 @@ fn settle_unsupported(session: &mut Session, limits: SelectionLimits) -> usize {
 fn assess_and_save(
     session: &mut Session,
     ordinal: usize,
-    _row: &Row,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     runtime: Runtime<'_>,
     shared: &Budget,
 ) -> Result<Outcome, ClassificationError> {
-    let evaluator = &dispatcher.evaluator;
+    let evaluator = dispatcher.evaluator();
     let budget = evaluator.budget(
         shared.deadline(context.deadline),
         context.cancellation.clone(),
@@ -466,8 +447,7 @@ fn assess_and_save(
             if unit.cells.iter().all(Option::is_some) {
                 continue;
             }
-            let chars = unit.state.to_string().chars().count();
-            if !shared.admit(chars) {
+            if !shared.admit(unit.chars) {
                 deferred_by_sibling = admitted.is_empty() && shared.has_admissions();
                 break 'resources;
             }
@@ -492,29 +472,51 @@ fn assess_and_save(
             context,
         ));
     }
-    for [resource, unit] in admitted {
+    // Every admitted unit is judged concurrently under the call's budget and
+    // gate; results apply in admitted order, so the pinned model and every
+    // mismatch decision match a serial run whatever order calls finish in.
+    let pending: Vec<Vec<usize>> = admitted
+        .iter()
+        .map(|&[resource, unit]| {
+            session.resources[resource].units[unit]
+                .cells
+                .iter()
+                .enumerate()
+                .filter_map(|(index, cell)| cell.is_none().then_some(index))
+                .collect()
+        })
+        .collect();
+    let mut results = {
+        let (session, budget, gate, questions) = (&*session, &budget, &gate, &questions);
+        dispatcher.handle().block_on(
+            stream::iter(admitted.iter().zip(&pending).enumerate())
+                .map(|(position, (&[resource, unit], pending))| async move {
+                    let remaining: Vec<_> = pending
+                        .iter()
+                        .map(|&index| questions[index].clone())
+                        .collect();
+                    let result = evaluator
+                        .evaluate_questions(
+                            EvaluationInput {
+                                state: &session.resources[resource].units[unit].state,
+                                questions: &remaining,
+                                assets: None,
+                                long_context: session.long_context,
+                            },
+                            session.model.as_deref(),
+                            budget,
+                            gate,
+                        )
+                        .await;
+                    (position, result)
+                })
+                .buffer_unordered(call_cap(evaluator.max_concurrency))
+                .collect::<Vec<_>>(),
+        )
+    };
+    results.sort_unstable_by_key(|(position, _)| *position);
+    for ((&[resource, unit], pending), (_, result)) in admitted.iter().zip(pending).zip(results) {
         let unit = &mut session.resources[resource].units[unit];
-        let pending: Vec<_> = unit
-            .cells
-            .iter()
-            .enumerate()
-            .filter_map(|(index, cell)| cell.is_none().then_some(index))
-            .collect();
-        let remaining: Vec<_> = pending
-            .iter()
-            .map(|&index| questions[index].clone())
-            .collect();
-        let result = dispatcher.handle.block_on(evaluator.evaluate_questions(
-            EvaluationInput {
-                state: &unit.state,
-                questions: &remaining,
-                assets: None,
-                long_context: session.long_context,
-            },
-            session.model.as_deref(),
-            &budget,
-            &gate,
-        ));
         usage.add(&result.complete);
         usage.models.extend(result.models.iter().cloned());
         let model_mismatch = result.models.len() > 1
@@ -730,6 +732,7 @@ mod tests {
                 units: vec![Unit {
                     metadata: json!({"id":"s0","kind":"text","target":{"bytes":[0,4],"lines":[1,1]},"context":[]}),
                     state: json!({"target":{"text":"text"}}),
+                    chars: 26,
                     cells: vec![Some(answered_cell(json!({"type":"noul","noul":0.9}))), None],
                     emitted: false,
                 }],

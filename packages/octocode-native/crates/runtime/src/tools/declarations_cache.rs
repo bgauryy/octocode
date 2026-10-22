@@ -48,7 +48,7 @@ pub(crate) fn document(
     let key = CacheKey {
         namespace: "ast-declarations".into(),
         scope: format!("{parser}\0{canonical_path}"),
-        resource: crate::digest::sha256(source.as_bytes()),
+        resource: octocode_engine::digest::sha256(source.as_bytes()),
     };
     if let Some(hit) = cache().get(&key) {
         return Some(hit.value);
@@ -91,7 +91,11 @@ fn weight(document: &GraphFactsDocument) -> usize {
         + document.paths.len();
     512 + document.declarations.len() * DECLARATION
         + facts * FACT
-        + document.diagnostics.iter().map(String::len).sum::<usize>()
+        + document
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.len())
+            .sum::<usize>()
         + document.error_lines.len() * 8
 }
 
@@ -196,7 +200,7 @@ pub(crate) fn symbols_view(
     let key = CacheKey {
         namespace: SYMBOLS_NAMESPACE.into(),
         scope: format!("{}\0{path}", env!("CARGO_PKG_VERSION")),
-        resource: crate::digest::sha256(source.as_bytes()),
+        resource: octocode_engine::digest::sha256(source.as_bytes()),
     };
     if let Some(hit) = store.get(&key) {
         return hit.value;

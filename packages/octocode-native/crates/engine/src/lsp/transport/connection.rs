@@ -26,7 +26,7 @@
 
 use super::codec::{Frame, encode_frame, read_frame};
 use super::partial::PartialResultStore;
-use super::patience::{ServerActivity, WaitBudget};
+use super::patience::{CpuClock, ServerActivity, WaitBudget};
 use super::progress::ProgressTracker;
 use super::push_diagnostics::PushDiagnosticsStore;
 use super::server_requests::{ClientRequestContext, client_response_for};
@@ -57,9 +57,6 @@ const RETIRE_AFTER_TIMEOUTS: u32 = 2;
 /// How long the reader may wait for writer-queue space to reply to a server
 /// request before declaring the server wedged (it is not reading stdin).
 const REPLY_ENQUEUE_DEADLINE_MS: u64 = 1_000;
-
-/// Cumulative CPU time of the server's process tree; `None` when unreadable.
-pub(crate) type CpuClock = Arc<dyn Fn() -> Option<Duration> + Send + Sync>;
 
 type PendingSender = oneshot::Sender<Result<Value>>;
 

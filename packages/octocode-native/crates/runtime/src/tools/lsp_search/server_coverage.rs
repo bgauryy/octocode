@@ -23,7 +23,9 @@ use super::failure::{
 use super::inferred_project::is_incoming;
 use super::scope::Scope;
 use super::{LspSearchQuery, Op};
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::tools::lsp_search::lsp_search_query;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -57,7 +59,7 @@ pub(super) fn annotate(
     server: Server<'_>,
     scope: &Scope,
 ) {
-    if !is_incoming(query.operation())
+    if !is_incoming(lsp_search_query::operation(query))
         || !row.is_object()
         || row.get("status").and_then(Value::as_str) == Some("error")
         || flagged_with(row, &FILE_LEVEL_REASONS)
@@ -72,7 +74,7 @@ pub(super) fn annotate(
         Some("rust") => {
             // A workspace symbol is a declaration the server found: no use
             // of it is missing.
-            if query.op() != Op::WorkspaceSymbol {
+            if lsp_search_query::op(query) != Op::WorkspaceSymbol {
                 annotate_includes(row, query, server.anchor, scope);
             }
             annotate_rust(row, query, server.root, scope);
@@ -107,15 +109,15 @@ pub(super) fn workspace_symbols(row: &mut Value, anchor: Option<&str>, capped_at
             "tsgo returns at most {limit} workspace symbols; this list is capped by the server: narrow symbolName, or route .ts to typescript-language-server in lsp-servers.json."
         ));
     }
-    crate::tools::paging::mark_partial(row, "workspaceSymbolCoverageUnknown", &warnings);
+    crate::response::paging::mark_partial(row, "workspaceSymbolCoverageUnknown", &warnings);
     if let Some(path) = anchor {
         // This is an optional lead, moved to hints by continuation shaping;
         // it is not a page that recovers an exhaustive workspace result.
-        row["next"]["inspectDocumentSymbols"] = crate::tools::result::Continuation::new(
+        row["next"]["inspectDocumentSymbols"] = crate::response::result::Continuation::new(
             ToolId::LspSearch,
             json!({"operation": "documentSymbols", "path": path}),
         )
-        .confidence("medium")
+        .confidence(Confidence::Medium)
         .build();
     }
 }
@@ -208,11 +210,10 @@ fn annotate_includes(row: &mut Value, query: &LspSearchQuery, anchor: &str, scop
 /// the answer), so a checked, complete row reads differently from an
 /// unchecked one. A workspace-symbol row lists declarations, not uses.
 fn record_text_coverage(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
-    if query.op() == Op::WorkspaceSymbol {
+    if lsp_search_query::op(query) == Op::WorkspaceSymbol {
         return;
     }
-    let Some(files) = query
-        .symbol_name()
+    let Some(files) = lsp_search_query::symbol_name(query)
         .filter(|name| !name.trim().is_empty())
         .and_then(|name| scope.text_only_files(name))
     else {
@@ -226,19 +227,19 @@ fn record_text_coverage(row: &mut Value, query: &LspSearchQuery, scope: &Scope) 
 
 /// [`flag_partial`] with `note`, prose that reads the same on every page and
 /// row of the answer: a static notice, said once, on the first page
-/// ([`crate::tools::paging::push_notice`]), and only when the row is flagged.
+/// ([`crate::response::paging::push_notice`]), and only when the row is flagged.
 fn flag_noted(row: &mut Value, query: &LspSearchQuery, reason: &str, note: String, scope: &Scope) {
     flag_partial(row, query, reason, None, scope);
     if lists_reason(row, reason) {
-        crate::tools::paging::push_notice(row, note);
+        crate::response::paging::push_notice(row, note);
     }
 }
 
 /// Whether `query` continues an earlier page of its answer
-/// ([`crate::tools::paging::continues_a_page`]): a rerun lead is offered on
+/// ([`crate::response::paging::continues_a_page`]): a rerun lead is offered on
 /// the first page only.
 fn continues_a_page(query: &LspSearchQuery) -> bool {
-    crate::tools::paging::continues_a_page(&query.to_row())
+    crate::response::paging::continues_a_page(&lsp_search_query::to_row(query))
 }
 
 /// Whether `row` is flagged with `reason`.
@@ -265,8 +266,9 @@ pub(super) fn package_includes(
 }
 
 fn annotate_rust(row: &mut Value, query: &LspSearchQuery, server_root: &str, scope: &Scope) {
-    let context = query.rust_context().unwrap_or_else(|| json!({}));
-    let Some(name) = query.symbol_name().filter(|name| !name.trim().is_empty()) else {
+    let context = lsp_search_query::rust_context(query).unwrap_or_else(|| json!({}));
+    let Some(name) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
+    else {
         return;
     };
     if context["features"] == "all" {
@@ -304,7 +306,7 @@ fn annotate_rust(row: &mut Value, query: &LspSearchQuery, server_root: &str, sco
     if continues_a_page(query) {
         return;
     }
-    let mut rerun = query.to_row();
+    let mut rerun = lsp_search_query::to_row(query);
     if let Some(fields) = rerun.as_object_mut() {
         fields
             .retain(|key, value| !value.is_null() && !matches!(key.as_str(), "page" | "snapshot"));
@@ -313,8 +315,8 @@ fn annotate_rust(row: &mut Value, query: &LspSearchQuery, server_root: &str, sco
     context["features"] = json!("all");
     rerun["rustContext"] = context;
     row["next"]["expandFeatures"] =
-        crate::tools::result::Continuation::new(ToolId::LspSearch, rerun)
-            .confidence("medium")
+        crate::response::result::Continuation::new(ToolId::LspSearch, rerun)
+            .confidence(Confidence::Medium)
             .build();
 }
 
@@ -390,7 +392,7 @@ impl GateCount {
 /// `root`, so it keys the memo.
 fn gated_files_mentioning(scope: &Scope, root: &str, name: &str, gate: Gate) -> GateCount {
     let key = scope.fingerprint().map(|fingerprint| {
-        crate::digest::sha256(
+        octocode_engine::digest::sha256(
             format!("{root}\u{0}{name}\u{0}{gate:?}\u{0}{fingerprint}").as_bytes(),
         )
     });
@@ -703,7 +705,11 @@ mod tests {
         let policy = crate::tools::test_support::workspace_policy(root);
         let scope = Scope::new(root_text.clone(), vec!["*.rs".into()]);
         scope
-            .text_files("include_diff", &policy, &crate::tools::cancel::NeverCancel)
+            .text_files(
+                "include_diff",
+                &policy,
+                &crate::execution::cancel::NeverCancel,
+            )
             .await
             .expect("scan");
         scope.answer(answered.iter().map(|file| {
@@ -770,7 +776,11 @@ mod tests {
             );
             async move {
                 scope
-                    .text_files("include_diff", policy, &crate::tools::cancel::NeverCancel)
+                    .text_files(
+                        "include_diff",
+                        policy,
+                        &crate::execution::cancel::NeverCancel,
+                    )
                     .await
                     .expect("scan");
                 scope.answer([lib_path.clone()]);
@@ -845,7 +855,11 @@ mod tests {
                 (support_path.clone(), root_text.clone(), &policy);
             async move {
                 scope
-                    .text_files("frozen_graph", policy, &crate::tools::cancel::NeverCancel)
+                    .text_files(
+                        "frozen_graph",
+                        policy,
+                        &crate::execution::cancel::NeverCancel,
+                    )
                     .await
                     .expect("scan");
                 scope.answer(answered);

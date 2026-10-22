@@ -40,13 +40,6 @@ fn server_spec(args: &InstallArgs) -> ServerSpec {
     spec
 }
 
-/// The entry `install` writes, held to the module promise: never `octo mcp`.
-fn install_entry(shape: EntryShape, spec: &ServerSpec) -> Result<Value, String> {
-    let server = mcp_manage::server_entry(shape, spec);
-    reject_octo_mcp(shape, &server)?;
-    Ok(server)
-}
-
 /// Which of a client's config files an entry goes in.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, clap::ValueEnum)]
 pub(super) enum Scope {
@@ -425,7 +418,7 @@ fn install(target: &Target, args: &InstallArgs) -> Result<u8, String> {
     if args.remove {
         return remove(target, original.as_deref(), &root, args);
     }
-    let server = install_entry(client.shape, &server_spec(args))?;
+    let server = mcp_manage::server_entry(client.shape, &server_spec(args));
     let existing = Existing::of(mcp_manage::entry_at(client, &root, keys), &server);
     if existing != Existing::Absent && !args.force && !args.dry_run {
         return already_installed(config_path, args, existing);
@@ -604,25 +597,6 @@ fn command_line(shape: EntryShape, server: &Value) -> Option<(&str, &[Value])> {
     }
 }
 
-/// Refuse an entry that would run the native host (`octo`/`octocode`) or an
-/// `mcp` subcommand instead of the npm server.
-fn reject_octo_mcp(shape: EntryShape, server: &Value) -> Result<(), String> {
-    let Some((command, args)) = command_line(shape, server) else {
-        return Err("refusing to write an MCP entry without a command".into());
-    };
-    let runner = Path::new(command)
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or(command);
-    if runner == "octo" || runner == "octocode" {
-        return Err("refusing to write a native octo/octocode MCP command".into());
-    }
-    if args.iter().any(|value| value.as_str() == Some("mcp")) {
-        return Err("refusing to write args containing mcp".into());
-    }
-    Ok(())
-}
-
 /// Whether the client config already carries an octocode entry, and whether it
 /// matches the entry this install would write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -737,9 +711,9 @@ fn render_fixture(
 
 #[cfg(test)]
 mod tests {
-    use super::{Existing, install_entry, reject_octo_mcp, render_fixture, server_spec};
+    use super::{Existing, command_line, render_fixture, server_spec};
     use crate::cli::mcp_clients::{self, ClientSpec, ConfigFormat, EntryShape};
-    use crate::cli::mcp_manage::ServerSpec;
+    use crate::cli::mcp_manage::{Method, ServerSpec, server_entry};
     use serde_json::json;
 
     fn spec(id: &str) -> &'static ClientSpec {
@@ -835,8 +809,7 @@ mod tests {
 
     #[test]
     fn server_is_npx_latest_with_yes_flag() {
-        let server =
-            install_entry(EntryShape::Stdio, &server_spec(&default_args())).expect("allowed");
+        let server = server_entry(EntryShape::Stdio, &server_spec(&default_args()));
         assert_eq!(server["command"], "npx");
         assert_eq!(server["args"], json!(["-y", "octocode-mcp@latest"]));
         assert_ne!(spec("codex").format, ConfigFormat::Json);
@@ -848,37 +821,36 @@ mod tests {
             method: crate::cli::mcp_manage::Method::Bunx,
             ..default_args()
         });
-        let server = install_entry(EntryShape::Stdio, &spec).expect("allowed");
+        let server = server_entry(EntryShape::Stdio, &spec);
         assert_eq!(server["command"], "bunx");
         assert_eq!(server["args"], json!(["octocode-mcp@latest"]));
     }
 
-    /// The install path itself refuses a native-host entry, in every shape.
+    /// The module promise, held by the entry's inputs: every runner
+    /// (`--method`) in every client's shape starts the npm server through
+    /// that runner, never the native host (`octo`/`octocode`) or an `mcp`
+    /// subcommand. Only the env varies at run time, so this is checked here,
+    /// not on every install.
     #[test]
-    fn install_refuses_octo_mcp_entries() {
-        for (command, args) in [
-            ("octo", &["mcp"][..]),
-            ("/usr/local/bin/octocode", &[][..]),
-            ("npx", &["mcp"][..]),
-        ] {
-            let native = ServerSpec {
-                command,
-                args,
-                env: Default::default(),
-            };
-            for shape in [
-                EntryShape::Stdio,
-                EntryShape::Untyped,
-                EntryShape::Opencode,
-                EntryShape::Goose,
-            ] {
+    fn every_method_in_every_shape_runs_the_npm_server() {
+        for &method in <Method as clap::ValueEnum>::value_variants() {
+            for client in &mcp_clients::CLIENTS {
+                let server = server_entry(client.shape, &ServerSpec::new(method));
+                let (command, args) =
+                    command_line(client.shape, &server).expect("an entry has a command line");
+                let context = format!("{} {method:?} {server}", client.id);
+                assert_eq!(Method::of_command(command), Some(method), "{context}");
                 assert!(
-                    install_entry(shape, &native).is_err(),
-                    "{shape:?} {command} {args:?}"
+                    args.iter().all(|arg| arg.as_str() != Some("mcp")),
+                    "{context}"
+                );
+                assert!(
+                    args.iter()
+                        .any(|arg| arg.as_str() == Some("octocode-mcp@latest")),
+                    "{context}"
                 );
             }
         }
-        assert!(reject_octo_mcp(EntryShape::Stdio, &json!({"args": []})).is_err());
     }
 
     #[test]

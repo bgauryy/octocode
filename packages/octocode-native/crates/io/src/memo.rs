@@ -208,20 +208,6 @@ impl<K: Ord + Clone, V, M: Clone> Memo<K, V, M> {
         self.lock().remove(key);
     }
 
-    /// Drop every entry `keep` rejects.
-    pub fn retain(&self, mut keep: impl FnMut(&K, &V) -> bool) {
-        let mut inner = self.lock();
-        let dropped = inner
-            .entries
-            .iter()
-            .filter(|(key, entry)| !keep(key, &entry.value))
-            .map(|(key, _)| key.clone())
-            .collect::<Vec<_>>();
-        for key in dropped {
-            inner.remove(&key);
-        }
-    }
-
     pub fn clear(&self) {
         let mut inner = self.lock();
         inner.entries.clear();
@@ -374,7 +360,7 @@ mod tests {
         assert!(memo.inner.is_poisoned());
         assert_eq!(memo.get(&1).map(|hit| *hit.value), Some(1));
         memo.insert(2, 2, 1, None);
-        memo.retain(|key, _| *key == 2);
+        memo.remove(&1);
         assert_eq!(memo.contents().0, vec![2]);
     }
 }

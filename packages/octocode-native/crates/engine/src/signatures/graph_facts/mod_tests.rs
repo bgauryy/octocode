@@ -43,44 +43,6 @@ fn reference_count(source: &str, path: &str, name: &str) -> u32 {
         .count
 }
 
-/// `used_in` of the Rust `use` binding `local` in `source`.
-fn rust_import_users(source: &str, local: &str) -> Option<Vec<String>> {
-    let facts = extract_graph_facts_with_metadata(source, "src/app.rs")
-        .expect("graph facts")
-        .facts;
-    let short = |id: &String| id.split(['#', '@']).nth(1).unwrap_or(id).to_owned();
-    facts
-        .imports
-        .into_iter()
-        .find(|import| import.local_name.as_deref() == Some(local))
-        .expect("import")
-        .used_in
-        .map(|users| users.iter().map(short).collect())
-}
-
-#[test]
-fn rust_use_bindings_record_their_enclosing_declarations() {
-    let source = "use crate::util::{run, Shape, Tr, other as alias};\npub use crate::util::exported;\nfn live() { run(); let _: Shape; println!(\"{alias}\"); }\nfn dead() { run(); }\nstatic S: fn() = run;\nimpl Fmt for X { fn go() { alias(); } }\n#[test]\nfn t() { Shape; }\n";
-    assert_eq!(
-        rust_import_users(source, "run"),
-        Some(vec!["S".into(), "dead".into(), "live".into()])
-    );
-    // Test items count as module-level code.
-    assert_eq!(
-        rust_import_users(source, "Shape"),
-        Some(vec!["live".into(), "module".into()])
-    );
-    // The alias is named by an inline format capture and a trait impl.
-    assert_eq!(
-        rust_import_users(source, "alias"),
-        Some(vec!["live".into(), "module".into()])
-    );
-    // Never named (a trait in scope for its methods) or a `pub use`
-    // re-export: unknown.
-    assert_eq!(rust_import_users(source, "Tr"), None);
-    assert_eq!(rust_import_users(source, "exported"), None);
-}
-
 #[test]
 fn rust_paths_outside_calls_and_uses_are_facts() {
     let source = "use crate::util::run;\nconst A: u32 = crate::limits::MAX;\nfn f() -> crate::types::Out {\n    let g = crate::rules::globs;\n    crate::calls::direct();\n    json!({\"x\": crate::macros::recovery(a), \"y\": $crate::m::Z});\n    let _ = Self::new;\n    mod inner { fn h() { super::super::up::X; } }\n}\n";
@@ -373,9 +335,7 @@ fn use_heavy_rust_file_keeps_its_imports_inside_the_deadline() {
         crate::test_cpu::cpu_time_of(|| facts_with_load_proof_deadline(&source, "src/lib.rs"));
     let diagnostics = value["diagnostics"].as_array().unwrap();
     assert!(
-        !diagnostics
-            .iter()
-            .any(|d| d.as_str().unwrap().contains("deadlineExceeded")),
+        !codes(&value).iter().any(|code| code.ends_with("Deadline")),
         "{diagnostics:?}"
     );
     let imports = value["imports"].as_array().unwrap();
@@ -417,11 +377,7 @@ fn rust_item_macro_bodies_are_read_as_items_and_expression_macros_are_not_gaps()
             .any(|i| i["specifier"] == "crate::runtime::Handle")
     );
     assert!(
-        value["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|d| !d.as_str().unwrap().contains("macro expansion")),
+        !codes(&value).contains(&"rustMacroExpansion".to_owned()),
         "{}",
         value["diagnostics"]
     );
@@ -446,13 +402,7 @@ fn rust_nonconventional_modules_and_macros_remain_explicitly_unsupported() {
             .any(|item| item["specifier"] == "super::Thing"
                 && item["moduleScope"] == serde_json::json!(["inline"]))
     );
-    assert!(
-        value["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item.as_str().unwrap().contains("macro expansion"))
-    );
+    assert!(codes(&value).contains(&"rustMacroExpansion".to_owned()));
 }
 
 #[cfg(feature = "tree-sitter-cpp")]
@@ -510,13 +460,7 @@ fn expired_graph_budget_reports_incomplete_rust_root() {
     let graph: Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(graph["rustRootUnsupported"], true);
     assert_eq!(graph["imports"], serde_json::json!([]));
-    assert!(
-        graph["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|d| d.as_str().unwrap().contains("graph.parse.deadlineExceeded"))
-    );
+    assert!(codes(&graph).contains(&"parseDeadline".to_owned()));
 }
 
 #[test]
@@ -550,13 +494,7 @@ fn deeply_nested_rust_use_groups_do_not_recurse_on_the_native_stack() {
     let graph = facts(&source, "imports.rs");
     assert_eq!(graph["imports"].as_array().unwrap().len(), 1);
     assert_eq!(graph["imports"][0]["specifier"], "std");
-    assert!(
-        !graph["diagnostics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|d| d.as_str().unwrap().contains("parse errors"))
-    );
+    assert!(!codes(&graph).contains(&"recoveredParse".to_owned()));
 }
 
 /// `depth` nested blocks, each calling `s.save()` on a typed local.
@@ -580,9 +518,7 @@ fn deeply_nested_receiver_lookups_stay_inside_the_deadline() {
     });
     let diagnostics = graph["diagnostics"].as_array().unwrap();
     assert!(
-        !diagnostics
-            .iter()
-            .any(|d| d.as_str().unwrap().contains("deadlineExceeded")),
+        !codes(&graph).iter().any(|code| code.ends_with("Deadline")),
         "{diagnostics:?}"
     );
     let saves = graph["calls"]
@@ -645,9 +581,10 @@ fn deeply_nested_graph_traversal_preserves_calls() {
     let graph = facts(&source, "deep.rs");
     assert_eq!(
         graph["diagnostics"],
-        serde_json::json!([
-            "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof"
-        ])
+        serde_json::json!([{
+            "code": "syntaxOnly",
+            "message": "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof"
+        }])
     );
     let calls = graph["calls"].as_array().unwrap();
     assert_eq!(calls.len(), 2);
@@ -700,7 +637,10 @@ pub fn distance(point: Point) -> f64 {
 }
 "#;
     let graph = facts(src, "geo.rs");
-    assert_eq!(graph["schemaVersion"], 1);
+    assert_eq!(
+        graph["schemaVersion"],
+        crate::signatures::GRAPH_FACTS_SCHEMA_VERSION
+    );
     assert!(
         graph
             .get("language")
@@ -1070,25 +1010,19 @@ fn csharp_heritage_treats_the_first_class_base_as_extends() {
 }
 
 #[test]
-fn heritage_edges_ingest_as_unresolved_targets() {
+fn heritage_edges_name_their_unresolved_base() {
     let extraction =
         extract_graph_facts_with_metadata("class A(Base):\n    pass\n", "m.py").expect("facts");
-    let mut builder = crate::graph::CodeGraphBuilder::new("/fixture", 1);
-    builder
-        .ingest_facts("m.py", "digest", &extraction.facts)
-        .expect("ingest");
-    let graph = builder.finish();
-    let extends = graph
+    let extends = extraction
+        .facts
         .edges
-        .values()
-        .find(|edge| edge.kind == crate::graph::EdgeKind::Syntactic("extends".to_owned()))
+        .iter()
+        .find(|edge| edge.relation == "extends")
         .expect("extends edge");
-    assert!(extends.from.0.starts_with("symbol:m.py#declaration:"));
-    assert_eq!(extends.to.0, "occurrence:m.py#Base");
-    assert_eq!(
-        graph.nodes[&extends.to].kind,
-        crate::graph::NodeKind::UnresolvedTarget
-    );
+    let class = &extraction.facts.declarations[0];
+    assert_eq!(class.name, "A");
+    assert_eq!(extends.from, class.id);
+    assert_eq!(extends.to, "Base");
 }
 
 #[test]
@@ -1203,7 +1137,7 @@ fn recovered_parse_reports_error_line_spans() {
         facts
             .diagnostics
             .iter()
-            .any(|note| note.starts_with("tree-sitter recovered")),
+            .any(|note| note.code == crate::graph::GraphFactCode::RecoveredParse),
         "{facts:?}"
     );
     assert!(!facts.error_lines.is_empty(), "{facts:?}");
@@ -1288,33 +1222,43 @@ fn rust_macro_body_members_nest_under_their_container_in_source_order() {
     assert_eq!(by_name("top")["kind"], "function");
 }
 
+/// Every diagnostic carries its code; a module's attribute note names its
+/// line in a field, not in its text.
 #[test]
-fn graph_fact_notes_classify_by_kind() {
-    let graph = facts(
-        "#![cfg_attr(test, allow(x))]\n#[cfg(test)]\nmod t;\nfn f( {\n",
-        "lib.rs",
-    );
-    let kinds = graph["diagnostics"]
+fn graph_fact_diagnostics_carry_typed_codes() {
+    let broken = facts("fn f( {\n", "lib.rs");
+    assert_eq!(codes(&broken), ["syntaxOnly", "recoveredParse"], "{broken}");
+    let graph = facts("#![custom]\n#[custom]\nmod t;\n", "lib.rs");
+    let module = graph["diagnostics"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|note| GraphFactNoteKind::of(note.as_str().unwrap()))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        kinds.first(),
-        Some(&Some(GraphFactNoteKind::SyntaxOnly)),
-        "{graph}"
-    );
+        .find(|note| note["code"] == "rustModuleAttributes")
+        .unwrap_or_else(|| panic!("{graph}"));
+    assert_eq!(module["line"], 3, "{graph}");
     assert!(
-        kinds.contains(&Some(GraphFactNoteKind::RecoveredParse)),
+        !module["message"].as_str().unwrap().contains("line"),
         "{graph}"
     );
-    assert!(GraphFactNoteKind::RustModuleAttributes.is_linking_only());
-    assert!(!GraphFactNoteKind::RecoveredParse.is_linking_only());
     assert_eq!(
-        GraphFactNoteKind::of("graph.parse.deadlineExceeded: graph parsing was interrupted"),
-        None
+        codes(&graph),
+        ["syntaxOnly", "rustCrateAttributes", "rustModuleAttributes"],
+        "{graph}"
     );
+    use crate::graph::GraphFactCode;
+    assert!(GraphFactCode::RustModuleAttributes.is_linking_only());
+    assert!(!GraphFactCode::RecoveredParse.is_linking_only());
+    assert!(!GraphFactCode::TraversalDeadline.is_linking_only());
+}
+
+/// The code of each diagnostic of a facts document, in order.
+fn codes(facts: &Value) -> Vec<String> {
+    facts["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["code"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 /// Only plain `pub` exports a Rust item; a restricted visibility keeps it

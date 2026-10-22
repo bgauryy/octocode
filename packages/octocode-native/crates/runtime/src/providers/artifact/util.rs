@@ -1,4 +1,10 @@
-use super::{ArtifactError, ArtifactType};
+use super::http::{JSON, RegistryClient};
+use super::{
+    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
+    ArtifactType, TerminalLimit,
+};
+use crate::providers::artifact::types::artifact_search_query;
+use crate::providers::artifact::types::artifact_type;
 use serde_json::{Map, Value};
 use url::Url;
 
@@ -210,7 +216,7 @@ pub(crate) fn invalid(artifact_type: ArtifactType) -> ArtifactError {
         "providerError",
         format!(
             "{} returned an invalid registry response.",
-            artifact_type.as_str()
+            artifact_type::as_str(artifact_type)
         ),
     )
 }
@@ -247,10 +253,7 @@ pub(crate) fn github_slug(link: &str) -> Option<(String, String)> {
 /// repository URL. The ref is dropped: refs may contain slashes, and URL refs
 /// are often stale; only viewReleaseSource pins the registry's source ref.
 pub(crate) fn github_repo_dir(url: &str) -> Option<String> {
-    let rest = url.split_once("github.com/")?.1;
-    let rest = rest.split(['#', '?']).next()?;
-    let mut parts = rest.split('/').filter(|part| !part.is_empty());
-    let (_owner, _repo, kind, _ref) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    let (kind, _ref, parts) = github_page(url)?;
     let mut segments: Vec<&str> = parts.collect();
     match kind {
         "tree" => {}
@@ -266,17 +269,127 @@ pub(crate) fn github_repo_dir(url: &str) -> Option<String> {
 /// `version`'s release (`v8.1.4` for 8.1.4) and nothing after it: a branch
 /// or a monorepo directory URL is not release evidence.
 pub(crate) fn release_ref_in(url: &str, version: &str) -> Option<String> {
-    let rest = url.split_once("github.com/")?.1;
-    let rest = rest.split(['#', '?']).next()?;
-    let mut parts = rest.split('/').filter(|part| !part.is_empty());
-    let (_owner, _repo, kind, reference) =
-        (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    let (kind, reference, mut parts) = github_page(url)?;
     let tagged = !version.is_empty()
         && reference
             .strip_suffix(version)
             .is_some_and(|prefix| prefix.is_empty() || prefix.ends_with(['v', '-', '/', '@']));
     (matches!(kind, "tree" | "blob") && parts.next().is_none() && tagged)
         .then(|| reference.to_owned())
+}
+
+/// The `<kind>` and `<ref>` of a `github.com/<owner>/<repo>/<kind>/<ref>/…`
+/// URL, and the path segments after them; the query and fragment are dropped.
+fn github_page(url: &str) -> Option<(&str, &str, impl Iterator<Item = &str>)> {
+    let rest = url.split_once("github.com/")?.1;
+    let rest = rest.split(['#', '?']).next()?;
+    let mut parts = rest.split('/').filter(|part| !part.is_empty());
+    let (_owner, _repo) = (parts.next()?, parts.next()?);
+    Some((parts.next()?, parts.next()?, parts))
+}
+
+/// A `q`/`page`/`per_page` keyword search URL on `base`.
+pub(crate) fn keyword_url(
+    base: &str,
+    query: &ArtifactSearchQuery,
+    page: u64,
+    size: usize,
+) -> Result<url::Url, ArtifactError> {
+    endpoint(
+        base,
+        &[
+            ("q", Some(artifact_search_query::terms(query))),
+            ("page", Some(page.to_string())),
+            ("per_page", Some(size.to_string())),
+        ],
+    )
+}
+
+/// A keyword search response object and its rows under `key`, each mapped
+/// by `item`.
+pub(crate) async fn keyword_rows(
+    client: &RegistryClient<'_>,
+    artifact_type: ArtifactType,
+    url: url::Url,
+    key: &str,
+    item: fn(&serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError>,
+) -> Result<(serde_json::Map<String, Value>, Vec<ArtifactItem>), ArtifactError> {
+    let invalid = || invalid(artifact_type);
+    let Some(Value::Object(data)) = client
+        .json(artifact_type, url, false, None, None, JSON)
+        .await?
+    else {
+        return Err(invalid());
+    };
+    let artifacts = rows(data.get(key).ok_or_else(invalid)?, artifact_type)?
+        .iter()
+        .map(|row| item(object_for(row, artifact_type)?))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((data, artifacts))
+}
+
+pub(crate) fn paged(
+    artifacts: Vec<ArtifactItem>,
+    total: Option<u64>,
+    page: u64,
+    size: usize,
+    artifact_type: ArtifactType,
+) -> Result<ArtifactProviderPage, ArtifactError> {
+    let more = total
+        .map(|count| page.saturating_mul(size as u64) < count)
+        .unwrap_or(artifacts.len() == size);
+    let terminal_limit = (more && artifacts.is_empty()).then(|| {
+        TerminalLimit::short_page(if artifact_type == ArtifactType::Crates {
+            "crates.io"
+        } else {
+            artifact_type::as_str(artifact_type)
+        })
+    });
+    Ok(ArtifactProviderPage {
+        next_state: (more && !artifacts.is_empty()).then(|| ArtifactProviderState {
+            page: Some(page + 1),
+            ..Default::default()
+        }),
+        artifacts,
+        total,
+        terminal_limit,
+        registry: None,
+    })
+}
+
+#[cfg(test)]
+mod github_page_tests {
+    use super::{github_repo_dir, release_ref_in};
+
+    /// Both readers of a `/tree/<ref>` or `/blob/<ref>` URL drop its query
+    /// and fragment and read nothing from another page kind.
+    #[test]
+    fn tree_and_blob_urls_name_a_directory_or_a_release_ref() {
+        let dir = |url| github_repo_dir(url);
+        assert_eq!(
+            dir("https://github.com/o/r/tree/main/a/b?x=1").as_deref(),
+            Some("a/b")
+        );
+        assert_eq!(
+            dir("https://github.com/o/r/blob/main/a/README.md#top").as_deref(),
+            Some("a")
+        );
+        assert_eq!(dir("https://github.com/o/r/blob/main/README.md"), None);
+        assert_eq!(dir("https://github.com/o/r/issues/1/x"), None);
+        assert_eq!(dir("https://github.com/o/r"), None);
+        let release = |url| release_ref_in(url, "1.2.0");
+        assert_eq!(
+            release("https://github.com/o/r/tree/v1.2.0#x").as_deref(),
+            Some("v1.2.0")
+        );
+        assert_eq!(
+            release("https://github.com/o/r/blob/pkg@1.2.0").as_deref(),
+            Some("pkg@1.2.0")
+        );
+        assert_eq!(release("https://github.com/o/r/tree/v1.2.0/docs"), None);
+        assert_eq!(release("https://github.com/o/r/tree/main"), None);
+        assert_eq!(release("https://github.com/o/r/releases/v1.2.0"), None);
+    }
 }
 
 #[cfg(test)]

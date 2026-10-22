@@ -32,11 +32,11 @@
 //! interfaces (collected as [`GraphHeritage`]).
 //!
 //! The walk stops descending once the running deep-stack job is cancelled
-//! (see [`super::deep_stack::job_cancelled`]).
+//! (see [`crate::deep_stack::job_cancelled`]).
 
-use super::deep_stack::job_cancelled;
 use super::js_oxc_receiver::ReceiverScopes;
 use super::js_oxc_shared::{SpanPositions, property_key_name};
+use crate::deep_stack::job_cancelled;
 use crate::graph::{GraphFactCall, GraphPosition};
 use oxc_ast::ast::*;
 use oxc_ast_visit::{VisitJs, walk_js};

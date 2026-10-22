@@ -2,15 +2,14 @@
 //! selected files may supply ordinary read leads. GitHub is mocked; the judge
 //! records the actual sanitized state and makes deterministic decisions.
 use super::{GhSearchCodeQuery, execute};
-use crate::runtime::{ExecutionContext, SelectionLimits};
+use crate::id::ToolId;
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
-use crate::tools::id::ToolId;
 use crate::tools::selection::{Decision, JudgeCall, Runtime, SelectionJudge, apply_sanitized_rows};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -71,23 +70,11 @@ impl ContentScan for TestRedaction {
 
 fn runtime() -> (Runtime, Recorded) {
     let recorded = Arc::new(Mutex::new(Vec::new()));
-    let runtime = Runtime {
-        limits: SelectionLimits {
-            max_candidates: 64,
-            max_chars: 131_072,
-            timeout: Duration::from_secs(5),
-        },
-        available: true,
-        judge: Arc::new(RecordingJudge(recorded.clone())),
-        handle: tokio::runtime::Handle::current(),
-        context: ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: Instant::now() + Duration::from_secs(30),
-            walk_threads: None,
-            response_window: None,
-            github_credential: None,
-        },
-    };
+    let runtime = crate::tools::test_support::selection_fake::runtime(
+        RecordingJudge(recorded.clone()),
+        tokio::runtime::Handle::current(),
+        Duration::from_secs(5),
+    );
     (runtime, recorded)
 }
 

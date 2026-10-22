@@ -633,6 +633,78 @@ fn files_at_the_walk_ceiling_page_every_listed_row_and_lead_to_narrow() {
     assert!(pages.len() > 1);
 }
 
+/// A window's walk continues by one `continueWalk` at most, on its last page:
+/// a limit cut widens (its query carries `maxEntries`), a time cut resumes
+/// (its query carries `walkOffset`), whatever combination of cuts the window
+/// met.
+#[test]
+fn a_window_offers_at_most_one_walk_continuation() {
+    use super::super::TimeWindow;
+    let ceiling = super::super::max_walk() as usize;
+    let mut seen = std::collections::BTreeSet::new();
+    for limit_cut in [false, true] {
+        for scan_cut in [false, true] {
+            for time_cut in [None, Some("src/a.rs".to_owned())] {
+                for time_window in [
+                    TimeWindow::Whole,
+                    TimeWindow::EndedAtRows,
+                    TimeWindow::SortedPastScanOffset,
+                ] {
+                    for requested in [10, ceiling] {
+                        for total_pages in [1, 2] {
+                            let cut = super::super::Cut {
+                                page: 1,
+                                total_pages,
+                                total: requested,
+                                requested,
+                                available: requested + usize::from(limit_cut),
+                                limit_cut,
+                                scan_cut,
+                                time_cut: time_cut.clone(),
+                                time_window,
+                                walk_position: requested + 5,
+                                walk_offset: 0,
+                                early_exit: false,
+                                total_discovered: requested,
+                                scan_offset: 0,
+                                covered: requested,
+                                ranked: false,
+                                snapshot: "a".repeat(64),
+                            };
+                            let mut out = json!({});
+                            cut.finish(
+                                &mut out,
+                                &json!({"operation":"files","path":"."}),
+                                &mut Vec::new(),
+                            );
+                            let lead = out["next"].get("continueWalk").map(|lead| {
+                                if lead["query"]["queries"][0].get("walkOffset").is_some() {
+                                    "resume"
+                                } else {
+                                    "widen"
+                                }
+                            });
+                            let expected = cut.walk_lead().map(|(_, changes)| {
+                                if changes.get("walkOffset").is_some() {
+                                    "resume"
+                                } else {
+                                    "widen"
+                                }
+                            });
+                            assert_eq!(lead, expected, "{out}");
+                            if total_pages > 1 {
+                                assert!(lead.is_none(), "the window's own pages first: {out}");
+                            }
+                            seen.extend(lead);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(seen.len(), 2, "both continuations are reached: {seen:?}");
+}
+
 /// A sorted listing whose walk stopped at its ceiling knows only a lower
 /// bound of its matches: it says `atLeast` (never an exact
 /// `totalAvailable` of the stop count), and that its sort ranked only the
@@ -679,6 +751,45 @@ fn a_ranked_listing_cut_at_the_walk_ceiling_states_a_lower_bound() {
             warning.contains("this sort ranks only the entries walked first"),
             ranked,
             "{warning}"
+        );
+    }
+}
+
+/// `tree` and `files` lead to the same read over the same rows: one
+/// ranking ([`crate::tools::root_read::read_rank`]), filtered or not; an
+/// outline-able file no tier names still leads when nothing better is
+/// listed.
+#[test]
+fn tree_and_files_lead_to_the_same_read() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join("src")).expect("src");
+    std::fs::write(root.0.join("src/util.rs"), "fn u() {}\n").expect("util");
+    std::fs::write(root.0.join("src/main.rs"), "fn main() {}\n").expect("main");
+    std::fs::create_dir(root.0.join("docs")).expect("docs");
+    std::fs::write(root.0.join("docs/guide.md"), "# guide\n").expect("guide");
+    let read = |query: Value| {
+        let out = run(&root.0, query.clone()).expect("listing");
+        out["next"]["read"]["query"]["queries"][0]["path"]
+            .as_str()
+            .map(|path| path.rsplit('/').next().unwrap_or(path).to_owned())
+    };
+    for extra in [json!({}), json!({"extensions":["rs"]})] {
+        let mut leads = Vec::new();
+        for operation in ["tree", "files"] {
+            let mut query = json!({"operation":operation,"path":root.0.join("src")});
+            query
+                .as_object_mut()
+                .expect("query")
+                .extend(extra.as_object().expect("extra").clone());
+            leads.push(read(query));
+        }
+        assert_eq!(leads, vec![Some("main.rs".to_owned()); 2], "{extra}");
+    }
+    for operation in ["tree", "files"] {
+        assert_eq!(
+            read(json!({"operation":operation,"path":root.0.join("docs")})),
+            Some("guide.md".to_owned()),
+            "{operation}"
         );
     }
 }

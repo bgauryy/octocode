@@ -1,7 +1,7 @@
 //! Public clasify end to end: JEV questions over a literal state or a source
 //! captured through the authorized readers, answered by a mock provider.
 
-use crate::support::{Run as _, Workspace, clasify_runtime, provider_env};
+use crate::support::{Run as _, Workspace, clasify_runtime, github_api, provider_env};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -82,7 +82,7 @@ async fn provider(expected: u64) -> MockServer {
 }
 
 /// Provider request bodies, in arrival order.
-async fn sent(server: &MockServer) -> Vec<Value> {
+pub(crate) async fn sent(server: &MockServer) -> Vec<Value> {
     server
         .received_requests()
         .await
@@ -106,7 +106,11 @@ fn state_row() -> Value {
     })
 }
 
-async fn clasify(runtime: &octocode_native::runtime::ToolRuntime, rows: Vec<Value>) -> Value {
+/// One clasify call over `rows`: its structured `{"queries": [...]}` result.
+pub(crate) async fn clasify(
+    runtime: &octocode_native::runtime::ToolRuntime,
+    rows: Vec<Value>,
+) -> Value {
     runtime
         .run(
             "clasify-test".into(),
@@ -246,10 +250,11 @@ async fn a_state_row_sends_the_questions_unchanged_and_returns_provider_answers(
 async fn a_row_model_and_the_configured_model_reach_the_provider() {
     let server = provider(2).await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&provider_env(
+    let runtime = clasify_runtime(
+        &workspace,
         &server,
         &[("OCTOCODE_CLASSIFICATION_MODEL", "jev-1.13.0".into())],
-    ));
+    );
     let mut pinned = state_row();
     pinned["id"] = json!("pinned");
     pinned["model"] = json!("jev-1.14.0");
@@ -311,14 +316,14 @@ async fn identical_rows_in_one_call_share_one_provider_request() {
 async fn persistent_judgments_serve_a_fresh_runtime_and_memory_mode_does_not() {
     let server = provider(3).await;
     let workspace = Workspace::new();
-    let env = |mode: &str| provider_env(&server, &[("OCTOCODE_STORAGE_MODE", mode.to_owned())]);
+    let env = |mode: &str| [("OCTOCODE_STORAGE_MODE", mode.to_owned())];
     for (mode, replayed) in [
         ("persistent", None),
         ("persistent", Some(true)),
         ("memory", None),
         ("memory", None),
     ] {
-        let runtime = workspace.runtime(&env(mode));
+        let runtime = clasify_runtime(&workspace, &server, &env(mode));
         let mut row = state_row();
         row["state"] = json!(format!(
             "judged under {}",
@@ -540,10 +545,7 @@ async fn a_github_source_reads_its_requested_ref_and_pins_the_lead_to_that_commi
             .await;
     }
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&provider_env(
-        &provider,
-        &[("GITHUB_API_URL", format!("{}/api/v3", github.uri()))],
-    ));
+    let runtime = clasify_runtime(&workspace, &provider, &github_api(&github));
     let row = |reference: &str| {
         json!({"id":reference,"source":{"tool":"ghGetFileContent","query":{
             "owner":"a","repo":"b","path":"src/lib.rs","ref":reference,"fullContent":true}},
@@ -826,8 +828,8 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
         "UNKNOWN_SELECTION_SENTINEL cancellation removes a queued request.\n",
     );
     let read = |timeout: std::time::Duration| {
-        let limits = octocode_native::runtime::RuntimeLimits {
-            selection: octocode_native::runtime::SelectionLimits {
+        let limits = octocode_native::execution::RuntimeLimits {
+            selection: octocode_native::execution::SelectionLimits {
                 timeout,
                 ..crate::support::PROVIDER_LIMITS.selection
             },
@@ -846,8 +848,12 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
     assert_eq!(selection["status"], "partial", "{late}");
     assert_eq!(selection["unknownItems"], 1, "{late}");
     assert_eq!(selection["selectedItems"], 0, "{late}");
+    let warnings = late["warnings"].as_array().expect("warnings");
+    assert_eq!(warnings.len(), 1, "one notice: {late}");
     assert!(
-        late["warnings"].to_string().contains("unfiltered lead"),
+        warnings[0]
+            .as_str()
+            .is_some_and(|notice| notice.contains("next.unfiltered")),
         "{late}"
     );
     assert!(
@@ -877,7 +883,7 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
     // The same read under the constant deadline is judged and selected: the
     // deadline, not the evidence, left it unknown.
     let judged = read(
-        octocode_native::runtime::RuntimeLimits::DEFAULT
+        octocode_native::execution::RuntimeLimits::DEFAULT
             .selection
             .timeout,
     )
@@ -1063,7 +1069,7 @@ async fn a_refused_credential_under_clasify_context_fails_the_row_with_its_error
     assert!(data["next"]["unfiltered"].is_object(), "{data}");
     assert_ne!(
         row.outcome.exit_class(),
-        octocode_native::runtime::ExitClass::Success,
+        octocode_native::response::exit::ExitClass::Success,
         "{data}"
     );
     runtime.close().await;

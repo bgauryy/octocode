@@ -30,7 +30,7 @@ Other non-Unix targets retain the checked-path fallback.
 
 ## Public catalog
 
-The runtime owns all fifteen catalog tools ([tools reference](../../docs/OCTOCODE_TOOLS.md)). Availability is resolved once per runtime from configuration and surface, without a provider startup request (`runtime/availability.rs`). Each tool is `Available` or carries one reason: `Disabled` (the contract parks it on every surface), `ToolList` (`tools.enabled` / `tools.disabled`), `CliOnly`, or `MissingConfiguration` with the unset settings in order. The catalog, admission, clasify context errors, and CLI help and schema all project that one value. GitHub and artifact tools are enabled by default; local tools honor local policy. `ghCloneRepo` and `astTopology` are CLI-only; `ghCloneRepo` also needs persistent storage, and `astTopology` needs beta (`OCTOCODE_BETA` or `local.beta`). Public `clasify` needs beta and a nonblank classification credential (`OCTOCODE_CLASSIFICATION_API` or `classification.api`). Optional `clasifyContext` belongs only to `localFetch`, `localSearch`, `ghGetFileContent`, and `ghSearchCode`, and only when that credential is present, whatever the beta state. The [availability guide](../../docs/OCTOCODE_CLASIFY.md#availability) owns the gate combinations. Public tool input accepts a bare query object or `{ "queries": [...] }`; a bare array is rejected.
+The runtime owns all fourteen catalog tools ([tools reference](../../docs/OCTOCODE_TOOLS.md)). Availability is resolved once per runtime from configuration and surface, without a provider startup request (`execution/availability.rs`). Each tool is `Available` or carries one reason: `Disabled` (the contract parks it on every surface), `ToolList` (`tools.enabled` / `tools.disabled`), `CliOnly`, or `MissingConfiguration` with the unset settings in order. The catalog, admission, clasify context errors, and CLI help and schema all project that one value. GitHub and artifact tools are enabled by default; local tools honor local policy. `ghCloneRepo` is CLI-only and needs persistent storage. Public `clasify` needs beta and a nonblank classification credential (`OCTOCODE_CLASSIFICATION_API` or `classification.api`). Optional `clasifyContext` belongs only to `localFetch`, `localSearch`, `ghGetFileContent`, and `ghSearchCode`, and only when that credential is present, whatever the beta state. The [availability guide](../../docs/OCTOCODE_CLASIFY.md#availability) owns the gate combinations. Public tool input accepts a bare query object or `{ "queries": [...] }`; a bare array is rejected.
 
 `clasify` exposes model discovery, whole-resource evaluation and section assessment. An evaluation row holds keyed `noul`/`choice`/`score` questions over exactly one literal `state` or one `source`, with image assets available for supported primitives. `tools/source_capture` captures a source completely through the same authorized readers a direct call runs (contract validation, input security, the reader's path policy and redaction, output sanitization), following every content page pinned to the first page's file snapshot or commit; a selection over the state limit (`clasify.semanticPolicy.maxStateChars`) fails its row instead of being judged in part. A URL source is fetched over HTTPS under the address policy and saved as a capture file that a `localFetch` lead reads back. The row returns the provider's validated answers unchanged, the model that answered, its usage, and for a source one `read` suggestion in `hints` of exactly what was judged; never a body. `mainGoal` and `reasoning` never reach the provider. A failed row keeps its own error; siblings keep their answers.
 
@@ -44,24 +44,29 @@ Search and fetch never hand off to `clasify`, and emit no automatic reread lead 
 
 ## Ownership
 
+Production imports point one way: `id`/`num` → `contracts` → `policy` → `config`/`security` → `execution` → `response` → `cache` → `providers` → `tools` → `runtime`. A lower module never imports a higher one (`tools/module_boundaries.rs` `LAYERS` enforces it); a callback the runtime gives a tool is a trait the lower layer defines.
+
 | Module | Owns | Must not own |
 |---|---|---|
+| `id` / `num` | Tool identity (`ToolId`, error codes, continuation channels) and saturating integer conversions: leaves every layer imports | Anything above them |
 | `config` | Native configuration acquisition and diagnostics | Tool behavior |
 | `contracts` | Generated schemas/rules, defaults, validation, and canonical contract fingerprint | Provider or tool execution |
-| `runtime` | Admission, dispatch, request context, cancellation, ordered bulk orchestration, and exit classification (execution codes include `responseTooLarge` and `unroutedTool`). `runtime/error.rs` is the one projection of a rejected call: `tool_error_result` builds the `{error, details?, errorCode}` envelope and its one-line text for CLI JSON, the terminal, the warm server and MCP | CLI presentation or MCP SDK types |
+| `execution` | The request kernel: `ExecutionContext`/`ExecutionError`, cooperative cancellation, the runtime's code limits, and per-runtime tool availability | Anything from response, providers, tools or runtime |
+| `runtime` | Admission, dispatch and ordered bulk orchestration (execution codes include `responseTooLarge` and `unroutedTool`). `runtime/error.rs` is the one projection of a rejected call: `tool_error_result` builds the `{error, details?, errorCode}` envelope and its one-line text for CLI JSON, the terminal, the warm server and MCP | CLI presentation or MCP SDK types |
 | `policy` / `security` | Path, content, command, and secret policy; the one error scrubber (`scrub_error_text` / `scrub_error_payload`) shared by the CLI and N-API | Interface-specific behavior |
 | `providers` / `cache` | Remote DTOs (GitHub, artifact registries, classification and its Jev wire validator), HTTP, retries, credentials, endpoint caches | CLI or MCP framing |
 | `tools` | Public operations composed from shared runtime services and engine primitives | Independent config, auth, or response systems |
-| `response` | Contract-checked rows, compression, pagination, continuations, and sanitized rendering | Tool execution |
+| `response` | Contract-checked rows, compression, pagination, continuations, sanitized rendering, and the result vocabulary tools write (`result`, `paging`, `page_windows`, `numbered`, `output`, `outcome`, `exit` classification) | Tool execution |
 | `tools/lsp_search` + `runtime/domain_dispatch` | Runtime composition around the engine language-server pool (pool owned by the runtime engine, dispatched and prewarmed through `domain_dispatch`) | A second lifecycle implementation |
-| `tools/<shared>` (the list and each module's purpose live in `tools/module_boundaries.rs` `SHARED_MODULES`) | Logic two or more tools use: for example `empty_walk` (why an empty local walk is empty and the minimal flags that lift it), `leads` (follow-up queries one tool offers into another), `page_windows` (byte-budget page sizing), `declarations_cache`, `gh_shared` | Tool-specific behavior. The guard rejects new tool-to-tool and shared-to-tool edges; `ALLOWED_EDGES` owns the explicit exceptions and their reasons, and stale exceptions fail the guard. |
+| `tools/<shared>` (the list and each module's purpose live in `tools/module_boundaries.rs` `SHARED_MODULES`) | Logic two or more tools use: for example `empty_walk` (why an empty local walk is empty and the minimal flags that lift it), `leads` (follow-up queries one tool offers into another), `declarations_cache`, `gh_shared`, `source_capture` (its `SourceReader` trait is how clasify reads through the runtime's dispatcher without naming it) | Tool-specific behavior. The guard rejects new tool-to-tool and shared-to-tool edges; `ALLOWED_EDGES` owns the explicit exceptions and their reasons, and stale exceptions fail the guard. |
 | `tools/ast_graph/store` | CLI-only persisted code graph (`npx octocode graph ingest` / `graph query`): immutable snapshots under `<workspace>/.octocode/graph/` | A public tool contract or MCP surface |
 | `crates/runtime-napi` | Host conversion and native runtime lifecycle | An alternate execution path |
 | `crates/cli` | Arguments, human output, and shell exits | Node, N-API, or duplicated tools |
-| `crates/cli/src/cli/serve.rs` | The warm server for read-only CLI tool calls: socket, runtimes per directory and environment on one language-server pool, and its limits ([README](README.md#warm-tool-server)) | Tool behavior |
+| `crates/cli/src/cli/serve/` | The warm server for read-only CLI tool calls: socket, runtimes per directory and environment on one language-server pool, and its limits ([README](README.md#warm-tool-server)) | Tool behavior |
 | `crates/cli/src/cli/mcp_install.rs`, `mcp_manage.rs`, `mcp_clients.rs` | MCP client configuration writers and the client path catalogue | Tool execution |
 | `crates/cli/src/cli/lsp_provision/` | Verified language-server downloads: allowlisted hosts, SHA-256 pinned assets, bounded time and size, streamed through an owner-only spool file under a per-target `flock` | Engine LSP discovery |
 | `crates/io` | Primitives the crates above the engine share ([`crates/io/src/lib.rs`](crates/io/src/lib.rs) lists them) | Tool, provider, or contract logic |
+| `crates/contract-types` | The generated tool wire types, nothing else (a crate of its own so a runtime edit does not re-check them) | Hand-written types, views, or trait impls |
 
 The engine owns shared process containment and teardown (`process`), streaming
 JSON size measurement (`json_size`), and redaction placeholder matching
@@ -76,11 +81,13 @@ Six crates, and these Cargo edges only: `engine` and `io` are leaves;
 `crates/io` owns the primitives the crates above the engine share, among them
 the one in-process memo outside the engine and the keyed single flight around it
 ([`crates/io/src/lib.rs`](crates/io/src/lib.rs) lists them and the engine's own caches).
-`crates/github` owns GitHub protocol and transport services, plus the shared retry
-owner (`retry.rs`: `Backoff`, `classify_status`, `is_retryable_send`,
-`read_bounded`, `retry_after_delay`), `Partition` (an origin scoped by a digest of
-the exact credential; every cache, limiter and rejection set derives from it) and
-`credential_host`, which artifact HTTP and the classification transport reuse.
+`crates/io` also owns the provider-neutral HTTP rules every client shares
+(`budget`: `RequestBudget`; `retry`: `Backoff`, `classify_status`,
+`is_retryable_send`, `read_bounded`, `retry_after_delay`) and Gregorian day math
+(`civil`). `crates/github` owns GitHub protocol and transport services, plus
+`Partition` (an origin scoped by a digest of the exact credential; every cache,
+limiter and rejection set derives from it) and `credential_host`, which artifact
+HTTP and the classification transport reuse.
 GitHub content reads take one flight per `(partition, commit, path)`, and a cached
 body at a resolved commit is served without revalidation; a movable ref stays
 fresh through its own memoized resolution. Runtime keeps configuration,
@@ -214,7 +221,9 @@ Every local tool walks under one policy owned by `engine::search::walk` and one 
 
 `@octocodeai/octocode-core` authors the tool contracts (Zod). `@octocodeai/config` is the only generator: `yarn contracts:regen` (repo root) refreshes core and writes `packages/octocode-config/contract/` — the enforcement contract JSON, parity fixtures, provenance, and generated Rust wire types. Native keeps no copy. `build.rs` embeds those files in place (`contracts::generated`), reruns when they change, and refuses to build when provenance or `tool_types.rs` names a different fingerprint than the contract. A test recomputes the embedded bytes' SHA-256 against provenance, so a hand edit fails without any native-side pin to update.
 
-Tool wire types come from the same run: `contracts::tool_types` `include!`s `contract/tool_types.rs` (typify, from the bundled JSON Schema that also produces the TypeScript types). Ordinary tools parse their validated rows directly into generated `<Tool>Query` types (meta fields included) and build continuations from them. Tool modules may add accessor `impl` blocks for engine integer types, but never a second serde wire type. `tests/contract_field_effects.rs` fails only when the contract gains a field or discriminator value with no declared native effect in `field-effect-coverage.json`.
+Tool wire types come from the same run: the `octocode-contract-types` crate (`crates/contract-types`) `include!`s `contract/tool_types.rs` (typify, from the bundled JSON Schema that also produces the TypeScript types), trimmed to the generated types native source names and what they reach, so native compiles only those. Naming a generated type the file lacks fails to compile until `yarn contracts:regen`; `check:tool-contract` fails when the names native uses changed. Ordinary tools parse their validated rows directly into generated `<Tool>Query` types (meta fields included) and build continuations from them. Tool modules add accessors for engine integer types as plain functions taking the query (`local_fetch_query::start_line(&query)`: Rust allows no `impl` block on another crate's type), but never a second serde wire type. `tests/contract_field_effects.rs` fails only when the contract gains a field or discriminator value with no declared native effect in `field-effect-coverage.json`.
+
+Contract annotations native alone reads stay out of every agent-facing schema. One is `x-listing` (core `listing()`): what a listing query field does to the walk (`name`, `metadata`, `prune`, `scope`). `build.rs` renders it as `contracts::listing_roles`, and structureSearch derives its filter lists, its filtered-listing test and the walk identity a cursor continues from that table. A role native does not know fails the build. A field with a role that the walk does not apply fails `structure_search::tests::roles`.
 
 `config` reports the config and dotenv paths, key names, and config warnings. `config set` and `config unset` use `config/edit.rs` for locked atomic edits, sharing the dotenv parser and generated protected-key policy. They preserve unrelated lines and never return values.
 

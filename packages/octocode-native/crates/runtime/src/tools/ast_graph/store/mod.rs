@@ -14,17 +14,18 @@
 //! and renamed into place, so a reader never observes a partial snapshot.
 pub(super) mod classify;
 mod detect;
+mod drift;
 mod format;
 mod impact;
 mod query;
 pub(super) mod tables;
 mod workspace;
 
-use super::graph::{BuildExtras, build_graph_with};
-use super::types::AstTopologyQuery;
-use crate::runtime::ExitClass;
+use super::graph::{GraphScan, build_graph};
+use super::types::ImportOutcome;
+use crate::response::exit::ExitClass;
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
+    execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
 use octocode_io::atomic::write_atomic;
 use serde_json::{Value, json};
@@ -110,6 +111,8 @@ pub struct IngestOptions {
     pub keep: Option<usize>,
     /// Rebuild even when the latest snapshot of this scope is current.
     pub force: bool,
+    /// AST parsers by root-relative glob (`{"cpp": ["include/**/*.h"]}`).
+    pub language_globs: BTreeMap<String, Vec<String>>,
 }
 
 /// `<workspace>/.octocode/graph`. The workspace is the caller's: the
@@ -284,10 +287,18 @@ pub fn ingest(
         })
         .map(|(file, _)| file.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    let project = workspace::Workspace::discover(&built.root, &files, &mains, &|path| {
+    let marks = |file: &str| {
+        built
+            .facts
+            .get(file)
+            .map(|facts| facts.marks)
+            .unwrap_or_default()
+    };
+    let project = workspace::Workspace::discover(&built.root, &files, &mains, &marks, &|path| {
         super::aliases::read_config_text(paths, security, path)
     });
-    let projection = tables::project(&built, &project);
+    let mut projection = tables::project(&built, &project);
+    redact_secrets(&mut projection.tables, security);
     let (bytes, digest) = format::encode(&projection.tables);
     if bytes.len() > MAX_GRAPH_BYTES {
         return GraphOutput::error(
@@ -320,6 +331,7 @@ pub fn ingest(
         digest: &digest,
         max_files,
         exclude_dir: &options.exclude_dir,
+        language_globs: &options.language_globs,
         inputs: &inputs,
         build_ms,
     });
@@ -356,8 +368,8 @@ pub fn ingest(
     GraphOutput::ok(receipt)
 }
 
-/// The linked graph of `options.path`, as an astTopology scan with the
-/// ingest's exclusions and `.gitignore`.
+/// The linked graph of `options.path` under the ingest's exclusions and
+/// `.gitignore`.
 fn build_for_ingest(
     options: &IngestOptions,
     paths: &PathPolicy,
@@ -366,33 +378,24 @@ fn build_for_ingest(
     max_files: u32,
     cargo: Option<&str>,
 ) -> Result<super::types::BuiltGraph, GraphOutput> {
-    let mut request = json!({
-        "operation": "cycles",
-        "path": options.path.to_string_lossy(),
-        "maxFiles": max_files,
-        "exclude": options.exclude_dir,
-    });
-    // Cargo metadata links `crate::`/workspace-crate imports; syntax-only
-    // Rust linking would leave them unresolved.
-    if options.path.join("Cargo.toml").is_file() {
-        request["rustWorkspace"] = json!("cargo");
-    }
-    let query: AstTopologyQuery = match serde_json::from_value(request) {
-        Ok(query) => query,
-        Err(error) => return Err(GraphOutput::error("invalidInput", error.to_string())),
+    let scan = GraphScan {
+        root: options.path.clone(),
+        exclude_dir: INGEST_EXCLUDES
+            .iter()
+            .map(|x| (*x).to_owned())
+            .chain(options.exclude_dir.iter().cloned())
+            .collect(),
+        max_files,
+        language_globs: options.language_globs.clone(),
+        // Cargo metadata links `crate::`/workspace-crate imports; syntax-only
+        // Rust linking would leave them unresolved.
+        cargo_metadata: options.path.join("Cargo.toml").is_file(),
+        cargo: cargo.map(str::to_owned),
     };
+    // The builder upholds map-index invariants with `expect()`; a corrupt or
+    // adversarial input tripping one is an error, not a torn-down host.
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        build_graph_with(
-            &query,
-            paths,
-            security,
-            cancel,
-            &BuildExtras {
-                extra_excludes: INGEST_EXCLUDES.iter().map(|x| (*x).to_owned()).collect(),
-                cargo: cargo.map(str::to_owned),
-                cache_dir: None,
-            },
-        )
+        build_graph(&scan, paths, security, cancel)
     })) {
         Ok(Ok(built)) => Ok(built),
         Ok(Err(error)) => Err(GraphOutput {
@@ -404,6 +407,81 @@ fn build_for_ingest(
             "graph build panicked",
         )),
     }
+}
+
+/// Bytes of joined strings one secret scan reads. The scanner takes bounded
+/// text, and most snapshots hold no secret, so a clean batch is cleared in
+/// one scan.
+const SECRET_SCAN_BATCH: usize = 1 << 20;
+
+/// Redacts every string of `tables` the secret scanner flags (a token used as
+/// an import specifier is a package name; a diagnostic can quote source), so
+/// no secret of the source reaches the disk, then re-sorts the lookups the
+/// new strings reorder. Digest strings are hashes the staleness check
+/// compares, never source text, so they are kept as they are.
+fn redact_secrets(tables: &mut format::GraphTables, security: &ContentSecurity) {
+    let digests = tables
+        .digests
+        .iter()
+        .map(|(_, string)| *string as usize)
+        .collect::<std::collections::HashSet<_>>();
+    let strings = &tables.strings;
+    let mut batches = Vec::new();
+    let mut start = 0;
+    while start < strings.len() {
+        let mut end = start;
+        let mut size = 0;
+        while end < strings.len() && (end == start || size < SECRET_SCAN_BATCH) {
+            size += strings[end].len() + 1;
+            end += 1;
+        }
+        batches.push(start..end);
+        start = end;
+    }
+    // Batches are independent: scan them on every core.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let redacted = std::thread::scope(|scope| {
+        let workers = (0..crate::tools::workers::workers(None, batches.len(), None))
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut redacted = Vec::new();
+                    while let Some(batch) =
+                        batches.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+                    {
+                        let scanned = batch.clone().filter(|index| !digests.contains(index));
+                        let text = scanned
+                            .clone()
+                            .map(|index| strings[index].as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if security.sanitize_text(&text, None).has_secrets {
+                            redacted.extend(scanned.filter_map(|index| {
+                                let result = security.sanitize_text(&strings[index], None);
+                                result.has_secrets.then_some((index, result.content))
+                            }));
+                        }
+                    }
+                    redacted
+                })
+            })
+            .collect::<Vec<_>>();
+        workers
+            .into_iter()
+            .flat_map(|worker| {
+                // A failed scan must not publish unredacted strings.
+                worker
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect::<Vec<_>>()
+    });
+    if redacted.is_empty() {
+        return;
+    }
+    for (index, content) in redacted {
+        tables.strings[index] = content;
+    }
+    tables.index();
 }
 
 /// Writes the snapshot under a temp dir, renames it into place and points
@@ -430,30 +508,26 @@ fn publish(
 /// Whether the file at `path` still holds the bytes `digest` names, `None`
 /// when it cannot be read. A stamp recorded at ingest that still equals the
 /// file's size and change times proves it without a read (the stamp was
-/// taken only for a settled file, see [`octocode_engine::graph::SourceStamp`]);
+/// taken only for a settled file, see [`octocode_engine::stamp::SourceStamp`]);
 /// any difference, or no stamp, falls back to hashing the content.
 pub(crate) fn source_matches(
     path: &Path,
     digest: &str,
-    stamp: Option<&octocode_engine::graph::SourceStamp>,
+    stamp: Option<&octocode_engine::stamp::SourceStamp>,
 ) -> Option<bool> {
     // Ingest never reads a source beyond this bound. A different size cannot
     // have the recorded digest, and a file grown past the parser bound must
     // invalidate reuse without allocating it in full.
-    const MAX_INGEST_SOURCE_BYTES: usize = octocode_engine::graph::MAX_GRAPH_SOURCE_BYTES as usize;
-    let current_size = std::fs::metadata(path).ok()?.len();
+    const MAX_INGEST_SOURCE_BYTES: usize =
+        octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES as usize;
+    let meta = std::fs::metadata(path).ok()?;
+    let current_size = meta.len();
     if current_size > MAX_INGEST_SOURCE_BYTES as u64
         || stamp.is_some_and(|recorded| recorded.size != current_size)
     {
         return Some(false);
     }
-    if let Some(stamp) = stamp
-        && std::fs::metadata(path)
-            .ok()
-            .and_then(|meta| octocode_engine::graph::SourceStamp::of(&meta))
-            .as_ref()
-            == Some(stamp)
-    {
+    if stamp.is_some() && octocode_engine::stamp::SourceStamp::of(&meta).as_ref() == stamp {
         return Some(true);
     }
     let content = crate::tools::source::read_bounded(path, MAX_INGEST_SOURCE_BYTES).ok()?;
@@ -478,6 +552,7 @@ fn reuse_current(
         && manifest["octocodeVersion"] == env!("CARGO_PKG_VERSION")
         && manifest["scan"]["maxFiles"] == max_files
         && manifest["scan"]["excludeDir"] == json!(options.exclude_dir)
+        && manifest["scan"]["languageGlobs"] == language_globs_json(&options.language_globs)
         && manifest["scan"]["truncated"] == false;
     if !same_options {
         return None;
@@ -524,9 +599,19 @@ fn snapshot_inputs(
 }
 
 /// The source files a re-ingest of `root` would scan, root-relative: the
-/// ingest's exclusions and `.gitignore`, graph-fact extensions only.
-fn scope_files(root: &Path, exclude_dir: &[String]) -> BTreeSet<String> {
+/// ingest's exclusions and `.gitignore`, graph-fact extensions and the files
+/// its language globs name.
+fn scope_files(
+    root: &Path,
+    exclude_dir: &[String],
+    language_globs: &BTreeMap<String, Vec<String>>,
+) -> BTreeSet<String> {
     let extensions = octocode_engine::signatures::graph_facts::graph_fact_extensions();
+    let globs = crate::tools::ast_rule::GlobParsers::compile(
+        root,
+        (!language_globs.is_empty()).then_some(language_globs),
+    )
+    .unwrap_or_default();
     let excluded = crate::tools::syntax_prune(
         INGEST_EXCLUDES
             .iter()
@@ -540,7 +625,7 @@ fn scope_files(root: &Path, exclude_dir: &[String]) -> BTreeSet<String> {
         }
         let path = entry.path();
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
-        if !ext.is_some_and(|ext| extensions.contains(&ext)) {
+        if !ext.is_some_and(|ext| extensions.contains(&ext)) && !globs.names(path) {
             continue;
         }
         if let Ok(rel) = path.strip_prefix(root) {
@@ -617,7 +702,11 @@ pub(crate) fn snapshot_changes(
             .filter_map(Value::as_str)
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        let current = scope_files(root, &excludes);
+        let globs = serde_json::from_value::<BTreeMap<String, Vec<String>>>(
+            manifest["scan"]["languageGlobs"].clone(),
+        )
+        .unwrap_or_default();
+        let current = scope_files(root, &excludes, &globs);
         let reported = changes
             .iter()
             .map(|change| change.file.clone())
@@ -687,8 +776,18 @@ struct ManifestInput<'a> {
     digest: &'a str,
     max_files: u32,
     exclude_dir: &'a [String],
+    language_globs: &'a BTreeMap<String, Vec<String>>,
     inputs: &'a BTreeMap<String, String>,
     build_ms: u64,
+}
+
+/// The manifest's `scan.languageGlobs`: absent when no glob was given.
+fn language_globs_json(globs: &BTreeMap<String, Vec<String>>) -> Value {
+    if globs.is_empty() {
+        Value::Null
+    } else {
+        json!(globs)
+    }
 }
 
 fn manifest(input: &ManifestInput) -> Value {
@@ -706,7 +805,7 @@ fn manifest(input: &ManifestInput) -> Value {
         *by_code.entry(tables.str(diag.code)).or_default() += 1;
     }
     let imports = input.built.imports;
-    json!({
+    let mut manifest = json!({
         "kind": MANIFEST_KIND,
         "formatVersion": format::FORMAT_VERSION,
         "id": input.id,
@@ -734,11 +833,11 @@ fn manifest(input: &ManifestInput) -> Value {
             "edgesByKind": by_edge,
         },
         "imports": {
-            "resolved": imports[0],
-            "external": imports[1],
-            "unresolvedInternal": imports[2],
-            "unsupported": imports[3],
-            "nonCode": imports[4],
+            "resolved": imports[ImportOutcome::Resolved as usize],
+            "external": imports[ImportOutcome::External as usize],
+            "unresolvedInternal": imports[ImportOutcome::UnresolvedInternal as usize],
+            "unsupported": imports[ImportOutcome::Unsupported as usize],
+            "nonCode": imports[ImportOutcome::NonCode as usize],
         },
         "calls": input.projection.calls,
         "callInternalRecall": (input.projection.calls.internal_recall() * 1000.0).round() / 1000.0,
@@ -749,7 +848,11 @@ fn manifest(input: &ManifestInput) -> Value {
         "diagnostics": {"total": tables.diagnostics.len(), "byCode": by_code},
         "inputs": input.inputs,
         "buildMs": input.build_ms,
-    })
+    });
+    if !input.language_globs.is_empty() {
+        manifest["scan"]["languageGlobs"] = json!(input.language_globs);
+    }
+    manifest
 }
 
 #[cfg(test)]

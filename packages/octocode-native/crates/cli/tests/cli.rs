@@ -37,12 +37,10 @@ fn root_help_lists_only_available_tools() {
     let output = workspace.cli().arg("--help").output().expect("help");
     assert!(output.status.success());
     let text = stdout(&output);
-    for gated in ["clasify", "astTopology"] {
-        assert!(
-            !text.contains(gated),
-            "{gated} offered while disabled: {text}"
-        );
-    }
+    assert!(
+        !text.contains("clasify"),
+        "clasify offered while disabled: {text}"
+    );
     assert!(text.contains("\n  localSearch"), "{text}");
     // A hidden tool stays callable by name and keeps its own help.
     let own = workspace
@@ -133,7 +131,7 @@ fn clasify_missing_key_is_actionable() {
     let output = workspace
         .cli()
         .env("OCTOCODE_BETA", "true")
-        .args(["clasify", &query.to_string()])
+        .args(["clasify", &query.to_string(), "--json"])
         .output()
         .expect("missing-key execution");
     assert_eq!(exit_code(&output), Some(5));
@@ -148,7 +146,7 @@ fn clasify_missing_key_is_actionable() {
     let beta_off = workspace
         .cli()
         .env("OCTOCODE_CLASSIFICATION_API", "fixture-key")
-        .args(["clasify", &query.to_string()])
+        .args(["clasify", &query.to_string(), "--json"])
         .output()
         .expect("missing-beta execution");
     assert_eq!(exit_code(&beta_off), Some(5));
@@ -193,7 +191,11 @@ fn tool_output_is_compact_json_on_a_pipe() {
         "questions":{"relevant":{"type":"noul","instructions":"Is it relevant?"}}
     }]})
     .to_string();
-    let compact = workspace.cli().args(["clasify", &query]).output().unwrap();
+    let compact = workspace
+        .cli()
+        .args(["clasify", &query, "--json"])
+        .output()
+        .unwrap();
     assert_eq!(
         stdout(&compact).trim_end().lines().count(),
         1,
@@ -209,7 +211,7 @@ fn tool_output_is_compact_json_on_a_pipe() {
     for retired in ["--compact", "--pretty"] {
         let output = workspace
             .cli()
-            .args(["clasify", &query, retired])
+            .args(["clasify", &query, retired, "--json"])
             .output()
             .unwrap();
         assert_eq!(
@@ -240,7 +242,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
         .env("OCTOCODE_CLASSIFICATION_API", "")
         // The retired vendor alias is not a credential.
         .env("OCTOCODE_JEV_KEY", "vendor-key")
-        .args(["clasify", &query])
+        .args(["clasify", &query, "--json"])
         .output()
         .unwrap();
     assert_eq!(exit_code(&output), Some(5), "{}", stdout(&output));
@@ -668,7 +670,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
     .to_string();
     let first = workspace
         .cli()
-        .args(["localFetch", &query])
+        .args(["localFetch", &query, "--json"])
         .output()
         .expect("first read");
     assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
@@ -685,7 +687,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
     let continuation = serde_json::to_string(&call["query"]).expect("continuation query");
     let second = workspace
         .cli()
-        .args(["localFetch", &continuation])
+        .args(["localFetch", &continuation, "--json"])
         .output()
         .expect("continuation read");
     assert_eq!(second.status.code(), Some(0), "{}", stderr(&second));
@@ -703,18 +705,18 @@ fn tool_without_query_exits_two_with_schema_hint() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["astSearch"])
+        .args(["astSearch", "--json"])
         .output()
         .expect("astSearch no args");
     assert_eq!(exit_code(&output), Some(2));
-    // A pipe is JSON mode: the usage error is the envelope on stdout.
+    // `--json`: the usage error is the envelope on stdout.
     let error: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
     assert_bare_error(&error);
     assert_eq!(error["errorCode"], "invalidInput", "{error}");
     let message = error["error"].as_str().unwrap_or_default();
     assert!(
-        message.contains("Missing JSON query") && message.contains("octocode schema astSearch"),
-        "expected usage + schema hint: {message}"
+        message.contains("Missing query") && message.contains("octocode astSearch --help"),
+        "expected usage + help hint: {message}"
     );
     assert!(stderr(&output).is_empty(), "{}", stderr(&output));
 }
@@ -724,7 +726,7 @@ fn tool_with_bad_json_exits_two() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["localSearch", "not-valid-json"])
+        .args(["localSearch", "{not-valid-json"])
         .output()
         .expect("localSearch bad json");
     assert_eq!(exit_code(&output), Some(2));
@@ -740,7 +742,7 @@ fn tool_reads_query_from_stdin() {
     let query = serde_json::json!({"queries":[{"path": source}]}).to_string();
     let mut child = workspace
         .cli()
-        .args(["localFetch", "--input", "-"])
+        .args(["localFetch", "--input", "-", "--json"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -773,7 +775,12 @@ fn tool_reads_query_from_input_file() {
     let query_file = workspace.write("query.json", &query);
     let output = workspace
         .cli()
-        .args(["localFetch", "--input", query_file.to_str().expect("utf8")])
+        .args([
+            "localFetch",
+            "--input",
+            query_file.to_str().expect("utf8"),
+            "--json",
+        ])
         .output()
         .expect("localFetch --input");
     assert!(output.status.success(), "{}", stderr(&output));
@@ -904,7 +911,7 @@ fn schema_and_tool_help_are_served_by_the_binary() {
         "{selected}"
     );
     // A beta tool is still described, with its gate.
-    let gated = json(&["schema", "astTopology", "--view", "variants"]);
+    let gated = json(&["schema", "clasify", "--view", "variants"]);
     assert_eq!(gated["availability"]["enabled"], false);
 
     for (args, message) in [
@@ -971,7 +978,8 @@ fn schema_and_tool_help_are_served_by_the_binary() {
         "{help}"
     );
     assert!(
-        help.contains("Example:\n  octocode localSearch '"),
+        help.contains("Examples:\n  octocode localSearch registerHandler src -w")
+            && help.contains("\n  octocode localSearch '{"),
         "{help}"
     );
     assert!(
@@ -1007,7 +1015,7 @@ fn tool_accepts_bulk_queries() {
     .to_string();
     let output = workspace
         .cli()
-        .args(["localFetch", &query])
+        .args(["localFetch", &query, "--json"])
         .output()
         .expect("bulk queries");
     assert!(output.status.success(), "{}", stderr(&output));
@@ -1049,7 +1057,7 @@ fn localfetch_rejects_host_line_range_spellings() {
         .to_string();
         let output = workspace
             .cli()
-            .args(["localFetch", &query])
+            .args(["localFetch", &query, "--json"])
             .output()
             .expect("ranges query");
         assert_eq!(exit_code(&output), Some(2), "{ranges}: {}", stdout(&output));
@@ -1074,7 +1082,7 @@ fn localsearch_emits_structured_results() {
     .to_string();
     let output = workspace
         .cli()
-        .args(["localSearch", &query])
+        .args(["localSearch", &query, "--json"])
         .output()
         .expect("localSearch");
     assert!(output.status.success(), "{}", stderr(&output));
@@ -1097,7 +1105,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
     .to_string();
     let output = workspace
         .cli()
-        .args(["localFetch", &query])
+        .args(["localFetch", &query, "--json"])
         .output()
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));
@@ -1111,7 +1119,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
 
     let malformed = workspace
         .cli()
-        .args(["localSearch", "{"])
+        .args(["localSearch", "{", "--json"])
         .output()
         .expect("malformed raw JSON");
     assert_eq!(exit_code(&malformed), Some(2));
@@ -1128,6 +1136,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
         .args([
             "localFetch",
             r#"{"queries":[{"path":"a.rs","matchstring":"x"}]}"#,
+            "--json",
         ])
         .output()
         .expect("schema-invalid query");
@@ -1147,7 +1156,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
 
     let unknown = workspace
         .cli()
-        .args(["notACommand"])
+        .args(["notACommand", "--json"])
         .output()
         .expect("unknown subcommand");
     assert_eq!(exit_code(&unknown), Some(2));
@@ -1165,7 +1174,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
     // A mistyped tool keeps clap's did-you-mean names in the envelope.
     let typo = workspace
         .cli()
-        .args(["lokalSearch", "{}"])
+        .args(["lokalSearch", "{}", "--json"])
         .output()
         .expect("typo subcommand");
     assert_eq!(exit_code(&typo), Some(2));
@@ -1262,8 +1271,7 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
         .env("GITHUB_TOKEN", "invalid-fixture-token")
         .args([
             "ghGetFileContent",
-            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"mainGoal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}]}"#,
-        ]);
+            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"mainGoal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}]}"#, "--json"]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("tool output"))
         .await
         .expect("tool worker");
@@ -1280,7 +1288,7 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
 /// the contract parks a tool; then it covers each one.
 #[test]
 fn disabled_tools_are_refused_and_absent_from_help_and_schema() {
-    use octocode_native::tools::id::ToolId;
+    use octocode_native::id::ToolId;
     let workspace = Workspace::new();
     for tool in ToolId::ALL.into_iter().filter(|id| id.is_disabled()) {
         let name = tool.as_str();
@@ -1338,7 +1346,7 @@ fn argument_parse_errors_redact_secrets_in_json_and_text() {
     let message = error["error"].as_str().expect("error message");
     assert!(message.starts_with("unexpected argument '"), "{message}");
     assert!(message.contains("[REDACTED-"), "{message}");
-    assert!(message.ends_with("' found"), "{message}");
+    assert!(message.contains("' found"), "{message}");
 
     let text_output = workspace
         .cli()

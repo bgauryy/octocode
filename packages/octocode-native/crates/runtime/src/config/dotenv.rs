@@ -54,16 +54,19 @@ pub fn parse_env(text: Option<&str>) -> BTreeMap<String, String> {
 }
 
 /// The home and workspace `.env` files merged: the workspace wins per key.
-pub struct MergedEnv {
+pub(crate) struct MergedEnv {
     pub map: BTreeMap<String, String>,
     /// Which file each key in `map` came from: `global` or `project`.
     pub sources: BTreeMap<String, String>,
     /// Workspace keys dropped because the key is protected and the home file
     /// sets it: the home value stands and the workspace value is reported.
-    pub workspace_protected: Vec<String>,
+    pub(crate) workspace_protected: Vec<String>,
 }
 
-pub fn apply_env(merged: MergedEnv, target: &mut BTreeMap<String, String>) -> EnvApplyReport {
+pub(crate) fn apply_env(
+    merged: MergedEnv,
+    target: &mut BTreeMap<String, String>,
+) -> EnvApplyReport {
     let MergedEnv {
         map,
         sources,
@@ -132,7 +135,7 @@ fn is_protected_key(key: &str) -> bool {
                 .any(|protected| protected.eq_ignore_ascii_case(key)))
 }
 
-pub fn merged_env(global: Option<&str>, project: Option<&str>) -> MergedEnv {
+pub(crate) fn merged_env(global: Option<&str>, project: Option<&str>) -> MergedEnv {
     let mut merged = MergedEnv {
         map: BTreeMap::new(),
         sources: BTreeMap::new(),
@@ -161,14 +164,14 @@ pub fn merged_env(global: Option<&str>, project: Option<&str>) -> MergedEnv {
     merged
 }
 
-pub fn parse_boolean_env(value: Option<&str>) -> Option<bool> {
+pub(crate) fn parse_boolean_env(value: Option<&str>) -> Option<bool> {
     match value?.trim().to_ascii_lowercase().as_str() {
         "true" | "1" => Some(true),
         "false" | "0" => Some(false),
         _ => None,
     }
 }
-pub fn parse_string_array_env(value: Option<&str>) -> Option<Vec<String>> {
+pub(crate) fn parse_string_array_env(value: Option<&str>) -> Option<Vec<String>> {
     let s = value?.trim();
     if s.is_empty() {
         None

@@ -72,7 +72,10 @@ fn extracts_functions_classes_and_members() {
 fn extracts_graph_facts_for_imports_exports_and_calls() {
     let src = "import { dep } from './dep';\nexport function run() {\n  dep();\n  helper();\n}\nfunction helper() {}\n";
     let v = graph(src, "main.ts");
-    assert_eq!(v["schemaVersion"], 1);
+    assert_eq!(
+        v["schemaVersion"],
+        crate::signatures::GRAPH_FACTS_SCHEMA_VERSION
+    );
 
     let declarations = v["declarations"].as_array().unwrap();
     let run = declarations.iter().find(|d| d["name"] == "run").unwrap();
@@ -505,8 +508,9 @@ fn deeply_nested_parens_do_not_crash_symbol_extraction() {
         "(".repeat(depth),
         ")".repeat(depth)
     );
-    let _ = extract_js_symbols(&src, "deep.js");
-    let _ = extract_graph_facts(&src, "deep.js");
+    // Surviving is not enough: the deep parse still names the function.
+    assert_eq!(names(&symbols(&src, "deep.js")), ["f"]);
+    assert!(graph(&src, "deep.js").is_object());
 }
 
 #[test]
@@ -732,7 +736,7 @@ fn call_walk_stops_when_the_job_is_cancelled() {
     let parsed = oxc_parser::Parser::new(&allocator, src, SourceType::ts()).parse();
     let line_index = SpanPositions::new(src);
     let mut calls = Vec::new();
-    super::super::deep_stack::run_as_cancelled_job(|| {
+    crate::deep_stack::run_as_cancelled_job(|| {
         collect_program_calls(&parsed.program, &line_index, &mut calls, &mut Vec::new());
     });
     assert!(calls.is_empty(), "cancelled walk must not descend");
@@ -868,11 +872,7 @@ fn top_level_iife_bodies_are_outlined_as_module_scope() {
 fn declarations_only_matches_full_graph_facts_declarations() {
     let source = "import { a } from './a';\nexport class Panel { draw() { return a(); } }\nexport function helper(n) { return n; }\nconst local = () => helper(1);\nexport default function main() { local(); }\n";
     for path in ["mod.ts", "mod.js", "mod.tsx"] {
-        let mut full = graph(source, path);
-        // Import uses come from the semantic pass the light path skips.
-        for import in full["imports"].as_array_mut().expect("imports") {
-            import.as_object_mut().expect("import").remove("usedIn");
-        }
+        let full = graph(source, path);
         let light: Value =
             serde_json::to_value(extract_declarations(source, path).expect("declarations"))
                 .expect("json");

@@ -3,9 +3,10 @@
 //! with a near-miss name corrected, else the listing of the deepest
 //! directory that exists.
 use super::{CloneContext, GhCloneRepoQuery, git};
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, query_row};
 use crate::tools::leads::find_file::closest_name;
-use crate::tools::result::{Continuation, query_row};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -43,14 +44,15 @@ pub(super) fn sparse_next(
         }
     }
     if let Some(dir) = uncorrectable {
-        let mut row =
-            json!({"owner": query.owner.as_str(), "repo": query.repo.as_str(), "ref": commit});
-        if !dir.is_empty() {
-            row["path"] = json!(dir);
+        let lead = crate::tools::gh_shared::RepoPath {
+            owner: query.owner.as_str(),
+            repo: query.repo.as_str(),
+            path: &dir,
+            reference: Some(&commit),
         }
-        let lead = Continuation::new(ToolId::GhStructure, row)
-            .confidence("exact")
-            .build();
+        .lead(ToolId::GhStructure)
+        .confidence(Confidence::Exact)
+        .build();
         return Some(json!({"viewTree": lead}));
     }
     let mut row = query_row(query, &[]);
@@ -72,7 +74,7 @@ pub(super) fn sparse_next(
         other => other,
     };
     let lead = Continuation::new(ToolId::GhCloneRepo, row)
-        .confidence("exact")
+        .confidence(Confidence::Exact)
         .build();
     Some(json!({"repair": lead}))
 }

@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn catalog_lists_only_enabled_tools() {
-        let value = catalog(&machine(&["astTopology", "clasify"]), None).expect("catalog");
+        let value = catalog(&machine(&["clasify"]), None).expect("catalog");
         let names: Vec<&str> = value["tools"]
             .as_array()
             .expect("tools")
@@ -366,7 +366,7 @@ mod tests {
             .filter_map(|tool| tool["name"].as_str())
             .collect();
         assert!(names.contains(&"localSearch"));
-        assert!(!names.contains(&"astTopology") && !names.contains(&"clasify"));
+        assert!(!names.contains(&"clasify"));
         assert_eq!(value["toolCount"], names.len());
         assert!(
             value.get("grammars").is_none(),

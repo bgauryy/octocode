@@ -1,18 +1,15 @@
 use super::octo::{match_deadline, parse_tree_with_deadline};
 use crate::signatures::{MAX_PARSE_SIZE, languages};
 
-/// Count ERROR and MISSING nodes with the selected grammar and parse deadline.
-pub fn count_syntax_errors(content: &str, selector: &str) -> Result<u32, String> {
+/// Count ERROR and MISSING nodes with the selected grammar and parse
+/// deadline; `None` for an oversized source, an unknown grammar, or a parse
+/// cut by its deadline (no count is known).
+pub fn count_syntax_errors(content: &str, selector: &str) -> Option<u32> {
     if content.len() > MAX_PARSE_SIZE {
-        return Err(format!(
-            "[structural.content.tooLarge] syntax input exceeds {MAX_PARSE_SIZE} byte limit"
-        ));
+        return None;
     }
-    let entry = languages::select(selector)
-        .next()
-        .ok_or_else(|| format!("[structural.language.unsupported] {selector} is not supported"))?;
-    let tree = parse_tree_with_deadline(&entry.language, content, match_deadline(content))
-        .map_err(|error| format!("[{}] {}", error.code, error.message))?;
+    let entry = languages::select(selector).next()?;
+    let tree = parse_tree_with_deadline(&entry.language, content, match_deadline(content)).ok()?;
     let mut count = 0u32;
     let mut cursor = tree.walk();
     loop {
@@ -25,7 +22,7 @@ pub fn count_syntax_errors(content: &str, selector: &str) -> Result<u32, String>
         }
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
-                return Ok(count);
+                return Some(count);
             }
         }
     }
@@ -42,17 +39,20 @@ mod tests {
             ("rust", "fn main() {}", "fn main( {}"),
             ("python", "def run():\n    return 1\n", "def run(:\n"),
         ] {
-            assert_eq!(count_syntax_errors(clean, language), Ok(0), "{language}");
+            assert_eq!(count_syntax_errors(clean, language), Some(0), "{language}");
             assert!(
-                count_syntax_errors(broken, language).is_ok_and(|count| count > 0),
+                count_syntax_errors(broken, language).is_some_and(|count| count > 0),
                 "{language}"
             );
         }
     }
 
     #[test]
-    fn unsupported_and_oversized_inputs_fail_explicitly() {
-        assert!(count_syntax_errors("text", "unknown-language").is_err());
-        assert!(count_syntax_errors(&"x".repeat(MAX_PARSE_SIZE + 1), "rust").is_err());
+    fn unsupported_and_oversized_inputs_have_no_count() {
+        assert_eq!(count_syntax_errors("text", "unknown-language"), None);
+        assert_eq!(
+            count_syntax_errors(&"x".repeat(MAX_PARSE_SIZE + 1), "rust"),
+            None
+        );
     }
 }

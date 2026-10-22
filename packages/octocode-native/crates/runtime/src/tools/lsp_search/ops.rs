@@ -19,15 +19,17 @@ use super::recovery::{
     AliasSearch, get_locations, get_spelled_locations, recover_aliases, resolve_definition_chain,
     snippet_identity,
 };
-use super::render::as_array;
+use super::render::items;
 use super::render::uri_to_path;
 use super::scope::Scope;
 use super::source::{SourceCache, filter_authorized_items};
 use super::walk::{HierarchyRequest, ImporterRecovery, hierarchy};
 use super::{LspSearchQuery, Op};
+use crate::execution::cancel::CancellationCheck;
+use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
-use crate::tools::cancel::CancellationCheck;
-use crate::tools::id::ToolId;
+use crate::response::result::Confidence;
+use crate::tools::lsp_search::lsp_search_query;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
 use octocode_engine::lsp::config::{representative_source_for, workspace_root_languages};
 use serde_json::{Value, json};
@@ -78,20 +80,20 @@ enum Implemented {
 /// the row is partial, and on its last result page `next.nextCandidatePage`
 /// walks the next window of candidates (each window checked exactly once).
 fn mark_more_candidates(row: &mut Value, query: &LspSearchQuery, digest: &str) {
-    crate::tools::paging::mark_partial(row, "hierarchyCandidateLimit", &[]);
+    crate::response::paging::mark_partial(row, "hierarchyCandidateLimit", &[]);
     if row.pointer("/pagination/hasMore").and_then(Value::as_bool) == Some(true) {
         return;
     }
-    let Some(candidate_page) = crate::tools::paging::next_cursor(
+    let Some(candidate_page) = crate::response::paging::next_cursor(
         row,
         ToolId::LspSearch,
         None,
         "candidatePage",
-        crate::tools::num::usize_of(query.candidate_page()).saturating_add(1),
+        crate::num::usize_of(lsp_search_query::candidate_page(query)).saturating_add(1),
     ) else {
         return;
     };
-    let mut next = query.to_row();
+    let mut next = lsp_search_query::to_row(query);
     if let Some(fields) = next.as_object_mut() {
         fields
             .retain(|key, value| !value.is_null() && !matches!(key.as_str(), "page" | "snapshot"));
@@ -99,8 +101,8 @@ fn mark_more_candidates(row: &mut Value, query: &LspSearchQuery, digest: &str) {
         fields.insert("snapshot".into(), json!(digest));
     }
     row["next"]["nextCandidatePage"] =
-        crate::tools::result::Continuation::new(ToolId::LspSearch, next)
-            .confidence("exact")
+        crate::response::result::Continuation::new(ToolId::LspSearch, next)
+            .confidence(Confidence::Exact)
             .build();
 }
 
@@ -127,7 +129,7 @@ fn mark_scan_answer(
         HERITAGE_UNREAD,
         &[heritage::describe_unread(&unread)],
     );
-    if let Some(base) = query.symbol_name() {
+    if let Some(base) = lsp_search_query::symbol_name(query) {
         row["next"]["findText"] =
             text_search_lead(base, &scope.root, &scope.include, Some(&unread)).build();
     }
@@ -141,7 +143,7 @@ fn scan_only(
     found: &[octocode_engine::lsp::types::LspCodeSnippet],
     scan: heritage::HeritageScan,
 ) -> (Vec<octocode_engine::lsp::types::LspCodeSnippet>, String) {
-    let file = |uri: &str| super::scope::canonical(&uri_to_path(uri));
+    let file = |uri: &str| super::scope::canonical_uri(uri);
     let answered = found
         .iter()
         .map(|snippet| {
@@ -206,7 +208,7 @@ impl Operation<'_, '_> {
     pub(super) async fn run(self) -> Result<Value, LspFailure> {
         let (client, path, line, cancel) = (self.client, self.path, self.line, self.cancel);
         let anchored = !matches!(
-            self.query.op(),
+            lsp_search_query::op(self.query),
             Op::DocumentSymbols | Op::WorkspaceSymbol | Op::Diagnostic
         );
         let mut row = self.answer().await?;
@@ -221,7 +223,7 @@ impl Operation<'_, '_> {
 
     async fn answer(self) -> Result<Value, LspFailure> {
         let query = self.query;
-        match query.op() {
+        match lsp_search_query::op(query) {
             Op::Definition => self.definition().await,
             Op::References => self.references().await,
             Op::TypeDefinition => {
@@ -289,7 +291,7 @@ impl Operation<'_, '_> {
     /// window, so each row is listed once across importer pages.
     async fn references(mut self) -> Result<Value, LspFailure> {
         let query = self.query;
-        let include_declaration = query.include_declaration().unwrap_or(true);
+        let include_declaration = lsp_search_query::include_declaration(query).unwrap_or(true);
         let (mut found, respelled) = get_spelled_locations(
             self.client,
             self.snippet_policy,
@@ -306,7 +308,7 @@ impl Operation<'_, '_> {
             self.snippet_policy,
             self.cancel,
             AliasSearch {
-                symbol: query.symbol_name(),
+                symbol: lsp_search_query::symbol_name(query),
                 include_declaration,
                 anchor: self.position(),
                 provider: &found,
@@ -344,7 +346,7 @@ impl Operation<'_, '_> {
             .chain(&recovered)
             .map(snippet_identity)
             .collect::<HashSet<_>>();
-        let later_window = query.importer_page() > 1;
+        let later_window = lsp_search_query::importer_page(query) > 1;
         let mut importer_failures = RequestFailures::default();
         let from_importers = match &importers {
             Some(importers) => {
@@ -384,7 +386,7 @@ impl Operation<'_, '_> {
                 .chain(importers.iter().flat_map(|found| found.rejected.clone()))
                 .chain(importers.iter().flat_map(Importers::covered)),
         );
-        let anchor_file = super::scope::canonical(&uri_to_path(self.path));
+        let anchor_file = super::scope::canonical_uri(self.path);
         self.scope.answer_anchor_lines(
             self.path,
             self.line,
@@ -392,9 +394,7 @@ impl Operation<'_, '_> {
                 .iter()
                 .chain(&recovered)
                 .chain(&from_importers)
-                .filter(|snippet| {
-                    super::scope::canonical(&uri_to_path(&snippet.uri)) == anchor_file
-                })
+                .filter(|snippet| super::scope::canonical_uri(&snippet.uri) == anchor_file)
                 .map(|snippet| snippet.range.start.line),
         );
         // A later importer page leaves out the anchor's answer (listed on
@@ -434,7 +434,7 @@ impl Operation<'_, '_> {
             alias_failures.disclose(&mut row, query, ALIAS_RECOVERY_FAILED, "Alias recovery");
         }
         if !later_window && alias_scan_capped && row.pointer("/coverage").is_some() {
-            if let Some(name) = query.symbol_name() {
+            if let Some(name) = lsp_search_query::symbol_name(query) {
                 self.scope
                     .text_files(name, self.sources.policy(), self.cancel)
                     .await?;
@@ -483,7 +483,7 @@ impl Operation<'_, '_> {
                 }
             };
             found.extend(extra.into_iter().filter(|snippet| {
-                importers.owns(&super::scope::canonical(&uri_to_path(&snippet.uri)))
+                importers.owns(&super::scope::canonical_uri(&snippet.uri))
                     && declared.is_none_or(|declared| !declared.contains(&site_start(snippet)))
                     && seen.insert(snippet_identity(snippet))
             }));
@@ -528,7 +528,7 @@ impl Operation<'_, '_> {
     /// Unverified syntax substitutes remain partial and name their source.
     async fn type_hierarchy_without_server_support(self) -> Result<Value, LspFailure> {
         let query = self.query;
-        let kind = query.operation();
+        let kind = lsp_search_query::operation(query);
         let expansion = if kind == "subtypes" {
             super::walk::Expansion::Subtypes
         } else {
@@ -549,7 +549,7 @@ impl Operation<'_, '_> {
                     note,
                     unread,
                 } => {
-                    if query.candidate_page() > 1 {
+                    if lsp_search_query::candidate_page(query) > 1 {
                         return Ok(snapshot_changed(query));
                     }
                     let (scope, paths) = (self.scope, self.sources.policy());
@@ -581,7 +581,7 @@ impl Operation<'_, '_> {
             .run(
                 anchor,
                 expansion,
-                query.graph_depth().unwrap_or(1),
+                lsp_search_query::graph_depth(query).unwrap_or(1),
                 candidates
                     .as_mut()
                     .map(|window| std::mem::take(&mut window.items)),
@@ -589,7 +589,7 @@ impl Operation<'_, '_> {
             .await
         {
             Ok(walk) => walk,
-            Err(failure) if failure.code == "cancelled" => return Err(failure),
+            Err(failure) if failure.is_cancelled() => return Err(failure),
             Err(failure) => {
                 let mut row = empty(
                     query,
@@ -643,7 +643,7 @@ impl Operation<'_, '_> {
             mark_more_candidates(&mut row, query, &window.digest);
         }
         if source.candidate_limited() {
-            crate::tools::paging::terminal_limit(
+            crate::response::paging::terminal_limit(
                 &mut row,
                 "hierarchyCandidateLimit",
                 &[format!(
@@ -651,7 +651,7 @@ impl Operation<'_, '_> {
                     super::walk::MAX_HIERARCHY_NODES
                 )],
             );
-            if let Some(name) = query.symbol_name() {
+            if let Some(name) = lsp_search_query::symbol_name(query) {
                 row["next"]["findText"] =
                     text_search_lead(name, &self.scope.root, &self.scope.include, None).build();
             }
@@ -673,7 +673,7 @@ impl Operation<'_, '_> {
             .await
             .map(|source| source.content.clone())
             .unwrap_or_default();
-        let scannable = query.symbol_name().is_some_and(|name| {
+        let scannable = lsp_search_query::symbol_name(query).is_some_and(|name| {
             heritage::anchors_type_declaration(&content, self.path, self.line, name)
         });
         let (found, scanned, extra) = match self.implemented(scannable, scannable).await? {
@@ -717,7 +717,7 @@ impl Operation<'_, '_> {
             && !rows.is_empty()
             && row.get("errorCode").is_none()
         {
-            crate::tools::paging::mark_partial(
+            crate::response::paging::mark_partial(
                 &mut row,
                 SCAN_ONLY,
                 &[format!(
@@ -762,7 +762,7 @@ impl Operation<'_, '_> {
                 // A scan that could not run adds nothing to the server's
                 // answer; only cancellation stops the request.
                 scan: match scan {
-                    Some(Err(failure)) if failure.code == "cancelled" => return Err(failure),
+                    Some(Err(failure)) if failure.is_cancelled() => return Err(failure),
                     Some(Ok(scan)) => scan,
                     _ => None,
                 },
@@ -773,7 +773,7 @@ impl Operation<'_, '_> {
                         &failure,
                         &scan.base,
                         scan.files,
-                        self.query.operation(),
+                        lsp_search_query::operation(self.query),
                     ),
                     found: scan.found,
                     unread: scan.unread,
@@ -789,10 +789,8 @@ impl Operation<'_, '_> {
     /// implementation request. `None` when no name is queried or the text
     /// scan of the workspace could not run.
     async fn heritage_scan(&self) -> Result<Option<heritage::HeritageScan>, LspFailure> {
-        let Some(base) = self
-            .query
-            .symbol_name()
-            .filter(|name| !name.trim().is_empty())
+        let Some(base) =
+            lsp_search_query::symbol_name(self.query).filter(|name| !name.trim().is_empty())
         else {
             return Ok(None);
         };
@@ -824,7 +822,7 @@ impl Operation<'_, '_> {
     /// importers the server's level-1 answer does not cover.
     async fn hierarchy(self) -> Result<Value, LspFailure> {
         let query = self.query;
-        if matches!(query.op(), Op::Supertypes | Op::Subtypes)
+        if matches!(lsp_search_query::op(query), Op::Supertypes | Op::Subtypes)
             && !self
                 .client
                 .has_capability("typeHierarchyProvider".to_owned())
@@ -858,13 +856,13 @@ impl Operation<'_, '_> {
     /// have missed importers (TS/JS incoming operations). An `importerPage`
     /// past the first names a window only importer recovery has.
     fn importer_symbol(&self) -> Result<Option<String>, LspFailure> {
-        let operation = self.query.operation();
+        let operation = lsp_search_query::operation(self.query);
         let symbol = (importers::applies(self.language_id, operation) && !self.root_only)
-            .then(|| self.query.symbol_name())
+            .then(|| lsp_search_query::symbol_name(self.query))
             .flatten()
             .filter(|name| !name.trim().is_empty())
             .map(str::to_owned);
-        if symbol.is_none() && self.query.importer_page() > 1 {
+        if symbol.is_none() && lsp_search_query::importer_page(self.query) > 1 {
             return Err(LspFailure::invalid_query(
                 "importerPage pages TypeScript/JavaScript importer recovery for references and callers; copy it from that recovery's continuation.",
             ));
@@ -934,8 +932,7 @@ impl Operation<'_, '_> {
 
     async fn workspace_symbol(self) -> Result<Value, LspFailure> {
         let query = self.query;
-        let name = query
-            .symbol_name()
+        let name = lsp_search_query::symbol_name(query)
             .map(str::to_owned)
             .ok_or_else(|| LspFailure::invalid_query("workspaceSymbol requires symbolName"))?;
         let symbols =
@@ -948,7 +945,7 @@ impl Operation<'_, '_> {
             .filter(|limit| symbols.as_array().map_or(0, Vec::len) == *limit);
         // workspace/symbol URIs are server-controlled and span the whole
         // project; drop any that fall outside the read policy before emitting.
-        let mut symbols = as_array(&filter_authorized_items(symbols, self.sources.policy()))
+        let mut symbols = items(&filter_authorized_items(symbols, self.sources.policy()))
             .iter()
             .map(public_workspace_symbol)
             .collect::<Vec<_>>();
@@ -968,7 +965,7 @@ impl Operation<'_, '_> {
             // of the project root it was searched from.
             let mut languages = workspace_root_languages(self.path);
             if languages.is_empty()
-                && let Some(root) = self.query.workspace_root()
+                && let Some(root) = lsp_search_query::workspace_root(self.query)
             {
                 languages = workspace_root_languages(root);
             }
@@ -987,7 +984,7 @@ impl Operation<'_, '_> {
                 let language = language_name(extension);
                 others.push(language);
                 row["next"][format!("search{}", capitalized(language))] =
-                    crate::tools::result::Continuation::new(
+                    crate::response::result::Continuation::new(
                         ToolId::LspSearch,
                         json!({
                             "operation": "workspaceSymbol",
@@ -995,7 +992,7 @@ impl Operation<'_, '_> {
                             "path": file
                         }),
                     )
-                    .confidence("medium")
+                    .confidence(Confidence::Medium)
                     .build();
             }
             let hint = if others.is_empty() {
@@ -1039,12 +1036,12 @@ impl Operation<'_, '_> {
             mark_diagnostics_unpublished(&mut row, query, PUSH_DIAGNOSTICS_WAIT_MS);
         }
         if truncated {
-            crate::tools::paging::terminal_limit(&mut row, "diagnosticsTruncated", &[]);
+            crate::response::paging::terminal_limit(&mut row, "diagnosticsTruncated", &[]);
         }
         // Success rows drop `hints` (response hint policy), so this note is a
         // warning: it explains results, it is not a recovery step.
         if disabled_macro_diagnostics(&row["matches"]) {
-            crate::tools::paging::push_warnings(&mut row, [RUST_MACRO_NOTE.to_owned()]);
+            crate::response::paging::push_warnings(&mut row, [RUST_MACRO_NOTE.to_owned()]);
         }
         Ok(row)
     }
@@ -1089,7 +1086,7 @@ const DISABLED_MACRO_CODES: &[&str] = &[
 const RUST_MACRO_NOTE: &str = "Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them.";
 
 pub(super) fn disabled_macro_diagnostics(items: &Value) -> bool {
-    as_array(items).iter().any(|item| {
+    super::render::items(items).iter().any(|item| {
         item.get("code")
             .and_then(Value::as_str)
             .is_some_and(|code| DISABLED_MACRO_CODES.contains(&code))
@@ -1223,14 +1220,14 @@ fn known_files(
     found
         .iter()
         .chain(recovered)
-        .map(|snippet| super::scope::canonical(&uri_to_path(&snippet.uri)))
+        .map(|snippet| super::scope::canonical_uri(&snippet.uri))
         .collect()
 }
 
 /// A location's canonical file and start position.
 fn site_start(snippet: &octocode_engine::lsp::types::LspCodeSnippet) -> (String, u32, u32) {
     (
-        super::scope::canonical(&uri_to_path(&snippet.uri)),
+        super::scope::canonical_uri(&snippet.uri),
         snippet.range.start.line,
         snippet.range.start.character,
     )

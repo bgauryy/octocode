@@ -9,7 +9,7 @@ impl DateWindow {
     /// True when both bounds resolved and `self` falls strictly after `other`
     /// (used to reject `since` > `until`). Date-only values compare as
     /// midnight UTC; timezone offsets are not normalized.
-    pub fn is_after(&self, other: &DateWindow) -> bool {
+    pub(crate) fn is_after(&self, other: &DateWindow) -> bool {
         match (self.value.as_deref(), other.value.as_deref()) {
             (Some(left), Some(right)) => comparable(left) > comparable(right),
             _ => false,

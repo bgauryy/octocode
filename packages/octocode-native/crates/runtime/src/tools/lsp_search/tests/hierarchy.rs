@@ -75,7 +75,7 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
         "{listed:?}"
     );
     assert!(
-        crate::response::extras::all_paths(crate::tools::id::ToolId::LspSearch)
+        crate::response::extras::all_paths(crate::id::ToolId::LspSearch)
             .contains(&"results[].data.expansionFailures")
     );
 }
@@ -228,7 +228,7 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
         node_at("root", Some(&uri)),
         1,
         &paths,
-        &crate::tools::cancel::NeverCancel,
+        &crate::execution::cancel::NeverCancel,
     )
     .await
     .expect("walk");
@@ -245,7 +245,7 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
         node_at("root", Some(&uri)),
         2,
         &paths,
-        &crate::tools::cancel::NeverCancel,
+        &crate::execution::cancel::NeverCancel,
     )
     .await
     .expect("walk");
@@ -294,7 +294,7 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
         node_at("hub", Some(&uri)),
         1,
         &paths,
-        &crate::tools::cancel::NeverCancel,
+        &crate::execution::cancel::NeverCancel,
     )
     .await
     .expect("resumed walk");
@@ -322,7 +322,7 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
         node_at("root", Some(&uri)),
         2,
         &paths,
-        &crate::tools::cancel::NeverCancel,
+        &crate::execution::cancel::NeverCancel,
     )
     .await
     .expect("walk");
@@ -427,7 +427,7 @@ async fn hierarchy_walk_collects_per_node_failures_and_skips_out_of_policy_nodes
 #[tokio::test(flavor = "current_thread")]
 async fn hierarchy_walk_checks_cancellation_between_requests() {
     struct Cancelled;
-    impl crate::tools::cancel::CancellationCheck for Cancelled {
+    impl crate::execution::cancel::CancellationCheck for Cancelled {
         fn check(&self) -> Result<(), String> {
             Err("cancelled".into())
         }
@@ -445,7 +445,7 @@ async fn hierarchy_walk_checks_cancellation_between_requests() {
 #[tokio::test(flavor = "current_thread")]
 async fn long_awaits_observe_cancellation() {
     struct CancelAfter(std::sync::atomic::AtomicUsize);
-    impl crate::tools::cancel::CancellationCheck for CancelAfter {
+    impl crate::execution::cancel::CancellationCheck for CancelAfter {
         fn check(&self) -> Result<(), String> {
             if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 2 {
                 Err("cancelled".into())
@@ -464,7 +464,7 @@ async fn long_awaits_observe_cancellation() {
 #[tokio::test(flavor = "current_thread")]
 async fn ready_awaits_observe_cancellation_at_completion() {
     struct CancelAfterFirst(std::sync::atomic::AtomicUsize);
-    impl crate::tools::cancel::CancellationCheck for CancelAfterFirst {
+    impl crate::execution::cancel::CancellationCheck for CancelAfterFirst {
         fn check(&self) -> Result<(), String> {
             if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
                 Ok(())
@@ -480,9 +480,12 @@ async fn ready_awaits_observe_cancellation_at_completion() {
     assert_eq!(error.code, "cancelled");
     assert_eq!(error.message, "cancelled after launch");
     assert_eq!(
-        cancellable(&crate::tools::cancel::NeverCancel, std::future::ready(7))
-            .await
-            .expect("completes"),
+        cancellable(
+            &crate::execution::cancel::NeverCancel,
+            std::future::ready(7)
+        )
+        .await
+        .expect("completes"),
         7
     );
 }

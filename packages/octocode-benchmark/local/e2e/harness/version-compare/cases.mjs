@@ -66,15 +66,6 @@ export const CASES = {
       { kind: 'invalid', loc: { path: 'src/greeter.ts', symbolName: 'greet' }, pub: { query: { uri: 'src/greeter.ts', symbolName: 'greet' } } },
     ],
   },
-  astTopology: {
-    pub: 'localAnalyzeGraph',
-    checks: [
-      { kind: 'happy', loc: { path: 'src', operation: 'dependencies', source: 'src/app.ts' }, pub: { query: { path: 'src', operation: 'dependencies', file: 'app.ts' } } },
-      { kind: 'page', loc: { path: 'src', operation: 'dependencies', source: 'src/app.ts', pageSize: 1 }, pub: { query: { path: 'src', operation: 'dependencies', file: 'app.ts', pageSize: 1 } }, lead: { loc: 'nextPage', pub: 'nextPage' } },
-      { kind: 'empty', loc: { path: 'src', operation: 'cycles' }, pub: { query: { path: 'src', operation: 'cycles' } } },
-      { kind: 'invalid', loc: { path: 'src', operation: 'summary' }, pub: { query: { path: 'src', operation: 'summary' } } },
-    ],
-  },
   ghSearchCode: {
     pub: 'ghSearch',
     checks: [

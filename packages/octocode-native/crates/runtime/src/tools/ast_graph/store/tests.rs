@@ -10,8 +10,8 @@ fn oversized_snapshot_is_rejected_before_allocation() {
         .expect("sparse fixture");
     assert!(read_graph_file(&file).is_err());
 }
+use crate::execution::cancel::NeverCancel;
 use crate::tools::ast_graph::test_support::{Fixture, write_under};
-use crate::tools::cancel::NeverCancel;
 
 fn fixture() -> Fixture {
     let dir = Fixture::new();
@@ -119,6 +119,13 @@ fn format_round_trips_deterministically_and_rejects_corruption() {
             .unwrap_err()
             .contains("magic")
     );
+    let mut previous = bytes.clone();
+    previous[8..12].copy_from_slice(&(format::FORMAT_VERSION - 1).to_le_bytes());
+    assert!(
+        format::decode(&previous)
+            .unwrap_err()
+            .contains(&format!("v{} is not supported", format::FORMAT_VERSION - 1))
+    );
     let mut future = bytes;
     future[8] = 99;
     assert!(
@@ -126,6 +133,40 @@ fn format_round_trips_deterministically_and_rejects_corruption() {
             .unwrap_err()
             .contains("not supported")
     );
+}
+
+/// A credential in source text the graph keeps (here an import specifier,
+/// stored as a package name) is redacted before the snapshot reaches the
+/// disk; file digests stay as hashed, so staleness checks still hold.
+#[test]
+fn ingest_redacts_secrets_before_the_snapshot_reaches_the_disk() {
+    let dir = Fixture::new();
+    std::fs::create_dir_all(dir.0.as_path().join(".git")).expect("git marker");
+    let token = format!(
+        "ghp_{}",
+        "a1B2c3D4e5F6g7H8i9J0".repeat(2).get(..36).expect("token")
+    );
+    write_under(
+        &dir,
+        "app/src",
+        &[(
+            "main.ts",
+            &format!("import t from '{token}';\nexport const main = () => t;\n"),
+        )],
+    );
+    let out = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(out.class, ExitClass::Success, "{}", out.value);
+    let id = out.value["id"].as_str().expect("id");
+    let snapshot = dir.0.as_path().join(".octocode").join("graph").join(id);
+    for file in [GRAPH_FILE, MANIFEST_FILE] {
+        let bytes = std::fs::read(snapshot.join(file)).expect("snapshot file");
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains(&token),
+            "{file} holds the token"
+        );
+    }
+    let stale = ask(dir.0.as_path(), "stale", None, |_| {});
+    assert_eq!(stale.value["fresh"], true, "{}", stale.value);
 }
 
 #[test]
@@ -1193,13 +1234,46 @@ fn plan_9_unchanged_tree_reuses_the_latest_snapshot() {
     assert_ne!(forced.value["reused"], true);
 }
 
+/// A snapshot of an older format (here v4, before diagnostics named their
+/// target file) is never reused: the next ingest rebuilds it, and queries
+/// answer from the rebuilt snapshot.
+#[test]
+fn an_older_format_snapshot_is_rebuilt_not_reused() {
+    let dir = fixture();
+    let first = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(first.class, ExitClass::Success, "{}", first.value);
+    let snapshot = PathBuf::from(first.value["dir"].as_str().expect("dir"));
+    let older = format::FORMAT_VERSION - 1;
+    let manifest_path = snapshot.join(MANIFEST_FILE);
+    let mut manifest: Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).expect("manifest")).expect("json");
+    manifest["formatVersion"] = json!(older);
+    std::fs::write(&manifest_path, manifest.to_string()).expect("older manifest");
+    let mut bytes = std::fs::read(snapshot.join(GRAPH_FILE)).expect("graph.bin");
+    bytes[8..12].copy_from_slice(&older.to_le_bytes());
+    std::fs::write(snapshot.join(GRAPH_FILE), bytes).expect("older graph");
+    let stale = ask(dir.0.as_path(), "stats", None, |_| {});
+    assert!(
+        stale.value["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("re-run `octocode graph ingest`")),
+        "{}",
+        stale.value
+    );
+    let second = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(second.class, ExitClass::Success, "{}", second.value);
+    assert_ne!(second.value["reused"], true, "{}", second.value);
+    assert_ne!(second.value["id"], first.value["id"]);
+    let stats = ask(dir.0.as_path(), "stats", None, |_| {});
+    assert_eq!(stats.class, ExitClass::Success, "{}", stats.value);
+}
+
 /// A settled file records its stamp, an equal stamp proves the bytes
 /// without a read, and a same-size rewrite (new times) still rebuilds.
 #[test]
 fn settled_sources_reuse_by_stamp_and_a_same_size_edit_still_rebuilds() {
-    use octocode_engine::graph::SourceStamp;
     let dir = fixture();
-    std::thread::sleep(SourceStamp::SETTLE + std::time::Duration::from_millis(200));
+    octocode_engine::stamp::settle_written_so_far();
     let first = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(first.class, ExitClass::Success, "{}", first.value);
     let graph_dir = PathBuf::from(first.value["dir"].as_str().expect("dir"));
@@ -1386,6 +1460,83 @@ fn plan_3_rust_module_path_calls_link() {
     }
 }
 
+/// `crate::a::f()` links through `pub use b::f;` in `a`: a module-path call
+/// follows the re-export to the declaring file, like a namespace call does.
+#[test]
+fn rust_module_path_calls_follow_pub_use_reexports() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod a;\npub mod api;\n"),
+        ("src/a/mod.rs", "mod b;\npub(crate) use b::f;\n"),
+        ("src/a/b.rs", "pub fn f() -> u8 { 1 }\n"),
+        ("src/api.rs", "pub fn g() -> u8 {\n    crate::a::f()\n}\n"),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let out = ask(dir.0.as_path(), "callees", Some("src/api.rs#g"), |_| {});
+    let rows = out.value["results"].as_array().expect("rows");
+    assert!(
+        rows.iter()
+            .any(|r| r["id"] == "src/a/b.rs#f" && r["via"] == "module-path"),
+        "{}",
+        out.value
+    );
+}
+
+/// Every file edge carries the line of its own evidence: a Rust path-qualified
+/// use (`crate::x::f()`) is its own line.
+#[test]
+fn path_qualified_rust_edges_keep_their_evidence_line() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod portable;\npub mod api;\n"),
+        (
+            "src/portable.rs",
+            "pub const LIMIT: u8 = 1;\npub fn sanitize(x: u8) -> u8 { x }\n",
+        ),
+        (
+            "src/api.rs",
+            "pub fn handle() -> u8 {\n    crate::portable::sanitize(crate::portable::LIMIT)\n}\n",
+        ),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let deps = ask(dir.0.as_path(), "deps", Some("src/api.rs"), |_| {});
+    let rows = deps.value["results"].as_array().expect("rows");
+    let row = rows
+        .iter()
+        .find(|r| r["id"] == "src/portable.rs")
+        .unwrap_or_else(|| panic!("portable dep: {}", deps.value));
+    assert_eq!(row["edgeLine"], json!(2), "{}", deps.value);
+    // With a `use` and a later qualified path to one file, the row cites the
+    // first reference: the `use` line.
+    dir.write(
+        "app/src/api.rs",
+        "use crate::portable::LIMIT;\npub fn handle() -> u8 {\n    crate::portable::sanitize(LIMIT)\n}\n",
+    );
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let deps = ask(dir.0.as_path(), "deps", Some("src/api.rs"), |_| {});
+    let rows = deps.value["results"].as_array().expect("rows");
+    let row = rows
+        .iter()
+        .find(|r| r["id"] == "src/portable.rs")
+        .unwrap_or_else(|| panic!("portable dep: {}", deps.value));
+    assert_eq!(row["edgeLine"], json!(1), "{}", deps.value);
+}
+
 /// `include!("gen/types.rs")` makes the included file a dependency of the
 /// including one, resolved from the including file's directory.
 #[test]
@@ -1414,112 +1565,6 @@ fn rust_include_links_the_included_file() {
     );
 }
 
-/// One engine, two front ends: the persisted `graph query` file answers and
-/// the astTopology analyses must name the same files on the same tree.
-fn topology(dir: &Path, query: Value) -> Value {
-    let mut row = query;
-    row["mainGoal"] = json!("parity");
-    row["reasoning"] = json!("parity");
-    row["path"] = json!(dir.join("app"));
-    let query: crate::tools::ast_graph::AstTopologyQuery =
-        serde_json::from_value(row).expect("topology query");
-    crate::tools::ast_graph::execute_topology(
-        &query,
-        &policy(dir),
-        &ContentSecurity::new(),
-        &NeverCancel,
-        &Default::default(),
-    )
-    .expect("topology")
-}
-
-fn file_ids(out: &GraphOutput) -> std::collections::BTreeSet<String> {
-    ids(out)
-        .into_iter()
-        .filter(|id| !id.starts_with("pkg:") && !id.contains('#'))
-        .collect()
-}
-
-fn topology_files(out: &Value) -> std::collections::BTreeSet<String> {
-    out["nodes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        // Re-export consumers are astTopology's addition over the edge walk,
-        // and the graph store models a Rust `mod` declaration as containment.
-        .filter(|row| {
-            row.get("reexportVia").is_none() && row["edgeKinds"] != json!(["rust-module"])
-        })
-        .filter_map(|row| row["file"].as_str().map(str::to_owned))
-        .collect()
-}
-
-fn assert_parity(dir: &Path, from: &str, to: &str) {
-    assert_eq!(ingest_fixture(dir, None).class, ExitClass::Success);
-    for (op, analysis, file) in [
-        ("deps", "dependencies", from),
-        ("dependents", "dependents", to),
-    ] {
-        let graph = ask(dir, op, Some(file), |_| {});
-        let topo = topology(dir, json!({"operation":analysis,"source":file}));
-        assert!(!file_ids(&graph).is_empty(), "{op} {file}: {}", graph.value);
-        assert_eq!(
-            file_ids(&graph),
-            topology_files(&topo),
-            "{op} {file}: {} vs {topo}",
-            graph.value
-        );
-    }
-    let graph = ask(dir, "path", Some(from), |o| o.to = Some(to.into()));
-    let topo = topology(dir, json!({"operation":"path","source":from,"target":to}));
-    let hops = graph.value["path"]
-        .as_array()
-        .expect("graph path")
-        .iter()
-        .map(|hop| hop["id"].clone())
-        .collect::<Vec<_>>();
-    assert_eq!(json!(hops), topo["nodes"][0]["files"], "{topo}");
-    let graph = ask(dir, "cycles", None, |_| {});
-    let topo = topology(dir, json!({"operation":"cycles"}));
-    let graph_cycles = graph.value["results"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|row| row["nodes"].clone())
-        .collect::<Vec<_>>();
-    let topo_cycles = topo["nodes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|row| row["files"].clone())
-        .collect::<Vec<_>>();
-    assert_eq!(graph_cycles, topo_cycles, "{} vs {topo}", graph.value);
-}
-
-#[test]
-fn graph_query_and_ast_topology_agree_on_typescript_files() {
-    let dir = fixture();
-    assert_parity(dir.0.as_path(), "src/main.ts", "src/lib.ts");
-}
-
-#[test]
-fn graph_query_and_ast_topology_agree_on_rust_files() {
-    let dir = git_app(&[
-        (
-            "Cargo.toml",
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-        ),
-        ("src/lib.rs", "pub mod a;\npub mod b;\npub mod api;\n"),
-        ("src/a.rs", "use crate::b::bee;\npub fn ay() { bee() }\n"),
-        ("src/b.rs", "use crate::a::ay;\npub fn bee() { ay() }\n"),
-        (
-            "src/api.rs",
-            "use crate::a::ay;\npub fn handle() { ay() }\n",
-        ),
-    ]);
-    assert_parity(dir.0.as_path(), "src/api.rs", "src/a.rs");
-}
-
 /// Every error the graph store reports carries a declared camelCase code,
 /// so the CLI exits by the same `errorCodes` class as every tool.
 #[test]
@@ -1540,7 +1585,7 @@ fn every_store_error_code_is_declared() {
     assert!(codes.len() > 10, "{codes:?}");
     for code in codes {
         assert!(
-            crate::tools::id::error_codes::class(&code).is_some(),
+            crate::id::error_codes::class(&code).is_some(),
             "graph store code {code:?} is not declared in errorCodes"
         );
     }
@@ -1641,32 +1686,13 @@ fn cycle_classes_app() -> Fixture {
 /// (module-load) cycle.
 type Groups = std::collections::BTreeSet<(Vec<String>, bool)>;
 
-fn topology_groups(out: &Value) -> Groups {
-    out["nodes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|row| {
-            let files = row["files"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|file| file.as_str().map(str::to_owned))
-                .collect::<Vec<_>>();
-            (files, row["runtimeCycle"] == true)
-        })
-        .collect()
-}
-
-/// astTopology `cycles`, `graph query cycles` and the `cycle` detector of
-/// `graph query issues` read one cycle engine: the same groups, the same
-/// runtime verdicts.
+/// `graph query cycles` and the `cycle` detector of `graph query issues`
+/// read one cycle engine: the same groups, the same runtime verdicts.
 #[test]
 fn every_cycle_surface_reports_the_same_groups() {
     let dir = cycle_classes_app();
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
-    let topo = topology_groups(&topology(root, json!({"operation":"cycles"})));
     let group = |files: &[&str], runtime: bool| {
         (
             files.iter().map(|f| (*f).to_owned()).collect::<Vec<_>>(),
@@ -1680,7 +1706,6 @@ fn every_cycle_surface_reports_the_same_groups() {
         group(&["web/d1.ts", "web/d2.ts"], false),
         group(&["web/t1.ts", "web/t2.ts"], false),
     ]);
-    assert_eq!(topo, expected, "astTopology cycles");
     let listed = ask(root, "cycles", None, |_| {});
     let listed = listed.value["results"]
         .as_array()
@@ -1719,7 +1744,7 @@ fn every_cycle_surface_reports_the_same_groups() {
     assert_eq!(found, expected, "graph query issues: {}", issues.value);
 }
 
-/// A TypeScript package whose dead code both engines judge: an entry, a
+/// A TypeScript package for the dead-code detectors: an entry, a
 /// used module with one unused export, an orphan file, a pair of files only
 /// each other import, a barrel, a default export, a test, and declaration
 /// files (one beside a used module, one nothing imports).
@@ -1764,32 +1789,14 @@ fn dead_code_app() -> Fixture {
     ])
 }
 
-/// astTopology `deadCode` and the store's `unreachable-file` /
-/// `unused-export` detectors judge one fixture alike: the same unreachable
-/// files and the same unused exports.
+/// The store's `unreachable-file` and `unused-export` detectors judge the
+/// dead-code fixture: the orphan and the pair only each other import are
+/// unreachable, and only the exports no importer names are unused.
 #[test]
-fn both_dead_code_engines_agree_on_one_fixture() {
+fn dead_code_detectors_judge_one_fixture() {
     let dir = dead_code_app();
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
-    let topo = topology(root, json!({"operation":"deadCode","includeTests":false}));
-    let rows = topo["nodes"].as_array().cloned().unwrap_or_default();
-    let topo_unreachable = rows
-        .iter()
-        .filter(|row| row["reason"] != "unreferenced-export")
-        .filter_map(|row| row["file"].as_str().map(str::to_owned))
-        .collect::<std::collections::BTreeSet<_>>();
-    let topo_unused = rows
-        .iter()
-        .filter(|row| row["reason"] == "unreferenced-export")
-        .filter_map(|row| {
-            Some(format!(
-                "{}#{}",
-                row["file"].as_str()?,
-                row["name"].as_str()?
-            ))
-        })
-        .collect::<std::collections::BTreeSet<_>>();
     let issues = ask(root, "issues", None, |o| {
         o.limit = Some(200);
         o.min_tier = Some(0);
@@ -1816,12 +1823,24 @@ fn both_dead_code_engines_agree_on_one_fixture() {
                 .collect::<Vec<_>>()
         })
         .collect::<std::collections::BTreeSet<_>>();
+    let set = |items: &[&str]| {
+        items
+            .iter()
+            .map(|item| (*item).to_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
     assert_eq!(
-        topo_unreachable, store_unreachable,
-        "{topo}\n{}",
+        store_unreachable,
+        set(&["src/orphan.ts", "src/ping.ts", "src/pong.ts"]),
+        "{}",
         issues.value
     );
-    assert_eq!(topo_unused, store_unused, "{topo}\n{}", issues.value);
+    assert_eq!(
+        store_unused,
+        set(&["src/inner.ts#alsoExported", "src/lib.ts#unused"]),
+        "{}",
+        issues.value
+    );
 }
 
 fn ingest_root(dir: &Path, root: &Path, keep: Option<usize>, force: bool) -> GraphOutput {
@@ -1944,7 +1963,9 @@ fn a_truncated_snapshot_is_never_fresh() {
         "{}",
         stale.value
     );
-    let reingest = stale.value["reingest"].as_str().expect("reingest");
+    // The cut's re-ingest is stated once, in the graph block.
+    assert!(stale.value.get("reingest").is_none(), "{}", stale.value);
+    let reingest = stale.value["graph"]["reingest"].as_str().expect("reingest");
     assert!(
         reingest.ends_with(" --max-files 4 --exclude gen"),
         "{reingest}"
@@ -2308,4 +2329,301 @@ fn authored_lib_javascript_keeps_its_symbols() {
     assert_eq!(ingested.class, ExitClass::Success, "{}", ingested.value);
     let outline = ask(dir.0.as_path(), "symbols", Some("lib/math.js"), |_| {});
     assert_eq!(ids(&outline), vec!["lib/math.js#add"], "{}", outline.value);
+}
+
+// ── Drift, explicit entries, re-export dependents, scan cuts, parsers ───────
+
+/// A file's dependents include the files that use its exports through a
+/// re-exporting module, and only the ones naming one of those exports: an
+/// importer of another item of the barrel does not depend on it.
+#[test]
+fn dependents_include_importers_through_a_reexporting_module() {
+    let dir = git_app(&[
+        (
+            "src/a.ts",
+            "export const a = 1;\nexport const unused = 2;\n",
+        ),
+        ("src/b.ts", "export const b = 2;\n"),
+        (
+            "src/index.ts",
+            "export { a } from './a';\nexport { b } from './b';\n",
+        ),
+        (
+            "src/main.ts",
+            "import { a } from './index';\nconsole.log(a);\n",
+        ),
+        (
+            "src/other.ts",
+            "import { b } from './index';\nconsole.log(b);\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let out = ask(root, "dependents", Some("src/a.ts"), |_| {});
+    assert_eq!(
+        ids(&out),
+        vec!["src/index.ts", "src/main.ts"],
+        "{}",
+        out.value
+    );
+    let through = &out.value["results"][1];
+    assert_eq!(through["edge"], "uses", "{through}");
+    assert_eq!(through["via"], "reexport", "{through}");
+    assert_eq!(through["depth"], 1, "{through}");
+    assert_eq!(through["edgeLine"], 1, "{through}");
+    // An explicit edge filter walks exactly the edges it names.
+    let imports = ask(root, "dependents", Some("src/a.ts"), |o| {
+        o.edges = vec!["imports".into()]
+    });
+    assert_eq!(ids(&imports), vec!["src/index.ts"], "{}", imports.value);
+}
+
+/// `issues --entry` names the entrypoints in place of the inferred ones:
+/// reachability and unused exports are judged from them, and an entry that
+/// matches no node is a not-found error.
+#[test]
+fn issues_take_explicit_entrypoints_in_place_of_the_inferred_ones() {
+    let dir = issues_fixture();
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let inferred = ask(root, "issues", None, |o| {
+        o.detectors = vec!["unreachable-file".into(), "test-only".into()];
+        o.limit = Some(200);
+        o.min_tier = Some(0);
+    });
+    assert!(findings(&inferred, "unreachable-file").contains(&"src/orphan.ts".to_owned()));
+    let explicit = ask(root, "issues", None, |o| {
+        o.detectors = vec!["unreachable-file".into(), "test-only".into()];
+        o.entries = vec!["src/orphan.ts".into()];
+        o.limit = Some(200);
+        o.min_tier = Some(0);
+    });
+    let unreachable = findings(&explicit, "unreachable-file");
+    assert!(
+        !unreachable.contains(&"src/orphan.ts".to_owned()),
+        "{}",
+        explicit.value
+    );
+    // main.ts is no entry now: only its test reaches it.
+    assert!(
+        findings(&explicit, "test-only").contains(&"src/main.ts".to_owned()),
+        "{}",
+        explicit.value
+    );
+    assert_eq!(
+        explicit.value["summary"]["entrypoints"],
+        json!({"total": 1, "byRule": {"explicit": 1}}),
+        "{}",
+        explicit.value
+    );
+    let next = explicit.value.get("next").and_then(Value::as_str);
+    assert!(
+        next.is_none_or(|next| next.contains("--entry src/orphan.ts")),
+        "{next:?}"
+    );
+    let missing = ask(root, "issues", None, |o| {
+        o.entries = vec!["src/nope.ts".into()]
+    });
+    assert_eq!(
+        missing.class,
+        ExitClass::Failed(crate::runtime::FailureKind::NotFound),
+        "{}",
+        missing.value
+    );
+}
+
+/// `drift --baseline` diffs two snapshots by root-relative key: files
+/// added, removed and edited, cycles added and resolved, imports that
+/// turned dynamic, and relations added and removed.
+#[test]
+fn drift_diffs_two_snapshots_by_file_cycle_transition_and_relation() {
+    let dir = fixture();
+    let root = dir.0.as_path();
+    let base = ingest_fixture(root, None);
+    let base_id = base.value["id"].as_str().expect("id").to_owned();
+    dir.write("app/src/b.ts", "export const b = () => 1;\n");
+    dir.write(
+        "app/src/main.ts",
+        "import React from 'react';\nexport async function main() {\n  const { greet } = await import('./lib');\n  return greet('x');\n}\n",
+    );
+    dir.write("app/src/added.ts", "export const added = 1;\n");
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let head = ingest_fixture(root, None);
+    assert_eq!(head.class, ExitClass::Success, "{}", head.value);
+
+    let out = ask(root, "drift", None, |o| {
+        o.baseline = Some(base_id.clone());
+        o.limit = Some(500);
+    });
+    assert_eq!(out.class, ExitClass::Success, "{}", out.value);
+    let rows = out.value["results"].as_array().expect("rows");
+    let has = |row: Value| rows.contains(&row);
+    assert!(
+        has(json!({"category":"file","change":"added","file":"src/added.ts"})),
+        "{}",
+        out.value
+    );
+    assert!(
+        has(json!({"category":"file","change":"changed","file":"src/b.ts"})),
+        "{}",
+        out.value
+    );
+    assert!(
+        has(json!({"category":"cycle","change":"resolved","files":["src/a.ts","src/b.ts"]})),
+        "{}",
+        out.value
+    );
+    assert!(
+        has(
+            json!({"category":"transition","change":"staticToDynamic","from":"src/main.ts","to":"src/lib.ts"})
+        ),
+        "{}",
+        out.value
+    );
+    assert!(
+        has(
+            json!({"category":"relation","change":"removed","from":"src/b.ts","to":"src/a.ts","edge":"imports"})
+        ),
+        "{}",
+        out.value
+    );
+    // A transition is not also an added and removed relation.
+    assert!(
+        !rows.iter().any(|row| row["category"] == "relation"
+            && row["from"] == "src/main.ts"
+            && row["to"] == "src/lib.ts"),
+        "{}",
+        out.value
+    );
+    let summary = &out.value["summary"];
+    assert_eq!(summary["filesAdded"], 1, "{summary}");
+    assert_eq!(summary["cyclesResolved"], 1, "{summary}");
+    assert_eq!(summary["staticToDynamic"], 1, "{summary}");
+    assert_eq!(
+        out.value["baseline"]["id"],
+        base_id.as_str(),
+        "{}",
+        out.value
+    );
+    // File rows lead.
+    assert_eq!(rows[0]["category"], "file", "{}", out.value);
+
+    let same = ask(root, "drift", None, |o| {
+        o.graph = head.value["id"].as_str().map(str::to_owned);
+        o.baseline = head.value["id"].as_str().map(str::to_owned);
+    });
+    assert_eq!(same.class, ExitClass::Empty, "{}", same.value);
+    let missing = ask(root, "drift", None, |_| {});
+    assert_eq!(missing.class, ExitClass::InvalidInput, "{}", missing.value);
+}
+
+/// Every answer over a snapshot whose scan was cut says so in its graph
+/// block: the cut and, for a file-scan cut, the re-ingest that lifts it.
+#[test]
+fn answers_over_a_cut_snapshot_name_the_cut_and_the_reingest() {
+    let dir = fixture();
+    let root = dir.0.as_path();
+    let out = ingest(
+        &IngestOptions {
+            path: root.join("app"),
+            workspace: Some(root.to_path_buf()),
+            max_files: Some(2),
+            ..Default::default()
+        },
+        &policy(root),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+    );
+    assert_eq!(out.value["scan"]["truncated"], true, "{}", out.value);
+    for op in ["cycles", "stats", "issues"] {
+        let answer = ask(root, op, None, |_| {});
+        let graph = &answer.value["graph"];
+        assert_eq!(
+            graph["partialReasons"],
+            json!(["maxFiles"]),
+            "{op}: {graph}"
+        );
+        let reingest = graph["reingest"].as_str().expect("reingest");
+        assert!(reingest.ends_with(" --max-files 4"), "{op}: {reingest}");
+    }
+    let full = ingest_root(root, &root.join("app"), None, true);
+    assert_eq!(full.value["scan"]["truncated"], false, "{}", full.value);
+    let graph = &ask(root, "cycles", None, |_| {}).value["graph"];
+    assert!(graph.get("partialReasons").is_none(), "{graph}");
+    assert!(graph.get("reingest").is_none(), "{graph}");
+}
+
+/// `ingest --language-glob` picks a parser by root-relative glob, as for
+/// astSearch: a C++ header named `.h` declares its class only when a glob
+/// parses it as C++, and the globs are part of what a reuse compares.
+#[test]
+fn ingest_language_globs_choose_the_parser() {
+    let dir = git_app(&[("include/widget.h", "namespace Space { class Widget {}; }\n")]);
+    let root = dir.0.as_path();
+    let with_globs = |globs: &[(&str, &str)]| {
+        ingest(
+            &IngestOptions {
+                path: root.join("app"),
+                workspace: Some(root.to_path_buf()),
+                language_globs: globs
+                    .iter()
+                    .map(|(language, glob)| ((*language).to_owned(), vec![(*glob).to_owned()]))
+                    .collect(),
+                ..Default::default()
+            },
+            &policy(root),
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+        )
+    };
+    let widget = || {
+        let found = ask(root, "find", Some("Widget"), |o| {
+            o.kind = Some("symbol".into())
+        });
+        found.value["results"][0]["symbolKind"].clone()
+    };
+    let plain = with_globs(&[]);
+    assert_eq!(plain.class, ExitClass::Success, "{}", plain.value);
+    assert_ne!(widget(), "class", "C reads no class");
+    let cpp = with_globs(&[("cpp", "include/**/*.h")]);
+    assert_eq!(cpp.class, ExitClass::Success, "{}", cpp.value);
+    assert!(
+        cpp.value.get("reused").is_none(),
+        "globs changed: {}",
+        cpp.value
+    );
+    assert_eq!(
+        cpp.value["scan"]["languageGlobs"],
+        json!({"cpp": ["include/**/*.h"]}),
+        "{}",
+        cpp.value
+    );
+    assert_eq!(widget(), "class");
+    let again = with_globs(&[("cpp", "include/**/*.h")]);
+    assert_eq!(again.value["reused"], true, "{}", again.value);
+    let stale = ask(root, "stale", None, |_| {});
+    assert_eq!(stale.value["fresh"], true, "{}", stale.value);
+}
+
+/// A malformed `--language-glob` is refused, never matched as nothing.
+#[test]
+fn a_malformed_language_glob_is_an_invalid_glob_error() {
+    let dir = git_app(&[("a.ts", "export const a = 1;\n")]);
+    let root = dir.0.as_path();
+    let out = ingest(
+        &IngestOptions {
+            path: root.join("app"),
+            workspace: Some(root.to_path_buf()),
+            language_globs: BTreeMap::from([("cpp".to_owned(), vec!["[bad".to_owned()])]),
+            ..Default::default()
+        },
+        &policy(root),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+    );
+    assert_eq!(out.value["errorCode"], "invalidGlob", "{}", out.value);
+    assert_eq!(out.class, ExitClass::InvalidInput, "{}", out.value);
 }

@@ -1,7 +1,9 @@
 mod commands;
 mod config;
 mod config_view;
+mod flags;
 mod graph;
+mod lines;
 mod lsp_provision;
 mod mcp_clients;
 mod mcp_install;
@@ -13,12 +15,12 @@ mod system;
 use clap::{CommandFactory, FromArgMatches, Parser};
 use commands::{AuthCommand, Command, ConfigCommand, ToolArgs};
 use octocode_native::config::RuntimeSurface;
-use octocode_native::runtime::availability::{Availability, ToolAvailability};
+use octocode_native::execution::availability::{Availability, ToolAvailability};
+use octocode_native::id::ToolId;
+use octocode_native::response::exit::ExitClass;
+use octocode_native::response::outcome::ToolOutcome;
 use octocode_native::runtime::error::tool_error_result;
-use octocode_native::runtime::{
-    Channel, ExitClass, FailureKind, HostOptions, RuntimeError, ToolOutcome, ToolRuntime,
-};
-use octocode_native::tools::id::ToolId;
+use octocode_native::runtime::{Channel, FailureKind, HostOptions, RuntimeError, ToolRuntime};
 use serde_json::{Value, json};
 use std::io::{self, Write};
 
@@ -28,27 +30,26 @@ use std::io::{self, Write};
     version,
     about = "Native Octocode research tools",
     long_about = ROOT_HELP,
-    after_help = "Run: octocode <tool> '<json>' | Fields: octocode schema <tool>\nUse --help for output rules and exit codes; <tool> --help for examples."
+    after_help = "Run: octocode <tool> [FLAGS] ARGS | octocode <tool> '<json>'\nUse --help for output rules and exit codes; <tool> --help for flags and examples."
 )]
 pub struct Args {
     #[command(subcommand)]
     command: Command,
-    /// Print JSON (tools, `graph`, and `schema` already do on a pipe):
-    /// indented on a terminal, one line on a pipe.
+    /// Print JSON instead of text: indented on a terminal, one line on a pipe.
     #[arg(long, global = true)]
     json: bool,
 }
 
 const ROOT_HELP: &str = r#"Native Octocode research tools.
 
-Queries: one JSON object or {"queries":[…]}; --input FILE|- reads a query.
+Tools: flags like rg/gh (octocode localSearch PATTERN [PATH] -w -g '*.rs'), or
+one JSON query ({…} or {"queries":[…]}); --input FILE|- reads a JSON query.
 Discovery: schema lists tools; schema <tool> lists query fields.
 Reference: schema [<tool>] --view full. Examples: <tool> --help.
 Graph: graph ingest <path>, then graph query <op> [ref]; see graph --help.
 
-Output: text on a terminal; JSON on a pipe or with --json (indented on a terminal).
-Errors: stdout in JSON mode, stderr otherwise; pipe-selected JSON also reports
-text to stderr when stderr is a terminal.
+Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
+Errors: the JSON envelope on stdout with --json, text on stderr otherwise.
 Exits: 0 success, 1 empty, 2 invalid input (including batch rows), 3 not found,
 4 auth required, 5 execution error, 7 rate limited, 130 interrupted.
 A batch exits with its worst row; stdout still carries every row's result.
@@ -118,17 +119,14 @@ fn error_envelope(code: &str, message: &str, details: &[&str]) -> Value {
     envelope
 }
 
-/// Commands whose output is text for people unless `--json` asks otherwise;
-/// every other command (tools, `graph`, an unknown name) answers in JSON.
-fn text_command(name: &str) -> bool {
-    matches!(
-        name,
-        "config" | "auth" | "skill" | "install" | "help" | "lsp-server" | "cache" | "serve"
-    )
+/// `schema` prints JSON Schema, so it answers a pipe in JSON; every other
+/// command prints text unless `--json` asks for JSON.
+fn answers_pipe_in_json(name: &str) -> bool {
+    name == "schema"
 }
 
-/// How a parse error is reported: as JSON for `--json` anywhere, or for a
-/// non-text command (a mistyped tool name included) whose stdout is a pipe.
+/// How a parse error is reported: as JSON for `--json` anywhere, or for
+/// `schema` on a pipe; as text on stderr otherwise.
 fn parse_error_mode(argv: &[std::ffi::OsString]) -> OutputMode {
     let json_flag = argv.iter().any(|arg| arg == "--json");
     let command = argv
@@ -136,7 +134,7 @@ fn parse_error_mode(argv: &[std::ffi::OsString]) -> OutputMode {
         .skip(1)
         .filter_map(|arg| arg.to_str())
         .find(|arg| !arg.starts_with('-'));
-    OutputMode::new(json_flag, !command.is_some_and(text_command))
+    OutputMode::new(json_flag, command.is_some_and(answers_pipe_in_json))
 }
 
 /// Clap's diagnostic as text on stderr, colored when stderr is a terminal,
@@ -194,7 +192,7 @@ where
         Ok(args) => Ok(args),
         Err(error) => {
             let error = if is_help(&error) {
-                with_tool_help(hide_unavailable_tools(Args::command()))
+                help_command(&argv)
                     .try_get_matches_from(&argv)
                     .err()
                     .unwrap_or(error)
@@ -240,24 +238,70 @@ fn hide_unavailable_tools(mut command: clap::Command) -> clap::Command {
     };
     let surface = RuntimeSurface::Cli;
     let input = acquire_config_input(octocode_io::env::vars_lossy(), cwd, home, surface);
-    let availability = ToolAvailability::resolve(&resolve_config(&input), surface);
+    let config = resolve_config(&input);
+    let availability = ToolAvailability::resolve(&config, surface);
+    let selection = octocode_native::execution::availability::classification_key(&config).is_some();
     for tool in ToolId::ALL {
         if !availability.is_available(tool.as_str()) {
             command = command.mut_subcommand(tool.as_str(), |sub| sub.hide(true));
+        }
+        // A classification key enables the selection flags (clasifyContext).
+        if selection {
+            for field in flags::selection_only(tool.as_str()) {
+                command = command.mut_subcommand(tool.as_str(), |sub| {
+                    sub.mut_arg(flags::field_id(field), |arg| arg.hide(false))
+                });
+            }
         }
     }
     command
 }
 
+/// The help command for `argv`: unavailable tools hidden, and the help
+/// section of the one tool `argv` names, or the root help's examples of
+/// every available tool.
+fn help_command(argv: &[std::ffi::OsString]) -> clap::Command {
+    let command = hide_unavailable_tools(Args::command());
+    let tool = argv
+        .iter()
+        .skip(1)
+        .filter_map(|arg| arg.to_str())
+        .find(|arg| !arg.starts_with('-') && *arg != "help")
+        .and_then(ToolId::from_name);
+    match tool {
+        Some(tool) => with_tool_help(command, tool),
+        None => with_examples(command),
+    }
+}
+
+/// The root help ends with each available tool's flag examples from the
+/// embedded CLI presentation, so a first call needs no `<tool> --help`.
+fn with_examples(command: clap::Command) -> clap::Command {
+    let examples: Vec<String> = command
+        .get_subcommands()
+        .filter(|sub| !sub.is_hide_set() && ToolId::from_name(sub.get_name()).is_some())
+        .filter_map(|sub| flags::spec(sub.get_name()))
+        .flat_map(|spec| spec["examples"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .map(|example| format!("  {example}"))
+        .collect();
+    if examples.is_empty() {
+        return command;
+    }
+    let after = command
+        .get_after_help()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    command.after_help(format!("Examples:\n{}\n\n{after}", examples.join("\n")))
+}
+
 /// `<tool> --help` ends with what the query needs: required fields and one
 /// runnable example, from the embedded CLI presentation.
-fn with_tool_help(mut command: clap::Command) -> clap::Command {
-    for tool in ToolId::ALL {
-        if let Some(help) = schema::tool_help(tool.as_str()) {
-            command = command.mut_subcommand(tool.as_str(), |sub| sub.after_help(help));
-        }
+fn with_tool_help(command: clap::Command, tool: ToolId) -> clap::Command {
+    match schema::tool_help(tool.as_str()) {
+        Some(help) => command.mut_subcommand(tool.as_str(), |sub| sub.after_help(help)),
+        None => command,
     }
-    command
 }
 
 /// Text for a disabled tool whose gating env key was present in a `.env`
@@ -390,14 +434,10 @@ fn start_failed(error: &RuntimeError, mode: OutputMode) -> u8 {
 }
 
 impl Command {
-    /// The output mode the command was asked for: tools, `graph`, and
-    /// `schema` answer a pipe in JSON; every command answers `--json` in JSON.
+    /// The output mode the command was asked for: `schema` answers a pipe in
+    /// JSON; every command answers `--json` in JSON and prints text otherwise.
     fn output_mode(&self, json: bool) -> OutputMode {
-        let answers_pipe_in_json = matches!(
-            self,
-            Self::Tool(_) | Self::Graph { .. } | Self::Schema { .. }
-        );
-        OutputMode::new(json, answers_pipe_in_json)
+        OutputMode::new(json, matches!(self, Self::Schema { .. }))
     }
 }
 
@@ -467,13 +507,7 @@ async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> 
             json: json_out,
             ..args
         }),
-        Command::LspServer {
-            action,
-            names,
-            all,
-            yes,
-            force,
-        } => lsp_provision::run(runtime, &action, names, all, yes, force, json_out).await,
+        Command::LspServer { command } => lsp_provision::run(runtime, command, json_out).await,
         // Handled in `run` before the runtime starts.
         Command::Tool(_) | Command::Serve { .. } => 2,
     }
@@ -545,7 +579,7 @@ fn config_management_response(
 /// Parse the query, then run it on the workspace's warm server (read-only
 /// tools) or in this process.
 async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
-    let input = match tool_input(tool.name, &tool.args) {
+    let input = match tool_input(tool.name, &tool.args, tool.flags) {
         Ok(input) => input,
         Err(message) => {
             emit_error("invalidInput", &message, mode);
@@ -566,11 +600,33 @@ async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
     code
 }
 
-/// The parsed JSON query of a tool command, or why there is none.
-fn tool_input(tool: &str, args: &ToolArgs) -> Result<Value, String> {
-    let query_text = args.query_text()?.ok_or_else(|| {
+/// The query of a tool command: the one its flags built, or its parsed JSON
+/// query; never both.
+fn tool_input(
+    tool: &str,
+    args: &ToolArgs,
+    flags: Result<Option<Value>, String>,
+) -> Result<Value, String> {
+    if args.input.is_some() && !args.args.is_empty() {
+        return Err(format!(
+            "--input reads the query; drop the other arguments. Usage: octocode {tool} --help"
+        ));
+    }
+    let json = args.query_text()?;
+    match (flags?, json) {
+        (Some(_), Some(_)) => Err(format!(
+            "Use flags or a JSON query, not both. Usage: octocode {tool} --help"
+        )),
+        (Some(query), None) => Ok(query),
+        (None, json) => parse_json_query(tool, json),
+    }
+}
+
+/// The JSON form's query text, parsed.
+fn parse_json_query(tool: &str, json: Option<String>) -> Result<Value, String> {
+    let query_text = json.ok_or_else(|| {
         format!(
-            "Missing JSON query. Usage: octocode {tool} '<json>' | --input FILE|-. Contract: octocode schema {tool}"
+            "Missing query. Usage: octocode {tool} --help (flags), or octocode {tool} '<json>' | --input FILE|-"
         )
     })?;
     serde_json::from_str::<Value>(&query_text)
@@ -615,8 +671,9 @@ async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMo
     const REQUEST: &str = "cli-1";
     let admission = match runtime.admit(REQUEST.into()) {
         Ok(admission) => admission,
-        Err(error) => return Printed::finish(tool, Err(error), mode.json).print(mode),
+        Err(error) => return Printed::finish(tool, Err(error), mode.json, &input).print(mode),
     };
+    let query = input.clone();
     let execution = runtime.execute(admission, tool.into(), input, channel(mode.json));
     tokio::pin!(execution);
     let result = tokio::select! {
@@ -640,7 +697,7 @@ async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMo
             }
         }
     };
-    Printed::finish(tool, result, mode.json).print(mode)
+    Printed::finish(tool, result, mode.json, &query).print(mode)
 }
 
 /// Where a finished call's output goes.
@@ -663,37 +720,82 @@ struct Printed {
     /// A failed call's text when its body is the JSON envelope, for a person
     /// watching stderr ([`OutputMode::tells_stderr`]).
     error_text: Option<String>,
+    /// Text-mode notes for stderr (counts, pages, leads) beside line output.
+    notes: Option<String>,
 }
 
 impl Printed {
     /// The one projection of a finished call: the structured JSON or the
     /// rendered text, or the call's error envelope (JSON on stdout) or text
     /// (stderr).
-    fn finish(tool: &str, result: Result<ToolOutcome, RuntimeError>, json_out: bool) -> Self {
+    /// `query` is the call's input: the line format reads whether it asked
+    /// for context lines.
+    fn finish(
+        tool: &str,
+        result: Result<ToolOutcome, RuntimeError>,
+        json_out: bool,
+        query: &Value,
+    ) -> Self {
         match result {
-            Ok(outcome) => Self {
-                exit: exit_code(outcome.exit_class()),
-                stream: Stream::Stdout,
-                body: if json_out {
-                    outcome.structured_content.to_string()
+            Ok(outcome) => {
+                let (body, notes) = if json_out {
+                    (outcome.structured_content.to_string(), None)
+                } else if let Some(text) = lines::render(tool, &outcome.structured_content, query) {
+                    (text.out, Some(text.notes).filter(|notes| !notes.is_empty()))
                 } else {
-                    outcome_text(&outcome.content)
-                },
-                error_text: None,
-            },
+                    // The rendered text stays as the runtime wrote it; its
+                    // follow-up calls repeat on stderr as commands.
+                    let follow_ups = lines::follow_ups(&outcome.structured_content);
+                    let notes = follow_ups
+                        .iter()
+                        .map(|line| format!("# {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (
+                        outcome_text(&outcome.content),
+                        Some(notes).filter(|notes| !notes.is_empty()),
+                    )
+                };
+                // A call whose every row failed prints its text on stderr,
+                // so a pipe never reads an error as data.
+                let stream = if !json_out && lines::all_rows_failed(&outcome.structured_content) {
+                    Stream::Stderr
+                } else {
+                    Stream::Stdout
+                };
+                Self {
+                    exit: exit_code(outcome.exit_class()),
+                    stream,
+                    body,
+                    error_text: None,
+                    notes,
+                }
+            }
             Err(error) => {
                 let projected = tool_error_result(tool, &error);
-                let (stream, body, error_text) = if json_out {
+                let (stream, body, error_text, notes) = if json_out {
                     let envelope = projected.envelope.to_string();
-                    (Stream::Stdout, envelope, Some(projected.text))
+                    (Stream::Stdout, envelope, Some(projected.text), None)
                 } else {
-                    (Stream::Stderr, projected.text, None)
+                    // A repair lead prints as the command that runs it.
+                    let repairs = lines::follow_ups(&projected.envelope)
+                        .iter()
+                        .map(|line| format!("# {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (
+                        Stream::Stderr,
+                        projected.text,
+                        None,
+                        Some(repairs).filter(|r| !r.is_empty()),
+                    )
                 };
                 Self {
                     exit: exit_code(error.exit_class()),
                     stream,
                     body,
                     error_text,
+                    notes,
                 }
             }
         }
@@ -706,6 +808,9 @@ impl Printed {
             json!({"exit": self.exit, "stderr": self.stream == Stream::Stderr, "body": self.body});
         if let Some(text) = &self.error_text {
             reply["errorText"] = json!(text);
+        }
+        if let Some(notes) = &self.notes {
+            reply["notes"] = json!(notes);
         }
         reply
     }
@@ -729,6 +834,11 @@ impl Printed {
                 Value::Null => None,
                 _ => return None,
             },
+            notes: match reply["notes"].take() {
+                Value::String(text) => Some(text),
+                Value::Null => None,
+                _ => return None,
+            },
         })
     }
 
@@ -738,7 +848,18 @@ impl Printed {
     fn print(&self, mode: OutputMode) -> u8 {
         let printed = match self.stream {
             Stream::Stdout if mode.json => write_serialized_json(&self.body),
-            Stream::Stdout => write_text(&self.body),
+            Stream::Stdout => {
+                let printed = if self.body.is_empty() {
+                    0
+                } else {
+                    write_text(&self.body)
+                };
+                if let Some(notes) = &self.notes {
+                    let _ = io::stdout().lock().flush();
+                    eprintln!("{notes}");
+                }
+                printed
+            }
             Stream::Stderr => {
                 eprintln!("{}", self.body);
                 0
@@ -869,14 +990,14 @@ mod tests {
             payload: None,
             validation_issues: None,
         };
-        let json_error = Printed::finish("localSearch", Err(error()), true);
+        let json_error = Printed::finish("localSearch", Err(error()), true, &json!({}));
         assert!(
             json_error
                 .error_text
                 .as_deref()
                 .is_some_and(|text| text.ends_with("(errorCode: timeout)"))
         );
-        let text_error = Printed::finish("localSearch", Err(error()), false);
+        let text_error = Printed::finish("localSearch", Err(error()), false, &json!({}));
         assert_eq!(text_error.error_text, None);
         for printed in [json_error, text_error] {
             assert_eq!(
@@ -917,12 +1038,12 @@ mod tests {
             payload: Some(Box::new(contracts::format_input_error(tool, &error))),
             validation_issues: None,
         };
-        let json_out = Printed::finish(tool, Err(invalid()), true);
+        let json_out = Printed::finish(tool, Err(invalid()), true, &json!({}));
         assert_eq!((json_out.exit, json_out.stream), (2, Stream::Stdout));
         let envelope: serde_json::Value = serde_json::from_str(&json_out.body).expect("json");
         assert!(envelope.get("kind").is_none(), "{envelope}");
         assert_eq!(envelope["errorCode"], "invalidInput", "{envelope}");
-        let text = Printed::finish(tool, Err(invalid()), false);
+        let text = Printed::finish(tool, Err(invalid()), false, &json!({}));
         assert_eq!((text.exit, text.stream), (2, Stream::Stderr));
         assert!(
             text.body.contains("Remove unknown field 'matchstring'"),
@@ -946,7 +1067,7 @@ mod tests {
             payload: None,
             validation_issues: None,
         };
-        let printed = Printed::finish("localSearch", Err(timeout), false);
+        let printed = Printed::finish("localSearch", Err(timeout), false, &json!({}));
         assert_eq!(printed.exit, 5);
         assert!(
             printed.body.contains("Retry, or narrow"),
@@ -967,7 +1088,7 @@ mod tests {
             match args.command {
                 super::Command::Tool(command) => {
                     assert_eq!(command.name, name);
-                    assert_eq!(command.args.query.as_deref(), Some("{}"));
+                    assert_eq!(command.args.json_arg(), Some("{}"));
                 }
                 _ => panic!("{name} did not parse as a tool"),
             }
@@ -1029,34 +1150,43 @@ mod tests {
         let path = dir.path().join("q.json");
         std::fs::write(&path, r#"{"queries":[]}"#).expect("write");
         let args = super::ToolArgs {
-            query: None,
+            args: Vec::new(),
             input: Some(path),
         };
         assert_eq!(
-            super::tool_input("localSearch", &args),
+            super::tool_input("localSearch", &args, Ok(None)),
             Ok(json!({"queries": []}))
         );
         let bad = super::ToolArgs {
-            query: Some("{".into()),
+            args: vec!["{".into()],
             input: None,
         };
         assert!(
-            super::tool_input("localSearch", &bad).is_err_and(|e| e.starts_with("Invalid JSON"))
+            super::tool_input("localSearch", &bad, Ok(None))
+                .is_err_and(|e| e.starts_with("Invalid JSON"))
         );
         let missing = super::ToolArgs {
-            query: None,
+            args: Vec::new(),
             input: None,
         };
         assert!(
-            super::tool_input("localSearch", &missing)
-                .is_err_and(|e| e.starts_with("Missing JSON"))
+            super::tool_input("localSearch", &missing, Ok(None))
+                .is_err_and(|e| e.starts_with("Missing query"))
+        );
+        let both = super::ToolArgs {
+            args: vec!["{}".into()],
+            input: None,
+        };
+        assert!(
+            super::tool_input("localSearch", &both, Ok(Some(json!({"path": "."}))))
+                .is_err_and(|e| e.starts_with("Use flags or a JSON query"))
         );
     }
 
     #[test]
     fn execution_deadline_exceeds_the_worst_cold_lsp_budget() {
         assert!(
-            octocode_native::runtime::DEFAULT_TIMEOUT.as_millis()
+            octocode_native::execution::DEFAULT_TIMEOUT.as_millis()
                 > u128::from(octocode_engine::lsp::MAX_COLD_LSP_EXECUTION_BUDGET_MS)
         );
     }

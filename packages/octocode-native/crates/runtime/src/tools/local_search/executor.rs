@@ -1,11 +1,17 @@
 use super::types::*;
-use super::{cursor::*, layout::*, leads::*, regex_repair::*, rows::*, verify::*};
+use super::{
+    coverage::*, cursor::*, enclosing::*, handoff::*, layout::*, leads::*, regex_repair::*,
+    rows::*, verify::*,
+};
+use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
+use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
-use crate::tools::cancel::CancellationCheck;
-use crate::tools::result::ToolError;
-use octocode_engine::{search::text_search::search_cancellable, types::TextSearchOptions};
+use octocode_engine::search::text_search::search_cancellable;
+use octocode_engine::types::{
+    CaseRule, PatternSyntax, SearchOutput, SearchSort, SourceValues, SpanValues, TextSearchOptions,
+};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -55,7 +61,7 @@ pub fn execute_local_search(
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> Result<LocalSearchResult, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
-    let query = &*query.normalized()?;
+    let query = &*local_search_query::normalized(query)?;
     let scan = scan_query(query, paths, cancel, walk_threads, response_window)?;
     page_of(
         query,
@@ -107,6 +113,7 @@ pub(super) fn page_of(
         &mut scan.parsed,
         scan.page_budget,
         scan.stored_redaction.as_deref(),
+        &scan.name_prices,
         selection,
         &scan.identity,
     )?;
@@ -121,6 +128,7 @@ pub(super) fn page_of(
             redaction: shaped.redaction,
             skipped: Arc::clone(&scan.skipped),
             walked,
+            prices: Arc::clone(&scan.name_prices),
         });
     let selection_token = shaped
         .selection
@@ -165,7 +173,9 @@ pub(super) fn page_of(
             }
         }
         // The pre-selection totals hold for every page: said on the first.
-        if query.page().max(1) == 1 && query.match_page().max(1) == 1 {
+        if local_search_query::page(query).max(1) == 1
+            && local_search_query::match_page(query).max(1) == 1
+        {
             result.warnings.extend(selected.disclosure());
         }
         if selected.receipt().total_items > 0 && result.files.is_empty() {
@@ -337,7 +347,7 @@ fn annotate_rows<'q>(
     let (definition, enclosing_note) = annotate_enclosing(
         &mut files,
         symbol,
-        symbol.filter(|_| super::enclosing::declaration_search(query.pattern())),
+        symbol.filter(|_| super::enclosing::declaration_search(local_search_query::pattern(query))),
         output_root,
         expected_digest,
         outlines,
@@ -396,37 +406,33 @@ struct Ceilings {
 
 /// Later file pages, and hits left in the shown files, past the contract
 /// maximum of their cursor (`page`, `matchPage`): the row ends at a terminal
-/// limit, written by the one cursor owner ([`crate::tools::paging::next_cursor`]).
+/// limit, written by the one cursor owner ([`crate::response::paging::next_cursor`]).
 fn cursor_ceilings(query: &LocalSearchQuery, layout: &Layout, leftover_matches: bool) -> Ceilings {
-    let mut row = json!({});
-    let tool = crate::tools::id::ToolId::LocalSearch;
-    let page = query.page().max(1);
-    if page < layout.total_pages {
-        let _ = crate::tools::paging::next_cursor(&mut row, tool, None, "page", page as usize + 1);
-    }
-    if leftover_matches {
-        let match_page = query.match_page().max(1);
-        let _ = crate::tools::paging::next_cursor(
-            &mut row,
-            tool,
-            None,
-            "matchPage",
-            match_page as usize + 1,
-        );
-    }
-    let strings = |key: &str| {
-        row[key]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect()
-    };
+    let page = local_search_query::page(query).max(1);
+    let warnings: Vec<String> = [
+        (page < layout.total_pages).then(|| ("page", page as usize + 1)),
+        leftover_matches.then(|| {
+            (
+                "matchPage",
+                local_search_query::match_page(query).max(1) as usize + 1,
+            )
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|(field, next)| {
+        crate::response::paging::cursor_value(crate::id::ToolId::LocalSearch, None, field, next)
+            .err()
+    })
+    .collect();
+    let terminal = !warnings.is_empty();
     Ceilings {
-        warnings: strings("warnings"),
-        partial_reasons: strings("partialReasons"),
-        terminal: row["terminalLimit"] == true,
+        warnings,
+        partial_reasons: terminal
+            .then(|| crate::response::paging::CURSOR_MAXIMUM.to_owned())
+            .into_iter()
+            .collect(),
+        terminal,
     }
 }
 
@@ -436,9 +442,9 @@ fn cursor_ceilings(query: &LocalSearchQuery, layout: &Layout, leftover_matches: 
 pub(super) fn searched_symbol<'q>(query: &'q LocalSearchQuery, layout: &Layout) -> Option<&'q str> {
     (!layout.list
         && query.case_mode != LocalSearchQueryCaseMode::Insensitive
-        && query.regex_mode() != LocalSearchQueryRegex::Pcre2
+        && local_search_query::regex_mode(query) != LocalSearchQueryRegex::Pcre2
         && query.invert_match != Some(true))
-    .then(|| super::enclosing::searched_symbol(query.pattern()))
+    .then(|| super::enclosing::searched_symbol(local_search_query::pattern(query)))
     .flatten()
 }
 
@@ -453,8 +459,8 @@ pub(super) fn file_paging(
     total_files: u32,
     leftover_matches: bool,
 ) -> Option<FilePagination> {
-    let page = query.page().max(1);
-    let match_page = query.match_page().max(1);
+    let page = local_search_query::page(query).max(1);
+    let match_page = local_search_query::match_page(query).max(1);
     let has_more = page < layout.total_pages || leftover_matches;
     (total_files > 0 && (has_more || layout.total_pages > 1 || layout.out_of_range)).then_some(
         FilePagination {
@@ -495,6 +501,7 @@ pub(super) fn shape_page(
     parsed: &mut octocode_engine::types::TextSearchResult,
     page_budget: usize,
     stored_redaction: Option<&Redaction>,
+    name_prices: &super::manifest::NamePrices,
     selection: Option<&crate::tools::selection::Runtime>,
     identity: &str,
 ) -> Result<Shaped, ToolError> {
@@ -513,8 +520,13 @@ pub(super) fn shape_page(
     order_files(query, &mut parsed.files);
     let selection =
         super::selection::select_hits(scope, parsed, selection, identity, &mut redacted)?;
-    let mut cut = cut_outlines(scope, &parsed.files)?;
-    let layout = Layout::cut(query, paths, output_root, parsed, page_budget, &cut);
+    let mut cut = CutOutlines::new();
+    let mut outline = |files: &[(usize, &octocode_engine::types::TextSearchFile)]| {
+        outline_for_cut(scope, files, &mut cut)
+    };
+    let mut pricing = NamePricing::new(name_prices.by_index(&parsed.files), &mut outline);
+    let layout = Layout::cut(query, paths, output_root, parsed, page_budget, &mut pricing)?;
+    name_prices.learn(&parsed.files, pricing.priced);
     for (index, _) in &layout.shown {
         validate_matched(paths, &output_root.join(&parsed.files[*index].path))?;
     }
@@ -548,7 +560,7 @@ pub(super) fn settle(
     coverage_gap: bool,
     next_missing: bool,
 ) -> (SearchStatus, bool) {
-    let has_more = query.page().max(1) < layout.total_pages;
+    let has_more = local_search_query::page(query).max(1) < layout.total_pages;
     classify_search(
         empty,
         capped,
@@ -572,6 +584,8 @@ pub(super) struct Scanned {
     pub(super) query_key: String,
     /// A stored scan's redaction to replay (see [`redact_scan`]).
     pub(super) stored_redaction: Option<Arc<Redaction>>,
+    /// The names a stored scan's cuts priced, or a fresh scan's empty set.
+    pub(super) name_prices: Arc<super::manifest::NamePrices>,
     /// A fresh walk offered for storage with the priced, unranked scan.
     pub(super) reusable: Option<super::manifest::Walked>,
     /// The query's own walk, for probes over the same scope.
@@ -611,27 +625,32 @@ pub(super) fn scan_query(
     // the row around it, fits one response window. Sized by the canonical
     // root, not its spelling: a continuation names the same root relative
     // to the workspace and must cut the same pages.
-    let mut sized = normalized_query(&query.canonical(), streamed_layout(query));
+    let mut sized = normalized_query(
+        &local_search_query::canonical(query),
+        streamed_layout(query),
+    );
     sized["path"] = json!(validated.canonical.to_string_lossy());
-    let page_budget = crate::tools::page_windows::page_budget(response_window, &sized);
+    let page_budget = crate::response::page_windows::page_budget(response_window, &sized);
     // A stored scan was stored under the snapshot derived from its query
     // key and its unchanged collected result: a query with the same key
     // derives that snapshot again, so only another key needs the digest.
     let query_key = query_key(query, &validated.canonical, page_budget);
-    let (identity, stored_redaction) = match (stored, query.snapshot()) {
-        (Some(stored), Some(snapshot)) if stored.query_key == query_key => {
-            (snapshot.to_owned(), stored.redaction)
-        }
-        (Some(_), Some(_)) => return Err(stale_snapshot(query)),
-        _ => (fingerprint(&query_key, &parsed.files, &parsed.stats), None),
-    };
+    let (identity, stored_redaction, name_prices) =
+        match (stored, local_search_query::snapshot(query)) {
+            (Some(stored), Some(snapshot)) if stored.query_key == query_key => {
+                (snapshot.to_owned(), stored.redaction, stored.prices)
+            }
+            (Some(_), Some(_)) => return Err(stale_snapshot(query)),
+            _ => (
+                fingerprint(&query_key, &parsed.files, &parsed.stats),
+                None,
+                Arc::default(),
+            ),
+        };
     // A cached scan is checked too: its identity comes from the submitted
     // query's key, so a cursor reused with different search semantics never
     // serves the old query's matches.
-    if query
-        .snapshot()
-        .is_some_and(|expected| expected != identity)
-    {
+    if local_search_query::snapshot(query).is_some_and(|expected| expected != identity) {
         return Err(stale_snapshot(query));
     }
     let reusable = walked;
@@ -643,6 +662,7 @@ pub(super) fn scan_query(
         identity,
         query_key,
         stored_redaction,
+        name_prices,
         reusable,
         search_options,
         policy_key,
@@ -669,38 +689,41 @@ pub(super) fn search_options(
     walk_threads: Option<u32>,
 ) -> TextSearchOptions {
     let view = query.result_view;
-    let requested_sort = query.sort;
-    let path_sort = matches!(
-        requested_sort,
-        LocalSearchQuerySort::Modified
-            | LocalSearchQuerySort::Accessed
-            | LocalSearchQuerySort::Created
-            | LocalSearchQuerySort::Path
+    let path_list = matches!(
+        view,
+        LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
     );
-    // Match-count order must choose the collection cap's survivors by match
-    // count across every searched file; path-list views rank by path.
-    let count_sort = requested_sort == LocalSearchQuerySort::MatchCount
-        && !matches!(
-            view,
-            LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
-        );
-    let (case, regex, multiline) = (query.case_mode, query.regex_mode(), query.multiline);
+    let multiline = query.multiline;
     TextSearchOptions {
         path: root.to_string_lossy().into_owned(),
-        pattern: query.pattern().to_owned(),
-        fixed_string: Some(regex == LocalSearchQueryRegex::Literal),
-        perl_regex: Some(regex == LocalSearchQueryRegex::Pcre2),
-        case_sensitive: Some(case == LocalSearchQueryCaseMode::Sensitive),
-        case_insensitive: Some(case == LocalSearchQueryCaseMode::Insensitive),
+        pattern: local_search_query::pattern(query).to_owned(),
+        syntax: match local_search_query::regex_mode(query) {
+            LocalSearchQueryRegex::Literal => PatternSyntax::Literal,
+            LocalSearchQueryRegex::Rust => PatternSyntax::Regex,
+            LocalSearchQueryRegex::Pcre2 => PatternSyntax::Pcre2,
+        },
+        case: match query.case_mode {
+            LocalSearchQueryCaseMode::Smart => CaseRule::Smart,
+            LocalSearchQueryCaseMode::Sensitive => CaseRule::Sensitive,
+            LocalSearchQueryCaseMode::Insensitive => CaseRule::Insensitive,
+        },
         whole_word: query.whole_word,
         invert_match: query.invert_match,
         multiline: Some(multiline != LocalSearchQueryMultiline::Off),
         multiline_dotall: Some(multiline == LocalSearchQueryMultiline::Dotall),
-        files_only: Some(matches!(view, LocalSearchQueryResultView::Files)),
-        files_without_match: Some(view == LocalSearchQueryResultView::FilesWithout),
-        count_lines_per_file: Some(view == LocalSearchQueryResultView::CountLines),
-        count_matches_per_file: Some(view == LocalSearchQueryResultView::CountMatches),
-        context: query.context(),
+        output: match view {
+            LocalSearchQueryResultView::Files => SearchOutput::FilesWithMatch,
+            LocalSearchQueryResultView::FilesWithout => SearchOutput::FilesWithoutMatch,
+            LocalSearchQueryResultView::CountLines => SearchOutput::CountLines,
+            LocalSearchQueryResultView::CountMatches => SearchOutput::CountMatches,
+            LocalSearchQueryResultView::MatchOnly => SearchOutput::Spans(match query.unique {
+                LocalSearchQueryUnique::Off => SpanValues::Every,
+                LocalSearchQueryUnique::List => SpanValues::Unique,
+                LocalSearchQueryUnique::Count => SpanValues::Counted,
+            }),
+            LocalSearchQueryResultView::Paginated => SearchOutput::Lines,
+        },
+        context: local_search_query::context(query),
         lang_type: query.language.clone(),
         file_contains_all: Some(query.file_has.iter().map(|t| t.to_string()).collect())
             .filter(|terms: &Vec<String>| !terms.is_empty()),
@@ -720,27 +743,27 @@ pub(super) fn search_options(
             query.include_ignored,
             query.include_hidden,
         ),
-        max_depth: query.max_depth(),
+        max_depth: local_search_query::max_depth(query),
         // The engine owns the relevance order (for a bare-identifier search,
         // source files declaring the name first; then count, then source
         // before test/generated paths, then declaration > code >
         // comment/string hits, then path) so its top-k and cap keep the same
         // survivors.
-        sort: Some(match requested_sort {
-            LocalSearchQuerySort::Traversal => "traversal".into(),
-            LocalSearchQuerySort::Relevance => "relevance".into(),
-            _ if path_sort => format!("{requested_sort:?}").to_lowercase(),
-            _ if count_sort => "matchCount".into(),
-            _ => "path".into(),
-        }),
+        sort: match query.sort {
+            LocalSearchQuerySort::Traversal => SearchSort::Traversal,
+            LocalSearchQuerySort::Relevance => SearchSort::Relevance,
+            LocalSearchQuerySort::Path => SearchSort::Path,
+            LocalSearchQuerySort::Modified => SearchSort::Modified,
+            LocalSearchQuerySort::Accessed => SearchSort::Accessed,
+            LocalSearchQuerySort::Created => SearchSort::Created,
+            // Match-count order chooses the collection cap's survivors by
+            // match count across every searched file; path-list views rank
+            // by path.
+            LocalSearchQuerySort::MatchCount if path_list => SearchSort::Path,
+            LocalSearchQuerySort::MatchCount => SearchSort::MatchCount,
+        },
         sort_reverse: query.reverse,
         max_snippet_chars: Some(effective_match_content_length(query)),
-        only_matching: Some(view == LocalSearchQueryResultView::MatchOnly),
-        unique: Some(matches!(
-            query.unique,
-            LocalSearchQueryUnique::List | LocalSearchQueryUnique::Count
-        )),
-        count_unique: Some(query.unique == LocalSearchQueryUnique::Count),
         // The engine keeps the first 10k matched files in the engine sort order
         // above (by match count for relevance/matchCount), chosen across every
         // searched file; stats totals still count all matched files and the
@@ -754,8 +777,7 @@ pub(super) fn search_options(
         walk_threads,
         // A scan small enough to store for later pages keeps the digest of
         // each matched file from the read that searched it (see `manifest`).
-        digest_max_bytes: Some(u64::MAX),
-        defer_values: true,
+        values: SourceValues::Deferred,
     }
 }
 
@@ -769,7 +791,8 @@ pub(super) struct ScanOutput {
     pub(super) parsed: octocode_engine::types::TextSearchResult,
     pub(super) digests: ScanDigests,
     pub(super) skipped: Arc<crate::policy::discovery::WalkSkips>,
-    /// What was stored with a reused scan: its query key and redaction.
+    /// What was stored with a reused scan: its query key, redaction and
+    /// name prices.
     pub(super) stored: Option<StoredDerived>,
     /// What a fresh walk searched; `None` for a reused scan.
     pub(super) walked: Option<super::manifest::Walked>,
@@ -779,6 +802,7 @@ pub(super) struct ScanOutput {
 pub(super) struct StoredDerived {
     pub(super) query_key: String,
     pub(super) redaction: Option<Arc<Redaction>>,
+    pub(super) prices: Arc<super::manifest::NamePrices>,
 }
 
 /// The matches: a continuation reuses its page-1 scan instead of walking
@@ -793,13 +817,15 @@ pub(super) fn scan(
     policy_key: &str,
     cancel: &impl CancellationCheck,
 ) -> Result<ScanOutput, ToolError> {
-    let (parsed, digests, withheld, derived, walked) = if let Some(snapshot) = query.snapshot()
+    let (parsed, digests, withheld, derived, walked) = if let Some(snapshot) =
+        local_search_query::snapshot(query)
         && let Some(stored) =
             super::manifest::get_checked(snapshot, policy_key, &|| cancel.check().is_err())
     {
         let derived = StoredDerived {
             query_key: stored.query_key,
             redaction: stored.redaction,
+            prices: stored.prices,
         };
         (
             stored.value,
@@ -933,13 +959,11 @@ pub(super) fn search_stats(
         // A binary cut (capReason `binaryQuit`) stays `capped`: coverage ended
         // early, and the result is marked partial/terminal.
         capped: scanned.capped,
-        cap_reason: scanned.cap_reason.clone(),
+        cap_reasons: scanned.cap_reasons.clone(),
         partial_reasons: scanned
-            .cap_reason
+            .cap_reasons
             .iter()
-            .flat_map(|reasons| reasons.split(", "))
-            .filter(|reason| !reason.is_empty())
-            .map(str::to_owned)
+            .map(|reason| reason.name().to_owned())
             .collect(),
         error_count: scanned.error_count.filter(|n| *n > 0),
         first_error: scanned.first_error.clone(),
@@ -962,7 +986,7 @@ pub(super) fn project_files(
     redacted: &Redacted,
 ) -> (Vec<SearchFile>, usize) {
     let match_only = query.result_view == LocalSearchQueryResultView::MatchOnly;
-    let match_page = query.match_page().max(1);
+    let match_page = local_search_query::match_page(query).max(1);
     let mut shown_redacted = 0usize;
     let mut slots = scanned.into_iter().map(Some).collect::<Vec<_>>();
     let files = layout
@@ -1065,10 +1089,12 @@ pub(super) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) 
 /// effective context window so requested context is not silently clipped;
 /// continuations and snapshot identity must use this same value.
 pub(super) fn effective_match_content_length(q: &LocalSearchQuery) -> u32 {
-    q.match_content_length().unwrap_or_else(|| {
+    local_search_query::match_content_length(q).unwrap_or_else(|| {
         let view = q.result_view;
         let context = if uses_context(view) {
-            q.context().before.saturating_add(q.context().after)
+            local_search_query::context(q)
+                .before
+                .saturating_add(local_search_query::context(q).after)
         } else {
             0
         };

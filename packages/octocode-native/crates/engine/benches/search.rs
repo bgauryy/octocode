@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use octocode_engine::search::text_search::TextSearchPathFilter;
 use octocode_engine::search::text_search::search_cancellable;
-use octocode_engine::types::TextSearchOptions;
+use octocode_engine::types::{PatternSyntax, SourceValues, TextSearchOptions};
 
 struct AllowAll;
 impl TextSearchPathFilter for AllowAll {
@@ -52,9 +52,9 @@ fn high_hit_search(criterion: &mut Criterion) {
     let path = root.display().to_string();
     // `_digest` hashes every searched file in the read it searches with, as
     // localSearch asks (its page cache keeps those digests).
-    for (name, digest_max_bytes) in [
-        ("text_high_hit_collect", None),
-        ("text_high_hit_collect_digest", Some(64 * 1024 * 1024)),
+    for (name, values) in [
+        ("text_high_hit_collect", SourceValues::Owned),
+        ("text_high_hit_collect_digest", SourceValues::Hashed),
     ] {
         criterion.bench_function(name, |bencher| {
             bencher.iter(|| {
@@ -62,8 +62,8 @@ fn high_hit_search(criterion: &mut Criterion) {
                     TextSearchOptions {
                         path: path.clone(),
                         pattern: "needle".to_owned(),
-                        fixed_string: Some(true),
-                        digest_max_bytes,
+                        syntax: PatternSyntax::Literal,
+                        values,
                         ..Default::default()
                     },
                     Arc::new(AllowAll),

@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::ValidationIssue;
 
 /// The rejection for input with neither fresh queries nor a saved-response token.
-pub const ENVELOPE_REQUIRED: &str = "Fresh calls require {\"queries\":[...]}; saved pages require responseSnapshot without queries.";
+const ENVELOPE_REQUIRED: &str = "Fresh calls require {\"queries\":[...]}; saved pages require responseSnapshot without queries.";
 
 /// Rule of a bare array of rows: the repair wraps it as `queries`.
 pub(crate) const ENVELOPE_ARRAY: &str = "envelope.array";

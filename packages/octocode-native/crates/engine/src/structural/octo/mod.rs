@@ -8,7 +8,9 @@ use super::query::StructuralQuery;
 
 mod error;
 mod line_index_support;
+mod macro_bodies;
 mod matching;
+mod metavars;
 mod pattern;
 mod position;
 mod recovery;
@@ -23,12 +25,14 @@ pub(super) use rule::{RawPattern, RawRule, parse_rule};
 #[cfg(test)]
 pub(super) use matching::INTERRUPT_NEXT_COMPILE_PARSE;
 
-use super::macro_bodies::MacroBodies;
 use super::query::Prefilter;
 use crate::text::utf8_offsets::LineIndex;
+pub use error::COMPILE_FAILED;
 use line_index_support::{to_structural_match, to_structural_match_with_index};
+use macro_bodies::MacroBodies;
 use matching::{CandidateVisitor, CaptureEnv, collect_kind_matches, visit_named_expanding_macros};
 pub(super) use matching::{Found, MatchWithKind};
+pub use matching::{MATCH_DEADLINE, PARSE_INTERRUPTED};
 use pattern::CompiledPattern;
 pub use pattern::PatternDeclaration;
 use recovery::Recovery;
@@ -110,7 +114,8 @@ pub(super) fn compile_matcher(
                 if recovery.hides_match(&tree, content) {
                     found.mark_recovered();
                 }
-                let line_index = LineIndex::tree_sitter(content);
+                // Built on the first match: most parsed files have none.
+                let line_index = std::cell::OnceCell::new();
                 let visit: &mut CandidateVisitor<'_> = &mut |candidate, _, _| {
                     if !compiled.matches_candidate(candidate) {
                         return Ok(());
@@ -122,7 +127,7 @@ pub(super) fn compile_matcher(
                             to_structural_match_with_index(
                                 candidate,
                                 content,
-                                &line_index,
+                                line_index.get_or_init(|| LineIndex::tree_sitter(content)),
                                 values,
                                 ranges,
                             )
@@ -142,7 +147,6 @@ pub(super) fn compile_matcher(
         }
         (None, Some(_)) => {
             let compiled = CompiledRule::compile(lang, query.parsed_rule()?)?;
-            let language = lang.tree_sitter_language();
             if let Some(kind) = compiled.simple_kind().map(str::to_owned) {
                 return Ok(Box::new(move |content, found| {
                     let deadline = match_deadline(content);

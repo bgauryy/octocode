@@ -222,3 +222,31 @@ async fn clasify_rejects_a_credential_in_a_source_read() {
     assert!(!payload.to_string().contains(TOKEN), "{payload}");
     runtime.close().await;
 }
+
+/// A misspelled tool name is answered with the tool it most likely meant,
+/// before the list of every available tool.
+#[tokio::test]
+async fn an_unknown_tool_name_suggests_the_nearest_tool() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let error = runtime
+        .run(
+            "unknown-tool".into(),
+            "localSerch".into(),
+            json!({"queries":[row(json!({"path":".","matchString":"needle"}))]}),
+        )
+        .await
+        .expect_err("an unknown tool never runs");
+    assert_eq!(error.code, "invalidInput");
+    assert!(
+        error.message.contains("Did you mean localSearch?"),
+        "{}",
+        error.message
+    );
+    let far = runtime
+        .run("far-tool".into(), "zzzz".into(), json!({}))
+        .await
+        .expect_err("an unknown tool never runs");
+    assert!(!far.message.contains("Did you mean"), "{}", far.message);
+    runtime.close().await;
+}

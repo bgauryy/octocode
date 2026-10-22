@@ -1,6 +1,6 @@
 use std::path::Path;
 
-pub const SENSITIVE_DIRECTORY_NAMES: &[&str] = &[
+pub(crate) const SENSITIVE_DIRECTORY_NAMES: &[&str] = &[
     ".git",
     ".ssh",
     ".aws",
@@ -23,7 +23,7 @@ pub const SENSITIVE_DIRECTORY_NAMES: &[&str] = &[
 /// whatever its flags: the one list behind [`is_sensitive_path`] (read and
 /// tree) and the text search's path filter. `.env` and `.env.*` are matched
 /// by prefix beside it.
-pub const CREDENTIAL_FILE_NAMES: &[&str] = &[
+pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     ".npmrc",
     ".pypirc",
     ".netrc",
@@ -82,7 +82,7 @@ pub const CREDENTIAL_FILE_NAMES: &[&str] = &[
 /// Credential-shaped file extensions, shared like [`CREDENTIAL_FILE_NAMES`].
 /// `.env` covers `app.env`/`config.env`; a backup suffix (`id_rsa.old`) is
 /// matched by [`is_sensitive_path`] on the stem.
-pub const CREDENTIAL_FILE_EXTENSIONS: &[&str] = &[
+pub(crate) const CREDENTIAL_FILE_EXTENSIONS: &[&str] = &[
     ".key",
     ".pem",
     ".p12",
@@ -108,14 +108,14 @@ const BACKUP_SUFFIXES: &[&str] = &[".old", ".bak", ".backup", ".orig", ".save", 
 /// OS-metadata and database file names a text search skips by default;
 /// `defaultExcludes:false` searches them. Lockfiles are not here: the
 /// dependency versions they pin are evidence.
-pub const GENERATED_FILE_NAMES: &[&str] = &[".DS_Store", "Thumbs.db", "db.sqlite3"];
+pub(crate) const GENERATED_FILE_NAMES: &[&str] = &[".DS_Store", "Thumbs.db", "db.sqlite3"];
 
 /// Generated, minified, archive, and object-file extensions a text search
 /// skips by default; `defaultExcludes:false` searches them. Source maps are
 /// named by their compound suffix, so a keymap or linker `.map` source stays
 /// searchable. Lockfiles (`*.lock`) and patches (`*.patch`, `*.diff`) are
 /// not here: they are written or reviewed by hand and hold evidence.
-pub const GENERATED_FILE_EXTENSIONS: &[&str] = &[
+pub(crate) const GENERATED_FILE_EXTENSIONS: &[&str] = &[
     ".tmp", ".temp", ".cache", ".bak", ".backup", ".orig", ".swp", ".swo", ".rej", ".pid", ".exe",
     ".dll", ".so", ".dylib", ".a", ".lib", ".o", ".obj", ".bin", ".class", ".pdb", ".pyc", ".pyo",
     ".pyd", ".jar", ".war", ".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz", ".bz2", ".xz",
@@ -124,7 +124,7 @@ pub const GENERATED_FILE_EXTENSIONS: &[&str] = &[
 
 /// The default-exclude pattern a file name matches (`.DS_Store`,
 /// `*.min.js`), for a count by pattern.
-pub fn generated_file_pattern(name: &str) -> Option<String> {
+pub(crate) fn generated_file_pattern(name: &str) -> Option<String> {
     if let Some(exact) = GENERATED_FILE_NAMES.iter().find(|exact| **exact == name) {
         return Some((*exact).to_owned());
     }
@@ -146,7 +146,7 @@ const SENSITIVE_FRAGMENTS: &[(&str, &str)] = &[
     ("/Library/Keychains/", "Library/Keychains/"),
 ];
 
-pub fn is_sensitive_path(path: &Path) -> bool {
+pub(crate) fn is_sensitive_path(path: &Path) -> bool {
     let aliases = octocode_engine::text::slash_path(path);
     sensitive_directory(&aliases).is_some() || is_sensitive_file(&aliases)
 }
@@ -169,11 +169,11 @@ fn sensitive_directory(aliases: &str) -> Option<&'static str> {
 
 /// Recovery for a path the security policy withholds: no flag or setting
 /// lifts it, so a retry or a respelling cannot succeed.
-pub const WITHHELD_HINT: &str = "Do not retry or respell: the security path policy withholds this path; no flag or config lifts it.";
+pub(crate) const WITHHELD_HINT: &str = "Do not retry or respell: the security path policy withholds this path; no flag or config lifts it.";
 
 /// The error message for a requested path the security policy withholds:
 /// what it matched, and that nothing lifts it.
-pub fn withheld_message(display: &str, path: &Path) -> String {
+pub(crate) fn withheld_message(display: &str, path: &Path) -> String {
     let aliases = octocode_engine::text::slash_path(path);
     let matched = match sensitive_directory(&aliases) {
         Some(".git") if is_git_file(path, &aliases) => {
@@ -202,7 +202,7 @@ fn is_git_file(path: &Path, aliases: &str) -> bool {
 pub struct Withheld {
     pub dirs: std::collections::BTreeMap<&'static str, usize>,
     pub files: usize,
-    pub git_files: usize,
+    pub(crate) git_files: usize,
     pub symlinks: usize,
     pub other: usize,
 }
@@ -297,7 +297,7 @@ impl Withheld {
 ///
 /// [`PathPolicy`]: super::path::PathPolicy
 /// [`Prune::at`]: octocode_engine::search::walk::Prune::at
-pub struct SearchWalk {
+pub(crate) struct SearchWalk {
     policy: super::path::PathPolicy,
     /// The searched root: a file named as the root is always searched.
     root: std::path::PathBuf,
@@ -308,7 +308,7 @@ pub struct SearchWalk {
 
 /// What a [`SearchWalk`] left out.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct WalkSkips {
+pub(crate) struct WalkSkips {
     pub withheld: Withheld,
     /// Default-pruned directories, each by its path under the walk root.
     pub pruned: std::collections::BTreeSet<String>,
@@ -322,7 +322,7 @@ pub struct WalkSkips {
     pub hidden: std::collections::BTreeSet<String>,
     /// Some dot entry would also be default-excluded (`.github/`, `.cache/`,
     /// `.DS_Store`): reaching it lifts both.
-    pub hidden_excluded: bool,
+    pub(crate) hidden_excluded: bool,
     /// Entries an ignore rule left out without `includeIgnored`, each by its
     /// path under the walk root, a directory's with a trailing `/` (its
     /// contents were never walked). One the path policy withholds is not
@@ -330,8 +330,8 @@ pub struct WalkSkips {
     pub ignored: std::collections::BTreeSet<String>,
     /// Some ignored entry would also be default-excluded (an ignored
     /// `node_modules/`) or is a dot entry: reaching it lifts those too.
-    pub ignored_excluded: bool,
-    pub ignored_hidden: bool,
+    pub(crate) ignored_excluded: bool,
+    pub(crate) ignored_hidden: bool,
 }
 
 impl SearchWalk {

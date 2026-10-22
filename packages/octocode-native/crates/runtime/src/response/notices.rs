@@ -1,6 +1,6 @@
 //! Static notices are said once. A tool or decorator writes a note that reads
 //! the same on every page and every row of a result under `notices`
-//! ([`crate::tools::paging::push_notice`]); a continuation page drops its
+//! ([`crate::response::paging::push_notice`]); a continuation page drops its
 //! notices ([`drop_on_later_page`]), and the stage places each remaining
 //! notice on the first row that carries it ([`place`]): in `warnings` on a
 //! row with evidence, in `hints.text` on an empty or failed row (where its
@@ -8,11 +8,11 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::tools::paging::NOTICES;
+use crate::response::paging::NOTICES;
 
 /// A continuation page repeats nothing its first page said once.
 pub(crate) fn drop_on_later_page(query: &Value, data: &mut Value) {
-    if crate::tools::paging::continues_a_page(query)
+    if crate::response::paging::continues_a_page(query)
         && let Some(object) = data.as_object_mut()
     {
         object.remove(NOTICES);

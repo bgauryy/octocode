@@ -13,6 +13,7 @@
 //! proves the submitted query still derives the stored snapshot before
 //! serving it.
 use super::super::page_memo::{PageMemo, Proof};
+use super::layout::FilePrice;
 use super::packed::Packed;
 pub use super::verify::Redaction;
 pub use super::walked::Walked;
@@ -52,8 +53,63 @@ struct Scan {
     query_key: String,
     redaction: Option<Arc<Redaction>>,
     skipped: Arc<WalkSkips>,
+    prices: Arc<NamePrices>,
     /// What the walk searched, unchanged since the walk.
     proof: Proof,
+}
+
+/// The enclosing-name prices the page cuts of one scan learned, by scanned
+/// file path. Every page cut from the scan shares them, so a continuation
+/// outlines only the files its own page adds, and cuts the earlier pages
+/// with the prices they were cut with (see [`super::layout::NamePricing`]).
+/// A stored scan weighs the prices its first page learned; a later page
+/// adds at most one owner per hit line the stored value already holds.
+#[derive(Default)]
+pub struct NamePrices(std::sync::Mutex<HashMap<String, FilePrice>>);
+
+impl NamePrices {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, FilePrice>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The prices of `files`, by index.
+    pub(super) fn by_index(
+        &self,
+        files: &[octocode_engine::types::TextSearchFile],
+    ) -> HashMap<usize, FilePrice> {
+        let prices = self.lock();
+        if prices.is_empty() {
+            return HashMap::new();
+        }
+        files
+            .iter()
+            .enumerate()
+            .filter_map(|(index, file)| Some((index, prices.get(&file.path)?.clone())))
+            .collect()
+    }
+
+    /// Keep `priced` (by index into `files`).
+    pub(super) fn learn(
+        &self,
+        files: &[octocode_engine::types::TextSearchFile],
+        priced: HashMap<usize, FilePrice>,
+    ) {
+        let mut prices = self.lock();
+        for (index, price) in priced {
+            if let Some(file) = files.get(index) {
+                prices.entry(file.path.clone()).or_insert(price);
+            }
+        }
+    }
+
+    fn weight(&self) -> usize {
+        self.lock()
+            .iter()
+            .map(|(path, price)| path.len() + price.weight())
+            .sum()
+    }
 }
 
 /// A fresh scan offered for storage, with what its page derived from it.
@@ -67,6 +123,8 @@ pub struct Fresh {
     pub skipped: Arc<WalkSkips>,
     /// What the walk searched (see [`Walked`]).
     pub walked: Walked,
+    /// The names its page cut priced (see [`NamePrices`]).
+    pub prices: Arc<NamePrices>,
 }
 
 /// A stored scan whose walk is unchanged since it was stored.
@@ -85,6 +143,8 @@ pub struct Stored {
     /// What the stored walk left out (policy-withheld, ignored,
     /// default-excluded, hidden).
     pub skipped: Arc<WalkSkips>,
+    /// The names its page cuts priced so far.
+    pub prices: Arc<NamePrices>,
 }
 
 /// Stored scans, weighed by their kept bytes.
@@ -115,39 +175,40 @@ pub fn pack_checked(value: &TextSearchResult, cancelled: &dyn Fn() -> bool) -> O
 }
 
 pub fn get_checked(snapshot: &str, policy: &str, cancelled: &dyn Fn() -> bool) -> Option<Stored> {
-    let (value, sources, query_key, redaction, skipped, proof) =
-        STORE.get(snapshot, policy, |scan| {
-            (
-                Arc::clone(&scan.value),
-                Arc::clone(&scan.sources),
-                scan.query_key.clone(),
-                scan.redaction.clone(),
-                Arc::clone(&scan.skipped),
-                scan.proof.clone(),
-            )
-        })?;
     // The stamps of everything the walk searched reject an edit, a new file
     // or a changed ignore rule without a read; the digest that proves a
     // file's bytes is checked when a page shows it, so a walk hashes each
     // file once rather than every file on every page.
-    if let Some(value) = proof
-        .holds()
-        .then(|| value.unpack_checked(cancelled))
-        .flatten()
-    {
-        return Some(Stored {
-            value,
-            digests: sources
-                .iter()
-                .map(|source| (PathBuf::from(&source.path), source.digest))
-                .collect(),
-            query_key,
-            redaction,
-            skipped,
-        });
-    }
-    evict(snapshot);
-    None
+    STORE.get_current(
+        snapshot,
+        policy,
+        |scan| {
+            (
+                (
+                    Arc::clone(&scan.value),
+                    Arc::clone(&scan.sources),
+                    scan.query_key.clone(),
+                    scan.redaction.clone(),
+                    Arc::clone(&scan.skipped),
+                    Arc::clone(&scan.prices),
+                ),
+                scan.proof.clone(),
+            )
+        },
+        |(value, sources, query_key, redaction, skipped, prices)| {
+            Some(Stored {
+                value: value.unpack_checked(cancelled)?,
+                digests: sources
+                    .iter()
+                    .map(|source| (PathBuf::from(&source.path), source.digest))
+                    .collect(),
+                query_key,
+                redaction,
+                skipped,
+                prices,
+            })
+        },
+    )
 }
 
 /// Store `fresh` unless it is too large, a matched file no longer holds the
@@ -165,6 +226,7 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
         redaction,
         skipped,
         walked,
+        prices,
     } = fresh;
     if walked.untracked || walked.oversize {
         return;
@@ -217,7 +279,8 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
             .map(|source| source.path.len())
             .sum::<usize>()
         + redaction.as_ref().map_or(0, Redaction::weight)
-        + walked.weight();
+        + walked.weight()
+        + prices.weight();
     if bytes > MAX_BYTES {
         return;
     }
@@ -234,6 +297,7 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
             query_key,
             redaction: redaction.map(Arc::new),
             skipped,
+            prices,
             proof,
         },
     );
@@ -319,6 +383,7 @@ mod tests {
                     query_key: String::new(),
                     redaction: None,
                     skipped: Default::default(),
+                    prices: Default::default(),
                     proof: Walked::settled(std::env::temp_dir(), Vec::new())
                         .proof()
                         .expect("proof"),
@@ -348,6 +413,7 @@ mod tests {
             redaction: Redaction::default(),
             skipped: Default::default(),
             walked: Walked::settled(root, entries),
+            prices: Default::default(),
         }
     }
 
@@ -359,6 +425,7 @@ mod tests {
                 matches: vec![TextSearchMatch {
                     deferred: None,
                     line,
+                    last_line: None,
                     column: 0,
                     byte_offset: 0,
                     value: value.into(),

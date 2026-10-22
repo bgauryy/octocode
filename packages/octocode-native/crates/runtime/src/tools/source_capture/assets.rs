@@ -1,9 +1,10 @@
 //! Explicit unread image references. Acquisition stays below text projection:
 //! the provider sees original bytes, and the host receives only provenance.
 use super::{failure, url};
-use crate::runtime::{ExecutionContext, domain_dispatch::DomainDispatcher};
-use crate::tools::id::clasify_policy as policy;
+use crate::execution::ExecutionContext;
+use crate::id::clasify_policy as policy;
 use crate::tools::judgment::ClassificationError;
+use crate::tools::source_capture::SourceReader;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Map, Value, json};
 use std::io::Read;
@@ -11,7 +12,7 @@ use std::path::Path;
 
 pub(crate) struct CapturedAssets {
     pub provider: Value,
-    pub provenance: Value,
+    pub(crate) provenance: Value,
 }
 
 /// Every asset must occur in a value actually sent to JEV. Checking before
@@ -29,7 +30,7 @@ pub(crate) fn capture(
     assets: &Value,
     state: &Value,
     questions: &[Value],
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<CapturedAssets, ClassificationError> {
     let Some(assets) = assets.as_object() else {
@@ -81,14 +82,14 @@ pub(crate) fn capture(
 
 fn acquire(
     source: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<(Vec<u8>, Value), ClassificationError> {
     if let Some(address) = source["url"].as_str() {
         return url::image(address, dispatcher, context, policy::MAX_IMAGE_BYTES);
     }
     let tool = source["tool"].as_str().unwrap_or_default();
-    if !dispatcher.availability.is_available(tool) {
+    if !dispatcher.availability().is_available(tool) {
         return Err(failure(
             "classificationContextUnavailable",
             format!("The image reader {tool} is unavailable."),
@@ -99,7 +100,7 @@ fn acquire(
     match tool {
         "localFetch" => {
             let path = dispatcher
-                .paths
+                .paths()
                 .validate_read(Path::new(query["path"].as_str().unwrap_or_default()))
                 .map_err(|error| {
                     failure(
@@ -139,7 +140,7 @@ fn acquire(
             if bytes.len() > policy::MAX_IMAGE_BYTES {
                 return Err(too_large("The image grew beyond the per-image byte limit."));
             }
-            let snapshot = crate::digest::sha256(&bytes);
+            let snapshot = octocode_engine::digest::sha256(&bytes);
             if query["snapshot"]
                 .as_str()
                 .is_some_and(|expected| expected != snapshot)
@@ -226,7 +227,7 @@ fn validate_dimensions(width: usize, height: usize) -> Result<(), Classification
 
 fn check(context: &ExecutionContext) -> Result<(), ClassificationError> {
     context.check().map_err(|stop| {
-        let (code, hint) = if matches!(stop, crate::runtime::ExecutionError::Cancelled) {
+        let (code, hint) = if matches!(stop, crate::execution::ExecutionError::Cancelled) {
             ("cancelled", crate::response::rows::CANCELLED_HINT)
         } else {
             ("timeout", "Retry with more time.")

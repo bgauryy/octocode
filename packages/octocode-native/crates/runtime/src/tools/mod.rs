@@ -3,7 +3,6 @@ pub mod ast_graph;
 pub(crate) mod ast_rule;
 pub(crate) mod ast_search;
 pub(crate) mod bounded_process;
-pub(crate) mod cancel;
 pub(crate) mod clasify;
 pub(crate) mod declarations_cache;
 pub(crate) mod empty_walk;
@@ -15,7 +14,6 @@ pub(crate) mod gh_search_history;
 pub(crate) mod gh_search_repo;
 pub(crate) mod gh_shared;
 pub(crate) mod gh_structure;
-pub mod id;
 pub(crate) mod judgment;
 pub(crate) mod leads;
 pub(crate) mod line_spans;
@@ -26,24 +24,16 @@ pub(crate) mod match_keys;
 pub(crate) mod match_list;
 #[cfg(test)]
 mod module_boundaries;
-pub(crate) mod num;
-pub(crate) mod numbered;
-pub(crate) mod output;
 pub(crate) mod page_memo;
-pub(crate) mod page_windows;
-pub(crate) mod paging;
-pub(crate) mod result;
 pub(crate) mod root_read;
 pub(crate) mod selection;
-pub(crate) mod selection_errors;
 pub(crate) mod source;
 pub(crate) mod source_capture;
 pub(crate) mod source_sections;
-pub(crate) mod stream_page;
 pub(crate) mod structure_search;
-pub(crate) mod symbol_outline;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub(crate) mod variant_field;
 pub(crate) mod workers;
 
 /// Listings this small lead to an outline read of their top file

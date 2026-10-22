@@ -1,14 +1,17 @@
 //! Pull-request discussion, review and commit sections: one public page of
 //! each, with per-item body windows.
+use super::axis::Axis;
 use super::inventory::compact_inventory;
-use super::rest::BodyWindows;
+use super::remaining::BodyWindows;
 use super::text::{body_matches, delivered_earlier, needle, shape_comment, window_body};
 use super::util::{array, str_at, string};
 use super::window::{WindowState, paginate_window};
 use super::{HistoryItemRequest, Section, fetch};
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::remove_nulls;
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::commit::utc_date;
-use crate::tools::id::ToolId;
-use crate::tools::result::remove_nulls;
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
@@ -88,17 +91,17 @@ fn comment_code_reads(query: &HistoryItemRequest, comments: &[Value]) -> Vec<Val
                 .iter()
                 .map(|(start, end)| format!("{start}-{end}"))
                 .collect::<Vec<_>>();
-            crate::tools::result::Continuation::new(
+            crate::response::result::Continuation::new(
                 ToolId::GhGetFileContent,
                 json!({
-                    "owner": query.owner(),
-                    "repo": query.repo(),
+                    "owner": gh_get_history_item_query::owner(query),
+                    "repo": gh_get_history_item_query::repo(query),
                     "path": path,
                     "ref": sha,
                     "ranges": ranges,
                 }),
             )
-            .confidence("exact")
+            .confidence(Confidence::Exact)
             .build()
         })
         .collect()
@@ -115,9 +118,13 @@ pub(super) enum CommentSection {
 impl CommentSection {
     /// The row key and `contentPagination` axis of the section.
     pub(super) fn key(self) -> &'static str {
+        self.axis().key()
+    }
+
+    fn axis(self) -> Axis {
         match self {
-            Self::Discussion => "comments",
-            Self::ReviewInline => "reviewComments",
+            Self::Discussion => Axis::Comments,
+            Self::ReviewInline => Axis::ReviewComments,
         }
     }
 }
@@ -141,16 +148,25 @@ pub(super) fn shape_pr_comments(
         .into_iter()
         .filter(|v| body_matches(v, needle.as_deref()))
         .collect::<Vec<_>>();
-    let (slice, page) = state.paginate(comments, query.page(), Some(query.collection_page_size()));
+    let (slice, page) = state.paginate(
+        comments,
+        gh_get_history_item_query::page(query),
+        Some(gh_get_history_item_query::collection_page_size(query)),
+    );
     let mut shaped = Vec::new();
     for comment in slice {
         // The mapped row keeps the review anchor and thread link: path,
         // line range, side, the commit the lines belong to, and the comment
         // this one replies to.
-        let (item, body_page) = shape_comment(&comment, query.char_offset(), query, windows);
+        let (item, body_page) = shape_comment(
+            &comment,
+            gh_get_history_item_query::char_offset(query),
+            query,
+            windows,
+        );
         // A body continuation lists only the bodies it continues: a whole
         // body an earlier window delivered is not repeated as an empty row.
-        if delivered_earlier(query.char_offset(), &body_page) {
+        if delivered_earlier(gh_get_history_item_query::char_offset(query), &body_page) {
             continue;
         }
         shaped.push(item);
@@ -180,12 +196,21 @@ pub(super) fn shape_pr_reviews(
         .into_iter()
         .filter(|v| body_matches(v, needle.as_deref()))
         .collect::<Vec<_>>();
-    let (slice, page) = state.paginate(reviews, query.page(), Some(query.collection_page_size()));
+    let (slice, page) = state.paginate(
+        reviews,
+        gh_get_history_item_query::page(query),
+        Some(gh_get_history_item_query::collection_page_size(query)),
+    );
     let mut shaped = Vec::new();
     for review in slice {
         let raw_body = string(review.get("body"));
-        let (body, body_page) = window_body(&raw_body, query.char_offset(), query, windows);
-        if delivered_earlier(query.char_offset(), &body_page) {
+        let (body, body_page) = window_body(
+            &raw_body,
+            gh_get_history_item_query::char_offset(query),
+            query,
+            windows,
+        );
+        if delivered_earlier(gh_get_history_item_query::char_offset(query), &body_page) {
             continue;
         }
         let mut item = json!({
@@ -198,14 +223,14 @@ pub(super) fn shape_pr_reviews(
             "author": str_at(&review,"/user/login").unwrap_or("unknown"),
             "state": string(review.get("state")),
             "body": (!body.is_empty()).then_some(body),
-            "bodyPagination": (!raw_body.is_empty() && (query.char_offset().unwrap_or(0)>0 || body_page["hasMore"]==true)).then_some(body_page),
+            "bodyPagination": (!raw_body.is_empty() && (gh_get_history_item_query::char_offset(query).unwrap_or(0)>0 || body_page["hasMore"]==true)).then_some(body_page),
             "submittedAt": review.get("submitted_at"), "commitSha": review.get("commit_id")
         });
         remove_nulls(&mut item);
         shaped.push(item);
     }
     row["reviews"] = Value::Array(shaped);
-    pagination.insert("reviews".into(), page);
+    pagination.insert(Axis::Reviews.key().into(), page);
 }
 
 /// Shape one page of PR commits. With `commitFiles` each commit lists its
@@ -225,7 +250,11 @@ pub(super) async fn shape_pr_commits(
     context: &RequestContext,
 ) -> Result<Vec<(String, Value)>, ProviderError> {
     let include_files = query.sections().has(Section::CommitFiles);
-    let (slice, page) = state.paginate(commits, query.page(), Some(query.collection_page_size()));
+    let (slice, page) = state.paginate(
+        commits,
+        gh_get_history_item_query::page(query),
+        Some(gh_get_history_item_query::collection_page_size(query)),
+    );
     // Each commit's files are one detail request: a few run at once, in
     // page order, through the transport's shared admission and deadline.
     let shaped: Vec<(Value, Option<Value>)> = futures_util::stream::iter(slice)
@@ -243,7 +272,13 @@ pub(super) async fn shape_pr_commits(
                 let per_page = MAX_PER_PAGE;
                 let (detail, more) = fetch(
                     transport,
-                    &["repos", query.owner(), query.repo(), "commits", &sha],
+                    &[
+                        "repos",
+                        gh_get_history_item_query::owner(query),
+                        gh_get_history_item_query::repo(query),
+                        "commits",
+                        &sha,
+                    ],
                     &[("per_page", per_page.to_string()), ("page", "1".into())],
                     context,
                 )
@@ -258,7 +293,7 @@ pub(super) async fn shape_pr_commits(
                     .and_then(|page| page.remove("nextPage"))
                     .and_then(|page| page.as_u64())
                 {
-                    commit["contentPagination"]["files"] = files_page;
+                    commit["contentPagination"][Axis::Files.key()] = files_page;
                     more_files = Some(commit_files_page(query, &sha, next_page, per_page));
                 }
             }
@@ -280,19 +315,19 @@ pub(super) async fn shape_pr_commits(
         }
     }
     row["commits"] = Value::Array(commits);
-    pagination.insert("commits".into(), page);
+    pagination.insert(Axis::Commits.key().into(), page);
     Ok(continuations)
 }
 
 /// The next changed-file page of one PR commit: the commit read of its
 /// paths at `page`.
 fn commit_files_page(query: &HistoryItemRequest, sha: &str, page: u64, page_size: usize) -> Value {
-    crate::tools::result::Continuation::new(
+    crate::response::result::Continuation::new(
         ToolId::GhGetHistoryItem,
-        json!({"operation":"commit","owner":query.owner(),"repo":query.repo(),"ref":sha,
+        json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"ref":sha,
             "sections":["files"],"page":page,"pageSize":page_size}),
     )
-    .confidence("exact")
+    .confidence(Confidence::Exact)
     .build()
 }
 
@@ -509,16 +544,13 @@ mod tests {
         assert_eq!(listed.len(), 1, "{row}");
         assert_eq!(listed[0]["id"], "2", "{row}");
         assert_eq!(listed[0]["body"], "x".repeat(10), "{row}");
-        let mut rest = super::super::rest::Rest::default();
-        rest.bodies("commentBody", windows, &mut pagination);
+        let mut remainder = super::super::remaining::Remainder::default();
+        remainder.bodies(Axis::CommentBody, windows, &mut pagination);
         assert_eq!(
-            rest.note(
-                "continueCommentBody",
-                "commentBody",
-                &pagination["commentBody"]
-            )
-            .map(|note| note.left)
-            .as_deref(),
+            remainder
+                .note(Axis::CommentBody, &pagination["commentBody"])
+                .map(|note| note.left)
+                .as_deref(),
             Some("5 more comment body chars"),
             "{pagination:?}"
         );

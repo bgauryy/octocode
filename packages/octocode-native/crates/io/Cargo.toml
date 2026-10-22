@@ -13,10 +13,13 @@ description = "The one owner of the primitives Octocode crates share (listed in 
 doctest = false
 
 [dependencies]
+bytes = { workspace = true }
+futures-util = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
@@ -24,6 +27,7 @@ libc = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "macros"] }
+wiremock = { workspace = true }
 
 [lints]
 workspace = true

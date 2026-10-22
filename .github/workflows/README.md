@@ -3,6 +3,7 @@
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | Pull requests and pushes to `main` | Lint and test; Rust checks; Windows process containment; native script tests; end-to-end tool health and native Node tests |
+| `nightly.yml` | Daily schedule and manual dispatch | The full union, pager and read_share matrices (`*_full_matrix`), which the default run only samples |
 
 CI publishes nothing: no release builds, platform packages, or uploaded
 binaries. Only the `e2e` job builds the packages, a throwaway debug build
@@ -29,6 +30,8 @@ yarn workspace @octocodeai/octocode-native test:node
 yarn workspace @octocodeai/octocode-native test:scripts && node --test packages/octocode-native/tests/audit-native.test.mjs
 # needs cargo-typify 0.8.0 (cargo install cargo-typify --version 0.8.0 --locked)
 yarn workspace @octocodeai/config check:tool-contract && yarn workspace @octocodeai/config check:config-contract
+# nightly.yml, from packages/octocode-native
+cargo nextest run --locked -p octocode-native --run-ignored only -E 'test(/full_matrix/)'
 ```
 
 `test:ci` starts with `skills:check`: the skill linter over `skills/`, the shared report-viewer check, and the skill script tests. Run it alone with `dev.mjs skills:check` after editing a skill.

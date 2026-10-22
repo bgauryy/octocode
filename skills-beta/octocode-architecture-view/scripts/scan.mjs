@@ -12,7 +12,7 @@ Scans a repository and writes a draft architecture model (JSON) for render.mjs.
   --max-files  code-file ceiling, truncation is reported (default 20000)
   --split      split a component into sub-components above N code files (default 80)
   --exclude    comma-separated path prefixes to skip (e.g. fixtures,packages/x/context)
-  --octocode   also run \`octocode astTopology cycles\` (needs OCTOCODE_BETA) and attach runtime cycles
+  --octocode   also run \`octocode graph ingest\` + \`graph query issues --detector cycle\` and attach runtime cycles
 stdout: compact summary for the modeling step. Exit 0 ok, 2 bad input.
 Example: node scan.mjs . --exclude packages/bench/context --octocode`;
 
@@ -293,19 +293,23 @@ for (const [k, e] of edgeMap) if (e.kind === 'type-import' && edgeMap.has(`${e.s
 const findings = []; let topology = null;
 if (args.includes('--octocode')) {
   try {
-    const q = { queries: [{ reasoning: 'architecture-view: runtime import cycles for the scanned root', operation: 'cycles', path: ROOT, pageSize: 100, maxFiles: Math.min(MAX_FILES, 50000), excludeDir: [...IGNORE_DIRS] }] };
-    const out = execFileSync('octocode', ['astTopology', JSON.stringify(q)], { env: { ...process.env, OCTOCODE_BETA: 'true' }, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'], timeout: 180_000 });
-    const data = JSON.parse(out.toString()).results?.[0]?.data; if (!data) throw new Error('no astTopology data');
-    const base = data.path && data.path !== '.' ? `${data.path}/` : '';
-    for (const r of data.results || []) { if (!r.runtimeCycle) continue;
-      const files = r.files.map((x) => base + x).filter((x) => fileComp.has(x)); const cs = [...new Set(files.map((x) => fileComp.get(x)))];
+    // `octocode graph` exits 1 on an empty answer (no cycle); its stdout still holds the JSON.
+    const graph = (argv) => { let out;
+      try { out = execFileSync('octocode', ['graph', ...argv, '--json'], { cwd: ROOT, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'], timeout: 180_000 }); }
+      catch (e) { if (e.status !== 1 || !e.stdout?.length) throw e; out = e.stdout; }
+      return JSON.parse(out.toString()); };
+    const snap = graph(['ingest', '.', '--max-files', String(Math.min(MAX_FILES, 50000)), '--exclude', [...IGNORE_DIRS].join(',')]);
+    if (!snap.id) throw new Error(snap.error || 'no graph snapshot');
+    const data = graph(['query', 'issues', '--detector', 'cycle', '--min-tier', '60', '--limit', '1000', '--graph', snap.id]);
+    for (const r of data.results || []) { if (r.detector !== 'cycle' || !r.evidence?.runtime) continue;
+      const files = (r.evidence.members || []).filter((x) => fileComp.has(x)); const cs = [...new Set(files.map((x) => fileComp.get(x)))];
       if (!files.length) continue;
-      findings.push({ id: `octocode-cycle-${findings.length + 1}`, severity: 'warn', source: 'octocode astTopology', title: `Runtime import cycle across ${files.length} files`,
+      findings.push({ id: `octocode-cycle-${findings.length + 1}`, severity: 'warn', source: 'octocode graph', title: `Runtime import cycle across ${files.length} files`,
         detail: `Strongly connected runtime imports (type-only edges excluded) spanning ${cs.join(', ')}. Break the cycle at its weakest edge.`, nodes: cs,
-        evidence: (r.runtimeCycleEdges || r.cycleEdges || []).slice(0, 5).map((e) => ({ path: base + e.from, note: `→ ${base + e.to}` })) }); }
-    topology = { tool: 'octocode astTopology cycles', filesScanned: data.filesScanned, components: data.pagination?.totalItems, runtimeCycles: findings.length, completeness: data.completeness };
-    console.error(`scan: octocode astTopology cycles ok (${findings.length} runtime cycle groups)`);
-  } catch (err) { console.error(`scan: --octocode skipped (${String(err.message || err).split('\n')[0]}). Install octocode and set OCTOCODE_BETA=true.`); }
+        evidence: (r.evidence.suggestedCuts?.length ? r.evidence.suggestedCuts : r.evidence.witness || []).slice(0, 5).map((e) => ({ path: e.from, line: e.line, note: `→ ${e.to}` })) }); }
+    topology = { tool: 'octocode graph query issues --detector cycle', snapshot: snap.id, counts: snap.counts, runtimeCycles: findings.length, partialReasons: data.graph?.partialReasons ?? null };
+    console.error(`scan: octocode graph cycles ok (${findings.length} runtime cycle groups)`);
+  } catch (err) { console.error(`scan: --octocode skipped (${String(err.message || err).split('\n')[0]}). Install octocode (npx octocode graph --help).`); }
 }
 
 // ---- write -------------------------------------------------------------------------------

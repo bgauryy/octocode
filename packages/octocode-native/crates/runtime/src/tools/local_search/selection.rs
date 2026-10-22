@@ -9,12 +9,12 @@ use super::layout::streamed_layout;
 use super::types::SearchContext;
 use super::types::*;
 use super::verify::{PageScope, Redacted, verify_candidate};
-use crate::contracts::tool_types::SelectionUnit;
-use crate::tools::cancel::CancellationCheck;
-use crate::tools::id::ToolId;
-use crate::tools::num::u32_of_usize;
-use crate::tools::result::ToolError;
+use crate::execution::cancel::CancellationCheck;
+use crate::id::ToolId;
+use crate::num::u32_of_usize;
+use crate::response::result::ToolError;
 use crate::tools::selection::{Candidate, Decision, Failure, Outcome, ProviderError, Runtime};
+use octocode_contract_types::SelectionUnit;
 use octocode_engine::types::{TextSearchFile, TextSearchResult};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -25,9 +25,6 @@ pub(super) struct Selected {
     /// Files (root-relative, scan order) holding a group judged unknown,
     /// one without a state to judge, or one the budget left unjudged.
     unknown_files: Vec<String>,
-    /// Groups the candidate budget left unjudged: the next candidate page
-    /// judges them.
-    unjudged_groups: usize,
     /// Files the scan matched.
     scan_files: usize,
     /// Files that held hits of this candidate page before and after
@@ -84,7 +81,7 @@ pub(super) fn select_hits(
     }
     let prior = query.selection.as_ref().map(|token| token.as_str());
     let context = if super::executor::uses_context(query.result_view) {
-        query.context()
+        local_search_query::context(query)
     } else {
         SearchContext::default()
     };
@@ -104,7 +101,7 @@ pub(super) fn select_hits(
         let outline = verified
             .then(|| {
                 let source = scope.output_root.join(&file.path);
-                super::leads::shown_outline(
+                super::enclosing::shown_outline(
                     &source,
                     (scope.expected_digest)(&source),
                     scope.security,
@@ -165,7 +162,6 @@ pub(super) fn select_hits(
     // Unjudged groups are unknown: the unknown lead reads them as they are,
     // the next candidate page (when its token fits the `selection` field)
     // judges them.
-    let candidate_page = outcome.next_candidates(ToolId::LocalSearch).is_some();
     let (mut rows_total, mut rows_before, mut lines_removed) = (0usize, 0usize, 0usize);
     let scan_files = parsed.files.len();
     let (mut files_before, mut unknown_files) = (0usize, Vec::new());
@@ -221,15 +217,9 @@ pub(super) fn select_hits(
         rows_total - rows_kept,
         lines_removed,
     );
-    let unjudged_groups = if candidate_page {
-        outcome.unjudged.len()
-    } else {
-        0
-    };
     Ok(Some(Selected {
         outcome,
         unknown_files,
-        unjudged_groups,
         scan_files,
         files_before,
         files_kept: parsed.files.len(),
@@ -282,7 +272,7 @@ fn recount(
 
 impl Selected {
     /// The receipt the row reports.
-    pub(super) fn receipt(&self) -> &crate::contracts::tool_types::Selection {
+    pub(super) fn receipt(&self) -> &octocode_contract_types::Selection {
         &self.outcome.receipt
     }
 
@@ -312,12 +302,10 @@ impl Selected {
         }
         let query_json = normalized_query(query, streamed_layout(query));
         let mut leads = self.unfiltered_leads(&query_json, snapshot, root_is_dir);
-        if self.unjudged_groups > 0
-            && let Some(token) = self.outcome.next_candidates(ToolId::LocalSearch)
-        {
+        if let Some(token) = self.outcome.next_candidates(ToolId::LocalSearch) {
             let mut row = query_json;
             if let Some(fields) = row.as_object_mut() {
-                for field in crate::tools::result::CURSOR_FIELDS {
+                for field in crate::response::result::CURSOR_FIELDS {
                     fields.remove(field);
                 }
             }
@@ -325,7 +313,7 @@ impl Selected {
             row["selection"] = json!(token);
             leads.push((
                 "nextCandidatePage",
-                crate::tools::result::Continuation::new(ToolId::LocalSearch, row).build(),
+                crate::response::result::Continuation::new(ToolId::LocalSearch, row).build(),
             ));
         }
         leads
@@ -335,7 +323,7 @@ impl Selected {
     fn whole(&self, query_json: &Value, snapshot: &str) -> Value {
         let mut whole = crate::tools::selection::unfiltered_row(query_json, &[]);
         whole["snapshot"] = json!(snapshot);
-        crate::tools::result::Continuation::new(ToolId::LocalSearch, whole).build()
+        crate::response::result::Continuation::new(ToolId::LocalSearch, whole).build()
     }
 
     fn unfiltered_leads(
@@ -361,18 +349,17 @@ impl Selected {
         };
         let mut unknown = crate::tools::selection::unfiltered_row(query_json, &[]);
         unknown["include"] = json!(globs);
-        let unknown = crate::tools::result::Continuation::new(ToolId::LocalSearch, unknown).build();
+        let unknown =
+            crate::response::result::Continuation::new(ToolId::LocalSearch, unknown).build();
         vec![("unfiltered", whole), ("unfilteredUnknown", unknown)]
     }
 
-    /// The pre-selection totals, when selection removed hits, and the
-    /// groups the candidate budget left unjudged. That counts describe kept
-    /// hits is the tool description's, not repeated here.
+    /// The provider's error when it failed this page, the pre-selection
+    /// totals when selection removed hits, and the groups the candidate
+    /// budget left unjudged. That counts describe kept hits is the tool
+    /// description's, not repeated here.
     pub(super) fn disclosure(&self) -> Vec<String> {
         let mut notes = Vec::new();
-        if let Some(notice) = self.outcome.disclosure() {
-            notes.push(notice.to_owned());
-        }
         if let Some(error) = &self.provider {
             notes.push(crate::tools::selection::unclassified_warning(
                 error,
@@ -386,16 +373,10 @@ impl Selected {
                 self.rows_kept, self.rows_before, self.files_kept, self.files_before,
             ));
         }
-        if self.unjudged_groups > 0 {
-            let total = self.receipt().total_items;
-            let judged = usize::try_from(total)
-                .unwrap_or(0)
-                .saturating_sub(self.unjudged_groups);
-            notes.push(format!(
-                "clasifyContext judged {judged} of {total} hit groups (candidate budget); {} were not judged: the next candidate page judges them.",
-                self.unjudged_groups
-            ));
-        }
+        notes.extend(
+            self.outcome
+                .budget_warning(ToolId::LocalSearch, "hit groups"),
+        );
         notes
     }
 }
@@ -432,58 +413,11 @@ fn exact_glob(path: &str) -> Option<String> {
 mod tests {
     use super::super::execute_local_search;
     use super::*;
-    use crate::runtime::{ExecutionContext, SelectionLimits};
+    use crate::execution::cancel::NeverCancel;
     use crate::security::ContentSecurity;
-    use crate::tools::cancel::NeverCancel;
-    use crate::tools::selection::{
-        JudgeCall, JudgeFailure, Judgments, ProviderError, SelectionJudge,
-    };
-    use std::time::{Duration, Instant};
-
-    /// Selects a group whose text says `keep`, excludes `drop`, else unknown;
-    /// `fail` makes the provider fail every candidate with that error code:
-    /// a refused credential (`REFUSED`) or a provider that is down (`DOWN`).
-    struct WordJudge {
-        fail: Option<&'static str>,
-    }
-
-    const REFUSED: Option<&str> = Some("classificationProviderError");
-    const DOWN: Option<&str> = Some(crate::tools::judgment::transport::CIRCUIT_OPEN);
-    impl SelectionJudge for WordJudge {
-        fn identity(&self) -> Value {
-            json!({"test":"words"})
-        }
-        fn select(&self, call: JudgeCall<'_>) -> Judgments {
-            if let Some(code) = self.fail {
-                let status = if code == REFUSED.unwrap_or_default() {
-                    "401 Unauthorized"
-                } else {
-                    "503 Service Unavailable"
-                };
-                return Err(JudgeFailure::Provider(ProviderError {
-                    code: code.into(),
-                    message: format!("Classification provider returned HTTP {status}"),
-                    hints: vec!["Check OCTOCODE_CLASSIFICATION_API and account access.".into()],
-                }));
-            }
-            Ok(call
-                .admitted
-                .iter()
-                .map(|&i| {
-                    let text = call.candidates[i].state.as_ref().map(Value::to_string);
-                    let text = text.unwrap_or_default();
-                    let decision = if text.contains("keep") {
-                        Decision::Selected
-                    } else if text.contains("drop") {
-                        Decision::Excluded
-                    } else {
-                        Decision::Unknown
-                    };
-                    (i, decision)
-                })
-                .collect())
-        }
-    }
+    use crate::tools::selection::{JudgeCall, Judgments, SelectionJudge};
+    use crate::tools::test_support::selection_fake::{self, DOWN, REFUSED, WordJudge};
+    use std::time::Duration;
 
     fn runtime(fail: Option<&'static str>, executor: &tokio::runtime::Runtime) -> Runtime {
         runtime_with(fail, executor, 64)
@@ -494,23 +428,13 @@ mod tests {
         executor: &tokio::runtime::Runtime,
         max: usize,
     ) -> Runtime {
-        Runtime {
-            limits: SelectionLimits {
-                max_candidates: max,
-                max_chars: 131_072,
-                timeout: Duration::from_secs(5),
-            },
-            available: true,
-            judge: std::sync::Arc::new(WordJudge { fail }),
-            handle: executor.handle().clone(),
-            context: ExecutionContext {
-                cancellation: tokio_util::sync::CancellationToken::new(),
-                deadline: Instant::now() + Duration::from_secs(5),
-                walk_threads: None,
-                response_window: None,
-                github_credential: None,
-            },
-        }
+        let mut runtime = selection_fake::runtime(
+            WordJudge { fail },
+            executor.handle().clone(),
+            Duration::from_secs(5),
+        );
+        runtime.limits.max_candidates = max;
+        runtime
     }
 
     fn search(
@@ -650,8 +574,10 @@ mod tests {
             result.warnings
         );
         let next = result.next.as_ref().expect("leads");
+        // The filtered-evidence notice is the response stage's, said once
+        // (`selection_errors::decorate`); the reader states only its counts.
         assert!(
-            result
+            !result
                 .warnings
                 .iter()
                 .any(|warning| warning.contains("not proof of absence")),
@@ -816,7 +742,7 @@ mod tests {
         let receipt = result.selection.as_ref().expect("receipt");
         assert_eq!(
             receipt.status,
-            crate::contracts::tool_types::SelectionStatus::Unavailable
+            octocode_contract_types::SelectionStatus::Unavailable
         );
         assert_eq!(receipt.reason.as_deref(), DOWN);
         assert_eq!((receipt.total_items, receipt.unknown_items), (5, 5));
@@ -855,7 +781,7 @@ mod tests {
         let replay = search(root.path(), next, None).expect("replayed plan");
         assert_eq!(
             replay.selection.as_ref().map(|receipt| receipt.status),
-            Some(crate::contracts::tool_types::SelectionStatus::Unavailable)
+            Some(octocode_contract_types::SelectionStatus::Unavailable)
         );
         assert!(!replay.files.is_empty(), "the next page's hits are shown");
     }
@@ -877,7 +803,7 @@ mod tests {
         let receipt = error.selection.as_ref().expect("receipt");
         assert_eq!(
             receipt.status,
-            crate::contracts::tool_types::SelectionStatus::Unavailable
+            octocode_contract_types::SelectionStatus::Unavailable
         );
         assert_eq!(receipt.reason.as_deref(), REFUSED);
         assert_eq!(receipt.unknown_items, 5);
@@ -890,6 +816,7 @@ mod tests {
         let hit = |line| octocode_engine::types::TextSearchMatch {
             deferred: None,
             line,
+            last_line: None,
             column: 0,
             byte_offset: 0,
             value: String::new(),

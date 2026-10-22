@@ -2,7 +2,8 @@ use super::{
     EntryKind, Snapshot, TreeEntry,
     snapshot::{FileIdentity, Store, write_file},
 };
-use octocode_github::{ProviderErrorKind, RequestBudget, RequestContext};
+use octocode_github::{ProviderErrorKind, RequestContext};
+use octocode_io::budget::RequestBudget;
 use std::{path::Path, time::Duration};
 
 fn snapshot(home: &Path) -> Snapshot<'_> {

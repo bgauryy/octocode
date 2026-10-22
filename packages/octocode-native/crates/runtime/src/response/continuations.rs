@@ -1,7 +1,7 @@
 //! The one continuation stage.
 //!
 //! Tools build every follow-up call with
-//! [`crate::tools::result::Continuation`]: `{tool, query, why?, confidence?}`
+//! [`crate::response::result::Continuation`]: `{tool, query, why?, confidence?}`
 //! where `query` is the complete tool input. [`finalize`] then shapes every
 //! call of a response once, row by row:
 //! 1. inherit the source row's non-empty `extras` (never over the call's
@@ -24,9 +24,9 @@ use std::collections::HashMap;
 use serde_json::{Map, Value};
 
 use crate::contracts::{ContractValidationError, ValidationIssue, validate_query};
-use crate::tools::id::ToolId;
-use crate::tools::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
-use crate::tools::result::is_call;
+use crate::id::ToolId;
+use crate::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
+use crate::response::result::is_call;
 
 /// Which cross-tool calls a surface can run; a call to a disabled tool drops
 /// silently.
@@ -46,7 +46,7 @@ impl Scope<'static> {
 }
 
 /// The source query of each output row.
-pub enum Sources<'a> {
+pub(crate) enum Sources<'a> {
     /// Ordinary rows: the input query of row `index` (`None` when rejected).
     Rows(&'a [Option<&'a Value>]),
     /// Clasify results: the input row with the same `id`, else the same position.
@@ -81,13 +81,13 @@ impl Sources<'_> {
 
 /// The `partialReasons` entry of a row that lost a continuation the strict
 /// input contract rejects.
-pub const LEAD_INVALID: &str = "leadInvalid";
+pub(crate) const LEAD_INVALID: &str = "leadInvalid";
 
 /// Shape every continuation of `structured` (see the module docs). A call
 /// that fails the strict input contract is dropped from its row, which is
 /// kept and marked [`LEAD_INVALID`]; the issues are returned, with the path
 /// of each call, so debug builds and tests fail on the defect.
-pub fn finalize(
+pub(crate) fn finalize(
     structured: &mut Value,
     tool: ToolId,
     sources: &Sources<'_>,
@@ -189,7 +189,7 @@ fn drop_invalid_calls(row: &mut Value, issues: &[ValidationIssue]) {
     } else {
         row
     };
-    crate::tools::paging::mark_partial(
+    crate::response::paging::mark_partial(
         target,
         LEAD_INVALID,
         &["leadInvalid: a continuation failed its tool's input contract and was withheld; the shown evidence stands.".to_owned()],
@@ -199,7 +199,7 @@ fn drop_invalid_calls(row: &mut Value, issues: &[ValidationIssue]) {
 /// Compacts one admitted tool input: a flat query or a `{queries: [...]}`
 /// envelope. Admission already validated it, so a row that still fails the
 /// contract is left exactly as sent rather than failing the response.
-pub fn compact_input(tool: &str, input: &mut Value) {
+pub(crate) fn compact_input(tool: &str, input: &mut Value) {
     let mut memo = Memo::new();
     let _ = compact_rows(tool, input, &mut memo);
 }
@@ -300,7 +300,7 @@ fn inherit(call: &mut Value, ctx: &Visit<'_, '_>) {
         (None, _) => return,
         (Some(extras), true) => extras.clone(),
         (Some(extras), false) if wants_hints(Some(extras)) => Value::Array(vec![Value::from(
-            crate::contracts::tool_types::ExtraKind::Hints.to_string(),
+            octocode_contract_types::ExtraKind::Hints.to_string(),
         )]),
         (Some(_), false) => return,
     };
@@ -340,7 +340,7 @@ fn wants_hints(extras: Option<&Value>) -> bool {
     extras.and_then(Value::as_array).is_some_and(|kinds| {
         kinds
             .iter()
-            .any(|kind| super::extras::names(kind, crate::contracts::tool_types::ExtraKind::Hints))
+            .any(|kind| super::extras::names(kind, octocode_contract_types::ExtraKind::Hints))
     })
 }
 
@@ -409,11 +409,12 @@ fn compact_rows(
 /// contract can restore (a default) or that validation drops is tried; any
 /// other present field stays. An invalid query is an error and unchanged.
 ///
-/// Fields restore independently in the common case, so one validation of
-/// the query without every candidate names them all: a candidate whose
-/// restored value equals its full one drops. One more validation proves
-/// the set; only a query whose fields interact falls back to trying each
-/// candidate in turn.
+/// Fields restore independently in the common case: a candidate drops when
+/// validation dropped it or its value is the field's one declared default,
+/// and one validation proves the set. A field with several defaults (an
+/// operation's own) reads its restored value from one validation of the
+/// query without every candidate instead. Only a query whose fields
+/// interact falls back to trying each candidate in turn.
 fn compact_query(
     tool: &str,
     query: &mut Value,
@@ -428,30 +429,52 @@ fn compact_query(
         return Ok(());
     }
     let full = validate_query(tool, query.clone())?;
-    let restorable = ToolId::from_name(tool).and_then(crate::contracts::restorable_fields);
+    let restorable = ToolId::from_name(tool).map(crate::contracts::restorable_fields);
     let candidates: Vec<&String> = object
         .keys()
         .filter(|field| {
             full.get(field.as_str()).is_none()
-                || restorable.is_none_or(|fields| fields.contains(field.as_str()))
+                || restorable.is_none_or(|fields| fields.contains_key(field.as_str()))
         })
         .collect();
     let mut compact = object.clone();
     if !candidates.is_empty() {
+        // The restored value of each candidate: its one declared default,
+        // else what validation without every candidate restores.
+        let predicted = restorable.filter(|fields| {
+            candidates.iter().all(|field| {
+                full.get(field.as_str()).is_none()
+                    || fields.get(field.as_str()).is_some_and(Option::is_some)
+            })
+        });
+        let restored = match predicted {
+            Some(_) => None,
+            None => {
+                let mut stripped = object.clone();
+                for field in &candidates {
+                    stripped.remove(field.as_str());
+                }
+                validate_query(tool, Value::Object(stripped)).ok()
+            }
+        };
         for field in &candidates {
-            compact.remove(field.as_str());
-        }
-        let restored = validate_query(tool, Value::Object(compact.clone())).ok();
-        for field in &candidates {
-            let same = restored
-                .as_ref()
-                .is_some_and(|restored| restored.get(field.as_str()) == full.get(field.as_str()));
-            if !same {
-                compact.insert((*field).clone(), object[field.as_str()].clone());
+            let full_value = full.get(field.as_str());
+            let same = match predicted {
+                Some(fields) => {
+                    full_value.is_none()
+                        || fields.get(field.as_str()).copied().flatten() == full_value
+                }
+                None => restored
+                    .as_ref()
+                    .is_some_and(|restored| restored.get(field.as_str()) == full_value),
+            };
+            if same {
+                compact.remove(field.as_str());
             }
         }
-        let proven = validate_query(tool, Value::Object(compact.clone()))
-            .is_ok_and(|validated| validated == full);
+        let proven = compact.len() == object.len()
+            || validate_query(tool, Value::Object(compact.clone()))
+                .is_ok_and(|validated| validated == full);
         if !proven {
             compact = object.clone();
             for field in &candidates {
@@ -778,7 +801,7 @@ mod tests {
             "sections":["comments"],"page":40});
         let full = validate_query("ghGetHistoryItem", query).expect("valid");
         let mut out = json!({"results":[{"index":0,"data":{"next":{
-            "restart": crate::tools::result::restart_query(ToolId::GhGetHistoryItem, &full)
+            "restart": crate::response::result::restart_query(ToolId::GhGetHistoryItem, &full)
         }}}]});
         run(&mut out, ToolId::GhGetHistoryItem, &[Some(&full)]);
         let row = &out["results"][0]["data"]["next"]["restart"]["query"]["queries"][0];
@@ -901,7 +924,7 @@ mod tests {
         assert!(data.get("next").is_none(), "{data}");
         assert_eq!(
             data["hints"],
-            json!({(crate::tools::id::continuation_channels::HINT_TEXT_KEY): [ToolId::GhSearchCode.output().fallback_hint(&query)]}),
+            json!({(crate::id::continuation_channels::HINT_TEXT_KEY): [ToolId::GhSearchCode.output().fallback_hint(&query)]}),
             "{data}"
         );
     }

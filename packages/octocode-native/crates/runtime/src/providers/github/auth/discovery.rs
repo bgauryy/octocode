@@ -1,7 +1,7 @@
 //! Optional GitHub CLI discovery, using the runtime's explicit environment.
 use super::resolver::{bounded, resolution_stopped};
 use octocode_github::ProviderError;
-use octocode_github::RequestBudget;
+use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use std::{collections::BTreeMap, ffi::OsString, process::Stdio, time::Duration};
 use tokio::io::AsyncReadExt;
@@ -225,15 +225,19 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let pidfile = dir.path().join("escaped.pid");
         let mut command = tokio::process::Command::new("python3");
-        command.args(["-c", "import os,sys,time\nif os.fork()==0:\n os.setsid()\n os.close(1); os.close(2)\n open(sys.argv[1],'w').write(str(os.getpid()))\n time.sleep(60)\nelse:\n time.sleep(60)\n"]);
+        // The descendant publishes its pid atomically (write, then rename),
+        // so the waiter never reads a created-but-empty file.
+        command.args(["-c", "import os,sys,time\nif os.fork()==0:\n os.setsid()\n os.close(1); os.close(2)\n p=sys.argv[1]\n open(p+'.tmp','w').write(str(os.getpid()))\n os.rename(p+'.tmp',p)\n time.sleep(60)\nelse:\n time.sleep(60)\n"]);
         command
             .arg(&pidfile)
             .stdout(Stdio::piped())
             .kill_on_drop(true);
-        let budget = RequestBudget::with_timeout(Duration::from_secs(5), 1);
+        // Generous bounds: a loaded host may take seconds to start python;
+        // the budget must not time out before the descendant exists.
+        let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1);
         let cancel = budget.cancellation.clone();
         let (result, ()) = tokio::join!(run_command(command, &budget), async {
-            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
             while !pidfile.exists() && std::time::Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }

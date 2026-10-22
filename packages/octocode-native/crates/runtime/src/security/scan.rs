@@ -3,7 +3,7 @@
 //! reads of one large view reuse a single scan.
 use std::path::Path;
 
-pub trait ContentScan {
+pub(crate) trait ContentScan {
     fn sanitize(&self, text: &str, path: &Path) -> Result<(String, Vec<String>), (String, String)>;
     /// Redact whole PEM/OpenSSH/PGP private-key blocks across the FULL file
     /// before any read/search window is cut, closing the interior-window leak the
@@ -114,7 +114,7 @@ impl ContentScan for super::ContentSecurity {
 /// of the scanned text and path, so a hit needs the exact bytes in hand and
 /// returns exactly what the scanner produced for them; redaction is unchanged.
 /// One memo must only ever wrap one scanner (the owning runtime's policy).
-pub struct SanitizedViewMemo {
+pub(crate) struct SanitizedViewMemo {
     entries: octocode_io::memo::Memo<[u8; 32], ScanOutcome>,
     /// One whole-source line redaction per key at a time: rows redacting
     /// one source concurrently wait for the first and take its outcome
@@ -219,7 +219,7 @@ impl Default for SanitizedViewMemo {
 /// redaction through a [`SanitizedViewMemo`] and forwards everything else
 /// (full-file key-block redaction still runs on every read) to the wrapped
 /// scanner.
-pub struct MemoizedScan<'a, S> {
+pub(crate) struct MemoizedScan<'a, S> {
     inner: &'a S,
     memo: &'a SanitizedViewMemo,
 }

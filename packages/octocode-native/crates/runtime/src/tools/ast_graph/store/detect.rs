@@ -10,16 +10,14 @@
 //!
 //! Generated, bundled, vendored, and declaration files are never subjects.
 use super::classify::{
-    ROLE_CONFIG, ROLE_DECLARATION, ROLE_ENTRY, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED,
-    role_names,
+    ROLE_CONFIG, ROLE_DECLARATION, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, role_names,
 };
 use super::format::{
     EdgeKind, FLAG_EXPORTED, FLAG_LOCAL_USE, FLAG_TEST, GraphTables, NONE, NodeKind,
 };
 use crate::tools::ast_graph::algorithms::Cycles;
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};
-use crate::tools::ast_graph::liveness::exports_judged;
-use crate::tools::ast_graph::types::Node;
+use crate::tools::ast_graph::types::{DiagnosticCode, Node};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -42,6 +40,20 @@ pub(crate) const DETECTORS: &[&str] = &[
     "main-sequence",
     "misplaced-file",
 ];
+
+/// Languages whose named imports link to declarations, so an export no
+/// importer names can be judged unused. Rust, Go, Java and C items are
+/// reached through receivers, packages and paths the syntax does not link:
+/// their exports are not judged one by one (their files still are).
+const NAMED_IMPORT_LANGUAGES: &[&str] = &["typescript", "tsx", "javascript", "python"];
+
+/// Whether an export of `file` of declaration `kind` can be judged unused.
+/// Python has no export syntax, so only its functions and classes are API.
+fn exports_judged(file: &str, kind: &str) -> bool {
+    let language = super::tables::canonical_language(file, "");
+    NAMED_IMPORT_LANGUAGES.contains(&language.as_str())
+        && (language != "python" || matches!(kind, "function" | "class"))
+}
 
 const PACKAGE_SCOPED: &[&str] = &["go", "java", "scala", "csharp"];
 /// Declaration kinds (of [`octocode_engine::signatures::DECLARATION_KINDS`])
@@ -148,13 +160,16 @@ struct View<'a> {
     edge_line: BTreeMap<(u32, u32), u32>,
     /// File → (component dir, name, meta `ecosystem[;library][;templates]`).
     component: BTreeMap<u32, (&'a str, &'a str, &'a str)>,
+    /// Entrypoints by rule: the inferred ones, or the caller's (`explicit`).
     entries: BTreeMap<u32, &'a str>,
     rank: Vec<f64>,
     rank_percentile: Vec<f64>,
 }
 
 impl<'a> View<'a> {
-    fn new(t: &'a GraphTables) -> Self {
+    /// The view of `t`; `entries` (file keys) replace the inferred
+    /// entrypoints.
+    fn new(t: &'a GraphTables, entries: Option<&[String]>) -> Self {
         let n = t.nodes.len();
         let files = (0..n as u32)
             .filter(|id| t.nodes[*id as usize].kind == NodeKind::File)
@@ -193,11 +208,18 @@ impl<'a> View<'a> {
             .iter()
             .map(|(node, dir, name, meta)| (*node, (t.str(*dir), t.str(*name), t.str(*meta))))
             .collect();
-        let entries = t
-            .entries
-            .iter()
-            .map(|(node, rule)| (*node, t.str(*rule)))
-            .collect();
+        let entries = match entries {
+            Some(keys) => keys
+                .iter()
+                .filter_map(|key| t.by_key(key))
+                .map(|node| (node, "explicit"))
+                .collect(),
+            None => t
+                .entries
+                .iter()
+                .map(|(node, rule)| (*node, t.str(*rule)))
+                .collect(),
+        };
         let mut view = Self {
             t,
             files,
@@ -217,6 +239,9 @@ impl<'a> View<'a> {
 
     fn key(&self, id: u32) -> &'a str {
         self.t.str(self.t.nodes[id as usize].key)
+    }
+    fn is_entry(&self, file: u32) -> bool {
+        self.entries.contains_key(&file)
     }
     fn flags(&self, file: u32) -> u8 {
         self.t.nodes[file as usize].flags
@@ -681,7 +706,7 @@ fn note(notes: &mut Vec<Value>, detector: &str, reason: &str) {
 /// The file graph the stored tables hold, over the files `keep` admits:
 /// each `imports` edge between them under its kind, and each Rust `mod`
 /// declaration (a `contains` edge) as a module-tree edge — the input of the
-/// one cycle engine ([`Cycles`]) astTopology also runs.
+/// one cycle engine ([`Cycles`]).
 pub(super) fn file_graph(t: &GraphTables, keep: &dyn Fn(u32) -> bool) -> BTreeMap<String, Node> {
     let mut graph = BTreeMap::<String, Node>::new();
     for (id, node) in t.nodes.iter().enumerate() {
@@ -706,7 +731,10 @@ pub(super) fn file_graph(t: &GraphTables, keep: &dyn Fn(u32) -> bool) -> BTreeMa
                 .edges
                 .entry(t.str(target.key).to_owned())
                 .or_default()
-                .insert(kind.to_owned());
+                .insert(
+                    kind.to_owned(),
+                    if edge.line == NONE { 0 } else { edge.line },
+                );
         }
     }
     graph
@@ -778,8 +806,8 @@ fn detect_cycles(c: &mut Ctx) {
                 ],
             )
         };
-        // The groups are astTopology's over production files: a loop that
-        // only test or config files close is not a production finding.
+        // The groups are `graph query cycles`' over production files: a loop
+        // that only test or config files close is not a production finding.
         controls.push("test and config files left out");
         if rust {
             confidence = f64::min(confidence, 0.35);
@@ -1074,8 +1102,8 @@ fn detect_unused_exports(c: &mut Ctx) {
     let v = &c.v;
     let t = v.t;
     let public = public_api_files(v);
-    // An unreachable file is one `unreachable-file` finding, as astTopology
-    // states it once: its exports are not listed again.
+    // An unreachable file is one `unreachable-file` finding: its exports
+    // are not listed again.
     let entries = v.entries.keys().copied().collect::<Vec<_>>();
     let unreachable = if entries.is_empty() {
         BTreeSet::new()
@@ -1107,7 +1135,7 @@ fn detect_unused_exports(c: &mut Ctx) {
         let file = node.file;
         if !v.file_level(file)
             || v.meta(file).contains(";library")
-            || v.flags(file) & ROLE_ENTRY != 0
+            || v.is_entry(file)
             || public.contains(&file)
             || namespace_used.contains(&file)
             || unreachable.contains(&file)
@@ -1300,7 +1328,7 @@ fn detect_boundaries(c: &mut Ctx) {
             // Package manifests with exports define a public surface (npm);
             // Go/Cargo import whole packages or crates, never single files.
             let npm = from_meta.starts_with("npm") && to_meta.starts_with("npm");
-            if npm && from != to && v.flags(*target) & ROLE_ENTRY == 0 && entries_of(to) > 0 {
+            if npm && from != to && !v.is_entry(*target) && entries_of(to) > 0 {
                 crossings
                     .entry((from, to))
                     .or_default()
@@ -1339,7 +1367,7 @@ fn detect_unresolved(c: &mut Ctx) {
     let t = c.v.t;
     let mut by_file = BTreeMap::<&str, Vec<Value>>::new();
     for diag in &t.diagnostics {
-        if t.str(diag.code) == "unresolved-internal" {
+        if t.str(diag.code) == DiagnosticCode::UnresolvedInternal.as_str() {
             let mut site = json!({"message": t.str(diag.message)});
             if diag.line != NONE {
                 site["line"] = json!(diag.line);
@@ -1682,7 +1710,7 @@ fn detect_misplaced(c: &mut Ctx) {
         let name = key.rsplit('/').next().unwrap_or(key);
         let stem = name.split('.').next().unwrap_or(name);
         if !v.file_level(*file)
-            || v.flags(*file) & ROLE_ENTRY != 0
+            || v.is_entry(*file)
             || matches!(stem, "index" | "mod" | "__init__" | "lib" | "main")
             || is_barrel(v, *file)
         {
@@ -2119,6 +2147,7 @@ pub(crate) fn run(
     t: &GraphTables,
     only: &[String],
     root: Option<&std::path::Path>,
+    entries: Option<&[String]>,
 ) -> Result<Report, String> {
     for name in only {
         if !DETECTORS.contains(&name.as_str()) {
@@ -2130,7 +2159,7 @@ pub(crate) fn run(
     }
     let wants = |name: &str| only.is_empty() || only.iter().any(|o| o == name);
     let mut c = Ctx {
-        v: View::new(t),
+        v: View::new(t, entries),
         findings: Vec::new(),
         notes: Vec::new(),
     };

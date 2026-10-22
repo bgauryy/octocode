@@ -179,12 +179,19 @@ async fn expired_disk_snapshot_does_not_reexecute() {
     let (_, next) = saved_fixture(&workspace, &runtime).await;
     runtime.close().await;
     let dir = workspace.home.join("tmp/response-pages");
+    // An entry file is its header line, then the value.
     for file in std::fs::read_dir(dir).expect("snapshot store").flatten() {
-        if file.path().extension().is_some_and(|ext| ext == "json") {
-            let mut entry: Value =
-                serde_json::from_slice(&std::fs::read(file.path()).expect("entry")).expect("json");
-            entry["storedAtUnix"] = json!(1);
-            std::fs::write(file.path(), entry.to_string()).expect("age entry");
+        if file.path().extension().is_some_and(|ext| ext == "entry") {
+            let bytes = std::fs::read(file.path()).expect("entry");
+            let end = bytes
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .expect("header");
+            let mut header: Value = serde_json::from_slice(&bytes[..end]).expect("header json");
+            header["storedAtUnix"] = json!(1);
+            let mut aged = header.to_string().into_bytes();
+            aged.extend_from_slice(&bytes[end..]);
+            std::fs::write(file.path(), aged).expect("age entry");
         }
     }
     let runtime = workspace.runtime(&env);
@@ -628,7 +635,7 @@ fn settle(root: &std::path::Path) {
     }
 }
 
-fn text(outcome: &octocode_native::runtime::ToolOutcome) -> String {
+fn text(outcome: &octocode_native::response::outcome::ToolOutcome) -> String {
     outcome
         .content
         .iter()
@@ -711,7 +718,7 @@ async fn an_offset_or_snapshot_alone_keeps_the_automatic_page() {
         runtime.run(id.into(), "localFetch".into(), input)
     };
     let default = call("auto", json!({})).await.expect("default");
-    let size = |outcome: &octocode_native::runtime::ToolOutcome| {
+    let size = |outcome: &octocode_native::response::outcome::ToolOutcome| {
         outcome.structured_content.to_string().len()
     };
     for (id, extra) in [("offset", json!({"responseOffset": 0}))] {
@@ -998,5 +1005,43 @@ async fn an_explicit_length_pages_a_wide_search_by_rows() {
     assert_eq!(pagination["scope"], "rows", "{pagination}");
     assert_eq!(pagination["next"]["query"]["responseScope"], "rows");
     assert_eq!(pagination["next"]["query"]["responseLength"], 30_000);
+    runtime.close().await;
+}
+
+/// A saved read past the last page of an unchanged response is a restart
+/// page that ends the walk: `hasMore` is false, so a caller following `next`
+/// while `hasMore` stops, and its `next` still starts over at offset 0. A
+/// changed page size is refused as a caller error (exit class invalidInput).
+#[tokio::test]
+async fn a_saved_read_past_the_last_page_ends_the_walk() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let (_, next) = saved_fixture(&workspace, &runtime).await;
+    let mut past = next.clone();
+    past["responseOffset"] = json!(9_999);
+    let page = runtime
+        .run("past".into(), "localSearch".into(), past)
+        .await
+        .expect("restart page");
+    let pagination = &page.structured_content["responsePagination"];
+    assert_eq!(pagination["restart"], true, "{pagination}");
+    assert_eq!(pagination["hasMore"], false, "{pagination}");
+    assert_eq!(
+        pagination["next"]["query"]["responseOffset"], 0,
+        "{pagination}"
+    );
+    octocode_native::contracts::validate_output("localSearch", &page.structured_content)
+        .expect("restart page output contract");
+    let mut resized = next;
+    resized["responseLength"] = json!(900);
+    let error = runtime
+        .run("resized".into(), "localSearch".into(), resized)
+        .await
+        .expect_err("a changed page size is refused");
+    assert_eq!(error.code, "responsePageMismatch");
+    assert_eq!(
+        error.exit_class(),
+        octocode_native::response::exit::ExitClass::InvalidInput
+    );
     runtime.close().await;
 }

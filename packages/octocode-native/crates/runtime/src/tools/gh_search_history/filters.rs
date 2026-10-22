@@ -1,5 +1,6 @@
 //! The `qualifiers` string parsed once into typed search filters.
 use super::{GhSearchHistoryQuery, HistoryOperation};
+use crate::tools::gh_search_history::gh_search_history_query;
 use octocode_github::{ProviderError, ProviderErrorKind};
 
 /// The filters a `qualifiers` string sets.
@@ -323,10 +324,10 @@ impl Filters {
     /// a filter set twice is rejected (an excluded value may repeat).
     pub(super) fn parse(query: &GhSearchHistoryQuery) -> Result<Self, ProviderError> {
         let mut filters = Self::default();
-        let Some(text) = query.qualifiers() else {
+        let Some(text) = gh_search_history_query::qualifiers(query) else {
             return Ok(filters);
         };
-        let operation = query.operation();
+        let operation = gh_search_history_query::operation(query);
         let pull_request = operation == HistoryOperation::PullRequest;
         // The term that asked for unmerged pull requests, as written.
         let mut unmerged = None;
@@ -401,7 +402,7 @@ mod tests {
     /// The `qualifiers` keys the contract declares for `operation`.
     fn contract_keys(operation: &str) -> Vec<&'static str> {
         crate::contracts::query_schema_value(
-            crate::tools::id::ToolId::GhSearchHistory,
+            crate::id::ToolId::GhSearchHistory,
             Some(operation),
             "qualifiers",
             "x-qualifierKeys",

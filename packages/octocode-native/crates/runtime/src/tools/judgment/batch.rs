@@ -3,14 +3,16 @@
 //! serialized headroom; otherwise each question is its own request. Every
 //! answer is validated against its question before use, and an evaluation
 //! succeeds only when every question has a valid answer.
-use super::transport::{
+use super::{EvaluationInput, Judged, QuestionOutcomes};
+use crate::providers::classification::gate::GateLease;
+use crate::providers::classification::transport::{
     ClassificationError, ReportedUsage, check_budget, check_key, endpoint, post,
 };
-use super::{EvaluationInput, Judged, QuestionOutcomes};
-use crate::providers::classification::ClassificationProvider;
-use crate::providers::classification::gate::GateLease;
+use crate::providers::classification::{
+    ClassificationProvider, ProviderContractError, ProviderResponse, ProviderUsage,
+};
 use futures_util::{StreamExt as _, stream};
-use octocode_github::RequestBudget;
+use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use serde_json::Value;
 
@@ -23,8 +25,8 @@ const MAX_TEXT_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 fn max_request_bytes(input: EvaluationInput<'_>) -> usize {
     if input.assets.is_some() {
         // Base64 expansion, per-image padding and the existing text allowance.
-        crate::tools::id::clasify_policy::MAX_TOTAL_IMAGE_BYTES.div_ceil(3) * 4
-            + crate::tools::id::clasify_policy::MAX_IMAGE_ASSETS * 4
+        crate::id::clasify_policy::MAX_TOTAL_IMAGE_BYTES.div_ceil(3) * 4
+            + crate::id::clasify_policy::MAX_IMAGE_ASSETS * 4
             + MAX_TEXT_REQUEST_BYTES
     } else {
         MAX_TEXT_REQUEST_BYTES
@@ -34,8 +36,7 @@ fn max_request_bytes(input: EvaluationInput<'_>) -> usize {
 /// Where and how one evaluation's requests are sent.
 pub(crate) struct Connection<'a> {
     pub key: &'a SecretString,
-    pub base_url: &'a str,
-    pub endpoint_path: &'a str,
+    pub(crate) base_url: &'a str,
     pub provider: &'static dyn ClassificationProvider,
     pub retries: u32,
 }
@@ -57,40 +58,36 @@ fn request_error(message: &str) -> ClassificationError {
 }
 
 /// The questions as one grouped request body, when it fits the headroom.
+/// Sizes are measured over requests that hold `null` for the state, plus the
+/// state's own size: a request embeds the state once as given, so only the
+/// request actually sent copies it.
 fn grouped(
     input: EvaluationInput<'_>,
     model: &str,
     provider: &dyn ClassificationProvider,
 ) -> Option<(Value, bytes::Bytes)> {
-    let indexed: Vec<(usize, &Value)> = input.questions.iter().enumerate().collect();
-    let each_fits = indexed.iter().all(|question| {
-        octocode_engine::json_size::bytes(&provider.build_batch_request(
-            input.state,
-            std::slice::from_ref(question),
-            model,
-            None,
-        ))
-        .unwrap_or(usize::MAX)
-            <= if input.long_context {
-                MAX_TEXT_REQUEST_BYTES
-            } else {
-                MAX_STATE_AND_QUESTION_BYTES
-            }
-    });
-    if !each_fits {
-        return None;
-    }
-    let text_request = provider.build_batch_request(input.state, &indexed, model, None);
-    if octocode_engine::json_size::bytes(&text_request).unwrap_or(usize::MAX)
-        > if input.long_context {
-            MAX_TEXT_REQUEST_BYTES
-        } else {
-            MAX_GROUP_BYTES
-        }
+    const NULL_BYTES: usize = "null".len();
+    let state_bytes = octocode_engine::json_size::bytes(input.state)?;
+    let size = |questions: &[&Value]| {
+        octocode_engine::json_size::bytes(&provider.build(&Value::Null, questions, model, None))
+            .map_or(usize::MAX, |bytes| {
+                (bytes - NULL_BYTES).saturating_add(state_bytes)
+            })
+    };
+    let questions: Vec<&Value> = input.questions.iter().collect();
+    let (each_limit, group_limit) = if input.long_context {
+        (MAX_TEXT_REQUEST_BYTES, MAX_TEXT_REQUEST_BYTES)
+    } else {
+        (MAX_STATE_AND_QUESTION_BYTES, MAX_GROUP_BYTES)
+    };
+    if questions
+        .iter()
+        .any(|question| size(std::slice::from_ref(question)) > each_limit)
+        || size(&questions) > group_limit
     {
         return None;
     }
-    let request = provider.build_batch_request(input.state, &indexed, model, input.assets);
+    let request = provider.build(input.state, &questions, model, input.assets);
     let body = serde_json::to_vec(&request).ok()?;
     (body.len() <= max_request_bytes(input)).then(|| (request, body.into()))
 }
@@ -148,7 +145,7 @@ async fn answer_inner(
                 assets: assets.as_ref(),
                 ..input
             };
-            let request = provider.build_request(single.state, question, model, single.assets);
+            let request = provider.build(single.state, &[question], model, single.assets);
             let body = serde_json::to_vec(&request)
                 .map_err(|_| request_error("Classification request could not be serialized."))?;
             if body.len() > max_request_bytes(single) {
@@ -159,20 +156,13 @@ async fn answer_inner(
                 ));
             }
             let (response, calls) = send(body.into(), single, connection, budget, gate).await?;
-            provider
-                .validate_response(&request, &response)
-                .map_err(|error| response_error(error, &response, calls))?;
-            let answer =
-                provider
-                    .extract_answer(&response)
-                    .cloned()
-                    .ok_or_else(|| ClassificationError {
-                        provider_calls: calls,
-                        ..ClassificationError::invalid_response(
-                            "Classification provider response is missing the expected answer.",
-                        )
-                    })?;
-            Ok::<_, ClassificationError>((parse(&response, vec![answer]), calls))
+            let read = provider.read(&request, &response);
+            let answer = read
+                .answers
+                .and_then(|answers| answers.into_iter().next().ok_or_else(missing_answer))
+                .and_then(|answer| answer)
+                .map_err(|error| response_error(error, read.usage, calls))?;
+            Ok::<_, ClassificationError>((parse(read.model, read.usage, vec![answer]), calls))
         })
         .buffered(questions.len())
         .collect::<Vec<_>>()
@@ -247,21 +237,25 @@ fn grouped_outcomes(
     calls: u64,
     provider: &dyn ClassificationProvider,
 ) -> Result<QuestionOutcomes, ClassificationError> {
-    let parts = provider
-        .validate_batch_answers(request, response)
-        .map_err(|error| response_error(error, response, calls))?;
+    let ProviderResponse {
+        answers,
+        model,
+        usage,
+    } = provider.read(request, response);
+    let parts = answers.map_err(|error| response_error(error, usage, calls))?;
     let failure = parts.iter().find_map(|part| part.as_ref().err()).cloned();
     let models = parts
         .iter()
         .any(Result::is_ok)
-        .then(|| response["model"].as_str().unwrap_or_default().to_owned())
+        .then(|| model.clone().unwrap_or_default())
         .into_iter()
         .collect();
     let complete = match failure {
-        Some(error) => Err(response_error(error, response, calls)),
+        Some(error) => Err(response_error(error, usage, calls)),
         None => judged(vec![(
             parse(
-                response,
+                model,
+                usage,
                 parts
                     .iter()
                     .filter_map(|part| part.as_ref().ok().cloned())
@@ -273,28 +267,33 @@ fn grouped_outcomes(
     Ok(QuestionOutcomes {
         answers: parts
             .into_iter()
-            .map(|part| part.map_err(|error| response_error(error, response, calls)))
+            .map(|part| part.map_err(|error| response_error(error, usage, calls)))
             .collect(),
         complete,
         models,
     })
 }
 
+fn missing_answer() -> ProviderContractError {
+    ProviderContractError {
+        request: false,
+        message: "Classification provider response is missing the expected answer.".into(),
+    }
+}
+
 fn response_error(
-    error: crate::providers::classification::ProviderContractError,
-    response: &Value,
+    error: ProviderContractError,
+    usage: Option<ProviderUsage>,
     calls: u64,
 ) -> ClassificationError {
+    let reported = usage.unwrap_or_default();
     ClassificationError {
         code: error.code().into(),
         provider_calls: calls,
         reported_usage: Some(Box::new(ReportedUsage {
-            input_tokens: response["usage"]["input_tokens"].as_u64().unwrap_or(0),
-            output_tokens: response["usage"]["output_tokens"].as_u64().unwrap_or(0),
-            known_usage_calls: u64::from(
-                response["usage"]["input_tokens"].as_u64().is_some()
-                    && response["usage"]["output_tokens"].as_u64().is_some(),
-            ),
+            input_tokens: reported.input_tokens,
+            output_tokens: reported.output_tokens,
+            known_usage_calls: u64::from(usage.is_some()),
         })),
         ..ClassificationError::invalid_response(error.message)
     }
@@ -312,9 +311,12 @@ async fn send(
         body,
         connection
             .provider
-            .request_headers(input.images(), input.long_context),
+            .headers(input.images(), input.long_context),
         connection.key,
-        endpoint(connection.base_url, connection.endpoint_path)?,
+        endpoint(
+            connection.base_url,
+            connection.provider.defaults().endpoint_path,
+        )?,
         budget,
         connection.retries,
         gate,
@@ -322,13 +324,13 @@ async fn send(
     .await
 }
 
-fn parse(response: &Value, answers: Vec<Value>) -> Response {
-    let tokens = |key: &str| response["usage"][key].as_u64().unwrap_or(0);
+fn parse(model: Option<String>, usage: Option<ProviderUsage>, answers: Vec<Value>) -> Response {
+    let usage = usage.unwrap_or_default();
     Response {
         answers,
-        model: response["model"].as_str().unwrap_or_default().to_owned(),
-        input_tokens: tokens("input_tokens"),
-        output_tokens: tokens("output_tokens"),
+        model: model.unwrap_or_default(),
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
     }
 }
 
@@ -427,12 +429,16 @@ mod tests {
     #[test]
     fn grouped_partial_answers_preserve_siblings_and_count_the_post_once() {
         let questions = vec![json!({"type":"noul","instructions":"question"}); 12];
-        let indexed: Vec<_> = questions.iter().enumerate().collect();
-        let request = jev().build_batch_request(&json!("state"), &indexed, "m", None);
+        let request = jev().build(
+            &json!("state"),
+            &questions.iter().collect::<Vec<_>>(),
+            "m",
+            None,
+        );
         let mut answers = serde_json::Map::new();
         for index in 0..questions.len() {
             answers.insert(
-                jev().batch_answer_key(index),
+                format!("answer_{index}"),
                 json!({"type":"noul","noul":index as f64 / 20.0}),
             );
         }

@@ -138,16 +138,41 @@ pub struct RepositoryMetadata {
 }
 
 impl GitHubTransport {
-    pub async fn search_code(
+    /// A code search that serves a stored page first. Production searches
+    /// split it into [`Self::cached_code_search`] and
+    /// [`Self::search_code_uncached`]; the tests read the whole path at once.
+    #[cfg(test)]
+    pub(crate) async fn search_code(
         &self,
         request: &CodeSearchRequest,
         context: &RequestContext,
+    ) -> Result<CodeSearchPage, ProviderError> {
+        self.code_search(request, context, Lookup::Store).await
+    }
+
+    /// The code search for a request [`Self::cached_code_search`] just
+    /// missed: the store is read again only when an identical search in
+    /// flight stored its page meanwhile.
+    pub async fn search_code_uncached(
+        &self,
+        request: &CodeSearchRequest,
+        context: &RequestContext,
+    ) -> Result<CodeSearchPage, ProviderError> {
+        self.code_search(request, context, Lookup::Missed).await
+    }
+
+    async fn code_search(
+        &self,
+        request: &CodeSearchRequest,
+        context: &RequestContext,
+        lookup: Lookup,
     ) -> Result<CodeSearchPage, ProviderError> {
         let (mut page, withheld) = self
             .cached_search(
                 "github-code-search",
                 self.code_search_spec(request)?,
                 context,
+                lookup,
                 "invalid GitHub code search response",
                 |page: &CodeSearchPage| !page.incomplete_results,
             )
@@ -156,7 +181,7 @@ impl GitHubTransport {
         Ok(page)
     }
 
-    /// The cached page `search_code` would return for `request`, without
+    /// The stored page a code search would return for `request`, without
     /// sending: a caller planning several searches counts window slots only
     /// for the ones the cache cannot answer.
     pub async fn cached_code_search(
@@ -215,6 +240,7 @@ impl GitHubTransport {
             "github-repo-search",
             spec,
             context,
+            Lookup::Store,
             "invalid GitHub repository search response",
             |page: &RepositorySearchPage| !page.incomplete_results,
         )
@@ -231,19 +257,23 @@ impl GitHubTransport {
     /// is exactly what a retry must not get back. Single flight: an identical
     /// search already in flight (a sibling row of the batch) is waited for,
     /// and its stored page answers this one, so the duplicate spends no
-    /// search quota and no spacing wait.
+    /// search quota and no spacing wait. `lookup` says whether the caller
+    /// already found the store empty.
     pub(crate) async fn cached_search<T: Serialize + for<'de> Deserialize<'de>>(
         &self,
         namespace: &str,
         spec: RequestSpec,
         context: &RequestContext,
+        lookup: Lookup,
         invalid: &'static str,
         complete: impl Fn(&T) -> bool,
     ) -> Result<(T, Vec<u64>), ProviderError> {
         let (partition, key) = self.search_cache_slot(namespace, &spec, context)?;
         let ticket = search_flights().join((partition.clone(), key.clone()));
-        let _turn = context.budget.wait(ticket.turn()).await?;
-        if let Some(page) = self.stored_page(&partition, &key).await {
+        let mut stored = context.budget.wait(ticket.turn()).await?;
+        if (lookup == Lookup::Store || *stored)
+            && let Some(page) = self.stored_page(&partition, &key).await
+        {
             return Ok((page, Vec::new()));
         }
         let response = self
@@ -264,10 +294,12 @@ impl GitHubTransport {
                         etag: None,
                         bytes: bytes.into(),
                         resolved_ref: String::new(),
+                        has_more: false,
                     },
                     super::Retention::Revalidate,
                 )
                 .await;
+            *stored = true;
         }
         Ok((page, withheld))
     }
@@ -564,8 +596,19 @@ impl OwnerSources {
 }
 
 /// The process's in-flight searches, one per `(credential, search slot)`.
-fn search_flights() -> &'static super::KeyedFlight<(super::Partition, String), ()> {
-    static FLIGHTS: super::KeyedFlight<(super::Partition, String), ()> =
+/// Whether a search reads the store before it sends.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Lookup {
+    /// Serve a stored page when there is one.
+    Store,
+    /// The caller just found none: read again only when a search of this
+    /// flight stored one meanwhile.
+    Missed,
+}
+
+/// Search flights; a slot says whether a search of its wave stored a page.
+fn search_flights() -> &'static super::KeyedFlight<(super::Partition, String), bool> {
+    static FLIGHTS: super::KeyedFlight<(super::Partition, String), bool> =
         super::KeyedFlight::transient();
     &FLIGHTS
 }

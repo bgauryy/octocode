@@ -17,8 +17,6 @@ mod history_item;
 mod partition;
 mod query_syntax;
 mod refs;
-mod request_budget;
-mod retry;
 mod search;
 mod transport;
 mod tree;
@@ -29,11 +27,11 @@ use octocode_io::flight::KeyedFlight;
 /// (branches, tags, comments, reviews, commits, changed files).
 pub const MAX_PER_PAGE: usize = 100;
 
-pub use budget::{AuthAdmission, ExecutorConfig, GitHubBudget, GitHubResource, LimiterKey};
+pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, LimiterKey};
 pub use commit_dates::{MAX_PATHS_PER_REQUEST, PathDates};
 pub use content::{
     CachedContent, ConditionalCache, ContentRequest, ContentResponse, GitHubProvider, NoCache,
-    Retention, Submodule, is_full_sha,
+    Retention, Submodule, decode_content, is_full_sha,
 };
 pub use credentials::{CredentialSource, ResolvedCredential};
 pub use endpoint::{GitHubEndpoint, credential_host, is_loopback, names_localhost};
@@ -45,11 +43,6 @@ pub use query_syntax::{
     validate_qualifier_value,
 };
 pub use refs::{NamedRef, RefKind, RefMatch, RefPage};
-pub use request_budget::{BudgetStop, RequestBudget};
-pub use retry::{
-    Backoff, BodyError, StatusClass, civil_from_days, classify_status, days_from_civil,
-    is_retryable_send, read_bounded, retry_after_delay,
-};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
     RepositorySearchPage, RepositorySearchRequest, TextMatch, TreeEntry, TreeRequest, TreeResponse,
@@ -60,5 +53,7 @@ pub use transport::{
 };
 pub use tree::{ContentsEntry, ContentsListing};
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod mock_http;
 #[cfg(test)]
 mod tests;

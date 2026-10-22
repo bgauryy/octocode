@@ -28,7 +28,7 @@ Every direct dependency of the native crates and the job it owns. A passing unus
 | Dependency | Owned job |
 |---|---|
 | `serde`, `serde_json`, `serde-saphyr`, `toml` | Contracts, configuration, provider payloads, rewrite rules, manifests, and output |
-| `regex`, `regress` | Native patterns; `regress` runs the ECMAScript patterns of the generated contract types |
+| `regex`, `regress` | Native patterns; `regress` runs the contract's ECMAScript patterns during validation |
 | `url` | Provider endpoint and URI validation |
 | `base64`, `sha2`, `hex`, `getrandom` | Encodings, hashes, snapshots, receipts, and random nonces |
 | `aes-gcm` | Encrypted home credential files |
@@ -39,7 +39,7 @@ Every direct dependency of the native crates and the job it owns. A passing unus
 | `flate2` | Release-archive reading in `artifactSearch` |
 | `html5ever` | Text extraction from captured URL sources |
 | `imagesize` | Dimensions of captured PNG and JPEG images |
-| `octocode-io`, `octocode-engine`, `octocode-github` | Internal crates; the engine with its default features |
+| `octocode-io`, `octocode-engine`, `octocode-github`, `octocode-contract-types` | Internal crates; the engine with its default features |
 | `tokio`, `tokio-util` | Runtime lifecycle, cancellation, signals, and asynchronous tools |
 | `libc` (Unix) | Process-group and low-level lifecycle controls |
 | `apple-native-keyring-store` (macOS), `zbus-secret-service-keyring-store` (Linux), `windows-native-keyring-store` (Windows) | OS credential stores |
@@ -51,6 +51,7 @@ Every direct dependency of the native crates and the job it owns. A passing unus
 ## Other crates
 
 - `octocode-github`: GitHub transport (`reqwest`, `bytes`, `futures-util`, `tokio`, `tokio-util`), `url`, `base64` (file contents), `sha2`/`hex` (cache keys), `getrandom` (retry jitter), `secrecy`, and payload serialization (`serde`, `serde_json`). Configuration, credential discovery, and keyrings stay in the runtime. Development: `tempfile`, `wiremock`.
+- `octocode-contract-types`: the generated wire types' `serde`/`serde_json` derives and `regress` (their ECMAScript patterns).
 - `octocode-io`: `reqwest` client policy, `getrandom`, `hex`, `libc`, and `tokio`. Development: `tempfile`.
 - `octocode-cli`:
   - `clap` for arguments.

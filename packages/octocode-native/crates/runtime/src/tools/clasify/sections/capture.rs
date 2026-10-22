@@ -1,6 +1,7 @@
 use super::{Resource, Row, Session, Unit, error_value, new_id};
-use crate::runtime::{ExecutionContext, domain_dispatch::DomainDispatcher};
+use crate::execution::ExecutionContext;
 use crate::security::scan::ContentScan as _;
+use crate::tools::source_capture::SourceReader;
 use crate::tools::{judgment::ClassificationError, source_capture::resource, source_sections};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -21,7 +22,7 @@ impl Pool {
     fn get(
         &self,
         source: &Value,
-        dispatcher: &DomainDispatcher,
+        dispatcher: &dyn SourceReader,
         context: &ExecutionContext,
         max_bytes: usize,
     ) -> Result<Arc<resource::TextResource>, ClassificationError> {
@@ -48,7 +49,7 @@ impl Pool {
 pub(super) fn create(
     row: &Row,
     input: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     max_bytes: usize,
     pool: &Pool,
@@ -98,7 +99,7 @@ pub(super) fn create(
                     let mut metadata = json!({"status":if matches!(error.code.as_str(), "fileTooLarge" | "classificationContextTooLarge" | "capabilityUnavailable") {"unsupported"} else {"error"},"source":source,"error":error_value(&error),"coverage":{"totalSections":null,"completedSections":0,"remainingSections":null,"answered":0,"error":0,"unsupported":0,"unassessed":null}});
                     if let Some(tool) = source["tool"]
                         .as_str()
-                        .and_then(crate::tools::id::ToolId::from_name)
+                        .and_then(crate::id::ToolId::from_name)
                     {
                         metadata["read"] =
                             crate::tools::source_capture::read_lead(tool, &source["query"], None);
@@ -122,7 +123,7 @@ pub(super) fn create(
         model: Some(
             row.model
                 .clone()
-                .unwrap_or_else(|| dispatcher.evaluator.model.clone()),
+                .unwrap_or_else(|| dispatcher.evaluator().model.clone()),
         ),
         resolved_model: None,
         long_context: row.long_context,
@@ -137,7 +138,7 @@ fn prepare(
     captured: &resource::TextResource,
     source: &Value,
     row: &Row,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     remaining_bytes: usize,
 ) -> Result<(Value, Vec<Unit>, Option<Value>), ClassificationError> {
@@ -198,7 +199,7 @@ fn prepare(
             let mut metadata = json!({"id":format!("s{ordinal}"),"kind":section.kind,"target":target,"context":context_ranges});
             if let Some(name) = section.name {
                 let (name, _) = dispatcher
-                    .security
+                    .security()
                     .sanitize(&name, &captured.path)
                     .map_err(|_| super::unavailable("A section name could not be sanitized."))?;
                 metadata["name"] = json!(name);
@@ -212,6 +213,7 @@ fn prepare(
         }).collect();
             let unit = Unit {
                 metadata,
+                chars: crate::tools::selection::serialized_chars(&state),
                 state,
                 cells,
                 emitted: false,
@@ -255,7 +257,7 @@ fn unit_weight(unit: &Unit) -> usize {
 
 pub(super) fn validate_local(
     source: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<(), ClassificationError> {
     resource::validate_local(source, dispatcher, context)
@@ -273,20 +275,20 @@ impl<'a> SafeSource<'a> {
     fn new(
         raw: &'a str,
         path: &std::path::Path,
-        dispatcher: &DomainDispatcher,
+        dispatcher: &dyn SourceReader,
         digest: &str,
     ) -> Result<Self, ClassificationError> {
-        let (blocks, _) = dispatcher.security.redact_key_blocks(raw);
+        let (blocks, _) = dispatcher.security().redact_key_blocks(raw);
         let (safe, _) = dispatcher
-            .security
+            .security()
             .redact_source_lines(&blocks, path, digest)
             .map_err(|_| {
                 super::unavailable(
                     "The complete source could not be sanitized before section planning.",
                 )
             })?;
-        let safe = if dispatcher.config.resolved.output.redact_emails {
-            dispatcher.security.redact_emails(&safe)
+        let safe = if dispatcher.config().resolved.output.redact_emails {
+            dispatcher.security().redact_emails(&safe)
         } else {
             safe
         };

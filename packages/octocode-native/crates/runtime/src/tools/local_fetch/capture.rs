@@ -1,6 +1,5 @@
-use super::{LocalFetchQuery, LocalFetchResult, MAX_SOURCE_BYTES, PathAccess, executor};
-use crate::tools::cancel::CancellationCheck;
-use std::io::Read;
+use super::{LocalFetchQuery, LocalFetchResult, MAX_SOURCE_BYTES, PathAccess, acquire, executor};
+use crate::execution::cancel::CancellationCheck;
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -24,7 +23,7 @@ pub(crate) fn capture_text(
     };
     let check = || cancel.check().map_err(|error| failure("cancelled", error));
     check()?;
-    let (validated, file, metadata) = executor::resolve_file(query, paths)?;
+    let (validated, file, metadata) = acquire::resolve_file(query, paths)?;
     let too_large = || {
         failure(
             "classificationContextTooLarge",
@@ -36,28 +35,22 @@ pub(crate) fn capture_text(
     if metadata.len() > MAX_SOURCE_BYTES {
         return Err(too_large());
     }
-    let mut reader = file.take(MAX_SOURCE_BYTES + 1);
-    let mut bytes = Vec::new();
-    let mut buffer = [0; 8192];
-    loop {
-        check()?;
-        let count = reader
-            .read(&mut buffer)
-            .map_err(|error| failure("fileReadFailed", error.to_string()))?;
-        if count == 0 {
-            break;
+    let bytes = match acquire::read_rest(file, Vec::new(), MAX_SOURCE_BYTES, cancel) {
+        Ok(bytes) => bytes,
+        Err(octocode_engine::text::ReadError::TooLarge(_)) => return Err(too_large()),
+        Err(octocode_engine::text::ReadError::Io(error)) => {
+            return Err(Box::new(acquire::read_failure(&query.path, error)));
         }
-        bytes.extend_from_slice(&buffer[..count]);
-        if bytes.len() as u64 > MAX_SOURCE_BYTES {
-            return Err(too_large());
+        Err(error @ octocode_engine::text::ReadError::NotRegular) => {
+            return Err(failure("fileReadFailed", error.to_string()));
         }
-    }
+    };
     check()?;
     if octocode_engine::text::sniff_complete(&bytes) == octocode_engine::text::BinaryVerdict::Binary
     {
-        return Err(Box::new(executor::refuse_binary(query, &validated.display)));
+        return Err(Box::new(acquire::refuse_binary(query, &validated.display)));
     }
-    let snapshot = crate::digest::sha256(&bytes);
+    let snapshot = octocode_engine::digest::sha256(&bytes);
     if let Some(expected) = query.snapshot.as_deref()
         && **expected != snapshot
     {
@@ -79,7 +72,7 @@ pub(crate) fn capture_text(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
 
     struct CancelAfterFirst(std::sync::atomic::AtomicUsize);
     impl CancellationCheck for CancelAfterFirst {
@@ -115,7 +108,7 @@ mod tests {
             std::fs::write(&file, &bytes).expect("write");
             let captured = capture_text(&query, &paths, &NeverCancel).expect("capture");
             assert_eq!(captured.text, source);
-            assert_eq!(captured.snapshot, crate::digest::sha256(&bytes));
+            assert_eq!(captured.snapshot, octocode_engine::digest::sha256(&bytes));
             bytes.push(1);
             std::fs::write(&file, &bytes).expect("malformed");
             assert_eq!(
@@ -140,7 +133,10 @@ mod tests {
         let captured = capture_text(&query, &paths, &NeverCancel).expect("capture");
         assert_eq!(captured.text, source);
         assert_eq!(captured.canonical, file.canonicalize().expect("canonical"));
-        assert_eq!(captured.snapshot, crate::digest::sha256(source.as_bytes()));
+        assert_eq!(
+            captured.snapshot,
+            octocode_engine::digest::sha256(source.as_bytes())
+        );
         query.snapshot = Some(captured.snapshot.parse().expect("snapshot"));
         assert!(capture_text(&query, &paths, &NeverCancel).is_ok());
         std::fs::write(&file, "changed").expect("change");

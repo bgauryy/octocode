@@ -3,14 +3,17 @@
 
 use super::executor::*;
 use super::types::*;
-use super::verify::CutOutlines;
-use super::{cursor::*, leads::*, rows::*};
+use super::{cursor::*, enclosing::*, handoff::*, rows::*};
+use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
+use crate::id::ToolId;
+use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
-use crate::tools::id::ToolId;
-use crate::tools::id::query_limits::local_fetch::RANGES_MAX_ITEMS;
-use crate::tools::num::u32_of_usize;
-use crate::tools::result::Continuation;
+use crate::response::result::Confidence;
+use crate::response::result::Continuation;
+use crate::response::result::ToolError;
 use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Whether a view lists paths (with counts) instead of match rows.
 pub(super) fn list_view(view: LocalSearchQueryResultView) -> bool {
@@ -54,43 +57,42 @@ impl Layout {
     /// continuations would cost more than the rows they hide. A page never
     /// holds more files than its page size, so its enclosing names cover it.
     /// A caller cap always wins; default pages fill their byte budget.
-    /// `outlines` price the rows' enclosing names (see [`PageCosts::name`]).
+    /// `pricing` prices the rows' enclosing names (see [`PageCosts::name`]),
+    /// outlining only the files the cut must charge exactly: every file of a
+    /// result that may fit whole, else those of the first page and of the
+    /// row that ends it (see [`Self::stream`]).
     pub(super) fn cut(
         query: &LocalSearchQuery,
         paths: &PathPolicy,
         output_root: &std::path::Path,
         parsed: &mut octocode_engine::types::TextSearchResult,
         page_budget: usize,
-        outlines: &CutOutlines,
-    ) -> Self {
+        pricing: &mut NamePricing<'_>,
+    ) -> Result<Self, ToolError> {
         let view = query.result_view;
         let list = list_view(view);
         let match_only = view == LocalSearchQueryResultView::MatchOnly;
-        let context = query.context();
-        let costs =
-            PageCosts::new(query, paths, output_root, context).with_owners(&parsed.files, outlines);
+        let context = local_search_query::context(query);
+        let mut costs = PageCosts::new(query, paths, output_root, context);
+        costs.owners = pricing.priced.clone();
+        let priced_names =
+            costs.shows_names && local_search_query::match_page_size(query).is_none();
         let hits_total: usize = if list {
             0
         } else {
             parsed.files.iter().map(|file| file.matches.len()).sum()
         };
+        // A name costs at least nothing: a result that does not fit whole
+        // without its names never shows whole, and one that may is priced
+        // whole (it is at most one page of files).
         let show_all = !list
-            && query.match_page_size().is_none()
+            && local_search_query::match_page_size(query).is_none()
+            && fits_whole(&parsed.files, page_budget, &costs, true)
             && {
-                let mut names = PageNames::default();
-                fits_within(&parsed.files, page_budget, |index, file| {
-                    costs.file(file)
-                        + file
-                            .matches
-                            .iter()
-                            .map(|m| {
-                                let name = costs.name(index, file, m);
-                                let price = names.price(index, name);
-                                names.add(index, name);
-                                costs.row(m) + price
-                            })
-                            .sum::<usize>()
-                })
+                let all = (0..parsed.files.len()).collect::<Vec<_>>();
+                pricing.price(&parsed.files, all)?;
+                costs.owners = pricing.priced.clone();
+                fits_whole(&parsed.files, page_budget, &costs, false)
             }
             && parsed
                 .files
@@ -98,8 +100,7 @@ impl Layout {
                 .map(|file| expansion_rows(&file.matches, &costs))
                 .sum::<usize>()
                 <= max_expansion_rows();
-        let matches_per = query
-            .match_page_size()
+        let matches_per = local_search_query::match_page_size(query)
             .unwrap_or(if show_all {
                 u32_of_usize(hits_total)
             } else {
@@ -123,14 +124,16 @@ impl Layout {
         let (shown, total_pages, files_per_page, total_items) = if streamed && list {
             Self::list_stream(query, &parsed.files, page_budget, &costs)
         } else if streamed {
+            let pricing = priced_names.then_some(pricing);
             Self::stream(
                 query,
                 &parsed.files,
                 matches_per,
                 show_all,
                 page_budget,
-                &costs,
-            )
+                &mut costs,
+                pricing,
+            )?
         } else {
             Self::grid(query, parsed.files.len(), matches_per)
         };
@@ -163,9 +166,9 @@ impl Layout {
             && query.multiline == LocalSearchQueryMultiline::Off
             && !context.is_empty())
         .then_some(context);
-        Self {
+        Ok(Self {
             list,
-            out_of_range: total_files > 0 && query.page().max(1) > total_pages,
+            out_of_range: total_files > 0 && local_search_query::page(query).max(1) > total_pages,
             shown,
             total_pages,
             files_per_page,
@@ -181,40 +184,86 @@ impl Layout {
             display_cap,
             merge_context,
             prefix_chars: costs.prefix_chars,
-        }
+        })
     }
 
     /// Default layout: pages are cut from one row stream by the response
-    /// budget, so a walk never pages a hot file ten rows at a time.
+    /// budget, so a walk never pages a hot file ten rows at a time. With
+    /// `pricing`, the first page is cut with the exact names of its rows
+    /// and of the row that ends it: the files of the first page a cut with
+    /// free names reaches are outlined; rows of every other file reserve.
+    /// Which files are priced depends on the result alone, never on the
+    /// requested page or on prices already known, so every call of a walk
+    /// (fresh, rescanned, or cut from the stored scan and the prices its
+    /// first page stored) cuts the same pages and counts the same total.
     pub(super) fn stream(
         query: &LocalSearchQuery,
         files: &[octocode_engine::types::TextSearchFile],
         matches_per: u32,
         show_all: bool,
         page_budget: usize,
-        costs: &PageCosts,
-    ) -> (PageRows, u32, Option<u32>, u32) {
-        let mut pages = stream_pages(
-            files,
-            matches_per as usize,
-            show_all,
-            page_budget,
-            StreamCosts {
-                file: &|file| costs.file(file),
-                row: &|row| costs.row(row),
-                name: &|index, row| costs.name(index, &files[index], &files[index].matches[row]),
-                read: &|row| costs.read(row),
-            },
-        );
+        costs: &mut PageCosts,
+        pricing: Option<&mut NamePricing<'_>>,
+    ) -> Result<(PageRows, u32, Option<u32>, u32), ToolError> {
+        // `through`: the cut stops after that page, every reserved name
+        // costing nothing (see below).
+        let cut = |costs: &PageCosts, through: Option<usize>| {
+            stream_pages(
+                files,
+                matches_per as usize,
+                show_all,
+                page_budget,
+                StreamCosts {
+                    file: &|file| costs.file(file),
+                    row: &|row| costs.row(row),
+                    name: &|index, row| match costs.name(
+                        index,
+                        &files[index],
+                        &files[index].matches[row],
+                    ) {
+                        RowName::Reserved if through.is_some() => RowName::None,
+                        name => name,
+                    },
+                    read: &|row| costs.read(row),
+                },
+                through,
+            )
+        };
+        // Free reserved names make the first page reach at least as far as
+        // the exact cut, so pricing the files up to the row that ends it
+        // prices every row that decides the exact first page: the second
+        // round finds nothing left to outline.
+        if let Some(pricing) = pricing.filter(|_| !show_all) {
+            loop {
+                let pages = cut(costs, Some(1));
+                // The first page's rows, and the row that opens the second:
+                // the one its cut stopped before.
+                let deciding = pages
+                    .iter()
+                    .take(1)
+                    .flatten()
+                    .chain(pages.get(1).and_then(|next| next.first()))
+                    .filter(|(_, rows)| !rows.is_empty())
+                    .map(|(index, _)| *index)
+                    .collect::<Vec<_>>();
+                let before = pricing.priced.len();
+                pricing.price(files, deciding)?;
+                if pricing.priced.len() == before {
+                    break;
+                }
+                costs.owners = pricing.priced.clone();
+            }
+        }
+        let mut pages = cut(costs, None);
         let total_pages = u32_of_usize(pages.len()).max(1);
-        let page = query.page().max(1) as usize;
+        let page = local_search_query::page(query).max(1) as usize;
         let shown = if page <= pages.len() {
             pages.swap_remove(page - 1)
         } else {
             Vec::new()
         };
         let rows: usize = files.iter().map(|file| file.matches.len()).sum();
-        (shown, total_pages, None, u32_of_usize(rows))
+        Ok((shown, total_pages, None, u32_of_usize(rows)))
     }
 
     fn list_stream(
@@ -243,10 +292,13 @@ impl Layout {
                     + 1
             })
             .collect::<Vec<_>>();
-        let pages = crate::tools::page_windows::Paging::Chars(page_budget).windows(&sizes);
-        let shown = crate::tools::page_windows::nth_page(&pages, query.page() as usize)
-            .map(|window| window.clone().map(|index| (index, 0..0)).collect())
-            .unwrap_or_default();
+        let pages = crate::response::page_windows::Paging::Chars(page_budget).windows(&sizes);
+        let shown = crate::response::page_windows::nth_page(
+            &pages,
+            local_search_query::page(query) as usize,
+        )
+        .map(|window| window.clone().map(|index| (index, 0..0)).collect())
+        .unwrap_or_default();
         (
             shown,
             u32_of_usize(pages.len()).max(1),
@@ -261,21 +313,24 @@ impl Layout {
         file_count: usize,
         matches_per: u32,
     ) -> (PageRows, u32, Option<u32>, u32) {
-        let page_size = query
-            .page_size()
+        let page_size = local_search_query::page_size(query)
             .unwrap_or_else(|| default_page_size(query.result_view))
             .max(1);
-        let page = query.page().max(1);
-        let window =
-            crate::tools::page_windows::count_window(page as usize, page_size as usize, file_count);
-        let skip = (query.match_page().max(1) - 1).saturating_mul(matches_per) as usize;
+        let page = local_search_query::page(query).max(1);
+        let window = crate::response::page_windows::count_window(
+            page as usize,
+            page_size as usize,
+            file_count,
+        );
+        let skip =
+            (local_search_query::match_page(query).max(1) - 1).saturating_mul(matches_per) as usize;
         let shown = window
             .map(|index| (index, skip..skip.saturating_add(matches_per as usize)))
             .collect::<PageRows>();
         let total_files = u32_of_usize(file_count);
         (
             shown,
-            crate::tools::page_windows::count_pages(file_count, page_size as usize) as u32,
+            crate::response::page_windows::count_pages(file_count, page_size as usize) as u32,
             Some(page_size),
             total_files,
         )
@@ -299,9 +354,116 @@ pub(super) struct PageCosts {
     /// Rows are shown, so each hit row of an outlined language carries its
     /// `enclosing` name: the cut charges it (see [`PageCosts::name`]).
     pub(super) shows_names: bool,
-    /// The name each hit line of a file the cut outlined carries, by file
-    /// index then line (a line outside every declaration has none).
-    owners: std::collections::HashMap<usize, std::collections::HashMap<u32, Owner>>,
+    /// The names of each file the cut priced, by file index.
+    owners: HashMap<usize, FilePrice>,
+}
+
+/// The enclosing names one file's hit rows carry, as a page cut prices
+/// them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum FilePrice {
+    /// The owner of each hit line inside a declaration, by line (a line
+    /// outside every declaration has none, as has every line of a file
+    /// without an outline).
+    Owners(Arc<HashMap<u32, Owner>>),
+    /// The file could not be read for its outline: its rows reserve
+    /// [`ENCLOSING_RESERVE_CHARS`] each.
+    Unread,
+}
+
+impl FilePrice {
+    /// The names of `file`'s hit rows by its `outline` (`None`: it has
+    /// none). A row's owner is the one [`annotate_enclosing`] names it by,
+    /// except that a declaration search names only its declaring rows (and
+    /// a merged context block only its first line's owner): charging every
+    /// hit row bounds those pages from above.
+    pub(super) fn of(
+        file: &octocode_engine::types::TextSearchFile,
+        outline: Option<&Outline>,
+    ) -> Self {
+        Self::Owners(Arc::new(
+            outline
+                .map(|outline| {
+                    file.matches
+                        .iter()
+                        .filter_map(|matched| {
+                            let owner = outline.label(outline.owner(matched.line)?)?;
+                            let full = ENCLOSING_FIELD_CHARS
+                                + octocode_engine::json_size::utf16_units(&owner).unwrap_or(0);
+                            Some((
+                                matched.line,
+                                Owner {
+                                    line: owner.line,
+                                    full,
+                                },
+                            ))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        ))
+    }
+
+    /// Bytes this price keeps, as a stored scan weighs it.
+    pub(super) fn weight(&self) -> usize {
+        match self {
+            Self::Owners(owners) => owners.len() * std::mem::size_of::<(u32, Owner)>(),
+            Self::Unread => 0,
+        }
+    }
+}
+
+/// Outlines `files` (by index) for a page cut and prices their rows'
+/// names: one [`FilePrice`] per file.
+pub(super) type Outliner<'p> = dyn FnMut(
+        &[(usize, &octocode_engine::types::TextSearchFile)],
+    ) -> Result<Vec<(usize, FilePrice)>, ToolError>
+    + 'p;
+
+/// The enclosing names a page cut charges, priced on demand: a file is
+/// outlined only once a cut must charge its rows exactly (see
+/// [`Layout::cut`]); every other file of an outlined language reserves.
+pub(super) struct NamePricing<'p> {
+    /// The prices known so far, by file index: a stored scan's, then the
+    /// ones this cut outlined.
+    pub(super) priced: HashMap<usize, FilePrice>,
+    outline: &'p mut Outliner<'p>,
+}
+
+impl<'p> NamePricing<'p> {
+    pub(super) fn new(priced: HashMap<usize, FilePrice>, outline: &'p mut Outliner<'p>) -> Self {
+        Self { priced, outline }
+    }
+
+    /// Price the files of `wanted` that hold rows in an outlined language
+    /// and have no price yet.
+    fn price(
+        &mut self,
+        files: &[octocode_engine::types::TextSearchFile],
+        wanted: Vec<usize>,
+    ) -> Result<(), ToolError> {
+        let mut seen = HashSet::new();
+        let unpriced = wanted
+            .into_iter()
+            .filter(|index| seen.insert(*index) && !self.priced.contains_key(index))
+            .filter(|index| {
+                let file = &files[*index];
+                !file.matches.is_empty() && outlined_language(std::path::Path::new(&file.path))
+            })
+            .map(|index| (index, &files[index]))
+            .collect::<Vec<_>>();
+        if !unpriced.is_empty() {
+            let mut outlined = (self.outline)(&unpriced)?
+                .into_iter()
+                .collect::<HashMap<_, _>>();
+            for (index, _) in unpriced {
+                // A file the outliner left out was not read.
+                let price = outlined.remove(&index).unwrap_or(FilePrice::Unread);
+                self.priced.insert(index, price);
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A hit row's enclosing declaration as the page cut prices it.
@@ -325,7 +487,7 @@ impl Owner {
 pub(super) enum RowName {
     /// The row carries no name.
     None,
-    /// A row of a file the cut did not outline:
+    /// A row of a file the cut has not outlined (or could not read):
     /// [`ENCLOSING_RESERVE_CHARS`].
     Reserved,
     /// The full name on the page's first row inside `Owner`, a reference on
@@ -368,8 +530,10 @@ impl PageCosts {
         let match_only = query.result_view == LocalSearchQueryResultView::MatchOnly;
         let prefix_chars = match paths.workspace_relative(output_root).as_deref() {
             Some(".") => 0,
-            Some(relative) => crate::tools::stream_page::json_text_chars(relative) + 1,
-            None => crate::tools::stream_page::json_text_chars(&output_root.to_string_lossy()) + 1,
+            Some(relative) => crate::response::stream_page::json_text_chars(relative) + 1,
+            None => {
+                crate::response::stream_page::json_text_chars(&output_root.to_string_lossy()) + 1
+            }
         };
         Self {
             prefix_chars,
@@ -382,52 +546,12 @@ impl PageCosts {
             },
             multiline: query.multiline != LocalSearchQueryMultiline::Off,
             shows_names: !list_view(query.result_view),
-            owners: std::collections::HashMap::new(),
+            owners: HashMap::new(),
             read_chars: expansion_read_chars(
                 query,
                 query.multiline != LocalSearchQueryMultiline::Off,
             ),
         }
-    }
-
-    /// These costs with the owner of every hit line of each outlined file.
-    /// A row's owner is the one [`annotate_enclosing`] names it by, except
-    /// that a declaration search names only its declaring rows (and a merged
-    /// context block only its first line's owner): charging every hit row
-    /// bounds those pages from above.
-    pub(super) fn with_owners(
-        mut self,
-        files: &[octocode_engine::types::TextSearchFile],
-        outlines: &CutOutlines,
-    ) -> Self {
-        self.owners = outlines
-            .iter()
-            .filter_map(|(&index, outline)| {
-                let file = files.get(index)?;
-                let owners = outline
-                    .as_ref()
-                    .map(|outline| {
-                        file.matches
-                            .iter()
-                            .filter_map(|matched| {
-                                let owner = outline.label(outline.owner(matched.line)?)?;
-                                let full = ENCLOSING_FIELD_CHARS
-                                    + octocode_engine::json_size::utf16_units(&owner).unwrap_or(0);
-                                Some((
-                                    matched.line,
-                                    Owner {
-                                        line: owner.line,
-                                        full,
-                                    },
-                                ))
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                Some((index, owners))
-            })
-            .collect();
-        self
     }
 
     pub(super) fn clipped(&self, matched: &octocode_engine::types::TextSearchMatch) -> bool {
@@ -438,7 +562,7 @@ impl PageCosts {
     }
 
     pub(super) fn file(&self, file: &octocode_engine::types::TextSearchFile) -> usize {
-        let path = crate::tools::stream_page::json_text_chars(&file.path) + self.prefix_chars;
+        let path = crate::response::stream_page::json_text_chars(&file.path) + self.prefix_chars;
         let entry = path + FILE_ENTRY_CHARS;
         if file.matches.iter().any(|m| self.clipped(m)) {
             entry + self.read_chars + path
@@ -449,7 +573,8 @@ impl PageCosts {
 
     /// The enclosing name a hit row of file `index` carries (priced by
     /// [`PageNames`]): its owner in a file the cut outlined, a reserve in
-    /// another outlined-language file, else none.
+    /// another outlined-language file (unread, or not priced yet), else
+    /// none.
     pub(super) fn name(
         &self,
         index: usize,
@@ -460,9 +585,10 @@ impl PageCosts {
             return RowName::None;
         }
         match self.owners.get(&index) {
-            Some(owners) => owners
+            Some(FilePrice::Owners(owners)) => owners
                 .get(&matched.line)
                 .map_or(RowName::None, |owner| RowName::Owned(*owner)),
+            Some(FilePrice::Unread) => RowName::Reserved,
             None if outlined_language(std::path::Path::new(&file.path)) => RowName::Reserved,
             None => RowName::None,
         }
@@ -530,9 +656,8 @@ pub(super) fn file_pagination(
     })
 }
 
-/// Serialized chars of one file entry around its rows and path,
-/// `{"path":"","matches":[]},`.
-pub(super) const FILE_ENTRY_CHARS: usize = 25;
+/// Serialized chars of one file entry around its rows and path.
+pub(super) const FILE_ENTRY_CHARS: usize = "{\"path\":\"\",\"matches\":[]},".len();
 
 /// Serialized chars of one match row as a page shows it, with its separator.
 /// The value is priced in place, never copied.
@@ -549,7 +674,7 @@ pub(super) fn row_chars(
         row.column = None;
     }
     octocode_engine::json_size::utf16_units(&row).unwrap_or(0)
-        + crate::tools::stream_page::json_text_chars(value)
+        + crate::response::stream_page::json_text_chars(value)
         + 1
 }
 
@@ -605,6 +730,34 @@ pub(super) fn fits_within(
     })
 }
 
+/// Whether every file entry, with all its rows and their names, fits
+/// `budget` chars. With `unpriced_free`, a name not priced yet costs
+/// nothing: a lower bound of the exact fit.
+fn fits_whole(
+    files: &[octocode_engine::types::TextSearchFile],
+    budget: usize,
+    costs: &PageCosts,
+    unpriced_free: bool,
+) -> bool {
+    let mut names = PageNames::default();
+    fits_within(files, budget, |index, file| {
+        costs.file(file)
+            + file
+                .matches
+                .iter()
+                .map(|m| {
+                    let name = match costs.name(index, file, m) {
+                        RowName::Reserved if unpriced_free => RowName::None,
+                        name => name,
+                    };
+                    let price = names.price(index, name);
+                    names.add(index, name);
+                    costs.row(m) + price
+                })
+                .sum::<usize>()
+    })
+}
+
 /// Serialized sizes a streamed page is cut by.
 pub(super) struct StreamCosts<'a> {
     /// A file entry around its rows.
@@ -620,8 +773,8 @@ pub(super) struct StreamCosts<'a> {
 /// Rows one `expandValues` call runs: a page never needs more to read every
 /// clipped value it shows.
 pub(super) fn max_expansion_rows() -> usize {
-    crate::tools::result::rows_per_call(ToolId::LocalFetch)
-        .min(crate::tools::result::rows_per_call(ToolId::LocalSearch))
+    crate::response::result::rows_per_call(ToolId::LocalFetch)
+        .min(crate::response::result::rows_per_call(ToolId::LocalSearch))
 }
 
 /// Rows one page shows: (file index, rank-order row range), in page order.
@@ -629,7 +782,9 @@ pub(super) type PageRows = Vec<(usize, std::ops::Range<usize>)>;
 
 /// Default layouts use the response budget when neither page axis is sized.
 pub(super) fn streamed_layout(q: &LocalSearchQuery) -> bool {
-    q.page_size().is_none() && q.match_page_size().is_none() && q.match_page() <= 1
+    local_search_query::page_size(q).is_none()
+        && local_search_query::match_page_size(q).is_none()
+        && local_search_query::match_page(q) <= 1
 }
 
 /// Default-layout pages, cut from one row stream: each file's first
@@ -641,13 +796,15 @@ pub(super) fn streamed_layout(q: &LocalSearchQuery) -> bool {
 /// call runs ([`max_expansion_rows`]), so each page's values are one call
 /// away. `whole` puts the entire result on one page. A file's
 /// rows on one page are always one contiguous rank range, and its later
-/// rows follow on later pages.
+/// rows follow on later pages. With `through`, the cut stops after that
+/// many pages, plus a page of the one entry that opens the next.
 pub(super) fn stream_pages(
     files: &[octocode_engine::types::TextSearchFile],
     per_file: usize,
     whole: bool,
     budget: usize,
     costs: StreamCosts<'_>,
+    through: Option<usize>,
 ) -> Vec<PageRows> {
     if whole {
         return vec![
@@ -726,6 +883,12 @@ pub(super) fn stream_pages(
             let over_reads = reads + added_reads(&slot) > max_reads;
             if !page.is_empty() && (over_budget || over_reads) {
                 pages.push(std::mem::take(&mut page));
+                if through.is_some_and(|through| pages.len() > through) {
+                    // The entry that opens the next page, alone.
+                    let span = row.map_or(0..0, |row| row..row + 1);
+                    pages.push(vec![(index, span)]);
+                    return pages;
+                }
                 slot.clear();
                 paged.clear();
                 names = PageNames::default();
@@ -762,7 +925,7 @@ pub(super) fn stream_pages(
 
 /// The contract maximum of `matchContentLength`.
 const MAX_MATCH_CONTENT_LENGTH: usize =
-    crate::tools::id::query_limits::local_search::MATCH_CONTENT_LENGTH_MAXIMUM;
+    crate::contracts::query_limits::local_search::MATCH_CONTENT_LENGTH_MAXIMUM;
 
 /// Serialized chars of one `expandValues` read without its path (and its
 /// ranges, which each row pays for).
@@ -816,7 +979,7 @@ fn multiline_expansion(
         ToolId::LocalFetch,
         json!({"path": path, "ranges": [format!("{}-{}", first.saturating_sub(context.before).max(1), READ_TO_END_LINE)]}),
     )
-    .confidence("exact")
+    .confidence(Confidence::Exact)
     .build();
     // A file-scoped search is a fresh run: no page, snapshot or saved
     // selection of the wider scope carries over.
@@ -830,7 +993,7 @@ fn multiline_expansion(
             fields.insert("matchContentLength".into(), json!(longest));
         }
         Continuation::new(ToolId::LocalSearch, search)
-            .confidence("exact")
+            .confidence(Confidence::Exact)
             .build()
     });
     (search, fetch)
@@ -879,7 +1042,7 @@ pub(super) fn expand_values(
         }
         return vec![
             Continuation::new(ToolId::LocalSearch, widened)
-                .confidence("exact")
+                .confidence(Confidence::Exact)
                 .build(),
         ];
     }
@@ -922,7 +1085,7 @@ pub(super) fn expand_values(
                 .collect::<Vec<_>>();
             reads.push(
                 Continuation::new(ToolId::LocalFetch, json!({"path": path, "ranges": ranges}))
-                    .confidence("exact")
+                    .confidence(Confidence::Exact)
                     .build(),
             );
         }
@@ -973,7 +1136,7 @@ impl PageCosts {
             RowRead::None
         } else if self.multiline {
             RowRead::Multiline
-        } else if super::leads::passes_line_page(
+        } else if super::handoff::passes_line_page(
             // The same rows `is_long_line_hit` reads by a byte window.
             matched
                 .original_bytes
@@ -1064,6 +1227,7 @@ mod tests {
         TextSearchMatch {
             deferred: None,
             line,
+            last_line: None,
             column: 0,
             byte_offset: 0,
             value: format!("needle {line}"),
@@ -1166,6 +1330,7 @@ mod tests {
                 name: &|_, _| RowName::None,
                 read: &read,
             },
+            None,
         );
         assert!(pages.len() > 1, "{}", pages.len());
         assert_eq!(rows.get(), 30 * 40);
@@ -1206,6 +1371,109 @@ mod tests {
                 "{cap:?} {span_columns}"
             );
         }
+    }
+
+    /// Page `page` of `files` cut over `root` with `known` prices: the
+    /// layout, every price known after the cut, and the files it outlined.
+    /// Each row's declaration is named on the line before it, unless the
+    /// files are `nameless`.
+    fn cut_page(
+        root: &std::path::Path,
+        files: &[TextSearchFile],
+        page: u32,
+        known: HashMap<usize, FilePrice>,
+        nameless: bool,
+    ) -> (Layout, HashMap<usize, FilePrice>, Vec<usize>) {
+        let paths = crate::tools::test_support::workspace_policy(root);
+        let mut parsed = octocode_engine::types::TextSearchResult {
+            files: files.to_vec(),
+            stats: Default::default(),
+        };
+        let mut outlined = Vec::new();
+        let mut outline = |asked: &[(usize, &TextSearchFile)]| {
+            Ok(asked
+                .iter()
+                .map(|&(index, file)| {
+                    outlined.push(index);
+                    let owners = file
+                        .matches
+                        .iter()
+                        .filter(|_| !nameless)
+                        .map(|m| {
+                            (
+                                m.line,
+                                Owner {
+                                    line: m.line - 1,
+                                    full: 60,
+                                },
+                            )
+                        })
+                        .collect();
+                    (index, FilePrice::Owners(Arc::new(owners)))
+                })
+                .collect())
+        };
+        let mut pricing = NamePricing::new(known, &mut outline);
+        let request = query(serde_json::json!({"page": page}));
+        let layout =
+            Layout::cut(&request, &paths, root, &mut parsed, 6_000, &mut pricing).expect("cut");
+        let priced = pricing.priced;
+        outlined.sort_unstable();
+        (layout, priced, outlined)
+    }
+
+    /// A default page cut outlines only the files that may decide its first
+    /// page: those of the first page a cut with free names reaches, and the
+    /// row that ends it; never a fixed count of files. Every call of a walk
+    /// cuts the same pages: fresh, or from the prices the first page stored,
+    /// which outlines nothing more.
+    #[test]
+    fn page_cuts_outline_only_the_first_pages_files_and_every_call_cuts_alike() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let files = (0..100u32)
+            .map(|n| TextSearchFile {
+                path: format!("src/f{n:03}.rs"),
+                match_count: 30,
+                matches: (1..=30).map(|line| hit(line * 4, false)).collect(),
+                source: None,
+            })
+            .collect::<Vec<_>>();
+        let files_of = |layout: &Layout| {
+            layout
+                .shown
+                .iter()
+                .map(|(index, _)| *index)
+                .collect::<Vec<_>>()
+        };
+        let (first, stored, outlined) = cut_page(root.path(), &files, 1, HashMap::new(), false);
+        let (free, _, _) = cut_page(root.path(), &files, 1, HashMap::new(), true);
+        let (after_free, _, _) = cut_page(root.path(), &files, 2, HashMap::new(), true);
+        let mut reach = files_of(&free);
+        reach.push(after_free.shown[0].0);
+        reach.dedup();
+        assert_eq!(outlined, reach);
+        assert!(outlined.len() < 64, "{outlined:?}");
+        assert!(first.total_pages > 2, "{}", first.total_pages);
+        assert!(
+            files_of(&first)
+                .iter()
+                .all(|index| outlined.contains(index))
+        );
+        let mut rows = std::collections::BTreeSet::new();
+        for page in 1..=first.total_pages {
+            let (fresh, _, _) = cut_page(root.path(), &files, page, HashMap::new(), false);
+            let (replayed, _, more) = cut_page(root.path(), &files, page, stored.clone(), false);
+            assert!(more.is_empty(), "page {page} outlined {more:?}");
+            assert_eq!(fresh.shown, replayed.shown, "page {page}");
+            assert_eq!(fresh.total_pages, first.total_pages, "page {page}");
+            assert_eq!(replayed.total_pages, first.total_pages, "page {page}");
+            for (index, range) in fresh.shown {
+                for row in range {
+                    assert!(rows.insert((index, row)), "row {index}:{row} twice");
+                }
+            }
+        }
+        assert_eq!(rows.len(), 100 * 30);
     }
 
     fn query(fields: serde_json::Value) -> LocalSearchQuery {

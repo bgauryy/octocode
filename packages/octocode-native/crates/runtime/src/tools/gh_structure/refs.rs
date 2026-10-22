@@ -1,13 +1,13 @@
 //! `operation:"refs"` (branches and tags) and `operation:"languages"`.
 use super::*;
-use crate::contracts::tool_types::ExtraKind;
-use crate::tools::paging::push_warnings;
+use crate::response::paging::push_warnings;
+use octocode_contract_types::ExtraKind;
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{NamedRef, RefKind, RefMatch};
 
 /// Refs per page when `pageSize` is omitted (contract
 /// `ghStructure.semanticPolicy.refsPageSize`, GitHub's page maximum).
-const DEFAULT_REFS_PER_PAGE: usize = crate::tools::id::gh_structure_policy::REFS_PAGE_SIZE;
+const DEFAULT_REFS_PER_PAGE: usize = crate::id::gh_structure_policy::REFS_PAGE_SIZE;
 const _: () = assert!(DEFAULT_REFS_PER_PAGE <= MAX_PER_PAGE);
 
 /// The default branch and its head commit, and one page of tag names; with
@@ -15,8 +15,8 @@ const _: () = assert!(DEFAULT_REFS_PER_PAGE <= MAX_PER_PAGE);
 /// read only when asked. A page continues while a listed kind has more, so
 /// every listed tag (and branch) is named exactly once. A tag name is
 /// itself a ref, so tags carry no SHA. With `ref`: that ref's commit and its `refKind` only.
-pub(super) async fn refs<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn refs(
+    provider: &GitHubProvider,
     query: &GhStructureQueryRefs,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
@@ -31,7 +31,7 @@ pub(super) async fn refs<C: octocode_github::ConditionalCache>(
             Ok(sha) => sha,
             Err(error) => {
                 // The failure names a renamed repository as it is now.
-                let renamed = super::canonical(
+                let renamed = crate::tools::gh_shared::canonical_query(
                     provider,
                     query,
                     query.owner.as_str(),
@@ -60,7 +60,7 @@ pub(super) async fn refs<C: octocode_github::ConditionalCache>(
                 .await?
         };
         let mut value = json!({ "commitSha": sha, "refKind": kind.as_str() });
-        if let Some((warning, _)) = super::canonical(
+        if let Some((warning, _)) = crate::tools::gh_shared::canonical_query(
             provider,
             query,
             query.owner.as_str(),
@@ -73,9 +73,9 @@ pub(super) async fn refs<C: octocode_github::ConditionalCache>(
         }
         return Ok(ToolData::from(value));
     }
-    let page = query.page.map_or(1, crate::tools::num::usize_of);
+    let page = query.page.map_or(1, crate::num::usize_of);
     let requested = query.page_size.map_or(DEFAULT_REFS_PER_PAGE, |size| {
-        crate::tools::num::usize_of(size.get())
+        crate::num::usize_of(size.get())
     });
     let per_page = requested.clamp(1, MAX_PER_PAGE);
     let with_branches = query.extras.contains(&ExtraKind::Details);
@@ -102,7 +102,7 @@ pub(super) async fn refs<C: octocode_github::ConditionalCache>(
         "tags": tags.refs.iter().map(|named| named.name.as_str()).collect::<Vec<_>>(),
     });
     // The default-branch read named the canonical repository: leads use it.
-    let (renamed_warning, canonical) = super::canonical(
+    let (renamed_warning, canonical) = crate::tools::gh_shared::canonical_query(
         provider,
         query,
         query.owner.as_str(),
@@ -130,7 +130,7 @@ pub(super) async fn refs<C: octocode_github::ConditionalCache>(
         let mut extras = query.extras.clone();
         extras.push(ExtraKind::Details);
         listed["extras"] = json!(extras);
-        value["next"]["viewRefs"] = continuation(listed, "exact");
+        value["next"]["viewRefs"] = continuation(listed);
     }
     if let Some(branches) = &branches {
         // `{name: sha}`: one key per branch instead of repeated `name`/`sha` keys.
@@ -158,9 +158,9 @@ pub(super) async fn refs<C: octocode_github::ConditionalCache>(
     if more {
         value["pagination"] =
             crate::response::pages::PageFacts::open(page, Some(per_page), true).to_value();
-        if let Some(next_page) = crate::tools::paging::next_cursor(
+        if let Some(next_page) = crate::response::paging::next_cursor(
             &mut value,
-            crate::tools::id::ToolId::GhStructure,
+            crate::id::ToolId::GhStructure,
             None,
             "page",
             page + 1,
@@ -168,7 +168,7 @@ pub(super) async fn refs<C: octocode_github::ConditionalCache>(
             let mut next = query_row(query, &[]);
             // `pageSize` rides along only when the caller set it.
             next["page"] = json!(next_page);
-            value["next"]["nextPage"] = continuation(next, "exact");
+            value["next"]["nextPage"] = continuation(next);
         }
     }
     Ok(ToolData::from(value))
@@ -176,8 +176,8 @@ pub(super) async fn refs<C: octocode_github::ConditionalCache>(
 
 /// Bytes of code per language on the default branch, largest first, with
 /// the rename warning a renamed repository's other operations carry.
-pub(super) async fn languages<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn languages(
+    provider: &GitHubProvider,
     query: &GhStructureQueryLanguages,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
@@ -190,7 +190,7 @@ pub(super) async fn languages<C: octocode_github::ConditionalCache>(
         .map(|(name, bytes)| (name, json!(bytes)))
         .collect();
     let mut value = json!({ "languages": languages });
-    if let Some((warning, _)) = super::canonical(
+    if let Some((warning, _)) = crate::tools::gh_shared::canonical_query(
         provider,
         query,
         query.owner.as_str(),

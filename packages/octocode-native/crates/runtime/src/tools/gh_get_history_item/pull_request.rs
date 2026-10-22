@@ -1,5 +1,6 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
+use super::axis::Axis;
 use super::filter::{FileFilter, FileScope};
 use super::graphql::{
     GraphqlCollection, GraphqlOutcome, GraphqlPr, graphql_complete_collection_eligible,
@@ -11,7 +12,7 @@ use super::patch::hunks::{HeadSources, head_text_needed, match_context};
 use super::pr_finish::{finish_pr, pr_metadata, slim_row};
 use super::pr_menu::{INVENTORY_ALL_PATCHES_FILES, pr_next_menu};
 use super::pr_sections::{CommentSection, shape_pr_comments, shape_pr_commits, shape_pr_reviews};
-use super::rest::{BodyWindows, Rest};
+use super::remaining::{BodyWindows, Remainder};
 use super::text::{body_matches, needle, paginate_text};
 use super::util::{map_comments, str_at};
 use super::window::{
@@ -19,10 +20,11 @@ use super::window::{
     load_window, reconcile_collection_total, reconcile_file_totals,
 };
 use super::{HistoryItemRequest, Section, Sections, fetch, validation};
-use crate::contracts::tool_types::ExtraKind;
-use crate::tools::num::usize_of;
-use crate::tools::result::ToolData;
-use octocode_github::{GitHubTransport, ProviderError, ProviderErrorKind, RequestContext};
+use crate::num::usize_of;
+use crate::response::result::ToolData;
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use octocode_contract_types::ExtraKind;
+use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
 
 /// One PR collection: what GraphQL served (the whole list, or a first page
@@ -54,24 +56,44 @@ pub(super) async fn pull_request(
 ) -> Result<ToolData, ProviderError> {
     let wants = query.sections();
     let plan = PrPlan::new(query)?;
-    let (graphql, graphql_fallback) = fast_path(transport, query, context).await?;
-    let loads = load_pr(transport, query, context, &wants, &plan, graphql.as_ref()).await?;
+    // Review comments are REST-only: when GraphQL serves the rest of the
+    // read, their first window loads beside it instead of after its answer.
+    let ((graphql, graphql_fallback), inline) =
+        if graphql_complete_collection_eligible(query) && wants.has(Section::ReviewComments) {
+            let (fast, inline) = tokio::try_join!(
+                fast_path(transport, query, context),
+                load_inline(transport, query, context, &plan, None),
+            )?;
+            (fast, Some(inline))
+        } else {
+            (fast_path(transport, query, context).await?, None)
+        };
+    let loads = load_pr(
+        transport,
+        query,
+        context,
+        &wants,
+        &plan,
+        graphql.as_ref(),
+        inline,
+    )
+    .await?;
     let head = str_at(&loads.raw, "/head/sha").map(str::to_owned);
     // A pin names the head by its SHA or an abbreviation of it.
-    if let Some(pinned) = query.query.head_sha()
+    if let Some(pinned) = gh_get_history_item_query::head_sha(&query.query)
         && !head.as_deref().is_some_and(|head| head.starts_with(pinned))
     {
         // The head moved since the first page: nothing shown stays valid.
-        return Ok(ToolData::from(crate::tools::result::stale_snapshot(
-            crate::tools::result::restart_query(
-                crate::tools::id::ToolId::GhGetHistoryItem,
-                &crate::tools::result::query_row(&query.query, &[]),
+        return Ok(ToolData::from(crate::response::result::stale_snapshot(
+            crate::response::result::restart_query(
+                crate::id::ToolId::GhGetHistoryItem,
+                &crate::response::result::query_row(&query.query, &[]),
             ),
         )));
     }
     let shaped = shape_pr(transport, query, context, &wants, &plan, loads).await?;
     let mut data = finish_pr(query, &wants, &plan, shaped, graphql_fallback);
-    if let (Some(head), Some(number)) = (head, query.number()) {
+    if let (Some(head), Some(number)) = (head, gh_get_history_item_query::number(query)) {
         pin_head_pages(&mut data.data, &head, number);
     }
     Ok(data)
@@ -85,10 +107,9 @@ fn pin_head_pages(value: &mut Value, head: &str, number: u64) {
     match value {
         Value::Object(object) => {
             if let Some(Value::Object(next)) = object.get_mut("next") {
-                let tool = crate::tools::id::ToolId::GhGetHistoryItem;
+                let tool = crate::id::ToolId::GhGetHistoryItem;
                 for (name, page) in next.iter_mut() {
-                    if !crate::tools::id::is_remaining(tool, name) || page["tool"] != tool.as_str()
-                    {
+                    if !crate::id::is_remaining(tool, name) || page["tool"] != tool.as_str() {
                         continue;
                     }
                     let rows = page
@@ -132,14 +153,7 @@ async fn fast_path(
         Ok(GraphqlOutcome::Served(pr)) => Ok((Some(*pr), None)),
         Ok(GraphqlOutcome::Unavailable) => Ok((None, None)),
         Ok(GraphqlOutcome::Failed(reason)) => Ok((None, Some(reason))),
-        Err(error)
-            if matches!(
-                error.kind,
-                ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
-            ) =>
-        {
-            Err(error)
-        }
+        Err(error) if error.is_cancelled_or_timed_out() => Err(error),
         Err(error) => Ok((None, Some(error.message.to_string()))),
     }
 }
@@ -153,8 +167,7 @@ pub(super) struct PrPlan {
 
 impl PrPlan {
     fn new(query: &HistoryItemRequest) -> Result<Self, ProviderError> {
-        let number = query
-            .number()
+        let number = gh_get_history_item_query::number(query)
             .ok_or_else(|| validation("number is required"))?
             .to_string();
         let scope = FileScope::from_query(query).map_err(|message| validation(&message))?;
@@ -235,11 +248,11 @@ async fn prefetch(
     // straight to its provider batch.
     let later_comments = (wants.has(Section::Comments) || wants.has(Section::ReviewComments))
         && plan.needle.is_some()
-        && query.page().is_some_and(|page| page > 1);
+        && gh_get_history_item_query::page(query).is_some_and(|page| page > 1);
     let pulls = [
         "repos",
-        query.owner(),
-        query.repo(),
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
         "pulls",
         plan.number.as_str(),
     ];
@@ -271,6 +284,45 @@ fn provider_count(raw: Option<&Value>, key: &str) -> Option<usize> {
         .map(usize_of)
 }
 
+/// The review-comment (inline) window of the requested page, sized by the
+/// PR's `review_comments` count when it is known.
+async fn load_inline(
+    transport: &GitHubTransport,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    plan: &PrPlan,
+    provider_total: Option<usize>,
+) -> Result<Option<Loaded>, ProviderError> {
+    let needle = plan.needle.as_deref();
+    let path = [
+        "repos",
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+        "pulls",
+        plan.number.as_str(),
+        "comments",
+    ];
+    load_collection(
+        transport,
+        true,
+        None,
+        &path,
+        WindowSpec {
+            max_batches: MAX_COLLECTION_BATCHES,
+            page: gh_get_history_item_query::page(query).unwrap_or(1),
+            page_size: gh_get_history_item_query::collection_page_size(query),
+            filtered: needle.is_some(),
+            provider_total,
+            prefetched: None,
+        },
+        |value| body_matches(value, needle),
+        context,
+    )
+    .await
+}
+
+/// `inline` is the review-comment window when it already loaded beside
+/// the GraphQL read.
 async fn load_pr(
     transport: &GitHubTransport,
     query: &HistoryItemRequest,
@@ -278,9 +330,10 @@ async fn load_pr(
     wants: &Sections,
     plan: &PrPlan,
     graphql: Option<&GraphqlPr>,
+    inline: Option<Option<Loaded>>,
 ) -> Result<PrLoads, ProviderError> {
     let (file_filter, needle) = (plan.file_filter(), plan.needle.as_deref());
-    let page_size = query.collection_page_size();
+    let page_size = gh_get_history_item_query::collection_page_size(query);
     let comment_filter = |value: &Value| body_matches(value, needle);
     let spec = |max_batches, page: Option<usize>, filtered| WindowSpec {
         max_batches,
@@ -290,10 +343,13 @@ async fn load_pr(
         provider_total: None,
         prefetched: None,
     };
-    let (owner, repo, number) = (query.owner(), query.repo(), plan.number.as_str());
+    let (owner, repo, number) = (
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+        plan.number.as_str(),
+    );
     let under_pulls = |leaf: &'static str| ["repos", owner, repo, "pulls", number, leaf];
-    let [files_path, inline_path, reviews_path, commits_path] =
-        ["files", "comments", "reviews", "commits"].map(under_pulls);
+    let [files_path, reviews_path, commits_path] = ["files", "reviews", "commits"].map(under_pulls);
     let discussion_path = ["repos", owner, repo, "issues", number, "comments"];
     let complete = |kind: fn(&GraphqlPr) -> GraphqlCollection, map: fn(&Value) -> Vec<Value>| {
         graphql.and_then(|g| match kind(g) {
@@ -304,7 +360,11 @@ async fn load_pr(
     };
     let mut files = WindowSpec {
         page_size: file_page_size(query, wants.has(Section::Patches)),
-        ..spec(MAX_FILE_BATCHES, query.page(), !file_filter.is_trivial())
+        ..spec(
+            MAX_FILE_BATCHES,
+            gh_get_history_item_query::page(query),
+            !file_filter.is_trivial(),
+        )
     };
     let (raw_first, file_batch) =
         prefetch(transport, query, context, wants, plan, &files, graphql).await?;
@@ -335,29 +395,35 @@ async fn load_pr(
             &discussion_path,
             WindowSpec {
                 provider_total: provider_count("comments"),
-                ..spec(MAX_COLLECTION_BATCHES, query.page(), needle.is_some())
+                ..spec(
+                    MAX_COLLECTION_BATCHES,
+                    gh_get_history_item_query::page(query),
+                    needle.is_some()
+                )
             },
             comment_filter,
             context,
         ),
-        load_collection(
-            transport,
-            wants.has(Section::ReviewComments),
-            None,
-            &inline_path,
-            WindowSpec {
-                provider_total: provider_count("review_comments"),
-                ..spec(MAX_COLLECTION_BATCHES, query.page(), needle.is_some())
-            },
-            comment_filter,
-            context,
-        ),
+        async {
+            match inline {
+                Some(loaded) => Ok(loaded),
+                None if wants.has(Section::ReviewComments) => {
+                    let total = provider_count("review_comments");
+                    load_inline(transport, query, context, plan, total).await
+                }
+                None => Ok(None),
+            }
+        },
         load_collection(
             transport,
             wants.has(Section::Reviews),
             complete(|g| g.reviews, map_graphql_reviews),
             &reviews_path,
-            spec(MAX_COLLECTION_BATCHES, query.page(), needle.is_some()),
+            spec(
+                MAX_COLLECTION_BATCHES,
+                gh_get_history_item_query::page(query),
+                needle.is_some()
+            ),
             comment_filter,
             context,
         ),
@@ -366,7 +432,11 @@ async fn load_pr(
             wants.lists_commits(),
             complete(|g| g.commits, map_graphql_commits),
             &commits_path,
-            spec(MAX_PR_COMMIT_BATCHES, query.page(), false),
+            spec(
+                MAX_PR_COMMIT_BATCHES,
+                gh_get_history_item_query::page(query),
+                false
+            ),
             |_| true,
             context,
         ),
@@ -419,7 +489,7 @@ fn shape_files_section(
     // A cross-tool read: one check at the merge commit, on the first page,
     // over every loaded file (a later patch window does not repeat it, and
     // the shown window may hold no code file).
-    let merge_read = (!query.later_page())
+    let merge_read = (!gh_get_history_item_query::later_page(query))
         .then(|| {
             super::pr_menu::read_at_merge(query, raw, &loaded.items, |file| {
                 file_filter.matches(file)
@@ -431,20 +501,21 @@ fn shape_files_section(
     // numbers match while the base has not moved past the diff's merge base.
     // A file GitHub sent without a patch comes first: no merge read covers
     // it, so its head read stays.
-    let side_reads = if query.later_page() || !wants.has(Section::Patches) {
+    let side_reads = if gh_get_history_item_query::later_page(query) || !wants.has(Section::Patches)
+    {
         Vec::new()
     } else {
         let unpatched =
             super::pr_menu::first_unpatched(&loaded.items, |file| file_filter.matches(file))
                 .is_some();
         super::pr_menu::change_reads(
-            query.owner(),
-            query.repo(),
+            gh_get_history_item_query::owner(query),
+            gh_get_history_item_query::repo(query),
             &loaded.items,
             &super::pr_menu::ChangeSides {
                 new_ref: str_at(raw, "/head/sha").filter(|_| merge_read.is_none() || unpatched),
                 old_ref: str_at(raw, "/base/sha").filter(|sha| !sha.is_empty()),
-                old_confidence: "medium",
+                old_confidence: crate::response::result::Confidence::Medium,
             },
             |file| file_filter.matches(file),
         )
@@ -454,7 +525,7 @@ fn shape_files_section(
     // An `include`/`status`/`minChanges` scope that matched no changed file at all.
     let scope_unmatched = (plan.scope.is_some() || plan.needle.is_some())
         && state.exhausted
-        && query.page().unwrap_or(1) == 1
+        && gh_get_history_item_query::page(query).unwrap_or(1) == 1
         && !loaded.items.iter().any(|file| file_filter.matches(file));
     let in_scope = if scope_unmatched {
         loaded
@@ -530,12 +601,12 @@ async fn head_sources(
         .items
         .iter()
         .filter(|file| filter.matches(file))
-        .cloned()
         .collect::<Vec<_>>();
-    let (page_files, _) =
-        loaded
-            .state
-            .paginate(kept, query.page(), Some(file_page_size(query, true)));
+    let (page_files, _) = loaded.state.paginate(
+        kept,
+        gh_get_history_item_query::page(query),
+        Some(file_page_size(query, true)),
+    );
     let paths: Vec<String> = page_files
         .iter()
         .filter(|file| str_at(file, "/status") != Some("removed"))
@@ -549,12 +620,17 @@ async fn head_sources(
         return None;
     }
     let reads = paths.iter().map(|path| async move {
-        let mut segments = vec!["repos", query.owner(), query.repo(), "contents"];
+        let mut segments = vec![
+            "repos",
+            gh_get_history_item_query::owner(query),
+            gh_get_history_item_query::repo(query),
+            "contents",
+        ];
         segments.extend(path.split('/'));
         let text = fetch(transport, &segments, &[("ref", sha.to_owned())], context)
             .await
             .ok()
-            .and_then(|(value, _)| decode_contents(&value));
+            .and_then(|(value, _)| contents_text(value));
         (path.clone(), text)
     });
     let mut sources = HeadSources::default();
@@ -567,20 +643,16 @@ async fn head_sources(
     Some(sources)
 }
 
-/// A Contents API file body as text; `None` for a directory, a body GitHub
-/// left out (over 1 MB), or bytes that are not UTF-8.
-fn decode_contents(value: &Value) -> Option<String> {
-    use base64::Engine as _;
-    if str_at(value, "/encoding") != Some("base64") {
-        return None;
-    }
-    let packed: String = str_at(value, "/content")?
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(packed)
-        .ok()?;
+/// A Contents API file body as text (the content decoder file reads use);
+/// `None` for a directory, a body GitHub left out (over 1 MB), or bytes
+/// that are not UTF-8.
+fn contents_text(mut value: Value) -> Option<String> {
+    let content = value.get_mut("content").map(Value::take)?;
+    let bytes = octocode_github::decode_content(
+        value.get("encoding").and_then(Value::as_str),
+        content.as_str().map(str::to_owned),
+    )
+    .ok()?;
     String::from_utf8(bytes).ok()
 }
 
@@ -600,8 +672,8 @@ fn read_menu(
     }
     let first_inventory = file_read
         && !query.sections().has(Section::Patches)
-        && !query.later_page()
-        && !query.has_file_filter();
+        && !gh_get_history_item_query::later_page(query)
+        && !gh_get_history_item_query::has_file_filter(query);
     if !first_inventory {
         return None;
     }
@@ -626,7 +698,7 @@ pub(super) struct ShapedPr {
     /// The code the page's anchored review comments discuss, ten ranges a read.
     pub(super) comment_reads: Vec<Value>,
     /// What the row's pages leave to read beside its public pages.
-    pub(super) rest: Rest,
+    pub(super) remainder: Remainder,
     /// Each listed commit's next file page (`continueCommitFiles…`).
     pub(super) commit_file_pages: Vec<(String, Value)>,
 }
@@ -648,13 +720,15 @@ async fn shape_pr(
         commits,
     } = loads;
     let patches = wants.has(Section::Patches);
-    let slim = (query.later_page() || query.has_sections()) && !query.wants(ExtraKind::Details);
+    let slim = (gh_get_history_item_query::later_page(query)
+        || gh_get_history_item_query::has_sections(query))
+        && !gh_get_history_item_query::wants(query, ExtraKind::Details);
     let mut row = pr_metadata(&raw, query);
     if slim {
         slim_row(&mut row, query);
     }
     let mut pagination = Map::new();
-    let mut rest = Rest::default();
+    let mut remainder = Remainder::default();
     if wants.has(Section::Body) {
         shape_body(&mut row, &mut pagination, &raw, query);
     }
@@ -677,11 +751,11 @@ async fn shape_pr(
     let file_outcome = files.map_or_else(FileOutcome::default, |loaded| {
         shape_files_section(&mut row, &mut pagination, loaded, &raw, query, wants, plan)
     });
-    rest.unfinished_patches(file_outcome.unfinished_patches);
+    remainder.unfinished_patches(file_outcome.unfinished_patches);
     let comment_reads = shape_comment_sections(
         &mut row,
         &mut pagination,
-        &mut rest,
+        &mut remainder,
         inline,
         discussion,
         query,
@@ -697,7 +771,7 @@ async fn shape_pr(
             &mut review_bodies,
         );
     }
-    rest.bodies("reviewBody", review_bodies, &mut pagination);
+    remainder.bodies(Axis::ReviewBody, review_bodies, &mut pagination);
     let mut commit_file_pages = Vec::new();
     if let Some(loaded) = commits {
         let listed = loaded.state.skipped.saturating_add(loaded.items.len());
@@ -736,7 +810,7 @@ async fn shape_pr(
         files: file_outcome,
         menu,
         comment_reads,
-        rest,
+        remainder,
         commit_file_pages,
     })
 }
@@ -749,14 +823,19 @@ fn shape_body(
     query: &HistoryItemRequest,
 ) {
     let body = raw.get("body").and_then(Value::as_str).unwrap_or("");
-    let (text, page) = paginate_text(body, query.char_offset(), query.char_length());
+    let (text, page) = paginate_text(
+        body,
+        gh_get_history_item_query::char_offset(query),
+        gh_get_history_item_query::char_length(query),
+    );
     row["body"] = json!(text);
-    pagination.insert("body".into(), page);
+    pagination.insert(Axis::Body.key().into(), page);
 }
 
-/// Patch rows are the evidence of a section patch read: it re-proves only
-/// number, state, and the head it read. The metadata read names the PR
-/// (title, author, createdAt); a read without patch rows keeps them.
+/// Patch rows are the evidence of a section patch read: it re-proves the
+/// PR's name (number, title, author), state, and the head it read. The
+/// metadata read dates the PR (createdAt); a read without patch rows keeps
+/// it.
 fn drop_named_header(row: &mut Value) {
     let patch_rows = row["files"]
         .as_array()
@@ -765,9 +844,7 @@ fn drop_named_header(row: &mut Value) {
         && row.get("headSha").is_some()
         && let Some(fields) = row.as_object_mut()
     {
-        for key in ["title", "author", "createdAt"] {
-            fields.remove(key);
-        }
+        fields.remove("createdAt");
     }
 }
 
@@ -777,7 +854,7 @@ fn drop_named_header(row: &mut Value) {
 fn shape_comment_sections(
     row: &mut Value,
     pagination: &mut Map<String, Value>,
-    rest: &mut Rest,
+    remainder: &mut Remainder,
     inline: Option<Loaded>,
     discussion: Option<Loaded>,
     query: &HistoryItemRequest,
@@ -799,6 +876,6 @@ fn shape_comment_sections(
             &mut bodies,
         ));
     }
-    rest.bodies("commentBody", bodies, pagination);
+    remainder.bodies(Axis::CommentBody, bodies, pagination);
     reads
 }

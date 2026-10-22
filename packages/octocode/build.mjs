@@ -41,6 +41,11 @@ const buildResult = await esbuild.build({
   define: {
     __OCTOCODE_BUNDLED__: 'true',
   },
+  // The bundled native scripts are CommonJS: give them `require`, resolved
+  // from this package, so they find the installed per-platform package.
+  banner: {
+    js: "import { createRequire as __octocodeRequire } from 'node:module';\nconst require = __octocodeRequire(import.meta.url);",
+  },
   logLevel: 'info',
 });
 

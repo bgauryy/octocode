@@ -228,17 +228,19 @@ fn install(store: &Path, args: InstallArgs) -> Reply {
     let mut text = String::new();
     for skill in &result.skills {
         text.push_str(&format!(
-            "{}: {:?} {}\n",
-            skill.name, skill.canonical_status, skill.canonical
+            "{}: {} {}\n",
+            skill.name,
+            skill.canonical_status.text(args.dry_run),
+            skill.canonical
         ));
         if let Some(error) = &skill.canonical_error {
             text.push_str(&format!("  {error}\n"));
         }
         for location in &skill.destinations {
             text.push_str(&format!(
-                "  {}: {:?} {}\n",
+                "  {}: {} {}\n",
                 platform_name(location.platform),
-                location.status,
+                location.status.text(args.dry_run),
                 location.destination
             ));
             if let Some(error) = &location.error {

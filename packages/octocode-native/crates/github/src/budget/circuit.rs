@@ -16,7 +16,7 @@ pub(crate) enum CircuitCause {
 }
 
 impl KeyState {
-    pub fn record_success(&self) {
+    pub(crate) fn record_success(&self) {
         let mut facts = self.facts();
         facts.circuit_failures = 0;
         facts.circuit_open_until_ms = 0;
@@ -25,7 +25,7 @@ impl KeyState {
 
     /// Count one failed logical request. Only secondary limits and
     /// 5xx/transport failures open the circuit.
-    pub fn record_circuit_failure(&self, config: &ExecutorConfig, cause: CircuitCause) {
+    pub(crate) fn record_circuit_failure(&self, config: &ExecutorConfig, cause: CircuitCause) {
         let mut facts = self.facts();
         facts.circuit_failures = facts.circuit_failures.saturating_add(1);
         facts.circuit_cause = Some(cause);

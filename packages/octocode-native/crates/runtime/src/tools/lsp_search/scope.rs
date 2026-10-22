@@ -19,9 +19,9 @@
 
 use super::blocking_cancellable;
 use super::failure::LspFailure;
-use super::render::{uri_to_path, word_pattern};
+use super::render::word_pattern;
+use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
-use crate::tools::cancel::CancellationCheck;
 use octocode_engine::search::text_search::search_cancellable;
 use octocode_engine::search::walk::NestedRepositories;
 use octocode_engine::types::TextSearchOptions;
@@ -199,11 +199,7 @@ impl Scope {
     /// Record files (paths or `file://` uris) the server's answer covers.
     pub(super) fn answer(&self, files: impl IntoIterator<Item = impl AsRef<str>>) {
         if let Ok(mut answered) = self.answered.lock() {
-            answered.extend(
-                files
-                    .into_iter()
-                    .map(|file| canonical(&uri_to_path(file.as_ref()))),
-            );
+            answered.extend(files.into_iter().map(|file| canonical_uri(file.as_ref())));
         }
     }
 
@@ -218,7 +214,7 @@ impl Scope {
         if let Ok(mut slot) = self.anchor_lines.lock() {
             let mut covered = lines.into_iter().collect::<BTreeSet<_>>();
             covered.insert(line);
-            *slot = Some((canonical(&uri_to_path(anchor)), covered));
+            *slot = Some((canonical_uri(anchor), covered));
         }
     }
 
@@ -262,7 +258,7 @@ impl Scope {
             return Ok(scan);
         }
         let stored = self.fingerprint().map(|fingerprint| {
-            crate::digest::sha256(
+            octocode_engine::digest::sha256(
                 format!(
                     "{}\u{0}{}\u{0}{symbol}\u{0}{fingerprint}\u{0}{policy:?}",
                     self.root,
@@ -518,6 +514,11 @@ pub(super) async fn with_canonical_memo<F: std::future::Future>(request: F) -> F
 /// not local). Inside [`with_canonical_memo`] each spelling is resolved
 /// once per request: a server answer names the same few files hundreds of
 /// times. Outside it (blocking workers, tests) every call resolves.
+/// [`canonical`] of the path a `file://` URI names.
+pub(super) fn canonical_uri(uri: &str) -> String {
+    canonical(&super::render::uri_to_path(uri))
+}
+
 pub(super) fn canonical(path: &str) -> String {
     let resolve = || {
         std::fs::canonicalize(path)
@@ -704,7 +705,7 @@ async fn scan_text(
     let options = TextSearchOptions {
         path: root.to_owned(),
         pattern: word_pattern(symbol),
-        files_only: Some(true),
+        output: octocode_engine::types::SearchOutput::FilesWithMatch,
         include: (!include.is_empty()).then(|| include.to_vec()),
         ignore: octocode_engine::search::walk::IgnorePolicy {
             include_ignored: lifted,
@@ -733,9 +734,8 @@ async fn scan_text(
                 nested: nested.skipped(),
                 complete: !parsed
                     .stats
-                    .cap_reason
-                    .as_deref()
-                    .is_some_and(|reason| reason.split(", ").any(|part| part == "cancelled")),
+                    .cap_reasons
+                    .contains(&octocode_engine::types::CapReason::Cancelled),
                 files: parsed
                     .files
                     .into_iter()
@@ -794,7 +794,7 @@ fn fingerprint(
             .is_none_or(|time| !now.duration_since(time).is_ok_and(|age| age >= FRESH_MTIME));
         let content = if fresh {
             match crate::tools::source::read_bounded(path, FRESH_CONTENT_MAX_BYTES) {
-                Ok(bytes) => crate::digest::sha256(&bytes),
+                Ok(bytes) => octocode_engine::digest::sha256(&bytes),
                 Err(_) => {
                     abandoned.store(true, Ordering::Relaxed);
                     return None;
@@ -845,7 +845,9 @@ fn fingerprint(
     }
     let mut entries = entries.into_inner().ok()?;
     entries.sort_unstable();
-    Some(crate::digest::sha256(entries.join("\n").as_bytes()))
+    Some(octocode_engine::digest::sha256(
+        entries.join("\n").as_bytes(),
+    ))
 }
 
 #[cfg(test)]
@@ -1016,7 +1018,7 @@ mod tests {
         );
         let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".into()]);
         let policy = workspace_policy(&root);
-        let cancel = crate::tools::cancel::NeverCancel;
+        let cancel = crate::execution::cancel::NeverCancel;
         let files = scope
             .text_files("f", &policy, &cancel)
             .await
@@ -1053,7 +1055,7 @@ mod tests {
             .text_files(
                 "f",
                 &workspace_policy(&root),
-                &crate::tools::cancel::NeverCancel,
+                &crate::execution::cancel::NeverCancel,
             )
             .await
             .expect("scan")
@@ -1071,7 +1073,7 @@ mod tests {
         write(&root.join("a.ts"), "export function f() {}\n");
         write(&root.join("b.ts"), "f();\n");
         let policy = workspace_policy(&root);
-        let cancel = &crate::tools::cancel::NeverCancel;
+        let cancel = &crate::execution::cancel::NeverCancel;
         let include = vec!["*.ts".to_owned()];
         let scan = |fingerprint: Option<&str>| {
             let scope = Scope::new(root.to_string_lossy().into_owned(), include.clone());
@@ -1113,7 +1115,7 @@ mod tests {
             write(&root.join(format!("gen/g{index}.ts")), "f();\n");
         }
         let policy = workspace_policy(&root);
-        let cancel = &crate::tools::cancel::NeverCancel;
+        let cancel = &crate::execution::cancel::NeverCancel;
         let skip = std::collections::HashSet::new();
         let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".to_owned()]);
 
@@ -1167,7 +1169,7 @@ mod tests {
                 "f",
                 &std::collections::HashSet::new(),
                 &policy,
-                &crate::tools::cancel::NeverCancel,
+                &crate::execution::cancel::NeverCancel,
             )
             .await
             .expect("scan");
@@ -1192,7 +1194,7 @@ mod tests {
         let reached = root.join("gen/g.ts").to_string_lossy().into_owned();
         write(Path::new(&reached), "f();\n");
         let policy = workspace_policy(&root);
-        let cancel = &crate::tools::cancel::NeverCancel;
+        let cancel = &crate::execution::cancel::NeverCancel;
         let skip = std::collections::HashSet::new();
         let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".to_owned()]);
         // What a cold scan reached before its bound (the bound is timing,

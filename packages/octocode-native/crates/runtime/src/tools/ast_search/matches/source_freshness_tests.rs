@@ -73,9 +73,7 @@ fn same_runtime_match_memo_rejects_restored_mtime_edits() {
             let file = root.0.join("source.ts");
             std::fs::write(&file, "target(\"v0\");\ntarget(\"v1\");\n").expect("source");
             let (paths, security) = simple_policy(&root.0);
-            std::thread::sleep(
-                octocode_engine::graph::SourceStamp::SETTLE + std::time::Duration::from_millis(200),
-            );
+            octocode_engine::stamp::settle_written_so_far();
             let scope = if directory {
                 root.0.as_path()
             } else {

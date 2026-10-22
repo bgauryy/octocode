@@ -45,6 +45,8 @@ const SAME_TOOL_PAGE_KEYS = /^(next[A-Za-z]*Page|continue[A-Za-z]*|expandScan|re
 const MUTABLE = [
   [/^include(Skipped|Hidden|Archived|BuildScripts)$/, new Set(['includeIgnored', 'includeHidden', 'includeArchived', 'defaultExcludes', 'rustContext'])],
   [/^expandScan$/, new Set(['maxEntries', 'maxFiles', 'maxDepth'])],
+  // structureSearch widens a maxEntries cut through continueWalk.
+  [/^continueWalk$/, new Set(['fullContent', 'maxEntries'])],
   [/^continue[A-Za-z]*$/, new Set(['fullContent'])],
 ];
 // Enrichment and clipped-read leads add the option that widens the same read.
@@ -66,7 +68,7 @@ const KEY_TOOLS = [
   [/^viewTree$/, { tools: ['ghStructure', 'structureSearch', 'astSearch'], operations: { astSearch: 'syntaxTree' } }],
   [/^view(Refs|ReleaseSource)$/, { tools: ['ghStructure', 'structureSearch'] }],
   [/^viewRepo$/, { tools: ['ghStructure', 'ghSearchRepo'] }],
-  [/^readDiagnostics$/, { tools: ['lspSearch', 'astTopology'] }],
+  [/^readDiagnostics$/, { tools: ['lspSearch'] }],
   [/^read(Block|Hits|Declaration|Files)?$/, { tools: ['localFetch', 'ghGetFileContent', 'ghGetHistoryItem'] }],
 ];
 const BUILD_OUTPUT = /(^|\/)(dist|build|out|target|lib|coverage|\.next|node_modules)(\/|$)|\.min\.(js|css)$|\.map$/;

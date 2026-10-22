@@ -1,5 +1,5 @@
 use super::schema::validate_schema;
-use crate::contracts::{prepare_many_and_validate, tool_types};
+use crate::contracts::prepare_many_and_validate;
 use serde_json::{Value, json};
 
 #[test]
@@ -29,12 +29,19 @@ fn integral_numeric_lexemes_reach_generated_query_types() {
             .expect("JSON Schema accepts mathematically integral numbers");
         let row = rows.pop().expect("one query");
         let decoded = match tool {
-            "localFetch" => serde_json::from_value::<tool_types::LocalFetchQuery>(row).map(|_| ()),
-            "structureSearch" => {
-                serde_json::from_value::<tool_types::StructureSearchQuery>(row).map(|_| ())
+            "localFetch" => {
+                serde_json::from_value::<octocode_contract_types::LocalFetchQuery>(row).map(|_| ())
             }
-            "astSearch" => serde_json::from_value::<tool_types::AstSearchQuery>(row).map(|_| ()),
-            "lspSearch" => serde_json::from_value::<tool_types::LspSearchQuery>(row).map(|_| ()),
+            "structureSearch" => {
+                serde_json::from_value::<octocode_contract_types::StructureSearchQuery>(row)
+                    .map(|_| ())
+            }
+            "astSearch" => {
+                serde_json::from_value::<octocode_contract_types::AstSearchQuery>(row).map(|_| ())
+            }
+            "lspSearch" => {
+                serde_json::from_value::<octocode_contract_types::LspSearchQuery>(row).map(|_| ())
+            }
             _ => unreachable!(),
         };
         assert!(decoded.is_ok(), "{tool} {raw}: {decoded:?}");

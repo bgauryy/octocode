@@ -75,7 +75,7 @@ impl Scope {
     /// The scope the running code is in: the one its future runs in
     /// ([`Self::run`]), else its thread's ([`Self::enter`]).
     #[must_use]
-    pub fn current() -> Option<Self> {
+    fn current() -> Option<Self> {
         THREAD.with(|thread| thread.borrow().clone())
     }
 

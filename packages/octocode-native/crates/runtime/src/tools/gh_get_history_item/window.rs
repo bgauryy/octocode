@@ -2,6 +2,7 @@
 //! derived from public page cursors, and the page objects reported back.
 use super::inventory::max_inventory_page;
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch};
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
@@ -49,12 +50,12 @@ impl WindowState {
     };
 
     /// Page `values` loaded under this state and mark a capped scan.
-    pub(super) fn paginate(
+    pub(super) fn paginate<T>(
         self,
-        values: Vec<Value>,
+        values: Vec<T>,
         page: Option<usize>,
         page_size: Option<usize>,
-    ) -> (Vec<Value>, Value) {
+    ) -> (Vec<T>, Value) {
         let (slice, mut page) =
             paginate_window(values, self.skipped, self.exhausted, page, page_size);
         mark_capped(&mut page, self.capped);
@@ -351,13 +352,13 @@ pub(super) fn reconcile_file_totals(
 /// Page `values` (the filtered list, preceded by `skipped` items that were
 /// never loaded). An exhausted list reports exact totals and flags a page past its end;
 /// otherwise the counts cover only what was loaded.
-pub(super) fn paginate_window(
-    values: Vec<Value>,
+pub(super) fn paginate_window<T>(
+    values: Vec<T>,
     skipped: usize,
     exhausted: bool,
     page: Option<usize>,
     page_size: Option<usize>,
-) -> (Vec<Value>, Value) {
+) -> (Vec<T>, Value) {
     let per = page_size
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, max_inventory_page());
@@ -407,7 +408,7 @@ pub(super) fn lift_page_limits(row: &mut Value, page: &mut Value) {
         .pointer("/providerLimit/reason")
         .and_then(Value::as_str)
     {
-        Some(reason) => crate::tools::paging::terminal_limit(row, reason, &[]),
+        Some(reason) => crate::response::paging::terminal_limit(row, reason, &[]),
         None => row["terminalLimit"] = json!(true),
     }
 }
@@ -443,7 +444,7 @@ pub(super) const PATCH_DEFAULT_RESERVE: usize = 5_000;
 pub(super) fn auto_page(auto_page: Option<usize>) -> usize {
     auto_page
         .filter(|page| *page > 0)
-        .unwrap_or(crate::runtime::RuntimeLimits::DEFAULT.auto_page_chars)
+        .unwrap_or(crate::execution::RuntimeLimits::DEFAULT.auto_page_chars)
 }
 
 /// The default window of a `matchString` view: the page share without the
@@ -457,7 +458,7 @@ pub(super) fn literal_patch_window(auto_page_chars: Option<usize>) -> usize {
 /// The warning of a patch read whose explicit `length` was clamped to
 /// one response page; `None` when it fit.
 pub(super) fn clamp_warning(query: &HistoryItemRequest) -> Option<String> {
-    let length = query.char_length()?;
+    let length = gh_get_history_item_query::char_length(query)?;
     let window = patch_window(Some(length), query.auto_page_chars);
     (window < length).then(|| {
         format!("length {length} exceeds one response page; patch windows hold {window} chars.")

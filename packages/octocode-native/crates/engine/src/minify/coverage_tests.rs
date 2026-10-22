@@ -76,9 +76,9 @@ fn fixture(extension: &str, config: &FileTypeConfig, group: Option<&str>) -> Str
         format!(".{MARKER} {{\n  content: \"{LITERAL}\";\n}}\n")
     } else if matches!(extension, "html" | "htm" | "vue" | "svelte" | "xml" | "svg") {
         format!("<div id=\"{MARKER}\">{LITERAL}</div>\n")
-    } else if config.strategy == "json" {
+    } else if config.strategy == crate::minify::config::Strategy::Json {
         format!("{{\n  \"{MARKER}\": \"{LITERAL}\"\n}}\n")
-    } else if config.strategy == "markdown" {
+    } else if config.strategy == crate::minify::config::Strategy::Markdown {
         format!("# {MARKER}\n\n{LITERAL}\n")
     } else {
         format!("{MARKER} = \"{LITERAL}\"\n")
@@ -188,7 +188,10 @@ fn every_basename_override_preserves_recipe_indentation_and_literals() {
             name.to_uppercase(),
             format!("nested/{name}"),
         ] {
-            assert_eq!(get_file_config(&path).unwrap().strategy, "conservative");
+            assert_eq!(
+                get_file_config(&path).unwrap().strategy,
+                crate::minify::config::Strategy::Code
+            );
             let output = apply_content_view_minification_inner(source, &path);
             assert!(
                 output.contains("\techo"),

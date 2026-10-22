@@ -3,7 +3,7 @@
 //! text failed every call with a JSON parse error as the only detail.
 
 use crate::support;
-use octocode_native::tools::id::ToolId;
+use octocode_native::id::ToolId;
 use serde_json::json;
 use support::Workspace;
 

@@ -17,16 +17,16 @@ Paths beginning `crates/` are relative to `packages/octocode-native/`; other pat
 | Tool contract (generated, embedded by native build.rs) | `packages/octocode-config/contract/{tool-contract.json,provenance.json,contract-fixtures.json,tool-types.schema.json,tool_types.rs}` | Never hand-edit; `yarn contracts:regen` |
 | Field-effect claims | `crates/runtime/src/contracts/field-effect-coverage.json` + `crates/runtime/tests/contract_field_effects.rs` | Hand-maintained labels: verify against code |
 | Prepare / dispatch | `crates/runtime/src/contracts/{prepare,validate}.rs`, `crates/runtime/src/runtime/{dispatch,domain_dispatch,engine}.rs` | Defaults, normalization, routing |
-| Tool implementation | `crates/runtime/src/tools/<snake_tool>/` (`astTopology` → `crates/runtime/src/tools/ast_graph/`; `clasify` evaluates through `crates/runtime/src/tools/judgment/` and captures sources through `crates/runtime/src/tools/source_capture/`) | Business logic |
+| Tool implementation | `crates/runtime/src/tools/<snake_tool>/` (`clasify` evaluates through `crates/runtime/src/tools/judgment/` and captures sources through `crates/runtime/src/tools/source_capture/`) | Business logic |
 | Providers / API | `crates/runtime/src/providers/{github,artifact,classification}/`, `crates/runtime/src/runtime/github.rs` | Request count, auth, errors |
 | Engine primitives | `packages/octocode-native/crates/engine/` | text search, AST, LSP, minify, secrets |
 | Caching | `crates/runtime/src/runtime/github_cache.rs`, `crates/runtime/src/cache/`, `crates/runtime/src/tools/gh_clone_repo/cache.rs`, `crates/runtime/tests/tool_cache_contracts.rs` | Keys, TTL, invalidation |
-| Output shaping | `crates/runtime/src/response/{pager,rows,stage,render,continuations,channels,pages}.rs`, `crates/runtime/src/tools/result.rs` | Rows, evidence, `next.*` pages vs `hints` leads, compact CLI |
+| Output shaping | `crates/runtime/src/response/{pager,rows,stage,render,continuations,channels,pages,result}.rs` | Rows, evidence, `next.*` pages vs `hints` leads, compact CLI |
 | Security | `crates/runtime/src/security/{content,walk,scan}.rs`, `crates/runtime/src/policy/` | Redaction, path sandbox |
 | MCP registration | `packages/octocode-mcp/src/native/index.ts` (instructions), `packages/octocode-mcp/src/public.ts` | Thin forward, no logic |
 | CLI | `packages/octocode/src/cli/{native-delegate,parser,options}.ts`; native CLI `crates/cli/src/cli/`, schema in `crates/cli/src/cli/schema.rs` | Delegation, rendering, flags |
 | Config | `packages/octocode-config/config-contract.json` → `packages/octocode-config/scripts/generate-config-contract.ts` → `packages/octocode-config/src/config/contract.generated.ts`, `<repo>/docs/generated/CONFIG_SETTINGS.md`; native struct from `crates/runtime/build.rs`; runtime `crates/runtime/src/config/` | One declared knob, one resolver |
-| Docs | `<repo>/docs/OCTOCODE_TOOLS.md`, `<repo>/docs/TOOL_DATA_CONTRACT.md`, `skills-dev/octocode-dev/docs/TOOL_QUALITY.md`, `<repo>/docs/CONFIGURATION.md`, `<repo>/docs/OCTOCODE_MCP.md`, `packages/octocode/docs/OCTOCODE_CLI.md` | Match live behavior |
+| Docs | `<repo>/docs/OCTOCODE_TOOLS.md`, `<repo>/docs/TOOL_DATA_CONTRACT.md`, `skills-dev/octocode-dev/docs/TOOL_QUALITY.md`, `<repo>/docs/CONFIGURATION.md`, `<repo>/docs/OCTOCODE_MCP.md`, `<repo>/docs/OCTOCODE_CLI.md` | Match live behavior |
 
 ## Tests to read for a tool
 

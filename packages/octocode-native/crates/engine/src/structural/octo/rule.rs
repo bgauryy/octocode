@@ -18,7 +18,7 @@ use super::position::{ExactRange, Ordinal, RawOrdinal};
 
 /// A wrapped rule document. Besides `rule`, it tolerates the metadata keys
 /// of an ast-grep rule file (`id`, `language`, `severity`, …) so a pasted
-/// rule file runs as-is; none of them affects matching (`langType` selects
+/// rule file runs as-is; none of them affects matching (the query's `language` selects
 /// the grammar). Any other key, like an unsupported `constraints`/`fix`,
 /// still fails with the list of supported fields.
 #[derive(Deserialize)]

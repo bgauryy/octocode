@@ -1,4 +1,3 @@
-use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
 use grep_regex::RegexMatcherBuilder;
 
 pub struct TextPatternValidationResult {
@@ -27,13 +26,7 @@ pub fn validate_text_pattern(
     }
 
     if perl_regex {
-        let mut builder = Pcre2MatcherBuilder::new();
-        builder
-            .utf(true)
-            .ucp(true)
-            .jit_if_available(true)
-            .max_jit_stack_size(Some(crate::search::text_search::PCRE2_MAX_JIT_STACK_BYTES));
-        return match builder.build(pattern) {
+        return match crate::search::text_search::pcre2_builder().build(pattern) {
             Ok(_) => TextPatternValidationResult {
                 valid: true,
                 error: None,

@@ -1,10 +1,9 @@
 //! Provider-backed ghSearchCode tests: line resolution latency.
 use super::{GhSearchCodeQuery, execute};
 use crate::security::scan::Passthrough;
-use crate::tools::gh_shared::test_support::{
-    Delayed, MemoryCache, default_context, one_shot_provider,
-};
+use crate::tools::gh_shared::test_support::{MemoryCache, default_context, one_shot_provider};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_github::mock_http::Delayed;
 use serde_json::json;
 use std::time::Duration;
 use wiremock::matchers::{method, path};
@@ -260,7 +259,7 @@ async fn mount_owner_wide_search(server: &MockServer) {
         .await;
 }
 
-async fn run_owner_wide(server: &MockServer) -> crate::tools::result::ToolData {
+async fn run_owner_wide(server: &MockServer) -> crate::response::result::ToolData {
     let provider = one_shot_provider(server);
     let query: GhSearchCodeQuery =
         serde_json::from_value(json!({"owner":"o","keywords":["HTTPAdapter"]})).expect("query");
@@ -389,7 +388,7 @@ async fn a_repo_scoped_row_is_path_and_numbered_lines_at_one_commit() {
 /// only when there is one to drop.
 #[test]
 fn the_default_empty_hint_fits_the_query() {
-    use crate::tools::output::ToolOutput;
+    use crate::response::output::ToolOutput;
     let tools_named = |hint: &str| {
         let mut named = hint
             .split(|c: char| !c.is_ascii_alphanumeric())
@@ -428,7 +427,7 @@ fn the_default_empty_hint_fits_the_query() {
 }
 
 /// An empty code search for `row` against `a/b`: no index hit, a live repo.
-async fn run_empty(row: serde_json::Value) -> crate::tools::result::ToolData {
+async fn run_empty(row: serde_json::Value) -> crate::response::result::ToolData {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
@@ -605,38 +604,6 @@ async fn a_path_scoped_empty_says_why_it_proves_nothing() {
         "{}",
         out.data
     );
-}
-
-/// A page past the last one is out of range, not an empty search: the index
-/// holds matches (`totalItems`), so the page says so and names no absence
-/// hint, no broader search and no rename lookup.
-#[tokio::test]
-async fn a_page_past_the_end_is_out_of_range_not_an_empty_search() {
-    let server = MockServer::builder().start().await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/search/code"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"total_count":74,"incomplete_results":false,"items":[]})),
-        )
-        .mount(&server)
-        .await;
-    let provider = one_shot_provider(&server);
-    let query: GhSearchCodeQuery = serde_json::from_value(json!({
-        "owner":"a","repo":"b","keywords":["needle"],"pageSize":5,"page":99
-    }))
-    .expect("query");
-    let context = default_context();
-    let output = execute(&provider, &query, &context, &Passthrough)
-        .await
-        .expect("page past the end");
-    let page = &output.data["pagination"];
-    assert_eq!(page["outOfRange"], true, "{}", output.data);
-    assert_eq!(page["totalPages"], 15, "{}", output.data);
-    assert_eq!(page["totalItems"], 74, "{}", output.data);
-    for lead in ["hints", "next"] {
-        assert!(output.data.get(lead).is_none(), "{lead}: {}", output.data);
-    }
 }
 
 /// A single complete page whose file lists fewer hit lines than it has
@@ -952,9 +919,9 @@ async fn mount_search_page(server: &MockServer, page: usize, total: usize, names
 }
 
 async fn search_page_of(
-    provider: &octocode_github::GitHubProvider<octocode_github::NoCache>,
+    provider: &octocode_github::GitHubProvider,
     page: usize,
-) -> crate::tools::result::ToolData {
+) -> crate::response::result::ToolData {
     let query: GhSearchCodeQuery = serde_json::from_value(json!({
         "owner":"a","repo":"b","keywords":["needle"],"matchIn":"path","pageSize":2,"page":page
     }))
@@ -964,7 +931,7 @@ async fn search_page_of(
         .expect("search")
 }
 
-fn paths_of(out: &crate::tools::result::ToolData) -> Vec<String> {
+fn paths_of(out: &crate::response::result::ToolData) -> Vec<String> {
     out.data["files"]
         .as_array()
         .into_iter()
@@ -973,7 +940,7 @@ fn paths_of(out: &crate::tools::result::ToolData) -> Vec<String> {
         .collect()
 }
 
-fn warnings_of(out: &crate::tools::result::ToolData) -> &serde_json::Value {
+fn warnings_of(out: &crate::response::result::ToolData) -> &serde_json::Value {
     &out.data["warnings"]
 }
 
@@ -1119,7 +1086,7 @@ async fn empty_index_pages_keep_the_collection_when_partial_normalization_answer
                 assert_ne!(out.data["isPartial"], true, "{}", out.data);
             }
             let shaped = crate::response::rows::result_row(
-                crate::tools::id::ToolId::GhSearchCode,
+                crate::id::ToolId::GhSearchCode,
                 0,
                 &row,
                 out.data,
@@ -1180,7 +1147,7 @@ async fn a_filename_glob_is_refused_before_any_request() {
     let provider = one_shot_provider(&server);
     let context = default_context();
     async fn refused(
-        provider: &octocode_github::GitHubProvider<octocode_github::NoCache>,
+        provider: &octocode_github::GitHubProvider,
         context: &octocode_github::RequestContext,
         filename: &str,
     ) -> crate::tools::gh_shared::GhFailure {
@@ -1414,3 +1381,5 @@ async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
     let searches = server.received_requests().await.unwrap_or_default().len();
     assert_eq!(searches, 5, "4 .ts pages and one .rs page");
 }
+
+mod backed;

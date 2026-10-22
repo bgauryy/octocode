@@ -811,6 +811,11 @@ pub(super) fn read_config_text(
     security: &ContentSecurity,
     path: &Path,
 ) -> Option<String> {
+    // Most probes name a manifest that is absent: one stat answers them
+    // before the policy resolves the path.
+    if !path.is_file() {
+        return None;
+    }
     let validated = paths.validate_read(path).ok()?;
     let bytes = crate::tools::source::read_bounded(&validated.canonical, MAX_CONFIG_BYTES).ok()?;
     security

@@ -8,7 +8,8 @@ use super::recovery::{get_locations, resolve_definition_chain};
 use super::render::uri_to_path;
 use super::source::SourceCache;
 use super::walk::{Expansion, HierarchySource, HierarchyWalk, MAX_HIERARCHY_NODES, NodeKeys, Walk};
-use crate::tools::cancel::CancellationCheck;
+use crate::execution::cancel::CancellationCheck;
+use crate::tools::lsp_search::lsp_search_query;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
 use octocode_engine::lsp::types::LspCodeSnippet;
 use serde_json::{Value, json};
@@ -38,9 +39,9 @@ impl CandidateWindow {
             (&a.uri, position(a), &a.content).cmp(&(&b.uri, position(b), &b.content))
         });
         candidates.dedup_by(|a, b| a.uri == b.uri && position(a) == position(b));
-        let mut scope = query.to_row();
+        let mut scope = lsp_search_query::to_row(query);
         if let Some(fields) = scope.as_object_mut() {
-            for field in crate::tools::result::INTENT_FIELDS.iter().chain(&[
+            for field in crate::response::result::INTENT_FIELDS.iter().chain(&[
                 "page",
                 "candidatePage",
                 "snapshot",
@@ -53,13 +54,14 @@ impl CandidateWindow {
             "candidates": candidates,
         }));
         let digest = format!("lsp-candidates:{}", crate::digest::json_sha256(&identity));
-        let page = crate::tools::num::usize_of(query.candidate_page());
+        let page = crate::num::usize_of(lsp_search_query::candidate_page(query));
         let start = (page - 1).saturating_mul(MAX_HIERARCHY_NODES);
         // A window's first result page carries the candidate digest. Later
         // result pages carry a result snapshot salted with this same digest.
         if page > 1
             && (start >= candidates.len()
-                || (query.page().unwrap_or(1) == 1 && query.snapshot() != Some(digest.as_str())))
+                || (lsp_search_query::page(query).unwrap_or(1) == 1
+                    && lsp_search_query::snapshot(query) != Some(digest.as_str())))
         {
             return None;
         }
@@ -194,7 +196,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
     ) -> Result<Vec<Value>, LspFailure> {
         match self.node(path, line, character).await {
             Ok(node) => Ok(vec![node]),
-            Err(failure) if failure.code == "cancelled" => Err(failure),
+            Err(failure) if failure.is_cancelled() => Err(failure),
             Err(_) => self.definitions(path, line, character).await,
         }
     }
@@ -228,7 +230,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
                 .await
             {
                 Ok(node) => nodes.push(node),
-                Err(failure) if failure.code == "cancelled" => return Err(failure),
+                Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(_) => unresolved = true,
             }
         }
@@ -271,7 +273,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
                 .await
             {
                 Ok(node) => nodes.push(node),
-                Err(failure) if failure.code == "cancelled" => return Err(failure),
+                Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(failure) => self.fail_from(failure).await,
             }
         }
@@ -292,7 +294,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
         for base in bases {
             match self.definitions(&path, base.line, base.character).await {
                 Ok(nodes) => resolved.extend(nodes),
-                Err(failure) if failure.code == "cancelled" => return Err(failure),
+                Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(failure) => self.fail_from(failure).await,
             }
         }
@@ -344,12 +346,12 @@ impl<'a, 'p> Fallback<'a, 'p> {
             // self-type position resolves to (which declares no heritage).
             let resolved = match self.impl_node(&path, line, character).await {
                 Ok(Some(node)) => Ok(vec![node]),
-                Err(failure) if failure.code == "cancelled" => return Err(failure),
+                Err(failure) if failure.is_cancelled() => return Err(failure),
                 _ => self.resolved_nodes(&path, line, character).await,
             };
             let resolved = match resolved {
                 Ok(resolved) => resolved,
-                Err(failure) if failure.code == "cancelled" => return Err(failure),
+                Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(failure) => {
                     self.fail_from(failure).await;
                     continue;
@@ -388,7 +390,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
                         self.fail(format!("No resolved immediate heritage establishes the implementation candidate {}", candidate["name"])).await;
                     }
                 }
-                Err(failure) if failure.code == "cancelled" => return Err(failure),
+                Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(failure) => self.fail_from(failure).await,
             }
         }
@@ -483,7 +485,7 @@ mod tests {
         let first = CandidateWindow::cut(&query, candidates()).expect("first window");
         assert_eq!(first.items.len(), MAX_HIERARCHY_NODES);
         assert!(first.has_more);
-        let mut next = query.to_row();
+        let mut next = lsp_search_query::to_row(&query);
         next["candidatePage"] = json!(2);
         next["snapshot"] = json!(first.digest);
         let next: LspSearchQuery = serde_json::from_value(next).expect("next window");
@@ -504,7 +506,7 @@ mod tests {
         let mut changed = candidates();
         changed[0].content.push_str(" // changed");
         assert!(CandidateWindow::cut(&next, changed).is_none());
-        let mut missing = next.to_row();
+        let mut missing = lsp_search_query::to_row(&next);
         missing
             .as_object_mut()
             .expect("query object")

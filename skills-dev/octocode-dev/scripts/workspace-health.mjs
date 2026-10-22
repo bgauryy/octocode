@@ -31,7 +31,9 @@ const CORE_LAYERING = {
   '@octocodeai/config': [],
   '@octocodeai/octocode-native': [],
   'octocode-mcp': ['@octocodeai/config', '@octocodeai/octocode-native'],
-  octocode: ['@octocodeai/config', '@octocodeai/octocode-native'],
+  // The CLI bundles native's launcher scripts and installs only the binary
+  // of its platform (`optionalDependencies` on the per-platform packages).
+  octocode: ['@octocodeai/config'],
 };
 // Bundled into the interface's output, so it must never be a published runtime dependency.
 const BUNDLED_WORKSPACES = ['@octocodeai/config'];

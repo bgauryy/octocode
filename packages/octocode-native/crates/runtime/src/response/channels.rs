@@ -1,7 +1,7 @@
 //! Output channels for follow-up calls, classified by the core contract's
 //! `continuationChannels` (generated into
-//! [`crate::tools::id::continuation_channels`]; classified by
-//! [`crate::tools::id::channel`]):
+//! [`crate::id::continuation_channels`]; classified by
+//! [`crate::id::channel`]):
 //! - `next` keeps pages: continuations that reach unshown data of the same
 //!   result. A caller follows every one.
 //! - `hints` carries optional guidance. Internally named calls retain their
@@ -14,8 +14,8 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::tools::id::continuation_channels::{HINT_TEXT_KEY, HINTS_KEY, PAGES_KEY};
-use crate::tools::id::{Channel, ToolId, channel, continuation_channels, kind};
+use crate::id::continuation_channels::{HINT_TEXT_KEY, HINTS_KEY, PAGES_KEY};
+use crate::id::{Channel, ToolId, channel, continuation_channels, kind};
 
 /// Publish optional guidance once, after its calls have been validated and
 /// paths compacted. Required continuations remain structured in `next`.
@@ -58,7 +58,7 @@ fn publish_at(value: &mut Value, schemas: &[&Value], defs: &Value) {
                                 && value
                                     .as_array()
                                     .is_some_and(|items| items.iter().all(Value::is_string)))
-                                || crate::tools::result::is_call(value)
+                                || crate::response::result::is_call(value)
                         }),
                         _ => false,
                     };
@@ -99,12 +99,12 @@ fn collect_hints(
                 .for_each(|item| collect_hints(item, None, strings, seen));
             return;
         }
-        call @ Value::Object(_) if crate::tools::result::is_call(&call) => {
+        call @ Value::Object(_) if crate::response::result::is_call(&call) => {
             let mut identity = call.clone();
             identity["query"].sort_all_objects();
             let (Some(line), Some(identity)) = (
-                crate::tools::result::call_line(&call),
-                crate::tools::result::call_line(&identity),
+                crate::response::result::call_line(&call),
+                crate::response::result::call_line(&identity),
             ) else {
                 return;
             };
@@ -277,7 +277,7 @@ fn merge_repeats(next: &mut Map<String, Value>, tool: ToolId) {
     }
     let mut groups: Vec<Group> = Vec::new();
     for (name, call) in next.iter() {
-        if !crate::tools::id::is_remaining(tool, name) {
+        if !crate::id::is_remaining(tool, name) {
             continue;
         }
         let (Some(target), Some(rows)) = (
@@ -321,7 +321,7 @@ fn merge_repeats(next: &mut Map<String, Value>, tool: ToolId) {
         let limit = template["tool"]
             .as_str()
             .and_then(ToolId::from_name)
-            .map_or(1, crate::tools::result::rows_per_call);
+            .map_or(1, crate::response::result::rows_per_call);
         let mut at = next
             .keys()
             .position(|name| *name == group.members[0])
@@ -446,9 +446,9 @@ fn order_leads(hints: &mut Map<String, Value>) {
 #[cfg(test)]
 mod tests {
     use super::{lead_continuations, shape};
+    use crate::id::ToolId;
+    use crate::id::{Channel, channel, continuation_channels, is_remaining};
     use crate::response::render::{TextFormat, render_tool};
-    use crate::tools::id::ToolId;
-    use crate::tools::id::{Channel, channel, continuation_channels, is_remaining};
     use serde_json::{Value, json};
 
     #[test]
@@ -522,7 +522,7 @@ mod tests {
     }
 
     fn walk(value: &mut Value, tool: ToolId) {
-        if crate::tools::result::is_call(value) {
+        if crate::response::result::is_call(value) {
             return;
         }
         match value {
@@ -550,13 +550,7 @@ mod tests {
         ] {
             assert!(is_remaining(ToolId::LocalSearch, name), "{name}");
         }
-        for name in [
-            "restart",
-            "restartDiagnostics",
-            "readBody",
-            "read",
-            "nextpage",
-        ] {
+        for name in ["restart", "restartScan", "readBody", "read", "nextpage"] {
             assert!(!is_remaining(ToolId::LocalSearch, name), "{name}");
         }
         assert!(is_remaining(ToolId::Clasify, "clasify"));
@@ -1015,7 +1009,7 @@ mod tests {
         let mut object = json!({"next":{
             "ignoreCase":lead("localSearch"),
             "findFile":lead("structureSearch"),
-            "readDiagnostics":lead("lspSearch"),
+            "narrowScope":lead("localSearch"),
             "viewFileCount":lead("localSearch")
         }})
         .as_object()
@@ -1027,7 +1021,7 @@ mod tests {
             .map(|hints| hints.keys().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
         assert!(kept.contains(&"viewFileCount".to_owned()), "{kept:?}");
-        assert!(kept.contains(&"readDiagnostics".to_owned()), "{kept:?}");
+        assert!(kept.contains(&"narrowScope".to_owned()), "{kept:?}");
         assert!(!kept.contains(&"ignoreCase".to_owned()), "{kept:?}");
     }
 
@@ -1223,7 +1217,7 @@ mod tests {
                 );
                 // YAML prints each call as the one line the CLI runs.
                 let call = &row_object(&response, tool)["next"]["nextPage"];
-                let line = crate::tools::result::call_line(call).expect("call");
+                let line = crate::response::result::call_line(call).expect("call");
                 assert!(
                     format == TextFormat::Json || text.contains(&format!("nextPage: {line}\n")),
                     "{tool:?}: the call is not one line:\n{text}"

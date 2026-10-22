@@ -10,15 +10,48 @@ use super::{EvaluationInput, Judged, QuestionOutcomes};
 use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
 use octocode_github::Partition;
 use octocode_io::flight::KeyedFlight;
-use serde_json::json;
+use serde::Serialize;
+use serde_json::Value;
 use std::path::PathBuf;
 use std::time::Duration;
 
-const NAMESPACE: &str = "judgment/v3";
+const NAMESPACE: &str = "judgment/v4";
 const MAX_ENTRIES: usize = 256;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const DISK_BYTES: u64 = 64 * 1024 * 1024;
 pub(super) const TTL: Duration = Duration::from_secs(30 * 60);
+
+/// The exact provider input a saved judgment answers, borrowed: hashing it
+/// never copies the state, questions or image bytes.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Identity<'a> {
+    model: &'a str,
+    state: &'a Value,
+    questions: &'a [Value],
+    assets: Option<&'a Value>,
+    images: bool,
+    long_context: bool,
+    transport: &'static str,
+}
+
+/// Hex SHA-256 of `identity`'s compact JSON, hashed while it serializes.
+fn digest(identity: &Identity<'_>) -> String {
+    struct Hasher(sha2::Sha256);
+    impl std::io::Write for Hasher {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            sha2::Digest::update(&mut self.0, bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut hasher = Hasher(<sha2::Sha256 as sha2::Digest>::new());
+    // Borrowed JSON values and plain fields always serialize.
+    let _ = serde_json::to_writer(&mut hasher, identity);
+    hex::encode(sha2::Digest::finalize(hasher.0))
+}
 
 pub(super) struct Judgments {
     store: Store<Judged>,
@@ -45,15 +78,15 @@ impl Judgments {
         CacheKey {
             namespace: NAMESPACE.to_owned(),
             scope: partition.identity().to_owned(),
-            resource: crate::digest::json_sha256(&json!({
-                "model": model,
-                "state": input.state,
-                "questions": input.questions,
-                "assets": input.assets,
-                "images": input.images(),
-                "longContext": input.long_context,
-                "transport": "json",
-            })),
+            resource: digest(&Identity {
+                model,
+                state: input.state,
+                questions: input.questions,
+                assets: input.assets,
+                images: input.images(),
+                long_context: input.long_context,
+                transport: "json",
+            }),
         }
     }
 
@@ -79,7 +112,7 @@ impl Judgments {
 mod tests {
     use super::*;
     use secrecy::SecretString;
-    use serde_json::Value;
+    use serde_json::json;
 
     fn key(partition: &Partition, model: &str, state: &Value, questions: &[Value]) -> CacheKey {
         Judgments::key(
@@ -134,6 +167,22 @@ mod tests {
         ] {
             assert!(cache.get(&other).is_none(), "{other:?}");
         }
+    }
+
+    #[test]
+    fn the_streamed_digest_is_the_digest_of_the_serialized_identity() {
+        let state = json!({"text":"é and \"quotes\""});
+        let questions = [json!({"type":"noul","instructions":"q"})];
+        let identity = Identity {
+            model: "m",
+            state: &state,
+            questions: &questions,
+            assets: None,
+            images: false,
+            long_context: true,
+            transport: "json",
+        };
+        assert_eq!(digest(&identity), crate::digest::json_sha256(&identity));
     }
 
     #[test]

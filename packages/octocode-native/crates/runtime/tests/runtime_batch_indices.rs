@@ -103,3 +103,66 @@ async fn a_rejected_row_keeps_later_row_indices_on_the_next_page() {
     }
     runtime.close().await;
 }
+
+/// A rejected row is published like every other row whether or not its
+/// batch pages: its hints are the contract's strings (never the internal
+/// call map), and page 1 with the rejected row passes the output contract.
+#[tokio::test]
+async fn a_rejected_row_on_a_paged_batch_is_published_and_validated() {
+    let workspace = Workspace::new();
+    let body = (0..400)
+        .map(|line| format!("line {line} of the batch fixture\n"))
+        .collect::<String>();
+    let a = workspace.write("a.txt", &body);
+    let c = workspace.write("c.txt", &body);
+    let runtime = workspace.runtime(&[]);
+    let row = |path: &std::path::Path, extra: Value| {
+        let mut row = json!({"path": path, "mainGoal": "Rejected row publishing."});
+        for (key, value) in extra.as_object().into_iter().flatten() {
+            row[key] = value.clone();
+        }
+        row
+    };
+    let window = json!({"offset":0,"length":20_000,"unit":"bytes"});
+    for (scope, length) in [(None, None), (None, Some(6000)), (Some("rows"), Some(6000))] {
+        let mut input = json!({"queries":[
+            row(&a, window.clone()),
+            row(&a, json!({"bogusField":1})),
+            row(&c, window.clone())
+        ]});
+        if let Some(length) = length {
+            input["responseLength"] = json!(length);
+        }
+        if let Some(scope) = scope {
+            input["responseScope"] = json!(scope);
+        }
+        let outcome = runtime
+            .run("r7-publish".into(), "localFetch".into(), input)
+            .await
+            .unwrap();
+        let page = &outcome.structured_content;
+        let label = format!("scope {scope:?}, length {length:?}");
+        if length.is_some() {
+            assert_eq!(
+                page["responsePagination"]["hasMore"], true,
+                "{label}: the fixture pages: {page}"
+            );
+        }
+        let rejected = page["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["index"] == 1)
+            .unwrap_or_else(|| panic!("{label}: the rejected row rides page 1: {page}"));
+        let hints = rejected["data"]["hints"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{label}: published string hints: {rejected}"));
+        assert!(
+            !hints.is_empty() && hints.iter().all(Value::is_string),
+            "{label}: {rejected}"
+        );
+        octocode_native::contracts::validate_output("localFetch", page)
+            .unwrap_or_else(|error| panic!("{label}: page 1 output contract: {error:?}\n{page}"));
+    }
+    runtime.close().await;
+}

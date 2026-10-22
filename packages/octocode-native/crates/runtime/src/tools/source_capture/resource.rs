@@ -1,5 +1,5 @@
 //! Complete authorized text for source-coordinate planning, before redaction.
-use super::{ClassificationError, DomainDispatcher, ExecutionContext, ToolId, failure};
+use super::{ClassificationError, ExecutionContext, SourceReader, ToolId, failure};
 use serde_json::{Value, json};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -8,13 +8,13 @@ pub(crate) struct TextResource {
     pub text: String,
     pub path: PathBuf,
     pub metadata: Value,
-    pub local_check: Option<Value>,
+    pub(crate) local_check: Option<Value>,
 }
 
 /// Identity of complete acquisition, independent of each resource's ranges.
 pub(crate) fn acquisition_key(
     source: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
 ) -> Result<String, ClassificationError> {
     if let Some(url) = source["url"].as_str() {
         return Ok(format!("url:{url}"));
@@ -33,7 +33,7 @@ pub(crate) fn acquisition_key(
     if tool == ToolId::LocalFetch {
         let path = query["path"].as_str().unwrap_or_default();
         let validated = dispatcher
-            .paths
+            .paths()
             .validate_read(std::path::Path::new(path))
             .map_err(|_| {
                 failure(
@@ -66,16 +66,12 @@ pub(crate) fn selection_metadata(captured: &TextResource, source: &Value) -> Val
 
 pub(crate) fn capture(
     source: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<TextResource, ClassificationError> {
     if let Some(url) = source["url"].as_str() {
-        let captured = super::url::capture(
-            url,
-            dispatcher,
-            context,
-            DomainDispatcher::text_capture_limit(),
-        )?;
+        let captured =
+            super::url::capture(url, dispatcher, context, dispatcher.text_capture_limit())?;
         let text = captured.state["text"]
             .as_str()
             .unwrap_or_default()
@@ -99,7 +95,7 @@ pub(crate) fn capture(
                 "Use localFetch, ghGetFileContent, or url.",
             )
         })?;
-    if !dispatcher.availability.is_available(tool.as_str()) {
+    if !dispatcher.availability().is_available(tool.as_str()) {
         return Err(failure(
             "classificationContextUnavailable",
             "The resource reader is disabled in this runtime.",
@@ -117,7 +113,7 @@ pub(crate) fn capture(
             let captured = dispatcher.capture_github_content(
                 &query,
                 context,
-                DomainDispatcher::text_capture_limit(),
+                dispatcher.text_capture_limit(),
             )?;
             if captured.bytes.contains(&0)
                 || octocode_engine::text::sniff(&captured.bytes)
@@ -162,7 +158,7 @@ pub(crate) fn capture(
 
 pub(crate) fn validate_local(
     source: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<(), ClassificationError> {
     let query = super::prepare_source(ToolId::LocalFetch, &source["query"], dispatcher)?;
@@ -307,7 +303,7 @@ mod tests {
 
     #[test]
     fn selection_metadata_records_the_source_and_a_read_of_the_same_snapshot() {
-        let snapshot = crate::digest::sha256(b"a.rs contents");
+        let snapshot = octocode_engine::digest::sha256(b"a.rs contents");
         let captured = TextResource {
             text: String::new(),
             path: PathBuf::from("a.rs"),

@@ -9,7 +9,7 @@ use super::cancellable;
 use super::failure::{LspFailure, RequestFailures};
 use super::render::uri_to_path;
 use super::source::SourceCache;
-use crate::tools::cancel::CancellationCheck;
+use crate::execution::cancel::CancellationCheck;
 use octocode_engine::lsp::client::{
     LocationRequest, NativeLspClient, SNIPPET_CONTENT_WITHHELD, SnippetReadPolicy,
 };
@@ -131,7 +131,7 @@ pub(super) fn one_spelling(snippets: Vec<LspCodeSnippet>) -> (Vec<LspCodeSnippet
 /// hierarchy walk's node keys do. A path that cannot be canonicalized (gone,
 /// or not local) falls back to its decoded form.
 pub(super) fn snippet_identity(snippet: &LspCodeSnippet) -> String {
-    let path = super::scope::canonical(&uri_to_path(&snippet.uri));
+    let path = super::scope::canonical_uri(&snippet.uri);
     format!(
         "{}:{}:{}:{}:{}",
         path,
@@ -200,7 +200,7 @@ pub(super) async fn resolve_definition_chain(
             .await?
             {
                 let failure = LspFailure::from_engine(&error);
-                if failure.code == "cancelled" {
+                if failure.is_cancelled() {
                     return Err(failure);
                 }
                 warnings.push(hop_failure_warning(&snippet, depth, &failure));
@@ -232,7 +232,7 @@ pub(super) async fn resolve_definition_chain(
             }
             let nested = match nested {
                 Ok(nested) => nested,
-                Err(failure) if failure.code == "cancelled" => return Err(failure),
+                Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(failure) => {
                     warnings.push(hop_failure_warning(&snippet, depth, &failure));
                     next.push(snippet);

@@ -11,9 +11,7 @@ fn sources(root: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn settle() {
-    std::thread::sleep(
-        octocode_engine::graph::SourceStamp::SETTLE + std::time::Duration::from_millis(200),
-    );
+    octocode_engine::stamp::settle_written_so_far();
 }
 
 fn query(scope: &std::path::Path, include_ignored: bool) -> Value {

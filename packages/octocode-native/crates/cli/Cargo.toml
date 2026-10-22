@@ -23,7 +23,7 @@ octocode-io = { path = "../io" }
 octocode-native = { path = "../runtime" }
 octocode-engine = { path = "../engine" }
 octocode-github = { path = "../github" }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "string"] }
 serde_json = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }

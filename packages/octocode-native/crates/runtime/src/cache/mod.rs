@@ -8,6 +8,7 @@ use octocode_io::memo::{Memo, MemoLimits};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -82,16 +83,37 @@ pub struct Cached<V> {
     pub fresh: bool,
 }
 
-/// [`Memo`] (memory) plus [`Disk`] (optional, across processes).
-pub struct Store<V> {
+/// How a store lays its values out on disk, after the entry header.
+pub trait DiskCodec<V> {
+    fn encode(value: &V) -> Option<Vec<u8>>;
+    fn decode(bytes: &[u8]) -> Option<V>;
+}
+
+/// A value as JSON: the layout of every store whose values are not bytes.
+pub struct JsonCodec;
+
+impl<V: Serialize + DeserializeOwned> DiskCodec<V> for JsonCodec {
+    fn encode(value: &V) -> Option<Vec<u8>> {
+        serde_json::to_vec(value).ok()
+    }
+
+    fn decode(bytes: &[u8]) -> Option<V> {
+        serde_json::from_slice(bytes).ok()
+    }
+}
+
+/// [`Memo`] (memory) plus [`Disk`] (optional, across processes); `C` lays
+/// values out on disk.
+pub struct Store<V, C = JsonCodec> {
     config: CacheConfig,
     memory: Memo<CacheKey, V, CacheClass>,
     disk: Option<Disk>,
+    codec: PhantomData<C>,
 }
 
-impl<V: Serialize + DeserializeOwned> Store<V> {
+impl<V, C: DiskCodec<V>> Store<V, C> {
     /// `disk: None` keeps the store in this process only.
-    pub fn new(config: CacheConfig, disk: Option<PathBuf>) -> Self {
+    pub(crate) fn new(config: CacheConfig, disk: Option<PathBuf>) -> Self {
         Self {
             disk: disk.map(Disk::new),
             memory: Memo::new(MemoLimits {
@@ -100,10 +122,11 @@ impl<V: Serialize + DeserializeOwned> Store<V> {
                 keep_newest: false,
             }),
             config,
+            codec: PhantomData,
         }
     }
 
-    pub fn get(&self, key: &CacheKey) -> Option<Cached<V>> {
+    pub(crate) fn get(&self, key: &CacheKey) -> Option<Cached<V>> {
         if let Some(hit) = self.memory.get(key) {
             // The memo already dropped an expired `Volatile` entry.
             if let Some(fresh) = hit.meta.freshness(hit.age) {
@@ -129,7 +152,7 @@ impl<V: Serialize + DeserializeOwned> Store<V> {
     }
 
     fn read_disk(&self, key: &CacheKey) -> Option<Cached<V>> {
-        let (value, class, age, bytes) = self.disk.as_ref()?.read::<V>(key, &self.config)?;
+        let (value, class, age, bytes) = self.disk.as_ref()?.read::<V, C>(key, &self.config)?;
         let fresh = class.freshness(age)?;
         let now = Instant::now();
         let stored_at = now.checked_sub(age).unwrap_or(now);
@@ -142,13 +165,13 @@ impl<V: Serialize + DeserializeOwned> Store<V> {
     /// Store `value` (about `bytes` large) in memory and, when configured, on
     /// disk. An entry larger than the memory budget is not stored at all.
     /// The stored value is returned, shared with the entry.
-    pub fn put(&self, key: CacheKey, value: V, bytes: usize, class: CacheClass) -> Arc<V> {
+    pub(crate) fn put(&self, key: CacheKey, value: V, bytes: usize, class: CacheClass) -> Arc<V> {
         self.put_confirmed(key, value, bytes, class).0
     }
 
     /// Whether the value was retained in every configured tier. A result
     /// continuation must check this before advertising saved pages.
-    pub fn put_confirmed(
+    pub(crate) fn put_confirmed(
         &self,
         key: CacheKey,
         value: V,
@@ -161,7 +184,7 @@ impl<V: Serialize + DeserializeOwned> Store<V> {
         let saved = self
             .disk
             .as_ref()
-            .is_none_or(|disk| disk.write(&key, &value, class, &self.config));
+            .is_none_or(|disk| disk.write::<V, C>(&key, &value, class, &self.config));
         let value = self
             .memory
             .insert_full(key, value, class, bytes, class.ttl(), Instant::now());
@@ -169,14 +192,14 @@ impl<V: Serialize + DeserializeOwned> Store<V> {
     }
 
     /// Drop `key` from both tiers.
-    pub fn remove(&self, key: &CacheKey) {
+    pub(crate) fn remove(&self, key: &CacheKey) {
         self.memory.remove(key);
         if let Some(disk) = &self.disk {
             let _ = fs::remove_file(disk.file(key));
         }
     }
 
-    pub fn clear_memory(&self) {
+    pub(crate) fn clear_memory(&self) {
         self.memory.clear();
     }
 }
@@ -188,20 +211,27 @@ const PRUNE_EVERY_WRITES: usize = 64;
 const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
 const PRUNE_MARKER: &str = ".last-prune";
 
-#[derive(Serialize)]
+/// The extension of an entry file. Entries of the retired JSON-envelope
+/// layout (`.json`, value base64 inside JSON) are removed by the next prune.
+const ENTRY_EXTENSION: &str = "entry";
+const RETIRED_EXTENSION: &str = "json";
+
+/// The first line of an entry file: how the entry ages. The codec's value
+/// bytes follow the newline as they are, so a body is never re-encoded.
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DiskEntryRef<'a, V> {
+struct DiskHeader {
     class: CacheClass,
     stored_at_unix: u64,
-    value: &'a V,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DiskEntry<V> {
-    class: CacheClass,
-    stored_at_unix: u64,
-    value: V,
+impl DiskHeader {
+    /// The header line and the value bytes of an entry file.
+    fn split(bytes: &[u8]) -> Option<(Self, &[u8])> {
+        let end = bytes.iter().position(|byte| *byte == b'\n')?;
+        let header = serde_json::from_slice(&bytes[..end]).ok()?;
+        Some((header, &bytes[end + 1..]))
+    }
 }
 
 /// Age past which a `.tmp` file in the store is a crash leftover; a live
@@ -223,20 +253,13 @@ fn entry_is_invalid(error: &std::io::Error) -> bool {
     false
 }
 
-/// How much of an entry file [`expired`] reads: its class and store time
-/// lead the file ([`DiskEntryRef`] writes `value` last).
+/// How much of an entry file [`expired`] reads: its header line.
 const HEADER_BYTES: usize = 512;
 
 /// Whether the entry file at `path` is past its class's lifetime, read from
-/// its leading `class` and `storedAtUnix` fields alone, never its value. A
-/// file whose header does not parse is not judged here (its read evicts it).
+/// its header line alone, never its value. A file whose header does not
+/// parse is not judged here (its read evicts it).
 fn expired(path: &std::path::Path, now: u64) -> bool {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Header {
-        class: CacheClass,
-        stored_at_unix: u64,
-    }
     let Ok(file) = crate::private_file::open_no_follow(path, false) else {
         return false;
     };
@@ -249,15 +272,7 @@ fn expired(path: &std::path::Path, now: u64) -> bool {
     {
         return false;
     }
-    let Some(end) = head
-        .windows(b",\"value\":".len())
-        .position(|window| window == b",\"value\":")
-    else {
-        return false;
-    };
-    let mut header = head[..end].to_vec();
-    header.push(b'}');
-    serde_json::from_slice::<Header>(&header).is_ok_and(|header| {
+    DiskHeader::split(&head).is_some_and(|(header, _)| {
         let age = Duration::from_secs(now.saturating_sub(header.stored_at_unix));
         header.class.freshness(age).is_none()
     })
@@ -289,16 +304,19 @@ impl Disk {
         // Domain separation: files of an older layout are never read.
         // v2: bodies are base64 only (the number-array form was retired).
         // v3: one opaque scope replaced the endpoint/credential pair.
-        digest.update(b"octocode-cache-store-v3");
+        // v4: a header line, then the codec's value bytes (no JSON envelope).
+        digest.update(b"octocode-cache-store-v4");
         for value in [&key.namespace, &key.scope, &key.resource] {
             digest.update((value.len() as u64).to_le_bytes());
             digest.update(value.as_bytes());
         }
-        self.dir
-            .join(format!("{}.json", hex::encode(digest.finalize())))
+        self.dir.join(format!(
+            "{}.{ENTRY_EXTENSION}",
+            hex::encode(digest.finalize())
+        ))
     }
 
-    fn read<V: DeserializeOwned>(
+    fn read<V, C: DiskCodec<V>>(
         &self,
         key: &CacheKey,
         config: &CacheConfig,
@@ -319,12 +337,14 @@ impl Disk {
                 return None;
             }
         };
-        let Ok(entry) = serde_json::from_slice::<DiskEntry<V>>(&bytes) else {
+        let Some((header, value)) =
+            DiskHeader::split(&bytes).and_then(|(header, value)| Some((header, C::decode(value)?)))
+        else {
             let _ = fs::remove_file(&path);
             return None;
         };
-        let age = Duration::from_secs(now_unix().saturating_sub(entry.stored_at_unix));
-        if entry.class.freshness(age).is_none() {
+        let age = Duration::from_secs(now_unix().saturating_sub(header.stored_at_unix));
+        if header.class.freshness(age).is_none() {
             let _ = fs::remove_file(&path);
             return None;
         }
@@ -336,10 +356,10 @@ impl Disk {
         {
             let _ = writer.set_modified(now);
         }
-        Some((entry.value, entry.class, age, bytes.len()))
+        Some((value, header.class, age, bytes.len()))
     }
 
-    fn write<V: Serialize>(
+    fn write<V, C: DiskCodec<V>>(
         &self,
         key: &CacheKey,
         value: &V,
@@ -347,14 +367,15 @@ impl Disk {
         config: &CacheConfig,
     ) -> bool {
         let path = self.file(key);
-        let entry = DiskEntryRef {
+        let header = DiskHeader {
             class,
             stored_at_unix: now_unix(),
-            value,
         };
-        let Ok(bytes) = serde_json::to_vec(&entry) else {
+        let (Ok(mut bytes), Some(value)) = (serde_json::to_vec(&header), C::encode(value)) else {
             return false;
         };
+        bytes.push(b'\n');
+        bytes.extend_from_slice(&value);
         if bytes.len() > config.max_bytes {
             return false;
         }
@@ -407,11 +428,16 @@ impl Disk {
                 match path.extension().and_then(|ext| ext.to_str()) {
                     // An entry past its `Volatile` TTL is dead weight a read
                     // would delete anyway: it goes before any live one.
-                    Some("json") if expired(&path, unix_now) => {
+                    Some(ENTRY_EXTENSION) if expired(&path, unix_now) => {
                         let _ = fs::remove_file(&path);
                         None
                     }
-                    Some("json") => Some((modified, meta.len(), path)),
+                    Some(ENTRY_EXTENSION) => Some((modified, meta.len(), path)),
+                    // No reader understands the retired layout any more.
+                    Some(RETIRED_EXTENSION) => {
+                        let _ = fs::remove_file(&path);
+                        None
+                    }
                     // A temp file older than any write could take is a crash
                     // leftover from between the temp write and the rename.
                     Some("tmp") => {
@@ -510,7 +536,7 @@ mod json_size_policy_tests {
         let invalid = std::collections::BTreeMap::from([((1, 2), "value".to_owned())]);
         let weight = octocode_engine::json_size::bytes(&invalid).unwrap_or(usize::MAX);
         assert_eq!(weight, usize::MAX);
-        let store = super::Store::new(super::CacheConfig::default(), None);
+        let store = super::Store::<_>::new(super::CacheConfig::default(), None);
         let key = super::CacheKey {
             namespace: "test".into(),
             scope: "test".into(),

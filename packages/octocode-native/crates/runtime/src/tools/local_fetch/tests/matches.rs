@@ -1,37 +1,12 @@
 use super::*;
 
 fn selection_runtime(handle: tokio::runtime::Handle) -> crate::tools::selection::Runtime {
-    use crate::tools::selection::{Decision, JudgeCall, SelectionJudge};
-    struct AllEvidence;
-    impl SelectionJudge for AllEvidence {
-        fn identity(&self) -> serde_json::Value {
-            serde_json::json!({"test":"all-evidence"})
-        }
-        fn select(&self, call: JudgeCall<'_>) -> crate::tools::selection::Judgments {
-            Ok(call
-                .admitted
-                .iter()
-                .map(|&ordinal| (ordinal, Decision::Selected))
-                .collect())
-        }
-    }
-    crate::tools::selection::Runtime {
-        limits: crate::runtime::SelectionLimits {
-            max_candidates: 64,
-            max_chars: 131_072,
-            timeout: std::time::Duration::from_secs(5),
-        },
-        available: true,
-        judge: std::sync::Arc::new(AllEvidence),
+    use crate::tools::test_support::selection_fake;
+    selection_fake::runtime(
+        selection_fake::SelectAll,
         handle,
-        context: crate::runtime::ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
-            walk_threads: None,
-            response_window: None,
-            github_credential: None,
-        },
-    }
+        std::time::Duration::from_secs(5),
+    )
 }
 
 /// `a.txt` of `lines` numbered lines where each line in `hits` reads
@@ -43,7 +18,7 @@ fn hit_lines(t: &Fixture, lines: usize, hits: &[usize]) -> (Paths, LocalFetchQue
     });
     fs::write(&p, text).expect("test fixture operation should succeed");
     let mut req = q(&p);
-    req.match_string = Some("hit".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("hit".parse().expect("match string")));
     req.context_lines = Some(1);
     (Paths(t.0.clone()), req)
 }
@@ -63,20 +38,12 @@ fn context_read_replays_selected_plan_and_rejects_source_drift() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = selection_runtime(executor.handle().clone());
     let read = |query: &LocalFetchQuery| {
-        execute_local_fetch(
-            query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            &LocalFetchRegex,
-            None,
-            Some(&runtime),
-        )
+        execute_local_fetch(query, &paths, &Safe, &NeverCancel, None, Some(&runtime))
     };
     let first = read(&query);
     assert_eq!(
         first.selection.as_ref().map(|r| r.status),
-        Some(crate::contracts::tool_types::SelectionStatus::Complete)
+        Some(octocode_contract_types::SelectionStatus::Complete)
     );
     let continued = first
         .next
@@ -116,7 +83,7 @@ fn context_read_with_no_matches_reports_empty_selection_scope() {
     let path = temp.0.join("empty-selection.txt");
     fs::write(&path, "ordinary text\n").expect("fixture");
     let mut query = q(&path);
-    query.match_string = Some("missing".parse().expect("match"));
+    query.match_string = Some(MatchString::String("missing".parse().expect("match")));
     query.clasify_context = Some(
         serde_json::from_value(serde_json::json!({"classifiers":["find missing evidence"]}))
             .expect("context"),
@@ -128,14 +95,13 @@ fn context_read_with_no_matches_reports_empty_selection_scope() {
         &Paths(temp.0.clone()),
         &Safe,
         &NeverCancel,
-        &LocalFetchRegex,
         None,
         Some(&runtime),
     );
     let receipt = result.selection.expect("receipt");
     assert_eq!(
         receipt.status,
-        crate::contracts::tool_types::SelectionStatus::Complete
+        octocode_contract_types::SelectionStatus::Complete
     );
     assert_eq!(receipt.selected_items, 0);
     assert_eq!(receipt.total_items, 0);
@@ -164,15 +130,7 @@ fn a_refused_classified_read_keeps_its_window_in_the_unfiltered_lead() {
             )
             .expect("context"),
         );
-        let row = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            &LocalFetchRegex,
-            None,
-            None,
-        );
+        let row = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
         assert_eq!(
             row.error_code.as_deref(),
             Some("invalidInput"),
@@ -206,15 +164,7 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
         serde_json::from_value(serde_json::json!({"classifiers":["Does this explain ownership?"]}))
             .expect("context"),
     );
-    let first = execute_local_fetch(
-        &query,
-        &paths,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        None,
-        None,
-    );
+    let first = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
     assert!(first.content.as_deref().unwrap_or_default().is_empty());
     let captured = first.source_sha256.expect("captured source identity");
     let recovery = first
@@ -225,27 +175,11 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
         .query;
     assert!(recovery.clasify_context.is_none());
     assert!(recovery.selection.is_none());
-    let recovered = execute_local_fetch(
-        &recovery,
-        &paths,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        None,
-        None,
-    );
+    let recovered = execute_local_fetch(&recovery, &paths, &Safe, &NeverCancel, None, None);
     assert_eq!(recovered.error_code, None);
     assert_eq!(recovered.content.as_deref(), Some("original evidence\n"));
     fs::write(&path, "changed evidence\n").expect("change source");
-    let changed = execute_local_fetch(
-        &recovery,
-        &paths,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        None,
-        None,
-    );
+    let changed = execute_local_fetch(&recovery, &paths, &Safe, &NeverCancel, None, None);
     assert_eq!(changed.error_code.as_deref(), Some("staleSnapshot"));
     assert_eq!(
         recovery.snapshot.as_ref().map(|value| value.as_str()),
@@ -272,15 +206,7 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let mut runtime = selection_runtime(executor.handle().clone());
     runtime.limits.max_candidates = 1;
-    let first = execute_local_fetch(
-        &query,
-        &paths,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        None,
-        Some(&runtime),
-    );
+    let first = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, Some(&runtime));
     let receipt = first.selection.expect("selection receipt");
     assert_eq!((receipt.selected_items, receipt.unknown_items), (1, 2));
     let captured = first.source_sha256.expect("captured source");
@@ -355,7 +281,7 @@ fn unread_block_and_whole_line_recovery_reject_source_drift() {
         let next = serde_json::to_value(first.next.expect("unread evidence")).expect("next");
         let recovery: LocalFetchQuery =
             serde_json::from_value(next[kind]["query"]["queries"][0].clone()).expect("recovery");
-        let captured = crate::digest::sha256(original.as_bytes());
+        let captured = octocode_engine::digest::sha256(original.as_bytes());
         assert_eq!(
             recovery.snapshot.as_ref().map(|snapshot| snapshot.as_str()),
             Some(captured.as_str()),
@@ -382,8 +308,8 @@ fn unread_block_and_whole_line_recovery_reject_source_drift() {
 fn selection_provider_sees_workspace_relative_path_and_complete_evidence() {
     use crate::tools::selection::{Decision, JudgeCall, SelectionJudge};
     use serde_json::Value;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+
+    use std::time::Duration;
 
     struct PathJudge;
     impl SelectionJudge for PathJudge {
@@ -418,37 +344,17 @@ fn selection_provider_sees_workspace_relative_path_and_complete_evidence() {
     fs::write(&file, &source).expect("fixture");
     let policy = workspace_policy(&t.0);
     let executor = tokio::runtime::Runtime::new().expect("runtime");
-    let selection = crate::tools::selection::Runtime {
-        limits: crate::runtime::SelectionLimits {
-            max_candidates: 64,
-            max_chars: 131_072,
-            timeout: Duration::from_secs(2),
-        },
-        available: true,
-        judge: Arc::new(PathJudge),
-        handle: executor.handle().clone(),
-        context: crate::runtime::ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: Instant::now() + Duration::from_secs(2),
-            walk_threads: None,
-            response_window: None,
-            github_credential: None,
-        },
-    };
+    let selection = crate::tools::test_support::selection_fake::runtime(
+        PathJudge,
+        executor.handle().clone(),
+        Duration::from_secs(2),
+    );
     let mut query = q(&file);
     query.clasify_context = Some(
         serde_json::from_value(serde_json::json!({"classifiers":["find evidence"]}))
             .expect("context"),
     );
-    let result = execute_local_fetch(
-        &query,
-        &policy,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        None,
-        Some(&selection),
-    );
+    let result = execute_local_fetch(&query, &policy, &Safe, &NeverCancel, None, Some(&selection));
     assert_eq!(result.error_code, None);
     assert_eq!(result.content.as_deref(), Some(source.as_str()));
 }
@@ -464,7 +370,7 @@ fn exact_line_and_continuation_union() {
     let mut joined = String::new();
     loop {
         let r = fetch(&req, &paths);
-        assert_eq!(r.status, "success");
+        assert_eq!(r.status, ReadStatus::Success);
         joined.push_str(
             r.content
                 .as_deref()
@@ -485,8 +391,10 @@ fn regex_line_anchors_match_every_line() {
         .expect("test fixture operation should succeed");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some("^version.*\"$".parse().expect("match string"));
-    req.regex = Some(crate::contracts::tool_types::ReadRegex::Rust);
+    req.match_string = Some(MatchString::String(
+        "^version.*\"$".parse().expect("match string"),
+    ));
+    req.regex = Some(octocode_contract_types::ReadRegex::Rust);
     req.context_lines = Some(0);
     let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
     assert_eq!(wire["matchedLines"], serde_json::json!([2, 4]));
@@ -499,7 +407,7 @@ fn wire_form_omits_metadata_derivable_from_emitted_fields() {
         .expect("test fixture operation should succeed");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some("needle".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("needle".parse().expect("match string")));
     req.context_lines = Some(1);
     let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
     assert_eq!(wire["content"], "one\nneedle\nthree\n");
@@ -524,7 +432,7 @@ fn wire_form_omits_metadata_derivable_from_emitted_fields() {
     }
     // Explanation counters are built for every read; the contract classes
     // them `stats` extras, so a response shows them only under `extras:["stats"]`.
-    let verbose = crate::response::extras::all_paths(crate::tools::id::ToolId::LocalFetch);
+    let verbose = crate::response::extras::all_paths(crate::id::ToolId::LocalFetch);
     for counter in [
         "modified",
         "sourceChars",
@@ -598,7 +506,7 @@ fn omission_marker_survives_redaction() {
     .expect("test fixture operation should succeed");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some("hit".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("hit".parse().expect("match string")));
     req.context_lines = Some(0);
     let r = fetch(&req, &paths);
     assert_eq!(
@@ -656,7 +564,7 @@ fn matches_on_minified_lines_default_to_byte_windows() {
     fs::write(&p, &source).expect("fixture");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some("needle".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("needle".parse().expect("match string")));
     let r = fetch(&req, &paths);
     let content = r.content.expect("content");
     assert_eq!(content.matches("needle").count(), 3, "{content:?}");
@@ -716,7 +624,7 @@ fn an_explicit_context_on_a_minified_line_still_windows_the_hit() {
     fs::write(&p, format!("{filler}needle{filler}\nshort line\n")).expect("fixture");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some("needle".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("needle".parse().expect("match string")));
     for context in [1, 5] {
         req.context_lines = Some(context);
         let r = fetch(&req, &paths);
@@ -750,7 +658,7 @@ fn missing_files_in_a_sparse_checkout_say_so() {
         ..Default::default()
     })
     .expect("policy");
-    let mut req = LocalFetchQuery::test_default();
+    let mut req = test_local_fetch_query();
     req.path = "clone/docs/guide.md".parse().expect("path");
     let r = fetch(&req, &policy);
     assert!(r.resource_missing, "{r:?}");
@@ -784,7 +692,7 @@ fn redacted_chunk_and_range_reads_keep_their_source_anchor() {
     chunk.offset = Some(wire_count(10));
     chunk.length = wire_positive(5);
     let mut range = q(&p);
-    range.set_line_span(11, 13);
+    local_fetch_query::set_line_span(&mut range, 11, 13);
     for (req, expected) in [(chunk, (11, 15)), (range, (11, 13))] {
         let r = fetch(&req, &paths);
         assert!(
@@ -830,8 +738,8 @@ fn multiline_matches_preserve_every_matched_source_line() {
     let paths = Paths(t.0.clone());
     for (pattern, is_regex) in [("first\nsecond", false), (r"first\nsecond", true)] {
         let mut req = q(&p);
-        req.match_string = Some(pattern.parse().expect("match string"));
-        req.regex = is_regex.then_some(crate::contracts::tool_types::ReadRegex::Rust);
+        req.match_string = Some(MatchString::String(pattern.parse().expect("match string")));
+        req.regex = is_regex.then_some(octocode_contract_types::ReadRegex::Rust);
         req.context_lines = Some(0);
         let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
         assert_eq!(wire["content"], "first\nsecond\n", "{pattern:?}: {wire}");
@@ -847,7 +755,7 @@ fn multiline_matches_preserve_every_matched_source_line() {
 /// lowercase pattern ignores case, an uppercase letter makes it exact.
 #[test]
 fn match_case_defaults_to_smart_case() {
-    use crate::contracts::tool_types::ReadCaseMode;
+    use octocode_contract_types::ReadCaseMode;
     let t = Fixture::new();
     let p = t.0.join("a.py");
     fs::write(&p, "MERGE_SETTINGS = 1\nmerge_settings()\nMerge_Settings\n").expect("fixture");
@@ -867,7 +775,7 @@ fn match_case_defaults_to_smart_case() {
         ),
     ] {
         let mut req = q(&p);
-        req.match_string = Some(pattern.parse().expect("match string"));
+        req.match_string = Some(MatchString::String(pattern.parse().expect("match string")));
         req.case_mode = mode;
         req.context_lines = Some(0);
         let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
@@ -880,14 +788,14 @@ fn match_case_defaults_to_smart_case() {
 /// source line it touches.
 #[test]
 fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
-    use crate::contracts::tool_types::ReadRegex;
+    use octocode_contract_types::ReadRegex;
     let t = Fixture::new();
     let p = t.0.join("a.rs");
     fs::write(&p, "before\nfn alpha() {\n  beta(); beta();\n}\nafter\n").expect("fixture");
     let paths = Paths(t.0.clone());
     let read = |pattern: &str| {
         let mut req = q(&p);
-        req.match_string = Some(pattern.parse().expect("match string"));
+        req.match_string = Some(MatchString::String(pattern.parse().expect("match string")));
         req.regex = Some(ReadRegex::Pcre2);
         req.context_lines = Some(0);
         serde_json::to_value(fetch(&req, &paths)).expect("serializable")
@@ -909,7 +817,7 @@ fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
         (ReadRegex::Rust, r"alpha\(\) \{\n\s+beta"),
     ] {
         let mut req = q(&p);
-        req.match_string = Some(pattern.parse().expect("match string"));
+        req.match_string = Some(MatchString::String(pattern.parse().expect("match string")));
         req.regex = Some(engine);
         req.context_lines = Some(0);
         let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
@@ -994,7 +902,7 @@ fn a_partial_match_names_the_redacted_lines_it_could_not_see() {
     fs::write(&p, "CRE one\nvalue SECRET\nlast\n").expect("fixture");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some("CRE".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("CRE".parse().expect("match string")));
     req.context_lines = Some(0);
     let r = fetch(&req, &paths);
     assert_eq!(r.content.as_deref(), Some("CRE one\n"));
@@ -1029,7 +937,7 @@ fn redacted_context_lines_are_not_counted_outside_the_result() {
             .collect::<Vec<_>>()
     };
     let mut req = q(&p);
-    req.match_string = Some("CRE".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("CRE".parse().expect("match string")));
     // Line 2 is context of the first hit; line 13 lies outside the result.
     req.context_lines = Some(1);
     let first = fetch(&req, &paths);
@@ -1068,7 +976,7 @@ fn ranges_matches_redaction_and_binary() {
     fs::write(&p, "zero\nneedle SECRET\nlast\n").expect("test fixture operation should succeed");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some("needle".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("needle".parse().expect("match string")));
     req.context_lines = Some(0);
     let r = fetch(&req, &paths);
     let expected_hash = hex::encode(sha2::Sha256::digest(b"zero\nneedle SECRET\nlast\n"));
@@ -1102,7 +1010,6 @@ fn cancellation_is_checked_around_io() {
         &Paths(t.0.clone()),
         &Safe,
         &Cancel(AtomicUsize::new(0)),
-        &LocalFetchRegex,
         None,
         None,
     );
@@ -1161,6 +1068,9 @@ fn latin1_text_decodes_with_a_flag_and_long_lines_fall_back_to_bytes() {
     assert!(pagination.has_more);
 }
 
+/// A whole-file read and its continuations page by the row's share of the
+/// window, gutters and JSON included, never by a fixed line count or the
+/// old byte ceiling: every page fits and the pages rebuild the source.
 #[test]
 fn full_content_continuation_pages_by_the_byte_budget_not_100_lines() {
     let t = Fixture::new();
@@ -1168,50 +1078,40 @@ fn full_content_continuation_pages_by_the_byte_budget_not_100_lines() {
     let file = t.0.join("short-lines.rs");
     let source = "let x = 1;\n".repeat(6_000);
     fs::write(&file, &source).expect("fixture should be written");
-    let mut full = q(&file);
-    full.full_content = Some(true);
-    let limited = execute_local_fetch(
-        &full,
-        &paths,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        Some(50_000),
-        None,
-    );
-    assert_eq!(limited.partial_reasons, vec![PartialReason::FullContent]);
-    assert!(limited.pagination.as_ref().expect("first page").length > 1_000);
-    let first_content = limited.content.clone().expect("first content");
-    let next = limited
-        .next
-        .and_then(|next| next.continue_window)
-        .expect("continuation");
-    let page = execute_local_fetch(
-        &next.query,
-        &paths,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        Some(50_000),
-        None,
-    );
-    let pagination = page.pagination.expect("paged");
-    let budget = crate::tools::page_windows::page_budget(
-        Some(50_000),
-        &crate::tools::result::query_row(&next.query, &[]),
-    );
-    let content = page.content.as_deref().expect("continued content");
-    assert!(pagination.length > 1_000, "{pagination:?}");
-    assert!(content.len() <= budget);
-    assert!(
-        content.len() > 16_384,
-        "the old byte ceiling still limits the page"
-    );
-    assert!(
-        !pagination.has_more,
-        "the configured window should finish the source"
-    );
-    assert_eq!(first_content + content, source);
+    let mut query = q(&file);
+    query.full_content = Some(true);
+    let mut read = String::new();
+    for call in 0.. {
+        assert!(call < 10, "the walk ends");
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(50_000), None);
+        if call == 0 {
+            assert_eq!(page.partial_reasons, vec![PartialReason::ResponseShare]);
+        }
+        let row = serde_json::to_value(&page).expect("row");
+        assert_eq!(
+            crate::response::read_share::fitted_lines(
+                &row,
+                &crate::response::result::query_value(&query),
+                50_000
+            ),
+            None,
+            "the page fits its share"
+        );
+        let pagination = page.pagination.clone().expect("paged");
+        let content = page.content.clone().expect("content");
+        read.push_str(&content);
+        let Some(next) = page.next.and_then(|next| next.continue_window) else {
+            break;
+        };
+        assert!(pagination.length > 1_000, "{pagination:?}");
+        assert!(
+            content.len() > 16_384,
+            "the old byte ceiling still limits the page"
+        );
+        assert!(next.query.length.is_none(), "{:?}", next.query);
+        query = next.query;
+    }
+    assert_eq!(read, source);
 }
 
 /// A whole-file read is cut at the configured response window, not at a
@@ -1225,19 +1125,9 @@ fn full_content_is_cut_at_the_configured_response_window() {
     fs::write(&file, "let value = 1;\n".repeat(1_500)).expect("fixture");
     let mut full = q(&file);
     full.full_content = Some(true);
-    let read = |window| {
-        execute_local_fetch(
-            &full,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            &LocalFetchRegex,
-            window,
-            None,
-        )
-    };
+    let read = |window| execute_local_fetch(&full, &paths, &Safe, &NeverCancel, window, None);
     let small = read(Some(10_000));
-    assert_eq!(small.partial_reasons, vec![PartialReason::FullContent]);
+    assert_eq!(small.partial_reasons, vec![PartialReason::ResponseShare]);
     assert!(small.next.and_then(|next| next.continue_window).is_some());
     let large = read(Some(50_000));
     assert!(
@@ -1267,7 +1157,6 @@ fn context_full_content_bounded_continuation_replays_its_selection() {
         &paths,
         &Safe,
         &NeverCancel,
-        &LocalFetchRegex,
         Some(10_000),
         Some(&runtime),
     );
@@ -1288,14 +1177,13 @@ fn context_full_content_bounded_continuation_replays_its_selection() {
         &paths,
         &Safe,
         &NeverCancel,
-        &LocalFetchRegex,
         Some(10_000),
         Some(&runtime),
     );
     assert_eq!(second.error_code, None);
     assert_eq!(
         second.selection.as_ref().map(|receipt| receipt.status),
-        Some(crate::contracts::tool_types::SelectionStatus::Complete)
+        Some(octocode_contract_types::SelectionStatus::Complete)
     );
 }
 
@@ -1308,15 +1196,7 @@ fn full_content_limits_return_executable_continuations() {
     let mut compact = q(&view_limited);
     compact.full_content = Some(true);
     compact.minify = Some(MinifyMode::Standard);
-    let result = execute_local_fetch(
-        &compact,
-        &paths,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        Some(50_000),
-        None,
-    );
+    let result = execute_local_fetch(&compact, &paths, &Safe, &NeverCancel, Some(50_000), None);
     // Page 1 of the view is returned inline with the continuation.
     assert_eq!(result.error_code, None);
     assert!(
@@ -1325,7 +1205,7 @@ fn full_content_limits_return_executable_continuations() {
             .as_deref()
             .is_some_and(|text| !text.is_empty())
     );
-    assert_eq!(result.partial_reasons, vec![PartialReason::FullContent]);
+    assert_eq!(result.partial_reasons, vec![PartialReason::ResponseShare]);
     assert!(result.next.and_then(|next| next.continue_window).is_some());
 
     let source_temp = Fixture::new();
@@ -1338,7 +1218,6 @@ fn full_content_limits_return_executable_continuations() {
         &Paths(source_temp.0.clone()),
         &Safe,
         &NeverCancel,
-        &LocalFetchRegex,
         Some(50_000),
         None,
     );
@@ -1349,7 +1228,7 @@ fn full_content_limits_return_executable_continuations() {
             .as_deref()
             .is_some_and(|text| !text.is_empty())
     );
-    assert_eq!(result.partial_reasons, vec![PartialReason::FullContent]);
+    assert_eq!(result.partial_reasons, vec![PartialReason::ResponseShare]);
     assert!(result.next.and_then(|next| next.continue_window).is_some());
 }
 
@@ -1369,7 +1248,6 @@ fn security_limit_is_terminal_but_offers_a_bounded_line_read() {
         &Paths(t.0.clone()),
         &Limited,
         &NeverCancel,
-        &LocalFetchRegex,
         None,
         None,
     );
@@ -1463,15 +1341,7 @@ fn minified_views_page_in_raw_source_lines() {
         let (mut expected_offset, mut shown, mut pages) = (0, Vec::new(), 0);
         for _ in 0..1_000 {
             pages += 1;
-            let page = execute_local_fetch(
-                &query,
-                &paths,
-                &Safe,
-                &NeverCancel,
-                &LocalFetchRegex,
-                Some(window),
-                None,
-            );
+            let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(window), None);
             assert_eq!(page.total_lines, Some(raw_total), "{first}");
             let pagination = page.pagination.clone().expect("paged");
             assert_eq!(pagination.unit, WindowUnit::Lines, "{first}");
@@ -1490,7 +1360,11 @@ fn minified_views_page_in_raw_source_lines() {
             match page.next.and_then(|next| next.continue_window) {
                 Some(next) => {
                     assert!(pagination.has_more, "{first} {pagination:?}");
-                    assert_eq!(next.query.offset(), Some(expected_offset), "{first}");
+                    assert_eq!(
+                        local_fetch_query::offset(&next.query),
+                        Some(expected_offset),
+                        "{first}"
+                    );
                     query = next.query;
                 }
                 None => break,
@@ -1503,6 +1377,28 @@ fn minified_views_page_in_raw_source_lines() {
         assert_eq!(shown, kept, "{first}: every kept line exactly once");
         assert!(pages > 1, "{first}: the view is one page");
     }
+}
+
+/// A source whose earlier redaction (a whole-file key block) broke the
+/// parse names those lines as redacted text, never as syntax the grammar
+/// lacks.
+#[test]
+fn a_symbols_outline_names_lines_a_redaction_left_unparseable() {
+    let store = crate::cache::Store::new(crate::cache::CacheConfig::default(), None);
+    let source = "pub fn a() -> u8 {\n    let key = 1;\n[REDACTED-PRIVATEKEYFRAGMENT]\n    key\n}\n\npub fn b() {}\n";
+    let view = super::outline::symbols_view(
+        &store,
+        source,
+        "k.rs",
+        Path::new("/fixture/k.rs"),
+        &crate::security::ContentSecurity::new(),
+    );
+    let warning = view.warning.clone().expect("recovered parse");
+    assert!(
+        warning.contains("secret-shaped text was redacted"),
+        "{warning}"
+    );
+    assert!(!warning.contains("grammar lacks"), "{warning}");
 }
 
 /// A symbols view is kept in memory and on disk across calls, so it renders
@@ -1518,7 +1414,7 @@ fn a_kept_symbols_view_never_holds_a_secret_of_the_source() {
     let token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
     let source = format!("pub const GH: &str = \"{token}\";\n\npub fn run() -> u8 {{\n    1\n}}\n");
     let security = crate::security::ContentSecurity::new();
-    let view = super::executor::symbols_view(
+    let view = super::outline::symbols_view(
         &store,
         &source,
         "sec.rs",
@@ -1534,7 +1430,7 @@ fn a_kept_symbols_view_never_holds_a_secret_of_the_source() {
         let path = entry.expect("entry").path();
         if path
             .extension()
-            .is_some_and(|extension| extension == "json")
+            .is_some_and(|extension| extension == "entry")
         {
             let text = fs::read_to_string(&path).expect("cache file");
             assert!(!text.contains("ghp_"), "{}: {text}", path.display());
@@ -1912,11 +1808,11 @@ fn a_miss_in_a_redacted_file_keeps_its_leads() {
     let paths = Paths(t.0.clone());
     let read = |query| {
         let row = fetch(&qj(&p, query), &paths);
-        assert_eq!(row.status, "empty", "{row:?}");
+        assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
         assert!(
             row.hints
                 .iter()
-                .any(|hint| hint == super::executor::REDACTED_MATCH_HINT),
+                .any(|hint| hint == super::no_match::REDACTED_MATCH_HINT),
             "{row:?}"
         );
         serde_json::to_value(row.next.as_ref().expect("next")).expect("json")
@@ -1945,7 +1841,7 @@ fn a_literal_bar_miss_repairs_to_a_match_list() {
         &qj(&p, serde_json::json!({"matchString": "executor|nothing"})),
         &paths,
     );
-    assert_eq!(r.status, "empty", "{r:?}");
+    assert_eq!(r.status, ReadStatus::Empty, "{r:?}");
     let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
     assert_eq!(
         next["repair"]["query"]["queries"][0]["matchString"],
@@ -2096,15 +1992,7 @@ fn a_large_source_is_prepared_once_per_version() {
     fs::write(&p, line.repeat(4_000)).expect("fixture");
     let scan = CountingKeys(AtomicUsize::new(0));
     let read = |req: &LocalFetchQuery| {
-        execute_local_fetch(
-            req,
-            &Paths(t.0.clone()),
-            &scan,
-            &NeverCancel,
-            &LocalFetchRegex,
-            None,
-            None,
-        )
+        execute_local_fetch(req, &Paths(t.0.clone()), &scan, &NeverCancel, None, None)
     };
     let first = read(&q(&p));
     let next = first
@@ -2113,7 +2001,7 @@ fn a_large_source_is_prepared_once_per_version() {
         .expect("a second page")
         .query;
     let second = read(&next);
-    assert_eq!(second.status, "success", "{second:?}");
+    assert_eq!(second.status, ReadStatus::Success, "{second:?}");
     assert_eq!(
         scan.0.load(Ordering::Relaxed),
         1,
@@ -2171,15 +2059,7 @@ fn concurrent_rows_share_one_preparation() {
                 let (scan, start, paths) = (&scan, &start, Paths(t.0.clone()));
                 scope.spawn(move || {
                     start.wait();
-                    execute_local_fetch(
-                        row,
-                        &paths,
-                        scan,
-                        &NeverCancel,
-                        &LocalFetchRegex,
-                        None,
-                        None,
-                    )
+                    execute_local_fetch(row, &paths, scan, &NeverCancel, None, None)
                 })
             })
             .collect::<Vec<_>>();
@@ -2280,7 +2160,7 @@ fn a_kept_symbols_view_is_served_without_a_rescan() {
     let scan = Counting(AtomicUsize::new(0));
     let source = "pub fn run() -> u8 {\n    1\n}\n";
     let view = |scan: &Counting| {
-        super::executor::symbols_view(&store, source, "run.rs", Path::new("/fixture/run.rs"), scan)
+        super::outline::symbols_view(&store, source, "run.rs", Path::new("/fixture/run.rs"), scan)
     };
     let first = view(&scan);
     let scans = scan.0.load(Ordering::SeqCst);
@@ -2294,23 +2174,12 @@ fn a_kept_symbols_view_is_served_without_a_rescan() {
 /// the same patterns again to count case-insensitive hits.
 #[test]
 fn an_insensitive_miss_runs_its_patterns_once() {
-    struct Counting(AtomicUsize);
-    impl RegexMatch for Counting {
-        fn matching_ranges(
-            &self,
-            pattern: &str,
-            case_sensitive: bool,
-            input: &str,
-        ) -> Result<RegexSpans, ExtractionError> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            LocalFetchRegex.matching_ranges(pattern, case_sensitive, input)
-        }
-    }
+    use crate::tools::local_fetch::extraction::RUST_REGEX_RUNS;
     let t = Fixture::new();
     let p = t.0.join("a.txt");
     fs::write(&p, "alpha\nbeta\n").expect("fixture");
     let read = |case: &str| {
-        let regex = Counting(AtomicUsize::new(0));
+        RUST_REGEX_RUNS.with(|runs| runs.set(0));
         let r = execute_local_fetch(
             &qj(
                 &p,
@@ -2319,12 +2188,11 @@ fn an_insensitive_miss_runs_its_patterns_once() {
             &Paths(t.0.clone()),
             &Safe,
             &NeverCancel,
-            &regex,
             None,
             None,
         );
-        assert_eq!(r.status, "empty", "{r:?}");
-        regex.0.into_inner()
+        assert_eq!(r.status, ReadStatus::Empty, "{r:?}");
+        RUST_REGEX_RUNS.with(std::cell::Cell::get)
     };
     assert_eq!(read("insensitive"), 1);
     assert_eq!(read("sensitive"), 2);
@@ -2365,7 +2233,6 @@ fn a_classified_read_with_an_unsupported_view_is_refused_before_any_scan() {
             &Paths(t.0.clone()),
             &scan,
             &NeverCancel,
-            &LocalFetchRegex,
             None,
             None,
         );

@@ -14,18 +14,18 @@ pub(crate) mod batch;
 mod cache;
 pub(crate) mod select;
 pub(crate) mod stats;
-pub(crate) mod transport;
 
 #[cfg(test)]
 mod tests;
 
 pub(crate) use transport::ClassificationError;
 
-use crate::providers::classification::{ClassificationProvider, gate::GateLease};
-use octocode_github::{Partition, RequestBudget};
+use crate::providers::classification::{ClassificationProvider, gate::GateLease, transport};
+use octocode_github::Partition;
+use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -37,7 +37,7 @@ pub(crate) struct EvaluationInput<'a> {
     pub state: &'a Value,
     pub questions: &'a [Value],
     pub assets: Option<&'a Value>,
-    pub long_context: bool,
+    pub(crate) long_context: bool,
 }
 
 impl EvaluationInput<'_> {
@@ -128,7 +128,6 @@ impl QuestionOutcomes {
 pub(crate) struct Evaluator {
     pub(crate) key: Option<SecretString>,
     pub(crate) base_url: String,
-    pub(crate) endpoint_path: String,
     /// The configured default model (`classification.model`, else the
     /// provider's default).
     pub(crate) model: String,
@@ -156,7 +155,6 @@ impl Evaluator {
         Self {
             key,
             base_url,
-            endpoint_path: provider.endpoint_path().to_owned(),
             model,
             provider,
             timeout,
@@ -171,10 +169,21 @@ impl Evaluator {
         self.key.is_some()
     }
 
+    fn credential(&self) -> Result<&SecretString, ClassificationError> {
+        self.key.as_ref().ok_or_else(|| {
+            ClassificationError::new(
+                "missingConfiguration",
+                "No classification API credential is configured.",
+                "Set OCTOCODE_CLASSIFICATION_API.",
+            )
+        })
+    }
+
     /// The endpoint and credential this evaluator's answers belong to.
     pub(crate) fn partition(&self) -> Partition {
-        let origin = transport::endpoint(&self.base_url, &self.endpoint_path).map_or_else(
-            |_| format!("{}|{}", self.base_url, self.endpoint_path),
+        let path = self.provider.defaults().endpoint_path;
+        let origin = transport::endpoint(&self.base_url, path).map_or_else(
+            |_| format!("{}|{path}", self.base_url),
             |endpoint| crate::providers::classification::gate::endpoint_key(&endpoint),
         );
         Partition::new(origin, self.key.as_ref())
@@ -230,13 +239,7 @@ impl Evaluator {
         budget: &RequestBudget,
         gate: &GateLease,
     ) -> Result<QuestionOutcomes, ClassificationError> {
-        let key = self.key.as_ref().ok_or_else(|| {
-            ClassificationError::new(
-                "missingConfiguration",
-                "No classification API credential is configured.",
-                "Set OCTOCODE_CLASSIFICATION_API.",
-            )
-        })?;
+        let key = self.credential()?;
         let model = model.unwrap_or(&self.model);
         let partition = self.partition();
         let entry = cache::Judgments::key(&partition, model, input);
@@ -254,7 +257,6 @@ impl Evaluator {
         let connection = batch::Connection {
             key,
             base_url: &self.base_url,
-            endpoint_path: &self.endpoint_path,
             provider: self.provider,
             retries: self.retries,
         };
@@ -271,23 +273,18 @@ impl Evaluator {
         Ok(outcomes)
     }
 
-    /// Read current model names through the same authenticated transport and gate.
+    /// The model catalog (clasify `models` output shape), read through the
+    /// same authenticated transport and gate.
     pub(crate) async fn models(
         &self,
         budget: &RequestBudget,
         gate: &GateLease,
     ) -> Result<Value, ClassificationError> {
-        let key = self.key.as_ref().ok_or_else(|| {
-            ClassificationError::new(
-                "missingConfiguration",
-                "No classification API credential is configured.",
-                "Set OCTOCODE_CLASSIFICATION_API.",
-            )
-        })?;
+        let key = self.credential()?;
         transport::check_key(key)?;
         let result = transport::get(
             key,
-            transport::endpoint(&self.base_url, self.provider.models_path())?,
+            transport::endpoint(&self.base_url, self.provider.defaults().models_path)?,
             budget,
             self.retries,
             gate,
@@ -303,71 +300,21 @@ impl Evaluator {
         });
         let (response, calls) = result?;
         self.provider
-            .validate_models(&response)
+            .models(&response)
             .map_err(|error| ClassificationError {
                 provider_calls: calls,
                 ..ClassificationError::invalid_response(error.message)
-            })?;
-        Ok(response)
+            })
     }
 
     /// Add one call's provider usage to the session statistics.
     pub(crate) fn record(&self, usage: stats::ClassificationUsage) {
         if let Some(home) = &self.stats_home {
-            stats::record_classification(home, true, usage);
+            stats::record_classification(home, usage);
         }
     }
 }
 
 pub(crate) fn retention() -> Duration {
     cache::TTL
-}
-
-impl stats::ClassificationUsage {
-    pub(crate) fn merge(&mut self, other: &Self) {
-        self.calls = self.calls.saturating_add(other.calls);
-        self.known_usage_calls = self
-            .known_usage_calls
-            .saturating_add(other.known_usage_calls);
-        self.unknown_usage_calls = self
-            .unknown_usage_calls
-            .saturating_add(other.unknown_usage_calls);
-        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
-        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
-        self.discovery_calls = self.discovery_calls.saturating_add(other.discovery_calls);
-        self.replayed_evaluations = self
-            .replayed_evaluations
-            .saturating_add(other.replayed_evaluations);
-        self.models.extend(other.models.iter().cloned());
-    }
-
-    /// Fold one evaluation in: its provider requests and reported tokens.
-    pub(crate) fn add(&mut self, outcome: &Result<Judged, ClassificationError>) {
-        match outcome {
-            Ok(judged) => {
-                self.models.insert(judged.model.clone());
-                if judged.replayed {
-                    self.replayed_evaluations = self.replayed_evaluations.saturating_add(1);
-                }
-                if judged.provider_calls > 0 {
-                    self.add_record(&json!({
-                        "provider_calls": judged.provider_calls,
-                        "known_usage_calls": judged.known_usage_calls,
-                        "input_tokens": judged.input_tokens,
-                        "output_tokens": judged.output_tokens,
-                    }));
-                }
-            }
-            Err(error) if error.provider_calls > 0 => {
-                let usage = error.usage();
-                self.add_record(&json!({
-                    "provider_calls": error.provider_calls,
-                    "known_usage_calls": usage.known_usage_calls,
-                    "input_tokens": usage.input_tokens,
-                    "output_tokens": usage.output_tokens,
-                }));
-            }
-            Err(_) => {}
-        }
-    }
 }

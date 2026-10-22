@@ -88,7 +88,7 @@ fn strip_features(content: &str) -> String {
     }
     clean
 }
-pub fn load_config(input: &FileInput) -> LoadConfigResult {
+pub(crate) fn load_config(input: &FileInput) -> LoadConfigResult {
     let path = input.path().clone();
     match input {
         FileInput::Missing { .. } => LoadConfigResult {

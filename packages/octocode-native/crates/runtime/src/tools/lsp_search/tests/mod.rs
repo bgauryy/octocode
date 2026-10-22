@@ -26,7 +26,7 @@ use fixtures::*;
 /// other row-level fields lifted out of `data` (see `response::rows`).
 fn public_row(data: &serde_json::Value) -> serde_json::Value {
     let row = crate::response::rows::result_row(
-        crate::tools::id::ToolId::LspSearch,
+        crate::id::ToolId::LspSearch,
         0,
         &serde_json::json!({}),
         data.clone(),
@@ -35,13 +35,27 @@ fn public_row(data: &serde_json::Value) -> serde_json::Value {
     let mut out = serde_json::json!({ "results": [row] });
     crate::response::continuations::finalize(
         &mut out,
-        crate::tools::id::ToolId::LspSearch,
+        crate::id::ToolId::LspSearch,
         &crate::response::continuations::Sources::Rows(&[]),
         &crate::response::continuations::Scope::everything(),
     )
     .expect("valid continuations");
-    crate::response::channels::publish_hints(&mut out, crate::tools::id::ToolId::LspSearch);
+    crate::response::channels::publish_hints(&mut out, crate::id::ToolId::LspSearch);
     out
+}
+
+/// Client options for fake servers, which answer at once: no settle wait.
+pub(super) const FAKE_SERVER_CLIENT: octocode_engine::lsp::client::LspClientOptions =
+    octocode_engine::lsp::client::LspClientOptions {
+        settle_cap: Some(std::time::Duration::ZERO),
+    };
+
+/// A pool whose clients take [`FAKE_SERVER_CLIENT`].
+pub(super) fn fake_server_pool() -> octocode_engine::lsp::pool::LspClientPool {
+    octocode_engine::lsp::pool::LspClientPool::new(octocode_engine::lsp::pool::LspPoolOptions {
+        client: FAKE_SERVER_CLIENT,
+        ..octocode_engine::lsp::pool::LspPoolOptions::default()
+    })
 }
 
 #[test]
@@ -129,15 +143,15 @@ fn semantic_pagination_continuations_cover_the_full_result_fixture() {
 
     let walk = crate::tools::test_support::checks::walk(
         "lspSearch",
-        serde_json::json!({"queries": [query.to_row()]}),
+        serde_json::json!({"queries": [lsp_search_query::to_row(&query)]}),
         |call| {
             let query: LspSearchQuery = serde_json::from_value(call["queries"][0].clone())
                 .expect("executable continuation query");
-            assert_eq!(query.snapshot(), Some(snapshot.as_str()));
+            assert_eq!(lsp_search_query::snapshot(&query), Some(snapshot.as_str()));
             let (page, pagination, next_page) = counted_page(
                 &expected,
-                query.page().unwrap_or(1),
-                query.page_size().expect("explicit pageSize"),
+                lsp_search_query::page(&query).unwrap_or(1),
+                lsp_search_query::page_size(&query).expect("explicit pageSize"),
             );
             let mut response = serde_json::json!({"matches": page, "pagination": pagination});
             // The fixture's pages are cut under its own digest.
@@ -159,8 +173,8 @@ fn semantic_pagination_continuations_cover_the_full_result_fixture() {
             let row = response;
             crate::tools::test_support::checks::Page {
                 output: crate::tools::test_support::published(
-                    crate::tools::id::ToolId::LspSearch,
-                    &query.to_row(),
+                    crate::id::ToolId::LspSearch,
+                    &lsp_search_query::to_row(&query),
                     &row,
                 ),
                 rows,
@@ -238,7 +252,7 @@ fn later_pages_check_a_pinned_snapshot_and_carry_it_forward() {
     let changed = snapshot_changed(&query);
     assert_eq!(changed["errorCode"], "staleSnapshot");
     let restart = &changed["next"]["restart"]["query"]["queries"][0];
-    for cursor in crate::tools::result::CURSOR_FIELDS {
+    for cursor in crate::response::result::CURSOR_FIELDS {
         assert!(restart.get(cursor).is_none(), "{cursor}: {changed}");
     }
 
@@ -279,7 +293,7 @@ fn later_pages_check_a_pinned_snapshot_and_carry_it_forward() {
     assert_eq!(last["terminalLimit"], true, "{last}");
     assert_eq!(
         last["partialReasons"],
-        serde_json::json!([crate::tools::paging::CURSOR_MAXIMUM])
+        serde_json::json!([crate::response::paging::CURSOR_MAXIMUM])
     );
     assert!(last["locations"].is_array(), "{last}");
 }
@@ -319,10 +333,8 @@ async fn an_unpinned_later_page_leads_to_the_restart() {
     });
     let result = super::execute(
         query(row.clone()),
-        &crate::tools::cancel::NeverCancel,
-        &octocode_engine::lsp::pool::LspClientPool::new(
-            octocode_engine::lsp::pool::LspPoolOptions::default(),
-        ),
+        &crate::execution::cancel::NeverCancel,
+        &fake_server_pool(),
         &paths,
         &super::LspExecutionConfig::default(),
         None,
@@ -339,9 +351,13 @@ async fn an_unpinned_later_page_leads_to_the_restart() {
     let mut expected = row;
     expected.as_object_mut().expect("row").remove("page");
     let restarted = query(restart["query"]["queries"][0].clone());
-    assert_eq!(restarted.to_row(), query(expected).to_row(), "{result}");
+    assert_eq!(
+        lsp_search_query::to_row(&restarted),
+        lsp_search_query::to_row(&query(expected)),
+        "{result}"
+    );
     crate::tools::test_support::assert_row_contract(
-        crate::tools::id::ToolId::LspSearch,
+        crate::id::ToolId::LspSearch,
         &serde_json::json!({
             "operation": "references", "path": root.join("a.rs").to_string_lossy(),
             "symbolName": "f", "line": 1, "page": 2
@@ -386,10 +402,8 @@ async fn run_row(
 ) -> serde_json::Value {
     super::execute(
         query(row),
-        &crate::tools::cancel::NeverCancel,
-        &octocode_engine::lsp::pool::LspClientPool::new(
-            octocode_engine::lsp::pool::LspPoolOptions::default(),
-        ),
+        &crate::execution::cancel::NeverCancel,
+        &fake_server_pool(),
         paths,
         execution,
         None,
@@ -629,8 +643,8 @@ fn document_symbols_are_compact_outline_rows() {
     assert!(envelope.get("summary").is_none(), "{envelope}");
     // Outline rows, checked through their text outline.
     let mut payload = serde_json::json!({"kind": envelope["kind"], "symbols": envelope["symbols"]});
-    payload["symbols"] = serde_json::json!(crate::tools::symbol_outline::outline_rows(
-        &crate::tools::symbol_outline::flatten_members(
+    payload["symbols"] = serde_json::json!(crate::response::symbol_outline::outline_rows(
+        &crate::response::symbol_outline::flatten_members(
             payload["symbols"].as_array().expect("rows")
         )
     ));
@@ -1077,7 +1091,7 @@ fn query(value: serde_json::Value) -> LspSearchQuery {
 
 /// `query` with `fields` layered over its row.
 fn requery(query: &LspSearchQuery, fields: serde_json::Value) -> LspSearchQuery {
-    let mut row = query.to_row();
+    let mut row = lsp_search_query::to_row(query);
     if let (Some(row), Some(fields)) = (row.as_object_mut(), fields.as_object()) {
         row.extend(fields.clone());
     }
@@ -1197,7 +1211,7 @@ fn group_by_file_summarizes_per_file_with_workspace_relative_paths() {
     );
     // Through the envelope, base + path names the real file.
     let envelope = crate::response::rows::envelope(
-        crate::tools::id::ToolId::LspSearch,
+        crate::id::ToolId::LspSearch,
         vec![serde_json::json!({
             "index": 0,
             "data": {"path": absolute("src/deep/anchor.ts"), "files": summaries}
@@ -1607,9 +1621,16 @@ fn local_search_identity_continuations_validate_as_anchored_queries() {
         let validated = crate::contracts::validate_query("lspSearch", continuation)
             .unwrap_or_else(|error| panic!("{operation}: {error:?}"));
         let parsed: LspSearchQuery = serde_json::from_value(validated).expect("typed query");
-        assert_eq!(parsed.anchor_line(), Some(749), "{operation}");
-        assert_eq!(parsed.operation(), operation);
-        assert_eq!(parsed.symbol_name(), Some("run_and_clear_commit_hooks"));
+        assert_eq!(
+            lsp_search_query::anchor_line(&parsed),
+            Some(749),
+            "{operation}"
+        );
+        assert_eq!(lsp_search_query::operation(&parsed), operation);
+        assert_eq!(
+            lsp_search_query::symbol_name(&parsed),
+            Some("run_and_clear_commit_hooks")
+        );
     }
 }
 
@@ -1623,14 +1644,20 @@ async fn compact_reference_terminal_fit_preserves_controls_and_cursor_identity()
         windows: &[usize],
     ) -> Vec<Value> {
         use crate::tools::test_support::checks::{Page, Walker};
-        let tool = crate::tools::id::ToolId::LspSearch;
-        let mut walker = Walker::new(tool.as_str(), json!({"queries":[initial.to_row()]}));
+        let tool = crate::id::ToolId::LspSearch;
+        let mut walker = Walker::new(
+            tool.as_str(),
+            json!({"queries":[lsp_search_query::to_row(initial)]}),
+        );
         let mut pages = Vec::new();
         while let Some(call) = walker.next_query() {
             let query: LspSearchQuery =
                 serde_json::from_value(call["queries"][0].clone()).expect("executable nextPage");
             let window = windows[pages.len().min(windows.len() - 1)];
-            let budget = crate::tools::page_windows::page_budget(Some(window), &query.to_row());
+            let budget = crate::response::page_windows::page_budget(
+                Some(window),
+                &lsp_search_query::to_row(&query),
+            );
             let row = locations(
                 &query,
                 &mut SourceCache::new(paths),
@@ -1643,7 +1670,11 @@ async fn compact_reference_terminal_fit_preserves_controls_and_cursor_identity()
             .await;
             let row = with_next(&query, row);
             walker.accept(Page {
-                output: crate::tools::test_support::published(tool, &query.to_row(), &row),
+                output: crate::tools::test_support::published(
+                    tool,
+                    &lsp_search_query::to_row(&query),
+                    &row,
+                ),
                 rows: identities(std::slice::from_ref(&row))
                     .iter()
                     .map(u64::to_string)
@@ -1690,13 +1721,13 @@ async fn compact_reference_terminal_fit_preserves_controls_and_cursor_identity()
         // reserve fits; the repeated-query reserve would leave a tiny tail.
         let mut low = 1;
         let mut high = octocode_engine::json_size::utf16_units(&full).unwrap_or(0) * 2;
-        assert!(crate::tools::page_windows::terminal_row_fits(
+        assert!(crate::response::page_windows::terminal_row_fits(
             Some(high),
             &full
         ));
         while low < high {
             let middle = low + (high - low) / 2;
-            if crate::tools::page_windows::terminal_row_fits(Some(middle), &full) {
+            if crate::response::page_windows::terminal_row_fits(Some(middle), &full) {
                 high = middle;
             } else {
                 low = middle + 1;
@@ -1791,31 +1822,46 @@ fn anchored_operation_shapes_preserve_controls_and_replay() {
             row["candidatePage"] = 5.into();
         }
         let mut parsed = query(row);
-        assert_eq!(parsed.operation(), operation);
-        assert_eq!(parsed.path(), Some("/repo/a.ts"));
-        assert_eq!(parsed.workspace_root(), Some("/repo"));
-        assert_eq!(parsed.symbol_name(), Some("run"));
-        assert_eq!(parsed.anchor_line(), Some(7));
-        assert_eq!(parsed.order_hint(), Some(2));
-        assert_eq!(parsed.page(), Some(3));
-        assert_eq!(parsed.page_size(), Some(4));
-        assert_eq!(parsed.snapshot(), Some("stable"));
-        assert_eq!(parsed.group_by_file(), locations.then_some(true));
-        assert_eq!(parsed.context_lines(), locations.then_some(2));
-        assert_eq!(parsed.graph_depth(), hierarchy.then_some(3));
+        assert_eq!(lsp_search_query::operation(&parsed), operation);
+        assert_eq!(lsp_search_query::path(&parsed), Some("/repo/a.ts"));
+        assert_eq!(lsp_search_query::workspace_root(&parsed), Some("/repo"));
+        assert_eq!(lsp_search_query::symbol_name(&parsed), Some("run"));
+        assert_eq!(lsp_search_query::anchor_line(&parsed), Some(7));
+        assert_eq!(lsp_search_query::order_hint(&parsed), Some(2));
+        assert_eq!(lsp_search_query::page(&parsed), Some(3));
+        assert_eq!(lsp_search_query::page_size(&parsed), Some(4));
+        assert_eq!(lsp_search_query::snapshot(&parsed), Some("stable"));
         assert_eq!(
-            parsed.include_declaration(),
+            lsp_search_query::group_by_file(&parsed),
+            locations.then_some(true)
+        );
+        assert_eq!(
+            lsp_search_query::context_lines(&parsed),
+            locations.then_some(2)
+        );
+        assert_eq!(
+            lsp_search_query::graph_depth(&parsed),
+            hierarchy.then_some(3)
+        );
+        assert_eq!(
+            lsp_search_query::include_declaration(&parsed),
             (operation == "references").then_some(false)
         );
-        assert_eq!(parsed.importer_page(), if importer { 4 } else { 1 });
         assert_eq!(
-            parsed.candidate_page(),
+            lsp_search_query::importer_page(&parsed),
+            if importer { 4 } else { 1 }
+        );
+        assert_eq!(
+            lsp_search_query::candidate_page(&parsed),
             if operation == "subtypes" { 5 } else { 1 }
         );
-        parsed.set_path("/canonical/a.ts".to_owned());
-        parsed.set_workspace_root("/canonical".to_owned());
-        assert_eq!(parsed.path(), Some("/canonical/a.ts"));
-        assert_eq!(parsed.workspace_root(), Some("/canonical"));
-        assert_eq!(query(parsed.to_row()), parsed);
+        set_path(&mut parsed, "/canonical/a.ts".to_owned());
+        set_workspace_root(&mut parsed, "/canonical".to_owned());
+        assert_eq!(lsp_search_query::path(&parsed), Some("/canonical/a.ts"));
+        assert_eq!(
+            lsp_search_query::workspace_root(&parsed),
+            Some("/canonical")
+        );
+        assert_eq!(query(lsp_search_query::to_row(&parsed)), parsed);
     }
 }

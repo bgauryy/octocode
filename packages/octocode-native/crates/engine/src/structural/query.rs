@@ -146,16 +146,18 @@ pub(super) fn invalid_query_explanation(
         literal_anchor: None,
         pre_filter: "unavailable".to_owned(),
         unsafe_reason: None,
-        diagnostics: vec![
-            StructuralDiagnostic::new(
-                "structural.query.invalid",
-                "error",
-                "match",
-                message.to_owned(),
-            )
-            .with_recovery("Provide exactly one non-empty structural pattern or YAML rule."),
-        ],
+        diagnostics: vec![invalid_query_diagnostic(message.to_owned())],
     }
+}
+
+/// The code of a query that is not exactly one non-empty pattern or rule.
+pub const QUERY_INVALID: &str = "structural.query.invalid";
+
+/// The error a query that is not exactly one non-empty pattern or rule
+/// reports.
+pub(super) fn invalid_query_diagnostic(message: String) -> StructuralDiagnostic {
+    StructuralDiagnostic::new(QUERY_INVALID, "error", "match", message)
+        .with_recovery("Provide exactly one non-empty structural pattern or YAML rule.")
 }
 
 /// What the literals of a query are read for.

@@ -28,7 +28,7 @@ pub enum PolicyErrorCode {
 pub struct PolicyError {
     pub code: PolicyErrorCode,
     pub message: String,
-    pub safe_path: Option<String>,
+    pub(crate) safe_path: Option<String>,
 }
 
 impl PolicyError {
@@ -40,20 +40,20 @@ impl PolicyError {
         }
     }
 
-    pub fn with_path(mut self, safe_path: impl Into<String>) -> Self {
+    pub(crate) fn with_path(mut self, safe_path: impl Into<String>) -> Self {
         self.safe_path = Some(safe_path.into());
         self
     }
 
     /// Public `errorCode` for a local tool's path-policy failure: the shared
     /// flat code ([`Self::shared_code`]), otherwise the tool's own access code.
-    pub fn local_error_code(&self, access_code: &'static str) -> &'static str {
+    pub(crate) fn local_error_code(&self, access_code: &'static str) -> &'static str {
         self.shared_code().unwrap_or(access_code)
     }
 
     /// The flat `errorCode` every local tool shares for this failure.
     /// `None` for a tool-specific failure (the tool's own access code).
-    pub fn shared_code(&self) -> Option<&'static str> {
+    pub(crate) fn shared_code(&self) -> Option<&'static str> {
         Some(match self.code {
             PolicyErrorCode::OutsideAllowedRoots => "outsideAllowedRoots",
             PolicyErrorCode::SymlinkEscape => "symlinkEscape",
@@ -70,10 +70,10 @@ impl PolicyError {
 /// `errorCode` every local tool emits for a path the security path policy
 /// withholds (credential stores, credential-named files such as `.env` or `*.pem`): a denial no
 /// flag or config setting lifts, never a missing or misspelled path.
-pub const PATH_POLICY_DENIED: &str = "pathPolicyDenied";
+pub(crate) const PATH_POLICY_DENIED: &str = "pathPolicyDenied";
 
 /// `errorCode` every local tool emits for a path that does not exist.
-pub const PATH_NOT_FOUND: &str = "pathNotFound";
+pub(crate) const PATH_NOT_FOUND: &str = "pathNotFound";
 
 impl Display for PolicyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {

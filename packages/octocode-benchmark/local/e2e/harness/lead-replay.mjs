@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { FIXTURES, LIVE, REPOS, ROOT, checks, cliEntry, startServer, writeResults } from './mcp-client.mjs';
+import { FIXTURES, LIVE, ROOT, checks, cliEntry, startServer, writeResults } from './mcp-client.mjs';
 import { PAGE_KEYS, atoms, canon, judgeLead, leadsOf, outcomeOf, properties, rowOf, scopeChanges, short, sourceScopeForPage } from './lead-predicates.mjs';
 import { createQueryDefaults } from './query-defaults.mjs';
 
@@ -156,16 +156,6 @@ const fixtures = () => [
   ['lspSearch', { symbolName: 'visibleSym', workspaceRoot: WABS, operation: 'workspaceSymbol', extras: H }, 'lsp workspaceSymbol'],
   ['lspSearch', { path: `${W}/src/a.ts`, operation: 'definition', symbolName: 'visibleSym', line: 5, extras: H }, 'lsp anchor miss'],
   ['lspSearch', { path: `${W}/nope.ts`, operation: 'documentSymbols', extras: H }, 'lsp scope miss'],
-  // astTopology (CLI when it is not on the MCP surface)
-  ['astTopology', { path: WABS, operation: 'cycles', extras: H }, 'topology cycles'],
-  ['astTopology', { path: WABS, operation: 'dependencies', source: 'src/a.ts', extras: H }, 'topology dependencies'],
-  ['astTopology', { path: WABS, operation: 'dependents', source: 'src/b.ts', extras: H }, 'topology dependents'],
-  ['astTopology', { path: WABS, operation: 'deadCode', pageSize: 5, maxFiles: 8, extras: H }, 'topology deadCode ceiling'],
-  ['astTopology', { path: WABS, operation: 'reachability', entrypoints: ['src/a.ts'], extras: H }, 'topology reachability'],
-  ['astTopology', { path: WABS, operation: 'path', source: 'src/a.ts', target: 'src/b.ts', extras: H }, 'topology path'],
-  ['astTopology', { path: WABS, operation: 'dependencies', source: 'src/nope.ts', extras: H }, 'topology scope miss'],
-  ['astTopology', { path: WABS, operation: 'drift', baseline: path.join(FIXTURES, 'lsp/esm-tsconfig'), extras: H }, 'topology drift'],
-  ['astTopology', { path: path.join(REPOS, 'javascript'), operation: 'deadCode', pageSize: 3, extras: H }, 'topology javascript corpus paged'],
 ];
 
 const GH = { owner: 'bgauryy', repo: 'octocode' }; // the canonical name: a renamed repo would make every lead differ from its source
@@ -197,7 +187,7 @@ buildWorkspace();
 const client = await startServer({ env: { OCTOCODE_BETA: 'true', PATH: `${path.join(ROOT, 'node_modules', '.bin')}${path.delimiter}${process.env.PATH}` }, timeoutMs: 90_000 });
 const mcpTools = new Set(client.tools.map(t => t.name));
 const onMcp = name => mcpTools.has(name);
-const CLI_ONLY = new Set(['astTopology',]); // graph/rewrite tools reached through the CLI when the MCP server does not list them
+const CLI_ONLY = new Set(); // CLI-only tools reached through the CLI when the MCP server does not list them
 const exec = (tool, args, label) => (onMcp(tool) ? client.raw(tool, args, label) : cliEntry(tool, args, { label, timeout: 90_000 }));
 // The published MCP schema leaves some fields out (e.g. astSearch includeIgnored); the CLI `schema --view query` lists every accepted field.
 const fieldProps = new Map();
@@ -229,7 +219,7 @@ if (LIVE) plan.push(...githubFixtures);
 else skip('GitHub and registry fixtures', 'live (set OCTOCODE_LIVE=1): GitHub and registry leads are not replayed');
 
 // A brief on these fixtures probes that no continuation inherits mainGoal/reasoning (one per tool family).
-const BRIEF = new Set(['lf large default window', 'ss files paged', 'as symbols dir', 'lsp references', 'gh code', 'gh history prs', 'topology deadCode ceiling', 'lf matchString windows']);
+const BRIEF = new Set(['lf large default window', 'ss files paged', 'as symbols dir', 'lsp references', 'gh code', 'gh history prs', 'lf matchString windows']);
 const sources = [];
 await pool(plan, async ([tool, rawQuery, label]) => {
   const query = BRIEF.has(label) ? { ...rawQuery, mainGoal: 'lead replay probe', reasoning: 'brief inheritance probe' } : rawQuery;

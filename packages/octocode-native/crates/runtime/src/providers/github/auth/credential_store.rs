@@ -13,7 +13,7 @@ impl CredentialStore {
             home: home.as_ref().into(),
         }
     }
-    pub fn home(&self) -> &Path {
+    pub(crate) fn home(&self) -> &Path {
         &self.home
     }
     pub fn load(

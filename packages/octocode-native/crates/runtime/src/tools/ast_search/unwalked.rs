@@ -11,11 +11,12 @@
 //! leading child skipped by `scanOffset`). A directory that alone holds more
 //! candidates than the ceiling has no such scope: no narrower `path` reaches
 //! its files, which is a typed terminal limit.
-use octocode_engine::types::{FileSystemQueryOptions, FileSystemQueryResult};
+use crate::response::result::Confidence;
+use octocode_engine::types::{EntryType, FileSystemQueryOptions, FileSystemQueryResult};
 use serde_json::{Value, json};
 use std::path::Path;
 
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
 
 /// The most astSearch leads one terminal row carries; scopes past it are
 /// counted and listed through one structureSearch lead.
@@ -160,7 +161,7 @@ impl Unwalked {
         };
         let within = |depth: u32| rules.max_depth.is_none_or(|deepest| depth < deepest);
         let mut scopes = Vec::new();
-        let directories = list(rules, dir, "d", MAX_SIBLING_DIRECTORIES)?;
+        let directories = list(rules, dir, EntryType::Directory, MAX_SIBLING_DIRECTORIES)?;
         self.unlisted +=
             (directories.total_discovered as usize).saturating_sub(directories.entries.len());
         for entry in directories
@@ -181,7 +182,7 @@ impl Unwalked {
         let files = list(
             rules,
             dir,
-            "f",
+            EntryType::File,
             u32::try_from(ceiling.saturating_add(1)).unwrap_or(u32::MAX),
         )?;
         if within(depth) && files.entries.iter().any(|entry| unread(&entry.name)) {
@@ -211,7 +212,7 @@ impl Unwalked {
     /// `flatDirectory` limit, and what no hint reaches.
     pub(super) fn attach(&self, out: &mut Value, mut lead: impl FnMut(&Reach) -> Option<Value>) {
         for flat in &self.flat {
-            crate::tools::paging::terminal_limit(
+            crate::response::paging::terminal_limit(
                 out,
                 FLAT_DIRECTORY,
                 &[format!(
@@ -223,7 +224,7 @@ impl Unwalked {
             );
         }
         if let Some(glob) = &self.position_dependent {
-            crate::tools::paging::push_warnings(
+            crate::response::paging::push_warnings(
                 out,
                 [format!(
                     "The glob {glob:?} matches by position, so no narrower path keeps its meaning: no narrowScope hint is offered for the unread scopes."
@@ -266,7 +267,7 @@ impl Unwalked {
         );
         if let Some(dir) = listed_in {
             let key = format!("narrowScope{}", named + 1);
-            out["next"][key] = crate::tools::result::Continuation::new(
+            out["next"][key] = crate::response::result::Continuation::new(
                 ToolId::StructureSearch,
                 json!({"operation":"tree","path":dir.to_string_lossy(),"maxDepth":1}),
             )
@@ -278,13 +279,18 @@ impl Unwalked {
             ));
         }
         warning.push('.');
-        crate::tools::paging::push_warnings(out, [warning]);
+        crate::response::paging::push_warnings(out, [warning]);
     }
 }
 
-/// The direct children of `dir` of one kind (`d` or `f`), under the walk's
+/// The direct children of `dir` of one kind, under the walk's
 /// rules; at most `limit` are stored, all are counted (`total_discovered`).
-fn list(rules: &Rules<'_>, dir: &Path, kind: &str, limit: u32) -> Option<FileSystemQueryResult> {
+fn list(
+    rules: &Rules<'_>,
+    dir: &Path,
+    kind: EntryType,
+    limit: u32,
+) -> Option<FileSystemQueryResult> {
     let admit = |path: &Path, file_type: Option<std::fs::FileType>, _| {
         // The walk follows no link.
         let link = file_type.map_or_else(|| path.is_symlink(), |kind| kind.is_symlink());
@@ -296,13 +302,13 @@ fn list(rules: &Rules<'_>, dir: &Path, kind: &str, limit: u32) -> Option<FileSys
             path: dir.to_string_lossy().into_owned(),
             recursive: Some(false),
             ignore: rules.ignore,
-            entry_type: Some(kind.to_owned()),
-            names: if kind == "f" {
+            entry_type: Some(kind),
+            names: if kind == EntryType::File {
                 rules.include.clone()
             } else {
                 None
             },
-            exclude_dir: Some(rules.prune.clone()),
+            default_exclude_dir: Some(rules.prune.clone()),
             exclude: rules.exclude.clone(),
             // Every entry is counted: a directory over the ceiling states its size.
             stop_at_limit: Some(false),
@@ -342,10 +348,10 @@ pub(super) fn narrowed(query: &Value, reach: &Reach) -> Option<Value> {
             changes["scanOffset"] = json!(reach.skip);
         }
     }
-    let narrowed = crate::tools::result::with_changes(query.clone(), &changes);
+    let narrowed = crate::response::result::with_changes(query.clone(), &changes);
     Some(
-        crate::tools::result::Continuation::new(ToolId::AstSearch, narrowed)
-            .confidence("exact")
+        crate::response::result::Continuation::new(ToolId::AstSearch, narrowed)
+            .confidence(Confidence::Exact)
             .build(),
     )
 }

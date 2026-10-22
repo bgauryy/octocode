@@ -417,7 +417,7 @@ describe('createNativeMcp registration + execution', () => {
           tool('localFetch', true),
           tool('ghSearchCode', false),
           // CLI-only: native resolves it unavailable on the MCP surface.
-          tool('astTopology', false),
+          tool('ghCloneRepo', false),
         ],
       })),
     });

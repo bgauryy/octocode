@@ -1,8 +1,8 @@
 //! The output-hook dispatch: each `ToolId` names the [`ToolOutput`] its tool
 //! module implements. It lives with dispatch, so shared tool code never
 //! imports a tool module.
-use crate::tools::id::ToolId;
-use crate::tools::output::ToolOutput;
+use crate::id::ToolId;
+use crate::response::output::ToolOutput;
 
 impl ToolId {
     /// The output facts this tool owns.
@@ -14,7 +14,6 @@ impl ToolId {
             ToolId::StructureSearch => &crate::tools::structure_search::Output,
             ToolId::AstSearch => &crate::tools::ast_search::Output,
             ToolId::LspSearch => &crate::tools::lsp_search::Output,
-            ToolId::AstTopology => &crate::tools::ast_graph::Output,
             ToolId::GhSearchRepo => &crate::tools::gh_search_repo::Output,
             ToolId::GhSearchCode => &crate::tools::gh_search_code::Output,
             ToolId::GhStructure => &crate::tools::gh_structure::Output,

@@ -1,13 +1,9 @@
 //! Content digests for snapshot and evidence identities.
 
-/// Lowercase-hex SHA-256: the engine's content digest, so runtime and engine
-/// graph identities hash alike.
-pub(crate) use octocode_engine::digest::sha256;
-
-/// Hex SHA-256 of `value`'s compact JSON serialization (empty input when it
-/// cannot serialize).
+/// Hex SHA-256 ([`octocode_engine::digest::sha256`]) of `value`'s compact
+/// JSON serialization (empty input when it cannot serialize).
 pub(crate) fn json_sha256(value: &impl serde::Serialize) -> String {
-    sha256(&serde_json::to_vec(value).unwrap_or_default())
+    octocode_engine::digest::sha256(&serde_json::to_vec(value).unwrap_or_default())
 }
 
 #[cfg(test)]

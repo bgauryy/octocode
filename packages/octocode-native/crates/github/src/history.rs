@@ -21,28 +21,14 @@ pub struct CommitListRequest {
     pub page: usize,
     pub per_page: usize,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct HistoryPage {
     pub total_count: usize,
     pub incomplete_results: bool,
     pub items: Vec<Value>,
-    pub provider_page: usize,
     pub warnings: Vec<String>,
     pub listed: bool,
     pub has_more: bool,
-}
-impl Default for HistoryPage {
-    fn default() -> Self {
-        Self {
-            total_count: 0,
-            incomplete_results: false,
-            items: Vec::new(),
-            provider_page: 1,
-            warnings: Vec::new(),
-            listed: false,
-            has_more: false,
-        }
-    }
 }
 #[derive(Clone, Debug)]
 pub struct PullListRequest {
@@ -57,7 +43,7 @@ pub struct PullListRequest {
     pub per_page: usize,
 }
 impl GitHubTransport {
-    pub async fn list_commits(
+    pub(crate) async fn list_commits(
         &self,
         r: &CommitListRequest,
         context: &RequestContext,
@@ -98,7 +84,6 @@ impl GitHubTransport {
             total_count: 0,
             incomplete_results: false,
             items,
-            provider_page: r.page,
             warnings: Vec::new(),
             listed: true,
             has_more,
@@ -120,6 +105,7 @@ impl GitHubTransport {
             "github-user",
             RequestSpec::get(url),
             context,
+            super::search::Lookup::Store,
             "invalid GitHub user response",
             |_| true,
         )
@@ -177,7 +163,6 @@ impl GitHubTransport {
             total_count: 0,
             incomplete_results: false,
             items,
-            provider_page: request.page,
             warnings: Vec::new(),
             listed: true,
             has_more,
@@ -229,6 +214,7 @@ impl GitHubTransport {
                 "github-history-search",
                 spec,
                 context,
+                super::search::Lookup::Store,
                 "invalid GitHub history search response",
                 |value: &Value| {
                     !value
@@ -251,7 +237,6 @@ impl GitHubTransport {
                 Some(Value::Array(items)) => items,
                 _ => Vec::new(),
             },
-            provider_page: request.page,
             warnings: crate::sso_partial_warning(&withheld).into_iter().collect(),
             listed: false,
             has_more: false,

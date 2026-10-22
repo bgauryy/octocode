@@ -1,6 +1,6 @@
 //! The kinds of file edge the graph builder emits, and what each means for
-//! module loading. One table: astTopology's cycles and the graph store's
-//! cycle surfaces read it, so they classify an edge the same way.
+//! module loading. One table: the builder, the cycle engine and the
+//! detectors read it, so they classify an edge the same way.
 
 /// `mod child;`: module structure, not a dependency.
 pub(super) const RUST_MODULE: &str = "rust-module";

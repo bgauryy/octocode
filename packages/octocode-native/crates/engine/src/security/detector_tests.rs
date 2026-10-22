@@ -571,6 +571,52 @@ fn credential_assignments_skip_references_and_plain_keys() {
     }
 }
 
+/// An unquoted assignment that ends a code statement (`;`) with a name reads
+/// another variable or member, not a literal: it stays verbatim in any file,
+/// while the same keys in dotenv, INI, properties and shell syntax keep their
+/// values redacted.
+#[test]
+fn credential_assignments_keep_code_statement_references() {
+    for (content, path) in [
+        ("        frame.expect_key = frame.object;\n", None),
+        (
+            "    held.key_lines = point.inside_lines;\n",
+            Some("src/large_source.rs"),
+        ),
+        (
+            "  this.secret_token = !options.secret_token;\n",
+            Some("a.ts"),
+        ),
+        ("api_key = default_api_key;\n", None),
+    ] {
+        let result = detect(content, path);
+        assert_eq!(result.sanitized, content, "{path:?}");
+        assert!(result.secrets_detected.is_empty(), "{content:?}");
+    }
+    let value = format!("c7Tvo+hBKqFY{}", fake_b64(28));
+    for (content, path) in [
+        (format!("API_SECRET={value}\n"), Some(".env")),
+        (format!("export DB_PASSWORD={value}\n"), Some("deploy.sh")),
+        (format!("db.password={value}\n"), Some("app.properties")),
+        (
+            format!("[db]\nsecret_key = {value}\n"),
+            Some("settings.ini"),
+        ),
+        ("PASSWORD=correct.horse.battery.staple\n".to_owned(), None),
+        ("API_TOKEN=abcdefghijklmnopqrst;\n".to_owned(), Some(".env")),
+    ] {
+        let result = detect(&content, path);
+        assert!(
+            result
+                .secrets_detected
+                .iter()
+                .any(|name| name == "dotenvSecretAssignment"),
+            "not redacted: {content:?} -> {:?}",
+            result.sanitized
+        );
+    }
+}
+
 /// A credential-named key whose value spells a code identifier names a
 /// field, so it stays verbatim in every assignment form; a credential value
 /// under the same keys is still redacted.

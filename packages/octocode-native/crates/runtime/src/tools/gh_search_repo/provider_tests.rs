@@ -1,8 +1,9 @@
 //! Provider-backed ghSearchRepo tests: typed filters, archived disclosure,
 //! and row facts.
 use super::{GhSearchRepoQuery, execute};
-use crate::tools::gh_shared::test_support::{default_context, mount_json, one_shot_provider};
-use crate::tools::result::ToolData;
+use crate::response::result::ToolData;
+use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
+use octocode_github::mock_http::mount_json;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -506,7 +507,7 @@ async fn rows_carry_creation_date_as_a_detail_and_counts_as_stats() {
     }
     let kind_of = |field: &str| {
         let path = format!("results[].data.repositories[].{field}");
-        crate::tools::id::ToolId::GhSearchRepo
+        crate::id::ToolId::GhSearchRepo
             .extra_paths()
             .iter()
             .find(|(_, paths)| paths.contains(&path.as_str()))
@@ -747,3 +748,5 @@ async fn search_failures_lead_to_their_repair() {
         "{next}"
     );
 }
+
+mod backed;

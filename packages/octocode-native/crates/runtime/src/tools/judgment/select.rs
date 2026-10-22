@@ -163,6 +163,30 @@ impl Policy {
     }
 }
 
+/// A candidate's provider failure as its receipt records it, or `None` when
+/// the error does not fit the selection error contract.
+fn selection_failure(
+    ordinal: usize,
+    error: &ClassificationError,
+) -> Option<octocode_contract_types::SelectionFailure> {
+    Some(octocode_contract_types::SelectionFailure {
+        candidate: i64::try_from(ordinal).ok()?,
+        error: error.message.parse().ok()?,
+        error_code: error.code.parse().ok()?,
+        hints: if error.hints.is_empty() {
+            None
+        } else {
+            Some(octocode_contract_types::RowHints(
+                error
+                    .hints
+                    .iter()
+                    .map(|hint| hint.parse().ok())
+                    .collect::<Option<_>>()?,
+            ))
+        },
+    })
+}
+
 impl SelectionJudge for Evaluator {
     fn identity(&self) -> Value {
         json!({
@@ -229,12 +253,7 @@ impl SelectionJudge for Evaluator {
                 }
                 Ok(_) => Decision::Unknown,
                 Err(error) => {
-                    let failure = serde_json::from_value(json!({
-                        "candidate": ordinal, "errorCode": error.code,
-                        "error": error.message,
-                        "hints": (!error.hints.is_empty()).then(|| error.hints.clone()),
-                    }))
-                    .map_err(|_| {
+                    let failure = selection_failure(ordinal, &error).ok_or_else(|| {
                         JudgeFailure::Provider(ProviderError {
                             code: "invalidClassificationResponse".into(),
                             message:
@@ -345,8 +364,8 @@ mod tests {
 
     #[test]
     fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure() {
-        use crate::runtime::ExecutionContext;
-        use crate::runtime::SelectionLimits;
+        use crate::execution::ExecutionContext;
+        use crate::execution::SelectionLimits;
         use crate::tools::selection::Candidate;
         use std::time::Duration;
         use wiremock::{Mock, MockServer, Request, ResponseTemplate, matchers::method};
@@ -502,7 +521,7 @@ mod tests {
 
     #[test]
     fn a_provider_failing_every_candidate_is_a_typed_error_not_unknown() {
-        use crate::runtime::{ExecutionContext, SelectionLimits};
+        use crate::execution::{ExecutionContext, SelectionLimits};
         use crate::tools::selection::Candidate;
         use std::time::Duration;
         use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
@@ -572,7 +591,7 @@ mod tests {
     /// the cause (no connection), not "failed repeatedly".
     #[test]
     fn a_refused_connection_is_named_not_the_circuit_it_opens() {
-        use crate::runtime::{ExecutionContext, SelectionLimits};
+        use crate::execution::{ExecutionContext, SelectionLimits};
         use crate::tools::selection::Candidate;
         use std::time::Duration;
 
@@ -627,7 +646,7 @@ mod tests {
         };
         assert_eq!(
             error.code,
-            super::super::transport::CIRCUIT_OPEN,
+            crate::providers::classification::CIRCUIT_OPEN,
             "the provider is unavailable: {error:?}"
         );
         assert!(error.message.contains("could not connect"), "{error:?}");

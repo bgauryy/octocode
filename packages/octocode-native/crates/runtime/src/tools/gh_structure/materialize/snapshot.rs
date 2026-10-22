@@ -26,7 +26,7 @@ impl FileIdentity {
     pub(super) fn of(bytes: &[u8]) -> Self {
         Self {
             bytes: bytes.len() as u64,
-            sha256: crate::digest::sha256(bytes),
+            sha256: octocode_engine::digest::sha256(bytes),
         }
     }
 }

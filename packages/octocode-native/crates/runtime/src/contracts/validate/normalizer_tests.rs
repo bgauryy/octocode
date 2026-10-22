@@ -1,5 +1,5 @@
 use super::apply_normalization_rules;
-use crate::contracts::{prepare_many_and_validate, tool_types};
+use crate::contracts::prepare_many_and_validate;
 use serde_json::{Value, json};
 
 fn rules() -> Value {
@@ -74,6 +74,6 @@ fn canonical_briefs_trim_bom_and_retain_nel_before_generated_decoding() {
     .expect("canonical typed input");
     assert_eq!(rows[0]["mainGoal"], "goal");
     assert_eq!(rows[0]["reasoning"], "\u{85}");
-    serde_json::from_value::<tool_types::LocalFetchQuery>(rows[0].clone())
+    serde_json::from_value::<octocode_contract_types::LocalFetchQuery>(rows[0].clone())
         .expect("generated ECMAScript constraints agree");
 }

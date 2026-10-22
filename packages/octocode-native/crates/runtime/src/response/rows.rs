@@ -1,14 +1,14 @@
 //! Transport-neutral structured result metadata and lossless path compaction.
-use crate::contracts::tool_types::ExtraKind;
+use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
-use crate::tools::id::ToolId;
-use crate::tools::output::{PathAnchor, SANDBOX_HINT};
+use crate::response::output::{PathAnchor, SANDBOX_HINT};
+use octocode_contract_types::ExtraKind;
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 
 pub(crate) fn attach_diagnostics(
     row: &mut Value,
-    diagnostics: crate::tools::result::ToolDiagnostics,
+    diagnostics: crate::response::result::ToolDiagnostics,
 ) {
     if row.get("meta").is_none()
         || (diagnostics.codes.is_empty() && diagnostics.hints.is_empty() && !diagnostics.partial)
@@ -93,7 +93,7 @@ pub(crate) fn has_recovery(value: &Value) -> bool {
     };
     if node
         .get("hints")
-        .and_then(|hints| hints.get(crate::tools::id::continuation_channels::HINT_TEXT_KEY))
+        .and_then(|hints| hints.get(crate::id::continuation_channels::HINT_TEXT_KEY))
         .is_some_and(has_text)
     {
         return true;
@@ -101,7 +101,7 @@ pub(crate) fn has_recovery(value: &Value) -> bool {
     if ["next", "hints"].iter().any(|key| {
         node.get(*key)
             .and_then(Value::as_object)
-            .is_some_and(|calls| calls.values().any(crate::tools::result::is_call))
+            .is_some_and(|calls| calls.values().any(crate::response::result::is_call))
     }) {
         return true;
     }
@@ -120,6 +120,10 @@ pub(crate) fn has_recovery(value: &Value) -> bool {
     false
 }
 
+/// Hints are rendered whole only up to the response guidance limit (120
+/// chars); keep every GitHub recovery hint within it.
+pub(crate) const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login or set GH_TOKEN/GITHUB_TOKEN; an invalid env token overrides stored login.";
+
 /// The one recovery for a cancelled call, on every tool and stage.
 pub(crate) const CANCELLED_HINT: &str = "Retry only if the result is still needed and what cancelled it changed; otherwise report the cancellation.";
 
@@ -130,7 +134,7 @@ pub(crate) const CANCELLED_HINT: &str = "Retry only if the result is still neede
 pub(crate) fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
     Some(match code {
         "outsideAllowedRoots" | "symlinkEscape" => SANDBOX_HINT,
-        "authentication" => crate::tools::gh_shared::GITHUB_AUTH_RECOVERY_HINT,
+        "authentication" => GITHUB_AUTH_RECOVERY_HINT,
         "permission" | "permissionDenied" => {
             "Verify access and token scopes; do not treat denial as absence."
         }
@@ -152,7 +156,7 @@ pub(crate) fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> 
         }
         "httpStatus" => "Check httpStatus and the message; this status is not a network failure.",
         // One code, one recovery on every tool.
-        crate::policy::PATH_NOT_FOUND => crate::tools::output::VERIFY_PATH_HINT,
+        crate::policy::PATH_NOT_FOUND => crate::response::output::VERIFY_PATH_HINT,
         crate::policy::PATH_POLICY_DENIED => crate::policy::discovery::WITHHELD_HINT,
         code => {
             if let Some(hint) = tool.output().error_hint(code) {
@@ -196,7 +200,7 @@ pub(crate) fn ensure_recovery(row: &mut Value, tool: ToolId, query: &Value) {
             .and_then(|category| tool.output().error_hint(category))
             .unwrap_or_else(|| tool.output().fallback_hint(query))
     };
-    if hint == crate::tools::output::NO_HINT {
+    if hint == crate::response::output::NO_HINT {
         return;
     }
     let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
@@ -285,11 +289,11 @@ pub(crate) fn apply_hint_policy(row: &mut Value, tool: ToolId, query: &Value) {
 pub(crate) fn sanitize_fields(
     value: &mut Value,
     security: &crate::security::ContentSecurity,
-    context: &crate::runtime::ExecutionContext,
-) -> Result<(), crate::runtime::ExecutionError> {
+    context: &crate::execution::ExecutionContext,
+) -> Result<(), crate::execution::ExecutionError> {
     context.check()?;
     crate::security::sanitize_json(value, &mut |text, path| {
-        Ok::<_, crate::runtime::ExecutionError>(security.sanitize_leaf(text, path).content)
+        Ok::<_, crate::execution::ExecutionError>(security.sanitize_leaf(text, path).content)
     })
 }
 
@@ -299,11 +303,11 @@ pub(crate) fn sanitize_fields(
 pub(super) fn redact_email_fields(
     value: &mut Value,
     security: &crate::security::ContentSecurity,
-    context: &crate::runtime::ExecutionContext,
-) -> Result<(), crate::runtime::ExecutionError> {
+    context: &crate::execution::ExecutionContext,
+) -> Result<(), crate::execution::ExecutionError> {
     context.check()?;
     crate::security::sanitize_json(value, &mut |text, _| {
-        Ok::<_, crate::runtime::ExecutionError>(security.redact_emails(text))
+        Ok::<_, crate::execution::ExecutionError>(security.redact_emails(text))
     })
 }
 
@@ -313,9 +317,9 @@ pub(crate) fn sanitize_output(
     value: &mut Value,
     tool: ToolId,
     security: &crate::security::ContentSecurity,
-    context: &crate::runtime::ExecutionContext,
+    context: &crate::execution::ExecutionContext,
     redact_emails: bool,
-) -> Result<(), crate::runtime::ExecutionError> {
+) -> Result<(), crate::execution::ExecutionError> {
     sanitize_fields(value, security, context)?;
     if redact_emails && tool.is_github() {
         redact_email_fields(value, security, context)?;
@@ -323,7 +327,7 @@ pub(crate) fn sanitize_output(
     Ok(())
 }
 
-pub fn result_row(
+pub(crate) fn result_row(
     tool: ToolId,
     index: usize,
     query: &Value,
@@ -349,7 +353,10 @@ pub fn result_row(
     // A row with more to read is not empty, whatever the tool decided from
     // the rows this page holds: an executable page or a pagination block
     // stating `hasMore` means the result continues.
-    let status = if status == Some("empty") && (paged || states_more(&data)) {
+    // A retry runs the same page again: an empty row offering only one (an
+    // incomplete provider page) is still empty, so the call exits 1.
+    let continues = paged && super::pages::has_page_beyond_retry(tool, &data);
+    let status = if status == Some("empty") && (continues || states_more(&data)) {
         None
     } else {
         status
@@ -371,7 +378,7 @@ pub fn result_row(
     }
     if let Some(object) = data.as_object_mut() {
         // Request echoes: the row answers its query, it does not repeat it.
-        let echoes = crate::tools::result::INTENT_FIELDS
+        let echoes = crate::response::result::INTENT_FIELDS
             .into_iter()
             .chain(["cache", "query"]);
         for key in echoes {
@@ -467,7 +474,7 @@ fn row_meta(tool: ToolId, query: &Value, data: &Value, status: Option<&str>) -> 
 /// what asserts nothing there: empty arrays, the snapshot and a finished
 /// page. Clasify rows never reach this pass; they have their own
 /// resource-major projection.
-pub fn minimize_row(row: &mut Value, tool: ToolId, query: &Value) {
+pub(crate) fn minimize_row(row: &mut Value, tool: ToolId, query: &Value) {
     if row["status"] == "error" {
         if let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) {
             minimize_error_data(data);
@@ -683,7 +690,7 @@ fn variants_of(
 /// ones the page needs and `extras:["stats"]` keeps whole: the contract's
 /// `scanTotals` for the tool says which rows.
 fn reports_scan_totals(tool: ToolId, data: &Map<String, Value>) -> bool {
-    use crate::tools::id::ScanTotals;
+    use crate::id::ScanTotals;
     match tool.scan_totals() {
         Some(ScanTotals::Always) => true,
         Some(ScanTotals::WithMatchCount) => data.contains_key("matchCount"),
@@ -720,7 +727,7 @@ fn minimize_search_totals(data: &mut Map<String, Value>) {
 /// Row `errorCode`s that reject the caller's input (CLI exit 2): the request
 /// is wrong, so broadening or retrying it cannot help.
 pub fn is_invalid_input_code(code: &str) -> bool {
-    crate::tools::id::error_class(code) == crate::tools::id::error_codes::ErrorClass::InvalidInput
+    crate::id::error_class(code) == crate::id::error_codes::ErrorClass::InvalidInput
 }
 
 /// Build the public envelope for executed rows; `queries` maps each row
@@ -730,7 +737,7 @@ pub fn is_invalid_input_code(code: &str) -> bool {
 /// paths are anchored on the workspace root: a path inside it is emitted
 /// relative to it, so a copied row path resolves as-is, and `root` is that
 /// root; a path outside it stays absolute.
-pub fn envelope_in(
+pub(crate) fn envelope_in(
     mut rows: Vec<Value>,
     tool: ToolId,
     queries: &[Option<&Value>],
@@ -757,15 +764,6 @@ pub fn envelope_in(
         })
         .collect();
     let anchor = tool.output().path_anchor();
-    if anchor == PathAnchor::ScannedDir {
-        let workspace = paths
-            .validate(".")
-            .ok()
-            .map(|valid| valid.canonical.to_string_lossy().into_owned());
-        let mut value = envelope(tool, rows);
-        anchor_topology(&mut value, &roots, workspace.as_deref());
-        return value;
-    }
     if anchor == PathAnchor::Common {
         return envelope(tool, rows);
     }
@@ -798,7 +796,7 @@ pub fn envelope_in(
                 .and_then(|index| usize::try_from(index).ok())
                 .unwrap_or(position);
             queries.get(index).copied().flatten().is_some_and(|query| {
-                super::extras::wants(query, crate::contracts::tool_types::ExtraKind::Receipts)
+                super::extras::wants(query, octocode_contract_types::ExtraKind::Receipts)
             })
         })
         .collect::<Vec<_>>();
@@ -826,7 +824,7 @@ fn checked_out_heads(
         .map(|(root, wanted)| {
             let root = root.as_deref().filter(|_| *wanted)?;
             seen.entry(root)
-                .or_insert_with(|| crate::runtime::git_head::head_sha(root))
+                .or_insert_with(|| crate::git_head::head_sha(root))
                 .clone()
         })
         .collect()
@@ -868,7 +866,7 @@ fn attach_heads(value: &mut Value, heads: &[Option<String>]) {
 /// the root the response already names as `root`. Paths outside the
 /// workspace, `file://` uris and non-local fields stay as they are.
 fn relativize_continuation_paths(value: &mut Value, workspace: &str) {
-    crate::tools::result::for_each_call_mut(value, &mut |call| {
+    crate::response::result::for_each_call_mut(value, &mut |call| {
         for row in call
             .pointer_mut("/query/queries")
             .and_then(Value::as_array_mut)
@@ -889,7 +887,7 @@ fn relativize_continuation_paths(value: &mut Value, workspace: &str) {
 /// then names as `root` even when no row carries a path (an empty row).
 fn relative_continuation_path(value: &Value) -> bool {
     let mut relative = false;
-    crate::tools::result::for_each_call(value, &mut |call| {
+    crate::response::result::for_each_call(value, &mut |call| {
         relative |= call
             .pointer("/query/queries")
             .and_then(Value::as_array)
@@ -914,57 +912,6 @@ fn workspace_relative(path: &str, workspace: &str) -> Option<String> {
         .strip_prefix('/')
         .filter(|rest| !rest.is_empty())
         .map(str::to_owned)
-}
-
-/// [`PathAnchor::ScannedDir`] fields (`file`, entrypoints, diagnostics) are
-/// relative to the scanned directory (a file root's parent) of their row.
-/// Like the other local tools, `root` is the workspace root and each row
-/// `path` names its own directory relative to it (`.` for the root itself),
-/// so `root`, `path` and `file` joined resolve each file; rows over
-/// different directories, or beside an error row (`None` in `roots`), are
-/// anchored one by one. When every anchored row scans one directory
-/// outside the workspace, that directory becomes `root` itself, with `path`
-/// `.`; a directory outside the workspace beside others stays absolute.
-fn anchor_topology(value: &mut Value, roots: &[Option<PathBuf>], workspace: Option<&str>) {
-    let dirs: Vec<Option<String>> = roots
-        .iter()
-        .map(|root| {
-            let root = root.as_deref()?;
-            let dir = if root.is_dir() { root } else { root.parent()? };
-            Some(dir.to_string_lossy().into_owned())
-        })
-        .collect();
-    let mut distinct = dirs.iter().flatten();
-    let single = distinct
-        .next()
-        .filter(|first| distinct.all(|other| other == *first))
-        .cloned();
-    let Some(rows) = value["results"].as_array_mut() else {
-        return;
-    };
-    let mut base = None;
-    for (row, dir) in rows.iter_mut().zip(&dirs) {
-        let Some(dir) = dir else {
-            continue;
-        };
-        let (row_base, display) = match workspace
-            .and_then(|workspace| Some((workspace, workspace_relative(dir, workspace)?)))
-        {
-            Some((workspace, relative)) => (Some(workspace), relative),
-            None if single.as_ref() == Some(dir) => (Some(dir.as_str()), ".".to_owned()),
-            None => (None, dir.clone()),
-        };
-        if row["data"].get("path").is_some_and(Value::is_string) {
-            row["data"]["path"] = json!(display);
-        }
-        if let Some(row_base) = row_base {
-            relativize_continuation_paths(&mut row["data"], row_base);
-            base = Some(row_base.to_owned());
-        }
-    }
-    if let Some(base) = base {
-        value["root"] = json!(base);
-    }
 }
 
 /// Inverse of [`rewrite_paths`] for one directory prefix: same traversal and

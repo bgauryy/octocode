@@ -34,7 +34,6 @@ const HERMETIC = {
   'lead-replay': script('lead-replay'),
   navigate: script('navigate'),
   'repo-sweep': script('repo-sweep'),
-  'deps-flows': script('deps-flows'),
   'large-files': script('large-files'),
   'local-ranking': script('local-ranking'),
   'read-tool-selection': script('read-tool-selection'),

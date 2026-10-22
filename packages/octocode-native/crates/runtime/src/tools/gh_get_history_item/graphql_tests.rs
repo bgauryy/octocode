@@ -3,11 +3,11 @@
 //! left incomplete read by REST, a failed fast path falling back to REST, and
 //! an issue's closing references.
 use super::{HistoryItemRequest, execute};
-use crate::contracts::tool_types::ExtraKind;
 use crate::security::scan::Passthrough;
-use crate::tools::gh_shared::test_support::{
-    Delayed, default_context, mount_json, one_shot_provider,
-};
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
+use octocode_contract_types::ExtraKind;
+use octocode_github::mock_http::{Delayed, mount_json};
 use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -58,7 +58,7 @@ async fn mount_rest_pr(server: &MockServer, reads: u64) {
         .await;
 }
 
-async fn read(server: &MockServer, row: Value) -> crate::tools::result::ToolData {
+async fn read(server: &MockServer, row: Value) -> crate::response::result::ToolData {
     let provider = one_shot_provider(server);
     let request = HistoryItemRequest::from_row(row).expect("valid row");
     execute(
@@ -380,7 +380,10 @@ async fn a_failed_graphql_read_falls_back_to_rest() {
     );
     assert_eq!(quiet.data.get("graphqlFallback"), None, "{}", quiet.data);
     let request = HistoryItemRequest::from_row(row(json!(["diagnostics"]))).expect("row");
-    assert!(request.wants(ExtraKind::Diagnostics));
+    assert!(gh_get_history_item_query::wants(
+        &request,
+        ExtraKind::Diagnostics
+    ));
     let shown = read(&server, row(json!(["diagnostics"]))).await;
     let reason = shown.data["graphqlFallback"].as_str().unwrap_or_default();
     assert!(reason.contains("not accessible"), "{}", shown.data);
@@ -445,5 +448,54 @@ async fn an_issue_lists_its_closing_pull_requests_from_graphql() {
         None,
         "{}",
         later.data
+    );
+}
+
+/// Review comments are REST-only: their first batch is requested beside
+/// the GraphQL read, not after its answer.
+#[tokio::test]
+async fn review_comments_load_beside_the_graphql_read() {
+    let server = MockServer::builder().start().await;
+    let delay = std::time::Duration::from_millis(400);
+    let graphql = Delayed::new(
+        delay,
+        ResponseTemplate::new(200).set_body_json(graphql_pr(json!({
+            "commentsConn": {"pageInfo": {"hasNextPage": false}, "nodes": []},
+            "commits": {"pageInfo": {"hasNextPage": false}, "nodes": []}
+        }))),
+    );
+    let graphql_arrivals = graphql.arrivals.clone();
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(graphql)
+        .mount(&server)
+        .await;
+    let inline = Delayed::new(
+        std::time::Duration::ZERO,
+        ResponseTemplate::new(200).set_body_json(json!([{
+            "id": 5, "user": {"login": "amy"}, "body": "nit", "path": "src/a.rs",
+            "created_at": "2026-01-01T00:00:00Z", "html_url": "https://x"
+        }])),
+    );
+    let inline_arrivals = inline.arrivals.clone();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/7/comments"))
+        .respond_with(inline)
+        .mount(&server)
+        .await;
+    let out = read(
+        &server,
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,
+            "sections":["comments","commits","reviewComments"]}),
+    )
+    .await;
+    let pr = &out.data["pullRequests"][0];
+    assert!(pr.get("reviewComments").is_some(), "{pr}");
+    let (graphql_at, inline_at) = (graphql_arrivals.times(), inline_arrivals.times());
+    assert_eq!((graphql_at.len(), inline_at.len()), (1, 1), "{pr}");
+    assert!(
+        inline_at[0] < graphql_at[0] + delay,
+        "review comments waited {:?} for the GraphQL answer",
+        inline_at[0].duration_since(graphql_at[0])
     );
 }

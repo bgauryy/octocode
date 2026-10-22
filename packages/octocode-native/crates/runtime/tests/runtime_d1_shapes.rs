@@ -3,7 +3,8 @@
 //! these tests produce is checked against the output contract.
 
 use crate::support::{self, Run as _, Workspace};
-use octocode_native::runtime::{ToolOutcome, ToolRuntime};
+use octocode_native::response::outcome::ToolOutcome;
+use octocode_native::runtime::ToolRuntime;
 use serde_json::{Value, json};
 
 fn beta_runtime(workspace: &Workspace) -> ToolRuntime {
@@ -533,7 +534,7 @@ async fn error_codes_are_declared_camel_case_names() {
             "{code} is not camelCase"
         );
         assert!(
-            octocode_native::tools::id::error_codes::class(code).is_some(),
+            octocode_native::id::error_codes::class(code).is_some(),
             "{code} is not declared"
         );
     }

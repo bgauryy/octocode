@@ -41,9 +41,6 @@ const TOOL_PAGINATION_CONTRACT: Record<
   localSearch: { controls: ['page', 'pageSize'] },
   structureSearch: { controls: ['page', 'pageSize'] },
   astSearch: { controls: ['page', 'pageSize'] },
-  astTopology: {
-    controls: ['page', 'pageSize', 'diagnosticPage', 'diagnosticPageSize'],
-  },
   localFetch: { controls: ['unit', 'offset', 'length'] },
   lspSearch: { controls: ['page', 'pageSize'] },
   clasify: {
@@ -55,7 +52,6 @@ const TOOL_PAGINATION_CONTRACT: Record<
 /** Scan ceilings that report partial results, by tool. */
 const SCAN_CAPS: Record<string, string> = {
   structureSearch: 'maxEntries',
-  astTopology: 'maxFiles',
 };
 
 type JsonSchema = {

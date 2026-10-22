@@ -1,5 +1,6 @@
 //! `artifactSearch.version`: classify a requested version and resolve ranges
 //! against a registry's published versions.
+use super::ArtifactError;
 use semver::{Version, VersionReq};
 
 /// What a `version` string asks for.
@@ -218,6 +219,21 @@ pub(crate) fn pypi_resolve<'a>(
         .filter(|(parts, _)| clauses.iter().all(|clause| clause(parts)))
         .max_by(|(left, _), (right, _)| pep440_cmp(left, right))
         .map(|(_, value)| value.to_owned())
+}
+
+/// A known package without the requested version: typed, with the nearest
+/// published versions as the recovery.
+pub(crate) fn version_not_found(name: &str, requested: &str, versions: &[String]) -> ArtifactError {
+    let close = nearest(requested, versions.iter().map(String::as_str));
+    let error = ArtifactError::new(
+        "versionNotFound",
+        format!("{name} has no published version matching \"{requested}\""),
+    )
+    .with_status(404);
+    ArtifactError {
+        nearest: close,
+        ..error
+    }
 }
 
 /// Up to five published versions closest to a missing `requested` one:

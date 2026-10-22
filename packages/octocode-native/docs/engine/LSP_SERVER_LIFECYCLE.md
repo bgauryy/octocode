@@ -69,12 +69,12 @@ The native CLI owns a pinned managed manifest for `rust-analyzer` and `clangd`:
 ```bash
 npx octocode lsp-server list
 npx octocode lsp-server status path/to/file.ts
-npx octocode lsp-server install rust-analyzer clangd   # --yes forces a re-download
+npx octocode lsp-server install rust-analyzer clangd   # --all for every server
 npx octocode lsp-server uninstall clangd
-npx octocode lsp-server clean --yes
+npx octocode lsp-server clean --yes                     # without --yes: a dry run
 ```
 
-Installation is explicit: `lspSearch` never downloads an executable. `lsp.autoInstall` decides whether an install command may download without asking (`--force` skips that policy for one run), and `lsp.cacheDir` moves the installs from `<octocode home>/lsp`.
+Installation is explicit: `lspSearch` never downloads an executable. `lsp.autoInstall` decides whether an install command may download without asking (`install --force` skips that policy for one run; an installed server is never re-downloaded: `uninstall` it first), and `lsp.cacheDir` moves the installs from `<octocode home>/lsp`.
 
 Provisioning permits only allowed HTTPS hosts, follows the same restriction across redirects, requires a pinned SHA-256, supports bounded `none`, `gz`, and `zip` extraction, uses per-target locks, and atomically publishes a completion-marked executable. Unsupported platforms fail with an installation hint.
 

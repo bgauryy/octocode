@@ -316,7 +316,7 @@ fn import_runs(root: tree_sitter::Node<'_>) -> Vec<(usize, usize)> {
                 _ => runs.push((start, end)),
             }
             open = true;
-        } else if !kind.contains("comment") {
+        } else if !crate::structural::kinds::is_comment_kind(kind) {
             open = false;
         }
     }

@@ -31,7 +31,7 @@ const median = xs => {
   return +(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2).toFixed(3);
 };
 const fmt = v => (v == null ? '—' : typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString('en-US') : String(+v.toFixed(3))) : String(v));
-const TOOL_ORDER = ['localSearch', 'localFetch', 'structureSearch', 'astSearch', 'lspSearch', 'ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch', 'clasify', 'ghCloneRepo', 'astTopology',];
+const TOOL_ORDER = ['localSearch', 'localFetch', 'structureSearch', 'astSearch', 'lspSearch', 'ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch', 'clasify', 'ghCloneRepo'];
 
 function competitorsFile() {
   if (opt('competitors')) return path.resolve(opt('competitors'));

@@ -10,7 +10,7 @@ test('every installed report skill renders, discovers and rejects invalid report
   const root = mkdtempSync(join(tmpdir(), 'installed-reports-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const installed = join(root, 'installed');
-  stageSkills(resolve('skills'), installed);
+  stageSkills(resolve(import.meta.dirname, '../..'), installed);
   assert.equal(existsSync(join(installed, 'common')), false);
   const consumers = readdirSync(installed).filter(name => existsSync(join(installed, name, 'scripts/render-report.mjs')));
   assert.ok(consumers.length > 0);
@@ -18,7 +18,8 @@ test('every installed report skill renders, discovers and rejects invalid report
     const contract = JSON.parse(readFileSync(join(installed, name, 'output.md'), 'utf8').match(/<!-- report-contract (.*?) -->/)[1]);
     const folder = join(root, '.octocode', name);
     mkdirSync(folder, { recursive: true });
-    const input = join(folder, new Date().toLocaleDateString('en-CA') + '-smoke.md'), out = join(folder, 'smoke.html');
+    const smokeFile = new Date().toLocaleDateString('en-CA') + '-smoke.md';
+    const input = join(folder, smokeFile), out = join(folder, 'smoke.html');
     const sections = [...contract.required, ...contract.anyOf.map(group => group[0])];
     const content = `---\nstatus: ${contract.statuses[0]}\nquestion: Does the installed output pipeline work?\n---\n# ${name}\n\nSynthetic pipeline fixture; not a domain-workflow result.\n\n` + sections.map(h => `## ${h}\n\nFixture evidence.\n`).join('\n') + '\n```mermaid\nflowchart LR\nA[Markdown] --> B[HTML]\n```\n';
     const invoke = args => spawnSync(process.execPath, [join(installed, name, 'scripts/render-report.mjs'), ...args], { cwd: root, encoding: 'utf8', timeout: 15000 });
@@ -30,7 +31,7 @@ test('every installed report skill renders, discovers and rejects invalid report
     assert.ok(html.includes('id="verify-render"'), name);
     const listing = invoke([folder, '--manifest', '--all']);
     assert.equal(listing.status, 0, name);
-    assert.ok(listing.stdout.includes('2026-10-21-smoke.md'), name);
+    assert.ok(listing.stdout.includes(smokeFile), name);
     writeFileSync(input, content.replace(/^status: .*$/m, 'status: __outside_contract__'));
     assert.equal(invoke([input, '--out', out, '--json', '--strict']).status, 2, name);
     assert.equal(readFileSync(out, 'utf8'), html, `${name}: invalid input overwrote valid HTML`);

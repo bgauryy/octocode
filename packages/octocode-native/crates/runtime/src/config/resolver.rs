@@ -421,27 +421,17 @@ fn drop_removed_env(
         .collect()
 }
 
-/// Edit distance between two names, case-insensitively.
-fn name_distance(left: &str, right: &str) -> usize {
-    let left: Vec<char> = left.to_ascii_lowercase().chars().collect();
-    let right: Vec<char> = right.to_ascii_lowercase().chars().collect();
-    let mut previous: Vec<usize> = (0..=right.len()).collect();
-    for (i, l) in left.iter().enumerate() {
-        let mut current = vec![i + 1];
-        for (j, r) in right.iter().enumerate() {
-            let substitution = previous[j] + usize::from(l != r);
-            current.push(substitution.min(previous[j + 1] + 1).min(current[j] + 1));
-        }
-        previous = current;
-    }
-    previous[right.len()]
-}
-
-/// The tool name `name` most likely meant, when one is close.
-fn nearest_tool_name(name: &str) -> Option<&'static str> {
-    crate::tools::id::ToolId::ALL
+/// The tool name `name` most likely meant, when one is close
+/// (case-insensitive edit distance).
+pub(crate) fn nearest_tool_name(name: &str) -> Option<&'static str> {
+    let name = name.to_ascii_lowercase();
+    crate::id::ToolId::ALL
         .into_iter()
-        .map(|id| (name_distance(name, id.as_str()), id.as_str()))
+        .map(|id| {
+            let candidate = id.as_str();
+            let distance = crate::contracts::levenshtein(&name, &candidate.to_ascii_lowercase());
+            (distance, candidate)
+        })
         .filter(|(distance, candidate)| *distance <= 3 && *distance * 3 <= candidate.len())
         .min_by_key(|(distance, _)| *distance)
         .map(|(_, candidate)| candidate)
@@ -469,7 +459,7 @@ fn unknown_tool_names(
                 .as_array()?
                 .iter()
                 .filter_map(Value::as_str)
-                .filter(|name| crate::tools::id::ToolId::from_name(name).is_none())
+                .filter(|name| crate::id::ToolId::from_name(name).is_none())
                 .map(|name| match nearest_tool_name(name) {
                     Some(nearest) => format!("\"{name}\" (did you mean \"{nearest}\"?)"),
                     None => format!("\"{name}\""),
@@ -723,19 +713,19 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         project_config_path,
     }
 }
-pub fn get_config_value(resolved: &ResolvedConfig, path: &str) -> Option<Value> {
+pub(crate) fn get_config_value(resolved: &ResolvedConfig, path: &str) -> Option<Value> {
     if path.is_empty() {
         return None;
     }
     get_path(&serde_json::to_value(resolved).ok()?, path).cloned()
 }
-pub fn is_stats_enabled(resolved: &ResolvedConfig) -> bool {
+pub(crate) fn is_stats_enabled(resolved: &ResolvedConfig) -> bool {
     is_persistent_storage_enabled(resolved) && resolved.storage.stats
 }
 pub fn is_persistent_storage_enabled(resolved: &ResolvedConfig) -> bool {
     resolved.storage.mode == StorageMode::Persistent
 }
-pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspectorData {
+pub(crate) fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspectorData {
     let home = output.home.clone();
     let top_level_keys = |file: &FileInput| -> Vec<String> {
         let mut keys: Vec<String> = load_config(file)

@@ -3,10 +3,12 @@
 use super::inventory::file_page_size;
 use super::pr_menu::*;
 use super::{HistoryItemRequest, ItemOperation, Section, Sections};
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, query_row};
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::commit::commit_pull_request;
 use crate::tools::gh_shared::ensure_next;
-use crate::tools::id::ToolId;
-use crate::tools::result::{Continuation, query_row};
 use serde_json::{Map, Value, json};
 
 /// The whole-patch re-read of every patch row a `matchString` view narrowed
@@ -18,7 +20,7 @@ use serde_json::{Map, Value, json};
 pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
     let narrowed = take_reshaped_paths(
         out.pointer_mut("/pullRequests/0/files"),
-        q.wants(crate::contracts::tool_types::ExtraKind::Details),
+        gh_get_history_item_query::wants(q, octocode_contract_types::ExtraKind::Details),
     );
     if narrowed.is_empty() {
         return;
@@ -117,7 +119,7 @@ pub(super) fn pin_file_page_size(nq: &mut Value, q: &HistoryItemRequest, patches
 /// A hop carries the caller's `length` as the window it got, so a length
 /// clamped to the response page is said once, on the call that asked.
 pub(super) fn clamp_hop_length(nq: &mut Value, q: &HistoryItemRequest) {
-    if let Some(length) = q.char_length() {
+    if let Some(length) = gh_get_history_item_query::char_length(q) {
         nq["length"] = json!(super::window::patch_window(Some(length), q.auto_page_chars));
     }
 }
@@ -162,7 +164,7 @@ impl DiffCursors {
 /// `ghGetHistoryItem` commit query at `reference`, with the caller's
 /// page, window and scope.
 pub(super) fn commit_query(q: &HistoryItemRequest, reference: &str) -> Value {
-    use crate::contracts::tool_types::{
+    use octocode_contract_types::{
         GhGetHistoryItemQuery, GhGetHistoryItemQueryRef, GhGetHistoryItemQuerySectionsItem,
         HiInclude, HiIncludeItem, HiMatchString, HiOwner, HiRepo,
     };
@@ -174,39 +176,39 @@ pub(super) fn commit_query(q: &HistoryItemRequest, reference: &str) -> Value {
     let typed = || -> Option<GhGetHistoryItemQuery> {
         Some(GhGetHistoryItemQuery::Commit {
             // A hop keeps the patch grep that narrowed the row it came from.
-            context_lines: q
-                .match_context()
+            context_lines: gh_get_history_item_query::match_context(q)
                 .and_then(|lines| i64::try_from(lines).ok())
                 .map(Into::into),
             extras: Vec::new(),
             // Page 1 and the contract's page size are what an omitted
             // field reads: a continuation restates neither.
-            page: q
-                .page()
+            page: gh_get_history_item_query::page(q)
                 .filter(|page| *page > 1)
                 .and_then(positive)
                 .map(Into::into),
-            include: (!q.include_patterns().is_empty())
+            include: (!gh_get_history_item_query::include_patterns(q).is_empty())
                 .then(|| {
-                    q.include_patterns()
+                    gh_get_history_item_query::include_patterns(q)
                         .into_iter()
                         .map(|path| HiIncludeItem::try_from(path).ok())
                         .collect::<Option<Vec<_>>>()
                         .map(HiInclude)
                 })
                 .flatten(),
-            length: q.char_length().and_then(positive).map(Into::into),
+            length: gh_get_history_item_query::char_length(q)
+                .and_then(positive)
+                .map(Into::into),
             main_goal: None,
-            match_string: q.match_string().map(|text| HiMatchString(text.to_owned())),
-            offset: q
-                .char_offset()
+            match_string: gh_get_history_item_query::match_string(q)
+                .map(|text| HiMatchString(text.to_owned())),
+            offset: gh_get_history_item_query::char_offset(q)
                 .and_then(|offset| u64::try_from(offset).ok())
                 .map(Into::into),
-            owner: HiOwner::try_from(q.owner()).ok()?,
-            page_size: q.page_size().and_then(positive),
+            owner: HiOwner::try_from(gh_get_history_item_query::owner(q)).ok()?,
+            page_size: gh_get_history_item_query::page_size(q).and_then(positive),
             reasoning: None,
             ref_: GhGetHistoryItemQueryRef::try_from(reference).ok()?,
-            repo: HiRepo::try_from(q.repo()).ok()?,
+            repo: HiRepo::try_from(gh_get_history_item_query::repo(q)).ok()?,
             sections: if q.include_diff() {
                 vec![GhGetHistoryItemQuerySectionsItem::Patches]
             } else {
@@ -229,7 +231,10 @@ pub(super) fn attach_diff_continuations(
     cursors: DiffCursors,
 ) {
     let mut next = Map::new();
-    let base = match (operation, resolved_ref.or(q.reference())) {
+    let base = match (
+        operation,
+        resolved_ref.or(gh_get_history_item_query::reference(q)),
+    ) {
         (ItemOperation::Commit, Some(reference)) => commit_query(q, reference),
         _ => base_public_query(q, operation),
     };
@@ -260,7 +265,10 @@ pub(super) fn attach_diff_continuations(
         let mut nq = base.clone();
         nq["sections"] = json!(["patches"]);
         remove_key(&mut nq, "offset");
-        let listed_from = q.page().unwrap_or(1).saturating_sub(1) * file_page_size(q, false);
+        let listed_from = gh_get_history_item_query::page(q)
+            .unwrap_or(1)
+            .saturating_sub(1)
+            * file_page_size(q, false);
         match listed_from / file_page_size(q, true) + 1 {
             1 => remove_key(&mut nq, "page"),
             page => nq["page"] = json!(page),
@@ -318,14 +326,18 @@ pub(super) fn commit_pull_request_lead(
     sha: &str,
     q: &HistoryItemRequest,
 ) -> (&'static str, Value) {
-    if let Some(number) = commit_pull_request(message, q.owner(), q.repo()) {
+    if let Some(number) = commit_pull_request(
+        message,
+        gh_get_history_item_query::owner(q),
+        gh_get_history_item_query::repo(q),
+    ) {
         return (
             "readPullRequest",
             Continuation::new(
                 ToolId::GhGetHistoryItem,
-                json!({"operation":"pullRequest","owner":q.owner(),"repo":q.repo(),"number":number}),
+                json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"number":number}),
             )
-            .confidence("exact")
+            .confidence(Confidence::Exact)
             .build(),
         );
     }
@@ -333,9 +345,9 @@ pub(super) fn commit_pull_request_lead(
         "findPullRequest",
         Continuation::new(
             ToolId::GhSearchHistory,
-            json!({"operation":"pullRequest","owner":q.owner(),"repo":q.repo(),"keywords":[sha]}),
+            json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"keywords":[sha]}),
         )
-        .confidence("high")
+        .confidence(Confidence::High)
         .build(),
     )
 }

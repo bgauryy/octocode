@@ -9,6 +9,8 @@
 //        └── tool-contract/bundle.ts ──▶ contract/tool-types.schema.json
 //                 ├── tool-contract/typescript.ts ──▶ src/contracts/toolTypes.generated.ts
 //                 └── tool-contract/rust.ts ────────▶ contract/tool_types.rs
+//                     (rust-reach.ts keeps only the types native source names
+//                      and what they reach)
 //
 // octocode-native's build.rs embeds contract/ in place, so regenerating here
 // is the whole change. Outputs are committed and never hand-edited; `--check`

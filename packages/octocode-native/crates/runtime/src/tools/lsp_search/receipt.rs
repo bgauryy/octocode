@@ -3,6 +3,7 @@
 
 use super::LspSearchQuery;
 use super::anchor::is_anchored;
+use crate::tools::lsp_search::lsp_search_query;
 use octocode_engine::digest::canonical_json_keep_nulls;
 use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::lsp::types::LspLanguageServerConfig;
@@ -71,7 +72,7 @@ pub(super) fn apply_rust_context(
     config: &mut LspLanguageServerConfig,
     query: &LspSearchQuery,
 ) -> Result<(), String> {
-    let Some(value) = &query.rust_context() else {
+    let Some(value) = &lsp_search_query::rust_context(query) else {
         return Ok(());
     };
     if config.language_id.as_deref() != Some("rust") {
@@ -183,7 +184,7 @@ pub(super) fn attach_provider_context(
         "path".into(),
         json!(super::render::uri_to_path(canonical_uri)),
     );
-    let anchored = is_anchored(query.operation());
+    let anchored = is_anchored(lsp_search_query::operation(query));
     // The row's `path` names the anchor file once; the anchor receipt and a
     // locations restate it only when they point elsewhere.
     if let Some(resolved_symbol) = public_resolved_symbol(query, resolved_symbol, canonical_uri) {
@@ -195,7 +196,7 @@ pub(super) fn attach_provider_context(
         .as_object_mut();
     if let Some(lsp) = lsp {
         lsp.insert("serverAvailable".into(), json!(true));
-        settle_provider(lsp, query.operation());
+        settle_provider(lsp, lsp_search_query::operation(query));
         settle_source(lsp, anchored);
         // `lsp.receipt` is verbose (core field class): the verbose stage
         // drops it unless the row's `extras` names `receipts`.
@@ -268,7 +269,7 @@ pub(super) fn public_resolved_symbol(
 ) -> Option<Value> {
     let mut resolved_symbol = resolved_symbol?;
     drop_same_uri(&mut resolved_symbol, canonical_uri);
-    let moved = query.symbol_name().is_some()
+    let moved = lsp_search_query::symbol_name(query).is_some()
         && resolved_symbol.as_object().is_some_and(|fields| {
             fields
                 .keys()
@@ -358,7 +359,7 @@ pub(super) fn resolved_server_receipt(
         "command": config.command,
         "source": config.source.as_str(),
         "workspaceRoot": config.workspace_root,
-        "workspaceFingerprint": crate::digest::sha256(workspace.as_bytes()),
+        "workspaceFingerprint": octocode_engine::digest::sha256(workspace.as_bytes()),
         "configurationFingerprint": crate::digest::json_sha256(&configuration),
         "capabilities": capabilities
     });

@@ -5,25 +5,20 @@
 #![allow(clippy::panic, reason = "test assertions fail by panicking")]
 
 use octocode_native::config::{ConfigInput, FileInput, RuntimeSurface};
-use octocode_native::runtime::{Channel, RuntimeError, RuntimeLimits, ToolOutcome, ToolRuntime};
+use octocode_native::execution::RuntimeLimits;
+use octocode_native::response::outcome::ToolOutcome;
+use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use wiremock::MockServer;
 
-// The contract, lead and page-walk checks the unit tests use, and the github
-// crate's wiremock mounts and responders: one copy of each, by path.
+// The contract, lead and page-walk checks the unit tests use: one copy, by path.
 use octocode_native::contracts::{parsed_contract, validate, validate_output};
 #[path = "../../src/tools/test_support/checks.rs"]
-#[allow(dead_code, reason = "the unit tests use the rest of the shared checks")]
+#[expect(dead_code, reason = "the unit tests use the rest of the shared checks")]
 pub mod checks;
-#[path = "../../../github/src/tests/mock_http.rs"]
-#[allow(
-    dead_code,
-    reason = "the github crate's tests use the rest of the shared mocks"
-)]
-pub mod mock_http;
 
 /// Per-fixture token suffix. The GitHub rate-limit budget is process-wide and
 /// keyed by API host + token digest; wiremock pools its servers, so a later
@@ -32,12 +27,21 @@ pub mod mock_http;
 /// state from leaking into another.
 static FIXTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// The internal limits fixtures run under: no retries, and a 5 s network
-/// timeout so a test that reaches an endpoint it did not mock fails fast.
+/// The internal limits fixtures run under: no retries, a 5 s network
+/// timeout so a test that reaches an endpoint it did not mock fails fast,
+/// and no client-side GitHub spacing (only the throttle tests pay
+/// production pacing, through [`PACED_LIMITS`]).
 pub const FIXTURE_LIMITS: RuntimeLimits = RuntimeLimits {
     max_retries: 0,
     network_timeout: std::time::Duration::from_secs(5),
+    github_pacing: octocode_github::GitHubPacing::Unpaced,
     ..RuntimeLimits::DEFAULT
+};
+
+/// [`FIXTURE_LIMITS`] under production (octokit) GitHub pacing.
+pub const PACED_LIMITS: RuntimeLimits = RuntimeLimits {
+    github_pacing: octocode_github::GitHubPacing::Octokit,
+    ..FIXTURE_LIMITS
 };
 
 /// The GitHub API base every fixture starts from: a closed loopback port, so
@@ -462,4 +466,23 @@ pub fn inventory_len(files: &Value) -> usize {
             })
             .sum()
     })
+}
+
+/// Every `tests/*.rs` file of the crate at `manifest_dir` is declared in its
+/// `tests/main.rs`: with `autotests = false`, an undeclared file never runs.
+pub fn assert_every_test_file_is_a_module(manifest_dir: &str) {
+    let dir = std::path::Path::new(manifest_dir).join("tests");
+    let main = std::fs::read_to_string(dir.join("main.rs")).expect("read tests/main.rs");
+    for entry in std::fs::read_dir(&dir).expect("read tests/") {
+        let path = entry.expect("tests/ entry").path();
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        if stem != "main" && path.extension().is_some_and(|ext| ext == "rs") {
+            assert!(
+                main.contains(&format!("mod {stem};")),
+                "tests/{stem}.rs is not declared in tests/main.rs"
+            );
+        }
+    }
 }

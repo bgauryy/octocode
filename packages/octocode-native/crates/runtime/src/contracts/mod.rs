@@ -1,28 +1,27 @@
 //! Generated public tool contracts and transport-neutral input preparation.
 
 pub(crate) mod generated;
+pub(crate) mod listing_roles;
 mod prepare;
+pub mod query_limits;
 mod schema_facts;
 pub(crate) mod shared_fields;
-pub mod tool_types;
 #[cfg(test)]
 mod undeclared;
 mod validate;
 pub(crate) use validate::{levenshtein, qualifier_terms};
 
-use crate::tools::id::ToolId;
-pub use prepare::ENVELOPE_REQUIRED;
+use crate::id::ToolId;
 pub(crate) use prepare::{ENVELOPE_ARRAY, ENVELOPE_NESTED};
-pub(crate) use schema_facts::query_schema_value;
 pub(crate) use schema_facts::{
-    item_schemas, property_schemas, query_declares, resolve_ref, restorable_fields,
+    item_schemas, property_schemas, query_declares, query_schema_max, query_schema_number,
+    query_schema_value, resolve_ref, restorable_fields,
 };
-pub use schema_facts::{query_schema_max, query_schema_number};
 pub use validate::{
-    ContractValidationError, ValidationIssue, format_input_error, normalize_input, tool_error,
-    validate, validate_output, validate_query,
+    ContractValidationError, ValidationIssue, format_input_error, tool_error, validate,
+    validate_output, validate_query,
 };
-pub(crate) use validate::{repair_input, validate_output_in_place};
+pub(crate) use validate::{normalize_input, repair_input, validate_output_in_place};
 
 /// Embedded contracts are immutable across runtime handles and requests.
 pub fn parsed_contract() -> Result<&'static serde_json::Value, &'static str> {
@@ -51,7 +50,7 @@ pub(crate) fn classification_notice(key: &str) -> &'static str {
 /// so a fresh process parses that entry (~100 KB) instead of the whole
 /// multi-megabyte contract — the dominant cost of a short-lived CLI call.
 /// Reuses the full parse when something (catalog, scheme) already forced it.
-pub fn tool_contract(tool: ToolId) -> Result<&'static serde_json::Value, &'static str> {
+pub(crate) fn tool_contract(tool: ToolId) -> Result<&'static serde_json::Value, &'static str> {
     static TOOLS: [std::sync::OnceLock<Result<serde_json::Value, String>>; ToolId::ALL.len()] =
         [const { std::sync::OnceLock::new() }; ToolId::ALL.len()];
     let index = tool.index();
@@ -73,7 +72,9 @@ pub fn tool_contract(tool: ToolId) -> Result<&'static serde_json::Value, &'stati
 }
 
 /// [`tool_contract`] by wire name; `None` for a name the contract lacks.
-pub fn tool_contract_named(name: &str) -> Option<Result<&'static serde_json::Value, &'static str>> {
+pub(crate) fn tool_contract_named(
+    name: &str,
+) -> Option<Result<&'static serde_json::Value, &'static str>> {
     ToolId::from_name(name).map(tool_contract)
 }
 
@@ -82,7 +83,7 @@ pub fn tool_contract_named(name: &str) -> Option<Result<&'static serde_json::Val
 /// batch's healthy rows. Returns the patched envelope only when every issue
 /// maps to a result row and the patched envelope itself validates; envelope-
 /// level violations return `None` and the caller keeps the whole-call failure.
-pub fn isolate_row_violations(
+pub(crate) fn isolate_row_violations(
     tool_name: &str,
     output: &serde_json::Value,
     error: &ContractValidationError,
@@ -132,64 +133,81 @@ pub(crate) fn prepare_and_validate(
     Ok(rows.pop().unwrap_or(serde_json::Value::Null))
 }
 
-/// One row of a batch whose envelope failed validation as a whole.
-pub type RowValidation = Result<serde_json::Value, ContractValidationError>;
+/// One row of a validated batch: its validated query, or its own issues.
+pub(crate) type RowValidation = Result<serde_json::Value, ContractValidationError>;
 
-/// Re-validate each row of a failed bulk envelope on its own so valid rows can
-/// still execute. Returns `None` when isolation does not apply: a flat or
-/// single-row input, clasify (matrices share batch-level rules), every row
-/// invalid, or an envelope-level failure that persists without the invalid
-/// rows. Rejected rows carry issue paths rebased to their original index.
-pub fn prepare_rows(tool_name: &str, input: &serde_json::Value) -> Option<Vec<RowValidation>> {
-    if tool_name == ToolId::Clasify.as_str() {
-        return None;
+/// Validate a fresh-query envelope once and isolate its invalid rows, so
+/// valid rows can still execute. Rejected rows carry issue paths at their
+/// original index. Isolation does not apply, and the whole call fails with
+/// every issue, for a malformed envelope shape, a single-row input, clasify
+/// (matrices share batch-level rules), every row invalid, or an envelope
+/// issue that persists over the valid rows alone.
+pub(crate) fn prepare_rows(
+    tool_name: &str,
+    input: serde_json::Value,
+) -> Result<Vec<RowValidation>, ContractValidationError> {
+    let issues = prepare::envelope_issues(tool_name, &input);
+    if !issues.is_empty() {
+        return Err(ContractValidationError { issues });
     }
-    let serde_json::Value::Object(object) = input else {
-        return None;
+    let (mut validated, batch) = validate::validate_batch(tool_name, input)?;
+    let rows = match validated.get_mut("queries") {
+        Some(serde_json::Value::Array(rows)) => std::mem::take(rows),
+        _ => Vec::new(),
     };
-    let (envelope, rows) = (object.clone(), object.get("queries")?.as_array()?);
-    if rows.len() < 2 {
-        return None;
-    }
-    let with_rows = |rows: Vec<serde_json::Value>| {
-        let mut single = envelope.clone();
-        single.insert("queries".into(), serde_json::Value::Array(rows));
-        serde_json::Value::Object(single)
-    };
-    let results = rows
+    let failed = batch
+        .rows
         .iter()
+        .filter(|issues| !issues.is_empty())
+        .count();
+    let whole = |batch: validate::BatchIssues| {
+        let mut issues: Vec<_> = batch
+            .rows
+            .into_iter()
+            .flatten()
+            .chain(batch.envelope)
+            .collect();
+        issues.dedup();
+        ContractValidationError { issues }
+    };
+    if failed == 0 && batch.envelope.is_empty() {
+        return Ok(rows.into_iter().map(Ok).collect());
+    }
+    if failed == 0 || failed == rows.len() || tool_name == ToolId::Clasify.as_str() {
+        return Err(whole(batch));
+    }
+    // An envelope issue may be the invalid rows' own (the batch size): check
+    // the envelope again over the valid rows alone.
+    if !batch.envelope.is_empty() {
+        let valid = rows
+            .iter()
+            .zip(&batch.rows)
+            .filter(|(_, issues)| issues.is_empty())
+            .map(|(row, _)| row.clone())
+            .collect();
+        validated["queries"] = serde_json::Value::Array(valid);
+        if validate::validate_envelope(tool_name, &mut validated).is_err() {
+            return Err(whole(batch));
+        }
+    }
+    Ok(rows
+        .into_iter()
+        .zip(batch.rows)
         .enumerate()
-        .map(|(index, row)| {
-            prepare_many_and_validate(tool_name, with_rows(vec![row.clone()]))
-                .map(|mut prepared| prepared.pop().unwrap_or(serde_json::Value::Null))
-                .map_err(|mut error| {
-                    for issue in &mut error.issues {
-                        match issue.path.first().map(String::as_str) {
-                            Some("queries") if issue.path.len() > 1 => {
-                                issue.path[1] = index.to_string();
-                            }
-                            _ => {
-                                issue
-                                    .path
-                                    .splice(0..0, ["queries".to_owned(), index.to_string()]);
-                            }
-                        }
-                    }
-                    error
-                })
+        .map(|(index, (row, mut issues))| {
+            if issues.is_empty() {
+                return Ok(row);
+            }
+            for issue in &mut issues {
+                if issue.path.first().map(String::as_str) != Some("queries") {
+                    issue
+                        .path
+                        .splice(0..0, ["queries".to_owned(), index.to_string()]);
+                }
+            }
+            Err(ContractValidationError { issues })
         })
-        .collect::<Vec<_>>();
-    let valid = rows
-        .iter()
-        .zip(&results)
-        .filter(|(_, result)| result.is_ok())
-        .map(|(row, _)| row.clone())
-        .collect::<Vec<_>>();
-    if valid.is_empty() || valid.len() == rows.len() {
-        return None;
-    }
-    prepare_many_and_validate(tool_name, with_rows(valid)).ok()?;
-    Some(results)
+        .collect())
 }
 
 /// Validate a fresh-query or saved-response envelope and return its query rows.
@@ -262,13 +280,7 @@ mod contract_owner_tests {
     /// embedded contract.
     #[test]
     fn every_classification_notice_comes_from_the_contract() {
-        for key in [
-            "filtered",
-            "unresolved",
-            "failedWithRead",
-            "failed",
-            "imageInspection",
-        ] {
+        for key in ["filtered", "failedWithRead", "failed", "imageInspection"] {
             assert!(
                 !super::classification_notice(key).is_empty(),
                 "classificationNotices.{key}"
@@ -460,9 +472,9 @@ mod contract_owner_tests {
         // compactly (the source is pretty-printed at 3.4x the size).
         let text = contract_json();
         assert!(!text.contains('\n'), "embedded contract is pretty-printed");
-        // Canonical Zod constraints and per-candidate failure receipts: 2,566,564 bytes.
+        // Canonical Zod constraints and per-candidate failure receipts: 2,572,176 bytes.
         assert!(
-            text.len() < 2_567_000,
+            text.len() < 2_573_000,
             "embedded contract is {} bytes",
             text.len()
         );
@@ -623,7 +635,7 @@ mod contract_owner_tests {
             ]}),
         );
         let output = crate::response::rows::envelope(
-            crate::tools::id::ToolId::GhSearchHistory,
+            crate::id::ToolId::GhSearchHistory,
             vec![json!({"index":0,"data":data})],
         );
         assert!(
@@ -698,10 +710,7 @@ mod contract_owner_tests {
                 "hints":{"text":["Choose a changed path first."]}
             }
         }]});
-        crate::response::channels::publish_hints(
-            &mut output,
-            crate::tools::id::ToolId::GhGetHistoryItem,
-        );
+        crate::response::channels::publish_hints(&mut output, crate::id::ToolId::GhGetHistoryItem);
         validate_output("ghGetHistoryItem", &output).expect("valid history output");
     }
 
@@ -772,44 +781,6 @@ mod contract_owner_tests {
                 .iter()
                 .any(|issue| issue.path.iter().any(|part| part == "repo")),
             "expected a repo issue, got {invalid:?}"
-        );
-    }
-
-    #[test]
-    fn deadcode_verify_references_accepts_defaults_but_requires_anchor() {
-        // orderHint/page/debug are defaulted during validation. The path
-        // remains a real anchored-reference requirement.
-        let data = |mut query: serde_json::Value| {
-            let object = query.as_object_mut().unwrap();
-            object
-                .entry("mainGoal")
-                .or_insert_with(|| json!("Decide whether the candidate is unused."));
-            object
-                .entry("reasoning")
-                .or_insert_with(|| json!("Verify the candidate before deletion."));
-            json!({"results":[{"index":0,"data":{
-                "operation":"deadCode",
-                "nodes":[{"file":"src/util.ts","name":"greet","kind":"function",
-                    "line":1,"reason":"unreferenced-export","viaHeuristic":"reexport-chain"}],
-                "coverage":{"state":"complete"},
-                "next":{"findReferences":{"tool":"lspSearch","query":{"queries":[query]},
-                    "confidence":"high","why":"Verify candidate before deletion."}}
-            }}]})
-        };
-        let minimal = json!({"operation":"references","path":"/r/a.ts","symbolName":"greet",
-            "line":1,"includeDeclaration":false,"groupByFile":true});
-        validate_output("astTopology", &data(minimal.clone()))
-            .expect("defaulted lspSearch fields may be omitted");
-        let mut missing_anchor = minimal;
-        missing_anchor.as_object_mut().unwrap().remove("path");
-        let invalid = validate_output("astTopology", &data(missing_anchor))
-            .expect_err("missing anchored path must be rejected");
-        assert!(
-            invalid
-                .issues
-                .iter()
-                .any(|issue| issue.path.iter().any(|part| part == "path")),
-            "expected a path issue, got {invalid:?}"
         );
     }
 

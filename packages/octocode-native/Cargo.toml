@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/engine", "crates/github", "crates/io", "crates/runtime", "crates/cli", "crates/runtime-napi"]
+members = ["crates/engine", "crates/github", "crates/io", "crates/contract-types", "crates/runtime", "crates/cli", "crates/runtime-napi"]
 default-members = ["crates/cli"]
 resolver = "3"
 

@@ -2,8 +2,9 @@
 //! (`next.retry`, the provider's delay, the SSO authorization URL) and how
 //! the batch exits.
 
-use crate::support::{Run as _, Workspace, call, row_data};
-use octocode_native::runtime::{ExitClass, FailureKind};
+use crate::support::{PACED_LIMITS, Run as _, Workspace, call, row_data};
+use octocode_native::response::exit::ExitClass;
+use octocode_native::runtime::FailureKind;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param_contains};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -38,7 +39,10 @@ async fn a_rate_limited_row_offers_a_retry_and_the_batch_exits_rate_limited() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime_with(
+        &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
+        PACED_LIMITS,
+    );
     let outcome = runtime
         .run(
             "t".into(),
@@ -85,7 +89,10 @@ async fn a_server_outage_row_states_the_provider_delay_and_offers_a_retry() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime_with(
+        &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
+        PACED_LIMITS,
+    );
     let outcome = call(
         &runtime,
         "ghSearchRepo",
@@ -111,7 +118,10 @@ async fn a_permanent_failure_offers_no_retry() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime_with(
+        &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
+        PACED_LIMITS,
+    );
     let outcome = call(
         &runtime,
         "ghSearchRepo",
@@ -134,7 +144,10 @@ async fn a_401_keeps_githubs_message_beside_the_login_hint() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime_with(
+        &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
+        PACED_LIMITS,
+    );
     let outcome = call(
         &runtime,
         "ghSearchRepo",
@@ -166,7 +179,10 @@ async fn a_saml_sso_403_surfaces_the_authorization_url() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime_with(
+        &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
+        PACED_LIMITS,
+    );
     let outcome = call(
         &runtime,
         "ghSearchRepo",
@@ -205,7 +221,10 @@ async fn an_empty_code_search_reads_the_repository_once_and_offers_two_variants(
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime_with(
+        &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
+        PACED_LIMITS,
+    );
     let outcome = call(
         &runtime,
         "ghSearchCode",
@@ -246,7 +265,10 @@ async fn a_partly_withheld_code_search_warns_to_authorize_the_token() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime_with(
+        &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
+        PACED_LIMITS,
+    );
     let outcome = call(
         &runtime,
         "ghSearchCode",

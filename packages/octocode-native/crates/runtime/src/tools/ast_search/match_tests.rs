@@ -1,7 +1,7 @@
 //! astSearch `match`: file and match pages, clipped values, captures,
 //! scan windows and the reads a match offers.
 use super::test_rows::*;
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::json;
 
@@ -411,7 +411,7 @@ fn match_rows_without_unread_pages_are_complete() {
     assert_eq!(out["complete"], true, "{out}");
     assert!(out["next"].get("expandCaptures").is_some(), "{out}");
     let row = crate::response::rows::result_row(
-        crate::tools::id::ToolId::AstSearch,
+        crate::id::ToolId::AstSearch,
         0,
         &base,
         out.clone(),
@@ -459,7 +459,7 @@ fn clipped_values_read_per_file_in_range_batches() {
         .collect::<Vec<_>>();
     // 15 clipped calls in a.rs (lines 2, 4, … 30) and one in b.rs (line 2).
     assert_eq!(ranges.len(), 16, "{out}");
-    let max = crate::tools::id::query_limits::local_fetch::RANGES_MAX_ITEMS;
+    let max = crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
     assert!(
         reads
             .iter()
@@ -906,7 +906,7 @@ fn a_file_with_more_match_pages_names_its_partial_reason() {
 fn clipped_values_past_one_read_batch_are_named() {
     let root = Fixture::new();
     let long = format!("call({});", "y".repeat(80));
-    let files = crate::tools::result::rows_per_call(crate::tools::id::ToolId::LocalFetch) + 2;
+    let files = crate::response::result::rows_per_call(crate::id::ToolId::LocalFetch) + 2;
     for index in 0..files {
         root.write(&format!("f{index}.rs"), format!("fn f() {{\n{long}\n}}\n"));
     }
@@ -925,7 +925,7 @@ fn clipped_values_past_one_read_batch_are_named() {
     let reads = value_reads(&out);
     assert_eq!(
         reads.len(),
-        crate::tools::result::rows_per_call(crate::tools::id::ToolId::LocalFetch),
+        crate::response::result::rows_per_call(crate::id::ToolId::LocalFetch),
         "{out}"
     );
     let read = reads

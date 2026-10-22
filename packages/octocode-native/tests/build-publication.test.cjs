@@ -35,6 +35,14 @@ test('test:rust is nextest runs, and bacon test jobs use the same selections', (
   assert.throws(() => testRustSelections({ scripts: { 'test:rust': 'cargo test -p x' } }), /not "cargo nextest run/);
 });
 
+test('cargo dev-test is the first test:rust selection under libtest', () => {
+  const { testRustSelections } = require('../scripts/test-rust-selections.cjs');
+  const config = readFileSync(join(__dirname, '..', '.cargo', 'config.toml'), 'utf8');
+  const alias = /^dev-test = "test (.+)"$/m.exec(config);
+  assert.ok(alias, 'the dev-test alias is defined');
+  assert.deepEqual(alias[1].split(/\s+/), testRustSelections()[0]);
+});
+
 test('host build selects both host crates in one locked cargo invocation', () => {
   const { PLATFORMS } = require('../bin/platform.cjs');
   const { GLIBC_FLOOR, hostsCommand } = require('../scripts/build-native.cjs');

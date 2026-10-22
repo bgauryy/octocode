@@ -36,7 +36,10 @@ pub fn read_private_config(path: &Path) -> io::Result<Option<String>> {
 pub fn config_revision(text: Option<&str>) -> String {
     match text {
         None => "missing".into(),
-        Some(text) => format!("sha256:{}", crate::digest::sha256(text.as_bytes())),
+        Some(text) => format!(
+            "sha256:{}",
+            octocode_engine::digest::sha256(text.as_bytes())
+        ),
     }
 }
 /// The one rolling backup of a file Octocode does not own: `.{name}.bak`.

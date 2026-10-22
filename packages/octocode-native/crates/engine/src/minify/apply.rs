@@ -1,4 +1,5 @@
 use crate::minify::comment_remover::remove_comments;
+use crate::minify::config::Strategy;
 use crate::minify::minifier::{MAX_SIZE, get_file_config};
 use crate::minify::strategies::{
     minify_brace_code, minify_code_core, minify_css_quality, minify_embedded_web,
@@ -10,7 +11,7 @@ use crate::text::file_extension::extension_of;
 pub fn apply_content_view_minification(content: &str, file_path: &str) -> String {
     let file_path = file_path.to_owned();
     transform_on_deep_stack(content, move |content| {
-        crate::minify::apply::apply_content_view_minification_inner(content, &file_path)
+        apply_content_view_minification_inner(content, &file_path)
     })
 }
 
@@ -23,13 +24,12 @@ fn transform_on_deep_stack(
 ) -> String {
     let shared: std::sync::Arc<str> = content.into();
     let job_content = std::sync::Arc::clone(&shared);
-    crate::signatures::run_on_deep_stack(move || Some(transform(&job_content)))
+    crate::deep_stack::run_on_deep_stack(move || Some(transform(&job_content)))
         .unwrap_or_else(|| shared.to_string())
 }
 
 /// Content-view minification — agent-readable; indentation is kept wherever
 /// it can carry syntax.
-/// Agent-readable content view minification pipeline.
 pub(crate) fn apply_content_view_minification_inner(content: &str, file_path: &str) -> String {
     if content.len() > MAX_SIZE {
         return content.to_owned();
@@ -42,16 +42,17 @@ pub(crate) fn apply_content_view_minification_inner(content: &str, file_path: &s
         // otherwise drift silently — e.g. a new indentation-sensitive name added
         // to `get_file_config` would never reach the content view. `ext` is still
         // derived locally for the family checks below, because css and html both
-        // map to the "aggressive" strategy and strategy alone can't tell them
-        // apart (css → css_quality, html → embedded_web).
+        // map to the `Code` strategy and strategy alone can't tell them apart
+        // (css → css_quality, html → embedded_web).
         let cfg = get_file_config(file_path);
+        let strategy = cfg.map(|c| c.strategy);
 
-        if matches!(ext.as_str(), "json" | "jsonc" | "json5") {
+        if strategy == Some(Strategy::Json) {
             let (out, _) = minify_json_readable_inner(content);
             return out;
         }
 
-        if cfg.map(|c| c.strategy) == Some("markdown") {
+        if strategy == Some(Strategy::Markdown) {
             return minify_markdown_core(content);
         }
 
@@ -61,11 +62,11 @@ pub(crate) fn apply_content_view_minification_inner(content: &str, file_path: &s
         }
 
         // HTML / Vue / Svelte content-view: keep the markup readable but minify
-        // embedded <style> (lightweight) and <script> (OXC) blocks where
+        // embedded <style> and <script> blocks (lightweight cleanup) where
         // the compressible bytes actually live. A generic comment-strip barely
         // touches these files (benchmark: ~0% content-view cut).
         if matches!(ext.as_str(), "html" | "htm" | "vue" | "svelte") {
-            return minify_embedded_web(content, file_path);
+            return minify_embedded_web(content);
         }
 
         // JS/TS: comment-strip + whitespace tighten preserves declarations,
@@ -75,8 +76,8 @@ pub(crate) fn apply_content_view_minification_inner(content: &str, file_path: &s
             return minify_javascript_core(content);
         }
 
-        // Brace code (config strategy "brace"): strip indentation like JS/TS.
-        if let Some(c) = cfg.filter(|c| c.strategy == "brace")
+        // Brace code: strip indentation like JS/TS.
+        if let Some(c) = cfg.filter(|c| c.strategy == Strategy::Brace)
             && let Some(groups) = c.comments
         {
             return minify_brace_code(content, groups);
@@ -92,8 +93,8 @@ pub(crate) fn apply_content_view_minification_inner(content: &str, file_path: &s
             content.to_owned()
         };
 
-        match cfg.map(|c| c.strategy) {
-            None | Some("general") => minify_general_core(&stripped),
+        match strategy {
+            None | Some(Strategy::General) => minify_general_core(&stripped),
             _ => minify_code_core(&stripped),
         }
     })
@@ -129,7 +130,7 @@ mod tests {
         assert!(apply_content_view_minification_inner(php, "view.php").contains("    <li>"));
         assert_eq!(
             crate::minify::minifier::get_file_config("view.php").map(|c| c.strategy),
-            Some("conservative")
+            Some(Strategy::Code)
         );
     }
 

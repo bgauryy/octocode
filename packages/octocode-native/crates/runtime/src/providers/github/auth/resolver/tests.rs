@@ -63,6 +63,8 @@ impl AuthBackend for Backend {
         _: &str,
     ) -> Result<Option<(StoredCredentials, CredentialSource)>, ProviderError> {
         self.calls.lock().unwrap().push("load");
+        // A real store read is a blocking worker: other rows run meanwhile.
+        tokio::task::yield_now().await;
         self.stored
             .clone()
             .map(|stored| stored.map(|stored| (stored, CredentialSource::Storage)))
@@ -158,6 +160,21 @@ async fn request_credentials_resolve_once_per_host_until_rejected() {
         .await
         .unwrap();
     assert_eq!(backend.calls().len(), 8, "inspection never reads the memo");
+}
+
+/// A cold batch's rows resolve one host's credential once: the first row
+/// reads the store (and spawns `gh`); the rows beside it wait for its answer.
+#[tokio::test]
+async fn concurrent_rows_resolve_one_host_once() {
+    let backend = Backend::new(None);
+    let auth = authentication(None);
+    let budget = budget();
+    let row = || auth.resolve_with("github.com", AuthMode::Request, &budget, &backend);
+    let (a, b, c) = tokio::join!(row(), row(), row());
+    for selection in [a, b, c] {
+        assert_eq!(selection.unwrap().unwrap().token(), "gh-token");
+    }
+    assert_eq!(backend.calls(), ["load", "gh"], "one resolution per wave");
 }
 
 /// A remembered `gh` (or stored) selection has no refresh time of its own,
@@ -330,7 +347,7 @@ async fn memoized_stored_credential_refreshes_once_it_expires() {
     let mut refreshed = stored(false);
     refreshed.token.token = "refreshed-token".into();
     backend.refreshed = Ok(Some(refreshed));
-    let auth = authentication(None);
+    let mut auth = authentication(None);
     let budget = budget();
     let first = auth
         .resolve_with("github.com", AuthMode::Request, &budget, &backend)
@@ -338,7 +355,8 @@ async fn memoized_stored_credential_refreshes_once_it_expires() {
         .unwrap()
         .unwrap();
     assert_eq!(first.token(), "stored-token");
-    tokio::time::sleep(Duration::from_millis(3100)).await;
+    // Three seconds on: past the refresh time, still inside the memo TTL.
+    auth.now = || std::time::SystemTime::now() + Duration::from_secs(3);
     let next = auth
         .resolve_with("github.com", AuthMode::Request, &budget, &backend)
         .await

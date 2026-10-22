@@ -16,6 +16,7 @@ use super::LspSearchQuery;
 use super::failure::flag_partial;
 use super::importers::{SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
 use super::scope::Scope;
+use crate::tools::lsp_search::lsp_search_query;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -56,7 +57,7 @@ pub(super) fn annotate(
     scope: &Scope,
 ) {
     if !octocode_engine::lsp::family::is_typescript_family(language_id)
-        || !is_incoming(query.operation())
+        || !is_incoming(lsp_search_query::operation(query))
         || !row.is_object()
         || row.get("status").and_then(Value::as_str) == Some("error")
     {
@@ -81,7 +82,6 @@ pub(super) fn annotate(
     flag_partial(row, query, reason, Some(&warning), scope);
 }
 
-const CLANGD_LANGUAGE_IDS: [&str; 4] = ["c", "cpp", "objective-c", "objective-cpp"];
 const COMPILE_DATABASE_HINT: &str = "Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.";
 /// Coverage reason of a C/C++ row answered without a compilation database.
 pub(super) const NO_COMPILE_DATABASE_REASON: &str = "noCompileDatabase";
@@ -114,7 +114,7 @@ pub(super) fn annotate_compile_database(
     anchor_path: &str,
     scope: &Scope,
 ) {
-    if !language_id.is_some_and(|id| CLANGD_LANGUAGE_IDS.contains(&id))
+    if !octocode_engine::lsp::family::is_c_family(language_id)
         || !row.is_object()
         || row.get("status").and_then(Value::as_str) == Some("error")
         || has_compile_database(Path::new(anchor_path))
@@ -125,7 +125,7 @@ pub(super) fn annotate_compile_database(
         || row.pointer("/kind").and_then(Value::as_str) == Some("empty");
     if empty {
         row["hints"] = json!([COMPILE_DATABASE_HINT]);
-    } else if is_incoming(query.operation()) {
+    } else if is_incoming(lsp_search_query::operation(query)) {
         flag_partial(
             row,
             query,
@@ -270,6 +270,15 @@ mod tests {
             "{found}"
         );
         assert_eq!(found["next"]["findText"]["tool"], "localSearch");
+        // clangd also answers CUDA, with the same single-file limitation.
+        let mut cuda = refs_row();
+        cuda["matches"] = json!([{"path":"a.hpp","line":1}]);
+        annotate_compile_database(&mut cuda, &query, Some("cuda"), &path, &root);
+        assert_eq!(
+            cuda["partialReasons"],
+            json!([NO_COMPILE_DATABASE_REASON]),
+            "{cuda}"
+        );
         std::fs::write(dir.path().join("compile_commands.json"), "[]").expect("db");
         let mut row = json!({"status":"empty","kind":"empty","hints":["generic"]});
         annotate_compile_database(&mut row, &query, Some("cpp"), &path, &root);

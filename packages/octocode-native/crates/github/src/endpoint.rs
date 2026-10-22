@@ -1,6 +1,6 @@
 use url::Url;
 
-use super::{ProviderError, ProviderErrorKind};
+use super::{ProviderError, ProviderErrorKind, budget::GitHubResource};
 
 /// The host stored credentials and limits belong to for an API host:
 /// github.com's API host `api.github.com` folds to `github.com`; any other
@@ -59,13 +59,17 @@ impl GitHubEndpoint {
         Ok(Self { rest_base, graphql })
     }
 
-    pub fn host(&self) -> &str {
+    /// Whether the API is on a loopback host.
+    pub fn is_loopback(&self) -> bool {
+        is_loopback(&self.rest_base)
+    }
+    pub(crate) fn host(&self) -> &str {
         self.rest_base.host_str().unwrap_or_default()
     }
     pub fn credential_host(&self) -> &str {
         credential_host(self.host())
     }
-    pub fn graphql(&self) -> Url {
+    pub(crate) fn graphql(&self) -> Url {
         self.graphql.clone()
     }
     pub fn rest(&self, segments: &[&str]) -> Result<Url, ProviderError> {
@@ -92,7 +96,25 @@ impl GitHubEndpoint {
         }
         Ok(url)
     }
-    pub fn permits(&self, url: &Url) -> bool {
+    /// The rate-limit resource a request draws from, by its route: the
+    /// GraphQL URL's path exactly, else the first segments under the REST
+    /// root (`search/code`, `search/<kind>`). An owner, repository or ref
+    /// named `graphql` or `search` stays core.
+    pub(crate) fn resource(&self, url: &Url) -> GitHubResource {
+        if url.path() == self.graphql.path() {
+            return GitHubResource::Graphql;
+        }
+        let Some(route) = url.path().strip_prefix(self.rest_base.path()) else {
+            return GitHubResource::Core;
+        };
+        let mut segments = route.split('/');
+        match (segments.next(), segments.next()) {
+            (Some("search"), Some("code")) => GitHubResource::CodeSearch,
+            (Some("search"), Some(kind)) if !kind.is_empty() => GitHubResource::Search,
+            _ => GitHubResource::Core,
+        }
+    }
+    pub(crate) fn permits(&self, url: &Url) -> bool {
         self.rest_base.scheme() == url.scheme()
             && self.rest_base.host_str() == url.host_str()
             && self.rest_base.port_or_known_default() == url.port_or_known_default()
@@ -150,5 +172,58 @@ mod localhost_rule_tests {
         ] {
             assert!(!is_loopback(&Url::parse(url).unwrap()), "{url}");
         }
+    }
+}
+
+#[cfg(test)]
+mod resource_tests {
+    use super::GitHubEndpoint;
+    use crate::budget::GitHubResource;
+    use url::Url;
+
+    fn endpoint(base: &str) -> GitHubEndpoint {
+        GitHubEndpoint::new(Url::parse(base).expect("base")).expect("endpoint")
+    }
+
+    fn resource(endpoint: &GitHubEndpoint, path: &str) -> GitHubResource {
+        let mut url = endpoint.rest(&[]).expect("root");
+        url.set_path(path);
+        endpoint.resource(&url)
+    }
+
+    #[test]
+    fn requests_are_classified_by_their_route_under_the_api_root() {
+        use GitHubResource::{CodeSearch, Core, Graphql, Search};
+        let dotcom = endpoint("https://api.github.com");
+        let ghes = endpoint("https://ghe.example.com/api/v3");
+        for (endpoint, root) in [(&dotcom, ""), (&ghes, "/api/v3")] {
+            let cases = [
+                ("/search/code", CodeSearch),
+                ("/search/issues", Search),
+                ("/search/repositories", Search),
+                ("/search", Core),
+                ("/search/", Core),
+                ("/repos/a/b/issues", Core),
+                // Owner, repository and ref names never pick the bucket.
+                ("/repos/graphql/graphql-spec/contents/README.md", Core),
+                ("/repos/apollographql/graphql-tools/commits/main", Core),
+                ("/repos/search/code/contents/x", Core),
+                ("/repos/owner/search/git/trees/HEAD", Core),
+                ("/users/graphql", Core),
+                ("/repos/a/b/commits/search/issues", Core),
+            ];
+            for (route, expected) in cases {
+                assert_eq!(
+                    resource(endpoint, &format!("{root}{route}")),
+                    expected,
+                    "{root}{route}"
+                );
+            }
+            assert_eq!(endpoint.resource(&endpoint.graphql()), Graphql);
+        }
+        // GHES serves GraphQL beside, not under, the REST root.
+        assert_eq!(resource(&ghes, "/api/graphql"), Graphql);
+        assert_eq!(resource(&ghes, "/api/v3/graphql"), Core);
+        assert_eq!(resource(&dotcom, "/graphql"), Graphql);
     }
 }

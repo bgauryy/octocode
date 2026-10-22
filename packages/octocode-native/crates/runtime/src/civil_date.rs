@@ -2,7 +2,7 @@
 //! `civil_from_days`), shared by every timestamp parser and formatter so the
 //! runtime needs no date crate.
 
-pub(crate) use octocode_github::{civil_from_days, days_from_civil};
+use octocode_io::civil::{civil_from_days, days_from_civil};
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -136,7 +136,7 @@ pub(crate) fn parse_rfc3339(value: &str) -> Option<(i64, u32)> {
         }
         _ => return None,
     };
-    let days = crate::civil_date::days_from_civil(number(0..4)?, number(5..7)?, number(8..10)?);
+    let days = days_from_civil(number(0..4)?, number(5..7)?, number(8..10)?);
     Some((
         days * 86_400 + hour * 3_600 + minute * 60 + second - offset * 60,
         nanos,

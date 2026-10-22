@@ -1,10 +1,11 @@
 use super::leads::{declaration_read, hits_read, line_read, read_top_match, scoped_fragment_read};
 use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchIn};
+use crate::id::ToolId;
+use crate::response::paging::push_warnings;
+use crate::response::result::Confidence;
+use crate::response::result::Continuation;
 use crate::security::scan::ContentScan;
-use crate::tools::gh_shared::ensure_next;
-use crate::tools::id::ToolId;
-use crate::tools::paging::push_warnings;
-use crate::tools::result::Continuation;
+use crate::tools::gh_shared::{RepoPath, ensure_next};
 use octocode_github::{CodeSearchItem, ProviderError};
 use octocode_github::{GitHubTransport, ProviderErrorKind, ProviderErrorReason, RequestContext};
 use serde_json::{Value, json};
@@ -25,14 +26,7 @@ pub(super) async fn owner_exists(
         Err(error) if error.kind == ProviderErrorKind::NotFound => {
             Err(error.with_reason(ProviderErrorReason::UserNotFound))
         }
-        Err(error)
-            if matches!(
-                error.kind,
-                ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
-            ) =>
-        {
-            Err(error)
-        }
+        Err(error) if error.is_cancelled_or_timed_out() => Err(error),
         _ => Ok(()),
     }
 }
@@ -43,7 +37,7 @@ pub(super) async fn owner_exists(
 /// root listing's place.
 pub(super) async fn empty_scope(
     value: &mut Value,
-    diagnostics: &mut crate::tools::result::ToolDiagnostics,
+    diagnostics: &mut crate::response::result::ToolDiagnostics,
     query: &GhSearchCodeQuery,
     broadened: bool,
     transport: &GitHubTransport,
@@ -58,13 +52,8 @@ pub(super) async fn empty_scope(
         return Ok(());
     };
     let metadata = transport.repository_metadata(owner, repo, context).await;
-    let (name, tool, mut next_query, confidence, code) = match metadata {
-        Err(error)
-            if matches!(
-                error.kind,
-                ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
-            ) =>
-        {
+    let (name, tool, mut next_query, code) = match metadata {
+        Err(error) if error.is_cancelled_or_timed_out() => {
             return Err(error);
         }
         // A missing repository is a not-found failure, not an empty
@@ -76,7 +65,6 @@ pub(super) async fn empty_scope(
             "viewTree",
             ToolId::GhStructure,
             json!({"owner":owner,"repo":repo,"path":""}),
-            "exact",
             "ghRepoArchived",
         ),
         // The repository exists: a scoped path is listed; a repo-wide search
@@ -111,7 +99,6 @@ pub(super) async fn empty_scope(
                 "viewTree",
                 ToolId::GhStructure,
                 json!({"owner":owner,"repo":repo,"path":listed}),
-                "exact",
                 "ghScopedZeroUnproven",
             )
         }
@@ -136,7 +123,7 @@ pub(super) async fn empty_scope(
         value["hints"] = json!([hint]);
     }
     value["next"][name] = Continuation::new(tool, next_query)
-        .confidence(confidence)
+        .confidence(Confidence::Exact)
         .build();
     Ok(())
 }
@@ -145,13 +132,14 @@ pub(super) async fn empty_scope(
 /// is the check that does. Offered for a repository-wide search only: a path
 /// scope already leads to its listing.
 fn add_clone_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, repo: &str) {
-    let mut clone = json!({"owner":owner,"repo":repo});
-    if let Some(reference) = requested_ref(query) {
-        clone["ref"] = json!(reference);
-    }
+    let at = RepoPath {
+        reference: requested_ref(query),
+        ..RepoPath::root(owner, repo)
+    };
     ensure_next(value);
-    value["next"]["cloneRepo"] = Continuation::new(ToolId::GhCloneRepo, clone)
-        .confidence("exact")
+    value["next"]["cloneRepo"] = at
+        .lead(ToolId::GhCloneRepo)
+        .confidence(Confidence::Exact)
         .build();
 }
 
@@ -159,13 +147,14 @@ fn add_clone_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, rep
 /// search with nothing to broaden also gets the root listing at the
 /// searched ref, which every surface runs.
 fn add_root_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, repo: &str) {
-    let mut root = json!({"owner":owner,"repo":repo});
-    if let Some(reference) = requested_ref(query) {
-        root["ref"] = json!(reference);
-    }
+    let at = RepoPath {
+        reference: requested_ref(query),
+        ..RepoPath::root(owner, repo)
+    };
     ensure_next(value);
-    value["next"]["viewTree"] = Continuation::new(ToolId::GhStructure, root)
-        .confidence("medium")
+    value["next"]["viewTree"] = at
+        .lead(ToolId::GhStructure)
+        .confidence(Confidence::Medium)
         .build();
 }
 
@@ -276,8 +265,8 @@ pub(super) fn requested_ref(query: &GhSearchCodeQuery) -> Option<&str> {
 /// index search runs (`None`: a default-branch search, read at its indexed
 /// commits, or a page that lists no lines — owner-wide, path-only, or a
 /// `fields` pick without `lines`).
-pub(super) async fn line_commit<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+pub(super) async fn line_commit(
+    provider: &octocode_github::GitHubProvider,
     query: &GhSearchCodeQuery,
     context: &RequestContext,
 ) -> Option<Result<String, ProviderError>> {
@@ -286,13 +275,17 @@ pub(super) async fn line_commit<C: octocode_github::ConditionalCache>(
     if !reads_lines(query) {
         return None;
     }
-    Some(super::lines::resolve_commit(provider, &query.owner, repo, Some(reference), context).await)
+    Some(
+        provider
+            .resolve_reference(&query.owner, repo, Some(reference), false, context)
+            .await,
+    )
 }
 
 /// The page's line hits, read at the requested ref's commit (a ref search)
 /// or at each hit's indexed commit; `None` when the page lists no lines.
-pub(super) async fn resolve_lines<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+pub(super) async fn resolve_lines(
+    provider: &octocode_github::GitHubProvider,
     query: &GhSearchCodeQuery,
     items: &[Value],
     found: &[CodeSearchItem],
@@ -343,8 +336,8 @@ pub(super) async fn resolve_lines<C: octocode_github::ConditionalCache>(
 /// and commit. A repo-scoped row without an indexed commit is read at the
 /// default-branch head (resolved only then); an owner-wide one keeps its
 /// fragments.
-async fn indexed_lines<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+async fn indexed_lines(
+    provider: &octocode_github::GitHubProvider,
     query: &GhSearchCodeQuery,
     items: &[Value],
     found: &[CodeSearchItem],
@@ -368,7 +361,10 @@ async fn indexed_lines<C: octocode_github::ConditionalCache>(
                 .iter()
                 .any(|row| located(row).is_none_or(|(.., commit, _)| commit.is_none())) =>
         {
-            match super::lines::resolve_commit(provider, &query.owner, repo, None, context).await {
+            match provider
+                .resolve_reference(&query.owner, repo, None, false, context)
+                .await
+            {
                 Ok(sha) => Some(sha),
                 Err(error) if error.kind == ProviderErrorKind::Cancelled => return Err(error),
                 Err(_) => None,
@@ -439,8 +435,8 @@ type Read = (usize, String, Option<String>);
 /// Reads each group's files at its commit, concurrently, once per distinct
 /// blob, and gives every row its hits (a row no group reads keeps its
 /// fragments: `Unavailable` at no commit).
-async fn read_groups<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+async fn read_groups(
+    provider: &octocode_github::GitHubProvider,
     query: &GhSearchCodeQuery,
     rows: usize,
     groups: Vec<(RepoCommit, Vec<Read>)>,
@@ -516,8 +512,8 @@ async fn read_groups<C: octocode_github::ConditionalCache>(
 /// and unresolved rows show default-branch text. Warn with the index commit
 /// and lead first to the ref's own listing. `resolved_sha` is the ref's
 /// commit when the hit lines were read at it.
-pub(super) async fn disclose_index_ref<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+pub(super) async fn disclose_index_ref(
+    provider: &octocode_github::GitHubProvider,
     value: &mut Value,
     query: &GhSearchCodeQuery,
     resolved_sha: Option<String>,
@@ -548,20 +544,22 @@ pub(super) async fn disclose_index_ref<C: octocode_github::ConditionalCache>(
     // lists them.
     let warning = format!("Files from the default-branch index{index}, not {reference}{lines}.");
     push_warnings(value, [warning]);
-    let mut listing = json!({
-        "owner": owner,
-        "repo": repo.as_str(),
-        "path": query.path.as_deref().map_or("", |path| path.as_str()),
-        "ref": at_ref.as_deref().unwrap_or(reference),
-    });
     // Rows not at the ref were moved or renamed there: search their names
     // across the whole tree (a moved file may leave the searched path).
     let moved = moved_names(value);
+    let at = RepoPath {
+        owner,
+        repo: repo.as_str(),
+        path: if moved.is_empty() {
+            query.path.as_deref().map_or("", |path| path.as_str())
+        } else {
+            ""
+        },
+        reference: Some(at_ref.as_deref().unwrap_or(reference)),
+    };
+    let mut listing = at.row();
     if !moved.is_empty() {
         listing["include"] = json!(moved);
-        if let Some(listing) = listing.as_object_mut() {
-            listing.shift_remove("path");
-        }
     }
     let lead = Continuation::new(ToolId::GhStructure, listing).build();
     ensure_next(value);
@@ -587,20 +585,23 @@ fn moved_names(value: &Value) -> Vec<String> {
             names.push(name);
         }
     }
-    names.truncate(crate::tools::id::MAX_INPUT_ARRAY_ITEMS);
+    names.truncate(crate::id::MAX_INPUT_ARRAY_ITEMS);
     names
 }
 
 /// The commit `reference` (`None`: the default-branch head) names, or
 /// `None` when it does not resolve; only cancellation fails.
-async fn commit_or_none<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+async fn commit_or_none(
+    provider: &octocode_github::GitHubProvider,
     owner: &str,
     repo: &str,
     reference: Option<&str>,
     context: &RequestContext,
 ) -> Result<Option<String>, ProviderError> {
-    match super::lines::resolve_commit(provider, owner, repo, reference, context).await {
+    match provider
+        .resolve_reference(owner, repo, reference, false, context)
+        .await
+    {
         Ok(sha) => Ok(Some(sha)),
         Err(error) if error.kind == ProviderErrorKind::Cancelled => Err(error),
         Err(_) => Ok(None),
@@ -680,7 +681,7 @@ pub(super) fn shape_files(
                 } => {
                     if !query
                         .extras
-                        .contains(&crate::contracts::tool_types::ExtraKind::Details)
+                        .contains(&octocode_contract_types::ExtraKind::Details)
                     {
                         row.shift_remove("matches");
                     }

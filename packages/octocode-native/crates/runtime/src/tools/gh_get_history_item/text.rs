@@ -1,9 +1,10 @@
 //! Text windows of history items (bodies, comments, reviews: always GitHub's
 //! verbatim text), and the `matchString` needle every content filter matches.
 use super::HistoryItemRequest;
-use super::rest::BodyWindows;
+use super::remaining::BodyWindows;
 use super::util::string;
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use serde_json::Value;
 
 /// One char window of `value` and its page row.
@@ -28,12 +29,29 @@ pub(super) fn paginate_text(
 
 /// Lower-cased `matchString`, the needle every content filter matches.
 pub(super) fn needle(query: &HistoryItemRequest) -> Option<String> {
-    query.match_string().map(str::to_lowercase)
+    gh_get_history_item_query::match_string(query).map(str::to_lowercase)
 }
 
 /// Whether an item's `body` contains `needle` (always true without one).
 pub(super) fn body_matches(value: &Value, needle: Option<&str>) -> bool {
-    needle.is_none_or(|n| string(value.get("body")).to_lowercase().contains(n))
+    needle.is_none_or(|n| contains_folded(&string(value.get("body")), n))
+}
+
+/// Whether `text`, lower-cased, contains `needle` (already lower-cased, as
+/// [`needle`] makes it). ASCII text and needle compare in place, with no
+/// lower-cased copy of the text (a patch can be megabytes, and a read tests
+/// it per file several times); anything else lower-cases as before, so
+/// Unicode folds (the Kelvin sign is a `k`) match the same way.
+pub(super) fn contains_folded(text: &str, needle: &str) -> bool {
+    if text.is_ascii() && needle.is_ascii() {
+        let needle = needle.as_bytes();
+        return needle.is_empty()
+            || text
+                .as_bytes()
+                .windows(needle.len())
+                .any(|window| window.eq_ignore_ascii_case(needle));
+    }
+    text.to_lowercase().contains(needle)
 }
 
 /// A body window a continuation hop (`offset` > 0) finds empty: an earlier
@@ -55,7 +73,7 @@ pub(super) fn window_body(
     query: &HistoryItemRequest,
     windows: &mut BodyWindows,
 ) -> (String, Value) {
-    let (text, page) = paginate_text(body, offset, query.char_length());
+    let (text, page) = paginate_text(body, offset, gh_get_history_item_query::char_length(query));
     windows.add(&page);
     (text, page)
 }
@@ -89,6 +107,26 @@ pub(super) fn shape_comment(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn folded_contains_matches_a_lower_cased_copy() {
+        for (text, needle) in [
+            ("Fix the Parser", "parser"),
+            ("FIX", "fix"),
+            ("fix", "fixes"),
+            ("", ""),
+            ("abc", ""),
+            ("Temperature 5\u{212A}", "5k"),
+            ("İstanbul", "i\u{307}stanbul"),
+            ("Straße", "straße"),
+            ("ascii only", "é"),
+        ] {
+            assert_eq!(
+                super::contains_folded(text, needle),
+                text.to_lowercase().contains(needle),
+                "{text:?} / {needle:?}"
+            );
+        }
+    }
     use super::*;
     use serde_json::json;
 
@@ -176,14 +214,19 @@ mod tests {
         for body in ["a".repeat(25), "b".repeat(5), "c".repeat(40)] {
             window_body(&body, None, &pr, &mut windows);
         }
-        let mut rest = super::super::rest::Rest::default();
+        let mut remainder = super::super::remaining::Remainder::default();
         let mut pagination = serde_json::Map::new();
-        rest.bodies("commentBody", windows, &mut pagination);
+        remainder.bodies(
+            super::super::axis::Axis::CommentBody,
+            windows,
+            &mut pagination,
+        );
         let page = &pagination["commentBody"];
         assert_eq!(page["nextOffset"], 10, "{page}");
         assert_eq!(page["total"], 25, "{page}");
         assert_eq!(
-            rest.note("continueCommentBody", "commentBody", page)
+            remainder
+                .note(super::super::axis::Axis::CommentBody, page)
                 .map(|note| note.left),
             Some(format!("{} more comment body chars", 15 + 30))
         );

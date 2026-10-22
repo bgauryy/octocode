@@ -1,6 +1,5 @@
 use crate::support;
 
-use octocode_native::tools::id::ToolId;
 use support::Workspace;
 
 /// `schema <tool>` carries the runtime's availability: enabled, or the
@@ -35,14 +34,6 @@ fn schema_availability_names_the_unset_prerequisites() {
         .collect();
         if !unset.is_empty() {
             assert_eq!(clasify["envVar"], unset.join("|"), "{clasify}");
-        }
-        {
-            let tool = ToolId::AstTopology;
-            let gated = availability(tool.as_str());
-            assert_eq!(gated["enabled"], beta, "{tool}: {gated}");
-            if !beta {
-                assert_eq!(gated["envVar"], "OCTOCODE_BETA", "{tool}: {gated}");
-            }
         }
     }
 }

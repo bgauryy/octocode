@@ -4,7 +4,8 @@ use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
     ArtifactType, TerminalLimit,
 };
-use crate::tools::num::usize_of;
+use crate::num::usize_of;
+use crate::providers::artifact::types::artifact_search_query;
 /// Compile-once XML/coordinate patterns. `maven-metadata.xml` and POM parsing
 /// run per lookup; compiling these constant patterns on every call (and once
 /// per extracted tag in the old `field` closure) was pure waste.
@@ -69,11 +70,11 @@ pub(crate) async fn maven(
     state: &ArtifactProviderState,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    if let Some(package_name) = query.package_name() {
-        return exact(package_name, query.version(), client).await;
+    if let Some(package_name) = artifact_search_query::package_name(query) {
+        return exact(package_name, artifact_search_query::version(query), client).await;
     }
     let offset = state.offset.unwrap_or(0);
-    let size = query.page_size();
+    let size = artifact_search_query::page_size(query);
     // Central answers rows only at `start=0`: a page is the slice of one
     // window from the first row that ends with the page, within the rows
     // one answer serves.
@@ -81,7 +82,7 @@ pub(crate) async fn maven(
     let url = endpoint(
         "https://central.sonatype.com/solrsearch/select",
         &[
-            ("q", Some(solr_terms(&query.terms()))),
+            ("q", Some(solr_terms(&artifact_search_query::terms(query)))),
             ("rows", Some(rows_through.to_string())),
             ("start", Some("0".into())),
             ("wt", Some("json".into())),
@@ -145,7 +146,7 @@ pub(crate) async fn maven(
 /// (`rows=100` → all 87; measured 2026-10-16): the rows a discovery reaches
 /// end here.
 pub(super) const REACHABLE_END: u64 =
-    crate::tools::id::query_limits::artifact_search::PAGE_SIZE_MAXIMUM as u64;
+    crate::contracts::query_limits::artifact_search::PAGE_SIZE_MAXIMUM as u64;
 
 /// Keyword terms as a Central search query: the words ANDed, or the
 /// artifactId they spell hyphen-joined (`jackson databind` finds
@@ -225,7 +226,7 @@ async fn exact(
                 .map(|value| value.as_str().trim().to_owned())
                 .collect::<Vec<_>>();
             if !published.iter().any(|version| version == wanted) {
-                return Err(super::npm::version_not_found(
+                return Err(super::versions::version_not_found(
                     &artifact.name,
                     wanted,
                     &published,

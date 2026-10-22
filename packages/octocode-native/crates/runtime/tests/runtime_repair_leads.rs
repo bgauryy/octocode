@@ -96,23 +96,23 @@ async fn a_selection_with_a_list_view_leads_to_the_snippet_view() {
 #[tokio::test]
 async fn a_field_the_operation_ignores_leads_to_the_call_without_it() {
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "1".into())]);
+    let runtime = workspace.runtime(&[]);
     let input = json!({"queries":[{
-        "operation": "cycles", "path": ".", "source": "a.ts",
-        "mainGoal": "Find cycles.", "reasoning": "Exercise repair leads."
+        "operation": "symbols", "path": ".", "pattern": "eval($X)",
+        "mainGoal": "List symbols.", "reasoning": "Exercise repair leads."
     }]});
     let error = runtime
-        .run("sibling".into(), "astTopology".into(), input)
+        .run("sibling".into(), "astSearch".into(), input)
         .await
-        .expect_err("source belongs to other operations");
+        .expect_err("pattern belongs to another operation");
     let payload = error.payload.as_deref().expect("payload");
     let repair = &crate::support::checks::hint(payload, "repair");
-    assert_executable("astTopology", repair);
+    assert_executable("astSearch", repair);
     assert!(
-        repair["query"]["queries"][0].get("source").is_none(),
+        repair["query"]["queries"][0].get("pattern").is_none(),
         "{repair}"
     );
-    assert_eq!(repair["query"]["queries"][0]["operation"], "cycles");
+    assert_eq!(repair["query"]["queries"][0]["operation"], "symbols");
     runtime.close().await;
 }
 
@@ -125,8 +125,8 @@ async fn a_fix_only_the_caller_knows_carries_no_lead() {
     // the caller; the message names the fix.
     for (tool, row) in [
         (
-            "astTopology",
-            json!({"operation":"dependents","mainGoal":"g","reasoning":"r"}),
+            "lspSearch",
+            json!({"operation":"definition","path":"a.ts","mainGoal":"g","reasoning":"r"}),
         ),
         (
             "localSearch",

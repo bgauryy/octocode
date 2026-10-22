@@ -5,9 +5,9 @@ use crate::support::{self, Run as _};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_github::mock_http::{Arrivals, Delayed};
 use serde_json::json;
 use std::time::Duration;
-use support::mock_http::{Arrivals, Delayed};
 use support::{ALL_EXTRAS, Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -503,9 +503,9 @@ async fn three_sequential_queries_each_hit_the_server() {
 }
 
 /// ghCloneRepo pins its commit through the API before git runs: an
-/// unbranched row reads the repository's default branch, so a missing
-/// repository is classified by that one call, with no git, and leads to a
-/// search for it.
+/// unbranched row reads the repository's default branch beside its `HEAD`
+/// commit, so a missing repository is classified by those two concurrent
+/// reads, with no git, and leads to a search for it.
 #[tokio::test]
 async fn gh_clone_repo_classifies_a_missing_repository_before_git() {
     let server = MockServer::builder().start().await;
@@ -534,7 +534,7 @@ async fn gh_clone_repo_classifies_a_missing_repository_before_git() {
         "ghSearchRepo",
         "{data}"
     );
-    let api_calls: Vec<String> = server
+    let mut api_calls: Vec<String> = server
         .received_requests()
         .await
         .unwrap()
@@ -542,8 +542,16 @@ async fn gh_clone_repo_classifies_a_missing_repository_before_git() {
         .map(|request| request.url.path().to_owned())
         .filter(|path| path.starts_with("/api/"))
         .collect();
-    // The one pinning read answered; nothing followed it.
-    assert_eq!(api_calls, ["/api/v3/repos/ghost/nope"], "{api_calls:?}");
+    api_calls.sort();
+    // The two pinning reads answered; nothing followed them.
+    assert_eq!(
+        api_calls,
+        [
+            "/api/v3/repos/ghost/nope",
+            "/api/v3/repos/ghost/nope/commits/HEAD"
+        ],
+        "{api_calls:?}"
+    );
     runtime.close().await;
 }
 
@@ -1161,7 +1169,7 @@ async fn big_file_runtime(
     let workspace = Workspace::new();
     let runtime = workspace.runtime_with(
         &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
-        octocode_native::runtime::RuntimeLimits {
+        octocode_native::execution::RuntimeLimits {
             auto_page_chars: window,
             ..support::FIXTURE_LIMITS
         },

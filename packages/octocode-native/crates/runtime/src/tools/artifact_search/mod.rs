@@ -2,18 +2,19 @@
 mod leads;
 mod output;
 
+use crate::providers::artifact::types::artifact_search_query;
 pub(crate) use output::Output;
 
+use crate::id::ToolId;
+use crate::num::usize_of;
 use crate::providers::artifact::{
     ArtifactCache, ArtifactError, ArtifactProviderContext, ArtifactProviderPage,
     ArtifactProviderState, ReleaseTags, SystemArtifactHttp, execute_artifact, github_repository,
     github_slug, invalid_registry_url, page_out_of_range, reachable_end,
 };
-use crate::tools::id::ToolId;
-use crate::tools::num::usize_of;
-use crate::tools::paging;
-use crate::tools::result::Continuation;
-use octocode_github::RequestBudget;
+use crate::response::paging;
+use crate::response::result::Continuation;
+use octocode_io::budget::RequestBudget;
 use serde_json::{Value, json};
 use std::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -77,24 +78,23 @@ fn npm_registry(
     query: &ArtifactSearchQuery,
     env: &std::collections::BTreeMap<String, String>,
 ) -> Result<Option<ResolvedNpmRegistry>, ArtifactError> {
-    if query.artifact_type() != ArtifactType::Npm {
+    if artifact_search_query::artifact_type(query) != ArtifactType::Npm {
         return Ok(None);
     }
-    let (raw, cache_identity) = match query.registry_url() {
-        Some(raw) => (raw, None),
-        None => ("https://registry.npmjs.org/", Some("npmjs")),
+    let mut registry = match artifact_search_query::registry_url(query) {
+        Some(raw) => {
+            let base = url::Url::parse(raw).map_err(|_| invalid_registry_url())?;
+            let cache_identity = base.host_str().unwrap_or("npm").to_owned();
+            ResolvedNpmRegistry {
+                base,
+                authorization: None,
+                cache_identity,
+            }
+        }
+        None => ResolvedNpmRegistry::npmjs(),
     };
-    let base = url::Url::parse(raw).map_err(|_| invalid_registry_url())?;
-    let cache_identity = cache_identity
-        .or_else(|| base.host_str())
-        .unwrap_or("npm")
-        .to_owned();
-    let authorization = crate::providers::artifact::npm_authorization(&base, env);
-    Ok(Some(ResolvedNpmRegistry {
-        base,
-        authorization,
-        cache_identity,
-    }))
+    registry.authorization = crate::providers::artifact::npm_authorization(&registry.base, env);
+    Ok(Some(registry))
 }
 
 /// The response for one provider page. Rows are typed until here: a
@@ -114,7 +114,7 @@ fn respond(
         ..
     } = page;
     if artifacts.is_empty()
-        && let Some(name) = query.package_name()
+        && let Some(name) = artifact_search_query::package_name(query)
         && terminal_limit.is_none()
     {
         // An exact coordinate the registry does not know is not-found, like
@@ -123,7 +123,7 @@ fn respond(
             "notFound",
             format!(
                 "Package {name} not found in the {} registry",
-                query.artifact_type()
+                artifact_search_query::artifact_type(query)
             ),
         )
         .with_status(404));
@@ -135,7 +135,7 @@ fn respond(
         name_github_repository(row);
     }
     let mut data = json!({ "artifacts": rows });
-    match query.package_name() {
+    match artifact_search_query::package_name(query) {
         None => discovery_page(query, &mut data, next_state.as_ref(), total),
         // An exact lookup whose source lives on GitHub continues to its
         // tree. Registry metadata can point at a fork or stale repo, so
@@ -174,8 +174,8 @@ fn respond(
 /// homepage restating the repository is cleared (kept with `details`); the
 /// release source is labeled.
 fn shape_rows(query: &ArtifactSearchQuery, artifacts: &mut [ArtifactItem]) {
-    let exact = query.package_name().is_some();
-    let details = query.wants(crate::contracts::tool_types::ExtraKind::Details);
+    let exact = artifact_search_query::package_name(query).is_some();
+    let details = artifact_search_query::wants(query, octocode_contract_types::ExtraKind::Details);
     for artifact in artifacts {
         if artifact.repository.is_none() {
             artifact.repository = artifact.homepage.as_deref().and_then(github_repository);
@@ -200,15 +200,18 @@ fn discovery_page(
     next_state: Option<&ArtifactProviderState>,
     total: Option<u64>,
 ) {
-    let current = query.page();
+    let current = artifact_search_query::page(query);
     let more = next_state.is_some();
     let mut next_query = query.clone();
-    next_query.set_page(current.saturating_add(1));
-    next_query.set_cursor(next_state.and_then(|next| next.token.as_deref()));
+    artifact_search_query::set_page(&mut next_query, current.saturating_add(1));
+    artifact_search_query::set_cursor(
+        &mut next_query,
+        next_state.and_then(|next| next.token.as_deref()),
+    );
     let unreachable = more.then(|| page_out_of_range(&next_query)).flatten();
     let facts = crate::response::pages::PageFacts::open(
         usize_of(current),
-        Some(query.page_size()),
+        Some(artifact_search_query::page_size(query)),
         more && unreachable.is_none(),
     );
     let facts = match total.and_then(|total| usize::try_from(total).ok()) {
@@ -217,9 +220,9 @@ fn discovery_page(
     };
     data["pagination"] = facts.to_value();
     let last = last_reachable_page(query);
-    let artifact_type = query.artifact_type();
+    let artifact_type = artifact_search_query::artifact_type(query);
     let reach = last
-        .saturating_mul(query.page_size() as u64)
+        .saturating_mul(artifact_search_query::page_size(query) as u64)
         .min(reachable_end(artifact_type).unwrap_or(u64::MAX));
     let capped_total = total.filter(|total| *total > reach);
     if let Some(limit) = unreachable {
@@ -234,7 +237,7 @@ fn discovery_page(
     if !more {
         return;
     }
-    let next = usize_of(next_query.page());
+    let next = usize_of(artifact_search_query::page(&next_query));
     // The contract's last page: the row ends at that terminal limit.
     if paging::next_cursor(data, ToolId::ArtifactSearch, None, "page", next).is_none() {
         data["pagination"]["hasMore"] = json!(false);
@@ -260,10 +263,10 @@ fn discovery_page(
 pub(crate) fn last_reachable_page(query: &ArtifactSearchQuery) -> u64 {
     let reaches = |page: u64| {
         let mut probe = query.clone();
-        probe.set_page(page);
+        artifact_search_query::set_page(&mut probe, page);
         page_out_of_range(&probe).is_none()
     };
-    let maximum = crate::tools::id::query_limits::artifact_search::PAGE_MAXIMUM as u64;
+    let maximum = crate::contracts::query_limits::artifact_search::PAGE_MAXIMUM as u64;
     // Reach is monotone in the page: `low` reaches, `high` bounds the search.
     let (mut low, mut high) = (1, maximum);
     while low < high {
@@ -286,7 +289,7 @@ pub(crate) fn settle_repaired_row(row: &mut Value) {
         return;
     };
     let last = last_reachable_page(&query);
-    if query.page() > last {
+    if artifact_search_query::page(&query) > last {
         row["page"] = json!(last);
     }
 }
@@ -395,7 +398,7 @@ mod row_tests {
         assert_eq!(distinct.homepage.as_deref(), Some("https://zod.dev"));
         // The registry URL is verbose: the verbose stage drops it by default.
         assert!(
-            crate::response::extras::all_paths(crate::tools::id::ToolId::ArtifactSearch)
+            crate::response::extras::all_paths(crate::id::ToolId::ArtifactSearch)
                 .contains(&"results[].data.artifacts[].registryUrl")
         );
     }
@@ -629,7 +632,7 @@ mod anchor_tests {
         // 500 matches: the reach is the window's 100 rows, through page 5.
         let first = page(1, 500);
         assert_eq!(
-            first[crate::tools::paging::NOTICES],
+            first[crate::response::paging::NOTICES],
             json!([
                 "maven matched 500 results; paging reaches only the first 100 (through page 5)."
             ]),
@@ -700,7 +703,7 @@ mod anchor_tests {
             };
             let first = page(1);
             assert_eq!(
-                first[crate::tools::paging::NOTICES],
+                first[crate::response::paging::NOTICES],
                 json!([format!(
                     "{artifact_type} matched 50000 results; paging reaches only the first {reach} (through page {last_page})."
                 )]),
@@ -879,9 +882,9 @@ mod page_tests {
             "{next}"
         );
         let mut last = typed(&query);
-        last.set_page(51);
+        artifact_search_query::set_page(&mut last, 51);
         assert!(page_out_of_range(&last).is_none());
-        last.set_page(52);
+        artifact_search_query::set_page(&mut last, 52);
         assert!(page_out_of_range(&last).is_some());
     }
 
@@ -1334,7 +1337,7 @@ mod npm_auth_tests {
         );
         assert!(data.get("warnings").is_none(), "{data}");
         assert_eq!(
-            data[crate::tools::paging::NOTICES],
+            data[crate::response::paging::NOTICES],
             json!([
                 "npm matched 146295 results; paging reaches only the first 5100 (through page 51)."
             ]),

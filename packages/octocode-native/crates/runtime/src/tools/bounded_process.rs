@@ -6,7 +6,7 @@
 //! cannot be found by a tree walk once its parent is gone. It never holds the
 //! call: after the command ends, reads drain what is pending, stop at the next
 //! quiet moment and drop the pipes (see [`Gated`]).
-use super::cancel::CancellationCheck;
+use crate::execution::cancel::CancellationCheck;
 use std::{
     io::Read,
     process::{Command, ExitStatus, Stdio},
@@ -59,19 +59,24 @@ pub(crate) fn run_bounded(
     run_bounded_draining(command, label, timeout, max_stdout, DRAIN_GRACE, cancel)
 }
 
-/// [`run_bounded`] with the drain grace named, so a test can end it at once.
+/// [`run_bounded`] with stderr's drain grace named, so a test can end stderr
+/// at once while stdout keeps [`DRAIN_GRACE`].
 fn run_bounded_draining(
     command: Command,
     label: &str,
     timeout: Duration,
     max_stdout: usize,
-    grace: Duration,
+    stderr_grace: Duration,
     cancel: &dyn CancellationCheck,
 ) -> Result<BoundedOutput, BoundedError> {
-    let (status, (stdout, exceeded), stderr) =
-        run_bounded_with_stdout(command, label, timeout, grace, cancel, move |stdout| {
-            read_capped(stdout, max_stdout)
-        })?;
+    let (status, (stdout, exceeded), stderr) = run_bounded_with_stdout(
+        command,
+        label,
+        timeout,
+        stderr_grace,
+        cancel,
+        move |stdout| read_capped(stdout, max_stdout),
+    )?;
     if exceeded {
         return Err(BoundedError::Failed(format!(
             "{label} exceeded the {} MiB output limit",
@@ -89,7 +94,7 @@ fn run_bounded_with_stdout<T: Send, F>(
     mut command: Command,
     label: &str,
     timeout: Duration,
-    grace: Duration,
+    stderr_grace: Duration,
     cancel: &dyn CancellationCheck,
     reader: F,
 ) -> Result<(ExitStatus, T, Vec<u8>), BoundedError>
@@ -120,11 +125,11 @@ where
     let stdout = child
         .stdout
         .take()
-        .map(|pipe| Gated::new(pipe, Arc::clone(&finished)));
+        .map(|pipe| Gated::new(pipe, Arc::clone(&finished), DRAIN_GRACE));
     let stderr = child
         .stderr
         .take()
-        .map(|pipe| Gated::new(pipe, Arc::clone(&finished)));
+        .map(|pipe| Gated::new(pipe, Arc::clone(&finished), stderr_grace));
     let started = Instant::now();
     let (outcome, status, stdout, stderr) = thread::scope(|scope| {
         let stdout_reader = scope.spawn(|| reader(stdout));
@@ -159,7 +164,7 @@ where
         tree.terminate();
         let _ = child.kill();
         let status = child.wait();
-        let _ = finished.set(Instant::now() + grace);
+        let _ = finished.set(Instant::now());
         let reader_failed =
             |stream: &str| BoundedError::Failed(format!("{label} {stream} reader failed"));
         let stdout = stdout_reader
@@ -215,24 +220,38 @@ const DRAIN_GRACE: Duration = Duration::from_secs(1);
 /// A command's output pipe whose reads stop at the end of the command.
 ///
 /// On Unix a read polls the descriptor, so it wakes to see that the command
-/// ended. Once it did, a read returns what is pending and then end of input,
-/// even if a detached descendant still holds the write end; past
-/// [`DRAIN_GRACE`] a read fails. The reader drops the pipe on return, so no
-/// thread or descriptor outlives the call. Elsewhere the `Job` closes the
-/// pipes when it terminates, and a read blocks until then.
+/// ended. Once it did, a read first drains the bytes already in the pipe
+/// when it saw the end (the command's own output), whatever the grace, then
+/// returns end of input on a quiet or closed pipe, even if a detached
+/// descendant still holds the write end. The grace bounds only waiting for
+/// more: past [`DRAIN_GRACE`], a further byte, or a quiet pipe still held
+/// open, fails the read. The reader drops the pipe on return, so no thread
+/// or descriptor outlives the call. Elsewhere the `Job` closes the pipes
+/// when it terminates, and a read blocks until then.
 struct Gated<R> {
     inner: R,
+    /// When the command ended; set once.
     #[cfg(unix)]
     finished: Arc<OnceLock<Instant>>,
+    /// How long after the end this pipe may still bring more bytes.
+    #[cfg(unix)]
+    grace: Duration,
+    /// Bytes left of those pending when this reader first saw the end.
+    #[cfg(unix)]
+    pending: Option<usize>,
 }
 
 impl<R> Gated<R> {
     #[cfg_attr(not(unix), allow(unused_variables))] // Only Unix reads gate on the end marker.
-    fn new(inner: R, finished: Arc<OnceLock<Instant>>) -> Self {
+    fn new(inner: R, finished: Arc<OnceLock<Instant>>, grace: Duration) -> Self {
         Self {
             inner,
             #[cfg(unix)]
             finished,
+            #[cfg(unix)]
+            grace,
+            #[cfg(unix)]
+            pending: None,
         }
     }
 }
@@ -240,24 +259,36 @@ impl<R> Gated<R> {
 #[cfg(unix)]
 impl<R: Read + std::os::fd::AsRawFd> Read for Gated<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let fd = self.inner.as_raw_fd();
         loop {
             // Read the end marker before polling: when it was already set,
             // every byte the command wrote is in the pipe, so a quiet poll is final.
-            let end = self.finished.get().copied();
-            if let Some(end) = end
-                && Instant::now() >= end
-            {
-                return Err(std::io::Error::other(
-                    "output kept streaming after the command ended",
-                ));
+            let Some(ended) = self.finished.get().copied() else {
+                if poll_readable(fd, POLL)? {
+                    return self.inner.read(buf);
+                }
+                continue;
+            };
+            let pending = *self.pending.get_or_insert_with(|| pending_bytes(fd));
+            if pending > 0 {
+                let len = buf.len().min(pending);
+                let count = self.inner.read(&mut buf[..len])?;
+                self.pending = Some(pending - count);
+                return Ok(count);
             }
-            let wait = if end.is_some() { Duration::ZERO } else { POLL };
-            if poll_readable(self.inner.as_raw_fd(), wait)? {
-                return self.inner.read(buf);
+            let streaming =
+                || std::io::Error::other("output kept streaming after the command ended");
+            let past = Instant::now() >= ended + self.grace;
+            if !poll_readable(fd, Duration::ZERO)? {
+                return if past { Err(streaming()) } else { Ok(0) };
             }
-            if end.is_some() {
-                return Ok(0);
-            }
+            // Readable: more bytes, or the end of a pipe no writer holds.
+            let count = self.inner.read(buf)?;
+            return if past && count > 0 {
+                Err(streaming())
+            } else {
+                Ok(count)
+            };
         }
     }
 }
@@ -266,6 +297,19 @@ impl<R: Read + std::os::fd::AsRawFd> Read for Gated<R> {
 impl<R: Read> Read for Gated<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.inner.read(buf)
+    }
+}
+
+/// Bytes waiting in the pipe `fd` (`FIONREAD`); 0 when it cannot say.
+#[cfg(unix)]
+fn pending_bytes(fd: std::os::fd::RawFd) -> usize {
+    let mut count: libc::c_int = 0;
+    // SAFETY: FIONREAD writes one c_int through the live pointer.
+    let result = unsafe { libc::ioctl(fd, libc::FIONREAD, &raw mut count) };
+    if result < 0 {
+        0
+    } else {
+        usize::try_from(count).unwrap_or(0)
     }
 }
 
@@ -397,7 +441,8 @@ fn read_nul_records(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
+    use crate::process_fixture::{RETURN_SLACK, gone_within, recorded_pid, until_set_up};
 
     struct Cancelled;
     impl CancellationCheck for Cancelled {
@@ -412,34 +457,34 @@ mod tests {
         command
     }
 
+    /// Short timeouts first; a run whose fixture did not start its
+    /// descendant in time is repeated with the next ([`until_set_up`]).
+    const SET_UP_TIMEOUTS: [Duration; 3] = [
+        Duration::from_millis(300),
+        Duration::from_millis(1200),
+        Duration::from_millis(4800),
+    ];
+
     #[test]
     fn timeout_kills_the_whole_process_group() {
         let dir = tempfile::tempdir().expect("dir");
         let pidfile = dir.path().join("grandchild.pid");
         let script = format!("sleep 30 & echo $! > '{}'; wait", pidfile.display());
-        let started = Instant::now();
-        let error = run_bounded(
-            sh(&script),
-            "sh",
-            Duration::from_millis(300),
-            1024,
-            &NeverCancel,
-        )
-        .err()
-        .expect("timeout");
+        let (result, timeout, elapsed, pid) = until_set_up(&SET_UP_TIMEOUTS, |timeout| {
+            let started = Instant::now();
+            let result = run_bounded(sh(&script), "sh", timeout, 1024, &NeverCancel);
+            let elapsed = started.elapsed();
+            Some((result, timeout, elapsed, recorded_pid(&pidfile)?))
+        });
+        let error = result.err().expect("timeout");
         assert!(
             matches!(&error, BoundedError::TimedOut(message) if message.contains("timed out")),
             "{error:?}"
         );
-        assert!(started.elapsed() < Duration::from_secs(5));
-        let pid: u32 = std::fs::read_to_string(&pidfile)
-            .expect("pid")
-            .trim()
-            .parse()
-            .expect("pid number");
-        thread::sleep(Duration::from_millis(100));
+        assert!(elapsed < timeout + RETURN_SLACK, "{elapsed:?}");
+        // A killed grandchild stays visible until its new parent reaps it.
         assert!(
-            !crate::process_status::is_alive(pid),
+            gone_within(pid, Duration::from_secs(5)),
             "grandchild {pid} survived"
         );
     }
@@ -449,71 +494,68 @@ mod tests {
     fn timeout_kills_a_setsid_descendant() {
         let dir = tempfile::tempdir().expect("dir");
         let pidfile = dir.path().join("escaped.pid");
-        let mut command = Command::new("python3");
-        command.args(["-c", "import os,sys,time\nif os.fork()==0:\n os.setsid()\n os.close(1); os.close(2)\n open(sys.argv[1],'w').write(str(os.getpid()))\n time.sleep(60)\nelse:\n time.sleep(60)\n"]);
-        command.arg(&pidfile);
-        let result = run_bounded(
-            command,
-            "python3",
-            Duration::from_millis(500),
-            1024,
-            &NeverCancel,
-        );
-        let pid: u32 = std::fs::read_to_string(pidfile)
-            .expect("escaped pid")
-            .trim()
-            .parse()
-            .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while crate::process_status::is_alive(pid) && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(20));
-        }
-        let survived = crate::process_status::is_alive(pid);
-        if survived {
-            // SAFETY: this fixture recorded the pid of its own live child.
-            unsafe {
-                libc::kill(pid as i32, libc::SIGKILL);
-            }
+        let (result, pid) = until_set_up(&SET_UP_TIMEOUTS, |timeout| {
+            let mut command = Command::new("python3");
+            command.args(["-c", "import os,sys,time\nif os.fork()==0:\n os.setsid()\n os.close(1); os.close(2)\n open(sys.argv[1],'w').write(str(os.getpid()))\n time.sleep(60)\nelse:\n time.sleep(60)\n"]);
+            command.arg(&pidfile);
+            let result = run_bounded(command, "python3", timeout, 1024, &NeverCancel);
+            Some((result, recorded_pid(&pidfile)?))
+        });
+        let gone = gone_within(pid, Duration::from_secs(5));
+        if !gone {
+            crate::process_fixture::kill(pid);
         }
         assert!(matches!(result, Err(BoundedError::TimedOut(_))));
-        assert!(!survived, "setsid descendant {pid} survived timeout");
+        assert!(gone, "setsid descendant {pid} survived timeout");
     }
 
     /// The leader prints `boom` to stderr and `hi` to stdout, then exits with
-    /// `code`. A detached grandchild with stdout closed keeps stderr open
-    /// until the read end closes.
+    /// `code`. A grandchild keeps stderr open until the read end closes; it
+    /// has left the process group before the leader goes on, so the leader's
+    /// end cannot take it down. Stdout is closed before it is forked, so the
+    /// leader is stdout's last writer.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn stderr_holder(code: i32) -> Command {
         let mut command = Command::new("python3");
         command.args([
             "-c",
-            "import os,sys,time\nsys.stderr.write('boom\\n'); sys.stderr.flush()\nmiddle=os.fork()\nif middle==0:\n if os.fork()==0:\n  os.setsid(); os.close(1)\n  try:\n   while True: os.write(2,b'.'); time.sleep(0.05)\n  except OSError: pass\n os._exit(0)\nos.waitpid(middle,0)\nsys.stdout.write('hi'); sys.stdout.flush()\nos._exit(int(sys.argv[1]))\n",
+            "import os,sys,time\nsys.stderr.write('boom\\n'); sys.stderr.flush()\nmiddle=os.fork()\nif middle==0:\n os.close(1)\n r,w=os.pipe()\n if os.fork()==0:\n  os.setsid(); os.close(r); os.write(w,b'x'); os.close(w)\n  try:\n   while True: os.write(2,b'.'); time.sleep(0.05)\n  except OSError: pass\n  os._exit(0)\n os.close(w); os.read(r,1)\n os._exit(0)\nos.waitpid(middle,0)\nsys.stdout.write('hi'); sys.stdout.flush()\nos._exit(int(sys.argv[1]))\n",
         ]);
         command.arg(code.to_string());
         command
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    fn run_with_held_stderr(code: i32) -> (BoundedOutput, Duration) {
-        let started = Instant::now();
-        let output = run_bounded_draining(
-            stderr_holder(code),
-            "python3",
-            Duration::from_secs(5),
-            1024,
-            Duration::ZERO,
-            &NeverCancel,
-        )
-        .expect("stdout is complete, so the command's own result stands");
-        (output, started.elapsed())
+    /// The held-stderr fixture's output with a zero stderr grace, the time
+    /// the call took and its timeout. A run the timeout ended before the
+    /// leader exited ran under too much load to test anything, and is
+    /// repeated with a longer timeout ([`until_set_up`]).
+    fn run_with_held_stderr(code: i32) -> (BoundedOutput, Duration, Duration) {
+        let timeouts = [5, 20].map(Duration::from_secs);
+        let (result, elapsed, timeout) = until_set_up(&timeouts, |timeout| {
+            let started = Instant::now();
+            let result = run_bounded_draining(
+                stderr_holder(code),
+                "python3",
+                timeout,
+                1024,
+                Duration::ZERO,
+                &NeverCancel,
+            );
+            let elapsed = started.elapsed();
+            (!matches!(result, Err(BoundedError::TimedOut(_))))
+                .then_some((result, elapsed, timeout))
+        });
+        let output = result.expect("stdout is complete, so the command's own result stands");
+        (output, elapsed, timeout)
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn a_success_is_not_failed_by_stderr_still_open_at_the_grace() {
-        let (output, elapsed) = run_with_held_stderr(0);
+        let (output, elapsed, timeout) = run_with_held_stderr(0);
         assert!(
-            elapsed < Duration::from_secs(5),
+            elapsed < timeout + RETURN_SLACK,
             "returned after {elapsed:?}"
         );
         assert!(output.status.success());
@@ -523,7 +565,7 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn a_failure_quotes_the_stderr_it_has_and_says_it_was_cut() {
-        let (output, _) = run_with_held_stderr(3);
+        let (output, ..) = run_with_held_stderr(3);
         assert_eq!(output.status.code(), Some(3));
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.starts_with("boom\n"), "{stderr}");
@@ -585,8 +627,11 @@ mod tests {
     #[test]
     fn nul_records_can_exceed_the_collected_output_cap_in_total() {
         let mut records = 0_usize;
+        // 300,000 records, 5.1 MB in all; `yes` writes them in a fraction of
+        // a second, where a shell loop took seconds and, under load, the
+        // whole 15 s timeout.
         let output = run_bounded_records(
-            sh("i=0; while [ $i -lt 300000 ]; do printf '120000 blob\\tlink-%04d\\0' $i; i=$((i + 1)); done"),
+            sh("yes '120000 blob\tlink' | head -n 300000 | tr '\\n' '\\0'"),
             "sh",
             Duration::from_secs(15),
             1024,
@@ -596,7 +641,8 @@ mod tests {
                 records += 1;
                 Ok(())
             },
-        ).expect("streams records");
+        )
+        .expect("streams records");
         assert_eq!(records, 300000);
         assert!(output.status.success());
     }
@@ -622,27 +668,36 @@ mod tests {
 mod held_pipe_tests {
     use super::*;
     use crate::{
-        process_fixture::{Holder, Leader, Tree, gone_within, kill},
-        tools::cancel::NeverCancel,
+        execution::cancel::NeverCancel,
+        process_fixture::{Holder, Leader, RETURN_SLACK, Tree, gone_within, kill, until_set_up},
     };
 
     const RETURN_WITHIN: Duration = Duration::from_secs(5);
 
+    /// One call of a fixture tree that started its holder before the
+    /// call's timeout (a leader that exits also exited before it): the
+    /// result, the time the call took, the bound that time must stay under
+    /// (the timeout plus [`RETURN_SLACK`]), and the holder's pid.
     fn run(
         leader: Leader,
         holder: Holder,
         detach: bool,
-    ) -> (Result<BoundedOutput, BoundedError>, Duration, u32) {
-        let (command, tree) = Tree::new(leader, holder, detach);
-        let started = Instant::now();
-        let result = run_bounded(
-            command,
-            "fixture",
-            Duration::from_secs(2),
-            4 * 1024 * 1024,
-            &NeverCancel,
-        );
-        (result, started.elapsed(), tree.holder_pid())
+    ) -> (Result<BoundedOutput, BoundedError>, Duration, Duration, u32) {
+        let timeouts = [2, 4, 8, 16].map(Duration::from_secs);
+        until_set_up(&timeouts, |timeout| {
+            let (command, tree) = Tree::new(leader, holder, detach);
+            let started = Instant::now();
+            let result = run_bounded(command, "fixture", timeout, 4 * 1024 * 1024, &NeverCancel);
+            let elapsed = started.elapsed();
+            let pid = tree.recorded_pid();
+            let exited = matches!(leader, Leader::Sleep)
+                || !matches!(result, Err(BoundedError::TimedOut(_)));
+            if !exited && let Some(pid) = pid {
+                kill(pid);
+            }
+            let pid = pid.filter(|_| exited)?;
+            Some((result, elapsed, timeout + RETURN_SLACK, pid))
+        })
     }
 
     /// A holder that left the process group outlives the call by design: no
@@ -650,11 +705,11 @@ mod held_pipe_tests {
     #[cfg(unix)]
     #[test]
     fn a_detached_descendant_holding_the_pipes_does_not_delay_a_finished_command() {
-        let (result, elapsed, pid) = run(Leader::Exit, Holder::Silent, true);
+        let (result, elapsed, within, pid) = run(Leader::Exit, Holder::Silent, true);
         let alive = crate::process_status::is_alive(pid);
         kill(pid);
         let output = result.expect("the command itself succeeded");
-        assert!(elapsed < RETURN_WITHIN, "returned after {elapsed:?}");
+        assert!(elapsed < within, "returned after {elapsed:?}");
         assert!(alive, "the fixture must still hold the pipes at return");
         assert!(output.status.success());
         // The libtest harness prints its own banner around the fixture's text.
@@ -667,22 +722,22 @@ mod held_pipe_tests {
     #[cfg(unix)]
     #[test]
     fn a_detached_descendant_holding_the_pipes_does_not_delay_a_timeout() {
-        let (result, elapsed, pid) = run(Leader::Sleep, Holder::Silent, true);
+        let (result, elapsed, within, pid) = run(Leader::Sleep, Holder::Silent, true);
         kill(pid);
         let error = result.err().expect("the leader outlived the timeout");
         assert!(matches!(error, BoundedError::TimedOut(_)), "{error:?}");
-        assert!(elapsed < RETURN_WITHIN, "returned after {elapsed:?}");
+        assert!(elapsed < within, "returned after {elapsed:?}");
     }
 
     #[test]
     fn a_streaming_descendant_is_released_when_the_call_returns() {
-        let (result, elapsed, pid) = run(Leader::Exit, Holder::Streaming, true);
+        let (result, elapsed, within, pid) = run(Leader::Exit, Holder::Streaming, true);
         let released = gone_within(pid, RETURN_WITHIN);
         kill(pid);
         // Whether the stream outran the cap or went quiet first is a race; the
         // call must return either way, and must not keep its read ends open.
         drop(result);
-        assert!(elapsed < RETURN_WITHIN, "returned after {elapsed:?}");
+        assert!(elapsed < within, "returned after {elapsed:?}");
         assert!(released, "the call kept its read end open after returning");
     }
 
@@ -690,23 +745,23 @@ mod held_pipe_tests {
     /// takes the holder down with the command.
     #[test]
     fn a_timeout_leaves_no_descendant_holding_the_pipes() {
-        let (result, elapsed, pid) = run(Leader::Sleep, Holder::Silent, false);
+        let (result, elapsed, within, pid) = run(Leader::Sleep, Holder::Silent, false);
         let gone = gone_within(pid, RETURN_WITHIN);
         kill(pid);
         let error = result.err().expect("the leader outlived the timeout");
         assert!(matches!(error, BoundedError::TimedOut(_)), "{error:?}");
-        assert!(elapsed < RETURN_WITHIN, "returned after {elapsed:?}");
+        assert!(elapsed < within, "returned after {elapsed:?}");
         assert!(gone, "descendant {pid} survived the timeout");
     }
 
     #[test]
     fn a_finished_command_leaves_no_descendant_holding_the_pipes() {
-        let (result, elapsed, pid) = run(Leader::Exit, Holder::Silent, false);
+        let (result, elapsed, within, pid) = run(Leader::Exit, Holder::Silent, false);
         let gone = gone_within(pid, RETURN_WITHIN);
         kill(pid);
         let output = result.expect("the command itself succeeded");
         assert!(output.status.success());
-        assert!(elapsed < RETURN_WITHIN, "returned after {elapsed:?}");
+        assert!(elapsed < within, "returned after {elapsed:?}");
         assert!(gone, "descendant {pid} survived the command");
     }
 }
@@ -723,7 +778,7 @@ mod gated_tests {
         if let Some(end) = finished {
             cell.set(end).expect("fresh cell");
         }
-        (Gated::new(reader, cell), writer)
+        (Gated::new(reader, cell, Duration::ZERO), writer)
     }
 
     #[test]
@@ -737,12 +792,49 @@ mod gated_tests {
         drop(writer);
     }
 
+    /// Bytes already in the pipe at the end are the command's own output:
+    /// read even past the grace. Bytes that arrive after them are not.
     #[test]
-    fn a_gated_read_past_the_grace_fails_instead_of_cutting_silently() {
+    fn a_gated_read_past_the_grace_drains_what_was_pending_then_fails_on_more() {
         let (mut reader, mut writer) = gated(Some(Instant::now()));
+        writer.write_all(b"pending").expect("write");
+        let mut chunk = [0_u8; 64];
+        let count = reader.read(&mut chunk).expect("pending bytes");
+        assert_eq!(&chunk[..count], b"pending");
         writer.write_all(b"still arriving").expect("write");
+        let error = reader.read(&mut chunk).expect_err("past the grace");
+        assert!(error.to_string().contains("kept streaming"), "{error}");
+    }
+
+    #[test]
+    fn a_gated_read_past_the_grace_reads_a_closed_pipe_to_its_end() {
+        let (mut reader, mut writer) = gated(Some(Instant::now()));
+        writer.write_all(b"done").expect("write");
+        drop(writer);
+        let mut chunk = [0_u8; 64];
+        let count = reader.read(&mut chunk).expect("pending bytes");
+        assert_eq!(&chunk[..count], b"done");
+        // A child another test thread forks may hold a copy of the write end
+        // until it execs: wait until the end is in the pipe, as an exited
+        // command's is.
+        assert!(
+            poll_readable(
+                std::os::fd::AsRawFd::as_raw_fd(&reader.inner),
+                Duration::from_secs(5)
+            )
+            .expect("poll")
+        );
+        assert_eq!(reader.read(&mut chunk).expect("closed pipe"), 0);
+    }
+
+    /// Past the grace, a pipe a descendant still holds open fails the read
+    /// even when it is quiet: the output may not be complete.
+    #[test]
+    fn a_gated_read_past_the_grace_fails_on_a_quiet_pipe_still_held_open() {
+        let (mut reader, writer) = gated(Some(Instant::now()));
         let error = reader.read(&mut [0_u8; 64]).expect_err("past the grace");
         assert!(error.to_string().contains("kept streaming"), "{error}");
+        drop(writer);
     }
 
     #[test]

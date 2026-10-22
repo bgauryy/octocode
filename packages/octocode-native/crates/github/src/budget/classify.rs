@@ -1,7 +1,7 @@
 //! Rate-limit classification of a GitHub error response (Octokit parity).
 
 /// Octokit: `/\bsecondary rate\b/i` on the error message.
-pub fn mentions_secondary_rate(body: &str) -> bool {
+pub(crate) fn mentions_secondary_rate(body: &str) -> bool {
     let lower = body.to_ascii_lowercase();
     lower.match_indices("secondary rate").any(|(index, _)| {
         let before_ok = index == 0
@@ -29,12 +29,12 @@ fn mentions_primary_rate(body: &str) -> bool {
 /// An exhausted bucket (`x-ratelimit-remaining: 0`) on a 403/429, or, when
 /// a proxy or GitHub Enterprise sent no `x-ratelimit-*` headers, GitHub's
 /// own rate-limit message.
-pub fn is_primary_rate_limit(status: u16, remaining: Option<u64>, body: &str) -> bool {
+pub(crate) fn is_primary_rate_limit(status: u16, remaining: Option<u64>, body: &str) -> bool {
     matches!(status, 403 | 429)
         && (remaining == Some(0) || (remaining.is_none() && mentions_primary_rate(body)))
 }
 
-pub fn is_secondary_rate_limit(
+pub(crate) fn is_secondary_rate_limit(
     status: u16,
     remaining: Option<u64>,
     retry_after: Option<u64>,

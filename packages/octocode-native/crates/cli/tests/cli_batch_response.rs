@@ -20,7 +20,7 @@ async fn cli_exit_is_two_when_any_batch_row_is_rejected() {
         json!({"queries":[search(&root, json!({})), search(&root, json!({"serchText":"x"}))]});
     let output = workspace
         .cli()
-        .args(["localSearch", &input.to_string()])
+        .args(["localSearch", &input.to_string(), "--json"])
         .output()
         .unwrap();
     assert_eq!(
@@ -52,7 +52,11 @@ fn cli_exit_is_zero_while_response_pages_remain() {
     let query = search(&root, json!({"pageSize":30,"matchContentLength":2000}));
     let output = workspace
         .cli()
-        .args(["localSearch", &json!({"queries":[query]}).to_string()])
+        .args([
+            "localSearch",
+            &json!({"queries":[query]}).to_string(),
+            "--json",
+        ])
         .output()
         .unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();

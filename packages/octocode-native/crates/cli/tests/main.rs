@@ -5,7 +5,8 @@
 //! and its dependencies per build variant: 8 binaries, ~2 GB per build, and
 //! hundreds of GB of stale copies in target/. One binary links once and runs
 //! all tests in one parallel harness. Run one file with
-//! `cargo test -p octocode-cli --test integration <module>::`.
+//! `cargo dev-test -- <module>::` (`.cargo/config.toml`): the `test:rust`
+//! selection, so it reuses that build instead of compiling another copy.
 #![allow(
     clippy::expect_used,
     clippy::unwrap_used,
@@ -32,18 +33,5 @@ mod warm_server;
 /// would silently never run.
 #[test]
 fn every_test_file_is_a_module() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
-    let main = std::fs::read_to_string(dir.join("main.rs")).expect("read tests/main.rs");
-    for entry in std::fs::read_dir(&dir).expect("read tests/") {
-        let path = entry.expect("tests/ entry").path();
-        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
-            continue;
-        };
-        if stem != "main" && path.extension().is_some_and(|ext| ext == "rs") {
-            assert!(
-                main.contains(&format!("mod {stem};")),
-                "tests/{stem}.rs is not declared in tests/main.rs"
-            );
-        }
-    }
+    support::assert_every_test_file_is_a_module(env!("CARGO_MANIFEST_DIR"));
 }

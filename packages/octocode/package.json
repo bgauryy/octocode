@@ -6,8 +6,16 @@
   "bin": "./out/octocode.js",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
-    "@octocodeai/octocode-native": "20.2.0",
     "@typescript/native-preview": "7.0.0-dev.20260707.2"
+  },
+  "optionalDependencies": {
+    "@octocodeai/octocode-native-darwin-arm64": "20.2.0",
+    "@octocodeai/octocode-native-darwin-x64": "20.2.0",
+    "@octocodeai/octocode-native-linux-arm64-gnu": "20.2.0",
+    "@octocodeai/octocode-native-linux-x64-gnu": "20.2.0",
+    "@octocodeai/octocode-native-linux-x64-musl": "20.2.0",
+    "@octocodeai/octocode-native-win32-arm64-msvc": "20.2.0",
+    "@octocodeai/octocode-native-win32-x64-msvc": "20.2.0"
   },
   "devDependencies": {
     "@octocodeai/config": "workspace:*",
@@ -24,7 +32,6 @@
   },
   "files": [
     "out",
-    "docs/**",
     "skills/**",
     "README.md",
     "LICENSE"

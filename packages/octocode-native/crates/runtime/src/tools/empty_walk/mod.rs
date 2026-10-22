@@ -424,15 +424,46 @@ impl Tagged {
         cut: bool,
     ) -> Result<Self, String> {
         let overrides = globs.overrides(root).map_err(|error| error.reason)?;
+        let files = files.into_iter().map(|file| (file, false));
+        Ok(Self::tag(root, Some(&overrides), files, true, cut))
+    }
+
+    /// The entries (each a path and whether it is a directory) a listing
+    /// walk found under `root` with every cause lifted (or a `cut` walk's
+    /// first ones), each tagged by its path like [`Self::found`]'s files: a
+    /// listing walk applies no include override and skips no generated file.
+    pub(crate) fn listed(
+        root: &Path,
+        entries: impl IntoIterator<Item = (PathBuf, bool)>,
+        cut: bool,
+    ) -> Self {
+        Self::tag(root, None, entries, false, cut)
+    }
+
+    /// Tag each entry with the causes on its way below `root`; `overrides`
+    /// whitelist ignored paths, and with `generated` a generated file is
+    /// default-excluded.
+    fn tag(
+        root: &Path,
+        overrides: Option<&ignore::overrides::Override>,
+        entries: impl IntoIterator<Item = (PathBuf, bool)>,
+        generated: bool,
+        cut: bool,
+    ) -> Self {
         let rules = IgnoreRules::new(root);
         let prune = Prune::new(prune::directories(true)).at(root);
-        let files = files
+        let files = entries
             .into_iter()
-            .map(|file| {
+            .map(|(entry, entry_is_dir)| {
                 let mut bits = 0;
-                for (prefix, is_dir) in prefixes(root, &file) {
+                let ways = prefixes(root, &entry);
+                let last = ways.len().saturating_sub(1);
+                for (index, (prefix, on_the_way)) in ways.into_iter().enumerate() {
+                    let is_dir = on_the_way || (index == last && entry_is_dir);
                     if bits & Cause::Ignored.bit() == 0
-                        && !overrides.matched(&prefix, is_dir).is_whitelist()
+                        && !overrides.is_some_and(|overrides| {
+                            overrides.matched(&prefix, is_dir).is_whitelist()
+                        })
                         && rules.is_ignored(&prefix, is_dir)
                     {
                         bits |= Cause::Ignored.bit();
@@ -441,19 +472,20 @@ impl Tagged {
                     if name.to_string_lossy().starts_with('.') {
                         bits |= Cause::Hidden.bit();
                     }
-                    let generated = !is_dir
+                    let generated_file = generated
+                        && !is_dir
                         && crate::policy::discovery::generated_file_pattern(
                             &name.to_string_lossy(),
                         )
                         .is_some();
-                    if prune.prunes(&prefix, is_dir) || generated {
+                    if prune.prunes(&prefix, is_dir) || generated_file {
                         bits |= Cause::DefaultExcluded.bit();
                     }
                 }
-                (file, bits)
+                (entry, bits)
             })
             .collect();
-        Ok(Self { files, cut })
+        Self { files, cut }
     }
 
     /// What the relaxed `walk` finds; with `requested`, only files that walk

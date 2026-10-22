@@ -2,11 +2,12 @@
 //! reads (`number`, `headSha`/`baseSha`/`mergeCommitSha`, `commitSha`,
 //! changed files as path+stat, patch lines numbered on their own side).
 use super::{HistoryItemRequest, execute};
+use crate::id::ToolId;
 use crate::security::scan::ContentScan;
-use crate::tools::gh_shared::test_support::{fixture_context, mock_provider, mount_json};
-use crate::tools::id::ToolId;
+use crate::tools::gh_shared::test_support::{fixture_context, mock_provider};
 use crate::tools::test_support::{checks, published};
 use octocode_github::RetryPolicy;
+use octocode_github::mock_http::mount_json;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Duration;
@@ -151,6 +152,33 @@ async fn commit_file_batches_resolve_a_movable_ref_once_before_paging() {
         requests[1..]
             .iter()
             .all(|request| request.url.path().ends_with(HEAD))
+    );
+}
+
+/// A read by branch whose page one batch holds reads the commit by that
+/// name once: the answer names the commit, and every continuation is
+/// pinned to it, so no separate resolution is sent.
+#[tokio::test]
+async fn a_one_batch_commit_read_by_branch_sends_no_separate_resolution() {
+    let server = MockServer::builder().start().await;
+    let mut raw = commit_raw(HEAD, "Fix parser");
+    raw["files"] = json!(
+        (0..30)
+            .map(|i| changed_file(&format!("f-{i:02}.rs")))
+            .collect::<Vec<_>>()
+    );
+    mount_json(&server, "/api/v3/repos/o/r/commits/main", 200, raw).await;
+    let query = json!({"operation":"commit","owner":"o","repo":"r","ref":"main",
+        "sections":["files"],"pageSize":10});
+    let data = read(&server, query.clone()).await;
+    assert_history_page_contract(&query, &data);
+    assert_eq!(data["commitSha"], HEAD, "{data}");
+    let requests = server.received_requests().await.expect("requests");
+    assert_eq!(requests.len(), 1, "one read of the commit by its name");
+    assert_eq!(
+        data.pointer("/next/nextFilePage/query/queries/0/ref"),
+        Some(&json!(HEAD)),
+        "{data}"
     );
 }
 
@@ -853,7 +881,7 @@ async fn pr_comment_bodies_are_verbatim_by_default() {
 
 fn assert_history_page_contract(query: &Value, data: &Value) {
     let shaped = crate::response::rows::result_row(
-        crate::tools::id::ToolId::GhGetHistoryItem,
+        crate::id::ToolId::GhGetHistoryItem,
         0,
         query,
         data.clone(),
@@ -898,7 +926,11 @@ async fn commit_path_scope_keeps_the_unfiltered_observed_count_separate() {
 
 #[tokio::test]
 async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
-    for total in [250, 260] {
+    for (total, extras) in [
+        (250, json!([])),
+        (260, json!([])),
+        (260, json!(["details"])),
+    ] {
         let server = MockServer::builder().start().await;
         mount_json(
             &server,
@@ -933,8 +965,10 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
                 .mount(&server)
                 .await;
         }
+        // The details view keeps page detail: the row's limits still lift
+        // off its pages (the page schema declares none of them).
         let mut query = json!({"operation":"pullRequest","owner":"o","repo":"r",
-            "number":1,"sections":["commits"],"pageSize":100});
+            "number":1,"sections":["commits"],"pageSize":100,"extras":extras});
         let mut all = Vec::new();
         let mut pages = 0;
         let last = loop {

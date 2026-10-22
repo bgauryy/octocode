@@ -42,7 +42,7 @@ static ATTR_TYPE: LazyLock<Regex> = LazyLock::new(|| {
 /// dropping HTML comments outside raw script/style blocks. Markup whitespace is
 /// preserved. This bounded non-recursive scanner does not claim parser-grade
 /// HTML correctness; malformed or unclosed blocks are left unchanged.
-pub fn minify_embedded_web(content: &str, _file_path: &str) -> String {
+pub fn minify_embedded_web(content: &str) -> String {
     let mut output = String::with_capacity(content.len());
     let mut offset = 0;
     for captures in WEB_BLOCK_OR_COMMENT.captures_iter(content) {
@@ -89,7 +89,7 @@ pub fn minify_embedded_web(content: &str, _file_path: &str) -> String {
 }
 
 /// True when a `<script>` open tag denotes inline JavaScript/TypeScript that is
-/// safe to run through oxc. External (`src=`) and non-JS payloads return false.
+/// safe to run through the JS/TS content view. External (`src=`) and non-JS payloads return false.
 fn script_is_javascript(open_tag: &str) -> bool {
     let lower = open_tag.to_ascii_lowercase();
     if lower.contains("src=") || lower.contains("src =") {
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn embedded_scanner_does_not_strip_comment_syntax_inside_scripts() {
         let source = "<script>const marker = '<!-- keep -->';</script><!-- drop -->";
-        let output = minify_embedded_web(source, "fixture.html");
+        let output = minify_embedded_web(source);
         assert!(output.contains("<!-- keep -->"));
         assert!(!output.contains("drop"));
     }

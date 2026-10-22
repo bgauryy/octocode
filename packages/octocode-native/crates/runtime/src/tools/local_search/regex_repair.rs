@@ -1,19 +1,18 @@
 //! Pattern validation and runnable repairs for an invalid regex.
 
 use super::types::*;
+use crate::id::ToolId;
 use crate::regex_repair::{close_unclosed_group, only_pcre2_compiles, repair_alternation};
-use crate::tools::id::ToolId;
-use crate::tools::result::Continuation;
-use crate::tools::result::ToolError;
+use crate::response::result::{CURSOR_FIELDS, Continuation, ToolError, query_row};
 use serde_json::json;
 
 /// An invalid pattern, classified from the engine's typed validation
 /// result (not from search error text) before walking the tree.
 pub(super) fn check_pattern(query: &LocalSearchQuery) -> Result<(), ToolError> {
-    let mode = query.regex_mode();
+    let mode = local_search_query::regex_mode(query);
     if query.multiline == LocalSearchQueryMultiline::Off
         && octocode_engine::search::text_pattern::matches_line_break(
-            query.pattern(),
+            local_search_query::pattern(query),
             mode == LocalSearchQueryRegex::Literal,
         )
     {
@@ -23,16 +22,16 @@ pub(super) fn check_pattern(query: &LocalSearchQuery) -> Result<(), ToolError> {
         return Ok(());
     }
     let checked = octocode_engine::search::text_pattern::validate_text_pattern(
-        query.pattern(),
+        local_search_query::pattern(query),
         false,
-        query.regex_mode() == LocalSearchQueryRegex::Pcre2,
+        local_search_query::regex_mode(query) == LocalSearchQueryRegex::Pcre2,
     );
     if checked.valid {
         Ok(())
     } else {
         Err(invalid_regex(
             query,
-            regex_error_message(query.pattern(), checked.error.as_deref()),
+            regex_error_message(local_search_query::pattern(query), checked.error.as_deref()),
         ))
     }
 }
@@ -63,25 +62,11 @@ pub(super) fn regex_error_message(match_string: &str, raw: Option<&str>) -> Stri
     format!("Invalid regex matchString `{match_string}`: {reason}")
 }
 
-/// The caller's own fields, not the runtime-normalized ones: a fresh
-/// page-1 search re-derives the same view defaults (contextLines,
-/// matchContentLength, pageSize), so spelling them out only adds bytes.
-fn caller_fields(query: &LocalSearchQuery) -> serde_json::Value {
-    let mut repaired = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
-    if let Some(object) = repaired.as_object_mut() {
-        object.retain(|_, value| !value.is_null());
-        for cursor in ["snapshot", "page", "matchPage"] {
-            object.remove(cursor);
-        }
-    }
-    repaired
-}
-
 /// `invalidPattern` for a line break in a line-by-line search: the one
 /// fact (lines are searched one at a time) and the same search with
 /// `multiline:"on"` as its repair.
 fn line_break_pattern(query: &LocalSearchQuery) -> ToolError {
-    let mut repaired = caller_fields(query);
+    let mut repaired = query_row(query, &CURSOR_FIELDS);
     repaired["multiline"] = json!("on");
     ToolError {
         next: Some(Box::new(json!({
@@ -91,7 +76,7 @@ fn line_break_pattern(query: &LocalSearchQuery) -> ToolError {
             "invalidPattern",
             format!(
                 "matchString `{}` matches a line break; lines are searched one at a time unless multiline:\"on\".",
-                query.pattern().replace('\n', "\\n")
+                local_search_query::pattern(query).replace('\n', "\\n")
             ),
         )
     }
@@ -139,7 +124,7 @@ pub(super) fn check_language(query: &LocalSearchQuery) -> Result<(), ToolError> 
     } else {
         return Ok(());
     };
-    let mut repaired = caller_fields(query);
+    let mut repaired = query_row(query, &CURSOR_FIELDS);
     repaired["language"] = json!(name);
     Err(ToolError {
         next: Some(Box::new(json!({
@@ -154,8 +139,8 @@ pub(super) fn check_language(query: &LocalSearchQuery) -> Result<(), ToolError> 
 
 /// `invalidPattern` with a literal-search repair continuation.
 pub(super) fn invalid_regex(query: &LocalSearchQuery, message: String) -> ToolError {
-    let mut repaired = caller_fields(query);
-    let pcre2 = query.regex_mode() == LocalSearchQueryRegex::Pcre2;
+    let mut repaired = query_row(query, &CURSOR_FIELDS);
+    let pcre2 = local_search_query::regex_mode(query) == LocalSearchQueryRegex::Pcre2;
     // `poll_(proceed|budget` means the group `poll_(proceed|budget)`: closing
     // it keeps every alternative anchored, where escaping the `(` would turn
     // `budget` into a bare, much broader alternative. Otherwise an alternation
@@ -163,20 +148,20 @@ pub(super) fn invalid_regex(query: &LocalSearchQuery, message: String) -> ToolEr
     // alternative escaped finds every anchor. The message names the pattern
     // and the reason; the repaired query is the one lead.
     let mut hints = Vec::new();
-    if only_pcre2_compiles([query.pattern()], pcre2) {
+    if only_pcre2_compiles([local_search_query::pattern(query)], pcre2) {
         // A backreference or lookaround the Rust engine lacks: the same
         // search under PCRE2 is the repair.
         repaired["regex"] = json!("pcre2");
-    } else if let Some(text) = close_unclosed_group(query.pattern(), pcre2) {
+    } else if let Some(text) = close_unclosed_group(local_search_query::pattern(query), pcre2) {
         // Closing guesses the group's end; the text as written is the other
         // reading.
         hints.push(format!(
             "The repair reads matchString as `{text}`; regex:\"literal\" matches it as written."
         ));
         repaired["matchString"] = json!(text);
-    } else if let Some(text) = repair_alternation(query.pattern(), pcre2) {
+    } else if let Some(text) = repair_alternation(local_search_query::pattern(query), pcre2) {
         repaired["matchString"] = json!(text);
-    } else if reads_as_text(query.pattern(), &message) {
+    } else if reads_as_text(local_search_query::pattern(query), &message) {
         repaired["regex"] = json!("literal");
     } else {
         // Well-formed regex syntax the engine refused (a size limit, an
@@ -296,7 +281,8 @@ mod repair_tests {
     #[test]
     fn invalid_regex_repair_keeps_only_caller_fields() {
         let query: LocalSearchQuery = serde_json::from_value(json!({
-            "path":"/tmp","matchString":"(unclosed","mainGoal": "test", "reasoning":"r","page":3,"pageSize":5
+            "path":"/tmp","matchString":"(unclosed","mainGoal": "test", "reasoning":"r","page":3,"pageSize":5,
+            "snapshot":"s1","selection":"stale-plan"
         }))
         .expect("query");
         let error = invalid_regex(&query, "unclosed group".into());
@@ -304,7 +290,16 @@ mod repair_tests {
         let repair = &next["repair"]["query"]["queries"][0];
         assert_eq!(repair["regex"], "literal");
         assert_eq!(repair["pageSize"], 5, "caller fields survive: {repair}");
-        for derived in ["contextLines", "matchContentLength", "page", "matchPage"] {
+        // A repaired query is a fresh search: no cursor, saved snapshot or
+        // saved selection plan of the failed one.
+        for derived in [
+            "contextLines",
+            "matchContentLength",
+            "page",
+            "matchPage",
+            "snapshot",
+            "selection",
+        ] {
             assert!(repair.get(derived).is_none(), "{derived} leaked: {repair}");
         }
         crate::contracts::validate_query("localSearch", repair.clone())

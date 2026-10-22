@@ -1,7 +1,7 @@
 //! Every lead astSearch hands out validates against the contract and runs
 //! without an error: a hint that loops into another error is a bug.
 use super::{AstSearchQuery, execute_ast};
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::{Value, json};
 

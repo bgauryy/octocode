@@ -18,8 +18,10 @@
     clippy::semicolon_if_nothing_returned
 )]
 
+pub(crate) mod deep_stack;
 pub mod digest;
 pub mod error;
+pub mod fact_scan;
 pub mod graph;
 pub mod json_size;
 pub mod lsp;
@@ -30,6 +32,7 @@ pub mod scan_budget;
 pub mod search;
 pub mod security;
 pub mod signatures;
+pub mod stamp;
 pub mod structural;
 #[cfg(test)]
 mod test_cpu;

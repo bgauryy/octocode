@@ -178,7 +178,13 @@ impl<W: Write> Writer<W> {
             } else {
                 self.bytes(&hit.value_digest)?;
             }
-            for value in [hit.count, hit.rank, hit.original_chars, hit.original_bytes] {
+            for value in [
+                hit.last_line,
+                hit.count,
+                hit.rank,
+                hit.original_chars,
+                hit.original_bytes,
+            ] {
                 self.optional(value)?;
             }
         }
@@ -341,6 +347,7 @@ impl Reader<'_> {
             };
             matches.push(TextSearchMatch {
                 line,
+                last_line: self.optional()?,
                 column,
                 byte_offset,
                 deferred,
@@ -383,6 +390,7 @@ mod tests {
         TextSearchMatch {
             deferred: None,
             line,
+            last_line: line.is_multiple_of(5).then_some(line + 2),
             column: line * 3,
             byte_offset: line * 5,
             value: value.to_owned(),
@@ -406,6 +414,7 @@ mod tests {
                 assert_eq!(
                     (
                         x.line,
+                        x.last_line,
                         x.column,
                         x.byte_offset,
                         &x.value,
@@ -417,6 +426,7 @@ mod tests {
                     ),
                     (
                         y.line,
+                        y.last_line,
                         y.column,
                         y.byte_offset,
                         &y.value,
@@ -430,7 +440,7 @@ mod tests {
             }
         }
         assert_eq!(left.stats.match_count, right.stats.match_count);
-        assert_eq!(left.stats.cap_reason, right.stats.cap_reason);
+        assert_eq!(left.stats.cap_reasons, right.stats.cap_reasons);
     }
 
     /// Every field of every file comes back exactly, multibyte text,
@@ -465,7 +475,7 @@ mod tests {
             files,
             stats: TextSearchStats {
                 match_count: Some(600),
-                cap_reason: Some("maxCollectedFiles".into()),
+                cap_reasons: vec![octocode_engine::types::CapReason::MaxCollectedFiles],
                 ..Default::default()
             },
         };

@@ -37,15 +37,6 @@ fn collect(from: &str, value: &Value, out: &mut Vec<Edge>) {
     );
 }
 
-/// The rows of a continuation's complete input.
-fn rows(query: &Value) -> Vec<Value> {
-    query
-        .get("queries")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-}
-
 fn assert_current(edge: &Edge) {
     validate(&edge.tool, edge.query.clone()).unwrap_or_else(|error| {
         panic!(
@@ -53,15 +44,6 @@ fn assert_current(edge: &Edge) {
             edge.from, edge.name, edge.tool
         )
     });
-    for row in rows(&edge.query) {
-        let Some(object) = row.as_object() else {
-            continue;
-        };
-        // astTopology's anchor is `source`; `file` was its old name.
-        if edge.tool == "astTopology" {
-            assert!(!object.contains_key("file"), "{edge:?}");
-        }
-    }
 }
 
 /// Runs a continuation exactly as emitted: no envelope, no brief added.
@@ -104,15 +86,6 @@ fn fixture(workspace: &Workspace) {
     for index in 0..12 {
         workspace.write(&format!("src/mod{index}.rs"), "pub fn helper_twin() {}\n");
     }
-    workspace.write(
-        "web/a.ts",
-        "import { b } from './b';\nimport { gone } from './gone';\nexport const a = b + gone;\n",
-    );
-    workspace.write("web/b.ts", "export const b = 1;\n");
-    workspace.write(
-        "web/c.ts",
-        "import { a } from './a';\nimport { x } from './missing';\nexport const c = a + x;\n",
-    );
 }
 
 #[tokio::test]
@@ -122,7 +95,6 @@ async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
     let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
     let root = workspace.workspace.clone();
     let src = root.join("src");
-    let web = root.join("web");
     let lib = src.join("lib.rs");
     let seeds: Vec<(&str, Value)> = vec![
         // localSearch: nextPage, read, findCallers, matchString leads.
@@ -141,7 +113,7 @@ async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
             "localSearch",
             json!({"path": src, "matchString": "helper(", "regex": "rust"}),
         ),
-        // structureSearch: read and expandScan.
+        // structureSearch: read and continueWalk.
         (
             "structureSearch",
             json!({"operation": "files", "path": src, "include": ["lib.rs"]}),
@@ -166,19 +138,6 @@ async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
         (
             "astSearch",
             json!({"operation": "symbols", "path": lib, "symbolName": "helper"}),
-        ),
-        // astTopology: diagnostics paging, a suffix miss, a capped scan.
-        (
-            "astTopology",
-            json!({"operation": "dependents", "path": web, "source": "b.ts"}),
-        ),
-        (
-            "astTopology",
-            json!({"operation": "dependencies", "path": root, "source": "a.ts"}),
-        ),
-        (
-            "astTopology",
-            json!({"operation": "dependencies", "path": web, "source": "a.ts", "maxFiles": 1}),
         ),
         // localFetch: continueWindow, matchString, block, a missed match.
         (
@@ -254,10 +213,9 @@ async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
         "localSearch.findCallers",
         "localSearch.binarySkipped",
         "structureSearch.read",
-        "structureSearch.expandScan",
+        "structureSearch.continueWalk",
         "astSearch.nextPage",
         "astSearch.nextMatchPage",
-        "astTopology.retrySuffixMatch",
         "localFetch.continueWindow",
         "localFetch.responsePagination.next",
     ] {

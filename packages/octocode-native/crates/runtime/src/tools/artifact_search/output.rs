@@ -1,12 +1,12 @@
 //! artifactSearch's answers to the shared response stages.
-use crate::tools::output::ToolOutput;
+use crate::response::output::ToolOutput;
 use serde_json::Value;
 
 pub(crate) struct Output;
 
 impl ToolOutput for Output {
     fn fallback_hint(&self, query: &Value) -> &'static str {
-        if crate::tools::output::has_value(query, "packageName") {
+        if crate::response::output::has_value(query, "packageName") {
             "Check the exact packageName spelling and ecosystem, or search by keywords."
         } else {
             "Use fewer or broader keywords, an exact packageName, or another ecosystem."
@@ -26,7 +26,7 @@ mod tests {
 
     #[test]
     fn registry_rows_are_provider_evidence_with_a_lookup_tip() {
-        let output = crate::tools::id::ToolId::ArtifactSearch.output();
+        let output = crate::id::ToolId::ArtifactSearch.output();
         assert_eq!(output.evidence_kind(&json!({}), &json!({})), "provider");
         assert!(output.fallback_hint(&json!({})).contains("packageName"));
     }

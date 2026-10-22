@@ -2,7 +2,7 @@ use super::types::{CONFIG_FILE_NAME, ConfigInput, FileInput, RuntimeSurface};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-pub fn octocode_home(env: &BTreeMap<String, String>, cwd: &Path, os_home: &Path) -> PathBuf {
+pub(crate) fn octocode_home(env: &BTreeMap<String, String>, cwd: &Path, os_home: &Path) -> PathBuf {
     env.get(super::environment::OCTOCODE_HOME)
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
@@ -14,7 +14,7 @@ pub fn octocode_home(env: &BTreeMap<String, String>, cwd: &Path, os_home: &Path)
 }
 /// Read one configuration layer, bounded like every config edit. Symlinks are
 /// followed: a dotfile manager may link the file into place.
-pub fn read_file(path: PathBuf) -> FileInput {
+pub(crate) fn read_file(path: PathBuf) -> FileInput {
     let read = fs::File::open(&path)
         .and_then(|file| crate::private_file::read_limited(file, super::edit::MAX_CONFIG_BYTES))
         .and_then(|bytes| {

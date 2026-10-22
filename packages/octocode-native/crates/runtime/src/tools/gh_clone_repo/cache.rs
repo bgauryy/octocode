@@ -29,25 +29,19 @@ pub(super) struct CacheMeta {
     pub source: String,
     /// The whole entry's bytes (checkout and `.git`) at publication, which
     /// eviction weighs it by without walking it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_bytes: Option<u64>,
+    pub size_bytes: u64,
     /// Checked-out bytes outside `.git` at publication: a clean checkout's
     /// size cannot change, so a hit reads it instead of walking the tree.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkout_bytes: Option<u64>,
-    /// Whether the checkout was integrity-verified when it was created. Persisted
-    /// so a cache hit reports the state it was created with instead of a bare
-    /// `false`. Defaults to `false` for caches written before this field existed.
-    #[serde(default)]
-    pub verified: bool,
+    pub checkout_bytes: u64,
     /// Commits of history fetched.
     pub depth: u64,
     /// Repo-relative paths of the repository symlinks the checkout holds
-    /// (as plain files), recorded at publication so a hit reports them;
-    /// `None` for entries written before this field existed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub symlinks: Option<Vec<String>>,
+    /// (as plain files), recorded at publication so a hit reports them.
+    pub symlinks: Vec<String>,
 }
+// Every field is required: a meta written by an older layout fails to
+// parse, so `valid_clone` rejects it and the entry is cloned again or
+// evicted, never served with facts it does not record.
 
 /// What a cache entry holds: repository, commit, sparse scope
 /// ([`super::Sparse::key`]), and history depth.
@@ -61,7 +55,14 @@ pub(super) struct Identity<'a> {
 }
 
 impl CacheMeta {
-    pub fn new(identity: &Identity<'_>, commit_sha: &str, ttl: Duration) -> Self {
+    /// The meta of a fresh, verified checkout of `identity` whose recorded
+    /// sizes and symlinks are `facts`.
+    pub fn new(
+        identity: &Identity<'_>,
+        commit_sha: &str,
+        ttl: Duration,
+        facts: CheckoutFacts,
+    ) -> Self {
         let now = unix_millis();
         Self {
             cloned_at: iso8601_millis(now),
@@ -72,15 +73,20 @@ impl CacheMeta {
             commit_sha: commit_sha.to_owned(),
             sparse_path: identity.sparse_key.map(str::to_owned),
             source: "clone".into(),
-            size_bytes: None,
-            checkout_bytes: None,
-            // new() is only called on the fresh-clone path, which verifies the
-            // checkout before reporting success.
-            verified: true,
+            size_bytes: facts.size_bytes,
+            checkout_bytes: facts.checkout_bytes,
             depth: identity.depth,
-            symlinks: None,
+            symlinks: facts.symlinks,
         }
     }
+}
+
+/// What a published checkout records about itself: its sizes and symlinks.
+#[cfg_attr(test, derive(Default))]
+pub(super) struct CheckoutFacts {
+    pub size_bytes: u64,
+    pub checkout_bytes: u64,
+    pub symlinks: Vec<String>,
 }
 
 impl CacheMeta {
@@ -300,7 +306,7 @@ pub(super) fn write_meta(path: &Path, meta: &CacheMeta) -> Result<(), CloneError
     }
     let mut file = options.open(&destination).map_err(|error| {
         if error.kind() == io::ErrorKind::AlreadyExists {
-            metadata_conflict(meta)
+            metadata_conflict(&meta.owner, &meta.repo, &meta.commit_sha)
         } else {
             cache_io(error)
         }
@@ -308,7 +314,7 @@ pub(super) fn write_meta(path: &Path, meta: &CacheMeta) -> Result<(), CloneError
     file.write_all(&bytes).map_err(cache_io)
 }
 
-pub(super) fn metadata_conflict(meta: &CacheMeta) -> CloneError {
+pub(super) fn metadata_conflict(owner: &str, repo: &str, commit_sha: &str) -> CloneError {
     CloneError {
         hints: vec![
             "Read path:\".octocode-clone-meta.json\" with ghGetFileContent at this ref, or browse the repository with ghStructure.".into(),
@@ -317,7 +323,7 @@ pub(super) fn metadata_conflict(meta: &CacheMeta) -> CloneError {
             "cacheUnavailable",
             format!(
                 "Repository {}/{}@{} contains reserved path '{}'; no checkout was replaced.",
-                meta.owner, meta.repo, meta.commit_sha, META_FILE,
+                owner, repo, commit_sha, META_FILE,
             ),
         )
     }
@@ -378,23 +384,20 @@ pub(super) fn remove_dir(path: &Path) {
 }
 
 pub(super) fn cleanup_stale_artifacts(home: &Path) {
-    for folder in ["clone-tmp", "tree-staging"] {
-        let base = home.join("tmp").join(folder);
-        let Ok(entries) = fs::read_dir(base) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let old = entry
-                .metadata()
-                .and_then(|value| value.modified())
-                .ok()
-                .and_then(|value| SystemTime::now().duration_since(value).ok())
-                .is_some_and(|age| age > STALE_ARTIFACT_AGE);
-            if old {
-                let path = entry.path();
-                log_eviction(home, "stale-artifact", &path, directory_size(&path));
-                remove_dir(&path);
-            }
+    let Ok(entries) = fs::read_dir(home.join("tmp").join("clone-tmp")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|value| value.modified())
+            .ok()
+            .and_then(|value| SystemTime::now().duration_since(value).ok())
+            .is_some_and(|age| age > STALE_ARTIFACT_AGE);
+        if old {
+            let path = entry.path();
+            log_eviction(home, "stale-artifact", &path, directory_size(&path));
+            remove_dir(&path);
         }
     }
 }
@@ -435,7 +438,7 @@ pub(super) fn evict(context: &CloneContext<'_>, protected: Option<&Path>) {
         live.push((
             branch.clone(),
             rfc3339_millis(&meta.cloned_at).unwrap_or(0),
-            meta.size_bytes.unwrap_or_else(|| directory_size(&branch)),
+            meta.size_bytes,
         ));
     }
     live.sort_by_key(|entry| entry.1);
@@ -555,6 +558,7 @@ mod tests {
                 &identity("o", "r", &sha, None, 1),
                 &sha,
                 Duration::from_secs(60),
+                CheckoutFacts::default(),
             );
             meta.cloned_at = bad.into();
             assert!(
@@ -609,6 +613,7 @@ mod tests {
             &identity("Owner", "Repo", &a, Some("src"), 1),
             &a,
             Duration::from_secs(60),
+            CheckoutFacts::default(),
         );
         assert!(meta.matches(&identity("owner", "repo", &a, Some("src"), 1)));
         assert!(meta.matches(&identity("owner", "repo", &"A".repeat(40), Some("src"), 1)));

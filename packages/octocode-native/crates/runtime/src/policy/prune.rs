@@ -76,7 +76,7 @@ pub fn directories(defaults: bool) -> Vec<String> {
 /// name (`build/*.rs`, `**/dist/**`, a bare `build` read as `*build*`): a
 /// segment that matches the name, other than a bare wildcard (`*`,
 /// `**`), asks for its files. Credential stores stay pruned.
-pub fn directories_with_includes(defaults: bool, include: &[String]) -> Vec<String> {
+pub(crate) fn directories_with_includes(defaults: bool, include: &[String]) -> Vec<String> {
     let segments = include
         .iter()
         .flat_map(|glob| glob.split(['/', '\\']))
@@ -94,7 +94,7 @@ pub fn directories_with_includes(defaults: bool, include: &[String]) -> Vec<Stri
 /// withholds those anyway, so a walk whose path-policy callback records
 /// what it denies (`discovery::Withheld`) meets them there and can
 /// disclose them instead of pruning them unseen.
-pub fn directories_before_policy(defaults: bool) -> Vec<String> {
+pub(crate) fn directories_before_policy(defaults: bool) -> Vec<String> {
     let mut names = directories(defaults);
     names.retain(|name| !CREDENTIAL_DIRECTORY_NAMES.contains(&name.as_str()));
     names
@@ -103,7 +103,7 @@ pub fn directories_before_policy(defaults: bool) -> Vec<String> {
 /// `defaultExcludes` as the generated query types spell it (a plain flag or
 /// the shared named type): true unless the caller explicitly turned the
 /// default prune off.
-pub trait DefaultsFlag {
+pub(crate) trait DefaultsFlag {
     fn defaults(&self) -> bool;
 }
 
@@ -113,7 +113,7 @@ impl DefaultsFlag for Option<bool> {
     }
 }
 
-impl DefaultsFlag for Option<crate::contracts::tool_types::DefaultExcludes> {
+impl DefaultsFlag for Option<octocode_contract_types::DefaultExcludes> {
     fn defaults(&self) -> bool {
         self.as_ref().is_none_or(|flag| **flag)
     }

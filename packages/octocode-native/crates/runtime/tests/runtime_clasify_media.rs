@@ -1,4 +1,5 @@
 //! Original image bytes stay inside the runtime/provider boundary.
+use crate::runtime_clasify::clasify;
 use crate::support::{Run as _, Workspace, capture_allowed, clasify_runtime};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_native::runtime::ToolRuntime;
@@ -57,14 +58,6 @@ fn row(path: &str) -> Value {
         "bounds":{"type":"box","instructions":"Locate the object in image_a."}}})
 }
 
-async fn call(runtime: &ToolRuntime, rows: Vec<Value>) -> Value {
-    runtime
-        .run("media".into(), "clasify".into(), json!({"queries":rows}))
-        .await
-        .unwrap()
-        .structured_content
-}
-
 async fn requests(server: &MockServer) -> Vec<wiremock::Request> {
     server.received_requests().await.unwrap()
 }
@@ -109,7 +102,7 @@ async fn cancellation_keeps_completed_sibling_usage() {
     .unwrap();
     // A replay joins the successful sibling's single flight. Its completion
     // proves the original judgment is saved before cancellation, without timing guesses.
-    let replay = call(&runtime, vec![fast]).await;
+    let replay = clasify(&runtime, vec![fast]).await;
     assert_eq!(replay["queries"][0]["replayed"], true, "{replay}");
     assert!(runtime.requests.cancel("cancelled"));
     let _ = task.await.unwrap();
@@ -133,7 +126,7 @@ async fn unread_local_image_is_byte_exact_hidden_and_saved_with_box() {
     let bytes = png();
     std::fs::write(workspace.workspace.join("one.png"), &bytes).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
-    let out = call(&runtime, vec![row("one.png")]).await;
+    let out = clasify(&runtime, vec![row("one.png")]).await;
     let result = &out["queries"][0];
     assert_eq!(result["answers"]["bounds"]["box"]["left"], 0.2, "{out}");
     let asset = &result["assets"]["image_a"];
@@ -175,14 +168,14 @@ async fn image_mutation_invalidates_judgment_and_old_evidence_survives() {
     let path = workspace.workspace.join("one.png");
     std::fs::write(&path, png()).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
-    let first = call(&runtime, vec![row("one.png")]).await;
-    let repeated = call(&runtime, vec![row("one.png")]).await;
+    let first = clasify(&runtime, vec![row("one.png")]).await;
+    let repeated = clasify(&runtime, vec![row("one.png")]).await;
     assert_eq!(repeated["queries"][0]["replayed"], true);
     let old = &first["queries"][0]["assets"]["image_a"];
     let mut changed = png();
     changed.push(0);
     std::fs::write(&path, &changed).unwrap();
-    let newer = call(&runtime, vec![row("one.png")]).await;
+    let newer = clasify(&runtime, vec![row("one.png")]).await;
     assert_ne!(
         newer["queries"][0]["assets"]["image_a"]["snapshot"],
         old["snapshot"]
@@ -190,7 +183,7 @@ async fn image_mutation_invalidates_judgment_and_old_evidence_survives() {
     assert_eq!(std::fs::read(old["path"].as_str().unwrap()).unwrap(), png());
     let mut pinned = row("one.png");
     pinned["assets"]["image_a"]["source"]["query"]["snapshot"] = old["snapshot"].clone();
-    let stale = call(&runtime, vec![pinned]).await;
+    let stale = clasify(&runtime, vec![pinned]).await;
     assert_eq!(
         stale["queries"][0]["error"]["errorCode"], "staleSnapshot",
         "{stale}"
@@ -210,7 +203,7 @@ async fn question_only_placeholders_and_multiple_assets_are_preserved() {
     query["assets"]["image_b"] = query["assets"]["image_a"].clone();
     query["questions"]["visible"]["instructions"] =
         json!("Does image_a show the same shape as image_b?");
-    let out = call(&runtime, vec![query]).await;
+    let out = clasify(&runtime, vec![query]).await;
     assert_eq!(
         out["queries"][0]["assets"].as_object().unwrap().len(),
         2,
@@ -238,7 +231,7 @@ async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
     unused["assets"].as_object_mut().unwrap().remove("image_a");
     let mut url = row("unused");
     url["assets"]["image_a"]["source"] = json!({"url":"https://127.0.0.1:9/image.png"});
-    let out = call(
+    let out = clasify(
         &runtime,
         vec![
             row("bad.png"),
@@ -302,12 +295,12 @@ async fn github_image_reuses_shared_capture_cache_and_resolved_commit() {
     );
     let mut query = row("unused");
     query["assets"]["image_a"]["source"] = json!({"tool":"ghGetFileContent","query":{"owner":"a","repo":"b","path":"image.png","ref":"main"}});
-    let out = call(&runtime, vec![query.clone()]).await;
+    let out = clasify(&runtime, vec![query.clone()]).await;
     assert_eq!(
         out["queries"][0]["assets"]["image_a"]["source"]["query"]["ref"], sha,
         "{out}"
     );
-    let again = call(&runtime, vec![query.clone()]).await;
+    let again = clasify(&runtime, vec![query.clone()]).await;
     assert_eq!(again["queries"][0]["replayed"], true);
     let text = runtime
         .run(
@@ -326,7 +319,7 @@ async fn github_image_reuses_shared_capture_cache_and_resolved_commit() {
     );
     assert!(!text.to_string().contains(&STANDARD.encode(png())));
     query["assets"]["image_a"]["source"]["query"]["ref"] = json!("other");
-    let other = call(&runtime, vec![query]).await;
+    let other = clasify(&runtime, vec![query]).await;
     assert_eq!(
         other["queries"][0]["assets"]["image_a"]["source"]["query"]["ref"], other_sha,
         "{other}"
@@ -353,7 +346,7 @@ async fn models_and_long_context_follow_provider_contract() {
         .await;
     let workspace = Workspace::new();
     let runtime = runtime(&workspace, &server, &[]);
-    let out = call(
+    let out = clasify(
         &runtime,
         vec![
             json!({"operation":"models"}),
@@ -412,7 +405,7 @@ async fn image_asset_admission_respects_disabled_reader_and_path_policy() {
     let outside = tempfile::tempdir().unwrap();
     let file = outside.path().join("private.png");
     std::fs::write(&file, png()).unwrap();
-    let out = call(&enabled, vec![row(file.to_str().unwrap())]).await;
+    let out = clasify(&enabled, vec![row(file.to_str().unwrap())]).await;
     assert_eq!(
         out["queries"][0]["error"]["errorCode"], "securityValidationFailed",
         "{out}"
@@ -431,7 +424,7 @@ async fn memory_mode_refuses_images_without_persistent_evidence() {
         &server,
         &[("OCTOCODE_STORAGE_MODE", "memory".into())],
     );
-    let out = call(&runtime, vec![row("one.png")]).await;
+    let out = clasify(&runtime, vec![row("one.png")]).await;
     assert_eq!(
         out["queries"][0]["error"]["errorCode"], "classificationContextUnavailable",
         "{out}"
@@ -453,7 +446,7 @@ async fn aggregate_bytes_refuse_the_whole_image_row() {
     query["state"] = json!(["image_a", "image_b", "image_c"]);
     query["assets"]["image_b"] = query["assets"]["image_a"].clone();
     query["assets"]["image_c"] = query["assets"]["image_a"].clone();
-    let out = call(&runtime, vec![query]).await;
+    let out = clasify(&runtime, vec![query]).await;
     assert_eq!(
         out["queries"][0]["error"]["errorCode"], "classificationContextTooLarge",
         "{out}"
@@ -473,7 +466,7 @@ async fn text_source_and_image_share_one_judgment_without_host_body() {
     let mut query = row("one.png");
     query.as_object_mut().unwrap().remove("state");
     query["source"] = json!({"tool":"localFetch","query":{"path":"guide.md","fullContent":true}});
-    let out = call(&runtime, vec![query]).await;
+    let out = clasify(&runtime, vec![query]).await;
     assert_eq!(
         out["queries"][0]["answers"]["visible"]["noul"], 0.9,
         "{out}"
@@ -497,7 +490,7 @@ async fn unicode_state_near_character_boundary_is_not_counted_as_utf8_bytes() {
     let workspace = Workspace::new();
     let runtime = runtime(&workspace, &server, &[]);
     let text = "é".repeat(31_998);
-    let out = call(&runtime, vec![json!({"state":text,"questions":{"q":{"type":"noul","instructions":"Does the state contain accented letters?"}}})]).await;
+    let out = clasify(&runtime, vec![json!({"state":text,"questions":{"q":{"type":"noul","instructions":"Does the state contain accented letters?"}}})]).await;
     assert_eq!(out["queries"][0]["answers"]["q"]["noul"], 0.9, "{out}");
     let sent = requests(&server).await;
     assert_eq!(sent.len(), 1);
@@ -513,7 +506,7 @@ async fn captured_state_includes_json_escaping_and_identity_in_its_bound() {
     // Source text alone fits 32k, but its JSON representation does not.
     std::fs::write(workspace.workspace.join("quoted.txt"), "\"".repeat(20_000)).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
-    let out = call(&runtime, vec![json!({"source":{"tool":"localFetch","query":{"path":"quoted.txt","fullContent":true}},
+    let out = clasify(&runtime, vec![json!({"source":{"tool":"localFetch","query":{"path":"quoted.txt","fullContent":true}},
         "questions":{"q":{"type":"noul","instructions":"Does the source contain quotation marks?"}}})]).await;
     assert_eq!(
         out["queries"][0]["error"]["errorCode"], "classificationContextTooLarge",

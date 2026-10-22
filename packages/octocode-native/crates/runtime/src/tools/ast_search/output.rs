@@ -1,6 +1,6 @@
 //! astSearch's answers to the shared response stages.
 
-use crate::tools::output::{PathAnchor, TextShape, ToolOutput};
+use crate::response::output::{PathAnchor, TextShape, ToolOutput};
 use serde_json::Value;
 
 pub(crate) struct Output;
@@ -18,12 +18,12 @@ impl ToolOutput for Output {
             crate::tools::ast_rule::INVALID_PATTERN => crate::tools::ast_rule::INVALID_PATTERN_HINT,
             // The typed error and terminalLimit (plus a findText lead
             // when a literal was searched) are the whole answer.
-            "fileTooLarge" => crate::tools::output::NO_HINT,
+            "fileTooLarge" => crate::response::output::NO_HINT,
             "languageRequired" | "languageUnsupported" => {
                 "Set language to the grammar of the source files (e.g. \"typescript\", \"rust\")."
             }
             // The message names the file's own grammar and both repairs.
-            "languageMismatch" => crate::tools::output::NO_HINT,
+            "languageMismatch" => crate::response::output::NO_HINT,
             "symbolsUnsupported" => {
                 "Set language (a file) or languageGlobs (a directory) to the grammar the source is written in."
             }
@@ -53,7 +53,7 @@ impl ToolOutput for Output {
 
 #[cfg(test)]
 mod tests {
-    use crate::tools::id::ToolId;
+    use crate::id::ToolId;
     use serde_json::json;
 
     #[test]

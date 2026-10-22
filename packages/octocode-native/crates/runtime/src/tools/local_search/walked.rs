@@ -57,7 +57,7 @@ impl Walked {
             untracked: false,
             oversize: false,
             started: SystemTime::now()
-                + octocode_engine::graph::SourceStamp::SETTLE
+                + octocode_engine::stamp::SourceStamp::SETTLE
                 + std::time::Duration::from_secs(1),
         }
     }
@@ -147,7 +147,7 @@ impl Recorder {
                 rules,
                 ..Seen::default()
             }),
-            started: SystemTime::now(),
+            started: octocode_engine::stamp::settle_clock(),
         };
         // The root's own ignore files decide the walk whether or not the
         // walk reports the root as an entry.

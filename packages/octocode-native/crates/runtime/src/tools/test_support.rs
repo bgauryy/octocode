@@ -1,8 +1,8 @@
 //! Fixtures shared by the tools' tests.
+use crate::execution::cancel::CancellationCheck;
+use crate::id::ToolId;
 use crate::policy::path::{PathPolicy, PathPolicyConfig};
 use crate::security::ContentSecurity;
-use crate::tools::cancel::CancellationCheck;
-use crate::tools::id::ToolId;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,11 +10,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 // Contract, lead and page-walk checks; the integration tests include the same
 // file (tests/support), so both kinds of test assert one way.
 use crate::contracts::{parsed_contract, validate, validate_output};
-#[allow(
-    dead_code,
-    reason = "the integration tests use the rest of the shared checks"
-)]
 pub(crate) mod checks;
+pub(crate) mod selection_fake;
 
 /// A fresh temporary directory, removed (with everything under it) on drop.
 /// `.0` is its path.

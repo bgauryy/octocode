@@ -20,7 +20,6 @@ mod structural_rule;
 pub(crate) use qualifiers::qualifier_terms;
 pub(crate) use repair::repair_input;
 mod schema;
-mod topology;
 mod union;
 use artifact::validate_artifact_registry_url;
 use github_search::{GithubSearchKind, validate_github_search_queries};
@@ -31,9 +30,8 @@ use schema::{validate_input_schema, validate_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::{Display, Formatter};
-use topology::validate_topology_queries;
 
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationIssue {
@@ -182,7 +180,7 @@ fn required_guidance(issue: &ValidationIssue) -> Option<&str> {
 /// A row field (`mainGoal`, `reasoning`, …) sent beside `queries` instead of
 /// inside each row: the envelope does not declare it, the rows do.
 fn is_root_brief(tool_name: &str, path: &[String]) -> bool {
-    matches!(path, [field] if crate::tools::id::ToolId::from_name(tool_name)
+    matches!(path, [field] if crate::id::ToolId::from_name(tool_name)
         .is_some_and(|tool| super::query_declares(tool, field)))
 }
 
@@ -280,7 +278,7 @@ fn routing_details(tool_name: &str, issues: &[ValidationIssue]) -> Vec<String> {
 /// rest is: every result's `next` continuation carries the following offset.
 /// A tool whose rows read a window: `length` pages from an `offset`.
 fn windowed(tool_name: &str) -> bool {
-    crate::tools::id::ToolId::from_name(tool_name)
+    crate::id::ToolId::from_name(tool_name)
         .is_some_and(|tool| super::query_declares(tool, "offset"))
 }
 
@@ -404,29 +402,59 @@ impl Display for ContractValidationError {
 
 impl std::error::Error for ContractValidationError {}
 
-/// The named tool's embedded contract entry, or the unknown-tool issue.
-fn contract_tool(tool_name: &str) -> Result<&'static Value, ContractValidationError> {
-    super::tool_contract_named(tool_name)
-        .ok_or_else(|| {
-            issue(
-                "contract.unknown-tool",
-                vec![],
-                format!("Unknown tool: {tool_name}"),
-            )
-        })?
+/// The named tool and its embedded contract entry, or the unknown-tool issue.
+fn contract_tool(tool_name: &str) -> Result<(ToolId, &'static Value), ContractValidationError> {
+    let id = ToolId::from_name(tool_name).ok_or_else(|| {
+        issue(
+            "contract.unknown-tool",
+            vec![],
+            format!("Unknown tool: {tool_name}"),
+        )
+    })?;
+    super::tool_contract(id)
+        .map(|tool| (id, tool))
         .map_err(|error| internal(error.to_string()))
 }
 
 /// Validates the canonical input, applying schema defaults and integer number
 /// representations before typed decoding. Relation rules follow structural parsing.
-pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractValidationError> {
-    let tool = contract_tool(tool_name)?;
-    let plan = RowPlan::of(tool_name, tool);
+pub fn validate(tool_name: &str, input: Value) -> Result<Value, ContractValidationError> {
+    let (input, batch) = validate_batch(tool_name, input)?;
+    let mut issues: Vec<_> = batch
+        .rows
+        .into_iter()
+        .flatten()
+        .chain(batch.envelope)
+        .collect();
+    if !issues.is_empty() {
+        issues.dedup();
+        return Err(ContractValidationError { issues });
+    }
+    Ok(input)
+}
+
+/// One validation pass's issues: each row's own (paths `queries.<i>.…`, in
+/// row order) and the envelope's.
+pub(crate) struct BatchIssues {
+    pub rows: Vec<Vec<ValidationIssue>>,
+    pub envelope: Vec<ValidationIssue>,
+}
+
+/// [`validate`] in one pass that keeps each row's issues apart, so a batch
+/// isolates its invalid rows without validating any row twice. `Err` is a
+/// failure of the contract itself (an unknown tool, a broken rule).
+pub(crate) fn validate_batch(
+    tool_name: &str,
+    mut input: Value,
+) -> Result<(Value, BatchIssues), ContractValidationError> {
+    let (id, tool) = contract_tool(tool_name)?;
+    let plan = RowPlan::of(id, tool);
     apply_normalization_rules(&tool["rules"], &mut input)?;
-    let mut issues = Vec::new();
+    let mut rows = Vec::new();
     let item_schema = plan.item_schema.as_ref();
     if let Some(queries) = input.get_mut("queries").and_then(Value::as_array_mut) {
         for (index, query) in queries.iter_mut().enumerate() {
+            let mut issues = Vec::new();
             let mut path = vec!["queries".to_owned(), index.to_string()];
             let mut parsed =
                 validate_input_schema(&tool["querySchema"], &tool["querySchema"], query, &mut path);
@@ -436,7 +464,7 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
                 parsed = validate_input_schema(&tool["inputSchema"], item_schema, query, &mut path);
             }
             if let Err(error) = parsed {
-                issues.extend(error.issues);
+                rows.push(error.issues);
                 continue;
             }
             // Row rules see a one-row batch; the row moves in and back out.
@@ -458,24 +486,35 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
                 }
                 issues.extend(error.issues);
             }
+            rows.push(issues);
         }
     }
     // The rows were checked above; the envelope pass checks only the
     // envelope (its own fields and the batch size), and reports its issues
     // beside the rows' so one repair can fix every one.
-    if let Err(error) = validate_input_schema(
-        &tool["inputSchema"],
-        &plan.envelope,
-        &mut input,
-        &mut Vec::new(),
-    ) {
-        issues.extend(error.issues);
-    }
-    if !issues.is_empty() {
-        issues.dedup();
-        return Err(ContractValidationError { issues });
-    }
-    Ok(input)
+    let envelope = validate_envelope_with(tool, plan, &mut input)
+        .err()
+        .map(|error| error.issues)
+        .unwrap_or_default();
+    Ok((input, BatchIssues { rows, envelope }))
+}
+
+/// The envelope pass of [`validate_batch`] alone: the envelope's own fields
+/// and the batch size over rows that are validated already.
+pub(crate) fn validate_envelope(
+    tool_name: &str,
+    input: &mut Value,
+) -> Result<(), ContractValidationError> {
+    let (id, tool) = contract_tool(tool_name)?;
+    validate_envelope_with(tool, RowPlan::of(id, tool), input)
+}
+
+fn validate_envelope_with(
+    tool: &Value,
+    plan: &RowPlan,
+    input: &mut Value,
+) -> Result<(), ContractValidationError> {
+    validate_input_schema(&tool["inputSchema"], &plan.envelope, input, &mut Vec::new())
 }
 
 /// How one tool's rows validate, decided once from its contract.
@@ -489,20 +528,10 @@ struct RowPlan {
 }
 
 impl RowPlan {
-    fn of(tool_name: &str, tool: &'static Value) -> &'static RowPlan {
-        use std::collections::HashMap;
-        use std::sync::{Mutex, OnceLock};
-        static PLANS: OnceLock<Mutex<HashMap<String, &'static RowPlan>>> = OnceLock::new();
-        let plans = PLANS.get_or_init(Mutex::default);
-        let mut plans = plans
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(plan) = plans.get(tool_name) {
-            return plan;
-        }
-        let plan: &'static RowPlan = Box::leak(Box::new(Self::derive(tool)));
-        plans.insert(tool_name.to_owned(), plan);
-        plan
+    fn of(id: ToolId, tool: &Value) -> &'static RowPlan {
+        static PLANS: [std::sync::OnceLock<RowPlan>; ToolId::ALL.len()] =
+            [const { std::sync::OnceLock::new() }; ToolId::ALL.len()];
+        PLANS[id.index()].get_or_init(|| Self::derive(tool))
     }
 
     fn derive(tool: &Value) -> Self {
@@ -562,7 +591,7 @@ fn strip_query_items(schema: &mut Value) {
 /// validation with a repair hint, never repaired here. An unknown tool is
 /// returned unchanged.
 #[must_use]
-pub fn normalize_input(tool_name: &str, input: Value) -> Value {
+pub(crate) fn normalize_input(tool_name: &str, input: Value) -> Value {
     let Some(Ok(tool)) = super::tool_contract_named(tool_name) else {
         return input;
     };
@@ -629,7 +658,7 @@ fn strip_queries_prefix(mut error: ContractValidationError) -> ContractValidatio
 /// clone because schema defaults, if ever introduced by the contract owner,
 /// must not mutate an already produced result.
 pub fn validate_output(tool_name: &str, output: &Value) -> Result<(), ContractValidationError> {
-    let tool = contract_tool(tool_name)?;
+    let (_, tool) = contract_tool(tool_name)?;
     let schema = &tool["outputSchema"];
     let mut candidate = output.clone();
     validate_schema(schema, schema, &mut candidate, &mut Vec::new())?;
@@ -672,7 +701,7 @@ pub(crate) fn validate_output_in_place(
     tool_name: &str,
     output: &mut Value,
 ) -> Result<(), ContractValidationError> {
-    let tool = contract_tool(tool_name)?;
+    let (_, tool) = contract_tool(tool_name)?;
     let schema = &tool["outputSchema"];
     if declares_defaults(tool_name, schema) {
         return validate_output(tool_name, output);
@@ -822,7 +851,6 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
                 validate_github_search_queries(input, GithubSearchKind::Repositories)
             }
             Some("local_search_mode") => validate_local_search_queries(input),
-            Some("ast_topology") => validate_topology_queries(input),
             Some("history_keyword_scope") => validate_history_keyword_scope(input),
             Some("history_repository_scope") => validate_history_repository_scope(input),
             Some("qualifier_fields") => qualifiers::validate(
@@ -1427,11 +1455,6 @@ mod tests {
             ),
             "{owner}"
         );
-        let dependents = details("astTopology", json!({"operation":"dependents","path":"/r"}));
-        assert!(
-            dependents.contains("Missing required field: source (Set source to the start file"),
-            "{dependents}"
-        );
         let history = details(
             "ghSearchHistory",
             json!({"operation":"pullRequest","owner":"a","repo":"b","qualifers":"author:x"}),
@@ -1521,8 +1544,8 @@ mod tests {
                 json!({"type":"tree","path":".","mainGoal":"g","reasoning":"r"}),
             ),
             (
-                "astTopology",
-                json!({"analysis":"dependents","path":".","mainGoal":"g","reasoning":"r"}),
+                "astSearch",
+                json!({"analysis":"symbols","path":".","mainGoal":"g","reasoning":"r"}),
             ),
         ] {
             let error = validate(tool, json!({"queries":[row]})).expect_err("rejected");

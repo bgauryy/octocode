@@ -1,12 +1,14 @@
 //! A failed ghGetFileContent read: one message, one hint and one recovery
 //! per row, chosen from the provider error and the missing-path walk.
 use super::GhGetFileContentQuery;
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, query_row};
+use crate::response::rows::GITHUB_AUTH_RECOVERY_HINT;
 use crate::tools::gh_shared::{
-    GITHUB_AUTH_RECOVERY_HINT, GhFailure, PathRecovery, RepoPath, parent_dir, provider_message,
-    repository_not_found, repository_search, tree_recovery, validation_message, with_ref_recovery,
+    GhFailure, PathRecovery, RepoPath, parent_dir, provider_message, repository_not_found,
+    repository_search, tree_recovery, validation_message, with_ref_recovery,
 };
-use crate::tools::id::ToolId;
-use crate::tools::result::{Continuation, query_row};
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 use serde_json::{Value, json};
 
@@ -80,7 +82,7 @@ pub(crate) fn failure(
         // exact, and the lead is the whole repair.
         (
             None,
-            Some(json!({ "viewTree": tree_recovery(&at, None, "exact") })),
+            Some(json!({ "viewTree": tree_recovery(&at, None, Confidence::Exact) })),
         )
     } else if repository_not_found(&error) {
         // Listing a tree of the same repository cannot recover; a search
@@ -120,7 +122,7 @@ fn path_recovery(
         };
         return (
             None,
-            Some(json!({ "viewTree": tree_recovery(&listing, None, "low") })),
+            Some(json!({ "viewTree": tree_recovery(&listing, None, Confidence::Low) })),
         );
     };
     let directory = if found.directory.is_empty() {
@@ -139,7 +141,7 @@ fn path_recovery(
             let mut read = query_row(query, &[]);
             read["path"] = json!(path);
             let read = Continuation::new(ToolId::GhGetFileContent, read)
-                .confidence("high")
+                .confidence(Confidence::High)
                 .build();
             (
                 Some("Only the path's case differs."),
@@ -148,7 +150,7 @@ fn path_recovery(
         }
         None => (
             None,
-            Some(json!({ "viewTree": tree_recovery(&listing, None, "exact") })),
+            Some(json!({ "viewTree": tree_recovery(&listing, None, Confidence::Exact) })),
         ),
     }
 }

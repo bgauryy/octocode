@@ -114,6 +114,30 @@ pub fn lower_walk_ceiling(ceiling: usize) -> impl Drop {
     Restore
 }
 
+#[cfg(any(test, feature = "test-hooks"))]
+thread_local! {
+    static CLOCK_AHEAD: std::cell::Cell<std::time::Duration> =
+        const { std::cell::Cell::new(std::time::Duration::ZERO) };
+}
+
+/// The time a walk's budget is read by on this thread: the monotonic clock,
+/// ahead by whatever a test advanced it ([`advance_walk_clock`]).
+#[must_use]
+pub fn walk_now() -> std::time::Instant {
+    let now = std::time::Instant::now();
+    #[cfg(any(test, feature = "test-hooks"))]
+    let now = now + CLOCK_AHEAD.with(std::cell::Cell::get);
+    now
+}
+
+/// Advances this thread's walk clock by `by`, so a test spends a walk
+/// budget entry by entry without sleeping: every timing it sets up is the
+/// same on every run and machine.
+#[cfg(any(test, feature = "test-hooks"))]
+pub fn advance_walk_clock(by: std::time::Duration) {
+    CLOCK_AHEAD.with(|ahead| ahead.set(ahead.get() + by));
+}
+
 /// The walk-order index a cut scan resumes from, `None` when the cut is the
 /// walk ceiling itself: a resumed scan walks the same first
 /// [`walk_ceiling`] candidates and skips the evaluated ones, so a resume

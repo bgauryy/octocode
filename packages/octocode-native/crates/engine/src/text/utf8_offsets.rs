@@ -11,30 +11,8 @@
 pub(crate) fn byte_to_utf16_offset(s: &str, byte_offset: usize) -> usize {
     let clamped = byte_offset.min(s.len());
     // Safe: we snap to the nearest valid boundary
-    let valid_offset = floor_char_boundary(s, clamped);
+    let valid_offset = s.floor_char_boundary(clamped);
     utf16_len(&s[..valid_offset])
-}
-
-/// Snap `byte_pos` down to the nearest valid UTF-8 character boundary in `s`
-/// (clamped to `s.len()`).
-pub(crate) fn floor_char_boundary(s: &str, mut byte_pos: usize) -> usize {
-    if byte_pos >= s.len() {
-        return s.len();
-    }
-    // Walk back until we land on a UTF-8 leading byte
-    while byte_pos > 0 && !s.is_char_boundary(byte_pos) {
-        byte_pos -= 1;
-    }
-    byte_pos
-}
-
-/// Smallest char boundary `>= i` (clamped to `s.len()`).
-pub(crate) fn ceil_char_boundary(s: &str, i: usize) -> usize {
-    let mut i = i.min(s.len());
-    while i < s.len() && !s.is_char_boundary(i) {
-        i += 1;
-    }
-    i
 }
 
 fn utf16_len(s: &str) -> usize {
@@ -267,7 +245,7 @@ impl LineIndex {
         // Snap an offset that lands inside a multi-byte character down to that
         // character's start; slicing on a non-char-boundary returns None and
         // would otherwise silently collapse the column to 0.
-        let end = floor_char_boundary(content, (byte_offset as usize).min(content.len()));
+        let end = content.floor_char_boundary(byte_offset as usize);
         let character = if line_start <= end {
             self.utf16_column(content, line, end)
         } else {
@@ -815,7 +793,7 @@ mod checkpoint_tests {
 
     /// Naive per-call scan from the line start — the pre-checkpoint behavior.
     fn naive_position(content: &str, byte: usize) -> (u32, u32) {
-        let byte = floor_char_boundary(content, byte.min(content.len()));
+        let byte = content.floor_char_boundary(byte);
         let line_start = content[..byte].rfind('\n').map_or(0, |nl| nl + 1);
         let line = content[..line_start].matches('\n').count() as u32;
         let mut column: u32 = content[line_start..byte]

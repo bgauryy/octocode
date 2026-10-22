@@ -9,7 +9,8 @@
 //!    declaration introduces outranks the same token in ordinary code, which
 //!    outranks it in a comment or a string literal.
 //!
-//! Both are lexical, per-line, and allocation-free: no parser, no index.
+//! Both are lexical: no parser, no index. The line weights allocate nothing;
+//! the path checks run once per file.
 
 use crate::text::test_paths::is_test_path;
 
@@ -347,27 +348,19 @@ impl Iterator for Words<'_> {
     }
 }
 
-/// Directory names of generated, bundled, and vendored files, which rank
-/// after source files (test directories are [`is_test_path`]'s).
-const DEMOTED_DIRECTORIES: &[&str] = &[
-    "generated",
-    "__generated__",
-    "dist",
-    "build",
-    "vendor",
-    "third_party",
-];
-
-/// File-name fragments that mark generated or minified files.
-const DEMOTED_FILE_MARKERS: &[&str] = &[".generated.", "_generated.", ".pb.", "_pb2.", ".min."];
-
 /// Directory names of generated files, which rank after every hand-written
 /// file whatever their match count.
 const GENERATED_DIRECTORIES: &[&str] = &["generated", "__generated__"];
 
-/// File-name fragments of generated files (a subset of
-/// [`DEMOTED_FILE_MARKERS`]; minified bundles are only demoted).
+/// File-name fragments of generated files.
 const GENERATED_FILE_MARKERS: &[&str] = &[".generated.", "_generated.", ".pb.", "_pb2."];
+
+/// Directory names of bundled and vendored files, which (with generated
+/// ones) rank after source files; test directories are [`is_test_path`]'s.
+const BUNDLED_DIRECTORIES: &[&str] = &["dist", "build", "vendor", "third_party"];
+
+/// File-name fragments of minified bundles: demoted, not generated.
+const MINIFIED_FILE_MARKERS: &[&str] = &[".min."];
 
 /// Leading bytes read for a generated-file header.
 pub(crate) const GENERATED_HEADER_BYTES: u64 = 512;
@@ -387,12 +380,33 @@ const GENERATED_HEADER_MARKERS: &[&str] = &[
 /// Whether a root-relative path names a generated file by its directory or
 /// name. Only the path below the search root is judged.
 pub(crate) fn is_generated_path(relative: &str) -> bool {
-    let lower = relative.to_ascii_lowercase().replace('\\', "/");
+    path_names(
+        relative,
+        &[GENERATED_DIRECTORIES],
+        &[GENERATED_FILE_MARKERS],
+    )
+}
+
+/// Whether a root-relative path has a directory in one of `directories` or
+/// a file name holding one of `markers` (ASCII case-insensitive, either
+/// separator).
+fn path_names(relative: &str, directories: &[&[&str]], markers: &[&[&str]]) -> bool {
+    let lower: String = relative
+        .chars()
+        .map(|c| {
+            if c == '\\' {
+                '/'
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect();
     let mut parts = lower.rsplit('/');
     let name = parts.next().unwrap_or_default();
-    parts.any(|dir| GENERATED_DIRECTORIES.contains(&dir))
-        || GENERATED_FILE_MARKERS
+    parts.any(|dir| directories.iter().any(|names| names.contains(&dir)))
+        || markers
             .iter()
+            .flat_map(|names| names.iter())
             .any(|marker| name.contains(marker))
 }
 
@@ -411,16 +425,12 @@ pub(crate) fn has_generated_header(prefix: &[u8]) -> bool {
 /// vendored file. Only the path below the search root is judged, so searching
 /// inside `tests/` itself does not demote every result.
 pub(crate) fn is_demoted_path(relative: &str) -> bool {
-    if is_test_path(relative) {
-        return true;
-    }
-    let lower = relative.to_ascii_lowercase().replace('\\', "/");
-    let mut parts = lower.rsplit('/');
-    let name = parts.next().unwrap_or_default();
-    parts.any(|dir| DEMOTED_DIRECTORIES.contains(&dir))
-        || DEMOTED_FILE_MARKERS
-            .iter()
-            .any(|marker| name.contains(marker))
+    is_test_path(relative)
+        || path_names(
+            relative,
+            &[GENERATED_DIRECTORIES, BUNDLED_DIRECTORIES],
+            &[GENERATED_FILE_MARKERS, MINIFIED_FILE_MARKERS],
+        )
 }
 
 /// `.gitattributes` `linguist-generated` / `linguist-vendored` marks, as git

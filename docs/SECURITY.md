@@ -46,7 +46,7 @@ Treat questions and selected evidence as disclosed to that provider. Ordinary ca
 
 Denial messages name the path as requested or relative to `~`; outside-root denials list the allowed roots.
 
-`OCTOCODE_ENABLE_LOCAL=false` disables local tools. `OCTOCODE_BETA=true` (or `local.beta: true`; shell or home config only; default off) gates beta tools, including the CLI-only `astTopology`.
+`OCTOCODE_ENABLE_LOCAL=false` disables local tools. `OCTOCODE_BETA=true` (or `local.beta: true`; shell or home config only; default off) gates the beta `clasify` tool.
 
 ## External processes
 

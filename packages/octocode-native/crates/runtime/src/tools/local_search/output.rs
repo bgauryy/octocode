@@ -1,6 +1,6 @@
 //! What the shared response stages ask about localSearch output.
 
-use crate::tools::output::{PathAnchor, TextShape, ToolOutput};
+use crate::response::output::{PathAnchor, TextShape, ToolOutput};
 use serde_json::Value;
 
 pub(crate) struct Output;

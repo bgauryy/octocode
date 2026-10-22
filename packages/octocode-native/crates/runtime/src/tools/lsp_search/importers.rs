@@ -21,17 +21,18 @@
 
 use super::LspSearchQuery;
 use super::anchor::Position;
-use super::failure::{LspFailure, RequestFailures, flag_partial, ignored_text_lead, query_value};
+use super::failure::{LspFailure, flag_partial, ignored_text_lead};
 use super::import_stop::{proven_missing, stays_on_import};
-use super::recovery::{get_locations, resolve_definition_chain, snippet_identity};
-use super::render::uri_to_path;
+use super::recovery::{resolve_definition_chain, snippet_identity};
 use super::scope::{CODE_CHECK_MAX_BYTES, CODE_CHECK_MAX_FILES, IgnoredMentions, Scope, canonical};
 use super::source::SourceCache;
+use crate::execution::cancel::CancellationCheck;
+use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
-use crate::tools::cancel::CancellationCheck;
-use crate::tools::num::u32_of_usize;
+use crate::response::result::Confidence;
+use crate::tools::lsp_search::lsp_search_query;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
-use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
+use octocode_engine::lsp::client::{NativeLspClient, SnippetReadPolicy};
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
@@ -109,13 +110,13 @@ pub(super) struct WindowRequest<'a> {
 
 impl<'a> WindowRequest<'a> {
     pub(super) fn of(query: &'a LspSearchQuery) -> Self {
-        let page = query.importer_page();
+        let page = lsp_search_query::importer_page(query);
         // A later location page carries its location snapshot instead; that
         // snapshot is salted with the candidate digest (see [`Window::digest`]).
-        let entering = page > 1 && query.page().unwrap_or(1) == 1;
+        let entering = page > 1 && lsp_search_query::page(query).unwrap_or(1) == 1;
         Self {
             page,
-            expected: entering.then(|| query.snapshot().unwrap_or_default()),
+            expected: entering.then(|| lsp_search_query::snapshot(query).unwrap_or_default()),
         }
     }
 }
@@ -151,7 +152,7 @@ impl Window {
     pub(super) fn cut(candidates: Vec<String>, request: WindowRequest<'_>) -> Cut {
         let digest = format!(
             "{DIGEST_PREFIX}{}",
-            crate::digest::sha256(candidates.join("\u{0}").as_bytes())
+            octocode_engine::digest::sha256(candidates.join("\u{0}").as_bytes())
         );
         let total = candidates.len();
         let pages = u32_of_usize(total.div_ceil(MAX_CANDIDATE_FILES).max(1));
@@ -376,7 +377,7 @@ impl Importers {
         for field in ["status", "category", "hints"] {
             object.remove(field);
         }
-        object.insert("kind".into(), json!(query.operation()));
+        object.insert("kind".into(), json!(lsp_search_query::operation(query)));
         object.insert("matches".into(), json!([]));
         object.insert(
             "reason".into(),
@@ -404,12 +405,12 @@ impl Importers {
         if !ignored.nested_repositories.is_empty() {
             // The `includeSkipped` lead lists each one; without a name to
             // search there is no lead, so the notice names them.
-            let listed = if query.symbol_name().is_some() {
+            let listed = if lsp_search_query::symbol_name(query).is_some() {
                 String::new()
             } else {
                 format!(": {}", ignored.nested_repositories.join(", "))
             };
-            crate::tools::paging::push_notice(
+            crate::response::paging::push_notice(
                 row,
                 format!(
                     "The scan for gitignored files did not enter {} (directories with their own .git) under the scope root{listed}.",
@@ -420,7 +421,7 @@ impl Importers {
                 ),
             );
         }
-        let Some(name) = query.symbol_name().filter(|_| {
+        let Some(name) = lsp_search_query::symbol_name(query).filter(|_| {
             !ignored.files.is_empty()
                 || ignored.unfinished
                 || !ignored.nested_repositories.is_empty()
@@ -448,8 +449,8 @@ impl Importers {
         row["next"]["includeSkipped"] = ignored_text_lead(name, scope, &listed, ignored.unfinished);
         if evidence.is_empty() {
             if ignored.unfinished {
-                crate::tools::paging::mark_partial(row, IGNORED_REASON, &[]);
-                crate::tools::paging::push_notice(row, IGNORED_UNFINISHED_NOTICE);
+                crate::response::paging::mark_partial(row, IGNORED_REASON, &[]);
+                crate::response::paging::push_notice(row, IGNORED_UNFINISHED_NOTICE);
             }
             return;
         }
@@ -479,7 +480,7 @@ impl Importers {
             "Of the gitignored files that spell this name ({rules}), {}; importer recovery did not verify them, and a localSearch with includeIgnored reads their text.{more}",
             counts.join(" and ")
         );
-        crate::tools::paging::mark_partial(row, IGNORED_REASON, &[warning]);
+        crate::response::paging::mark_partial(row, IGNORED_REASON, &[warning]);
     }
 
     /// Record the scan on the row's coverage so readers and
@@ -510,9 +511,9 @@ impl Importers {
         let Some(window) = self.window.as_ref().filter(|window| window.more()) else {
             return;
         };
-        let Some(importer_page) = crate::tools::paging::next_cursor(
+        let Some(importer_page) = crate::response::paging::next_cursor(
             row,
-            crate::tools::id::ToolId::LspSearch,
+            crate::id::ToolId::LspSearch,
             None,
             "importerPage",
             usize::try_from(window.page).map_or(usize::MAX, |page| page.saturating_add(1)),
@@ -535,15 +536,15 @@ impl Importers {
         if !last_location_page {
             return;
         }
-        let mut next = query_value(query);
+        let mut next = lsp_search_query::to_row(query);
         if let Some(fields) = next.as_object_mut() {
             fields.remove("page");
             fields.insert("importerPage".into(), json!(importer_page));
             fields.insert("snapshot".into(), json!(window.digest));
         }
         row["next"]["nextImporterPage"] =
-            crate::tools::result::Continuation::new(crate::tools::id::ToolId::LspSearch, next)
-                .confidence("exact")
+            crate::response::result::Continuation::new(crate::id::ToolId::LspSearch, next)
+                .confidence(Confidence::Exact)
                 .build();
     }
 }
@@ -980,235 +981,6 @@ async fn verify_file(
     })
 }
 
-/// LSP `SymbolKind`s that own call sites: method, constructor, function.
-const CALLABLE_KINDS: [u64; 3] = [6, 9, 12];
-/// LSP `SymbolKind::File`, for calls made at module top level.
-const FILE_KIND: u64 = 1;
-
-/// Caller edges `(node, call sites)` derived from each verified importer's
-/// references, for servers whose call hierarchy cannot cross the importer's
-/// binding (CommonJS `module.exports = { f }` + destructured `require`).
-/// A reference is a call when `(` follows it; its caller is the innermost
-/// function or method the server's `documentSymbol` places around it, or
-/// the file itself for a top-level call. Files the walk's own call
-/// hierarchy already answered (`answered`, canonical paths) are skipped
-/// before any request. A request the server fails is recorded in
-/// `failures`.
-pub(super) async fn callers_from_references(
-    client: &NativeLspClient,
-    sources: &mut SourceCache<'_>,
-    cancel: &dyn CancellationCheck,
-    importers: &Importers,
-    answered: &HashSet<String>,
-    failures: &mut RequestFailures,
-) -> Result<Vec<(Value, Vec<Value>)>, LspFailure> {
-    let mut edges: Vec<(Value, Vec<Value>)> = Vec::new();
-    for anchor in importers.per_file() {
-        cancel.check().map_err(LspFailure::cancelled)?;
-        if answered.contains(&canonical(&anchor.path)) {
-            continue;
-        }
-        let file = canonical(&anchor.path);
-        // Only the importer's own sites are kept: read no other file's
-        // snippet (a references answer names every file using the symbol).
-        let own_file = own_file_policy(sources.policy(), &file);
-        let references = match get_locations(
-            client,
-            &own_file,
-            cancel,
-            LocationRequest::References {
-                include_declaration: false,
-            },
-            &anchor.path,
-            anchor.line,
-            anchor.character,
-        )
-        .await
-        {
-            Ok(references) => references,
-            Err(failure) => {
-                failures.record(failure)?;
-                continue;
-            }
-        };
-        let Some(source) = sources.get(&anchor.path).await else {
-            continue;
-        };
-        let calls = references
-            .iter()
-            .filter(|snippet| canonical(&uri_to_path(&snippet.uri)) == file)
-            .filter(|snippet| {
-                is_call_at(
-                    &source.content,
-                    snippet.range.end.line,
-                    snippet.range.end.character,
-                )
-            })
-            .collect::<Vec<_>>();
-        if calls.is_empty() {
-            continue;
-        }
-        // Without the outline each call is attributed to the file itself:
-        // the call sites stay listed, and the failure is disclosed.
-        let symbols = match client.get_document_symbols(anchor.path.clone()).await {
-            Ok(symbols) => symbols,
-            Err(error) => {
-                failures.record_engine(&error)?;
-                Default::default()
-            }
-        };
-        let mut flat = Vec::new();
-        flatten_symbols(&symbols, &mut flat);
-        for call in calls {
-            let site = json!({
-                "start": {"line": call.range.start.line, "character": call.range.start.character},
-                "end": {"line": call.range.end.line, "character": call.range.end.character}
-            });
-            let node = enclosing_callable(&flat, call.range.start.line, call.range.start.character)
-                .map(|symbol| {
-                    json!({
-                        "name": symbol["name"],
-                        "kind": symbol["kind"],
-                        "uri": call.uri,
-                        "range": symbol["range"],
-                        "selectionRange": symbol["selectionRange"],
-                    })
-                })
-                .unwrap_or_else(|| {
-                    let name = Path::new(&file)
-                        .file_name()
-                        .map(|name| name.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    let origin = json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}});
-                    json!({"name": name, "kind": FILE_KIND, "uri": call.uri, "range": origin, "selectionRange": origin})
-                });
-            match edges.iter_mut().find(|(known, _)| {
-                known["uri"] == node["uri"] && known["selectionRange"] == node["selectionRange"]
-            }) {
-                Some((_, sites)) => sites.push(site),
-                None => edges.push((node, vec![site])),
-            }
-        }
-    }
-    Ok(edges)
-}
-
-/// A snippet policy that reads only `file` (canonical) under `paths`;
-/// locations in other files keep their range with withheld content.
-fn own_file_policy(paths: &PathPolicy, file: &str) -> SnippetReadPolicy {
-    let (paths, file) = (paths.clone(), file.to_owned());
-    SnippetReadPolicy::with_authorizer(move |path| {
-        // A reference answer names every file using the symbol: refuse the
-        // others by their (memoized) canonical form before any validation.
-        if canonical(&path.to_string_lossy()) != file {
-            return None;
-        }
-        let valid = paths.validate_read(path).ok()?.canonical;
-        (valid.to_string_lossy() == file).then_some(valid)
-    })
-}
-
-/// True when `(` (after optional spaces) follows the UTF-16 position.
-fn is_call_at(content: &str, line: u32, character: u32) -> bool {
-    let Some(text) = usize::try_from(line)
-        .ok()
-        .and_then(|line| content.lines().nth(line))
-    else {
-        return false;
-    };
-    let mut units = 0u32;
-    let mut at = text.len();
-    for (index, c) in text.char_indices() {
-        if units >= character {
-            at = index;
-            break;
-        }
-        units += u32::try_from(c.len_utf16()).unwrap_or(2);
-    }
-    text[at..].trim_start().starts_with('(')
-}
-
-/// One symbol of a flattened `documentSymbol` answer, borrowed from it,
-/// with its range points read once. Indexing by `name`, `kind`, `range`,
-/// or `selectionRange` (defaults to `range`) gives the answer's field.
-pub(super) struct FlatSymbol<'a> {
-    name: &'a Value,
-    kind: &'a Value,
-    range: &'a Value,
-    selection: &'a Value,
-    start: (u64, u64),
-    end: (u64, u64),
-}
-
-impl std::ops::Index<&str> for FlatSymbol<'_> {
-    type Output = Value;
-
-    fn index(&self, field: &str) -> &Value {
-        match field {
-            "name" => self.name,
-            "kind" => self.kind,
-            "range" => self.range,
-            "selectionRange" => self.selection,
-            _ => &Value::Null,
-        }
-    }
-}
-
-/// DocumentSymbol trees (and flat SymbolInformation lists) as one flat list
-/// of borrowed symbols, in one pass.
-pub(super) fn flatten_symbols<'a>(value: &'a Value, out: &mut Vec<FlatSymbol<'a>>) {
-    let point = |range: &Value, edge: &str| {
-        let at = |field: &str| {
-            range
-                .get(edge)
-                .and_then(|point| point.get(field))
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-        };
-        (at("line"), at("character"))
-    };
-    for symbol in value.as_array().into_iter().flatten() {
-        if let Some(range) = symbol
-            .get("range")
-            .or_else(|| symbol.pointer("/location/range"))
-        {
-            out.push(FlatSymbol {
-                name: symbol.get("name").unwrap_or(&Value::Null),
-                kind: symbol.get("kind").unwrap_or(&Value::Null),
-                range,
-                selection: symbol
-                    .get("selectionRange")
-                    .filter(|selection| !selection.is_null())
-                    .unwrap_or(range),
-                start: point(range, "start"),
-                end: point(range, "end"),
-            });
-        }
-        if let Some(children) = symbol.get("children") {
-            flatten_symbols(children, out);
-        }
-    }
-}
-
-/// Innermost callable symbol whose range contains the position.
-pub(super) fn enclosing_callable<'s, 'a>(
-    symbols: &'s [FlatSymbol<'a>],
-    line: u32,
-    character: u32,
-) -> Option<&'s FlatSymbol<'a>> {
-    let at = (u64::from(line), u64::from(character));
-    symbols
-        .iter()
-        .filter(|symbol| {
-            symbol
-                .kind
-                .as_u64()
-                .is_some_and(|kind| CALLABLE_KINDS.contains(&kind))
-        })
-        .filter(|symbol| symbol.start <= at && at <= symbol.end)
-        .max_by_key(|symbol| symbol.start)
-}
-
 /// Declaration identities reached by the definition chain at a position.
 async fn identities(
     client: &NativeLspClient,
@@ -1235,7 +1007,7 @@ async fn identities(
         }
         // A retained pre-failure alias is not terminal declaration proof.
         Ok(_) => Ok(None),
-        Err(failure) if failure.code == "cancelled" => Err(failure),
+        Err(failure) if failure.is_cancelled() => Err(failure),
         Err(_) => Ok(None),
     }
 }
@@ -1333,7 +1105,7 @@ mod tests {
             ..IgnoredMentions::default()
         });
         assert_eq!(
-            nested[crate::tools::paging::NOTICES],
+            nested[crate::response::paging::NOTICES],
             json!([
                 "The scan for gitignored files did not enter 2 nested repositories (directories with their own .git) under the scope root."
             ]),
@@ -1386,7 +1158,7 @@ mod tests {
         assert_eq!(lead["path"], "/r", "{unfinished}");
         assert_eq!(lead["includeIgnored"], true, "{unfinished}");
         assert_eq!(
-            unfinished[crate::tools::paging::NOTICES],
+            unfinished[crate::response::paging::NOTICES],
             json!([IGNORED_UNFINISHED_NOTICE]),
             "{unfinished}"
         );
@@ -1504,7 +1276,7 @@ mod tests {
         check_imports(
             &mut ignored,
             &policy,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
             "x",
         )
         .await
@@ -1570,32 +1342,6 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(sites, vec![("b", 2), ("c", 1)]);
         assert_eq!(importers.per_file().count(), 2);
-    }
-
-    #[test]
-    fn call_sites_and_enclosing_callables() {
-        assert!(is_call_at("  return stage (1);", 0, 14));
-        assert!(!is_call_at("const { stage } = x;", 0, 13));
-        let tree = json!([{
-            "name": "run", "kind": 12,
-            "range": {"start": {"line": 1, "character": 0}, "end": {"line": 3, "character": 1}},
-            "selectionRange": {"start": {"line": 1, "character": 9}, "end": {"line": 1, "character": 12}},
-            "children": [{
-                "name": "inner", "kind": 12,
-                "range": {"start": {"line": 2, "character": 2}, "end": {"line": 2, "character": 30}}
-            }]
-        }]);
-        let mut flat = Vec::new();
-        flatten_symbols(&tree, &mut flat);
-        assert_eq!(
-            enclosing_callable(&flat, 2, 10).map(|s| s["name"].clone()),
-            Some(json!("inner"))
-        );
-        assert_eq!(
-            enclosing_callable(&flat, 3, 0).map(|s| s["name"].clone()),
-            Some(json!("run"))
-        );
-        assert!(enclosing_callable(&flat, 9, 0).is_none());
     }
 
     /// Cancels once `flag` is set, or once `deadline` passes (as a timeout).
@@ -1697,7 +1443,7 @@ mod tests {
         let dropped = tokio::time::timeout(
             std::time::Duration::from_millis(50),
             blocking_cancellable(
-                &crate::tools::cancel::NeverCancel,
+                &crate::execution::cancel::NeverCancel,
                 observed_worker(started_tx, finished_tx),
             ),
         )
@@ -1747,7 +1493,7 @@ mod tests {
             "target",
             &HashSet::new(),
             &policy(root.path()),
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
         )
         .await
         .expect("scan")

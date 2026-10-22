@@ -4,11 +4,12 @@ mod git;
 mod process;
 mod recovery;
 
+use crate::execution::cancel::CancellationCheck;
 use crate::policy::{PolicyError, PolicyErrorCode, path::PathPolicy};
-use crate::tools::cancel::CancellationCheck;
+use crate::response::result::Confidence;
 use octocode_github::{
-    ConditionalCache, GitHubEndpoint, GitHubProvider, ProviderError, ProviderErrorKind,
-    ProviderErrorReason, RequestContext, ResolvedCredential,
+    GitHubEndpoint, GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason,
+    RequestContext, ResolvedCredential,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -17,7 +18,7 @@ use std::time::{Duration, Instant};
 
 pub use process::{GitOutput, GitRunControl, GitRunRequest, GitRunner, SystemGit};
 
-pub use crate::contracts::tool_types::{GhCloneRepoQuery, GhCloneRepoQueryPath};
+pub use octocode_contract_types::{GhCloneRepoQuery, GhCloneRepoQueryPath};
 
 /// The requested sparse checkout: repo-relative paths in request order,
 /// duplicates removed.
@@ -77,7 +78,7 @@ impl CloneConfig {
     /// A persistent clone cache under `cache_home` with the runtime's
     /// constant clone limits and network timeout.
     pub fn persistent(cache_home: impl Into<PathBuf>) -> Self {
-        let defaults = crate::runtime::RuntimeLimits::DEFAULT;
+        let defaults = crate::execution::RuntimeLimits::DEFAULT;
         Self {
             cache_home: cache_home.into(),
             persistent: true,
@@ -100,7 +101,7 @@ impl CloneConfig {
 
     /// Apply the runtime's clone cache limits.
     #[must_use]
-    pub fn with_limits(mut self, limits: &crate::runtime::CloneLimits) -> Self {
+    pub fn with_limits(mut self, limits: &crate::execution::CloneLimits) -> Self {
         self.cache_ttl = limits.ttl;
         self.max_cache_size_bytes = limits.max_bytes;
         self.max_clone_count = limits.max_clones;
@@ -118,16 +119,8 @@ pub struct CloneContext<'a> {
     pub git: &'a dyn GitRunner,
 }
 
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's `skip_serializing_if` calls with a reference"
-)]
-fn is_true(value: &bool) -> bool {
-    *value
-}
-
-/// Where the checkout lives and what it holds. `verified` is stated only
-/// when false; owner/repo are the caller's own input.
+/// Where the checkout lives and what it holds; owner/repo are the caller's
+/// own input.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloneLocation {
@@ -135,8 +128,6 @@ pub struct CloneLocation {
     pub local_path: String,
     pub cached: bool,
     pub commit_sha: String,
-    #[serde(skip_serializing_if = "is_true")]
-    pub verified: bool,
     pub resolved_ref: String,
     /// Sparse checkouts name every requested path.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,8 +212,8 @@ pub enum CloneFailure {
 /// commit under the repository's canonical name, so a branch that moved is
 /// checked out again, and one commit reached by branch, abbreviated or full
 /// SHA, or an old repository name shares one checkout.
-pub async fn run<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub async fn run(
+    provider: &GitHubProvider,
     query: &GhCloneRepoQuery,
     request: Result<&RequestContext, ProviderError>,
     context: &CloneContext<'_>,
@@ -230,7 +221,7 @@ pub async fn run<C: ConditionalCache>(
     let request = request.map_err(CloneFailure::Provider)?;
     validate_query(query).map_err(CloneFailure::Clone)?;
     let pin = pin(provider, query, request).await?;
-    let decode = |error: crate::contracts::tool_types::error::ConversionError| {
+    let decode = |error: octocode_contract_types::error::ConversionError| {
         CloneFailure::Clone(CloneError::new("invalidInput", error.to_string()))
     };
     let pinned = GhCloneRepoQuery {
@@ -271,30 +262,32 @@ struct Pin {
 /// rate limit or outage included: one caller's spent quota never unlocks
 /// another caller's checkout. The reads follow GitHub's rename redirect, so
 /// the canonical name costs no further request when nothing was renamed.
-async fn pin<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn pin(
+    provider: &GitHubProvider,
     query: &GhCloneRepoQuery,
     request: &RequestContext,
 ) -> Result<Pin, CloneFailure> {
     let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
-    let label = match query.ref_.as_deref() {
-        Some(reference) => reference.to_owned(),
+    let transport = &provider.transport;
+    // Without a ref, the default branch's name and its head commit load
+    // together: `HEAD` is that branch's head, so both answers name one commit.
+    let (label, commit) = match query.ref_.as_deref() {
+        Some(reference) => (
+            reference.to_owned(),
+            transport.commit_sha(owner, repo, reference, request).await,
+        ),
         None => {
-            match provider
-                .transport
-                .repository_metadata(owner, repo, request)
-                .await
-            {
-                Ok(metadata) => metadata.default_branch,
+            let (metadata, head) = tokio::join!(
+                transport.repository_metadata(owner, repo, request),
+                transport.commit_sha(owner, repo, "HEAD", request),
+            );
+            match metadata {
+                Ok(metadata) => (metadata.default_branch, head),
                 Err(api) => return Err(refused(provider, query, "HEAD", api, request).await),
             }
         }
     };
-    let commit = match provider
-        .transport
-        .commit_sha(owner, repo, &label, request)
-        .await
-    {
+    let commit = match commit {
         Ok(commit) => commit,
         Err(api) => return Err(refused(provider, query, &label, api, request).await),
     };
@@ -321,8 +314,8 @@ async fn pin<C: ConditionalCache>(
 /// The failure of a clone whose commit lookup `api` refused ([`api_refusal`]);
 /// a missing ref also names the repository's default branch and offers the
 /// same clone at it.
-async fn refused<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn refused(
+    provider: &GitHubProvider,
     query: &GhCloneRepoQuery,
     reference: &str,
     api: ProviderError,
@@ -334,8 +327,8 @@ async fn refused<C: ConditionalCache>(
         && let CloneFailure::Clone(error) = &mut failure
         && let Some(retry) = crate::tools::gh_shared::default_branch_retry(
             provider,
-            crate::tools::id::ToolId::GhCloneRepo,
-            crate::tools::result::query_row(query, &[]),
+            crate::id::ToolId::GhCloneRepo,
+            crate::response::result::query_row(query, &[]),
             &["ref"],
             request,
         )
@@ -447,9 +440,7 @@ impl Plan<'_> {
     /// (`cached`); a fresh checkout clears the flag. `run` names the ref
     /// that was asked for.
     fn result(&self, commit: &str, clone_dir: &Path, hit: CacheHit) -> CloneResult {
-        let bytes = hit
-            .size
-            .unwrap_or_else(|| cache::checked_out_size(clone_dir));
+        let bytes = hit.size;
         let (cloned_at, expires_at) = hit.age.map_or((None, None), |age| {
             (Some(age.cloned_at), Some(age.expires_at))
         });
@@ -463,7 +454,6 @@ impl Plan<'_> {
                 local_path: clone_dir.to_string_lossy().into_owned(),
                 cached: true,
                 commit_sha: hit.commit_sha,
-                verified: hit.verified,
                 resolved_ref: commit.to_owned(),
                 requested_paths: paths.map(<[String]>::to_vec),
                 symlinks: (!hit.symlinks.is_empty()).then_some(hit.symlinks),
@@ -557,10 +547,9 @@ fn authorize_home(context: &CloneContext<'_>) -> Result<(), CloneError> {
 /// the requested identity.
 struct CacheHit {
     commit_sha: String,
-    verified: bool,
     age: Option<cache::CacheAge>,
-    /// Checked-out bytes recorded at publication (older entries walk).
-    size: Option<u64>,
+    /// Checked-out bytes recorded at publication.
+    size: u64,
     /// Repository symlinks the checkout holds as plain files.
     symlinks: Vec<String>,
 }
@@ -591,17 +580,11 @@ fn cache_hit(
         .path_policy
         .validate(clone_dir)
         .map_err(policy_denied)?;
-    // An entry written before symlinks were recorded lists them now.
-    let symlinks = match meta.symlinks.clone() {
-        Some(symlinks) => symlinks,
-        None => git::symlinks(context, clone_dir)?,
-    };
     Ok(Some(CacheHit {
         commit_sha,
-        verified: meta.verified,
         age: cache::CacheAge::of(&meta, context.config.cache_ttl),
         size: meta.checkout_bytes,
-        symlinks,
+        symlinks: meta.symlinks,
     }))
 }
 
@@ -631,10 +614,9 @@ fn fresh_clone(
         clone_dir,
         CacheHit {
             commit_sha: meta.commit_sha.clone(),
-            verified: true,
             age: cache::CacheAge::of(&meta, context.config.cache_ttl),
             size: meta.checkout_bytes,
-            symlinks: meta.symlinks.clone().unwrap_or_default(),
+            symlinks: meta.symlinks,
         },
     );
     result.location.cached = false;
@@ -703,16 +685,16 @@ fn write_stage_meta(
     commit_sha: &str,
     stage: &Path,
 ) -> Result<cache::CacheMeta, CloneError> {
-    let mut meta = cache::CacheMeta::new(
-        &plan.identity(resolved),
-        commit_sha,
-        plan.context.config.cache_ttl,
-    );
+    let identity = plan.identity(resolved);
     // Repository evidence must never be overwritten by our bookkeeping.
     // This also rejects a directory or symlink at the reserved filename.
     match std::fs::symlink_metadata(stage.join(cache::META_FILE)) {
         Ok(_) => {
-            return Err(cache::metadata_conflict(&meta));
+            return Err(cache::metadata_conflict(
+                identity.owner,
+                identity.repo,
+                commit_sha,
+            ));
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
@@ -725,9 +707,16 @@ fn write_stage_meta(
     // The size of a clean checkout cannot change: record it once, the
     // checked-out files for the row and the whole entry for eviction.
     let checkout = cache::checked_out_size(stage);
-    meta.checkout_bytes = Some(checkout);
-    meta.size_bytes = Some(checkout.saturating_add(cache::git_dir_size(stage)));
-    meta.symlinks = Some(git::symlinks(plan.context, stage)?);
+    let meta = cache::CacheMeta::new(
+        &identity,
+        commit_sha,
+        plan.context.config.cache_ttl,
+        cache::CheckoutFacts {
+            size_bytes: checkout.saturating_add(cache::git_dir_size(stage)),
+            checkout_bytes: checkout,
+            symlinks: git::symlinks(plan.context, stage)?,
+        },
+    );
     cache::write_meta(stage, &meta)?;
     Ok(meta)
 }
@@ -794,7 +783,7 @@ fn sparse_not_found(
 /// astSearch, and lspSearch on it. A single checked-out file is read with
 /// localFetch instead: structureSearch lists directories only.
 fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json::Value {
-    use crate::tools::id::ToolId;
+    use crate::id::ToolId;
     // One sparse path explores that path; several explore the checkout root.
     let root = match sparse_paths {
         Some([path]) => clone_dir.join(path),
@@ -811,8 +800,8 @@ fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json
         ToolId::StructureSearch
     };
     serde_json::json!({
-        "exploreClone": crate::tools::result::Continuation::new(tool, serde_json::Value::Object(query))
-            .confidence("exact")
+        "exploreClone": crate::response::result::Continuation::new(tool, serde_json::Value::Object(query))
+            .confidence(Confidence::Exact)
             .build()
     })
 }
@@ -956,7 +945,7 @@ fn hash(value: &str, characters: usize) -> String {
 
 /// This tool's output facts for the shared response stages.
 pub(crate) struct Output;
-impl crate::tools::output::ToolOutput for Output {
+impl crate::response::output::ToolOutput for Output {
     fn fallback_hint(&self, _query: &serde_json::Value) -> &'static str {
         "Verify owner/repo/ref and path."
     }
@@ -981,7 +970,7 @@ mod limit_tests {
         assert_eq!(base.max_cache_size_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(base.max_clone_count, 50);
         assert_eq!(base.network_timeout, Duration::from_secs(30));
-        let config = CloneConfig::persistent("/h").with_limits(&crate::runtime::CloneLimits {
+        let config = CloneConfig::persistent("/h").with_limits(&crate::execution::CloneLimits {
             ttl: Duration::from_secs(120),
             max_bytes: 1024 * 1024,
             max_clones: 7,

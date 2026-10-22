@@ -4,13 +4,13 @@
 //! rows drop it; a row whose `extras` names its kind keeps it. The paths are
 //! the contract's `extraPaths` ([`ToolId::extra_paths`]), so emitters build
 //! these fields unconditionally and branch on a kind only for real work.
-use crate::contracts::tool_types::ExtraKind;
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
+use octocode_contract_types::ExtraKind;
 use serde_json::{Map, Value};
 
 /// Whether a raw query's `extras` names `kind`.
 #[must_use]
-pub fn wants(query: &Value, kind: ExtraKind) -> bool {
+pub(crate) fn wants(query: &Value, kind: ExtraKind) -> bool {
     query
         .get("extras")
         .and_then(Value::as_array)
@@ -25,11 +25,10 @@ pub(crate) fn names(value: &Value, kind: ExtraKind) -> bool {
         == Some(kind)
 }
 
-fn wants_name(query: &Value, kind: &str) -> bool {
-    query
-        .get("extras")
-        .and_then(Value::as_array)
-        .is_some_and(|kinds| kinds.iter().any(|value| value.as_str() == Some(kind)))
+/// [`wants`] for a contract `extraPaths` kind name.
+fn wants_kind(query: &Value, kind: &str) -> bool {
+    kind.parse::<ExtraKind>()
+        .is_ok_and(|kind| wants(query, kind))
 }
 
 /// Every extra path of `tool`, whatever its kind.
@@ -50,7 +49,7 @@ pub fn keeps(tool: ToolId, query: &Value, path: &str) -> bool {
         .iter()
         .filter(|(_, paths)| paths.contains(&path))
         .all(|(kind, _)| {
-            wants_name(query, kind) || picked(query, path) || sorted_by(tool, query, path)
+            wants_kind(query, kind) || picked(query, path) || sorted_by(tool, query, path)
         })
 }
 
@@ -60,9 +59,9 @@ pub fn keeps(tool: ToolId, query: &Value, path: &str) -> bool {
 /// A key a query's `fields` pick names is evidence the caller asked for,
 /// and the field the query's `sort` orders rows by is what the order
 /// shows (contract `sortKeyPaths`), so both stay whatever their kind.
-pub fn prune_row(row: &mut Value, tool: ToolId, query: &Value) {
+pub(crate) fn prune_row(row: &mut Value, tool: ToolId, query: &Value) {
     for (kind, paths) in tool.extra_paths() {
-        if wants_name(query, kind) {
+        if wants_kind(query, kind) {
             continue;
         }
         for path in *paths {
@@ -139,7 +138,7 @@ fn remove(value: &mut Value, path: &[(&str, bool)]) {
 #[cfg(test)]
 mod tests {
     use super::{all_paths, prune_row};
-    use crate::tools::id::ToolId;
+    use crate::id::ToolId;
     use serde_json::{Map, Value, json};
 
     /// A minimal valid data row per tool whose arrays hold one element, so
@@ -169,9 +168,6 @@ mod tests {
                 "files":[{"path":"a.rs","matches":[{"value":"x"}]}],
                 "nodes":["1 k 1:1-1:2"]
             }),
-            ToolId::AstTopology => {
-                json!({"nodes":[{"file":"a.rs"}],"graphSummary":{},"coverage":{"state":"complete"}})
-            }
             ToolId::LocalFetch => json!({"path":"a.rs","content":"x"}),
             ToolId::LspSearch => {
                 json!({"kind":"references","files":[{"path":"a.ts","matches":[{"line":1}]}],"lsp":{},"coverage":{"state":"complete"}})
@@ -359,7 +355,7 @@ mod tests {
         assert!(row["data"].get("httpStatus").is_none(), "{row}");
     }
 
-    /// A block emptied by pruning (astTopology's summary of counts) goes
+    /// A block emptied by pruning (a summary of counts) goes
     /// with its fields; a block that keeps a field stays.
     #[test]
     fn a_block_of_only_extra_fields_goes_with_them() {
@@ -428,6 +424,8 @@ mod tests {
             // echoes; stats keeps the whole statistics block the default
             // trims), and the git HEAD read made only for receipts.
             ("response/rows.rs", 3),
+            // Details list every path behind a grouped skip entry.
+            ("tools/local_search/leads.rs", 1),
             // The language-server receipt is built only for receipts.
             ("tools/lsp_search/mod.rs", 1),
             // Snippet `matches` go only when resolved `lines` replace them.
@@ -441,12 +439,10 @@ mod tests {
             // Extras-gated output not yet moved into core's extra classes.
             ("tools/artifact_search/mod.rs", 1),
             // Line counts and modified times: reading them costs I/O per entry.
-            ("tools/structure_search/files.rs", 1),
+            ("tools/structure_search/listing.rs", 1),
             ("tools/gh_get_history_item/patch_hop.rs", 1),
             ("tools/gh_get_history_item/pr_finish.rs", 3),
             ("tools/gh_get_history_item/pull_request.rs", 1),
-            // Full pages, runner-up windows and usage receipts (details, stats).
-            ("tools/clasify/run/mod.rs", 3),
         ];
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = Vec::new();
@@ -472,11 +468,12 @@ mod tests {
                     .filter(|line| !line.trim_start().starts_with("//"))
                     // A branch names one kind: `extras::wants(q, ExtraKind::X)`,
                     // a typed `query.wants(ExtraKind::X)`, or
-                    // `query.extras.contains(&ExtraKind::X)`. Accessors that
-                    // forward a `kind` argument are not branches.
+                    // `query.extras.contains(&ExtraKind::X)`, whose
+                    // `.contains(` rustfmt may wrap onto its own line.
+                    // Accessors that forward a `kind` argument are not branches.
                     .filter(|line| {
                         line.contains("ExtraKind::")
-                            && (line.contains("wants(") || line.contains(".extras.contains("))
+                            && (line.contains("wants(") || line.contains(".contains(&"))
                     })
                     .count();
                 if count > 0 {
@@ -489,6 +486,15 @@ mod tests {
                 }
             }
         }
+        let stale: Vec<&str> = ALLOWED
+            .iter()
+            .map(|(file, _)| *file)
+            .filter(|file| !found.iter().any(|(name, _)| name == file))
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "no extras branch left, drop the allowance: {stale:?}"
+        );
         for (file, count) in &found {
             let allowed = ALLOWED
                 .iter()

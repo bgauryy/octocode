@@ -28,9 +28,7 @@ const contract = JSON.parse(readFileSync(join(root, 'packages/octocode-config/co
 const coverage = JSON.parse(readFileSync(join(runtime, 'src/contracts/field-effect-coverage.json'), 'utf8'));
 
 // Native module dirs whose names do not follow camel→snake of the tool name.
-const DIR_OVERRIDES = {
-  astTopology: 'ast_graph',
-};
+const DIR_OVERRIDES = {};
 const snake = s => s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
 
 function rsFiles(path) {

@@ -9,22 +9,18 @@ pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
 
-use crate::tools::id::ToolId;
-use crate::tools::paging::push_warnings;
-use crate::tools::result::{Continuation, query_row};
+use crate::id::ToolId;
+use crate::response::paging::push_warnings;
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, ToolData, query_row};
 pub(crate) use default_branch::{
     DefaultBranchRetry, default_branch, default_branch_retry, repo_key, unresolved_refs,
     with_default_branch,
 };
 use octocode_github::{
-    ConditionalCache, GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason,
-    RequestContext,
+    GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
 use serde_json::{Value, json};
-
-/// Hints are rendered whole only up to the response guidance limit (120
-/// chars); keep every GitHub recovery hint within it.
-pub(crate) const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login or set GH_TOKEN/GITHUB_TOKEN; an invalid env token overrides stored login.";
 
 /// A SAML-protected organization refused the token: the row's `ssoUrl` is
 /// where it is authorized.
@@ -135,7 +131,7 @@ pub(crate) fn provider_hint(error: &ProviderError) -> Option<&'static str> {
     if error.sso_url.is_some() {
         Some(SSO_AUTHORIZATION_HINT)
     } else if error.kind == ProviderErrorKind::Authentication {
-        Some(GITHUB_AUTH_RECOVERY_HINT)
+        Some(crate::response::rows::GITHUB_AUTH_RECOVERY_HINT)
     } else if repository_not_found(error) {
         Some(REPOSITORY_ACCESS_HINT)
     } else if error.reason == Some(ProviderErrorReason::UserNotFound) {
@@ -176,19 +172,18 @@ pub(crate) fn search_failure(error: ProviderError, window_hint: Option<&str>) ->
 /// A ref that did not resolve: ghStructure `operation:"refs"` lists the
 /// branches and tags it could name.
 pub(crate) fn ref_recovery(owner: &str, repo: &str) -> Value {
-    Continuation::new(
-        ToolId::GhStructure,
-        json!({"owner": owner, "repo": repo, "operation": "refs"}),
-    )
-    .confidence("high")
-    .build()
+    let mut refs = RepoPath::root(owner, repo).row();
+    refs["operation"] = json!("refs");
+    Continuation::new(ToolId::GhStructure, refs)
+        .confidence(Confidence::High)
+        .build()
 }
 
 /// A repository that did not resolve: a search for its name names the
 /// owner that holds it.
 pub(crate) fn repository_search(repo: &str) -> Value {
     Continuation::new(ToolId::GhSearchRepo, json!({"keywords": [repo]}))
-        .confidence("medium")
+        .confidence(Confidence::Medium)
         .build()
 }
 
@@ -229,8 +224,8 @@ fn renamed_to(owner: &str, repo: &str, full_name: &str) -> Option<(String, Strin
 
 /// Remember `owner/repo`'s canonical `full_name` (from repository metadata
 /// a tool already read) for later calls and processes.
-pub(crate) async fn remember_canonical<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn remember_canonical(
+    provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     full_name: &str,
@@ -238,6 +233,7 @@ pub(crate) async fn remember_canonical<C: ConditionalCache>(
 ) {
     if let Ok(partition) = provider.transport.cache_partition(context, None) {
         provider
+            .transport
             .cache
             .put(
                 &partition,
@@ -246,6 +242,7 @@ pub(crate) async fn remember_canonical<C: ConditionalCache>(
                     etag: None,
                     bytes: full_name.as_bytes().to_vec().into(),
                     resolved_ref: String::new(),
+                    has_more: false,
                 },
                 octocode_github::Retention::Expires(CANONICAL_TTL),
             )
@@ -267,8 +264,8 @@ pub(crate) enum RenameCheck {
 /// The canonical name of a renamed repository, `None` when `owner/repo`
 /// stands (case aside), does not exist, or cannot be checked
 /// ([`canonical_scope`] tells a missing repository apart).
-pub(crate) async fn canonical_repo<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn canonical_repo(
+    provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     context: &RequestContext,
@@ -296,8 +293,8 @@ enum CanonicalScope {
 /// [`canonical_repo`], telling a missing repository apart. The memo answers
 /// first; past it, `check` decides whether one (memoized) metadata read is
 /// spent. Only a cancelled or timed-out read fails.
-async fn canonical_scope<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn canonical_scope(
+    provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     context: &RequestContext,
@@ -307,6 +304,7 @@ async fn canonical_scope<C: ConditionalCache>(
         return Ok(CanonicalScope::Stands);
     };
     if let Some(cached) = provider
+        .transport
         .cache
         .get(&partition, &canonical_key(owner, repo))
         .await
@@ -325,12 +323,7 @@ async fn canonical_scope<C: ConditionalCache>(
         .await
     {
         Ok(meta) => meta.full_name,
-        Err(error)
-            if matches!(
-                error.kind,
-                ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
-            ) =>
-        {
+        Err(error) if error.is_cancelled_or_timed_out() => {
             return Err(error);
         }
         Err(error) if error.kind == ProviderErrorKind::NotFound => {
@@ -381,8 +374,8 @@ pub(crate) enum Rescope {
 /// [`search_may_be_renamed`] could explain. GitHub search never follows a
 /// rename, so one (memoized) metadata read names the canonical repository
 /// the search reruns against. Only a cancelled or timed-out read fails.
-pub(crate) async fn rescope_on_rename<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn rescope_on_rename(
+    provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     context: &RequestContext,
@@ -400,12 +393,117 @@ pub(crate) async fn rescope_on_rename<C: ConditionalCache>(
     )
 }
 
+/// `query` naming the repository `owner/repo`: every GitHub tool query names
+/// its repository by `owner` and `repo`, so one rewrite serves them all. A
+/// name the contract rejects is a decode error.
+pub(crate) fn with_repo<Q: serde::Serialize + serde::de::DeserializeOwned>(
+    query: &Q,
+    owner: &str,
+    repo: &str,
+) -> Result<Q, ProviderError> {
+    let decode =
+        |error: serde_json::Error| ProviderError::new(ProviderErrorKind::Decode, error.to_string());
+    let mut renamed = serde_json::to_value(query).map_err(decode)?;
+    renamed["owner"] = json!(owner);
+    renamed["repo"] = json!(repo);
+    serde_json::from_value(renamed).map_err(decode)
+}
+
+/// `query` under its renamed repository's canonical name, with the warning
+/// that states the rename once; `None` when `owner/repo` stands. A read or
+/// listing (which GitHub redirects) learns the rename from the redirect.
+pub(crate) async fn canonical_query<Q: serde::Serialize + serde::de::DeserializeOwned>(
+    provider: &GitHubProvider,
+    query: &Q,
+    owner: &str,
+    repo: &str,
+    context: &RequestContext,
+) -> Result<Option<(String, Q)>, ProviderError> {
+    let Some(to) = canonical_repo(provider, owner, repo, context, RenameCheck::Redirected).await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some((
+        renamed_warning(owner, repo, &to),
+        with_repo(query, &to.0, &to.1)?,
+    )))
+}
+
+/// A search scoped to `owner/repo` whose empty answer a rename could
+/// explain ([`search_may_be_renamed`]), run again by `rerun` under the
+/// canonical name, its output stating the rename first; `None` when the
+/// name stands. A missing repository is the search's not-found failure.
+pub(crate) async fn rerun_renamed<Q, F, Fut>(
+    provider: &GitHubProvider,
+    query: &Q,
+    owner: &str,
+    repo: &str,
+    context: &RequestContext,
+    rerun: F,
+) -> Result<Option<ToolData>, ProviderError>
+where
+    Q: serde::Serialize + serde::de::DeserializeOwned,
+    F: FnOnce(Q) -> Fut,
+    Fut: std::future::Future<Output = Result<ToolData, ProviderError>>,
+{
+    match rescope_on_rename(provider, owner, repo, context).await? {
+        Rescope::Renamed {
+            owner,
+            repo,
+            warning,
+        } => {
+            let mut output = rerun(with_repo(query, &owner, &repo)?).await?;
+            push_warning_front(&mut output.data, warning);
+            Ok(Some(output))
+        }
+        // The repository check already failed: the empty page's own check
+        // of it would read the same 404 again.
+        Rescope::Missing(error) => Err(error),
+        Rescope::Stands => Ok(None),
+    }
+}
+
+/// What a failed read or listing names in its leads, both from the
+/// memos the failed request filled and read at once: the commit its ref
+/// resolved (when the path failed after the ref did: leads pin it, as the
+/// request's own continuations would) and its repository's canonical name
+/// (leads name a renamed repository as it is now).
+pub(crate) struct FailureScope {
+    pub commit: Option<String>,
+    pub canonical: Option<(String, String)>,
+}
+
+pub(crate) async fn failure_scope(
+    provider: &GitHubProvider,
+    owner: &str,
+    repo: &str,
+    reference: Option<&str>,
+    path_failed: bool,
+    context: &RequestContext,
+) -> FailureScope {
+    let (commit, canonical) = futures_util::future::join(
+        async {
+            if path_failed {
+                failed_at_commit(provider, owner, repo, reference, context).await
+            } else {
+                None
+            }
+        },
+        canonical_repo(provider, owner, repo, context, RenameCheck::Redirected),
+    )
+    .await;
+    FailureScope {
+        commit,
+        canonical: canonical.ok().flatten(),
+    }
+}
+
 /// The commit a failed read or listing resolved before it failed (the ref
 /// memo answers; a full SHA is itself), so its recovery leads pin the same
 /// commit its success leads would, not the movable ref. Called only after
 /// the repository and ref resolved (a path failure); `None` otherwise.
-pub(crate) async fn failed_at_commit<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn failed_at_commit(
+    provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     reference: Option<&str>,
@@ -420,8 +518,8 @@ pub(crate) async fn failed_at_commit<C: ConditionalCache>(
 /// The failure of a request that named a submodule path (a read or a
 /// listing), with its recovery: where the parent's contents entry at the
 /// request's commit points (one request), then [`submodule_recovery`].
-pub(crate) async fn submodule_failure<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn submodule_failure(
+    provider: &GitHubProvider,
     at: &RepoPath<'_>,
     context: &RequestContext,
     failure: GhFailure,
@@ -490,7 +588,11 @@ fn submodule_recovery(
         path: "",
         reference: pinned,
     };
-    let confidence = if pinned.is_some() { "high" } else { "low" };
+    let confidence = if pinned.is_some() {
+        Confidence::High
+    } else {
+        Confidence::Low
+    };
     failure.hints.clear();
     failure.next = Some(Box::new(
         json!({ "viewTree": tree_recovery(&at, None, confidence) }),
@@ -644,7 +746,7 @@ pub(crate) fn add_next(
     if !has_more {
         return;
     }
-    let Some(next_page) = crate::tools::paging::next_cursor(value, tool, None, "page", page + 1)
+    let Some(next_page) = crate::response::paging::next_cursor(value, tool, None, "page", page + 1)
     else {
         return;
     };
@@ -655,7 +757,9 @@ pub(crate) fn add_next(
 fn page_replay(tool: ToolId, query: &impl serde::Serialize, page: usize) -> Value {
     let mut row = query_row(query, &[]);
     row["page"] = json!(page);
-    Continuation::new(tool, row).confidence("exact").build()
+    Continuation::new(tool, row)
+        .confidence(Confidence::Exact)
+        .build()
 }
 
 /// Keys no broadened variant copies: where the walk stands, the output
@@ -727,7 +831,7 @@ pub(crate) fn broaden(
         .collect::<Vec<_>>();
     (!variants.is_empty()).then(|| {
         Continuation::input(tool, json!({ "queries": variants }))
-            .confidence("low")
+            .confidence(Confidence::Low)
             .build()
     })
 }
@@ -759,7 +863,7 @@ pub(crate) fn apply_partial(
     query: &impl serde::Serialize,
     facts: &SearchCompleteness<'_>,
 ) {
-    use crate::tools::paging::{mark_partial, terminal_limit};
+    use crate::response::paging::{mark_partial, terminal_limit};
     let SearchCompleteness {
         tool,
         matched,
@@ -822,7 +926,9 @@ pub(crate) struct PathRecovery {
     pub(crate) file: Option<String>,
 }
 
-/// The repository coordinates a missing-path recovery lists under.
+/// A place in a repository: its coordinates, a path (`""` for the root)
+/// and a ref (the default branch when `None`). Recoveries list under it,
+/// and every cross-tool lead to a repository starts at one.
 pub(crate) struct RepoPath<'a> {
     pub(crate) owner: &'a str,
     pub(crate) repo: &'a str,
@@ -830,10 +936,40 @@ pub(crate) struct RepoPath<'a> {
     pub(crate) reference: Option<&'a str>,
 }
 
+impl<'a> RepoPath<'a> {
+    /// The repository's root on its default branch.
+    pub(crate) fn root(owner: &'a str, repo: &'a str) -> Self {
+        Self {
+            owner,
+            repo,
+            path: "",
+            reference: None,
+        }
+    }
+
+    /// The query row of this place: `owner`, `repo`, then `path` and `ref`
+    /// when set.
+    pub(crate) fn row(&self) -> Value {
+        let mut row = json!({"owner": self.owner, "repo": self.repo});
+        if !self.path.is_empty() {
+            row["path"] = json!(self.path);
+        }
+        if let Some(reference) = self.reference {
+            row["ref"] = json!(reference);
+        }
+        row
+    }
+
+    /// A lead to `tool` (ghStructure, ghCloneRepo) that starts here.
+    pub(crate) fn lead(&self, tool: ToolId) -> Continuation {
+        Continuation::new(tool, self.row())
+    }
+}
+
 /// Walk up to the nearest directory that exists, then back down matching each
 /// remaining segment case-insensitively, within [`PATH_RECOVERY_LISTINGS`].
-pub(crate) async fn locate_path<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn locate_path(
+    provider: &GitHubProvider,
     at: &RepoPath<'_>,
     context: &RequestContext,
 ) -> Option<PathRecovery> {
@@ -966,7 +1102,11 @@ pub(crate) fn listing_path(path: &str) -> Result<String, ProviderError> {
 
 /// A ghStructure listing of `path` at the caller's ref (and depth, when the
 /// caller set one): a fresh query from page 1, not a page of the failed call.
-pub(crate) fn tree_recovery(at: &RepoPath<'_>, max_depth: Option<i64>, confidence: &str) -> Value {
+pub(crate) fn tree_recovery(
+    at: &RepoPath<'_>,
+    max_depth: Option<i64>,
+    confidence: Confidence,
+) -> Value {
     let mut tree_query = json!({"owner": at.owner, "repo": at.repo, "path": repo_path(at.path)});
     if let Some(reference) = at.reference {
         tree_query["ref"] = json!(reference);

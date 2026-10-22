@@ -1,6 +1,6 @@
 //! JSON-value helpers shared across history-item shaping: typed accessors,
 //! the shallow merge, and the provider comment mapper.
-use crate::tools::result::remove_nulls;
+use crate::response::result::remove_nulls;
 use serde_json::{Value, json};
 
 pub(super) fn array(value: Value) -> Vec<Value> {

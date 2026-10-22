@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use tree_sitter::{Language, Node, Tree};
 
+use super::macro_bodies::{MAX_MACRO_DEPTH, MacroBodies};
 use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, ParseFailure, parse_with_deadline};
-use crate::structural::macro_bodies::{MAX_MACRO_DEPTH, MacroBodies};
 use crate::structural::types::{
     FileMatches, StructuralDemand, StructuralDetailedMatch, StructuralMatch,
 };
@@ -13,7 +13,9 @@ use super::line_index_support::to_structural_match_with_index;
 use crate::text::utf8_offsets::LineIndex;
 
 /// The code of a parse cut short by its deadline or cancellation.
-pub(super) const PARSE_INTERRUPTED: &str = "structural.parse.interrupted";
+pub const PARSE_INTERRUPTED: &str = "structural.parse.interrupted";
+/// The code of a match cut short by its execution deadline.
+pub const MATCH_DEADLINE: &str = "structural.match.deadline";
 
 #[derive(Debug, Clone)]
 pub(in crate::structural) struct ExecutionError {
@@ -25,7 +27,7 @@ impl ExecutionError {
     pub(in crate::structural) fn check(deadline: Instant) -> Result<(), Self> {
         if Instant::now() >= deadline {
             Err(Self::limit(
-                "structural.match.deadline",
+                MATCH_DEADLINE,
                 "match",
                 "Structural matching exceeded its execution deadline",
             ))
@@ -308,7 +310,7 @@ fn walk_expanding<'tree>(
             if let Some(tree) = macros.parse(content, language, range, deadline)? {
                 let mut chain: Vec<Node<'_>> = ancestors.clone();
                 chain.push(current);
-                let body_strings = crate::structural::macro_bodies::string_literals(current);
+                let body_strings = super::macro_bodies::string_literals(current);
                 walk_expanding(
                     tree.root_node(),
                     &chain,

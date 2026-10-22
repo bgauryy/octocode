@@ -184,6 +184,7 @@ pub(crate) fn assemble_file(
         .raw_matches
         .iter()
         .map(|m| {
+            let last_line = last_line(&m.line_text, m.line_number);
             let (value, value_digest, original_chars, original_bytes) = {
                 // Contiguous context only: stop at the first line that is absent.
                 // Join by line slot (not by buffer emptiness) so a blank
@@ -192,11 +193,9 @@ pub(crate) fn assemble_file(
                     .map_while(|i| m.line_number.checked_sub(i).and_then(neighbour))
                     .collect();
                 before.reverse();
-                let last_line = m.line_number.saturating_add(
-                    m.line_text.bytes().filter(|&byte| byte == b'\n').count() as u32,
-                );
+                let end = last_line.unwrap_or(m.line_number);
                 let after: Vec<&str> = (1..=context.after)
-                    .map_while(|i| last_line.checked_add(i).and_then(neighbour))
+                    .map_while(|i| end.checked_add(i).and_then(neighbour))
                     .collect();
                 let join = |lead: &[&str]| {
                     let mut window = lead.to_vec();
@@ -242,6 +241,7 @@ pub(crate) fn assemble_file(
             TextSearchMatch {
                 deferred: None,
                 line: m.line_number,
+                last_line,
                 column: m.column,
                 byte_offset: utf16_to_byte_offset(&m.line_text, m.column),
                 value,
@@ -283,6 +283,7 @@ pub fn line_match(
     TextSearchMatch {
         deferred: None,
         line: line_number,
+        last_line: last_line(line_text, line_number),
         column,
         byte_offset,
         value,
@@ -294,7 +295,11 @@ pub fn line_match(
     }
 }
 
-// ── unit tests ────────────────────────────────────────────────────────────────
+/// The last line of a match whose text spans several lines.
+fn last_line(match_text: &str, line_number: u32) -> Option<u32> {
+    let breaks = match_text.bytes().filter(|&byte| byte == b'\n').count() as u32;
+    (breaks > 0).then(|| line_number.saturating_add(breaks))
+}
 
 /// Byte offset of UTF-16 `column` within `line` (clamped to the line): where
 /// a byte-window read of the line starts at the match.
@@ -308,6 +313,8 @@ fn utf16_to_byte_offset(line: &str, column: u32) -> u32 {
     }
     line.len() as u32
 }
+
+// ── unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

@@ -1,84 +1,77 @@
-use crate::tools::id::query_limits::local_fetch::RANGES_MAX_ITEMS;
-use crate::tools::num::{usize_of, usize_of_signed};
+use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
+use crate::num::{usize_of, usize_of_signed};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub use crate::contracts::tool_types::{
+pub use octocode_contract_types::{
     LocalFetchQuery, MatchString, MinifyMode, ReadCaseMode, ReadRegex, WindowUnit,
 };
 
-/// A single literal `matchString` (tests and continuations build one).
-impl std::str::FromStr for MatchString {
-    type Err = <crate::contracts::tool_types::MatchStringString as std::str::FromStr>::Err;
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        value.parse().map(MatchString::String)
-    }
-}
-
 /// The engine works in `usize`; the wire contract (generated from the core
 /// Zod schema) owns the field set and its JSON integer types.
-impl LocalFetchQuery {
+pub(crate) mod local_fetch_query {
+    use super::*;
     /// The one requested line span, when `ranges` holds exactly one.
-    fn single_range(&self) -> Option<LineRange> {
-        match self.line_ranges().as_slice() {
+    fn single_range(query: &LocalFetchQuery) -> Option<LineRange> {
+        match line_ranges(query).as_slice() {
             [one] => Some(one.clone()),
             _ => None,
         }
     }
-    pub(crate) fn start_line(&self) -> Option<usize> {
-        self.single_range().map(|range| range.start)
+    pub(crate) fn start_line(query: &LocalFetchQuery) -> Option<usize> {
+        single_range(query).map(|range| range.start)
     }
-    pub(crate) fn end_line(&self) -> Option<usize> {
-        self.single_range().map(|range| range.end)
+    pub(crate) fn end_line(query: &LocalFetchQuery) -> Option<usize> {
+        single_range(query).map(|range| range.end)
     }
     /// Sets the read to the one line span `start..=end`.
-    pub(crate) fn set_line_span(&mut self, start: usize, end: usize) {
-        self.set_line_spans(&[(start, end)]);
+    pub(crate) fn set_line_span(query: &mut LocalFetchQuery, start: usize, end: usize) {
+        set_line_spans(query, &[(start, end)]);
     }
     /// Sets the read to the line spans `start..=end`, in order.
-    pub(crate) fn set_line_spans(&mut self, spans: &[(usize, usize)]) {
-        self.ranges = spans
+    pub(crate) fn set_line_spans(query: &mut LocalFetchQuery, spans: &[(usize, usize)]) {
+        query.ranges = spans
             .iter()
             .filter_map(|(start, end)| format!("{start}-{end}").parse().ok())
             .collect();
     }
     /// `regex:"rust"` or `"pcre2"`: `matchString` is a regular expression.
-    pub(crate) fn is_regex(&self) -> bool {
-        matches!(self.regex, Some(ReadRegex::Rust | ReadRegex::Pcre2))
+    pub(crate) fn is_regex(query: &LocalFetchQuery) -> bool {
+        matches!(query.regex, Some(ReadRegex::Rust | ReadRegex::Pcre2))
     }
     /// `regex:"pcre2"`: lookaround and backreferences, under a deadline.
-    pub(crate) fn is_pcre2(&self) -> bool {
-        self.regex == Some(ReadRegex::Pcre2)
+    pub(crate) fn is_pcre2(query: &LocalFetchQuery) -> bool {
+        query.regex == Some(ReadRegex::Pcre2)
     }
     /// Whether `pattern` matches case-sensitively. Omitted means smart, as
     /// in localSearch: sensitive only when the pattern has an uppercase
     /// letter.
-    pub(crate) fn case_sensitive_for(&self, pattern: &str) -> bool {
-        match self.case_mode {
+    pub(crate) fn case_sensitive_for(query: &LocalFetchQuery, pattern: &str) -> bool {
+        match query.case_mode {
             Some(ReadCaseMode::Sensitive) => true,
             Some(ReadCaseMode::Smart) | None => pattern.chars().any(char::is_uppercase),
             Some(ReadCaseMode::Insensitive) => false,
         }
     }
     /// Context lines per match; the contract bounds the request.
-    pub(crate) fn context_lines(&self) -> Option<usize> {
-        self.context_lines.map(usize_of_signed)
+    pub(crate) fn context_lines(query: &LocalFetchQuery) -> Option<usize> {
+        query.context_lines.map(usize_of_signed)
     }
-    pub(crate) fn offset(&self) -> Option<usize> {
-        self.offset.map(usize_of_signed)
+    pub(crate) fn offset(query: &LocalFetchQuery) -> Option<usize> {
+        query.offset.map(usize_of_signed)
     }
-    pub(crate) fn window_length(&self) -> Option<usize> {
-        self.length.map(|n| usize_of(n.get()))
+    pub(crate) fn window_length(query: &LocalFetchQuery) -> Option<usize> {
+        query.length.map(|n| usize_of(n.get()))
     }
     /// Whether `matchString` hits must stand alone as words.
-    pub(crate) fn whole_word(&self) -> bool {
-        self.whole_word == Some(true)
+    pub(crate) fn whole_word(query: &LocalFetchQuery) -> bool {
+        query.whole_word == Some(true)
     }
 
     /// Every `matchString` entry (a list matches any of them).
-    pub(crate) fn match_strings(&self) -> Vec<&str> {
-        match &self.match_string {
+    pub(crate) fn match_strings(query: &LocalFetchQuery) -> Vec<&str> {
+        match &query.match_string {
             None => Vec::new(),
             Some(MatchString::String(one)) => vec![one.as_str()],
             Some(MatchString::Array(list)) => list.iter().map(|one| one.as_str()).collect(),
@@ -87,8 +80,9 @@ impl LocalFetchQuery {
     /// `ranges` parsed into 1-based inclusive line ranges, in request order.
     /// The contract admits only `start-end` digits, so a malformed entry
     /// (unreachable after validation) is skipped.
-    pub(crate) fn line_ranges(&self) -> Vec<LineRange> {
-        self.ranges
+    pub(crate) fn line_ranges(query: &LocalFetchQuery) -> Vec<LineRange> {
+        query
+            .ranges
             .iter()
             .filter_map(|range| {
                 let (start, end) = crate::tools::line_spans::parse_span(range)?;
@@ -96,15 +90,18 @@ impl LocalFetchQuery {
             })
             .collect()
     }
-    pub(crate) fn has_ranges(&self) -> bool {
-        !self.ranges.is_empty()
+    pub(crate) fn has_ranges(query: &LocalFetchQuery) -> bool {
+        !query.ranges.is_empty()
     }
     /// The file's last window as `(start, end)`, as wide as the widest
     /// requested range, when every range starts past the file end. `None`
     /// when any range reaches into the file (that read is served, clamped),
     /// no range was requested, or the file has no line.
-    pub(crate) fn last_window_span(&self, total_lines: usize) -> Option<(usize, usize)> {
-        let requested = self.line_ranges();
+    pub(crate) fn last_window_span(
+        query: &LocalFetchQuery,
+        total_lines: usize,
+    ) -> Option<(usize, usize)> {
+        let requested = line_ranges(query);
         if total_lines == 0
             || requested.is_empty()
             || requested.iter().any(|range| range.start <= total_lines)
@@ -118,30 +115,30 @@ impl LocalFetchQuery {
         Some((total_lines.saturating_sub(width - 1).max(1), total_lines))
     }
     /// `block:true`: widen windows to the enclosing declaration.
-    pub(crate) fn block(&self) -> bool {
-        self.block == Some(true)
+    pub(crate) fn block(query: &LocalFetchQuery) -> bool {
+        query.block == Some(true)
     }
     /// Drop the multi-window selectors (`ranges`, `block`) from a derived query.
-    pub(crate) fn clear_block_selectors(&mut self) {
-        self.ranges = Vec::new();
-        self.block = None;
+    pub(crate) fn clear_block_selectors(query: &mut LocalFetchQuery) {
+        query.ranges = Vec::new();
+        query.block = None;
     }
-    pub(crate) fn path(&self) -> &str {
-        self.path.as_str()
+    pub(crate) fn path(query: &LocalFetchQuery) -> &str {
+        query.path.as_str()
     }
     /// The requested transformed view; `None` reads the file as is.
-    pub(crate) fn minify_mode(&self) -> Option<MinifyMode> {
-        self.minify
+    pub(crate) fn minify_mode(query: &LocalFetchQuery) -> Option<MinifyMode> {
+        query.minify
     }
 }
 
 /// Default line-page safety ceiling. The byte budget bounds ordinary pages;
 /// short-line files can fill it without an additional fixed row limit.
-pub const DEFAULT_LINE_CHUNK: usize = crate::tools::id::query_limits::local_fetch::LENGTH_MAXIMUM;
+pub const DEFAULT_LINE_CHUNK: usize = crate::contracts::query_limits::local_fetch::LENGTH_MAXIMUM;
 
 /// Lines an unanchored read of a view longer than one line page returns
 /// before paging on (contract `localFetch.semanticPolicy.headLines`).
-pub const HEAD_LINES: usize = crate::tools::id::local_fetch_policy::HEAD_LINES;
+pub const HEAD_LINES: usize = crate::id::local_fetch_policy::HEAD_LINES;
 
 /// Encodes an engine `usize` as a positive wire integer.
 pub(crate) fn wire_positive(value: usize) -> Option<std::num::NonZeroU64> {
@@ -180,7 +177,7 @@ pub struct Pagination {
     pub resume_line: Option<usize>,
 }
 /// A localFetch read a result leads to (a page, a restart, a lead); it
-/// serializes through the one shared continuation builder ([`crate::tools::result::Continuation`]).
+/// serializes through the one shared continuation builder ([`crate::response::result::Continuation`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchCall {
     pub query: LocalFetchQuery,
@@ -189,7 +186,7 @@ impl Serialize for FetchCall {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::Error;
         let row = serde_json::to_value(&self.query).map_err(S::Error::custom)?;
-        crate::tools::result::Continuation::new(crate::tools::id::ToolId::LocalFetch, row)
+        crate::response::result::Continuation::new(crate::id::ToolId::LocalFetch, row)
             .build()
             .serialize(serializer)
     }
@@ -286,58 +283,73 @@ pub struct NextCalls {
     pub repair: Option<FetchCall>,
 }
 
+/// Which source a continuation read reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadSource {
+    /// The version this page read: a page of the same result, or the
+    /// evidence a classified page withheld. Bound to it by `snapshot`.
+    Page,
+    /// The file as it is when the read runs: a restart, a wider context, a
+    /// lead.
+    Current,
+}
+
+/// The localFetch reads of [`NextCalls`]: wire name, the source it reads,
+/// field. The one list of them; both accessors come from it.
+macro_rules! fetch_reads {
+    ($($wire:literal $source:ident $field:ident),+ $(,)?) => {
+        /// Every localFetch read among the continuations, with its wire
+        /// name and the source it reads.
+        fn reads(&self) -> [(&'static str, ReadSource, &Option<FetchCall>); { [$($wire),+].len() }] {
+            [$(($wire, ReadSource::$source, &self.$field)),+]
+        }
+
+        /// [`Self::reads`], mutable.
+        fn reads_slots(
+            &mut self,
+        ) -> [(&'static str, ReadSource, &mut Option<FetchCall>); { [$($wire),+].len() }] {
+            [$(($wire, ReadSource::$source, &mut self.$field)),+]
+        }
+    };
+}
+
 impl NextCalls {
+    fetch_reads! {
+        "unfiltered" Page unfiltered,
+        "unfilteredUnknown" Page unfiltered_unknown,
+        "nextCandidatePage" Page next_candidate_page,
+        "continueWindow" Page continue_window,
+        "readBoundedLines" Current read_bounded_lines,
+        "readOtherRanges" Current read_other_ranges,
+        "restart" Current restart,
+        "wholeLines" Page whole_lines,
+        "continueBlock" Page continue_block,
+        "expandContext" Current expand_context,
+        "ignoreCase" Current ignore_case,
+        "read" Current read,
+        "repair" Current repair,
+    }
+
     /// Add every continuation `other` carries; `self` keeps its own on a clash.
-    pub fn absorb(&mut self, other: NextCalls) {
-        let NextCalls {
-            unfiltered,
-            unfiltered_unknown,
-            unfiltered_unknown_rest,
-            next_candidate_page,
-            continue_window,
-            read_bounded_lines,
-            read_other_ranges,
-            restart,
-            whole_lines,
-            continue_block,
-            expand_context,
-            view_tree,
-            find_file,
-            text_search,
-            ignore_case,
-            read,
-            repair,
-        } = other;
+    pub fn absorb(&mut self, mut other: NextCalls) {
+        for ((_, _, mine), (_, _, theirs)) in
+            self.reads_slots().into_iter().zip(other.reads_slots())
+        {
+            if mine.is_none() {
+                *mine = theirs.take();
+            }
+        }
         for (mine, theirs) in [
-            (&mut self.unfiltered, unfiltered),
-            (&mut self.unfiltered_unknown, unfiltered_unknown),
-            (&mut self.next_candidate_page, next_candidate_page),
-            (&mut self.continue_window, continue_window),
-            (&mut self.read_bounded_lines, read_bounded_lines),
-            (&mut self.read_other_ranges, read_other_ranges),
-            (&mut self.restart, restart),
-            (&mut self.whole_lines, whole_lines),
-            (&mut self.continue_block, continue_block),
-            (&mut self.expand_context, expand_context),
-            (&mut self.ignore_case, ignore_case),
-            (&mut self.read, read),
-            (&mut self.repair, repair),
+            (&mut self.view_tree, other.view_tree),
+            (&mut self.find_file, other.find_file),
+            (&mut self.text_search, other.text_search),
         ] {
             if mine.is_none() {
                 *mine = theirs;
             }
         }
         if self.unfiltered_unknown_rest.is_empty() {
-            self.unfiltered_unknown_rest = unfiltered_unknown_rest;
-        }
-        for (mine, theirs) in [
-            (&mut self.view_tree, view_tree),
-            (&mut self.find_file, find_file),
-            (&mut self.text_search, text_search),
-        ] {
-            if mine.is_none() {
-                *mine = theirs;
-            }
+            self.unfiltered_unknown_rest = other.unfiltered_unknown_rest;
         }
     }
 
@@ -347,39 +359,31 @@ impl NextCalls {
 
     /// The localFetch reads among these continuations.
     pub fn reads_mut(&mut self) -> impl Iterator<Item = &mut FetchCall> {
-        [
-            &mut self.unfiltered,
-            &mut self.unfiltered_unknown,
-            &mut self.next_candidate_page,
-            &mut self.continue_window,
-            &mut self.read_bounded_lines,
-            &mut self.read_other_ranges,
-            &mut self.restart,
-            &mut self.whole_lines,
-            &mut self.continue_block,
-            &mut self.expand_context,
-            &mut self.ignore_case,
-            &mut self.read,
-            &mut self.repair,
-        ]
-        .into_iter()
-        .flatten()
+        self.reads_slots()
+            .into_iter()
+            .filter_map(|(_, _, read)| read.as_mut())
+    }
+
+    /// The reads of `source`.
+    pub fn reads_of_mut(&mut self, source: ReadSource) -> impl Iterator<Item = &mut FetchCall> {
+        self.reads_slots()
+            .into_iter()
+            .filter(move |(_, reads, _)| *reads == source)
+            .filter_map(|(_, _, read)| read.as_mut())
     }
 
     /// Whether a continuation reads more of this result (a page), as opposed
     /// to an optional lead such as `read`; only a page makes the row
-    /// partial.
+    /// partial. A call of another tool is a lead, never a page.
     pub fn leaves_more(&self) -> bool {
-        serde_json::to_value(self)
-            .ok()
-            .and_then(|value| {
-                value.as_object().map(|calls| {
-                    calls.keys().any(|name| {
-                        crate::tools::id::is_remaining(crate::tools::id::ToolId::LocalFetch, name)
-                    })
-                })
-            })
-            .unwrap_or(false)
+        let remaining = |name: &str| crate::id::is_remaining(crate::id::ToolId::LocalFetch, name);
+        self.reads()
+            .into_iter()
+            .any(|(name, _, read)| read.is_some() && remaining(name))
+            || self
+                .unfiltered_unknown_rest
+                .keys()
+                .any(|name| remaining(name))
     }
 }
 
@@ -390,7 +394,7 @@ impl NextCalls {
 pub fn line_read(q: &LocalFetchQuery, ranges: &[LineRange]) -> Option<LocalFetchQuery> {
     let (first, last) = (ranges.first()?, ranges.last()?);
     let mut query = q.clone();
-    query.clear_block_selectors();
+    local_fetch_query::clear_block_selectors(&mut query);
     query.match_string = None;
     query.regex = None;
     query.case_mode = None;
@@ -455,8 +459,9 @@ pub struct MinifyFallback {
 }
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum PartialReason {
-    #[serde(rename = "full-content-size-limit")]
-    FullContent,
+    /// The response share cut a `fullContent` read to its first window.
+    #[serde(rename = "response-share")]
+    ResponseShare,
     #[serde(rename = "full-content-source-size-limit")]
     FullContentSource,
     #[serde(rename = "security-selected-view-size-limit")]
@@ -477,17 +482,36 @@ pub struct DeclaredBlock {
     pub end_line: usize,
 }
 
+/// What a read produced; the row's wire `status` is its [`Self::row_status`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadStatus {
+    Success,
+    Empty,
+    Error,
+}
+
+impl ReadStatus {
+    /// The row's wire `status`: none for a success.
+    pub fn row_status(self) -> Option<&'static str> {
+        match self {
+            Self::Success => None,
+            Self::Empty => Some("empty"),
+            Self::Error => Some("error"),
+        }
+    }
+}
+
 /// Internal read result. Rust callers see every field; the wire form (the
 /// manual `Serialize` below) omits values an agent can already derive from
 /// another emitted field.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocalFetchResult {
     pub path: String,
-    pub status: String,
+    pub status: ReadStatus,
     pub resource_missing: bool,
     pub source_sha256: Option<String>,
     pub content: Option<String>,
-    pub selection: Option<crate::contracts::tool_types::Selection>,
+    pub selection: Option<octocode_contract_types::Selection>,
     pub content_view: Option<MinifyMode>,
     pub minify_fallback: Option<MinifyFallback>,
     pub error_code: Option<String>,
@@ -522,10 +546,10 @@ pub struct LocalFetchResult {
 }
 impl LocalFetchResult {
     /// A result with `status` and every other field empty.
-    pub fn blank(status: &str) -> Self {
+    pub fn blank(status: ReadStatus) -> Self {
         Self {
             path: String::new(),
-            status: status.into(),
+            status,
             resource_missing: false,
             source_sha256: None,
             content: None,
@@ -566,12 +590,12 @@ impl LocalFetchResult {
             path,
             error_code: Some(code.into()),
             error: Some(message),
-            ..Self::blank("error")
+            ..Self::blank(ReadStatus::Error)
         }
     }
 
     /// Ends the row at a limit no continuation lifts, as
-    /// [`crate::tools::paging::terminal_limit`] marks a JSON row: partial for
+    /// [`crate::response::paging::terminal_limit`] marks a JSON row: partial for
     /// `reason`, and `terminalLimit`.
     pub(super) fn terminal_limit(&mut self, reason: PartialReason) {
         self.is_partial = Some(true);
@@ -774,12 +798,14 @@ impl Serialize for LocalFetchResult {
 pub struct SourceFacts {
     /// The file's modification time (ISO 8601), when the caller has one.
     pub modified: Option<String>,
-    /// The configured response window: a whole-file view larger than it
-    /// returns its first page and `next.continueWindow`.
+    /// The row's share of the response window (`response::read_share`):
+    /// the read fills it and its row fits it; a whole-file view larger than
+    /// it returns its first page and `next.continueWindow`.
     pub window: Option<usize>,
-    /// Bytes the first page of a selected view (matches, ranges) holds;
-    /// `None` keeps the line page budget. Continuations use that budget.
-    pub first_page_bytes: Option<usize>,
+    /// Chars the caller's row adds around this reader's row (a GitHub
+    /// read's repository identity and its calls' owner, repo and ref): the
+    /// page fits `window` less them.
+    pub beside: usize,
     /// The bytes begin inside the file, past its first line (a streamed
     /// window): a U+FEFF leading them is text, not the file's byte-order
     /// mark.
@@ -804,7 +830,9 @@ impl ByteOrigin {
     pub(super) fn within(self, q: &LocalFetchQuery) -> LocalFetchQuery {
         let mut window = q.clone();
         if window.unit == Some(WindowUnit::Bytes) {
-            let offset = q.offset().unwrap_or(0).saturating_sub(self.base);
+            let offset = local_fetch_query::offset(q)
+                .unwrap_or(0)
+                .saturating_sub(self.base);
             window.offset = Some(wire_count(offset));
         }
         window
@@ -857,7 +885,7 @@ pub struct PathFailure {
     /// of its nearest existing admitted parent, where a mistyped name's
     /// siblings show.
     ///
-    /// [`missing_path_lead`]: crate::tools::result::missing_path_lead
+    /// [`missing_path_lead`]: crate::response::result::missing_path_lead
     pub view_tree: Option<serde_json::Value>,
     /// The path a missing file's name was likely mistyped for, written as
     /// the request wrote its directory: a readable file in the same
@@ -883,15 +911,6 @@ pub trait PathAccess {
 pub struct RegexSpans {
     pub spans: Vec<(usize, usize)>,
     pub truncated: bool,
-}
-
-pub trait RegexMatch {
-    fn matching_ranges(
-        &self,
-        pattern: &str,
-        case_sensitive: bool,
-        input: &str,
-    ) -> Result<RegexSpans, ExtractionError>;
 }
 
 /// Why a view selection failed; it picks the row's `errorCode`.
@@ -942,33 +961,6 @@ impl ExtractionError {
             }
             ExtractionErrorKind::InvalidInput => self.detail.clone(),
         }
-    }
-}
-
-/// `regex:"rust"`: the Rust regex engine `localSearch` runs, so a pattern has
-/// one verdict and one reason in both tools, whatever the source's size.
-#[derive(Clone, Copy, Default)]
-pub struct LocalFetchRegex;
-
-impl RegexMatch for LocalFetchRegex {
-    fn matching_ranges(
-        &self,
-        pattern: &str,
-        case_sensitive: bool,
-        input: &str,
-    ) -> Result<RegexSpans, ExtractionError> {
-        use octocode_engine::search::rust_ranges::RustRangesError;
-        use octocode_engine::search::rust_ranges::rust_find_ranges;
-        let limit = super::extraction::MAX_REGEX_MATCHES;
-        // One probe past the limit tells a capped prefix from the whole set.
-        let mut spans = rust_find_ranges(pattern, !case_sensitive, input, limit + 1).map_err(
-            |RustRangesError::InvalidPattern(reason)| {
-                ExtractionError::new(ExtractionErrorKind::InvalidPattern, reason)
-            },
-        )?;
-        let truncated = spans.len() > limit;
-        spans.truncate(limit);
-        Ok(RegexSpans { spans, truncated })
     }
 }
 
@@ -1029,7 +1021,10 @@ impl PathAccess for crate::policy::path::PathPolicy {
                         .flatten(),
                     view_tree: missing
                         .then(|| {
-                            crate::tools::result::missing_path_lead(self, &path.to_string_lossy())
+                            crate::response::result::missing_path_lead(
+                                self,
+                                &path.to_string_lossy(),
+                            )
                         })
                         .flatten()
                         .and_then(|mut next| next.get_mut("viewTree").map(serde_json::Value::take)),
@@ -1102,28 +1097,26 @@ fn in_sparse_checkout(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-impl LocalFetchQuery {
-    /// Minimal valid wire query; tests override the fields they exercise.
-    pub(crate) fn test_default() -> Self {
-        serde_json::from_value(
-            serde_json::json!({"path": "_", "mainGoal": "test", "reasoning": "test"}),
-        )
-        .expect("minimal localFetch query")
-    }
+/// Minimal valid wire query; tests override the fields they exercise.
+pub(crate) fn test_local_fetch_query() -> LocalFetchQuery {
+    serde_json::from_value(
+        serde_json::json!({"path": "_", "mainGoal": "test", "reasoning": "test"}),
+    )
+    .expect("minimal localFetch query")
 }
 
 #[cfg(test)]
 mod line_read_tests {
-    use super::{LineRange, LocalFetchQuery, line_read};
-    use crate::tools::id::query_limits::local_fetch::RANGES_MAX_ITEMS;
+    use super::{LineRange, LocalFetchQuery, line_read, local_fetch_query, test_local_fetch_query};
+    use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 
     /// Every lead `line_read` builds (continueBlock,
     /// readBoundedLines) spells lines with the published `ranges`, never
     /// startLine/endLine, and clears a span the caller sent.
     #[test]
     fn line_reads_spell_published_ranges() {
-        let mut q = LocalFetchQuery::test_default();
-        q.set_line_span(1, 9);
+        let mut q = test_local_fetch_query();
+        local_fetch_query::set_line_span(&mut q, 1, 9);
         let wire = |query: LocalFetchQuery| serde_json::to_value(query).expect("query");
         let one = wire(line_read(&q, &[LineRange { start: 57, end: 69 }]).expect("read"));
         assert_eq!(one["ranges"], serde_json::json!(["57-69"]), "{one}");
@@ -1145,12 +1138,63 @@ mod line_read_tests {
     #[test]
     fn read_range_cap_comes_from_the_contract() {
         let declared = crate::contracts::query_schema_number(
-            crate::tools::id::ToolId::LocalFetch,
+            crate::id::ToolId::LocalFetch,
             None,
             "ranges",
             "maxItems",
         )
         .expect("localFetch ranges declares maxItems");
         assert_eq!(RANGES_MAX_ITEMS as u64, declared);
+    }
+}
+
+#[cfg(test)]
+mod next_calls_tests {
+    use super::{FetchCall, NextCalls, ReadSource};
+
+    /// The read list names each read as it serializes, covers every read
+    /// field, and decides `leaves_more` and the source binding alone.
+    #[test]
+    fn the_read_list_is_every_read_by_its_wire_name() {
+        let call = FetchCall {
+            query: serde_json::from_value(serde_json::json!({"path": "a.txt"})).expect("query"),
+        };
+        let mut next = NextCalls::default();
+        for (_, _, read) in next.reads_slots() {
+            *read = Some(call.clone());
+        }
+        let wire = serde_json::to_value(&next).expect("next");
+        let names = next.reads().map(|(name, _, _)| name);
+        assert_eq!(
+            wire.as_object()
+                .expect("object")
+                .keys()
+                .collect::<Vec<_>>()
+                .len(),
+            names.len(),
+            "{wire}"
+        );
+        for name in names {
+            assert!(
+                wire.get(name).is_some(),
+                "{name} serializes as listed: {wire}"
+            );
+        }
+        assert!(next.leaves_more());
+        let lead = NextCalls {
+            read: Some(call.clone()),
+            restart: Some(call.clone()),
+            ..NextCalls::default()
+        };
+        assert!(
+            !lead.leaves_more(),
+            "a lead or a restart reads no more of the result"
+        );
+        let mut page = NextCalls {
+            continue_window: Some(call.clone()),
+            restart: Some(call),
+            ..NextCalls::default()
+        };
+        assert_eq!(page.reads_of_mut(ReadSource::Page).count(), 1);
     }
 }

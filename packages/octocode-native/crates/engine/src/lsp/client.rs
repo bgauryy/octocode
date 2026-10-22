@@ -1,12 +1,13 @@
 use crate::error::{Error, Result};
-use crate::graph::SourceStamp;
 use crate::lsp::project_config::ProjectConfigWatch;
 use crate::lsp::spawn_limits;
 use crate::lsp::transport::{
-    ClientRequestContext, CpuClock, JsonRpcConnection, ProgressTracker, Readiness, WaitBudget,
+    ClientRequestContext, CpuClock, JsonRpcConnection, ProgressTracker, Readiness,
+    STARTUP_SETTLE_MS, WaitBudget,
 };
 use crate::lsp::types::{LspCodeSnippet, LspExactPosition, LspLanguageServerConfig, LspRange};
 use crate::lsp::uri::{path_to_uri, uri_to_path};
+use crate::stamp::SourceStamp;
 use crate::text::LineIndex;
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
@@ -32,6 +33,17 @@ pub const OPEN_SETTLE_MS: u32 = 400;
 pub const OPEN_READY_TIMEOUT_MS: u32 = 15_000;
 /// Largest post-open wait any caller may ask for.
 const MAX_OPEN_READY_TIMEOUT_MS: u32 = 60_000;
+
+/// Options a client takes once, at construction.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LspClientOptions {
+    /// Longest any settle may last: the wait for a server that reports no
+    /// progress to start (startup and first open) and a settled request's
+    /// delay. Progress a server does report is still drained. `None` keeps
+    /// each settle's own length; a harness whose fake servers answer at once
+    /// sets zero.
+    pub settle_cap: Option<Duration>,
+}
 pub(super) const CONTENT_MODIFIED_RETRIES: u8 = 3;
 pub(super) const CONTENT_MODIFIED_RETRY_DELAY_MS: u64 = 500;
 const STDERR_RING_CAPACITY: usize = 100;
@@ -234,7 +246,7 @@ impl DiskCheck {
         if synced.stamp.is_some() && SourceStamp::of(&meta) == synced.stamp {
             return None;
         }
-        let stamp = SourceStamp::settled(&meta, std::time::SystemTime::now());
+        let stamp = SourceStamp::settled(&meta, crate::stamp::settle_clock());
         let Some(content) =
             crate::text::read_source(Path::new(&synced.path), super::MAX_LSP_SOURCE_BYTES)
                 .ok()
@@ -493,6 +505,7 @@ struct NativeLspClientInner {
     /// Query responses (generation + `method` + params) from this server,
     /// reused only inside a [`RESPONSE_SCOPE`] that allows it.
     responses: moka::sync::Cache<String, CachedResponse>,
+    options: LspClientOptions,
 }
 
 /// One cached response and its JSON size, measured once at insert so the
@@ -543,6 +556,10 @@ fn response_cache() -> moka::sync::Cache<String, CachedResponse> {
 
 impl NativeLspClient {
     pub fn new(config: LspLanguageServerConfig) -> Self {
+        Self::with_options(config, LspClientOptions::default())
+    }
+
+    pub fn with_options(config: LspLanguageServerConfig, options: LspClientOptions) -> Self {
         // Every launch path (discovery, runtime, napi) gets the per-server
         // safe defaults; user-supplied options still win key by key.
         let mut config = config;
@@ -570,6 +587,7 @@ impl NativeLspClient {
                 memory_watchdog: StdMutex::new(None),
                 resident_bytes: Arc::new(AtomicU64::new(0)),
                 responses: response_cache(),
+                options,
             }),
         }
     }
@@ -847,7 +865,7 @@ impl NativeLspClient {
         let readiness = self
             .inner
             .progress
-            .wait_until_idle(timeout_ms)
+            .wait_until_idle(timeout_ms, self.settle_ms(STARTUP_SETTLE_MS))
             .await
             .as_str()
             .to_owned();
@@ -902,6 +920,20 @@ impl NativeLspClient {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    /// `settle` bounded by [`LspClientOptions::settle_cap`].
+    fn settle(&self, settle: Duration) -> Duration {
+        self.inner
+            .options
+            .settle_cap
+            .map_or(settle, |cap| settle.min(cap))
+    }
+
+    /// [`Self::settle`] in milliseconds.
+    fn settle_ms(&self, settle_ms: u64) -> u64 {
+        u64::try_from(self.settle(Duration::from_millis(settle_ms)).as_millis())
+            .unwrap_or(settle_ms)
     }
 
     fn readiness_is(&self, readiness: Readiness) -> bool {
@@ -975,7 +1007,7 @@ impl NativeLspClient {
         let settle_ms = if self.readiness_is(Readiness::ProgressIdle) {
             0
         } else {
-            u64::from(settle_ms.unwrap_or(OPEN_SETTLE_MS))
+            self.settle_ms(u64::from(settle_ms.unwrap_or(OPEN_SETTLE_MS)))
         };
         let timeout_ms = u64::from(
             timeout_ms
@@ -1447,6 +1479,7 @@ impl NativeLspClient {
         settle: Option<Duration>,
     ) -> Result<Arc<Value>> {
         self.sync_open_documents().await?;
+        let settle = settle.map(|settle| self.settle(settle));
         let (reuse, generation) = RESPONSE_SCOPE
             .try_with(|scope| {
                 let scope = scope.borrow();

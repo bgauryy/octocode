@@ -113,14 +113,14 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
     expect(schemaHelp.stdout).toContain('Usage: octocode schema');
   });
 
-  it('reports errors as the JSON envelope on a pipe', () => {
-    const typo = runLauncher(['lokalSearch', '{}']);
+  it('reports errors as the JSON envelope with --json', () => {
+    const typo = runLauncher(['lokalSearch', '{}', '--json']);
     expect(typo.status).toBe(2);
     // The envelope is the error itself: no kind/version/tool frame.
     const envelope = JSON.parse(typo.stdout);
     expect(envelope.error).toContain('lokalSearch');
     expect(envelope).not.toHaveProperty('kind');
-    const badJson = runLauncher(['localSearch', '{"queries":[']);
+    const badJson = runLauncher(['localSearch', '{"queries":[', '--json']);
     expect(badJson.status).toBe(2);
     expect(JSON.parse(badJson.stdout).error).toContain('Invalid JSON query');
   });
@@ -149,7 +149,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
   it('reads the query from stdin with --input -', () => {
     const result = spawnSync(
       process.execPath,
-      [launcher, 'localFetch', '--input', '-'],
+      [launcher, 'localFetch', '--input', '-', '--json'],
       {
         encoding: 'utf8',
         env: { ...process.env, NO_COLOR: '1' },
@@ -181,7 +181,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
         },
       ],
     });
-    const result = runLauncher(['localSearch', query]);
+    const result = runLauncher(['localSearch', query, '--json']);
     expect(result.status).toBe(0);
     const payload = JSON.parse(result.stdout) as {
       results: Array<{ index: number }>;

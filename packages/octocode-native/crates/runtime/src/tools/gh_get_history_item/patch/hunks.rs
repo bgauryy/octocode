@@ -2,6 +2,7 @@
 //! the numbered diff of one changed file.
 use super::super::HistoryItemRequest;
 use super::super::text::needle;
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use std::collections::HashMap;
 
 /// File text at the pull request's head (`headSha`): a `matchString` view
@@ -38,7 +39,7 @@ pub(super) struct PatchView {
 
 /// Diff lines kept around each `matchString` hit (`contextLines`).
 pub(in crate::tools::gh_get_history_item) fn match_context(query: &HistoryItemRequest) -> usize {
-    query.match_context().unwrap_or(MATCH_CONTEXT_LINES)
+    gh_get_history_item_query::match_context(query).unwrap_or(MATCH_CONTEXT_LINES)
 }
 
 /// Whether a `matchString` view of `patch` needs file text beyond its hunks
@@ -95,6 +96,22 @@ fn line_starts(text: &str, lines: &[usize]) -> Vec<usize> {
     starts
 }
 
+/// The `(start, count)` of a hunk header's `mark` side (`-` or `+`): the
+/// one hunk-header parser every patch view numbers its lines by.
+pub(in crate::tools::gh_get_history_item) fn hunk_side(
+    header: &str,
+    mark: char,
+) -> Option<(usize, usize)> {
+    let side = header.split(' ').find_map(|part| part.strip_prefix(mark))?;
+    let mut numbers = side.split(',').map(str::parse::<usize>);
+    let start = numbers.next()?.ok()?;
+    let count = match numbers.next() {
+        Some(count) => count.ok()?,
+        None => 1,
+    };
+    Some((start, count))
+}
+
 /// Number a unified diff on the side of each line's sign, `cat -n`-like:
 /// each kept or added line opens with its new-file line number and a tab
 /// (`86\t ctx`, `87\t+added`), each removed line with its old-file line
@@ -109,20 +126,13 @@ pub(super) fn number_patch(patch: &str) -> String {
     if !patch.starts_with("@@") {
         return patch.to_owned();
     }
-    let sep = crate::tools::numbered::SEPARATOR;
+    let sep = crate::response::numbered::SEPARATOR;
     let mut out = String::with_capacity(patch.len() + patch.len() / 8);
     let (mut old, mut new) = (0usize, 0usize);
     for line in patch.split_inclusive('\n') {
         if line.starts_with("@@") {
-            let start = |sign: char| {
-                line.split(' ')
-                    .find_map(|side| side.strip_prefix(sign))
-                    .and_then(|side| side.split(',').next())
-                    .and_then(|start| start.parse().ok())
-                    .unwrap_or(0)
-            };
-            old = start('-');
-            new = start('+');
+            old = hunk_side(line, '-').map_or(0, |(start, _)| start);
+            new = hunk_side(line, '+').map_or(0, |(start, _)| start);
             out.push_str(line);
             continue;
         }
@@ -151,7 +161,7 @@ pub(super) fn number_patch(patch: &str) -> String {
 /// Diff lines kept around each `matchString` hit when `contextLines` is
 /// omitted (contract `limits.defaultReadContextLines`);
 /// `next.readFullPatches` re-reads the whole patches.
-pub(super) const MATCH_CONTEXT_LINES: usize = crate::tools::id::DEFAULT_READ_CONTEXT_LINES;
+pub(super) const MATCH_CONTEXT_LINES: usize = crate::id::DEFAULT_READ_CONTEXT_LINES;
 
 /// Context lines GitHub puts around each change of a diff.
 pub(in crate::tools::gh_get_history_item) const DIFF_CONTEXT_LINES: usize = 3;
@@ -275,14 +285,8 @@ pub(super) fn parse_hunks(patch: &str) -> Vec<Hunk<'_>> {
     let (mut old, mut new) = (0usize, 0usize);
     for text in patch.split_inclusive('\n') {
         if let Some(rest) = text.strip_prefix("@@ -") {
-            let mut sides = rest.split(' ');
-            let start = |side: Option<&str>| {
-                side.and_then(|s| s.split(',').next())
-                    .and_then(|n| n.trim_start_matches(['-', '+']).parse().ok())
-                    .unwrap_or(0)
-            };
-            old = start(sides.next());
-            new = start(sides.next());
+            old = hunk_side(text, '-').map_or(0, |(start, _)| start);
+            new = hunk_side(text, '+').map_or(0, |(start, _)| start);
             let heading = rest
                 .split_once(" @@")
                 .map_or("", |(_, heading)| heading)
@@ -429,7 +433,10 @@ pub(super) fn matching_hunks(
     let mut hit_lines = Vec::new();
     let mut line_index = 0usize;
     for (lines, (cut_above, cut_below)) in segments.iter().zip(cut_edges) {
-        let is_hit = |line: &DiffLine<'_>| line.diff && line.text.to_lowercase().contains(needle);
+        let is_hit = |line: &DiffLine<'_>| {
+            line.diff
+                && crate::tools::gh_get_history_item::text::contains_folded(&line.text, needle)
+        };
         let hits = lines
             .iter()
             .enumerate()
@@ -536,7 +543,7 @@ pub(super) fn clipped_ranges(mut windows: Vec<(usize, usize)>) -> Vec<String> {
             _ => merged.push((start, end)),
         }
     }
-    let max = crate::tools::id::query_limits::gh_get_file_content::RANGES_MAX_ITEMS;
+    let max = crate::contracts::query_limits::gh_get_file_content::RANGES_MAX_ITEMS;
     if merged.len() > max
         && let (Some(first), Some(last)) = (merged.first().copied(), merged.last().copied())
     {

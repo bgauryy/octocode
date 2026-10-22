@@ -6,7 +6,7 @@ Manual runtime checks for lexical local text and regex discovery.
 
 - [ ] The compact schema requires `path` and `matchString`; it has no `operation` field.
 - [ ] Lexical queries paginate with `pageSize` and `page` (and per-file matches with `matchPage`).
-- [ ] `resultView` is one of `paginated`, `files`, `filesWithout`, `countLines`, `countMatches`, and `matchOnly`; structural, file, tree, and symbol queries use `astSearch`; topology queries use `astTopology`.
+- [ ] `resultView` is one of `paginated`, `files`, `filesWithout`, `countLines`, `countMatches`, and `matchOnly`; structural, file, tree, and symbol queries use `astSearch`; topology queries use the CLI's `octocode graph query`.
 - [ ] Removed tool names and legacy aliases are rejected with a short canonical-field hint.
 
 ## Workflow

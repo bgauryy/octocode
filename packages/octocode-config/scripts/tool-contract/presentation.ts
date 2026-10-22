@@ -7,6 +7,7 @@
 // other accepted fields it hides (per operation, or the whole row's) with
 // the `--select` or `--view full` call that shows their schemas.
 import { buildCliInstructions } from '@octocodeai/octocode-core/mcp';
+import { cliExamples, cliSpec, schemaFieldNames } from './cli-flags.ts';
 import {
   CLASIFY_SOURCE_TOOL_NAMES,
   DIRECT_TOOL_DEFINITIONS,
@@ -48,7 +49,27 @@ export function toolHelpSection(
   availableTools?: readonly string[]
 ): string {
   const variants = getToolSchemaVariants(name);
-  const lines = ['Input: one query object, or {"queries":[…]} to batch.'];
+  const lines: string[] = [];
+  const flagExamples = cliExamples(name);
+  const jsonExamples = variants
+    .map(variant => variant.example)
+    .filter(
+      (candidate): candidate is Json =>
+        candidate !== undefined &&
+        (!availableTools ||
+          exampleUsesAvailableTools(candidate, availableTools))
+    );
+  lines.push('Examples:');
+  for (const example of flagExamples) lines.push(`  ${example}`);
+  // One JSON example beside the flags; a JSON-only tool shows every form's.
+  for (const example of flagExamples.length > 0 ? jsonExamples.slice(0, 1) : jsonExamples)
+    lines.push(`  octocode ${name} ${shellQuote(exampleJson(example))}`);
+  lines.push(
+    '',
+    flagExamples.length > 0
+      ? 'JSON form: one query object, or {"queries":[…]} to batch; flags build the same query.'
+      : 'Input: one JSON query object, or {"queries":[…]} to batch.'
+  );
   if (variants.length === 1) {
     lines.push(
       '',
@@ -56,12 +77,10 @@ export function toolHelpSection(
     );
   } else if (variants.length > 1) {
     lines.push('', 'Required fields, by operation:');
+    // Each row names every operation it takes, so none is left unlisted.
     const forms = variants.map(variant => ({
       ...variant,
-      label:
-        typeof variant.example?.operation === 'string'
-          ? variant.example.operation
-          : variant.name,
+      label: variant.operations.join(', ') || variant.name,
     }));
     const width = Math.max(...forms.map(form => form.label.length));
     for (const form of forms)
@@ -69,20 +88,8 @@ export function toolHelpSection(
         `  ${form.label.padEnd(width)}  ${form.requires.join(', ')}`.trimEnd()
       );
   }
-  const example = variants
-    .map(variant => variant.example)
-    .find(
-      candidate =>
-        candidate !== undefined &&
-        (!availableTools ||
-          exampleUsesAvailableTools(candidate, availableTools))
-    );
-  if (example)
-    lines.push(
-      '',
-      'Example:',
-      `  octocode ${name} ${shellQuote(exampleJson(example))}`
-    );
+  if (variants.length > 1)
+    lines.push('', `Each form's example: octocode schema ${name} --view variants`);
   lines.push('', `Fields: octocode schema ${name} (complete: --view full)`);
   return lines.join('\n');
 }
@@ -301,6 +308,11 @@ export function buildCliPresentation(): Json {
         variantNames: Object.keys(operationSchemas(definition.inputSchema)),
         fields: compactFields(definition),
         help: toolHelpSection(name, name === 'clasify' ? [] : undefined),
+        cli: cliSpec(
+          name,
+          querySchema,
+          schemaFieldNames(publishedInputSchema(definition.inputSchema, 'row') as Json)
+        ),
         ...rendered(definition, querySchema),
         // clasify's views for each exposed set of source readers, keyed by
         // the exposed readers in CLASIFY_SOURCE_TOOL_NAMES order.
@@ -323,6 +335,12 @@ export function buildCliPresentation(): Json {
         ...(JSON.stringify(querySchema) !== JSON.stringify(rankedSchema) && {
           selection: {
             fields: compactFields(rankedDefinition),
+            // Flags for the selection fields (clasifyContext) the row adds.
+            cli: cliSpec(
+              name,
+              rankedSchema,
+              schemaFieldNames(publishedInputSchema(rankedDefinition.inputSchema, 'row') as Json)
+            ),
             ...rendered(rankedDefinition, rankedSchema),
           },
         }),

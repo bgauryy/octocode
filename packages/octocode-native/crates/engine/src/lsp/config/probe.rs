@@ -2,7 +2,7 @@ use super::invocation::{
     current_node_command, is_node_executable, is_rust_analyzer_command,
     resolve_known_server_command, typescript_cli_from_command,
 };
-use crate::lsp::commands::{is_executable_path, is_rejected_shell};
+use crate::lsp::commands::{has_path_separator, is_executable_path, is_rejected_shell};
 use crate::lsp::types::LspLanguageServerConfig;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -104,7 +104,7 @@ pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
     if is_rejected_shell(&command) {
         return false;
     }
-    let program = if Path::new(&command).is_absolute() || command.contains(['/', '\\']) {
+    let program = if Path::new(&command).is_absolute() || has_path_separator(&command) {
         Some(PathBuf::from(&command))
     } else {
         which::which(&command).ok()

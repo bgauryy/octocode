@@ -1,20 +1,12 @@
-import { createRequire } from 'node:module';
+// The npm CLI only starts the native binary. The platform resolver and the
+// signal-forwarding launcher are the native package's own scripts, bundled
+// here at build time; the binary comes from the one per-platform package npm
+// installs (`optionalDependencies`, selected by its `os`/`cpu`).
 import { existsSync } from 'node:fs';
 import { devOverridesAllowed } from '@octocodeai/config';
+import * as resolver from '../../../octocode-native/bin/resolve-binary.cjs';
+import * as launcher from '../../../octocode-native/bin/launch-native.cjs';
 
-interface NativeBinaryResolver {
-  resolveNativeBinaryPath(): string;
-}
-
-interface NativeLauncher {
-  runForwardingSignals(
-    command: string,
-    args: readonly string[],
-    options?: { env?: NodeJS.ProcessEnv }
-  ): Promise<number>;
-}
-
-const require = createRequire(import.meta.url);
 declare const __OCTOCODE_BUNDLED__: boolean | undefined;
 const devOverrideOptions = {
   bundled:
@@ -40,9 +32,7 @@ export function resolveNativeBin(
       : { error: `OCTOCODE_NATIVE_BIN points at a missing path: ${explicit}` };
   }
   try {
-    const { resolveNativeBinaryPath } =
-      require('@octocodeai/octocode-native/bin/resolve-binary.cjs') as NativeBinaryResolver;
-    return { bin: resolveNativeBinaryPath() };
+    return { bin: resolver.resolveNativeBinaryPath() };
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
@@ -54,9 +44,7 @@ export async function delegateToNative(
   env: NodeJS.ProcessEnv = process.env
 ): Promise<number> {
   try {
-    const { runForwardingSignals } =
-      require('@octocodeai/octocode-native/bin/launch-native.cjs') as NativeLauncher;
-    return await runForwardingSignals(bin, argv, { env });
+    return await launcher.runForwardingSignals(bin, argv, { env });
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     throw new NativeLaunchError(

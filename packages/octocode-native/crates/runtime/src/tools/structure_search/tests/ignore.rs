@@ -330,7 +330,7 @@ fn path_sorted_listing_stops_walking_at_the_limit() {
     assert_eq!(cut["atLeast"], 4, "{cut}");
     assert!(cut.get("terminalLimit").is_none(), "{cut}");
     assert_eq!(
-        cut["next"]["expandScan"]["query"]["queries"][0]["maxEntries"], 6,
+        cut["next"]["continueWalk"]["query"]["queries"][0]["maxEntries"], 6,
         "{cut}"
     );
 }

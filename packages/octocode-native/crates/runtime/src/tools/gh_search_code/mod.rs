@@ -10,27 +10,27 @@ mod ranking;
 #[cfg(test)]
 mod selection_tests;
 
+use crate::id::ToolId;
+use crate::num::usize_of;
+use crate::response::paging::{clamp_page_size, mark_partial, push_warnings};
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, ToolData, query_row};
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{
-    GhFailure, Rescope, SearchCompleteness, SearchWindow, add_next, apply_partial, field_names,
-    pick_rows, push_warning_front, rescope_on_rename, search_failure, search_may_be_renamed,
-    with_ref_recovery, with_search_repair,
+    GhFailure, SearchCompleteness, SearchWindow, add_next, apply_partial, field_names, pick_rows,
+    push_warning_front, rerun_renamed, search_failure, search_may_be_renamed, with_ref_recovery,
+    with_search_repair,
 };
-use crate::tools::id::ToolId;
-use crate::tools::num::usize_of;
-use crate::tools::paging::{clamp_page_size, mark_partial, push_warnings};
-use crate::tools::result::{Continuation, ToolData, query_row};
 use octocode_github::{
-    CodeSearchRequest, ConditionalCache, GitHubProvider, ProviderError, ProviderErrorKind,
-    RequestContext,
+    CodeSearchRequest, GitHubProvider, ProviderError, ProviderErrorKind, RequestContext,
 };
 use serde_json::json;
 
-pub use crate::contracts::tool_types::{GhSearchCodeQuery, GhSearchCodeQueryMatchIn};
+pub use octocode_contract_types::{GhSearchCodeQuery, GhSearchCodeQueryMatchIn};
 
 /// Run one ghSearchCode row.
-pub async fn run<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub async fn run(
+    provider: &GitHubProvider,
     query: &GhSearchCodeQuery,
     request: Result<&RequestContext, ProviderError>,
     security: &(impl ContentScan + Sync),
@@ -128,7 +128,7 @@ fn ref_without_repo(query: &GhSearchCodeQuery) -> Option<GhFailure> {
     );
     let message = error.message.to_string();
     let repair = Continuation::new(ToolId::GhSearchCode, query_row(query, &["ref"]))
-        .confidence("high")
+        .confidence(Confidence::High)
         .build();
     Some(GhFailure {
         next: Some(Box::new(json!({ "repair": repair }))),
@@ -154,7 +154,7 @@ fn filename_glob(query: &GhSearchCodeQuery) -> Option<GhFailure> {
         let mut row = query_row(query, &[]);
         row["filename"] = json!(text);
         Continuation::new(ToolId::GhSearchCode, row)
-            .confidence("high")
+            .confidence(Confidence::High)
             .build()
     });
     let rule = format!(
@@ -190,8 +190,8 @@ fn page_size(query: &GhSearchCodeQuery) -> usize {
     clamp_page_size(ToolId::GhSearchCode, None, usize_of(query.page_size))
 }
 
-pub(crate) async fn execute<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn execute(
+    provider: &GitHubProvider,
     query: &GhSearchCodeQuery,
     context: &RequestContext,
     security: &(impl ContentScan + Sync),
@@ -211,26 +211,13 @@ pub(crate) async fn execute<C: ConditionalCache>(
     if let Some(repo) = query.repo.as_deref()
         && search_may_be_renamed(&data, |page| page.fetched == 0 && page.total == 0)
     {
-        match rescope_on_rename(provider, &query.owner, repo, context).await? {
-            Rescope::Renamed {
-                owner,
-                repo,
-                warning,
-            } => {
-                let decode = |error: &dyn std::fmt::Display| {
-                    ProviderError::new(ProviderErrorKind::Decode, error.to_string())
-                };
-                let mut renamed = query.clone();
-                renamed.owner = owner.parse().map_err(|error| decode(&error))?;
-                renamed.repo = Some(repo.parse().map_err(|error| decode(&error))?);
-                let mut output = Box::pin(execute(provider, &renamed, context, security)).await?;
-                push_warning_front(&mut output.data, warning);
-                return Ok(output);
-            }
-            // The repository check already failed: the empty page's own
-            // check of it would read the same 404 again.
-            Rescope::Missing(error) => return Err(error),
-            Rescope::Stands => {}
+        let rerun = |renamed: GhSearchCodeQuery| async move {
+            Box::pin(execute(provider, &renamed, context, security)).await
+        };
+        if let Some(output) =
+            rerun_renamed(provider, query, &query.owner, repo, context, rerun).await?
+        {
+            return Ok(output);
         }
     }
     let data = data?;
@@ -427,8 +414,8 @@ fn merged_pages(pages: &[usize]) -> usize {
     1 + later.div_ceil(pages.len().max(1))
 }
 
-async fn search_page<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn search_page(
+    provider: &GitHubProvider,
     query: &GhSearchCodeQuery,
     current: usize,
     per: usize,
@@ -498,7 +485,12 @@ async fn search_page<C: ConditionalCache>(
         }
         for (search, first) in searches.iter().zip(&mut firsts) {
             if first.is_none() {
-                *first = Some(provider.transport.search_code(search, context).await?);
+                *first = Some(
+                    provider
+                        .transport
+                        .search_code_uncached(search, context)
+                        .await?,
+                );
             }
         }
     }
@@ -564,7 +556,12 @@ async fn search_page<C: ConditionalCache>(
     for (request, cached) in requests.iter().zip(cached) {
         let data = match cached {
             Some(data) => data,
-            None => provider.transport.search_code(request, context).await?,
+            None => {
+                provider
+                    .transport
+                    .search_code_uncached(request, context)
+                    .await?
+            }
         };
         unit_counts.push(data.total_count);
         page.incomplete |= data.incomplete_results;
@@ -632,8 +629,8 @@ impl SearchPage {
 }
 
 /// Why a search is empty, with the route that verifies it.
-async fn empty_page<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn empty_page(
+    provider: &GitHubProvider,
     query: &GhSearchCodeQuery,
     context: &RequestContext,
     output: &mut ToolData,
@@ -655,7 +652,7 @@ async fn empty_page<C: ConditionalCache>(
         content["matchIn"] = json!("file");
         content["page"] = json!(1);
         value["next"]["findCode"] = Continuation::new(ToolId::GhSearchCode, content)
-            .confidence("high")
+            .confidence(Confidence::High)
             .build();
     }
     let hints = code_output::empty_hints(query);
@@ -752,7 +749,7 @@ fn finish_code_selection(value: &mut serde_json::Value, query: &serde_json::Valu
 
 /// This tool's output facts for the shared response stages.
 pub(crate) struct Output;
-impl crate::tools::output::ToolOutput for Output {
+impl crate::response::output::ToolOutput for Output {
     fn selects_provider_page(&self) -> bool {
         true
     }
@@ -762,7 +759,7 @@ impl crate::tools::output::ToolOutput for Output {
     }
 
     fn fallback_hint(&self, query: &serde_json::Value) -> &'static str {
-        use crate::tools::output::has_value;
+        use crate::response::output::has_value;
         if query["matchIn"] == "path" {
             "Try a shorter name fragment, or ghStructure include to find paths by name."
         } else if ["extensions", "filename", "path"]

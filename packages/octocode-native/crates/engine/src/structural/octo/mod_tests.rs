@@ -172,10 +172,7 @@ fn cuda_statement_context_leaves_declarations_and_sequences_alone() {
 }
 
 fn lang(ext: &str) -> AgLanguage {
-    AgLanguage::new(
-        ext,
-        languages::find_entry(ext).expect("test language should exist"),
-    )
+    AgLanguage::new(languages::find_entry(ext).expect("test language should exist"))
 }
 
 fn assert_fragment_context(ext: &str, source: &str, bare: &str, expected: &str) {
@@ -1331,4 +1328,25 @@ fn owned_core_stop_rule_depth_and_interruption_remain_explicit() {
         )
         .expect_err("an expired relation cannot satisfy negation");
     assert_eq!(error.code, "structural.match.deadline");
+}
+
+/// A pattern whose root does not parse is rejected, naming the token the
+/// parser could not place with its `$` sigil as written.
+#[test]
+fn unparsed_pattern_names_the_unplaced_token() {
+    for (ext, pattern) in [
+        ("rs", "fn $NAME() $$$BODY"),
+        ("py", "def $F($X) $$$BODY"),
+        ("js", "function $F() $$$BODY"),
+    ] {
+        let query = StructuralQuery::new(Some(pattern), None).expect("query");
+        let error = compile_matcher(&lang(ext), &query)
+            .err()
+            .expect("a function without its body does not parse")
+            .to_string();
+        assert!(
+            error.contains("pattern parsed with syntax errors near `$$$BODY`"),
+            "{ext}: {error}"
+        );
+    }
 }

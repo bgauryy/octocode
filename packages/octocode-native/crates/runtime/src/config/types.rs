@@ -19,7 +19,7 @@ pub enum ConfigNormalize {
     Lower,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ConfigEnumStyle {
+pub(crate) enum ConfigEnumStyle {
     List,
     QuotedOr,
 }
@@ -41,8 +41,8 @@ pub struct ConfigFieldSpec {
     pub env: Option<ConfigEnvBinding>,
     pub default_json: &'static str,
     pub values: &'static [&'static str],
-    pub enum_style: ConfigEnumStyle,
-    pub item_path: bool,
+    pub(crate) enum_style: ConfigEnumStyle,
+    pub(crate) item_path: bool,
 }
 
 include!(concat!(env!("OUT_DIR"), "/config_contract.rs"));
@@ -57,7 +57,7 @@ impl ConfigFieldSpec {
     /// `path (ENV)`, or the bare path for a field no variable sets: how a
     /// message names the setting to change.
     #[must_use]
-    pub fn display_name(&self) -> String {
+    pub(crate) fn display_name(&self) -> String {
         match self.env_name() {
             Some(env) => format!("{} ({env})", self.path),
             None => self.path.to_owned(),
@@ -107,21 +107,21 @@ pub enum ConfigSource {
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Severity {
+pub(crate) enum Severity {
     Warning,
     Error,
 }
 /// Diagnostic code of a configuration key no setting reads.
-pub const UNKNOWN_CONFIG_CODE: &str = "unknown_or_future_config";
+pub(crate) const UNKNOWN_CONFIG_CODE: &str = "unknown_or_future_config";
 /// Diagnostic code of a setting or variable the contract removed.
-pub const REMOVED_SETTING_CODE: &str = "removed_setting";
+pub(crate) const REMOVED_SETTING_CODE: &str = "removed_setting";
 /// Diagnostic code of a tool-list entry no tool has.
-pub const UNKNOWN_TOOL_NAME_CODE: &str = "unknown_tool_name";
+pub(crate) const UNKNOWN_TOOL_NAME_CODE: &str = "unknown_tool_name";
 
 /// Why the contract removed `name`: a removed variable, or a removed setting
 /// path or a path inside a removed section (`output.pagination.x`).
 #[must_use]
-pub fn removed_reason(name: &str) -> Option<&'static str> {
+pub(crate) fn removed_reason(name: &str) -> Option<&'static str> {
     REMOVED_ENV_KEYS
         .iter()
         .chain(REMOVED_SETTINGS)
@@ -136,7 +136,7 @@ pub fn removed_reason(name: &str) -> Option<&'static str> {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConfigDiagnostic {
-    pub severity: Severity,
+    pub(crate) severity: Severity,
     pub code: String,
     pub field_path: Option<String>,
     pub message: String,
@@ -163,7 +163,7 @@ pub struct EnvApplyReport {
     pub skipped_existing: Vec<String>,
     /// Workspace `.env` keys dropped because they are protected and the home
     /// `.env` sets them (the home value stands).
-    pub skipped_workspace_protected: Vec<String>,
+    pub(crate) skipped_workspace_protected: Vec<String>,
     pub sources: BTreeMap<String, String>,
     pub keys: Vec<String>,
 }
@@ -248,7 +248,7 @@ pub fn is_secret_key(key: &str) -> bool {
 /// `Default`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum SettingSource {
+pub(crate) enum SettingSource {
     Process,
     WorkspaceEnv,
     HomeEnv,
@@ -267,7 +267,7 @@ pub struct ConfigOutput {
     pub env_origins: BTreeMap<String, EnvOrigin>,
     /// The layer each resolved setting came from, by contract path; absent
     /// means the generated default.
-    pub setting_sources: BTreeMap<&'static str, SettingSource>,
+    pub(crate) setting_sources: BTreeMap<&'static str, SettingSource>,
     pub dotenv: EnvApplyReport,
     pub diagnostics: Vec<ConfigDiagnostic>,
     pub token: Option<PrivateTokenSelection>,
@@ -278,7 +278,7 @@ pub struct ConfigOutput {
     pub project_config_path: Option<PathBuf>,
 }
 impl ConfigOutput {
-    pub fn effective_env(&self) -> impl Iterator<Item = (&str, &str)> {
+    pub(crate) fn effective_env(&self) -> impl Iterator<Item = (&str, &str)> {
         self.effective_env
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -288,7 +288,7 @@ impl ConfigOutput {
     }
     /// The layer the resolved setting at `path` came from.
     #[must_use]
-    pub fn setting_source(&self, path: &str) -> SettingSource {
+    pub(crate) fn setting_source(&self, path: &str) -> SettingSource {
         self.setting_sources
             .get(path)
             .copied()
@@ -308,7 +308,7 @@ impl ConfigOutput {
                 identity,
                 "token={}:{}",
                 token.source(),
-                crate::digest::sha256(token.token().as_bytes())
+                octocode_engine::digest::sha256(token.token().as_bytes())
             );
         }
         for name in DECLARED_ENV_KEYS {
@@ -316,7 +316,7 @@ impl ConfigOutput {
                 let _ = writeln!(identity, "{name}={value}");
             }
         }
-        crate::digest::sha256(identity.as_bytes())
+        octocode_engine::digest::sha256(identity.as_bytes())
     }
     /// The effective environment without the values a workspace `.env`
     /// supplied: a repository-controlled file never steers credential
@@ -370,8 +370,8 @@ pub struct ConfigInspectorData {
     pub loaded_keys: Vec<String>,
     pub skipped_protected: Vec<EnvSkip>,
     pub skipped_existing: Vec<EnvSkip>,
-    pub global_key_count: usize,
-    pub project_key_count: usize,
+    pub(crate) global_key_count: usize,
+    pub(crate) project_key_count: usize,
     pub storage_mode: String,
     pub config_keys: Vec<String>,
     pub source: ConfigSource,
@@ -384,7 +384,7 @@ pub struct ConfigInspectorData {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct LoadConfigResult {
+pub(crate) struct LoadConfigResult {
     pub success: bool,
     pub config: Option<Value>,
     pub error: Option<String>,

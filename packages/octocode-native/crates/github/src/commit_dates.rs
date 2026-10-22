@@ -239,7 +239,8 @@ impl GitHubTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CredentialSource, GitHubEndpoint, RequestBudget, ResolvedCredential, RetryPolicy};
+    use crate::{CredentialSource, GitHubEndpoint, ResolvedCredential, RetryPolicy};
+    use octocode_io::budget::RequestBudget;
     use std::time::Duration;
     use wiremock::{
         Mock, MockServer, Request, Respond, ResponseTemplate,
@@ -260,6 +261,7 @@ mod tests {
                 max_retry_after: Duration::from_secs(1),
                 max_rate_limit_wait: Duration::from_secs(1),
             },
+            crate::GitHubBudget::relaxed(),
         )
         .unwrap()
     }

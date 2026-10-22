@@ -1,6 +1,6 @@
 //! Build-output mapping and declaration suffixes shared by graph resolution and roots.
 use super::graph::{join, join_within_root, normalize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 /// Package-relative build-output roots mapped back to sources.
 pub(super) const BUILD_DIRS: &[&str] = &[
@@ -119,6 +119,53 @@ pub(super) fn probe_js(stem: &str, known: &BTreeSet<String>) -> Option<String> {
         .find(|candidate| known.contains(candidate))
 }
 
+/// Scanned JS/TS modules by the last segment of their module path (a
+/// directory's `index` also under the directory), so a bare specifier finds
+/// the files its path names without testing every file.
+pub(super) struct ModulesByName<'k>(HashMap<&'k str, Vec<&'k str>>);
+
+impl<'k> ModulesByName<'k> {
+    pub(super) fn new(files: impl IntoIterator<Item = &'k str>) -> Self {
+        let mut by_name = HashMap::<&str, Vec<&str>>::new();
+        for file in files {
+            let stem = strip_code_extension(file);
+            for module in std::iter::once(stem).chain(stem.strip_suffix("/index")) {
+                let entry = by_name.entry(last_segment(module)).or_default();
+                if entry.last() != Some(&file) {
+                    entry.push(file);
+                }
+            }
+        }
+        Self(by_name)
+    }
+
+    /// The files a bare, multi-segment specifier names by a trailing path:
+    /// `vs/base/common/x` names `src/vs/base/common/x.ts`, and `src/dir`
+    /// names `src/dir/index.ts`.
+    pub(super) fn named_by<'s>(&'s self, specifier: &'s str) -> impl Iterator<Item = &'k str> + 's {
+        let path = (!specifier.starts_with(['.', '/']) && specifier.contains('/'))
+            .then(|| strip_code_extension(specifier.trim_end_matches('/')));
+        path.and_then(|path| self.0.get(last_segment(path)).map(|files| (path, files)))
+            .into_iter()
+            .flat_map(|(path, files)| {
+                files.iter().copied().filter(move |file| {
+                    let stem = strip_code_extension(file);
+                    std::iter::once(stem)
+                        .chain(stem.strip_suffix("/index"))
+                        .any(|module| {
+                            module
+                                .strip_suffix(path)
+                                .is_some_and(|rest| rest.is_empty() || rest.ends_with('/'))
+                        })
+                })
+            })
+    }
+}
+
+fn last_segment(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
 /// Type declarations from non-JavaScript languages.
 pub(super) const TYPE_STUB_EXTENSIONS: &[&str] = &[".pyi"];
 /// Bundle classification stays narrower than source mapping: `lib` and
@@ -130,18 +177,33 @@ pub(super) const BUNDLED_OUTPUT_DIRS: &[&str] =
 mod tests {
     use super::*;
     #[test]
-    fn declaration_extensions_agree() {
+    fn declaration_extensions_name_declaration_files() {
         for extension in DECLARATION_EXTENSIONS {
             let path = format!("types/api{extension}");
             assert!(is_declaration(&path));
-            assert!(super::super::store::classify::is_declaration(&path));
-        }
-        for extension in TYPE_STUB_EXTENSIONS {
-            assert!(super::super::store::classify::is_declaration(&format!(
-                "api{extension}"
-            )));
         }
         assert!(!is_declaration("src/api.ts"));
+    }
+    #[test]
+    fn bare_specifiers_name_files_by_a_whole_trailing_path() {
+        let modules = ModulesByName::new([
+            "src/vs/base/common/x.ts",
+            "src/dir/index.ts",
+            "lib/types.d.ts",
+            "src/max.ts",
+        ]);
+        let named = |spec| modules.named_by(spec).collect::<Vec<_>>();
+        assert_eq!(named("vs/base/common/x"), ["src/vs/base/common/x.ts"]);
+        assert_eq!(named("vs/base/common/x.js"), ["src/vs/base/common/x.ts"]);
+        assert_eq!(named("src/dir"), ["src/dir/index.ts"]);
+        assert_eq!(named("src/dir/index"), ["src/dir/index.ts"]);
+        assert_eq!(named("lib/types"), ["lib/types.d.ts"]);
+        // A partial segment, a single segment or a relative path names none.
+        assert!(named("ase/common/x").is_empty());
+        assert!(named("rc/max").is_empty());
+        assert!(named("x").is_empty());
+        assert!(named("./common/x").is_empty());
+        assert!(named("lodash/fp").is_empty());
     }
     #[test]
     fn build_roots_resolve_only_matching_scanned_sources() {

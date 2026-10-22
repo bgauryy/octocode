@@ -130,7 +130,7 @@ const PASSES: usize = 3;
 pub(crate) struct Repair {
     pub input: Value,
     pub dropped: Vec<String>,
-    pub approximate: Vec<String>,
+    pub(crate) approximate: Vec<String>,
 }
 
 /// `input` with every issue fixed, or `None` when any issue has no fix or

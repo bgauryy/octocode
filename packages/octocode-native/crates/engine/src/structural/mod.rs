@@ -7,10 +7,8 @@
 //! [`crate::signatures::languages`] — no second grammar set, no link collision.
 
 mod files;
-mod kinds;
+pub(crate) mod kinds;
 mod language;
-mod macro_bodies;
-mod metavars;
 mod octo;
 mod query;
 mod syntax_errors;
@@ -20,7 +18,11 @@ mod types;
 #[cfg(test)]
 use files::search_files_detailed;
 pub use files::{Rebuilt, file_matches, search_files};
-pub use octo::{EXAMPLE_RULE, PatternDeclaration, RULE_INVALID, validate_rule_shape};
+pub use octo::{
+    COMPILE_FAILED, EXAMPLE_RULE, MATCH_DEADLINE, PARSE_INTERRUPTED, PatternDeclaration,
+    RULE_INVALID, validate_rule_shape,
+};
+pub use query::QUERY_INVALID;
 pub use syntax_errors::count_syntax_errors;
 pub use syntax_tree::{
     SyntaxTreeInspectOptions, SyntaxTreeInspectResult, SyntaxTreeNode, inspect_with_extension,
@@ -70,7 +72,7 @@ pub(crate) fn search(
     let entry = languages::find_entry(ext).ok_or_else(|| {
         format!("[structural.language.unsupported] structural search does not support .{ext} files")
     })?;
-    let lang = AgLanguage::new(ext, entry);
+    let lang = AgLanguage::new(entry);
     let run = compile_matcher(&lang, &query).map_err(|error| error.to_string())?;
     // The non-detailed API returns bare StructuralMatch; node_kind is only
     // surfaced by the detailed shape.
@@ -87,7 +89,7 @@ pub(crate) fn search(
 /// pattern, an unknown grammar, or a pattern that does not compile.
 pub fn pattern_declaration(pattern: &str, ext: &str) -> Option<PatternDeclaration> {
     let entry = languages::find_entry(ext)?;
-    octo::pattern_declaration(&AgLanguage::new(ext, entry), pattern)
+    octo::pattern_declaration(&AgLanguage::new(entry), pattern)
 }
 
 /// A single-content result that ends before any match: `status` with one
@@ -154,14 +156,7 @@ pub(crate) fn evaluate_source(
     let query = match StructuralQuery::new(pattern, rule) {
         Ok(query) => query,
         Err(message) => {
-            let diagnostic = StructuralDiagnostic::new(
-                "structural.query.invalid",
-                "error",
-                "match",
-                message.clone(),
-            )
-            .with_path(file_path)
-            .with_recovery("Provide exactly one non-empty structural pattern or YAML rule.");
+            let diagnostic = query::invalid_query_diagnostic(message.clone()).with_path(file_path);
             return no_matches(
                 file_path,
                 "parserFailed",
@@ -184,7 +179,7 @@ pub(crate) fn evaluate_source(
         );
     };
 
-    let lang = AgLanguage::new(ext, entry);
+    let lang = AgLanguage::new(entry);
     let run = match compile_matcher(&lang, &query) {
         Ok(run) => run,
         Err(error) => {

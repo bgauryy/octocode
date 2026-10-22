@@ -421,30 +421,6 @@ async fn disabled_local_family_is_unavailable() {
 }
 
 #[tokio::test]
-async fn beta_ast_tools_require_the_shared_opt_in() {
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[]);
-    assert!(!runtime.is_available("astTopology"));
-    let topology_error = call(
-        &runtime,
-        "astTopology",
-        json!({
-            "operation": "cycles",
-            "path": workspace.workspace
-        }),
-    )
-    .await
-    .expect_err("astTopology must be opt-in");
-    assert_eq!(topology_error.code, "missingConfiguration");
-    assert!(topology_error.message.contains("OCTOCODE_BETA"));
-    runtime.close().await;
-
-    let enabled = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
-    assert!(enabled.is_available("astTopology"));
-    enabled.close().await;
-}
-
-#[tokio::test]
 async fn host_options_environment_controls_embedded_tool_availability() {
     let workspace = Workspace::new();
     let runtime = ToolRuntime::from_host(HostOptions {
@@ -466,7 +442,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
     assert!(runtime.is_available("astSearch"));
     let catalog = runtime.catalog();
     {
-        let name = "astTopology";
+        let name = "ghCloneRepo";
         assert!(!runtime.is_available(name), "{name}");
         let entry = catalog["tools"]
             .as_array()
@@ -479,15 +455,15 @@ async fn host_options_environment_controls_embedded_tool_availability() {
     }
     let error = runtime
         .run_mcp(
-            "mcp-topology".into(),
-            "astTopology".into(),
-            json!({"queries":[{"operation":"cycles","path":workspace.workspace}]}),
+            "mcp-clone".into(),
+            "ghCloneRepo".into(),
+            json!({"queries":[{"owner":"octocat","repo":"Hello-World"}]}),
         )
         .await
         .expect("MCP answers a refused call as a tool error");
     assert_eq!(
         error["structuredContent"]["errorCode"], "toolUnavailable",
-        "astTopology is CLI-only: {error}"
+        "ghCloneRepo is CLI-only: {error}"
     );
     runtime.close().await;
 }
@@ -555,29 +531,6 @@ async fn runtime_catalog_lists_available_tools() {
         positions.windows(2).all(|pair| pair[0] < pair[1]),
         "{servers:?}"
     );
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn ast_topology_executes_only_after_beta_opt_in() {
-    let workspace = Workspace::new();
-    workspace.write(
-        "src/a.ts",
-        "import { b } from './b';\nexport const a = b;\n",
-    );
-    workspace.write("src/b.ts", "export const b = 1;\n");
-    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
-    let outcome = call(
-        &runtime,
-        "astTopology",
-        json!({
-            "operation": "cycles",
-            "path": workspace.workspace
-        }),
-    )
-    .await
-    .expect("astTopology");
-    assert_eq!(row_data(&outcome)["operation"], "cycles");
     runtime.close().await;
 }
 
@@ -759,7 +712,7 @@ async fn resolved_lsp_config_path_reaches_engine_discovery() {
 
 /// Resolve an AST row path against the envelope `base` the runtime attaches.
 fn resolve_ast_row_path(
-    outcome: &octocode_native::runtime::ToolOutcome,
+    outcome: &octocode_native::response::outcome::ToolOutcome,
     path: &str,
 ) -> std::path::PathBuf {
     let base = outcome.structured_content["root"]
@@ -815,52 +768,6 @@ async fn ast_search_match_and_symbol_paths_resolve_against_the_base() {
 }
 
 #[tokio::test]
-async fn ast_topology_dead_code_verify_references_is_a_valid_lsp_query() {
-    let workspace = Workspace::new();
-    workspace.write(
-        "package.json",
-        r#"{"name":"fixture","main":"src/index.ts"}"#,
-    );
-    workspace.write(
-        "src/index.ts",
-        "import { used } from './used';\nexport const main = used;\n",
-    );
-    workspace.write("src/used.ts", "export const used = 1;\n");
-    workspace.write("src/orphan.ts", "export function orphan() { return 2; }\n");
-    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
-    let outcome = call(
-        &runtime,
-        "astTopology",
-        json!({"operation":"deadCode","path":workspace.workspace}),
-    )
-    .await
-    .expect("astTopology deadCode");
-    assert_ne!(
-        row_status(&outcome),
-        "error",
-        "deadCode row must not be withheld: {}",
-        outcome.structured_content
-    );
-    let verify = &crate::support::checks::hint(row_data(&outcome), "findReferences");
-    assert_eq!(
-        verify["tool"], "lspSearch",
-        "{}",
-        outcome.structured_content
-    );
-    let mut query = verify["query"]["queries"][0].clone();
-    assert!(query.get("format").is_none(), "{query}");
-    let path = query["path"].as_str().expect("path");
-    assert!(
-        workspace.workspace.join(path).is_file(),
-        "path must name a real file: {path}"
-    );
-    query["reasoning"] = json!("Verify the dead-code candidate.");
-    octocode_native::contracts::validate_query("lspSearch", query)
-        .expect("the references lead must validate against the lspSearch input contract");
-    runtime.close().await;
-}
-
-#[tokio::test]
 async fn workspace_root_symbol_queries_infer_the_server_from_project_markers() {
     let workspace = Workspace::new();
     workspace.write("Cargo.toml", "[package]\nname = \"demo\"\n");
@@ -893,53 +800,6 @@ async fn workspace_root_symbol_queries_infer_the_server_from_project_markers() {
         rendered.contains("missing-rust-lsp-for-root-test"),
         "the Rust route for the root should have been attempted: {rendered}"
     );
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn ast_topology_result_pages_reject_a_changed_graph() {
-    let workspace = Workspace::new();
-    workspace.write(
-        "graph/a.ts",
-        "import { b } from './b';\nimport { c } from './c';\nexport const a = b + c;\n",
-    );
-    workspace.write("graph/b.ts", "export const b = 1;\n");
-    workspace.write("graph/c.ts", "export const c = 2;\n");
-    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
-    let root = workspace.workspace.join("graph");
-    let first = call(
-        &runtime,
-        "astTopology",
-        json!({"operation":"dependencies","path":root,"source":"a.ts","pageSize":1}),
-    )
-    .await
-    .expect("first topology page");
-    let next = row_data(&first)["next"]["nextPage"]["query"].clone();
-    assert!(next.is_object(), "{}", row_data(&first));
-    let second = call(&runtime, "astTopology", next.clone())
-        .await
-        .expect("unchanged second page");
-    assert_ne!(row_status(&second), "error", "{}", row_data(&second));
-    assert_eq!(row_data(&second)["nodes"].as_array().map(Vec::len), Some(1));
-
-    workspace.write("graph/aa.ts", "export const aa = 1;\n");
-    workspace.write(
-        "graph/a.ts",
-        "import { aa } from './aa';\nimport { b } from './b';\nimport { c } from './c';\nexport const a = aa + b + c;\n",
-    );
-    let stale = call(&runtime, "astTopology", next)
-        .await
-        .expect("typed stale row");
-    let data = row_data(&stale);
-    assert_eq!(data["errorCode"], "staleSnapshot", "{data}");
-    assert!(
-        data.get("results").is_none(),
-        "an error row lists nothing: {data}"
-    );
-    let restart = &data["next"]["restart"]["query"]["queries"][0];
-    // Page 1 is the default, so compaction may omit it.
-    assert!(restart.get("page").is_none_or(|page| page == 1), "{data}");
-    assert!(restart.get("snapshot").is_none(), "{data}");
     runtime.close().await;
 }
 
@@ -1028,43 +888,44 @@ async fn local_walks_share_one_default_prune_and_exclude_adds() {
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    let paths_of = |outcome: &octocode_native::runtime::ToolOutcome, key: &str| -> Vec<String> {
-        let data = row_data(outcome);
-        let rows = data[key]
-            .as_array()
-            .unwrap_or_else(|| panic!("{key} rows: {}", outcome.structured_content));
-        // structureSearch groups list entries by `dir`: `dir/<name> (<size>)`.
-        let mut paths = rows
-            .iter()
-            .flat_map(|row| match (row["dir"].as_str(), row["files"].as_array()) {
-                (Some(dir), Some(entries)) => entries
-                    .iter()
-                    .filter_map(serde_json::Value::as_str)
-                    .map(|entry| format!("{dir}/{entry}"))
-                    .collect::<Vec<_>>(),
-                _ => row
-                    .as_str()
-                    .or_else(|| row["path"].as_str())
-                    .map(str::to_owned)
-                    .into_iter()
-                    .collect(),
-            })
-            .map(|path| {
-                let path = path.as_str();
-                path.split(' ').next().unwrap_or(path).replace('\\', "/")
-            })
-            .filter(|path| path.ends_with(".rs"))
-            .map(|path| {
-                // Rows are relative to `base`, the workspace's parent.
-                path.strip_prefix(&format!("{}/", root.to_string_lossy()))
-                    .or_else(|| path.strip_prefix(&format!("{workspace_name}/")))
-                    .unwrap_or(&path)
-                    .to_owned()
-            })
-            .collect::<Vec<_>>();
-        paths.sort();
-        paths
-    };
+    let paths_of =
+        |outcome: &octocode_native::response::outcome::ToolOutcome, key: &str| -> Vec<String> {
+            let data = row_data(outcome);
+            let rows = data[key]
+                .as_array()
+                .unwrap_or_else(|| panic!("{key} rows: {}", outcome.structured_content));
+            // structureSearch groups list entries by `dir`: `dir/<name> (<size>)`.
+            let mut paths = rows
+                .iter()
+                .flat_map(|row| match (row["dir"].as_str(), row["files"].as_array()) {
+                    (Some(dir), Some(entries)) => entries
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .map(|entry| format!("{dir}/{entry}"))
+                        .collect::<Vec<_>>(),
+                    _ => row
+                        .as_str()
+                        .or_else(|| row["path"].as_str())
+                        .map(str::to_owned)
+                        .into_iter()
+                        .collect(),
+                })
+                .map(|path| {
+                    let path = path.as_str();
+                    path.split(' ').next().unwrap_or(path).replace('\\', "/")
+                })
+                .filter(|path| path.ends_with(".rs"))
+                .map(|path| {
+                    // Rows are relative to `base`, the workspace's parent.
+                    path.strip_prefix(&format!("{}/", root.to_string_lossy()))
+                        .or_else(|| path.strip_prefix(&format!("{workspace_name}/")))
+                        .unwrap_or(&path)
+                        .to_owned()
+                })
+                .collect::<Vec<_>>();
+            paths.sort();
+            paths
+        };
     let syntax_visible = vec![".github/lib.rs".to_owned(), "src/lib.rs".to_owned()];
 
     let searched = call(
@@ -1196,7 +1057,7 @@ async fn default_excludes_false_walks_dependency_directories() {
     workspace.write("src/app.rs", "fn needle() {}\n");
     workspace.write("node_modules/dep/index.js", "function needle() {}\n");
     let runtime = workspace.runtime(&[]);
-    let names = |outcome: &octocode_native::runtime::ToolOutcome| {
+    let names = |outcome: &octocode_native::response::outcome::ToolOutcome| {
         serde_json::to_string(&outcome.structured_content).unwrap_or_default()
     };
     let pruned = call(
@@ -1358,7 +1219,7 @@ async fn local_search_discloses_default_excluded_dirs_and_files_with_a_rerun() {
     workspace.write("vendor/lib.min.js", "transport_free_cmd();\n");
     let runtime = workspace.runtime(&[]);
     let root = workspace.workspace.clone();
-    let files_of = |outcome: &octocode_native::runtime::ToolOutcome| -> Vec<String> {
+    let files_of = |outcome: &octocode_native::response::outcome::ToolOutcome| -> Vec<String> {
         let mut files = row_data(outcome)["files"]
             .as_array()
             .into_iter()
@@ -1422,41 +1283,6 @@ async fn local_search_discloses_default_excluded_dirs_and_files_with_a_rerun() {
         "{}",
         all.structured_content
     );
-    runtime.close().await;
-}
-
-/// astTopology echoes a nested package `path` in the caller's
-/// workspace-relative form on every page, and its next page replays as is.
-#[tokio::test]
-async fn topology_path_echo_matches_caller_form_on_paged_cycles() {
-    let workspace = Workspace::new();
-    for (name, other) in [("a", "b"), ("b", "a"), ("c", "d"), ("d", "c")] {
-        workspace.write(
-            &format!("packages/app/src/{name}.ts"),
-            format!(
-                "import {{ {other} }} from './{other}';\nexport const {name} = () => {other}();\n"
-            ),
-        );
-    }
-    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
-    let first = call(
-        &runtime,
-        "astTopology",
-        json!({"operation":"cycles","path":"packages/app","pageSize":1}),
-    )
-    .await
-    .expect("cycles page 1");
-    let data = row_data(&first);
-    assert_eq!(data["path"], "packages/app", "{data}");
-    let next = data["next"]["nextPage"]["query"].clone();
-    assert!(next.is_object(), "a second page: {data}");
-    let second = runtime
-        .run("test-2".into(), "astTopology".into(), next)
-        .await
-        .expect("cycles page 2");
-    let data = row_data(&second);
-    assert_eq!(data["path"], "packages/app", "{data}");
-    assert_eq!(data["nodes"].as_array().map(Vec::len), Some(1), "{data}");
     runtime.close().await;
 }
 
@@ -1528,7 +1354,7 @@ async fn regex_match_limit_warning_and_its_opt_in_search_lead() {
 /// `expandValues` lead is optional, so the call is not partial.
 #[tokio::test]
 async fn a_clipped_match_value_is_not_a_partial_result() {
-    use octocode_native::runtime::ExitClass;
+    use octocode_native::response::exit::ExitClass;
     let workspace = Workspace::new();
     workspace.write("min.js", format!("needle {}\n", "x ".repeat(5_000)));
     let runtime = workspace.runtime(&[]);

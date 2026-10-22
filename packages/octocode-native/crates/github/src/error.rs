@@ -1,3 +1,4 @@
+use octocode_io::budget::BudgetStop;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -109,6 +110,16 @@ impl ProviderError {
         self.reason = Some(reason);
         self
     }
+
+    /// The call was cancelled or ran out of time: a caller stops here and
+    /// returns the error instead of degrading or skipping the step.
+    #[must_use]
+    pub fn is_cancelled_or_timed_out(&self) -> bool {
+        matches!(
+            self.kind,
+            ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
+        )
+    }
 }
 impl std::fmt::Display for ProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -116,3 +127,17 @@ impl std::fmt::Display for ProviderError {
     }
 }
 impl std::error::Error for ProviderError {}
+
+impl From<BudgetStop> for ProviderError {
+    fn from(stop: BudgetStop) -> Self {
+        match stop {
+            BudgetStop::Cancelled => {
+                ProviderError::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")
+            }
+            BudgetStop::Deadline => ProviderError::new(
+                ProviderErrorKind::Timeout,
+                "GitHub request deadline exceeded",
+            ),
+        }
+    }
+}

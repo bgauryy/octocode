@@ -46,7 +46,7 @@
         "src/tools/clasify/mod.rs",
         "src/tools/judgment/batch.rs",
         "src/tools/judgment/cache.rs",
-        "src/tools/judgment/transport.rs",
+        "src/providers/classification/transport.rs",
         "tests/runtime_clasify.rs",
         "src/tools/source_capture/assets.rs",
         "tests/runtime_clasify_media.rs",
@@ -326,7 +326,7 @@
       "evidence": [
         "src/tools/gh_search_code/query.rs",
         "tests/runtime_github.rs",
-        "src/tools/selection.rs",
+        "src/tools/selection/tests.rs",
         "src/tools/judgment/select.rs"
       ],
       "variants": [
@@ -406,7 +406,7 @@
     },
     "ghStructure": {
       "evidence": [
-        "src/tools/gh_structure/mod.rs",
+        "src/tools/gh_structure/tests.rs",
         "src/tools/gh_structure/materialize/tests.rs",
         "tests/runtime_github.rs",
         "tests/runtime_gh_structure.rs"
@@ -478,12 +478,12 @@
     },
     "ghGetFileContent": {
       "evidence": [
-        "src/tools/gh_get_file_content/mod.rs",
+        "src/tools/gh_get_file_content/tests.rs",
         "src/tools/local_fetch/tests/matches.rs",
         "src/tools/local_fetch/tests/blocks_and_paths.rs",
         "src/tools/local_fetch/block.rs",
         "tests/runtime_github.rs",
-        "src/tools/selection.rs",
+        "src/tools/selection/tests.rs",
         "src/tools/judgment/select.rs"
       ],
       "variants": [
@@ -772,7 +772,11 @@
     "artifactSearch": {
       "evidence": [
         "src/providers/artifact/mod.rs",
-        "src/providers/artifact/registries.rs",
+        "src/providers/artifact/crates.rs",
+        "src/providers/artifact/go.rs",
+        "src/providers/artifact/packagist.rs",
+        "src/providers/artifact/pypi.rs",
+        "src/providers/artifact/rubygems.rs",
         "src/tools/artifact_search/mod.rs",
         "tests/runtime_artifact_search.rs"
       ],
@@ -883,7 +887,7 @@
         "src/tools/local_search/tests/secrets.rs",
         "src/tools/local_search/tests/binaries.rs",
         "src/tools/local_search/tests/scope.rs",
-        "src/tools/selection.rs",
+        "src/tools/selection/tests.rs",
         "tests/runtime_local.rs",
         "src/tools/judgment/select.rs"
       ],
@@ -1304,122 +1308,14 @@
         ]
       }
     },
-    "astTopology": {
-      "evidence": [
-        "src/tools/ast_graph/tests.rs",
-        "src/tools/ast_graph/analysis.rs",
-        "tests/runtime_local.rs"
-      ],
-      "variants": [
-        "cycles",
-        "deadCode",
-        "dependencies",
-        "dependents",
-        "drift",
-        "path",
-        "reachability"
-      ],
-      "discriminators": {
-        "operation": [
-          "cycles",
-          "deadCode",
-          "dependencies",
-          "dependents",
-          "drift",
-          "path",
-          "reachability"
-        ]
-      },
-      "fields": {
-        "baseline": [
-          "consumed",
-          "security-policy"
-        ],
-        "defaultExcludes": [
-          "consumed"
-        ],
-        "diagnosticPage": [
-          "consumed",
-          "output-control",
-          "continuation"
-        ],
-        "diagnosticPageSize": [
-          "consumed",
-          "output-control"
-        ],
-        "entrypoints": [
-          "consumed"
-        ],
-        "exclude": [
-          "consumed"
-        ],
-        "extras": [
-          "output-control",
-          "continuation"
-        ],
-        "graphDepth": [
-          "consumed"
-        ],
-        "includeTests": [
-          "consumed"
-        ],
-        "languageGlobs": [
-          "consumed"
-        ],
-        "mainGoal": [
-          "workflow-metadata"
-        ],
-        "maxFiles": [
-          "consumed"
-        ],
-        "operation": [
-          "consumed"
-        ],
-        "page": [
-          "consumed",
-          "output-control",
-          "continuation"
-        ],
-        "pageSize": [
-          "consumed",
-          "output-control"
-        ],
-        "path": [
-          "consumed",
-          "security-policy"
-        ],
-        "reasoning": [
-          "workflow-metadata"
-        ],
-        "rustWorkspace": [
-          "consumed"
-        ],
-        "snapshot": [
-          "consumed",
-          "output-control",
-          "continuation"
-        ],
-        "source": [
-          "consumed"
-        ],
-        "supersedes": [
-          "consumed",
-          "output-control",
-          "continuation"
-        ],
-        "target": [
-          "consumed"
-        ]
-      }
-    },
     "localFetch": {
       "evidence": [
         "src/tools/local_fetch/tests/matches.rs",
         "src/tools/local_fetch/tests/blocks_and_paths.rs",
-        "src/tools/local_fetch/executor.rs",
-        "src/tools/local_fetch/selection.rs",
-        "src/tools/selection.rs",
-        "src/tools/numbered.rs",
+        "src/tools/local_fetch/executor_tests.rs",
+        "src/tools/local_fetch/selection_tests.rs",
+        "src/tools/selection/tests.rs",
+        "src/response/numbered.rs",
         "tests/runtime_local.rs",
         "src/tools/judgment/select.rs"
       ],

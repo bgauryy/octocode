@@ -1,7 +1,7 @@
 /// Canonical JavaScript/TypeScript family extensions (lowercase, no leading
 /// dot). Single source of truth for every JS/TS dispatch in the crate — native
-/// oxc symbols/references and the oxc minify fast path both read this, so the
-/// set never drifts between modules.
+/// oxc symbols/references and the JS/TS content-view minifier both read this,
+/// so the set never drifts between modules.
 pub const JS_TS_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
 /// The JavaScript (non-TypeScript) members of [`JS_TS_EXTENSIONS`]: the
@@ -63,10 +63,7 @@ pub fn is_flow_source(content: &str, ext: &str) -> bool {
     if !JS_EXTENSIONS.contains(&ext) {
         return false;
     }
-    let mut head_end = content.len().min(FLOW_PRAGMA_WINDOW);
-    while !content.is_char_boundary(head_end) {
-        head_end -= 1;
-    }
+    let head_end = content.floor_char_boundary(FLOW_PRAGMA_WINDOW);
     if has_flow_pragma(&content[..head_end]) {
         return true;
     }

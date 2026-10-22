@@ -11,16 +11,14 @@ mod shape;
 #[cfg(test)]
 mod tests;
 
-pub use crate::contracts::tool_types::{
-    GhSearchHistoryQuery, GhSearchHistoryQueryOwner, GhSearchHistoryQueryRepo,
-};
+use crate::id::ToolId;
+use crate::num::usize_of;
+use crate::response::paging::clamp_page_size;
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::field_names;
-use crate::tools::id::ToolId;
-use crate::tools::num::usize_of;
-use crate::tools::paging::clamp_page_size;
 pub(crate) use errors::history_failure;
 use filters::Filters;
+pub use octocode_contract_types::GhSearchHistoryQuery;
 use octocode_github::{
     CommitListRequest, GitHubTransport, HistoryPage, HistoryRequest, ProviderError,
     ProviderErrorKind, ProviderErrorReason, PullListRequest, RequestContext,
@@ -36,131 +34,129 @@ pub enum HistoryOperation {
 }
 
 /// Operation-independent views over the generated wire query.
-impl GhSearchHistoryQuery {
-    pub(crate) fn operation(&self) -> HistoryOperation {
-        match self {
-            Self::PullRequest { .. } => HistoryOperation::PullRequest,
-            Self::Issue { .. } => HistoryOperation::Issue,
-            Self::Commit { .. } => HistoryOperation::Commit,
+pub(crate) mod gh_search_history_query {
+    use super::*;
+    pub(crate) fn operation(query: &GhSearchHistoryQuery) -> HistoryOperation {
+        match query {
+            GhSearchHistoryQuery::PullRequest { .. } => HistoryOperation::PullRequest,
+            GhSearchHistoryQuery::Issue { .. } => HistoryOperation::Issue,
+            GhSearchHistoryQuery::Commit { .. } => HistoryOperation::Commit,
         }
     }
-    pub(crate) fn owner(&self) -> Option<&str> {
-        match self {
-            Self::PullRequest { owner, .. } => owner.as_deref().map(String::as_str),
-            Self::Issue { owner, .. } | Self::Commit { owner, .. } => Some(owner.as_str()),
+    pub(crate) fn owner(query: &GhSearchHistoryQuery) -> Option<&str> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { owner, .. } => owner.as_deref().map(String::as_str),
+            GhSearchHistoryQuery::Issue { owner, .. }
+            | GhSearchHistoryQuery::Commit { owner, .. } => Some(owner.as_str()),
         }
     }
-    pub(crate) fn repo(&self) -> Option<&str> {
-        match self {
-            Self::PullRequest { repo, .. } => repo.as_deref().map(String::as_str),
-            Self::Issue { repo, .. } | Self::Commit { repo, .. } => Some(repo.as_str()),
+    pub(crate) fn repo(query: &GhSearchHistoryQuery) -> Option<&str> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { repo, .. } => repo.as_deref().map(String::as_str),
+            GhSearchHistoryQuery::Issue { repo, .. }
+            | GhSearchHistoryQuery::Commit { repo, .. } => Some(repo.as_str()),
         }
     }
-    /// Points the query at a repository's canonical (post-rename) name.
-    /// Names the contract would reject leave the query unchanged.
-    pub(crate) fn set_scope(&mut self, new_owner: &str, new_repo: &str) {
-        let (Ok(new_owner), Ok(new_repo)) = (
-            new_owner.parse::<GhSearchHistoryQueryOwner>(),
-            new_repo.parse::<GhSearchHistoryQueryRepo>(),
-        ) else {
-            return;
-        };
-        match self {
-            Self::PullRequest { owner, repo, .. } => {
-                *owner = Some(new_owner);
-                *repo = Some(new_repo);
-            }
-            Self::Issue { owner, repo, .. } | Self::Commit { owner, repo, .. } => {
-                *owner = new_owner;
-                *repo = new_repo;
-            }
-        }
-    }
-    pub(crate) fn keywords(&self) -> Vec<&str> {
-        match self {
-            Self::PullRequest { keywords, .. } | Self::Issue { keywords, .. } => {
+    pub(crate) fn keywords(query: &GhSearchHistoryQuery) -> Vec<&str> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { keywords, .. }
+            | GhSearchHistoryQuery::Issue { keywords, .. } => {
                 keywords.iter().map(String::as_str).collect()
             }
-            Self::Commit { keywords, .. } => keywords.iter().map(|k| k.as_str()).collect(),
+            GhSearchHistoryQuery::Commit { keywords, .. } => {
+                keywords.iter().map(|k| k.as_str()).collect()
+            }
         }
     }
-    pub(crate) fn qualifiers(&self) -> Option<&str> {
-        match self {
-            Self::PullRequest { qualifiers, .. } => qualifiers.as_deref().map(String::as_str),
-            Self::Issue { qualifiers, .. } => qualifiers.as_deref().map(String::as_str),
-            Self::Commit { qualifiers, .. } => qualifiers.as_deref().map(String::as_str),
+    pub(crate) fn qualifiers(query: &GhSearchHistoryQuery) -> Option<&str> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { qualifiers, .. } => {
+                qualifiers.as_deref().map(String::as_str)
+            }
+            GhSearchHistoryQuery::Issue { qualifiers, .. } => {
+                qualifiers.as_deref().map(String::as_str)
+            }
+            GhSearchHistoryQuery::Commit { qualifiers, .. } => {
+                qualifiers.as_deref().map(String::as_str)
+            }
         }
     }
     /// The `fields` pick; empty keeps rows whole.
-    pub(crate) fn fields(&self) -> Vec<String> {
-        match self {
-            Self::PullRequest { fields, .. } => field_names(fields),
-            Self::Issue { fields, .. } => field_names(fields),
-            Self::Commit { fields, .. } => field_names(fields),
+    pub(crate) fn fields(query: &GhSearchHistoryQuery) -> Vec<String> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { fields, .. } => field_names(fields),
+            GhSearchHistoryQuery::Issue { fields, .. } => field_names(fields),
+            GhSearchHistoryQuery::Commit { fields, .. } => field_names(fields),
         }
     }
-    pub(crate) fn page(&self) -> Option<usize> {
-        match self {
-            Self::PullRequest { page, .. }
-            | Self::Issue { page, .. }
-            | Self::Commit { page, .. } => Some(usize_of(*page)),
+    pub(crate) fn page(query: &GhSearchHistoryQuery) -> Option<usize> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { page, .. }
+            | GhSearchHistoryQuery::Issue { page, .. }
+            | GhSearchHistoryQuery::Commit { page, .. } => Some(usize_of(*page)),
         }
     }
-    pub(crate) fn page_size(&self) -> Option<usize> {
-        match self {
-            Self::PullRequest { page_size, .. }
-            | Self::Issue { page_size, .. }
-            | Self::Commit { page_size, .. } => page_size.as_ref().map(|size| usize_of(size.0)),
+    pub(crate) fn page_size(query: &GhSearchHistoryQuery) -> Option<usize> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { page_size, .. }
+            | GhSearchHistoryQuery::Issue { page_size, .. }
+            | GhSearchHistoryQuery::Commit { page_size, .. } => {
+                page_size.as_ref().map(|size| usize_of(size.0))
+            }
         }
     }
-    pub(crate) fn path(&self) -> Option<&str> {
-        match self {
-            Self::Commit { path, .. } => path.as_ref().map(|value| value.as_str()),
+    pub(crate) fn path(query: &GhSearchHistoryQuery) -> Option<&str> {
+        match query {
+            GhSearchHistoryQuery::Commit { path, .. } => path.as_ref().map(|value| value.as_str()),
             _ => None,
         }
     }
-    pub(crate) fn since(&self) -> Option<&str> {
-        match self {
-            Self::PullRequest { since, .. } | Self::Issue { since, .. } => {
+    pub(crate) fn since(query: &GhSearchHistoryQuery) -> Option<&str> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { since, .. }
+            | GhSearchHistoryQuery::Issue { since, .. } => {
                 since.as_ref().map(|value| value.as_str())
             }
-            Self::Commit { since, .. } => since.as_ref().map(|value| value.as_str()),
+            GhSearchHistoryQuery::Commit { since, .. } => {
+                since.as_ref().map(|value| value.as_str())
+            }
         }
     }
-    pub(crate) fn until(&self) -> Option<&str> {
-        match self {
-            Self::PullRequest { until, .. } | Self::Issue { until, .. } => {
+    pub(crate) fn until(query: &GhSearchHistoryQuery) -> Option<&str> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { until, .. }
+            | GhSearchHistoryQuery::Issue { until, .. } => {
                 until.as_ref().map(|value| value.as_str())
             }
-            Self::Commit { until, .. } => until.as_ref().map(|value| value.as_str()),
+            GhSearchHistoryQuery::Commit { until, .. } => {
+                until.as_ref().map(|value| value.as_str())
+            }
         }
     }
     /// The ref a commit listing walks.
-    pub(crate) fn reference(&self) -> Option<&str> {
-        match self {
-            Self::Commit { ref_, .. } => ref_.as_ref().map(|value| value.as_str()),
+    pub(crate) fn reference(query: &GhSearchHistoryQuery) -> Option<&str> {
+        match query {
+            GhSearchHistoryQuery::Commit { ref_, .. } => ref_.as_ref().map(|value| value.as_str()),
             _ => None,
         }
     }
     /// The wire `sort` is `field` or `field:direction`; this is the field.
-    pub(crate) fn sort(&self) -> Option<String> {
-        self.sort_spec().map(|spec| {
+    pub(crate) fn sort(query: &GhSearchHistoryQuery) -> Option<String> {
+        sort_spec(query).map(|spec| {
             spec.split_once(':')
                 .map_or(spec.as_str(), |(f, _)| f)
                 .to_owned()
         })
     }
     /// The direction half of the wire `sort`, when it names one.
-    pub(crate) fn order(&self) -> Option<String> {
-        self.sort_spec()
-            .and_then(|spec| spec.split_once(':').map(|(_, order)| order.to_owned()))
+    pub(crate) fn order(query: &GhSearchHistoryQuery) -> Option<String> {
+        sort_spec(query).and_then(|spec| spec.split_once(':').map(|(_, order)| order.to_owned()))
     }
-    fn sort_spec(&self) -> Option<String> {
-        match self {
-            Self::PullRequest { sort, .. } | Self::Issue { sort, .. } => {
-                sort.as_ref().map(ToString::to_string)
-            }
-            Self::Commit { .. } => None,
+    fn sort_spec(query: &GhSearchHistoryQuery) -> Option<String> {
+        match query {
+            GhSearchHistoryQuery::PullRequest { sort, .. }
+            | GhSearchHistoryQuery::Issue { sort, .. } => sort.as_ref().map(ToString::to_string),
+            GhSearchHistoryQuery::Commit { .. } => None,
         }
     }
 }
@@ -239,16 +235,16 @@ impl From<ProviderError> for HistoryFailure {
 
 /// Runs one history search: GitHub search for keywords and search-only
 /// filters, else the REST list endpoint.
-pub async fn execute<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+pub async fn execute(
+    provider: &octocode_github::GitHubProvider,
     query: GhSearchHistoryQuery,
     context: &RequestContext,
     security: &impl ContentScan,
 ) -> Result<Value, HistoryFailure> {
     let transport = &provider.transport;
     let mut query = HistorySearch::new(query)?;
-    crate::tools::gh_shared::reject_boolean_keywords(&query.keywords())?;
-    let page = query.page().unwrap_or(1);
+    crate::tools::gh_shared::reject_boolean_keywords(&gh_search_history_query::keywords(&query))?;
+    let page = gh_search_history_query::page(&query).unwrap_or(1);
     let per = page_size(&query);
     let searching = query::uses_search(&query);
     if searching
@@ -257,7 +253,7 @@ pub async fn execute<C: octocode_github::ConditionalCache>(
         return Err(window_failure(error, &query, per));
     }
     let mut unconfirmed = Vec::new();
-    if searching && query.operation() == HistoryOperation::Commit {
+    if searching && gh_search_history_query::operation(&query) == HistoryOperation::Commit {
         unconfirmed = confirm_commit_users(transport, &query, context).await?;
     }
     let mut fetched = fetch(transport, &query, page, per, searching, context).await;
@@ -287,16 +283,18 @@ pub async fn execute<C: octocode_github::ConditionalCache>(
     // A REST list follows a rename redirect itself: the rows are the
     // renamed repository's, so its leads and pages name the canonical one.
     let redirected = !searching
-        && query
-            .owner()
-            .zip(query.repo())
+        && gh_search_history_query::owner(&query)
+            .zip(gh_search_history_query::repo(&query))
             .is_some_and(|(owner, repo)| transport.followed_rename(owner, repo));
     if redirected && let Some(warnings) = follow_rename(provider, &mut query, context).await? {
         rename_warnings = warnings;
     }
     // A commit list answers an unknown author with no rows; only an empty
     // list pays for confirming the login.
-    if !searching && query.operation() == HistoryOperation::Commit && result.items.is_empty() {
+    if !searching
+        && gh_search_history_query::operation(&query) == HistoryOperation::Commit
+        && result.items.is_empty()
+    {
         unconfirmed = confirm_commit_users(transport, &query, context).await?;
     }
     result.warnings.splice(0..0, unconfirmed);
@@ -307,7 +305,7 @@ pub async fn execute<C: octocode_github::ConditionalCache>(
     // A rename reads the same on every row and page of the repository: a
     // static notice, said once per response.
     for notice in rename_warnings {
-        crate::tools::paging::push_notice(&mut shaped, notice);
+        crate::response::paging::push_notice(&mut shaped, notice);
     }
     Ok(shaped)
 }
@@ -356,11 +354,11 @@ async fn confirm_commit_users(
 /// The page size: the stamped contract default, else the schema default,
 /// within the schema maximum.
 fn page_size(query: &HistorySearch) -> usize {
-    use crate::tools::id::query_limits::gh_search_history::PAGE_SIZE_DEFAULT;
+    use crate::contracts::query_limits::gh_search_history::PAGE_SIZE_DEFAULT;
     clamp_page_size(
         ToolId::GhSearchHistory,
         None,
-        query.page_size().unwrap_or(PAGE_SIZE_DEFAULT),
+        gh_search_history_query::page_size(query).unwrap_or(PAGE_SIZE_DEFAULT),
     )
 }
 
@@ -388,7 +386,7 @@ async fn fetch(
         sort,
         order,
     };
-    let result = match query.operation() {
+    let result = match gh_search_history_query::operation(query) {
         HistoryOperation::Commit if searching => {
             transport.search_commits(&request, context).await?
         }
@@ -420,8 +418,8 @@ async fn list_commits(
             &CommitListRequest {
                 owner: o.into(),
                 repo: r.into(),
-                branch: query.reference().map(str::to_owned),
-                path: query.path().map(str::to_owned),
+                branch: gh_search_history_query::reference(query).map(str::to_owned),
+                path: gh_search_history_query::path(query).map(str::to_owned),
                 author: query.author().map(str::to_owned),
                 since,
                 until: until.map(|until| query::inclusive_until(&until)),
@@ -450,8 +448,8 @@ async fn list_pull_requests(
                 state: query.state(),
                 head: query.head().map(str::to_owned),
                 base: query.base().map(str::to_owned),
-                sort: query.sort(),
-                order: query.order(),
+                sort: gh_search_history_query::sort(query),
+                order: gh_search_history_query::order(query),
                 page,
                 per_page: per,
             },
@@ -464,13 +462,15 @@ async fn list_pull_requests(
 /// ([`crate::tools::gh_shared::rescope_on_rename`]), returning the rename
 /// warnings; `None` when the name stands. A missing repository keeps the
 /// original answer, which states it.
-async fn follow_rename<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+async fn follow_rename(
+    provider: &octocode_github::GitHubProvider,
     query: &mut HistorySearch,
     context: &RequestContext,
 ) -> Result<Option<Vec<String>>, ProviderError> {
     use crate::tools::gh_shared::Rescope;
-    let Some((owner, repo)) = query.owner().zip(query.repo()) else {
+    let Some((owner, repo)) =
+        gh_search_history_query::owner(query).zip(gh_search_history_query::repo(query))
+    else {
         return Ok(None);
     };
     Ok(
@@ -480,7 +480,11 @@ async fn follow_rename<C: octocode_github::ConditionalCache>(
                 repo,
                 warning,
             } => {
-                query.query.set_scope(&owner, &repo);
+                // A name the contract would reject leaves the query as it is.
+                if let Ok(renamed) = crate::tools::gh_shared::with_repo(&query.query, &owner, &repo)
+                {
+                    query.query = renamed;
+                }
                 Some(vec![warning])
             }
             Rescope::Missing(_) | Rescope::Stands => None,
@@ -493,7 +497,7 @@ async fn follow_rename<C: octocode_github::ConditionalCache>(
 fn window_failure(error: ProviderError, query: &HistorySearch, per: usize) -> HistoryFailure {
     let failure = crate::tools::gh_shared::with_search_repair(
         crate::tools::gh_shared::GhFailure::new(error, String::new()),
-        crate::tools::id::ToolId::GhSearchHistory,
+        crate::id::ToolId::GhSearchHistory,
         &query.query,
         per,
         None,
@@ -525,11 +529,14 @@ fn missing_scope_failure(mut error: ProviderError, query: &HistorySearch) -> His
     {
         return error.into();
     }
-    let (Some(owner), Some(repo)) = (query.owner(), query.repo()) else {
+    let (Some(owner), Some(repo)) = (
+        gh_search_history_query::owner(query),
+        gh_search_history_query::repo(query),
+    ) else {
         error.message = crate::tools::gh_shared::provider_message(&error).into_boxed_str();
         return error.into();
     };
-    let reference = query.reference().filter(|_| !repository_missing);
+    let reference = gh_search_history_query::reference(query).filter(|_| !repository_missing);
     let Some(reference) = reference else {
         // The repository itself did not resolve: the message names it, and
         // its recovery is the owner/repo spelling, not a history filter.
@@ -557,15 +564,17 @@ fn missing_scope_failure(mut error: ProviderError, query: &HistorySearch) -> His
 /// A commit listing at a `ref` that did not resolve ([`missing_scope_failure`]
 /// leads with `viewRefs`): when the repository itself resolves, the failure
 /// names its default branch and offers the same listing at it.
-async fn at_default_branch<C: octocode_github::ConditionalCache>(
-    provider: &octocode_github::GitHubProvider<C>,
+async fn at_default_branch(
+    provider: &octocode_github::GitHubProvider,
     mut failure: HistoryFailure,
     query: &HistorySearch,
     context: &RequestContext,
 ) -> HistoryFailure {
-    let (Some(owner), Some(repo), Some(reference)) =
-        (query.owner(), query.repo(), query.reference())
-    else {
+    let (Some(owner), Some(repo), Some(reference)) = (
+        gh_search_history_query::owner(query),
+        gh_search_history_query::repo(query),
+        gh_search_history_query::reference(query),
+    ) else {
         return failure;
     };
     let Some(next) = failure
@@ -575,10 +584,10 @@ async fn at_default_branch<C: octocode_github::ConditionalCache>(
     else {
         return failure;
     };
-    let row = crate::tools::result::query_row(&query.query, &[]);
+    let row = crate::response::result::query_row(&query.query, &[]);
     if let Some(retry) = crate::tools::gh_shared::default_branch_retry(
         provider,
-        crate::tools::id::ToolId::GhSearchHistory,
+        crate::id::ToolId::GhSearchHistory,
         row,
         &["ref"],
         context,
@@ -597,9 +606,9 @@ async fn at_default_branch<C: octocode_github::ConditionalCache>(
 
 /// Output facts the shared response stages ask about.
 pub(crate) struct Output;
-impl crate::tools::output::ToolOutput for Output {
+impl crate::response::output::ToolOutput for Output {
     fn fallback_hint(&self, query: &Value) -> &'static str {
-        if crate::tools::output::has_value(query, "keywords") {
+        if crate::response::output::has_value(query, "keywords") {
             "Broaden keywords or remove history filters."
         } else {
             "Relax or remove a history filter, or add keywords."

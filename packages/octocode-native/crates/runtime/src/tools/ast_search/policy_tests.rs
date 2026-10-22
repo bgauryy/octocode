@@ -1,7 +1,7 @@
 //! astSearch scope: path policy, walk disclosure, cancellation and
 //! grammar selection.
 use super::test_rows::*;
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{AfterRoot, Fixture, checks, sensitive_fixture, simple_policy};
 use serde_json::json;
 
@@ -191,7 +191,7 @@ fn directory_scan_windows_infer_each_files_grammar_without_losing_other_language
         }
         checks::Page {
             output: crate::tools::test_support::published(
-                crate::tools::id::ToolId::AstSearch,
+                crate::id::ToolId::AstSearch,
                 query,
                 &out,
             ),

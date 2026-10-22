@@ -1,8 +1,8 @@
 //! Recovery for a file a caller named that is not where it said: the
 //! structureSearch listing that finds it by stem, and the sibling a
 //! mistyped name was likely meant for.
-use crate::tools::id::ToolId;
-use crate::tools::result::Continuation;
+use crate::id::ToolId;
+use crate::response::result::Continuation;
 use serde_json::{Value, json};
 use std::path::Path;
 

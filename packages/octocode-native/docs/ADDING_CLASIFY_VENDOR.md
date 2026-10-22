@@ -10,11 +10,13 @@ Create `crates/runtime/src/providers/classification/<vendor>.rs` with a static v
 
 | Method | Supplies |
 |---|---|
-| `default_host`, `default_model`, `endpoint_path`, `models_path`, `docs_url` | Built-in defaults: API root (used when `OCTOCODE_CLASSIFICATION_API_HOST` is unset), model, classify and model-catalog paths, and the setup link shown in `missingConfiguration` errors |
-| `request_headers` | Capability opt-ins for image input and long context |
-| `build_request`, `build_batch_request` | The JSON body for one question, or for several questions over the same state (with optional image assets) |
-| `extract_answer`, `batch_answer_key` | Where the answer sits in a single or batch response |
-| `validate_response`, `validate_models` | Shape checks that return `ProviderContractError`; `request: true` marks a request-side violation, and vendor names never reach the public error codes |
+| `defaults` | Built-in defaults: API root (used when `OCTOCODE_CLASSIFICATION_API_HOST` is unset), model, classify and model-catalog paths, and the setup link shown in `missingConfiguration` errors |
+| `headers` | Capability opt-ins for image input and long context |
+| `build` | The JSON body asking one or more questions over the same state (with optional image assets); answer keys are the vendor's own |
+| `read` | Each answer of a response, validated against its question, plus the reported model and token usage |
+| `models` | The validated model catalog in the clasify `models` output shape |
+
+Validation failures are `ProviderContractError`s: `request: true` marks a request-side violation, and vendor names never reach the public error codes.
 
 Register it with `pub mod <vendor>;` in `providers/classification/mod.rs`.
 
@@ -30,7 +32,7 @@ Add an integration test that runs `clasify` against a mock of the vendor API; `c
 
 | Layer | Code |
 |---|---|
-| HTTP transport, retries, budget, error codes | `tools/judgment/transport.rs` |
+| HTTP transport, retries, budget, error codes | `providers/classification/transport.rs` |
 | Question batching | `tools/judgment/batch.rs` |
 | Judgment cache | `tools/judgment/cache.rs` |
 | Per-endpoint concurrency gate | `providers/classification/gate.rs` |

@@ -174,7 +174,7 @@ fn warn_unknown_keys(root: &Map<String, Value>, warnings: &mut Vec<String>) {
 /// One rejected config value: the contract path to drop (a field or a whole
 /// section) and a human-readable reason that already names that path.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ConfigIssue {
+pub(crate) struct ConfigIssue {
     pub path: String,
     pub message: String,
 }
@@ -182,7 +182,7 @@ pub struct ConfigIssue {
 /// Field-level validation. Every error is attributed to the smallest contract
 /// path that can be discarded on its own, so callers can keep the rest of a
 /// file instead of rejecting it whole.
-pub fn config_issues(config: &Value) -> (Vec<ConfigIssue>, Vec<String>) {
+pub(crate) fn config_issues(config: &Value) -> (Vec<ConfigIssue>, Vec<String>) {
     let Some(root) = config.as_object() else {
         return (
             vec![ConfigIssue {

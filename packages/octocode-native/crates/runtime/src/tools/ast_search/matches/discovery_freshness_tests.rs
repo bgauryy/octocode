@@ -18,9 +18,7 @@ fn settled_match_memo_observes_empty_directories_and_ignore_edits() {
             std::fs::write(nested.join("b.ts"), "target(\"new\");\n").expect("ignored source");
         }
         let (paths, security) = simple_policy(&root.0);
-        std::thread::sleep(
-            octocode_engine::graph::SourceStamp::SETTLE + std::time::Duration::from_millis(200),
-        );
+        octocode_engine::stamp::settle_written_so_far();
         let first = run_row(
             &json!({"operation":"match", "path":root.0, "pattern":"target($A)", "captureText":true, "matchPageSize":1}),
             &paths,

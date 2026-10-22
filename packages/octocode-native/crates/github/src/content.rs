@@ -12,32 +12,16 @@ use super::{
 /// GitHub's raw media type: a file's own bytes instead of a JSON payload.
 const RAW_MEDIA_TYPE: &str = "application/vnd.github.raw";
 
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+/// A cached GitHub read; the host decides how it is stored.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CachedContent {
     pub etag: Option<String>,
-    /// Base64 on disk (a JSON number array is ~3.5× the body). Shared, so a
-    /// cache hit hands out the stored body without copying it.
-    #[serde(with = "base64_bytes")]
+    /// Shared, so a cache hit hands out the stored body without copying it.
     pub bytes: Bytes,
+    /// The commit a content read resolved; empty for other reads.
     pub resolved_ref: String,
-}
-mod base64_bytes {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    use serde::{Deserialize, Deserializer, Serializer, de::Error};
-
-    pub(crate) fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&STANDARD.encode(bytes))
-    }
-
-    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<bytes::Bytes, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        STANDARD
-            .decode(text)
-            .map(Into::into)
-            .map_err(D::Error::custom)
-    }
+    /// A listing page GitHub linked a next page from.
+    pub has_more: bool,
 }
 /// How long a cached GitHub read stays good. The writer picks it at
 /// [`ConditionalCache::put`]; the host maps it onto its own windows.
@@ -116,16 +100,23 @@ pub struct Submodule {
     pub url: Option<String>,
     pub commit: Option<String>,
 }
-pub struct GitHubProvider<C> {
+/// GitHub reads through one transport; its response cache is the
+/// transport's own (`transport.cache`).
+pub struct GitHubProvider {
     pub transport: GitHubTransport,
-    pub cache: C,
 }
 #[derive(Clone, Copy)]
 enum ContentKind {
     Text,
     Bytes,
 }
-impl<C: ConditionalCache> GitHubProvider<C> {
+impl GitHubProvider {
+    /// A provider reading through `transport`, caching in `cache`.
+    pub fn new(mut transport: GitHubTransport, cache: impl ConditionalCache + 'static) -> Self {
+        transport.cache = std::sync::Arc::new(cache);
+        Self { transport }
+    }
+
     pub async fn get_file_content(
         &self,
         request: &ContentRequest,
@@ -170,7 +161,7 @@ impl<C: ConditionalCache> GitHubProvider<C> {
         // immutable: it is served without asking GitHub again. A movable ref
         // stays fresh through its own resolution, not through this entry.
         if !request.force_refresh
-            && let Some(value) = self.cache.get(&partition, &key).await
+            && let Some(value) = self.transport.cache.get(&partition, &key).await
         {
             kind.check(&value.bytes, None)?;
             return Ok(ContentResponse {
@@ -192,8 +183,10 @@ impl<C: ConditionalCache> GitHubProvider<C> {
                     etag: None,
                     bytes: bytes.clone(),
                     resolved_ref: resolved_ref.clone(),
+                    has_more: false,
                 };
-                self.cache
+                self.transport
+                    .cache
                     .put(&partition, key, stored, Retention::Pinned)
                     .await;
                 return Ok(ContentResponse {
@@ -216,8 +209,10 @@ impl<C: ConditionalCache> GitHubProvider<C> {
             etag: etag.clone(),
             bytes: bytes.clone(),
             resolved_ref: resolved_ref.clone(),
+            has_more: false,
         };
-        self.cache
+        self.transport
+            .cache
             .put(&partition, key, stored, Retention::Pinned)
             .await;
         Ok(ContentResponse {
@@ -322,7 +317,7 @@ impl<C: ConditionalCache> GitHubProvider<C> {
                 Ok((bytes, raw_response_bytes.saturating_add(blob_bytes)))
             }
             None => {
-                let bytes = decode_bytes(payload.encoding.as_deref(), payload.content)?;
+                let bytes = decode_content(payload.encoding.as_deref(), payload.content)?;
                 kind.check(&bytes, payload.sha.as_deref())?;
                 Ok((bytes.into(), raw_response_bytes))
             }
@@ -342,7 +337,7 @@ impl<C: ConditionalCache> GitHubProvider<C> {
         // A listing at a full commit SHA is immutable: a cached one is served
         // without asking GitHub again, like a file read at one.
         let pinned = is_full_sha(reference);
-        let cached = self.cache.get(&partition, &key).await;
+        let cached = self.transport.cache.get(&partition, &key).await;
         if let Some(value) = cached
             .as_ref()
             .filter(|value| pinned || value.etag.is_none())
@@ -384,7 +379,8 @@ impl<C: ConditionalCache> GitHubProvider<C> {
                 .get("etag")
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_owned);
-            self.cache
+            self.transport
+                .cache
                 .put(
                     &partition,
                     key,
@@ -392,6 +388,7 @@ impl<C: ConditionalCache> GitHubProvider<C> {
                         etag,
                         bytes: body,
                         resolved_ref: reference.to_owned(),
+                        has_more: false,
                     },
                     if pinned {
                         Retention::Pinned
@@ -448,6 +445,7 @@ impl<C: ConditionalCache> GitHubProvider<C> {
         let _turn = context.budget.wait(ticket.turn()).await?;
         if !force_refresh
             && let Some(sha) = self
+                .transport
                 .cache
                 .get(&partition, &key)
                 .await
@@ -459,7 +457,8 @@ impl<C: ConditionalCache> GitHubProvider<C> {
             .transport
             .commit_sha(owner, repo, reference, context)
             .await?;
-        self.cache
+        self.transport
+            .cache
             .put(
                 &partition,
                 key,
@@ -467,6 +466,7 @@ impl<C: ConditionalCache> GitHubProvider<C> {
                     etag: None,
                     bytes: Bytes::copy_from_slice(sha.as_bytes()),
                     resolved_ref: String::new(),
+                    has_more: false,
                 },
                 Retention::Expires(REF_MEMO_TTL),
             )
@@ -597,6 +597,7 @@ impl GitHubTransport {
                         etag: None,
                         bytes: sha.clone().into_bytes().into(),
                         resolved_ref: String::new(),
+                        has_more: false,
                     },
                     Retention::Pinned,
                 )
@@ -743,7 +744,13 @@ struct DirectoryEntry {
     #[serde(rename = "type")]
     kind: String,
 }
-fn decode_bytes(encoding: Option<&str>, content: Option<String>) -> Result<Vec<u8>, ProviderError> {
+/// The bytes of a Contents API body by its `encoding` (`base64`, wrapped
+/// at line breaks, or `utf-8`); any other encoding (`none` for a body over
+/// 1 MB) is a decode error.
+pub fn decode_content(
+    encoding: Option<&str>,
+    content: Option<String>,
+) -> Result<Vec<u8>, ProviderError> {
     let bytes = match encoding {
         Some("base64") => STANDARD
             .decode(content.unwrap_or_default().replace(['\r', '\n'], ""))

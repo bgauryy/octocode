@@ -47,13 +47,6 @@ pub(crate) fn role_names(flags: u8) -> Vec<&'static str> {
         .collect()
 }
 
-/// Whether `path` is a type declaration file (`.d.ts`, `.d.mts`, `.pyi`,
-/// …): it types another file and never runs, so neither dead-code engine
-/// judges it.
-pub(crate) fn is_declaration(path: &str) -> bool {
-    path_roles(path) & ROLE_DECLARATION != 0
-}
-
 fn path_roles(path: &str) -> u8 {
     let lower = path.to_ascii_lowercase();
     let segments = lower.split('/').collect::<Vec<_>>();
@@ -195,15 +188,65 @@ fn content_roles(head: &str) -> u8 {
     roles
 }
 
-/// Roles for `relative` under `root`, from its path and its first 8 KiB.
-pub(crate) fn file_roles(root: &Path, relative: &str) -> u8 {
-    let mut roles = path_roles(relative);
-    let mut buffer = Vec::with_capacity(HEAD_BYTES);
-    if let Ok(file) = std::fs::File::open(root.join(relative)) {
-        let _ = file.take(HEAD_BYTES as u64).read_to_end(&mut buffer);
-        roles |= content_roles(&String::from_utf8_lossy(&buffer));
+/// Roles for `relative` under `root`, from its path and its first 8 KiB:
+/// the scanned source's [`SourceMarks::roles`], else a read of the file
+/// (one found but not parsed).
+pub(crate) fn file_roles(root: &Path, relative: &str, marks: Option<SourceMarks>) -> u8 {
+    let content = marks.map_or_else(
+        || {
+            let mut buffer = Vec::with_capacity(HEAD_BYTES);
+            if let Ok(file) = std::fs::File::open(root.join(relative)) {
+                let _ = file.take(HEAD_BYTES as u64).read_to_end(&mut buffer);
+                head_roles(&buffer)
+            } else {
+                0
+            }
+        },
+        |marks| marks.roles,
+    );
+    path_roles(relative) | content
+}
+
+fn head_roles(head: &[u8]) -> u8 {
+    content_roles(&String::from_utf8_lossy(
+        &head[..head.len().min(HEAD_BYTES)],
+    ))
+}
+
+/// What a file's scanned source says about it, read once while it is
+/// parsed: its content roles and the entrypoint markers of
+/// [`super::workspace`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct SourceMarks {
+    /// [`file_roles`] from the first 8 KiB (generated, bundled).
+    pub roles: u8,
+    /// The source starts with `#!`.
+    pub shebang: bool,
+    /// A Go file whose first 4 KiB say `package main` (its first clause),
+    /// or a Python file with a `__main__` guard (anywhere, usually last).
+    pub main_marker: bool,
+}
+
+impl SourceMarks {
+    pub(crate) fn of(relative: &str, content: &str) -> Self {
+        let bytes = content.as_bytes();
+        let name = relative.rsplit('/').next().unwrap_or(relative);
+        let main_marker = match name.rsplit_once('.').map(|(_, ext)| ext) {
+            Some("go") => {
+                String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).contains("package main")
+            }
+            Some("py") => {
+                content.contains("__name__ == \"__main__\"")
+                    || content.contains("__name__ == '__main__'")
+            }
+            _ => false,
+        };
+        Self {
+            roles: head_roles(bytes),
+            shebang: bytes.starts_with(b"#!"),
+            main_marker,
+        }
     }
-    roles
 }
 
 #[cfg(test)]
@@ -217,7 +260,10 @@ mod tests {
         assert_eq!(path_roles("tests/test_api.py"), ROLE_TEST);
         assert_eq!(path_roles("vendor/lib/a.go"), ROLE_VENDORED);
         assert_eq!(path_roles("api/v1/service.pb.go"), ROLE_GENERATED);
-        assert_eq!(path_roles("types/index.d.ts"), ROLE_DECLARATION);
+        for declaration in DECLARATION_EXTENSIONS.iter().chain(TYPE_STUB_EXTENSIONS) {
+            let path = format!("types/api{declaration}");
+            assert_eq!(path_roles(&path), ROLE_DECLARATION, "{path}");
+        }
         assert_eq!(path_roles("static/app.min.js"), ROLE_BUNDLED);
         assert_eq!(path_roles("dist/index.js"), ROLE_BUNDLED);
         assert_eq!(path_roles("vite.config.ts"), ROLE_CONFIG);

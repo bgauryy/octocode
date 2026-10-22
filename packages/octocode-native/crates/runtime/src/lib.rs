@@ -11,6 +11,10 @@ pub mod config;
 pub(crate) mod content;
 pub mod contracts;
 mod digest;
+pub mod execution;
+mod git_head;
+pub mod id;
+pub(crate) mod num;
 pub(crate) mod policy;
 mod private_file;
 #[cfg(test)]

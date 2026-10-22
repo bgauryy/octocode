@@ -1,24 +1,20 @@
 //! Test doubles shared by the GitHub tool tests: a provider aimed at a mock
-//! server, the request context the runtime attaches, and the shared wiremock
-//! mounts and responders.
-use octocode_github::RequestBudget;
+//! server and the request context the runtime attaches. The wiremock mounts
+//! and responders are `octocode_github::mock_http`.
 use octocode_github::{
     CredentialSource, GitHubBudget, GitHubEndpoint, GitHubProvider, GitHubTransport, NoCache,
     RequestContext, ResolvedCredential, RetryPolicy,
 };
+pub(crate) mod backed;
+
+use octocode_io::budget::RequestBudget;
 use std::time::Duration;
 use wiremock::MockServer;
-
-// The wiremock mounts and responders the github crate's tests use, by path.
-#[path = "../../../../github/src/tests/mock_http.rs"]
-#[allow(dead_code, reason = "the unit tests use a subset of the shared mocks")]
-mod mock_http;
-pub(crate) use mock_http::{Delayed, mount_json};
 
 /// A provider whose GitHub API is `server`, with its own unthrottled budget: tests in one process never wait on each
 /// other's search spacing (the process-wide budget is the github crate's
 /// subject).
-pub(crate) fn mock_provider(server: &MockServer, retry: RetryPolicy) -> GitHubProvider<NoCache> {
+pub(crate) fn mock_provider(server: &MockServer, retry: RetryPolicy) -> GitHubProvider {
     provider_at(mock_endpoint(server), retry)
 }
 
@@ -28,22 +24,21 @@ pub(crate) fn mock_endpoint(server: &MockServer) -> GitHubEndpoint {
         .expect("endpoint")
 }
 
-fn provider_at(endpoint: GitHubEndpoint, retry: RetryPolicy) -> GitHubProvider<NoCache> {
-    GitHubProvider {
-        transport: GitHubTransport::with_budget(endpoint, retry, GitHubBudget::relaxed())
-            .expect("transport"),
-        cache: NoCache,
-    }
+fn provider_at(endpoint: GitHubEndpoint, retry: RetryPolicy) -> GitHubProvider {
+    GitHubProvider::new(
+        GitHubTransport::new(endpoint, retry, GitHubBudget::relaxed()).expect("transport"),
+        NoCache,
+    )
 }
 
 /// [`mock_provider`] that sends each request once: a failure surfaces as it
 /// happened instead of after retries.
-pub(crate) fn one_shot_provider(server: &MockServer) -> GitHubProvider<NoCache> {
+pub(crate) fn one_shot_provider(server: &MockServer) -> GitHubProvider {
     one_shot_provider_at(mock_endpoint(server))
 }
 
 /// [`one_shot_provider`] for any `endpoint`, such as one nothing listens on.
-pub(crate) fn one_shot_provider_at(endpoint: GitHubEndpoint) -> GitHubProvider<NoCache> {
+pub(crate) fn one_shot_provider_at(endpoint: GitHubEndpoint) -> GitHubProvider {
     provider_at(
         endpoint,
         RetryPolicy {

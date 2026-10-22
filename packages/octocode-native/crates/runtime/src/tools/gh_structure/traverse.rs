@@ -65,8 +65,8 @@ pub(super) fn access_failure(error: &ProviderError) -> bool {
     )
 }
 
-pub(super) async fn traverse<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn traverse(
+    provider: &GitHubProvider,
     listing: &Listing<'_>,
     context: &RequestContext,
 ) -> Result<Traversal, ProviderError> {
@@ -88,8 +88,8 @@ pub(super) async fn traverse<C: octocode_github::ConditionalCache>(
 /// do, where a Contents listing types it `file`, and it is not capped at
 /// 1,000 entries. `None` (a missing path, a file, an unavailable tree)
 /// leaves the listing to the Contents walk, which names what the root is.
-async fn level_tree<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn level_tree(
+    provider: &GitHubProvider,
     listing: &Listing<'_>,
     context: &RequestContext,
 ) -> Result<Option<octocode_github::TreeResponse>, ProviderError> {
@@ -124,8 +124,8 @@ pub(super) enum DeepTree {
 
 /// A deep listing from one recursive git tree (cached by commit); a
 /// truncated or unavailable tree leaves the walk to the Contents API.
-pub(super) async fn recursive_tree<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn recursive_tree(
+    provider: &GitHubProvider,
     listing: &Listing<'_>,
     context: &RequestContext,
 ) -> Result<DeepTree, ProviderError> {
@@ -153,8 +153,8 @@ pub(super) async fn recursive_tree<C: octocode_github::ConditionalCache>(
 /// tree SHA (content-addressed, so cached like a commit's tree), with
 /// repo-relative paths; `None` when that subtree is truncated too or
 /// unreadable, so the Contents walk descends into it instead.
-async fn subtree<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn subtree(
+    provider: &GitHubProvider,
     listing: &Listing<'_>,
     dir: &str,
     sha: &str,
@@ -177,8 +177,8 @@ async fn subtree<C: octocode_github::ConditionalCache>(
 /// commit or tree SHA, or `<commit>:<path>`: immutable either way), cached
 /// under `resource`; `None` when it is truncated or unreadable. Access
 /// failures propagate.
-async fn read_tree<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn read_tree(
+    provider: &GitHubProvider,
     listing: &Listing<'_>,
     resource: String,
     reference: &str,
@@ -217,8 +217,8 @@ fn tree_flights()
 /// tree wait for the first read, then take what it cached (or its
 /// truncation), so a tree of many MB downloads once. Access failures
 /// propagate.
-async fn fetch_tree<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn fetch_tree(
+    provider: &GitHubProvider,
     listing: &Listing<'_>,
     resource: String,
     reference: &str,
@@ -237,7 +237,7 @@ async fn fetch_tree<C: octocode_github::ConditionalCache>(
         return Ok(TreeRead::Truncated);
     }
     if let Some(partition) = &partition
-        && let Some(cached) = provider.cache.get(partition, &resource).await
+        && let Some(cached) = provider.transport.cache.get(partition, &resource).await
         && let Ok(tree) = serde_json::from_slice(&cached.bytes)
     {
         return Ok(TreeRead::Whole(tree));
@@ -276,8 +276,8 @@ async fn fetch_tree<C: octocode_github::ConditionalCache>(
 /// commit ([`WalkMemo`]). After a truncated recursive tree (`split`), a folder with more
 /// than one level left to list is read whole from its own recursive subtree,
 /// so a large repository costs one read per subtree instead of per folder.
-pub(super) async fn walk_contents<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn walk_contents(
+    provider: &GitHubProvider,
     listing: &Listing<'_>,
     split: bool,
     context: &RequestContext,
@@ -411,11 +411,7 @@ struct WalkMemo {
 }
 
 impl WalkMemo {
-    fn of<C: octocode_github::ConditionalCache>(
-        provider: &GitHubProvider<C>,
-        listing: &Listing<'_>,
-        context: &RequestContext,
-    ) -> Self {
+    fn of(provider: &GitHubProvider, listing: &Listing<'_>, context: &RequestContext) -> Self {
         let Listing {
             owner,
             repo,
@@ -433,24 +429,19 @@ impl WalkMemo {
         }
     }
 
-    async fn get<C: octocode_github::ConditionalCache>(
-        &self,
-        provider: &GitHubProvider<C>,
-    ) -> Option<Traversal> {
+    async fn get(&self, provider: &GitHubProvider) -> Option<Traversal> {
         let cached = provider
+            .transport
             .cache
             .get(self.partition.as_ref()?, &self.key)
             .await?;
         serde_json::from_slice(&cached.bytes).ok()
     }
 
-    async fn put<C: octocode_github::ConditionalCache>(
-        &self,
-        provider: &GitHubProvider<C>,
-        traversal: &Traversal,
-    ) {
+    async fn put(&self, provider: &GitHubProvider, traversal: &Traversal) {
         if let (Some(partition), Ok(bytes)) = (&self.partition, serde_json::to_vec(traversal)) {
             provider
+                .transport
                 .cache
                 .put(
                     partition,
@@ -459,6 +450,7 @@ impl WalkMemo {
                         etag: None,
                         bytes: bytes.into(),
                         resolved_ref: self.commit.clone(),
+                        has_more: false,
                     },
                     octocode_github::Retention::Pinned,
                 )
@@ -472,8 +464,8 @@ impl WalkMemo {
 /// listed commit's; another directory's SHA is the one its parent listing
 /// names, read from the parent when the walk started at it. `None` when the
 /// tree is truncated or unreadable: the cap stays disclosed.
-async fn whole_directory<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn whole_directory(
+    provider: &GitHubProvider,
     listing: &Listing<'_>,
     dir: &str,
     sha: Option<&str>,
@@ -547,8 +539,8 @@ async fn whole_directory<C: octocode_github::ConditionalCache>(
 
 /// Keep a complete git tree under its commit (or tree SHA): it never
 /// changes.
-pub(super) async fn cache_tree<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn cache_tree(
+    provider: &GitHubProvider,
     context: &RequestContext,
     resource: String,
     commit: &str,
@@ -558,6 +550,7 @@ pub(super) async fn cache_tree<C: octocode_github::ConditionalCache>(
         && let Ok(bytes) = serde_json::to_vec(tree)
     {
         provider
+            .transport
             .cache
             .put(
                 &partition,
@@ -566,6 +559,7 @@ pub(super) async fn cache_tree<C: octocode_github::ConditionalCache>(
                     etag: None,
                     bytes: bytes.into(),
                     resolved_ref: commit.to_owned(),
+                    has_more: false,
                 },
                 octocode_github::Retention::Pinned,
             )

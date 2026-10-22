@@ -17,7 +17,6 @@ octocode-io = { path = "../io" }
 base64 = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }
-getrandom = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
 secrecy = { workspace = true }
@@ -27,6 +26,12 @@ sha2 = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-util = { workspace = true }
 url = { workspace = true }
+wiremock = { workspace = true, optional = true }
+
+[features]
+# The shared wiremock mounts and responders (`mock_http`) for downstream test
+# builds. octocode-native turns it on from its dev-dependencies and `dev-unify`.
+test-support = ["dep:wiremock"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

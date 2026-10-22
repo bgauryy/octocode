@@ -14,7 +14,7 @@ Load when the source or task is known: local checkout, remote repository or pack
 - Broad content exploration: `clasifyContext` can select matched evidence before host reading. An unread file's contents need `clasify.source` or a classified `localFetch`; path/count results do not reveal them. Use the [route decision](clasify.md#choose-the-route).
 - Shared questions across regions of several unread files: use [section assessment](clasify.md#assess-sections-across-resources) when the live schema exposes it, then read deciding targets at their returned source version.
 - `repair` in `hints` regex fix: confirm it still searches what you meant.
-- `structureSearch files` stops at `maxEntries`: follow `next.expandScan`. Rows group by `dir`: path = `root`/`dir`/name; ` (n)` = bytes.
+- `structureSearch files` stops at `maxEntries`: follow `next.continueWalk`. Rows group by `dir`: path = `root`/`dir`/name; ` (n)` = bytes.
 - Absence claim: set `noIgnore` (and `hidden` on `tree`).
 - Never pass view offsets as LSP positions.
 
@@ -30,11 +30,11 @@ Load when the source or task is known: local checkout, remote repository or pack
 
 ### Graph
 
-- `npx octocode graph query` ops: `callers`, `impact --since <rev>`, `cycles`, `issues`, `stale`. Honor `coverage` and `tier`.
-- `astTopology` (CLI only): `dependencies`/`dependents`, `path`, `cycles`, `deadCode`, `drift`, `reachability` (optional `entrypoints`). Same-package Java and re-exports count as edges.
-- Reachability: check `entrypointsResolved`; unclassified files without resolved roots are not unreachable.
-- Unresolved imports and dynamic CommonJS loaders weaken coverage; page `diagnosticCounts` via `next.nextDiagnosticPage`.
-- `rustWorkspace` `syntax` and `cargo` modes differ; Cargo metadata does not prove feature-gated reachability.
+- `npx octocode graph ingest <dir>` first (an unchanged tree reuses its snapshot), then `graph query` ops: `deps`/`dependents <file> [--depth n]`, `path <from> <to>`, `callers`, `impact --since <rev>`, `cycles`, `issues`, `drift --baseline <snapshot>`, `stale`. Honor `coverage` and `tier`.
+- `dependents` includes users through a re-exporting module (`edge: uses, via: reexport`); `summary.unlinkedPathImports` lists imports that name the file by path with no tsconfig or workspace link (they do not resolve).
+- Reachability: `issues --detector unreachable-file,unused-export,test-only`; name roots with `--entry <ref,...>` when the inferred entrypoints miss one.
+- Unresolved imports and dynamic CommonJS loaders weaken coverage (`unresolved-import` findings, `diagnostics`). A cut scan carries `graph.partialReasons`; run its `graph.reingest` command.
+- Cargo metadata does not prove feature-gated reachability.
 - Confirm a decisive graph edge with `localFetch` or `lspSearch` before acting.
 - Honor vendored and generated-code restrictions; reason against the installed dependency version.
 

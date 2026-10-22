@@ -64,11 +64,13 @@ pub fn lead_file(data: &Value) -> Option<PathBuf> {
         }
         match value {
             Value::Object(map) => {
-                if map.get("tool").and_then(Value::as_str) == Some("lspSearch") {
-                    let path = crate::tools::result::continuation_row(value)?
+                if map.get("tool").and_then(Value::as_str)
+                    == Some(crate::id::ToolId::LspSearch.as_str())
+                {
+                    let path = crate::response::result::continuation_row(value)?
                         .get("path")?
                         .as_str()?;
-                    let path = PathBuf::from(path.strip_prefix("file://").unwrap_or(path));
+                    let path = PathBuf::from(super::render::uri_to_path(path));
                     return (path.is_absolute() && path.is_file()).then_some(path);
                 }
                 map.values().find_map(|child| find(child, depth + 1))
@@ -266,6 +268,12 @@ mod tests {
         let uri = format!("file://{}", file.display());
         let data = json!({"results":[{"file":"a.ts"}],"next":{"references":{"tool":"lspSearch","query":{"queries":[{"path":uri,"symbolName":"a","line":1}]}}}});
         assert_eq!(lead_file(&data), Some(file.clone()));
+        // A file uri is percent-decoded, as lspSearch itself decodes it.
+        let spaced = dir.join("a b.ts");
+        std::fs::write(&spaced, "export const b = 1;\n").expect("spaced file");
+        let encoded = format!("file://{}/a%20b.ts", dir.display());
+        let data = json!({"next":{"references":{"tool":"lspSearch","query":{"queries":[{"path":encoded,"symbolName":"b","line":1}]}}}});
+        assert_eq!(lead_file(&data), Some(spaced));
         let other =
             json!({"next":{"read":{"tool":"localFetch","query":{"queries":[{"path":file}]}}}});
         assert_eq!(lead_file(&other), None);

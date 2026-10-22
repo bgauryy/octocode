@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-/** Isolated source and diagnostic fixtures for the real stdio acceptance run. */
+/** An isolated source fixture for the real stdio acceptance run. */
 export async function createLocalAcceptanceFixture(parent) {
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(path.join(parent, 'mcp-acceptance-'));
@@ -23,13 +23,6 @@ export async function createLocalAcceptanceFixture(parent) {
       compilerOptions: { target: 'ES2022', module: 'NodeNext', strict: true },
       include: ['*.ts'],
     })
-  );
-  const diagnosticsRoot = `${root}-diagnostics`;
-  await mkdir(diagnosticsRoot);
-  await writeFile(
-    path.join(diagnosticsRoot, 'entry.ts'),
-    Array.from({ length: 5 }, (_, index) => `import "./missing-${index}.js";`).join('\n') +
-      '\nexport const entry = 1;\n'
   );
   return root;
 }

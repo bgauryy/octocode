@@ -6,9 +6,9 @@ use super::{PolicyError, PolicyErrorCode};
 
 #[derive(Clone, Debug, Default)]
 pub struct PathPolicyConfig {
-    pub workspace_root: Option<PathBuf>,
-    pub additional_roots: Vec<PathBuf>,
-    pub include_home: bool,
+    pub(crate) workspace_root: Option<PathBuf>,
+    pub(crate) additional_roots: Vec<PathBuf>,
+    pub(crate) include_home: bool,
     /// The user's home, used for `~` expansion, `~/` redaction and
     /// `include_home`; `None` turns all three off (the runtime always sets it).
     pub home_dir: Option<PathBuf>,
@@ -67,7 +67,10 @@ impl PathPolicy {
         })
     }
 
-    pub fn validate_read(&self, input: impl AsRef<Path>) -> Result<ValidatedPath, PolicyError> {
+    pub(crate) fn validate_read(
+        &self,
+        input: impl AsRef<Path>,
+    ) -> Result<ValidatedPath, PolicyError> {
         self.validate_impl(input.as_ref(), true)
     }
 
@@ -131,14 +134,14 @@ impl PathPolicy {
 
     /// Discovery decisions for one walk ([`DiscoveryWalk::permits`]), equal
     /// to [`Self::permits_discovery`] at a fraction of its cost.
-    pub fn discovery_walk(&self) -> DiscoveryWalk<'_> {
+    pub(crate) fn discovery_walk(&self) -> DiscoveryWalk<'_> {
         DiscoveryWalk {
             policy: self,
             parents: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
-    pub fn allowed_roots(&self) -> Vec<PathBuf> {
+    pub(crate) fn allowed_roots(&self) -> Vec<PathBuf> {
         self.roots.clone()
     }
 
@@ -343,7 +346,7 @@ impl PathPolicy {
 
     /// `path` relative to the workspace root (`.` for the root itself), or
     /// `None` when it lies outside the workspace or none is configured.
-    pub fn workspace_relative(&self, path: impl AsRef<Path>) -> Option<String> {
+    pub(crate) fn workspace_relative(&self, path: impl AsRef<Path>) -> Option<String> {
         let normalized = normalize(path.as_ref());
         let relative = [&self.workspace_root, &self.workspace_real]
             .into_iter()
@@ -360,7 +363,7 @@ impl PathPolicy {
     /// directory, named relative to the workspace when it lies inside it;
     /// `None` when no admitted ancestor exists (the climb never leaves the
     /// allowed roots).
-    pub fn nearest_existing_dir(&self, requested: &str) -> Option<String> {
+    pub(crate) fn nearest_existing_dir(&self, requested: &str) -> Option<String> {
         let mut path = self.expand_and_resolve(Path::new(requested));
         while let Some(parent) = path.parent().map(Path::to_path_buf) {
             if let Ok(valid) = self.validate(&parent)
@@ -525,19 +528,19 @@ fn normalize(path: &Path) -> PathBuf {
 /// so only each parent (once) and each symlink are canonicalized; the
 /// decision then applies the same root and sensitive-path checks to the
 /// same lexical and real paths.
-pub struct DiscoveryWalk<'a> {
+pub(crate) struct DiscoveryWalk<'a> {
     policy: &'a PathPolicy,
     parents: std::sync::Mutex<std::collections::HashMap<PathBuf, Option<PathBuf>>>,
 }
 
 impl DiscoveryWalk<'_> {
-    pub fn permits(&self, path: &Path) -> bool {
+    pub(crate) fn permits(&self, path: &Path) -> bool {
         self.permits_entry(path, None)
     }
 
     /// [`Self::permits`] for a walked entry whose directory-listing type the
     /// walk already has: a type that is not a symlink skips the `lstat`.
-    pub fn permits_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
+    pub(crate) fn permits_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
         let lexical = self.policy.expand_and_resolve(path);
         let (Some(parent), Some(name)) = (lexical.parent(), lexical.file_name()) else {
             return self.policy.permits_discovery(path);

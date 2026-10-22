@@ -15,7 +15,7 @@ const LOG_FILE: &str = "evictions.jsonl";
 const ROTATE_BYTES: u64 = 1_000_000;
 
 /// Append one eviction record. Never fails, never panics.
-pub fn log_eviction(home: &Path, reason: &str, path: &Path, bytes: u64) {
+pub(crate) fn log_eviction(home: &Path, reason: &str, path: &Path, bytes: u64) {
     let _ = try_log(home, reason, path, bytes);
 }
 

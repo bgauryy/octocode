@@ -2,10 +2,11 @@ use super::super::HistoryItemRequest;
 use super::super::filter::*;
 use super::super::inventory::*;
 use super::super::promotion::promote_pr_continuations;
-use super::super::rest::Rest;
+use super::super::remaining::Remainder;
 use super::super::util::str_at;
 use super::super::window::*;
 use super::hunks::*;
+use super::locate::*;
 use super::page::*;
 use octocode_github::MAX_PER_PAGE;
 use serde_json::{Map, Value, json};
@@ -397,7 +398,7 @@ fn patch_pagination_counts_unfinished_files_and_continues_the_same_page() {
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "patches": pagination["patches"].clone()
     }}]});
-    promote_pr_continuations(&mut out, &request, &Rest::default());
+    promote_pr_continuations(&mut out, &request, &Remainder::default());
     let next = &out["next"]["continuePatch"]["query"]["queries"][0];
     assert_eq!(next["sections"], json!(["patches"]), "{out}");
     assert!(next.get("include").is_none(), "{next}");
@@ -845,7 +846,7 @@ fn match_context_past_the_hunk_without_head_text_is_flagged() {
 fn match_string_defaults_to_the_contract_context_and_one_page_of_hit_files() {
     assert_eq!(
         match_context(&patch_request(json!({"matchString":"miri"}))),
-        crate::tools::id::DEFAULT_READ_CONTEXT_LINES
+        crate::id::DEFAULT_READ_CONTEXT_LINES
     );
     let patch = "@@ -1,3 +1,3 @@\n a\n-old miri\n+new miri\n b\n";
     let query = patch_request(json!({"matchString":"miri"}));
@@ -1399,4 +1400,47 @@ fn clipped_patch_lines_keep_keyword_windows_in_any_script() {
             .sum();
         assert_eq!(kept, line.chars().count(), "{prefix}: {clipped}");
     }
+}
+
+/// Old-side hunk spans merge where their padded windows touch, start at
+/// line 1, skip pure additions, and fit one read's range cap.
+#[test]
+fn parent_windows_fit_one_ranged_read() {
+    assert_eq!(parent_windows("@@ -1,4 +1,3 @@ fn a\n"), ["1-14"]);
+    assert_eq!(parent_windows("@@ -5 +5 @@\n@@ -38,0 +40,2 @@\n"), ["1-15"]);
+    // A hunk with fewer trailing context lines than the diff keeps ends
+    // at the end of the file: its span stops at its last line.
+    assert_eq!(
+        parent_windows("@@ -10,5 +10,4 @@\n a\n b\n c\n-d\n e\n"),
+        ["1-14"]
+    );
+    assert_eq!(
+        parent_windows("@@ -10,7 +10,6 @@\n a\n b\n c\n-d\n e\n f\n g\n"),
+        ["1-26"]
+    );
+    let many = (0..15)
+        .map(|i| format!("@@ -{0},1 +{0},1 @@\n", 100 * (i + 1) + i))
+        .collect::<String>();
+    let ranges = parent_windows(&many);
+    assert_eq!(ranges.len(), PARENT_WINDOW_RANGES, "{ranges:?}");
+    assert!(ranges[0].starts_with("90-"), "{ranges:?}");
+    assert!(
+        ranges[PARENT_WINDOW_RANGES - 1].ends_with("-1524"),
+        "{ranges:?}"
+    );
+}
+
+/// One distinctive added line per hunk (the longest of at most
+/// 200 chars, not punctuation, not a redaction; under 12 chars only when
+/// no hunk has a longer one), duplicates once.
+#[test]
+fn distinctive_added_lines_pick_one_locator_per_hunk() {
+    let patch = "@@ -1,3 +1,4 @@\n a\n+  }\n+  const total = items.length;\n+  let x = 1;\n@@ -40 +41,2 @@\n+});\n+[REDACTED secret value here]\n@@ -90 +92 @@\n+  const total = items.length;\n@@ -99 +100 @@\n+    return computeTotal(items, options);";
+    assert_eq!(
+        distinctive_added_lines(patch),
+        [
+            "const total = items.length;",
+            "return computeTotal(items, options);"
+        ]
+    );
 }

@@ -3,7 +3,8 @@
 //! per token, never echoed, never replaced by an ambient credential.
 use crate::support::{Workspace, envelope, row_data, row_status};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use octocode_native::runtime::{Channel, RuntimeError, ToolOutcome, ToolRuntime};
+use octocode_native::response::outcome::ToolOutcome;
+use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

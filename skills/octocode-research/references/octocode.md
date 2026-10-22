@@ -3,7 +3,7 @@ Load when constructing a research query. For invocation, availability, configura
 ## Templates
 
 - Replace paths, lines, refs, and numbers with observed values; wrap per [shared invocation](octocode-usage.md#discover-and-invoke).
-- `astTopology` (CLI only): entrypoints are relative to its `path`.
+- File graphs are a CLI command, not a tool row: `npx octocode graph ingest /ABS/repo`, then `npx octocode graph query issues --detector unreachable-file --entry src/index.ts` (refs are relative to the ingested root).
 
 ```json
 [
@@ -13,7 +13,6 @@ Load when constructing a research query. For invocation, availability, configura
   {"tool":"localFetch","query":{"path":"/ABS/repo/src/example.ts","ranges":["10-30","120-140"]}},
   {"tool":"astSearch","query":{"operation":"symbols","path":"/ABS/repo/src","symbolName":["createServer","listen"]}},
   {"tool":"lspSearch","query":{"path":"/ABS/repo/src/example.ts","operation":"references","symbolName":"example","line":10,"includeDeclaration":false,"groupByFile":true}},
-  {"tool":"astTopology","query":{"operation":"reachability","path":"/ABS/repo","entrypoints":["src/index.ts"]}},
   {"tool":"ghSearchCode","query":{"owner":"tokio-rs","repo":"tokio","keywords":["max_blocking_threads"],"path":"tokio/src/runtime"}},
   {"tool":"ghGetFileContent","query":{"owner":"tokio-rs","repo":"tokio","path":"tokio/src/runtime/builder.rs","matchString":"max_blocking_threads: 512","block":true}},
   {"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":"cli","repo":"cli","number":14404}},

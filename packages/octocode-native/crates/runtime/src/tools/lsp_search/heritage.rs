@@ -11,10 +11,9 @@
 
 use super::failure::LspFailure;
 use super::source::read_bounded_source;
-use octocode_engine::graph::GraphFactsDocument;
+use octocode_engine::graph::{GraphFactCode, GraphFactsDocument};
 use octocode_engine::lsp::types::{LspCodeSnippet, LspExactPosition, LspRange};
 use octocode_engine::signatures::TYPE_DECLARATION_KINDS;
-use octocode_engine::signatures::graph_facts::GraphFactNoteKind;
 use std::collections::BTreeSet;
 use std::future::Future;
 
@@ -226,8 +225,8 @@ pub(super) fn type_document(content: &str, path: &str) -> Result<GraphFactsDocum
     let gaps = document
         .diagnostics
         .iter()
-        .filter(|note| GraphFactNoteKind::of(note) != Some(GraphFactNoteKind::SyntaxOnly))
-        .map(String::as_str)
+        .filter(|note| note.code != GraphFactCode::SyntaxOnly)
+        .map(ToString::to_string)
         .collect::<Vec<_>>();
     if !document.error_lines.is_empty()
         || !gaps.is_empty()
@@ -558,7 +557,7 @@ mod tests {
             clean
                 .diagnostics
                 .iter()
-                .any(|note| { GraphFactNoteKind::of(note) == Some(GraphFactNoteKind::SyntaxOnly) })
+                .any(|note| note.code == GraphFactCode::SyntaxOnly)
         );
         let broken = type_document("class Child(Base:\n    pass\n", &absolute("a.py"))
             .expect_err("a recovered parse may miss a clause");

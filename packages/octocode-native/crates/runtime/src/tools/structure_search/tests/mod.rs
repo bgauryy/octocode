@@ -1,14 +1,15 @@
 use super::{StructureResult, StructureSearchQuery, execute_structure};
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{AfterRoot, Fixture, sensitive_fixture, simple_policy};
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
+    execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
 use serde_json::{Value, json};
 
 mod budget;
 mod ignore;
 mod listing;
+mod roles;
 mod scans;
 
 /// Tests speak JSON rows, or a continuation's complete input (its one row);
@@ -56,7 +57,7 @@ fn walk_pages(root: &std::path::Path, start: Value) -> Vec<Value> {
             let out = run(root, row.clone()).unwrap_or_else(|error| panic!("{row}: {error:?}"));
             let page = crate::tools::test_support::checks::Page {
                 output: crate::tools::test_support::published(
-                    crate::tools::id::ToolId::StructureSearch,
+                    crate::id::ToolId::StructureSearch,
                     row,
                     &out,
                 ),
@@ -148,14 +149,14 @@ fn full_detail_counts_lines_only_for_the_selected_page() {
     for name in ["a.rs", "b.rs", "c.rs"] {
         std::fs::write(root.0.join(name), "one\ntwo\n").expect("source");
     }
-    let before = super::files::line_count_reads();
+    let before = super::rows::line_count_reads();
     let first = run(
         &root.0,
         json!({"operation":"files","path":root.0,"extras":["details"],"sort":"name","maxEntries":4,"pageSize":1}),
     )
     .expect("listing");
     assert_eq!(listed(&first).len(), 1);
-    assert_eq!(super::files::line_count_reads() - before, 1);
+    assert_eq!(super::rows::line_count_reads() - before, 1);
 }
 
 #[test]
@@ -177,6 +178,26 @@ fn invalid_time_filters_are_rejected_instead_of_skipped() {
         );
         let diagnostic = crate::contracts::format_input_error("structureSearch", &error);
         assert!(diagnostic.to_string().contains(field), "{diagnostic}");
+    }
+}
+
+/// A duration the contract's pattern admits but no walk can apply (it
+/// overflows) fails as invalid input instead of listing unfiltered.
+#[test]
+fn an_overflowing_time_filter_is_invalid_input_not_an_unfiltered_listing() {
+    let root = Fixture::new();
+    root.write("a.rs", "fn a() {}\n");
+    for field in ["modifiedWithin", "modifiedBefore", "accessedWithin"] {
+        let error = run(
+            &root.0,
+            json!({"operation":"files","path":root.0,"time":{field:"99999999999999999999d"}}),
+        )
+        .expect_err("an overflowing duration must not broaden the result");
+        assert_eq!(error.code, "invalidInput", "{field}: {error:?}");
+        assert!(
+            error.message.contains(&format!("time.{field}=")),
+            "{error:?}"
+        );
     }
 }
 
@@ -537,7 +558,7 @@ fn files_continuation_rejects_stale_snapshot() {
     assert_eq!(page2["errorCode"], json!("staleSnapshot"), "got {page2}");
     let restart = &page2["next"]["restart"];
     assert_eq!(restart["tool"], "structureSearch");
-    for cursor in crate::tools::result::CURSOR_FIELDS {
+    for cursor in crate::response::result::CURSOR_FIELDS {
         assert!(
             restart["query"]["queries"][0].get(cursor).is_none(),
             "{cursor}: {restart}"
@@ -874,7 +895,7 @@ fn tree_groups_follow_walk_order_and_name_filtered_parents() {
     let mut public = json!({"results":[{"index":0,"data":out}]});
     crate::response::continuations::finalize(
         &mut public,
-        crate::tools::id::ToolId::StructureSearch,
+        crate::id::ToolId::StructureSearch,
         &crate::response::continuations::Sources::Rows(&[]),
         &crate::response::continuations::Scope::everything(),
     )
@@ -979,7 +1000,7 @@ fn tree_pages_through_next_and_rejects_stale_snapshots() {
     let restart = &stale["next"]["restart"];
     assert_eq!(restart["tool"], "structureSearch");
     assert_eq!(restart["query"]["queries"][0]["operation"], "tree");
-    for cursor in crate::tools::result::CURSOR_FIELDS {
+    for cursor in crate::response::result::CURSOR_FIELDS {
         assert!(
             restart["query"]["queries"][0].get(cursor).is_none(),
             "{cursor}: {restart}"

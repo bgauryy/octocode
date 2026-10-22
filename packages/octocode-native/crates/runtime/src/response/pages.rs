@@ -8,7 +8,7 @@
 //! moved to the response pager, which a part names once in `warnings`
 //! (`7 more changed files (next.nextFilePage on the row's last part)`) because its own `next`
 //! no longer carries them. The counts come from the tool's own typed notes
-//! ([`crate::tools::result::ToolData::remaining`], for counts only the tool
+//! ([`crate::response::result::ToolData::remaining`], for counts only the tool
 //! knows) or else the row's public pagination facts, noted as data
 //! ([`Remaining`]) before extras pruning ([`note_remaining`]); the stage
 //! takes them off the rows ([`take_remaining_notes`]) and the pager words
@@ -17,9 +17,9 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::tools::id::ToolId;
-use crate::tools::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
-use crate::tools::result::is_call;
+use crate::id::ToolId;
+use crate::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
+use crate::response::result::is_call;
 
 const WARNINGS: &str = "warnings";
 
@@ -30,7 +30,7 @@ const REMAINING: &str = "remaining";
 /// A page of a row that leaves a counted rest to read: the page's `next`
 /// name and what is left (`17 more files`), as data.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Remaining {
+pub(crate) struct Remaining {
     pub page: String,
     pub left: String,
 }
@@ -53,9 +53,9 @@ pub(crate) fn note_remaining(row: &mut Value, tool: ToolId, typed: Vec<Remaining
 
 fn remaining_notes(row: &Value, tool: ToolId, typed: Vec<Remaining>) -> Vec<Remaining> {
     match row.get("data").and_then(Value::as_object) {
-        Some(data) if !is_complete(&row["data"]) => remaining_pages(data, typed, |name| {
-            crate::tools::id::is_remaining(tool, name)
-        }),
+        Some(data) if !is_complete(&row["data"]) => {
+            remaining_pages(data, typed, |name| crate::id::is_remaining(tool, name))
+        }
         _ => Vec::new(),
     }
 }
@@ -249,7 +249,7 @@ fn with_page_facts(pagination: &Value, call: &Value) -> Value {
     let mut facts = pagination.clone();
     let (Some(object), Some(query)) = (
         facts.as_object_mut(),
-        crate::tools::result::continuation_row(call),
+        crate::response::result::continuation_row(call),
     ) else {
         return facts;
     };
@@ -317,7 +317,7 @@ fn row_left(pagination: &Value, data: &Map<String, Value>, call: &Value) -> Opti
     if let Some(left) = items_left(pagination) {
         // The continued operation, else the row's list, names what a page
         // holds.
-        let operation = crate::tools::result::continuation_row(call)
+        let operation = crate::response::result::continuation_row(call)
             .and_then(|query| query.get("operation"))
             .and_then(Value::as_str);
         let (singular, plural) = NOUNS
@@ -334,7 +334,7 @@ fn row_left(pagination: &Value, data: &Map<String, Value>, call: &Value) -> Opti
 }
 
 /// The one text of a stale snapshot, whichever tool's cursor went stale.
-pub const STALE_SNAPSHOT_ERROR: &str = "The snapshot does not match this source and query (they changed, or the snapshot is missing or from another call); nothing shown remains valid: run the restart call, page 1 without the snapshot.";
+pub(crate) const STALE_SNAPSHOT_ERROR: &str = "The snapshot does not match this source and query (they changed, or the snapshot is missing or from another call); nothing shown remains valid: run the restart call, page 1 without the snapshot.";
 
 /// A stale-snapshot row ends the page: the shared text, no `isPartial` and no
 /// `hasMore` (nothing of the shown result remains to read), no continuation
@@ -360,19 +360,19 @@ pub(super) fn restart_stale(tool: ToolId, query: &Value, data: &mut Value) {
 }
 
 /// `next.restart` when the tool built none: the one restart of the same
-/// query ([`crate::tools::result::restart_query`]).
+/// query ([`crate::response::result::restart_query`]).
 fn ensure_restart(tool: ToolId, query: &Value, object: &mut Map<String, Value>) {
     if object
         .get("next")
         .and_then(Value::as_object)
-        .is_some_and(|next| next.keys().any(|name| crate::tools::id::is_restart(name)))
+        .is_some_and(|next| next.keys().any(|name| crate::id::is_restart(name)))
     {
         return;
     }
     if !query.is_object() {
         return;
     }
-    let restart = crate::tools::result::restart_query(tool, query);
+    let restart = crate::response::result::restart_query(tool, query);
     match object.entry("next").or_insert_with(|| json!({})) {
         Value::Object(next) => {
             next.insert("restart".into(), restart);
@@ -450,7 +450,10 @@ impl PageFacts {
             page,
             page_size: Some(size),
             total_items: Some(total_items),
-            total_pages: Some(crate::tools::page_windows::count_pages(total_items, size)),
+            total_pages: Some(crate::response::page_windows::count_pages(
+                total_items,
+                size,
+            )),
             has_more: page.saturating_mul(size) < total_items,
             out_of_range: false,
         }
@@ -495,7 +498,10 @@ impl PageFacts {
         if self.total_pages.is_none()
             && let Some(size) = self.page_size
         {
-            self.total_pages = Some(crate::tools::page_windows::count_pages(total_items, size));
+            self.total_pages = Some(crate::response::page_windows::count_pages(
+                total_items,
+                size,
+            ));
         }
         self
     }
@@ -602,32 +608,6 @@ impl SpanFacts {
     }
 }
 
-/// One count-cut page of an in-memory list. A page past the end is empty,
-/// terminal and flagged `outOfRange`, never clamped to the last page, which
-/// would repeat rows the caller already has.
-pub(crate) fn slice_page<T: Clone>(
-    items: &[T],
-    page: usize,
-    page_size: usize,
-) -> (Vec<T>, PageFacts) {
-    let (window, facts) = page_window(items.len(), page, page_size);
-    (items[window].to_vec(), facts)
-}
-
-/// The index range of one count-cut page over `len` items, and its facts
-/// (see [`slice_page`]); a page past the end is an empty range.
-pub(crate) fn page_window(
-    len: usize,
-    page: usize,
-    page_size: usize,
-) -> (std::ops::Range<usize>, PageFacts) {
-    let page = page.max(1);
-    let facts = PageFacts::counted(page, page_size, len);
-    let past_end = facts.total_pages.is_some_and(|pages| page > pages);
-    let window = crate::tools::page_windows::count_window(page, page_size, len);
-    (window, facts.out_of_range(past_end))
-}
-
 /// Cursor keys a tool's pagination block carries to the response stage,
 /// which moves them onto `next` (see [`slim_pagination`]).
 const CURSOR_KEYS: [&str; 3] = ["nextPage", "snapshot", "resultId"];
@@ -692,7 +672,7 @@ fn page_blocks_mut<'a>(key: &str, value: &'a mut Value) -> Vec<&'a mut Value> {
 /// its own pagination fields and of its nested items' (a pull request's
 /// `contentPagination`, a file's match `pagination`). `next`/`hints` and
 /// calls are never entered; the walk stops at
-/// [`crate::tools::result::NESTING_DEPTH`].
+/// [`crate::response::result::NESTING_DEPTH`].
 pub(super) fn page_blocks_deep(data: &Map<String, Value>) -> Vec<&Value> {
     fn object<'a>(fields: &'a Map<String, Value>, out: &mut Vec<&'a Value>, depth: usize) {
         for (key, child) in fields {
@@ -704,7 +684,7 @@ pub(super) fn page_blocks_deep(data: &Map<String, Value>) -> Vec<&Value> {
         }
     }
     fn value<'a>(child: &'a Value, out: &mut Vec<&'a Value>, depth: usize) {
-        if depth > crate::tools::result::NESTING_DEPTH || is_call(child) {
+        if depth > crate::response::result::NESTING_DEPTH || is_call(child) {
             return;
         }
         match child {
@@ -730,7 +710,7 @@ pub(super) fn page_blocks_deep_mut(data: &mut Map<String, Value>) -> Vec<&mut Va
         }
     }
     fn value<'a>(child: &'a mut Value, out: &mut Vec<&'a mut Value>, depth: usize) {
-        if depth > crate::tools::result::NESTING_DEPTH || is_call(child) {
+        if depth > crate::response::result::NESTING_DEPTH || is_call(child) {
             return;
         }
         match child {
@@ -766,11 +746,11 @@ pub(super) fn retain_page_blocks(
 /// A row that states `coverage.state: "complete"` lists everything in its scope: any
 /// `next.*` it carries is a drill-down, not unread rest.
 #[must_use]
-pub fn is_complete(data: &Value) -> bool {
+pub(crate) fn is_complete(data: &Value) -> bool {
     data.pointer("/coverage/state").and_then(Value::as_str) == Some("complete")
 }
 
-pub fn is_partial(data: &Value) -> bool {
+pub(crate) fn is_partial(data: &Value) -> bool {
     tree_some(data, &|map| {
         map.get("isPartial") == Some(&Value::Bool(true))
             || map.get("hasMore") == Some(&Value::Bool(true))
@@ -779,10 +759,19 @@ pub fn is_partial(data: &Value) -> bool {
 }
 
 /// Whether `value` offers, under any `next` (never inside a call), a page
-/// that leaves more of this result to read ([`crate::tools::id::is_remaining`]).
+/// that leaves more of this result to read ([`crate::id::is_remaining`]).
 #[must_use]
-pub fn has_remaining_page(tool: ToolId, value: &Value) -> bool {
-    has_call(value, &|name| crate::tools::id::is_remaining(tool, name))
+pub(crate) fn has_remaining_page(tool: ToolId, value: &Value) -> bool {
+    has_call(value, &|name| crate::id::is_remaining(tool, name))
+}
+
+/// [`has_remaining_page`] other than a `retry`, which reads the same page
+/// again rather than more of the result.
+#[must_use]
+pub(crate) fn has_page_beyond_retry(tool: ToolId, value: &Value) -> bool {
+    has_call(value, &|name| {
+        crate::id::kind(name) != "retry" && crate::id::is_remaining(tool, name)
+    })
 }
 
 /// Whether `value` holds, at any depth, an executable `{tool, query}` call
@@ -824,8 +813,8 @@ fn pagination_codes(data: &Value) -> Vec<String> {
     }
     let pageable = tree_some(data, &|m| m.get("hasMore") == Some(&Value::Bool(true)));
     let partial = tree_some(data, &|m| m.get("isPartial") == Some(&Value::Bool(true)));
-    let page = has_call(data, &crate::tools::id::resumes_after_shown);
-    let expansion = has_call(data, &|name| !crate::tools::id::resumes_after_shown(name));
+    let page = has_call(data, &crate::id::resumes_after_shown);
+    let expansion = has_call(data, &|name| !crate::id::resumes_after_shown(name));
     if (pageable && !page)
         || ((tree_some(data, &bounded) || partial) && !page && !expansion)
         || clipped_value_unreached(data)
@@ -866,9 +855,9 @@ fn clipped_value_unreached(data: &Value) -> bool {
             Value::Object(map) => {
                 for (key, child) in map {
                     if is_call(child)
-                        && let Some(query) =
-                            crate::tools::result::continuation_row(child).and_then(Value::as_object)
-                        && !crate::tools::id::resumes_after_shown(key)
+                        && let Some(query) = crate::response::result::continuation_row(child)
+                            .and_then(Value::as_object)
+                        && !crate::id::resumes_after_shown(key)
                     {
                         *widened |= query.contains_key("matchContentLength");
                         if let Some(path) = query.get("path").and_then(Value::as_str) {
@@ -923,7 +912,7 @@ mod tests {
     use super::{
         PageFacts, Remaining, SpanFacts, note_remaining, redisclose, take_remaining_notes,
     };
-    use crate::tools::id::ToolId;
+    use crate::id::ToolId;
     use serde_json::{Value, json};
 
     fn page(tool: &str) -> Value {
@@ -1281,7 +1270,7 @@ mod tests {
             "pagination": {"unit": "lines", "offset": 0, "length": 490,
                 "hasMore": true, "nextOffset": 490},
             "isPartial": true,
-            "partialReasons": ["full-content-size-limit"],
+            "partialReasons": ["response-share"],
             "next": {"continueWindow": page("ghGetFileContent")}
         }));
         assert_eq!(
@@ -1314,7 +1303,7 @@ mod tests {
         super::restart_stale(ToolId::LocalFetch, &query, &mut data);
         assert_eq!(
             data["next"]["restart"],
-            crate::tools::result::restart_query(ToolId::LocalFetch, &query),
+            crate::response::result::restart_query(ToolId::LocalFetch, &query),
             "{data}"
         );
         assert_eq!(

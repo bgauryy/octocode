@@ -5,11 +5,13 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { buildReport, manifestPage } from '../scripts/render-report.mjs';
-const renderer = resolve('skills/common/scripts/render-report.mjs');
+// Paths from this file, so the test runs from the repo root or its package.
+const skillsRoot = resolve(import.meta.dirname, '../..');
+const renderer = resolve(skillsRoot, 'common/scripts/render-report.mjs');
 function workspace(t) { const root=mkdtempSync(join(tmpdir(),'report-flow-'));t.after(()=>rmSync(root,{recursive:true,force:true}));return root; }
 const today = new Date().toLocaleDateString('en-CA');
-for (const entry of readdirSync('skills')) {
-  let source;try {source=readFileSync(join('skills',entry,'output.md'),'utf8');}catch {continue;}
+for (const entry of readdirSync(skillsRoot)) {
+  let source;try {source=readFileSync(join(skillsRoot,entry,'output.md'),'utf8');}catch {continue;}
   const match=source.match(/<!-- report-contract ([\s\S]*?) -->/);if(!match) continue;
   const contract=JSON.parse(match[1]);
   test(`${entry}: explicit contract rejects missing sections, including headings inside fences`,t=>{

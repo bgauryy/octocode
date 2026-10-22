@@ -17,12 +17,16 @@ $ npx octocode schema
 $ npx octocode schema localSearch --view query
 {"name":"localSearch","description":"…","querySchema":{…},"availability":{"enabled":true},"run":"octocode localSearch '<json>'"}
 
-$ npx octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"crates/","resultView":"files"}]}'
-{"results":[{"index":0,"data":{…}}],"root":"…"}
+$ npx octocode localSearch ToolRuntime crates/ -l
+crates/cli/src/cli/config.rs
+crates/cli/src/cli/graph.rs
+…
 ```
 
-Every available tool is a command under its canonical name, with the same JSON
-query contract as the MCP server; there are no per-tool flags and no aliases. The
+Every available tool is a command under its canonical name, with the same query
+contract as the MCP server. Its flags are generated from that contract: one long
+flag per field, plus short letters rg, grep, fd, ast-grep and gh use for the same
+meaning (`crates/cli/src/cli/flags.rs`); one JSON query works too. The
 binary serves `schema` and each tool's `--help` itself, from discovery content
 that `@octocodeai/config` projects from the core contract at build time, so an
 agent with only the binary can discover every tool. The `octocode` npm launcher
@@ -81,7 +85,8 @@ lists every Cargo dependency between them.
 | `crates/engine` | Reusable algorithms: search, AST, signatures, graph facts, minification, the language-server pool | none |
 | `crates/io` | Cross-crate primitives: owner-only atomic writes, `flock` waits, environment reads, the HTTP client policy, the in-process memo, keyed single flight, stderr notices ([`lib.rs`](crates/io/src/lib.rs)) | none |
 | `crates/github` | GitHub protocol and transport, retries, `Partition` ([`lib.rs`](crates/github/src/lib.rs)) | `io` |
-| `crates/runtime` (`octocode-native`) | `ToolRuntime`: config, credentials, contracts, availability, tools, responses | `io`, `engine`, `github` |
+| `crates/contract-types` | The tool wire types generated from the contract (`include!`s `packages/octocode-config/contract/tool_types.rs`) | none |
+| `crates/runtime` (`octocode-native`) | `ToolRuntime`: config, credentials, contracts, availability, tools, responses | `io`, `engine`, `github`, `contract-types` |
 | `crates/cli` | The `octocode` binary and its warm tool server | `io`, `runtime`, `engine`, `github` |
 | `crates/runtime-napi` | The N-API addon the MCP server loads | `runtime` |
 
@@ -131,12 +136,14 @@ Field reference: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md).
 
 ## Commands
 
-Tool commands take one JSON query (positional, `--input <file>`, or `--input -`).
-On a terminal they print the text MCP clients read; on a pipe, one line of JSON
-(`--json` forces JSON, indented on a terminal). `octocode --help` lists the tools available under the
+Tool commands take flags and positional arguments, or one JSON query (positional,
+`--input <file>`, or `--input -`). They print text on a terminal or a pipe:
+rg-style lines for search hits, the rendered result otherwise, with notes and
+runnable follow-up commands on stderr (`crates/cli/src/cli/lines.rs`). `--json`
+prints JSON, indented on a terminal. `octocode --help` lists the tools available under the
 current configuration: by default the 12 MCP tools plus the CLI-only
-`ghCloneRepo`. Beta tools (`astTopology`, and `clasify` with a classification
-key) appear with `OCTOCODE_BETA=true`. Gates: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md)
+`ghCloneRepo`. Beta `clasify` (with a classification key) appears with
+`OCTOCODE_BETA=true`. Gates: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md)
 and [clasify availability](../../docs/OCTOCODE_CLASIFY.md#availability).
 
 | Command | What it does |
@@ -153,7 +160,7 @@ Hidden maintenance commands: `cache <status|clear>`,
 `lsp-server <list|install|uninstall|clean|status>`, and `serve` (the warm
 tool server, started automatically). Exit codes are printed by
 `octocode --help` and documented in the
-[CLI guide](../octocode/docs/OCTOCODE_CLI.md#exit-codes).
+[CLI guide](../../docs/OCTOCODE_CLI.md#exit-codes).
 
 ### Warm tool server
 
@@ -196,8 +203,8 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   request.
 
 The named limits are constants in
-[`crates/cli/src/cli/serve.rs`](crates/cli/src/cli/serve.rs), which documents
-how the server keeps these guarantees.
+[`crates/cli/src/cli/serve/`](crates/cli/src/cli/serve/mod.rs), whose module
+documentation says how the server keeps these guarantees.
 
 `npx @octocodeai/octocode-native` runs this binary directly. `npx octocode` (the
 Node launcher) runs the same binary with unchanged arguments and inherited stdio.
@@ -209,7 +216,13 @@ Native owns the interactive `install` picker, skill commands, and `config view`.
 yarn workspace @octocodeai/octocode-native test:rust   # every crate with cargo-nextest, including the N-API adapter
 yarn workspace @octocodeai/octocode-native test        # script checks, Node tests, then test:rust
 yarn workspace @octocodeai/octocode-native verify      # fmt, clippy, cargo deny, cargo shear, tsc, tests, contract freshness
+cargo dev-test -- <filter>                             # the test:rust selection under libtest, reusing its build
 ```
+
+`cargo dev-test` (an alias in `.cargo/config.toml`) is the local loop: it
+carries the `test:rust` packages and features, so it reuses that build instead
+of compiling another copy, and libtest runs each test binary in one process.
+`test:rust` stays on nextest; `scripts/test-rust-selections.cjs` says why.
 
 ## Constraints
 

@@ -47,6 +47,23 @@ impl Readiness {
     }
 }
 
+/// Wait this long for the very first `$/progress begin` after
+/// `initialized` is sent.
+///
+/// This window has to absorb two very different server behaviours:
+///   * Servers that announce indexing via `$/progress` — they emit a
+///     `begin` within this window and we then drain to completion.
+///   * Servers that index WITHOUT progress events — the only safe
+///     signal we have is elapsed time, so the window must be long
+///     enough that the server has plausibly finished its initial work
+///     before we let the first query through.
+///
+/// 100 ms was too aggressive: a server indexing silently would race the
+/// first query and return wrong/empty results. We use a conservative
+/// few-second window instead, always bounded by the caller's
+/// `timeout_ms` so `wait_for_ready` can never block longer than asked.
+pub(crate) const STARTUP_SETTLE_MS: u64 = 2_000;
+
 /// Tracks in-flight `$/progress` tokens emitted by a language server.
 ///
 /// After `initialized` is sent, servers like `rust-analyzer` begin asynchronous
@@ -54,7 +71,7 @@ impl Readiness {
 /// `wait_until_idle` gates on all such tokens completing (or a deadline firing).
 ///
 /// Two-phase wait:
-///   1. **Settle** (`SETTLE_MS`): wait for the first `begin` to arrive.
+///   1. **Settle** ([`STARTUP_SETTLE_MS`]): wait for the first `begin` to arrive.
 ///      Servers that don't use progress return immediately after this window.
 ///   2. **Drain**: wait until every active token ends or the original deadline expires.
 pub(crate) struct ProgressTracker {
@@ -122,23 +139,8 @@ impl ProgressTracker {
     /// (e.g. crate loading -> workspace analysis -> cache priming).  Without
     /// the quiescence window we would return after the *first* wave, before the
     /// server is fully ready to answer queries.
-    pub(crate) async fn wait_until_idle(&self, timeout_ms: u64) -> Readiness {
-        /// Wait this long for the very first `$/progress begin` after
-        /// `initialized` is sent.
-        ///
-        /// This window has to absorb two very different server behaviours:
-        ///   * Servers that announce indexing via `$/progress` — they emit a
-        ///     `begin` within this window and we then drain to completion.
-        ///   * Servers that index WITHOUT progress events — the only safe
-        ///     signal we have is elapsed time, so the window must be long
-        ///     enough that the server has plausibly finished its initial work
-        ///     before we let the first query through.
-        ///
-        /// 100 ms was too aggressive: a server indexing silently would race the
-        /// first query and return wrong/empty results. We use a conservative
-        /// few-second window instead, always bounded by the caller's
-        /// `timeout_ms` so `wait_for_ready` can never block longer than asked.
-        const SETTLE_MS: u64 = 2_000;
+    /// `settle_ms` is the settle window (normally [`STARTUP_SETTLE_MS`]).
+    pub(crate) async fn wait_until_idle(&self, timeout_ms: u64, settle_ms: u64) -> Readiness {
         /// After count reaches 0, wait this long for any follow-up wave before
         /// declaring the server idle.  Sized to bridge the typical gap between
         /// rust-analyzer progress waves (~10-100 ms in practice).
@@ -150,7 +152,7 @@ impl ProgressTracker {
 
         // Phase 1 -- settle: wait briefly for the first $/progress begin.
         if *rx.borrow() == 0 && !self.ever_active.load(Ordering::Acquire) {
-            let settle = Duration::from_millis(SETTLE_MS.min(timeout_ms));
+            let settle = Duration::from_millis(settle_ms.min(timeout_ms));
             let became_active = tokio::time::timeout(settle, rx.wait_for(|c| *c > 0))
                 .await
                 .is_ok();
@@ -287,7 +289,7 @@ mod tests {
                 tracker.on_begin(token.to_owned()).await;
             }
             let start = Instant::now();
-            let readiness = tracker.wait_until_idle(timeout_ms).await;
+            let readiness = tracker.wait_until_idle(timeout_ms, STARTUP_SETTLE_MS).await;
             assert_eq!(start.elapsed(), Duration::from_millis(elapsed_ms), "{case}");
             assert_eq!(readiness, expected, "{case}");
         }
@@ -302,7 +304,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
             t.on_end("indexing").await;
         });
-        let readiness = tracker.wait_until_idle(5_000).await;
+        let readiness = tracker.wait_until_idle(5_000, STARTUP_SETTLE_MS).await;
         assert_eq!(*tracker.count_rx.borrow(), 0);
         assert_eq!(readiness, Readiness::ProgressIdle);
     }
@@ -318,7 +320,7 @@ mod tests {
         });
         let started = Instant::now();
         assert_eq!(
-            tracker.wait_until_idle(5_000).await,
+            tracker.wait_until_idle(5_000, STARTUP_SETTLE_MS).await,
             Readiness::ProgressIdle
         );
         assert!(started.elapsed() >= Duration::from_millis(500));
@@ -334,7 +336,10 @@ mod tests {
             1,
             "one status token, not one per report"
         );
-        assert_eq!(tracker.wait_until_idle(300).await, Readiness::Timeout);
+        assert_eq!(
+            tracker.wait_until_idle(300, STARTUP_SETTLE_MS).await,
+            Readiness::Timeout
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -343,7 +348,7 @@ mod tests {
         tracker.on_begin("indexing".to_owned()).await;
         tracker.on_end("indexing").await;
         let started = Instant::now();
-        let readiness = tracker.wait_until_idle(5_000).await;
+        let readiness = tracker.wait_until_idle(5_000, STARTUP_SETTLE_MS).await;
         assert_eq!(readiness, Readiness::ProgressIdle);
         assert!(started.elapsed() >= Duration::from_millis(200));
     }
@@ -353,7 +358,10 @@ mod tests {
         let tracker = ProgressTracker::new();
         tracker.on_begin("indexing".to_owned()).await;
         tracker.on_end("indexing").await;
-        assert_eq!(tracker.wait_until_idle(20).await, Readiness::Timeout);
+        assert_eq!(
+            tracker.wait_until_idle(20, STARTUP_SETTLE_MS).await,
+            Readiness::Timeout
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -370,7 +378,7 @@ mod tests {
         });
         let started = Instant::now();
         assert_eq!(
-            tracker.wait_until_idle(2_000).await,
+            tracker.wait_until_idle(2_000, STARTUP_SETTLE_MS).await,
             Readiness::ProgressIdle
         );
         assert!(started.elapsed() >= Duration::from_millis(450));

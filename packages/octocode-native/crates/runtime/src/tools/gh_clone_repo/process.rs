@@ -1,6 +1,6 @@
 use super::CloneError;
+use crate::execution::cancel::CancellationCheck;
 use crate::tools::bounded_process::{BoundedError, run_bounded, run_bounded_records};
-use crate::tools::cancel::CancellationCheck;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::ffi::OsString;
 use std::fmt;
@@ -122,6 +122,9 @@ pub struct SystemGit {
     executable: PathBuf,
     /// [`passthrough_env`] values, read once from the runtime environment.
     passthrough: Vec<(String, OsString)>,
+    /// Collected stdout/stderr bytes per git run ([`MAX_OUTPUT_BYTES`];
+    /// tests lower it to reach the cap with a small repository).
+    max_output: usize,
 }
 
 impl Default for SystemGit {
@@ -132,6 +135,7 @@ impl Default for SystemGit {
             passthrough: passthrough_env()
                 .filter_map(|name| Some((name.to_owned(), std::env::var_os(name)?)))
                 .collect(),
+            max_output: MAX_OUTPUT_BYTES,
         }
     }
 }
@@ -155,6 +159,7 @@ impl SystemGit {
         Self {
             executable: PathBuf::from("git"),
             passthrough,
+            max_output: MAX_OUTPUT_BYTES,
         }
     }
 
@@ -163,6 +168,15 @@ impl SystemGit {
         Self {
             executable: executable.into(),
             ..Self::default()
+        }
+    }
+
+    /// This git with collected output capped at `bytes`.
+    #[cfg(test)]
+    pub(super) fn with_max_output(self, bytes: usize) -> Self {
+        Self {
+            max_output: bytes,
+            ..self
         }
     }
 }
@@ -328,7 +342,7 @@ impl SystemGit {
                 command,
                 &label,
                 timeout,
-                MAX_OUTPUT_BYTES,
+                self.max_output,
                 control.cancellation,
                 &mut |line| record(line).map_err(|error| error.message),
             ),
@@ -336,7 +350,7 @@ impl SystemGit {
                 command,
                 &label,
                 timeout,
-                MAX_OUTPUT_BYTES,
+                self.max_output,
                 control.cancellation,
             ),
         }
@@ -527,22 +541,29 @@ mod env_and_scrub_tests {
         .expect("fixture git");
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).expect("chmod");
         let token = "ghp_secretToken123";
-        SystemGit::new(&script)
-            .run(
+        // The fixture runs a dozen processes; a run its timeout ended under
+        // load tested nothing and is repeated with a longer one.
+        let timeouts = [10, 40].map(Duration::from_secs);
+        crate::process_fixture::until_set_up(&timeouts, |timeout| {
+            let ran = SystemGit::new(&script).run(
                 &GitRunRequest {
                     args: vec!["clone".into(), "https://github.com/owner/repo.git".into()],
-                    timeout: Duration::from_secs(10),
+                    timeout,
                     label: "askpass fixture".into(),
                     authorization: Some(token),
                     authorization_url: Some("https://github.com/owner/repo.git"),
                 },
                 &GitRunControl {
-                    cancellation: &crate::tools::cancel::NeverCancel,
-                    deadline: Instant::now() + Duration::from_secs(15),
+                    cancellation: &crate::execution::cancel::NeverCancel,
+                    deadline: Instant::now() + timeout + Duration::from_secs(5),
                     cache_home: &home.0,
                 },
-            )
-            .expect("fixture runs");
+            );
+            match ran {
+                Err(error) if error.code == "timeout" => None,
+                ran => Some(ran.expect("fixture runs")),
+            }
+        });
         let dump = std::fs::read_to_string(&dump).expect("dump");
         let (answers, child): (Vec<&str>, Vec<&str>) = dump.lines().partition(|line| {
             line.starts_with("user:") || line.starts_with("pass:") || line.starts_with("other:")
@@ -586,15 +607,21 @@ mod env_and_scrub_tests {
         let script = home.0.join("git");
         std::fs::write(
             &script,
-            "#!/bin/sh\ndd if=/dev/zero bs=1048576 count=6 2>/dev/null\n",
+            "#!/bin/sh\ndd if=/dev/zero bs=65536 count=2 2>/dev/null\n",
         )
         .expect("fixture git");
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        // A small cap and a generous timeout: under load the write must hit
+        // the cap, never race the request's own deadline.
         let error = SystemGit::new(&script)
+            .with_max_output(64 * 1024)
             .run(
-                &request(),
+                &GitRunRequest {
+                    timeout: Duration::from_secs(10),
+                    ..request()
+                },
                 &GitRunControl {
-                    cancellation: &crate::tools::cancel::NeverCancel,
+                    cancellation: &crate::execution::cancel::NeverCancel,
                     deadline: Instant::now() + Duration::from_secs(10),
                     cache_home: &home.0,
                 },

@@ -117,7 +117,7 @@ async fn oversized_cli_output_pages_by_whole_rows_with_an_executable_continuatio
         .into_owned();
     let runtime = workspace.runtime_with(
         &[],
-        octocode_native::runtime::RuntimeLimits {
+        octocode_native::execution::RuntimeLimits {
             auto_page_chars: 4000,
             ..support::FIXTURE_LIMITS
         },
@@ -180,7 +180,7 @@ async fn small_output_is_not_paginated_and_mcp_auto_pages_by_whole_rows() {
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime_with(
         &[],
-        octocode_native::runtime::RuntimeLimits {
+        octocode_native::execution::RuntimeLimits {
             auto_page_chars: 2000,
             ..support::FIXTURE_LIMITS
         },

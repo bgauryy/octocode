@@ -13,7 +13,7 @@ pub fn frozen_graph(files: usize, fanout: usize) -> BTreeMap<String, FileGraphNo
                 (target < files).then(|| {
                     (
                         format!("src/file-{target:05}.rs"),
-                        BTreeSet::from(["rust-use".to_owned()]),
+                        BTreeMap::from([("rust-use".to_owned(), 1)]),
                     )
                 })
             })

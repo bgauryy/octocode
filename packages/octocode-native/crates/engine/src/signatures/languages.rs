@@ -86,7 +86,18 @@ pub struct LanguageEntry {
     /// structural, signature, and graph capability inventories therefore agree.
     pub body_query: &'static str,
     pub(crate) pattern_syntax: PatternSyntax,
-    pub comment_style: &'static str,
+    pub comment_style: CommentStyle,
+}
+
+/// The comment syntax an outline drops pure-comment lines by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommentStyle {
+    /// `//`, `/* … */` and ` * ` continuation lines.
+    C,
+    /// `#` lines (a `#!` shebang is kept).
+    Hash,
+    /// Assembly: `#`, `;`, `//` and `/*` comments.
+    Asm,
 }
 
 const JS_TS_BODY_QUERY: &str = r#"[
@@ -123,14 +134,9 @@ const C_BODY_QUERY: &str = r#"
   (function_definition body: (compound_statement) @body)
 "#;
 
-#[cfg(feature = "tree-sitter-cpp")]
+/// C++ and CUDA (whose grammar extends C++'s): function and lambda bodies.
+#[cfg(any(feature = "tree-sitter-cpp", feature = "tree-sitter-cuda"))]
 const CPP_BODY_QUERY: &str = r#"[
-  (function_definition  body: (compound_statement) @body)
-  (lambda_expression    body: (compound_statement) @body)
-]"#;
-
-#[cfg(feature = "tree-sitter-cuda")]
-const CUDA_BODY_QUERY: &str = r#"[
   (function_definition  body: (compound_statement) @body)
   (lambda_expression    body: (compound_statement) @body)
 ]"#;
@@ -181,7 +187,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("typescript"),
             language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             body_query: JS_TS_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         LanguageEntry {
             name: "TSX",
@@ -192,7 +198,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("typescriptreact"),
             language: tree_sitter_typescript::LANGUAGE_TSX.into(),
             body_query: JS_TS_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         LanguageEntry {
             name: "JavaScript",
@@ -203,7 +209,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("javascript"),
             language: tree_sitter_javascript::LANGUAGE.into(),
             body_query: JS_TS_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         LanguageEntry {
             name: "Python",
@@ -215,7 +221,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("python"),
             language: tree_sitter_python::LANGUAGE.into(),
             body_query: PY_BODY_QUERY,
-            comment_style: "hash",
+            comment_style: CommentStyle::Hash,
         },
         LanguageEntry {
             name: "Go",
@@ -229,7 +235,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("go"),
             language: tree_sitter_go::LANGUAGE.into(),
             body_query: GO_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         LanguageEntry {
             name: "Rust",
@@ -243,7 +249,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("rust"),
             language: tree_sitter_rust::LANGUAGE.into(),
             body_query: RS_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         LanguageEntry {
             name: "Java",
@@ -257,7 +263,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("java"),
             language: tree_sitter_java::LANGUAGE.into(),
             body_query: JAVA_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         LanguageEntry {
             name: "C",
@@ -268,7 +274,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("c"),
             language: tree_sitter_c::LANGUAGE.into(),
             body_query: C_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         #[cfg(feature = "tree-sitter-asm")]
         LanguageEntry {
@@ -285,7 +291,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("asm"),
             language: tree_sitter_asm::LANGUAGE.into(),
             body_query: ASM_BODY_QUERY,
-            comment_style: "asm",
+            comment_style: CommentStyle::Asm,
         },
         // Scala: function bodies stripped; class/object/trait bodies kept so
         // member signatures remain visible (mirrors Java/TS behaviour).
@@ -299,7 +305,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("scala"),
             language: tree_sitter_scala::LANGUAGE.into(),
             body_query: SCALA_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         #[cfg(feature = "tree-sitter-cpp")]
         LanguageEntry {
@@ -313,7 +319,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("cpp"),
             language: tree_sitter_cpp::LANGUAGE.into(),
             body_query: CPP_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
         #[cfg(feature = "tree-sitter-cuda")]
         LanguageEntry {
@@ -324,8 +330,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             also_parses: &[],
             language_id: Some("cuda"),
             language: tree_sitter_cuda::LANGUAGE.into(),
-            body_query: CUDA_BODY_QUERY,
-            comment_style: "c",
+            body_query: CPP_BODY_QUERY,
+            comment_style: CommentStyle::C,
         },
         #[cfg(feature = "tree-sitter-c-sharp")]
         LanguageEntry {
@@ -340,7 +346,7 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("csharp"),
             language: tree_sitter_c_sharp::LANGUAGE.into(),
             body_query: CS_BODY_QUERY,
-            comment_style: "c",
+            comment_style: CommentStyle::C,
         },
     ]
 }

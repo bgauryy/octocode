@@ -95,21 +95,6 @@ export const CASES = [
     },
   },
   {
-    tool: 'astTopology',
-    scope: null,
-    query: {
-      path: 'src',
-      operation: 'dependencies',
-      source: 'src/app.ts',
-      pageSize: 1,
-    },
-    classifiers: ['Find dependencies used for greeting behavior.'],
-    target: 'greeter',
-    control: { path: 'src', operation: 'dependencies', source: 'src/app.ts' },
-    kind: 'structural',
-    skip: 'Graph relationships and coverage retain structural order.',
-  },
-  {
     tool: 'lspSearch',
     scope: null,
     query: {

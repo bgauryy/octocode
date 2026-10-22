@@ -128,46 +128,6 @@
       ]
     },
     {
-      "id": "L04",
-      "tool": "astTopology",
-      "kind": "local",
-      "beta": true,
-      "surface": "cli",
-      "source": "W2",
-      "question": "Which files directly import packages/excalidraw/data/library.ts (aliases included)?",
-      "truth": {
-        "exactFiles": [
-          "excalidraw-app/App.tsx",
-          "excalidraw-app/data/LocalData.ts",
-          "packages/excalidraw/components/App.tsx",
-          "packages/excalidraw/components/CommandPalette/CommandPalette.tsx",
-          "packages/excalidraw/components/LibraryMenu.tsx",
-          "packages/excalidraw/components/LibraryMenuHeaderContent.tsx",
-          "packages/excalidraw/data/library.test.ts",
-          "packages/excalidraw/index.tsx",
-          "packages/excalidraw/tests/library.test.tsx",
-          "packages/excalidraw/types.ts"
-        ]
-      },
-      "truthSource": "rg on both import forms (relative and @excalidraw/excalidraw/data/library alias), each import line read",
-      "octocode": [
-        {
-          "cli": "astTopology",
-          "args": {
-            "path": "{{ROOT}}/{{T}}/tsx",
-            "operation": "dependents",
-            "source": "packages/excalidraw/data/library.ts"
-          }
-        }
-      ],
-      "competitor": [
-        {
-          "sh": "rg -l '(data/library|\\./library).;?$' $T/tsx --type ts",
-          "parse": "rg"
-        }
-      ]
-    },
-    {
       "id": "L05",
       "tool": "localFetch",
       "kind": "local",

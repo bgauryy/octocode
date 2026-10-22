@@ -1,8 +1,8 @@
 //! The one rule for continuing an astSearch scan that stopped before its
 //! scope ended: the lead's `maxFiles` and `scanOffset` stay inside the
 //! contract, and a cut that no valid call can continue is terminal.
-use crate::tools::id::query_limits::ast_search;
-use crate::tools::num::u32_of_usize;
+use crate::contracts::query_limits::ast_search;
+use crate::num::u32_of_usize;
 
 /// The fields a continuation sets: a raised `maxFiles` (an explicit-limit cut
 /// only) and the `scanOffset` the scan resumes from.

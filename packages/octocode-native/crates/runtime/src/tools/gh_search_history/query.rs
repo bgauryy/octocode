@@ -1,36 +1,40 @@
 //! Routing (search or REST list) and the GitHub search terms a query runs.
 use super::{GhSearchHistoryQuery, HistoryOperation, HistorySearch};
 use crate::providers::github::resolve_date_window;
-use octocode_github::{
-    ProviderError, ProviderErrorKind, quote_search_keyword, validate_person_name,
-    validate_qualifier_value,
-};
+use crate::tools::gh_search_history::gh_search_history_query;
+use crate::tools::gh_shared::query::SearchTerms;
+use octocode_github::{ProviderError, ProviderErrorKind, validate_person_name};
 
 /// A keyword-less issue listing keeps the REST list order (newest first)
 /// instead of search's unordered best-match.
 fn lists_issues_newest_first(q: &GhSearchHistoryQuery) -> bool {
-    matches!(q.operation(), HistoryOperation::Issue)
-        && q.keywords().is_empty()
-        && q.sort().is_none_or(|sort| sort == "best-match")
+    matches!(
+        gh_search_history_query::operation(q),
+        HistoryOperation::Issue
+    ) && gh_search_history_query::keywords(q).is_empty()
+        && gh_search_history_query::sort(q).is_none_or(|sort| sort == "best-match")
 }
 
 /// The order GitHub search runs a query in, as `(sort, order)`; no sort is
 /// best match. Commit search runs newest first by committer date, and a
 /// keyword-less issue listing newest first by creation.
 pub(super) fn search_order(q: &GhSearchHistoryQuery) -> (Option<String>, Option<String>) {
-    if q.operation() == HistoryOperation::Commit {
+    if gh_search_history_query::operation(q) == HistoryOperation::Commit {
         return (Some("committer-date".into()), Some("desc".into()));
     }
     if lists_issues_newest_first(q) {
         return (Some("created".into()), Some("desc".into()));
     }
-    (q.sort().filter(|sort| sort != "best-match"), q.order())
+    (
+        gh_search_history_query::sort(q).filter(|sort| sort != "best-match"),
+        gh_search_history_query::order(q),
+    )
 }
 
 /// Issue-style qualifiers only the search API understands.
 pub(super) fn needs_issue_search_qualifiers(q: &HistorySearch) -> bool {
     let f = q.filters();
-    !q.keywords().is_empty()
+    !gh_search_history_query::keywords(q).is_empty()
         || q.author().is_some()
         || f.assignee.is_some()
         || !q.label().is_empty()
@@ -40,19 +44,22 @@ pub(super) fn needs_issue_search_qualifiers(q: &HistorySearch) -> bool {
         || f.linked.is_some()
         || f.comments.is_some()
         || f.created.is_some()
-        || q.since().is_some()
-        || q.until().is_some()
+        || gh_search_history_query::since(q).is_some()
+        || gh_search_history_query::until(q).is_some()
         || f.updated.is_some()
         || f.closed.is_some()
         || !f.match_kinds.is_empty()
-        || matches!(q.sort().as_deref(), Some("comments" | "reactions"))
+        || matches!(
+            gh_search_history_query::sort(q).as_deref(),
+            Some("comments" | "reactions")
+        )
 }
 
 pub(super) fn should_use_search_for_prs(q: &HistorySearch) -> bool {
     let f = q.filters();
     // The REST list endpoint needs owner+repo; anything broader is search.
-    q.owner().is_none()
-        || q.repo().is_none()
+    gh_search_history_query::owner(q).is_none()
+        || gh_search_history_query::repo(q).is_none()
         || needs_issue_search_qualifiers(q)
         || f.draft.is_some()
         || f.unmerged.is_some()
@@ -74,17 +81,19 @@ pub(super) fn should_use_search_for_prs(q: &HistorySearch) -> bool {
 /// requests, so filtering them out of provider pages underfills pages and
 /// makes page numbers skip. `is:issue` search pages count issues only.
 pub(super) fn uses_search(q: &HistorySearch) -> bool {
-    match q.operation() {
-        HistoryOperation::Commit => !q.keywords().is_empty(),
+    match gh_search_history_query::operation(q) {
+        HistoryOperation::Commit => !gh_search_history_query::keywords(q).is_empty(),
         HistoryOperation::Issue => true,
         HistoryOperation::PullRequest => should_use_search_for_prs(q),
     }
 }
 
 pub(super) fn required_repo(q: &GhSearchHistoryQuery) -> Result<(&str, &str), ProviderError> {
-    q.owner().zip(q.repo()).ok_or_else(|| {
-        ProviderError::new(ProviderErrorKind::Validation, "owner and repo are required")
-    })
+    gh_search_history_query::owner(q)
+        .zip(gh_search_history_query::repo(q))
+        .ok_or_else(|| {
+            ProviderError::new(ProviderErrorKind::Validation, "owner and repo are required")
+        })
 }
 
 /// Person fields become `author:`-style qualifiers: reject anything that is
@@ -110,7 +119,10 @@ pub(super) fn resolve_commit_window(
     q: &GhSearchHistoryQuery,
     warnings: &mut Vec<String>,
 ) -> Result<(Option<String>, Option<String>), ProviderError> {
-    for (field, value) in [("since", q.since()), ("until", q.until())] {
+    for (field, value) in [
+        ("since", gh_search_history_query::since(q)),
+        ("until", gh_search_history_query::until(q)),
+    ] {
         if let Some(value) = value
             && resolve_date_window(value).value.is_none()
         {
@@ -123,8 +135,8 @@ pub(super) fn resolve_commit_window(
             ));
         }
     }
-    let since = q.since().map(resolve_date_window);
-    let until = q.until().map(resolve_date_window);
+    let since = gh_search_history_query::since(q).map(resolve_date_window);
+    let until = gh_search_history_query::until(q).map(resolve_date_window);
     if let (Some(since), Some(until)) = (&since, &until)
         && since.is_after(until)
     {
@@ -132,8 +144,8 @@ pub(super) fn resolve_commit_window(
             ProviderErrorKind::Validation,
             format!(
                 "since ({}) is after until ({}); swap them or widen the window",
-                q.since().unwrap_or_default().trim(),
-                q.until().unwrap_or_default().trim()
+                gh_search_history_query::since(q).unwrap_or_default().trim(),
+                gh_search_history_query::until(q).unwrap_or_default().trim()
             ),
         ));
     }
@@ -148,37 +160,13 @@ pub(super) fn resolve_commit_window(
     Ok((since, until))
 }
 
-/// Range and enum qualifiers are single terms: whitespace inside a range
-/// (`> 5`, `a .. b`) is dropped, anything that could open a new term is
-/// rejected.
-fn push_qualifier(
-    out: &mut Vec<String>,
-    key: &str,
-    value: Option<&str>,
-) -> Result<(), ProviderError> {
-    if let Some(value) = value {
-        let range = value.trim_start().starts_with(['<', '>', '=']) || value.contains("..");
-        let compact = if range {
-            value
-                .chars()
-                .filter(|c| !c.is_whitespace())
-                .collect::<String>()
-        } else {
-            value.trim().to_owned()
-        };
-        validate_qualifier_value(key, &compact)?;
-        out.push(format!("{key}:{compact}"));
-    }
-    Ok(())
-}
-
 fn commit_terms(
     q: &HistorySearch,
-    out: &mut Vec<String>,
+    out: &mut SearchTerms,
     warnings: &mut Vec<String>,
 ) -> Result<(), ProviderError> {
     let (o, r) = required_repo(q)?;
-    out.push(format!("repo:{o}/{r}"));
+    out.scope(Some(o), Some(r));
     for (field, value) in [("author", q.author()), ("committer", q.committer())] {
         if let Some(value) = value {
             let key = if value.contains('@') {
@@ -225,7 +213,7 @@ fn created_window(
     q: &HistorySearch,
     warnings: &mut Vec<String>,
 ) -> Result<Option<String>, ProviderError> {
-    if q.since().is_none() && q.until().is_none() {
+    if gh_search_history_query::since(q).is_none() && gh_search_history_query::until(q).is_none() {
         return Ok(None);
     }
     if q.filters().created.is_some() {
@@ -241,7 +229,7 @@ fn created_window(
 
 fn issue_terms(
     q: &HistorySearch,
-    out: &mut Vec<String>,
+    out: &mut SearchTerms,
     warnings: &mut Vec<String>,
 ) -> Result<(), ProviderError> {
     let f = q.filters();
@@ -250,26 +238,28 @@ fn issue_terms(
         None => f.created.clone(),
     };
     if !f.match_kinds.is_empty() {
-        push_qualifier(out, "in", Some(&f.match_kinds.join(",")))?;
+        out.checked("in", Some(&f.match_kinds.join(",")))?;
     }
-    let pull_request = matches!(q.operation(), HistoryOperation::PullRequest);
-    out.push(if pull_request { "is:pr" } else { "is:issue" }.into());
-    match (q.owner(), q.repo(), q.operation()) {
-        (Some(o), Some(r), _) => out.push(format!("repo:{o}/{r}")),
-        // Pull-request search is cross-repo capable (contract: owner and
-        // repo optional); issue search stays repository-scoped.
-        (Some(o), None, HistoryOperation::PullRequest) => out.push(format!("user:{o}")),
-        (None, _, HistoryOperation::PullRequest) => {}
-        _ => {
-            required_repo(q)?;
-        }
+    let pull_request = matches!(
+        gh_search_history_query::operation(q),
+        HistoryOperation::PullRequest
+    );
+    out.push(if pull_request { "is:pr" } else { "is:issue" });
+    // Pull-request search is cross-repo capable (contract: owner and repo
+    // optional); issue search stays repository-scoped.
+    if !pull_request {
+        required_repo(q)?;
     }
-    push_qualifier(out, "is", q.state().as_deref())?;
+    out.scope(
+        gh_search_history_query::owner(q),
+        gh_search_history_query::repo(q),
+    );
+    out.checked("is", q.state().as_deref())?;
     if let Some(draft) = f.draft {
-        out.push(if draft { "is:draft" } else { "-is:draft" }.into());
+        out.push(if draft { "is:draft" } else { "-is:draft" });
     }
     if f.unmerged == Some(true) {
-        out.push("is:unmerged".into());
+        out.push("is:unmerged");
     }
     for (k, v) in [("author", q.author())]
         .into_iter()
@@ -287,7 +277,7 @@ fn issue_terms(
             ("review", f.review.as_deref()),
         ])
     {
-        push_qualifier(out, k, v)?;
+        out.checked(k, v)?;
     }
     for label in q.label() {
         // A label is one quoted name; an interior quote or backslash
@@ -303,11 +293,9 @@ fn issue_terms(
     if let Some(archived) = f.archived {
         out.push(format!("archived:{archived}"));
     }
-    push_qualifier(out, "status", f.status.as_deref())?;
+    out.checked("status", f.status.as_deref())?;
     for (key, value) in &f.excluded {
-        let mut term = Vec::new();
-        push_qualifier(&mut term, key, Some(value))?;
-        out.extend(term.into_iter().map(|term| format!("-{term}")));
+        out.excluded(key, value)?;
     }
     Ok(())
 }
@@ -318,17 +306,12 @@ pub(super) fn build_query_with_warnings(
 ) -> Result<(String, Vec<String>), ProviderError> {
     let mut warnings = Vec::new();
     validate_history_scope(q)?;
-    let mut out = q
-        .keywords()
-        .into_iter()
-        .map(quote_search_keyword)
-        .filter(|term| !term.is_empty())
-        .collect::<Vec<_>>();
-    match q.operation() {
+    let mut out = SearchTerms::new(gh_search_history_query::keywords(q));
+    match gh_search_history_query::operation(q) {
         HistoryOperation::Commit => commit_terms(q, &mut out, &mut warnings)?,
         HistoryOperation::PullRequest | HistoryOperation::Issue => {
             issue_terms(q, &mut out, &mut warnings)?;
         }
     }
-    Ok((out.join(" "), warnings))
+    Ok((out.finish(), warnings))
 }

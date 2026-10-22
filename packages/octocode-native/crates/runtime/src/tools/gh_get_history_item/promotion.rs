@@ -1,28 +1,12 @@
 //! Promotion of a shaped page's cursors (`contentPagination`) to `next.*`
 //! for pull requests and issues, with the note of what each page leaves.
+use super::axis::{Axis, Cursor};
 use super::patch_hop::*;
 use super::pr_menu::*;
-use super::rest::Rest;
+use super::remaining::Remainder;
 use super::{HistoryItemRequest, ItemOperation, Section, Sections};
 use crate::response::pages::Remaining;
 use serde_json::{Map, Value, json};
-
-/// A pull-request `contentPagination` axis: its `next.*` name, the page field
-/// holding the cursor, and the query key the cursor continues.
-pub(super) fn pr_axis(axis: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    Some(match axis {
-        "body" => ("continueBody", "nextOffset", "offset"),
-        "reviewBody" => ("continueReviewBody", "nextOffset", "offset"),
-        "patches" => ("continuePatch", "nextOffset", "offset"),
-        "commentBody" => ("continueCommentBody", "nextOffset", "offset"),
-        "files" => ("nextFilePage", "nextPage", "page"),
-        "comments" => ("nextCommentPage", "nextPage", "page"),
-        "reviewComments" => ("nextReviewCommentPage", "nextPage", "page"),
-        "reviews" => ("nextReviewPage", "nextPage", "page"),
-        "commits" => ("nextCommitPage", "nextPage", "page"),
-        _ => return None,
-    })
-}
 
 /// A provider limit an item read's section hit (GitHub lists at most 3,000
 /// PR files), stated on the row: section cursors are an opt-in stats
@@ -40,30 +24,28 @@ fn hoist_provider_limit(out: &mut Value, row: &str) {
     }) else {
         return;
     };
-    crate::tools::paging::terminal_limit(out, &reason, &[]);
+    crate::response::paging::terminal_limit(out, &reason, &[]);
     out["providerLimit"] = limit;
 }
 
 /// Page blocks state where the page stands; the cursor rides the `next`
 /// continuation it was read into, never the block.
-const CURSOR_FIELDS: [&str; 2] = ["nextPage", "nextOffset"];
-
 fn strip_cursors(pages: &mut Map<String, Value>) {
     for page in pages.values_mut().filter_map(Value::as_object_mut) {
-        for field in CURSOR_FIELDS {
-            page.remove(field);
+        for cursor in [Cursor::Page, Cursor::Offset] {
+            page.remove(cursor.field());
         }
     }
 }
 
 /// `next.*` for every unfinished axis of the pull request's page, and the
-/// note of what each leaves ([`Rest`]). `isPartial` is set only for an axis
+/// note of what each leaves ([`Remainder`]). `isPartial` is set only for an axis
 /// with more to read that no continuation reaches: `hasMore` beside a
 /// `next.*` page already says the rest is unread.
 pub(super) fn promote_pr_continuations(
     out: &mut Value,
     q: &HistoryItemRequest,
-    rest: &Rest,
+    remainder: &Remainder,
 ) -> Vec<Remaining> {
     hoist_provider_limit(out, "/pullRequests/0");
     let Some(pages) = out
@@ -75,38 +57,39 @@ pub(super) fn promote_pr_continuations(
     // A file page with unread patches continues them first: its window
     // that finishes the patches offers the next file page.
     let patches_open = pages
-        .get("patches")
+        .get(Axis::Patches.key())
         .is_some_and(|entry| entry.get("hasMore").and_then(Value::as_bool) == Some(true));
     let mut next = Map::new();
     let mut notes = Vec::new();
     let mut unreached = false;
-    for (axis, entry) in pages.iter() {
+    for (key, entry) in pages.iter() {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
             continue;
         }
+        let axis = Axis::parse(key);
         // The patch window that finishes the page offers the next file page.
-        if axis == "files" && patches_open {
+        if axis == Some(Axis::Files) && patches_open {
             continue;
         }
-        let Some((name, key, cursor)) = pr_axis(axis)
-            .and_then(|(name, field, key)| Some((name, key, entry.get(field)?.clone())))
+        let Some((axis, cursor)) =
+            axis.and_then(|axis| Some((axis, entry.get(axis.cursor().field())?.clone())))
         else {
             unreached = true;
             continue;
         };
         let mut nq = base_public_query(q, ItemOperation::PullRequest);
-        nq[key] = cursor;
-        let call = if axis == "patches" {
+        nq[axis.cursor().query_key()] = cursor;
+        let call = if axis == Axis::Patches {
             patch_continuation(nq, entry, q)
         } else {
             narrow_to_axis(&mut nq, axis, q);
-            if axis == "files" {
+            if axis == Axis::Files {
                 pin_file_page_size(&mut nq, q, q.sections().has(Section::Patches));
             }
             continuation(nq)
         };
-        next.insert(name.into(), call);
-        notes.extend(rest.note(name, axis, entry));
+        next.insert(axis.next_name().into(), call);
+        notes.extend(remainder.note(axis, entry));
     }
     strip_cursors(pages);
     if unreached {
@@ -123,15 +106,15 @@ pub(super) fn promote_pr_continuations(
 /// windows: a char-window continuation narrows content to the surface it
 /// continues, and a page continuation restarts every char window, so one
 /// surface's offset never skews another's.
-fn narrow_to_axis(nq: &mut Value, axis: &str, q: &HistoryItemRequest) {
+fn narrow_to_axis(nq: &mut Value, axis: Axis, q: &HistoryItemRequest) {
     match axis {
-        "body" => {
+        Axis::Body => {
             // The body has no page: a section page cursor would be inert.
             Sections::of([Section::Body]).set_on(nq);
             remove_key(nq, "page");
         }
-        "reviewBody" => Sections::of([Section::Reviews]).set_on(nq),
-        "commentBody" => {
+        Axis::ReviewBody => Sections::of([Section::Reviews]).set_on(nq),
+        Axis::CommentBody => {
             let read = q.sections();
             let comments = Sections::of(
                 [Section::Comments, Section::ReviewComments]
@@ -145,20 +128,14 @@ fn narrow_to_axis(nq: &mut Value, axis: &str, q: &HistoryItemRequest) {
             };
             comments.set_on(nq);
         }
-        _ => {
-            remove_key(nq, "offset");
+        Axis::Patches => {}
+        Axis::Files | Axis::Comments | Axis::ReviewComments | Axis::Reviews | Axis::Commits => {
+            remove_key(nq, Cursor::Offset.query_key());
             // A collection page continues only its own surface; the other
             // surfaces were already delivered on this call. The discussion
             // and the inline review comments page apart.
             let read = q.sections();
-            let own: &[Section] = match axis {
-                "files" => &[Section::Files, Section::Patches],
-                "comments" => &[Section::Comments],
-                "reviewComments" => &[Section::ReviewComments],
-                "reviews" => &[Section::Reviews],
-                "commits" => &[Section::Commits, Section::CommitFiles],
-                _ => return,
-            };
+            let own = axis.own_sections();
             // A page of patches lists their files.
             let read = if read.has(Section::Patches) {
                 read.with(Section::Files)
@@ -171,12 +148,12 @@ fn narrow_to_axis(nq: &mut Value, axis: &str, q: &HistoryItemRequest) {
 }
 
 /// `next.*` for every unfinished axis of the issue's page, and the note of
-/// what each leaves ([`Rest`]); `isPartial` as for a pull request
+/// what each leaves ([`Remainder`]); `isPartial` as for a pull request
 /// ([`promote_pr_continuations`]).
 pub(super) fn promote_issue_continuations(
     out: &mut Value,
     q: &HistoryItemRequest,
-    rest: &Rest,
+    remainder: &Remainder,
 ) -> Vec<Remaining> {
     let Some(pages) = out
         .pointer_mut("/issues/0/contentPagination")
@@ -195,47 +172,37 @@ pub(super) fn promote_issue_continuations(
     let mut next = Map::new();
     let mut notes = Vec::new();
     let mut unreached = false;
-    for (axis, entry) in pages.iter() {
+    for (key, entry) in pages.iter() {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
             continue;
         }
-        let (name, key, field, sections) = match axis.as_str() {
-            "body" => (
-                "continueBody",
-                "offset",
-                "nextOffset",
-                Sections::of([Section::Body]),
-            ),
-            "commentBody" => (
-                "continueCommentBody",
-                "offset",
-                "nextOffset",
-                comment_bodies,
-            ),
-            "comments" => ("nextCommentPage", "page", "nextPage", comments),
+        let (axis, sections) = match Axis::parse(key) {
+            Some(Axis::Body) => (Axis::Body, Sections::of([Section::Body])),
+            Some(Axis::CommentBody) => (Axis::CommentBody, comment_bodies),
+            Some(Axis::Comments) => (Axis::Comments, comments),
             _ => {
                 unreached = true;
                 continue;
             }
         };
-        let Some(cursor) = entry.get(field) else {
+        let Some(cursor) = entry.get(axis.cursor().field()) else {
             unreached = true;
             continue;
         };
         let mut nq = base_public_query(q, ItemOperation::Issue);
-        nq[key] = cursor.clone();
+        nq[axis.cursor().query_key()] = cursor.clone();
         sections.set_on(&mut nq);
-        if axis == "comments" {
+        if axis == Axis::Comments {
             // A comment page cut to the response budget resumes with the
             // page size that starts a page at its first unshown comment.
-            if let Some(size) = rest.next_page_size() {
+            if let Some(size) = remainder.next_page_size() {
                 nq["pageSize"] = json!(size);
             }
             // A page restarts every body window: the default offset.
-            remove_key(&mut nq, "offset");
+            remove_key(&mut nq, Cursor::Offset.query_key());
         }
-        next.insert(name.into(), continuation(nq));
-        notes.extend(rest.note(name, axis, entry));
+        next.insert(axis.next_name().into(), continuation(nq));
+        notes.extend(remainder.note(axis, entry));
     }
     strip_cursors(pages);
     if unreached {

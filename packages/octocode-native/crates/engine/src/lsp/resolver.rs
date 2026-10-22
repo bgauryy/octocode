@@ -2,6 +2,7 @@ use crate::error::{Error, Result};
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::types::{LspExactPosition, LspFuzzyPosition, LspResolvedSymbol};
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
+use crate::structural::kinds::is_comment_kind;
 use crate::text::utf8_offsets::{byte_to_utf16_offset, hide_bom_in_line};
 use std::time::Instant;
 use tree_sitter::Node;
@@ -402,13 +403,13 @@ fn pick_candidate(
 }
 
 fn is_ignored_node(kind: &str) -> bool {
-    kind.contains("comment") || kind == "ERROR"
+    is_comment_kind(kind) || kind == "ERROR"
 }
 
 fn is_literal_node(kind: &str) -> bool {
     // `template_string` is covered by "string"; C++ `template_*` kinds are
     // identifier-like and deliberately not treated as literals.
-    kind.contains("string") || kind.contains("comment")
+    kind.contains("string") || is_comment_kind(kind)
 }
 
 fn is_symbolish_node(kind: &str) -> bool {

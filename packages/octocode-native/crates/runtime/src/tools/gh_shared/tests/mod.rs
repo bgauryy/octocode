@@ -2,7 +2,7 @@
 //! ghSearchRepo, ghStructure) against one mock server, plus the shared
 //! paging helpers.
 use super::*;
-use crate::contracts::tool_types::{GhSearchCodeQuery, GhSearchRepoQuery};
+use octocode_contract_types::{GhSearchCodeQuery, GhSearchRepoQuery};
 
 #[test]
 fn owner_listing_page_ceiling_keeps_rows_and_discloses_remaining_results() {

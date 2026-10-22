@@ -1,14 +1,17 @@
 //! `operation: "issue"`: issue metadata, body window, and one page of
 //! discussion comments.
+use super::axis::Axis;
 use super::promotion::promote_issue_continuations;
-use super::rest::{BodyWindows, Rest};
+use super::remaining::{BodyWindows, Remainder};
 use super::text::{delivered_earlier, paginate_text, shape_comment};
 use super::util::{array, map_comments, str_at, string};
 use super::window::{auto_page, page_starting_at};
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, Section, Sections, fetch, validation};
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, ToolData, remove_nulls};
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::ensure_next;
-use crate::tools::id::ToolId;
-use crate::tools::result::{Continuation, ToolData, remove_nulls};
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{
     GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
@@ -24,10 +27,17 @@ pub(super) async fn name_issue_number(
     context: &RequestContext,
     not_found: ProviderError,
 ) -> ProviderError {
-    let Some(number) = query.number().map(|number| number.to_string()) else {
+    let Some(number) = gh_get_history_item_query::number(query).map(|number| number.to_string())
+    else {
         return not_found;
     };
-    let issue_path = ["repos", query.owner(), query.repo(), "issues", &number];
+    let issue_path = [
+        "repos",
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+        "issues",
+        &number,
+    ];
     match fetch(transport, &issue_path, &[], context).await {
         Ok((raw, _)) if raw.get("pull_request").is_none_or(Value::is_null) => {
             let mut error = ProviderError::new(
@@ -47,22 +57,44 @@ pub(super) async fn issue(
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
-    let number = query
-        .number()
+    let number = gh_get_history_item_query::number(query)
         .ok_or_else(|| validation("number is required"))?
         .to_string();
-    let issue_path = ["repos", query.owner(), query.repo(), "issues", &number];
+    let issue_path = [
+        "repos",
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+        "issues",
+        &number,
+    ];
     // The closing PRs load beside the issue on its first window, which
     // states their bound once; later windows list no `closedBy`.
-    let first_window =
-        query.page().unwrap_or(1) <= 1 && query.char_offset().is_none_or(|offset| offset == 0);
-    let (fetched, closed_by) = tokio::join!(fetch(transport, &issue_path, &[], context), async {
-        if first_window {
-            closing_pull_requests(transport, query, context).await
-        } else {
-            None
+    let first_window = gh_get_history_item_query::page(query).unwrap_or(1) <= 1
+        && gh_get_history_item_query::char_offset(query).is_none_or(|offset| offset == 0);
+    // The discussion's first comment batch depends only on the page asked
+    // for, so it loads beside the issue too (wasted only when the number
+    // names a pull request).
+    let first_batch = query
+        .sections()
+        .has(Section::Comments)
+        .then(|| first_comment_batch(query))
+        .flatten();
+    let (fetched, closed_by, prefetched) = tokio::join!(
+        fetch(transport, &issue_path, &[], context),
+        async {
+            if first_window {
+                closing_pull_requests(transport, query, context).await
+            } else {
+                None
+            }
+        },
+        async {
+            match first_batch {
+                Some(batch) => Some(comment_batch(transport, &issue_path, batch, context).await),
+                None => None,
+            }
         }
-    });
+    );
     let (raw, _) = fetched?;
     if raw.get("pull_request").is_some_and(|v| !v.is_null()) {
         return Err(validation(&format!("Issue #{number} is a pull request"))
@@ -78,13 +110,14 @@ pub(super) async fn issue(
     // (its own `continueBody` reads it at its own offset), but its first
     // window still counts against the page, so the hop pages exactly the
     // comments that window showed.
-    let comment_hop = want_comments && query.char_offset().is_some_and(|offset| offset > 0);
+    let comment_hop = want_comments
+        && gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0);
     let show_body = want_body && !comment_hop;
     // A later comment page continues a read whose first page named the
     // issue; a section read's sections carry its evidence: either restates
     // only the number and state (the summary owns the rest).
-    let later_page = query.page().unwrap_or(1) > 1;
-    let slim = later_page || query.has_sections();
+    let later_page = gh_get_history_item_query::page(query).unwrap_or(1) > 1;
+    let slim = later_page || gh_get_history_item_query::has_sections(query);
     let header = issue_header(&raw);
     let header_for = || {
         let mut row = header.clone();
@@ -96,13 +129,19 @@ pub(super) async fn issue(
     let body_view = want_body.then(|| str_at(&raw, "/body").unwrap_or(""));
     let mut row = header_for();
     let mut pagination = Map::new();
-    let mut rest = Rest::default();
+    let mut remainder = Remainder::default();
     if let Some(body_view) = body_view.filter(|_| show_body) {
-        let (body, page) = paginate_text(body_view, query.char_offset(), query.char_length());
+        let (body, page) = paginate_text(
+            body_view,
+            gh_get_history_item_query::char_offset(query),
+            gh_get_history_item_query::char_length(query),
+        );
         row["body"] = json!(body);
-        if query.char_offset().is_some() || query.char_length().is_some() || page["hasMore"] == true
+        if gh_get_history_item_query::char_offset(query).is_some()
+            || gh_get_history_item_query::char_length(query).is_some()
+            || page["hasMore"] == true
         {
-            pagination.insert("body".into(), page);
+            pagination.insert(Axis::Body.key().into(), page);
         }
     }
     if want_comments {
@@ -110,7 +149,14 @@ pub(super) async fn issue(
         let used = if comment_hop {
             let mut first = header_for();
             if let Some(body_view) = body_view {
-                first["body"] = json!(paginate_text(body_view, None, query.char_length()).0);
+                first["body"] = json!(
+                    paginate_text(
+                        body_view,
+                        None,
+                        gh_get_history_item_query::char_length(query)
+                    )
+                    .0
+                );
             }
             octocode_engine::json_size::utf16_units(&first).unwrap_or(0)
         } else {
@@ -121,8 +167,8 @@ pub(super) async fn issue(
             used,
             total: raw.get("comments").and_then(Value::as_u64),
         };
-        let page = issue_comments(transport, query, context, &at).await?;
-        page.attach(&at, &mut row, &mut pagination, &mut rest);
+        let page = issue_comments(transport, query, context, &at, prefetched).await?;
+        page.attach(&at, &mut row, &mut pagination, &mut remainder);
     }
     if !pagination.is_empty() {
         row["contentPagination"] = Value::Object(pagination);
@@ -132,7 +178,7 @@ pub(super) async fn issue(
         row["closedBy"] = Value::Array(references.prs.iter().map(|pr| pr.row.clone()).collect());
     }
     let mut out = json!({"issues":[row]});
-    let remaining = promote_issue_continuations(&mut out, query, &rest);
+    let remaining = promote_issue_continuations(&mut out, query, &remainder);
     if !want_comments && !later_page {
         attach_comments_read(&mut out, query, &raw);
     }
@@ -217,7 +263,7 @@ impl CommentPage {
         at: &CommentRead<'_>,
         row: &mut Value,
         pagination: &mut Map<String, Value>,
-        rest: &mut Rest,
+        remainder: &mut Remainder,
     ) {
         if !self.comments.is_empty() {
             row["comments"] = Value::Array(self.comments);
@@ -229,15 +275,48 @@ impl CommentPage {
         {
             let left = total.saturating_sub(u64::try_from(self.consumed).unwrap_or(u64::MAX));
             if left > 0 {
-                rest.items("comments", left);
+                remainder.items(Axis::Comments, left);
             }
         }
         if let Some(size) = self.resume_size {
-            rest.resume_page_size(size);
+            remainder.resume_page_size(size);
         }
-        pagination.insert("comments".into(), comments);
-        rest.bodies("commentBody", self.bodies, pagination);
+        pagination.insert(Axis::Comments.key().into(), comments);
+        remainder.bodies(Axis::CommentBody, self.bodies, pagination);
     }
+}
+
+/// The comment page grid: `pageSize` comments per page.
+fn comment_grid(query: &HistoryItemRequest) -> usize {
+    gh_get_history_item_query::page_size(query)
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .max(1)
+}
+
+/// The provider batch (of [`MAX_PER_PAGE`] comments) a comment page starts
+/// in; `None` for page 0, which reads no comments.
+fn first_comment_batch(query: &HistoryItemRequest) -> Option<usize> {
+    let page_no = gh_get_history_item_query::page(query).unwrap_or(1);
+    (page_no > 0).then(|| page_no.saturating_sub(1) * comment_grid(query) / MAX_PER_PAGE + 1)
+}
+
+/// One provider batch of the issue's discussion comments.
+async fn comment_batch(
+    transport: &GitHubTransport,
+    issue_path: &[&str],
+    batch: usize,
+    context: &RequestContext,
+) -> Result<(Value, bool), ProviderError> {
+    fetch(
+        transport,
+        &[issue_path, &["comments"]].concat(),
+        &[
+            ("per_page", MAX_PER_PAGE.to_string()),
+            ("page", batch.to_string()),
+        ],
+        context,
+    )
+    .await
 }
 
 /// One page of an issue's discussion comments, each body windowed, filling
@@ -253,30 +332,25 @@ async fn issue_comments(
     query: &HistoryItemRequest,
     context: &RequestContext,
     at: &CommentRead<'_>,
+    mut prefetched: Option<Result<(Value, bool), ProviderError>>,
 ) -> Result<CommentPage, ProviderError> {
     let (issue_path, budget) = (at.issue_path, at.budget(query));
-    let page_no = query.page().unwrap_or(1);
-    let grid = query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).max(1);
+    let page_no = gh_get_history_item_query::page(query).unwrap_or(1);
+    let grid = comment_grid(query);
     let start = page_no.saturating_sub(1) * grid;
-    let cap = match query.page_size() {
+    let cap = match gh_get_history_item_query::page_size(query) {
         Some(size) if page_no <= 1 => size,
         _ => MAX_PER_PAGE,
     };
     let mut raw_comments = Vec::new();
     let mut provider_more = false;
-    if page_no > 0 {
+    if let Some(first) = first_comment_batch(query) {
         let mut skip = start % MAX_PER_PAGE;
-        for batch in (start / MAX_PER_PAGE + 1..).take(2) {
-            let (value, more) = fetch(
-                transport,
-                &[issue_path, &["comments"]].concat(),
-                &[
-                    ("per_page", MAX_PER_PAGE.to_string()),
-                    ("page", batch.to_string()),
-                ],
-                context,
-            )
-            .await?;
+        for batch in (first..).take(2) {
+            let (value, more) = match prefetched.take() {
+                Some(loaded) => loaded?,
+                None => comment_batch(transport, issue_path, batch, context).await?,
+            };
             raw_comments.extend(array(value).into_iter().skip(skip));
             provider_more = more;
             if !more || raw_comments.len() >= cap {
@@ -307,8 +381,14 @@ async fn issue_comments(
     let comments = fetched[..consumed]
         .iter()
         .filter_map(|comment| {
-            let (shaped, page) = shape_comment(comment, query.char_offset(), query, &mut bodies);
-            (!delivered_earlier(query.char_offset(), &page)).then_some(shaped)
+            let (shaped, page) = shape_comment(
+                comment,
+                gh_get_history_item_query::char_offset(query),
+                query,
+                &mut bodies,
+            );
+            (!delivered_earlier(gh_get_history_item_query::char_offset(query), &page))
+                .then_some(shaped)
         })
         .collect();
     // A page past the discussion's last is the shared out-of-range outcome:
@@ -362,7 +442,7 @@ fn attach_comments_read(out: &mut Value, query: &HistoryItemRequest, raw: &Value
 /// The closing-reference set ends at a bound: no cursor continues it, and the
 /// fix it names is a candidate among the listed references only.
 fn mark_bounded_closing(out: &mut Value, listed: usize, total: u64) {
-    crate::tools::paging::terminal_limit(
+    crate::response::paging::terminal_limit(
         out,
         "closingReferenceLimit",
         &[format!(
@@ -432,9 +512,9 @@ async fn closed_by_references(
         return None;
     }
     let variables = json!({
-        "owner": query.owner(),
-        "repo": query.repo(),
-        "number": query.number()?,
+        "owner": gh_get_history_item_query::owner(query),
+        "repo": gh_get_history_item_query::repo(query),
+        "number": gh_get_history_item_query::number(query)?,
         "first": MAX_CLOSING_REFERENCES,
     });
     let mut page = transport
@@ -481,7 +561,11 @@ fn attach_fix_pr(
     closed: bool,
     bounded: bool,
 ) {
-    let confidence = if bounded { "medium" } else { "high" };
+    let confidence = if bounded {
+        Confidence::Medium
+    } else {
+        Confidence::High
+    };
     let next = match closed_by.and_then(<[ClosingPr]>::first) {
         // A small fix reads whole in one call: its patches are the evidence
         // (`closedBy` already links it to this issue). A larger one names
@@ -491,7 +575,7 @@ fn attach_fix_pr(
         Some(pr) => {
             let named = goal_file_globs(query);
             let mut read = json!({
-                "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
+                "operation":"pullRequest","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),
                 "number":pr.row["number"],
                 "sections": if pr.small || !named.is_empty() { json!(["patches"]) } else { json!(["body", "files"]) }});
             if !named.is_empty() {
@@ -508,10 +592,10 @@ fn attach_fix_pr(
             "findPullRequest",
             Continuation::new(
                 ToolId::GhSearchHistory,
-                json!({"operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
-                    "keywords":[query.number().unwrap_or_default().to_string()]}),
+                json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),
+                    "keywords":[gh_get_history_item_query::number(query).unwrap_or_default().to_string()]}),
             )
-            .confidence("medium")
+            .confidence(Confidence::Medium)
             .build(),
         ),
         None => return,
@@ -533,14 +617,10 @@ const MAX_GOAL_FILES: usize = 5;
 /// (`res.redirect`) and versions never narrow a read.
 fn goal_file_globs(query: &HistoryItemRequest) -> Vec<String> {
     use crate::content::classify_file_type;
-    let goal = serde_json::to_value(&query.query)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("mainGoal")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
+    let goal = query
+        .public
+        .get("mainGoal")
+        .and_then(Value::as_str)
         .unwrap_or_default();
     let mut globs = Vec::new();
     for word in goal.split(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))) {

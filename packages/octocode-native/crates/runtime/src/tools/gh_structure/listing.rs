@@ -1,14 +1,15 @@
 //! One listing page: the pinned ref, the page window, the entries and
 //! their continuations.
 use super::*;
+use crate::response::result::Confidence;
 use crate::tools::root_read::read_rank;
 
 /// Pin the listing to one commit: an explicit ref that does not resolve is
 /// an error (like ghGetFileContent), never a silent default-branch listing,
 /// and every page of one listing reads the same tree. The recursive tree is
 /// fetched by the resolved commit SHA, never by the ref name.
-pub(super) async fn resolve_listing_ref<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn resolve_listing_ref(
+    provider: &GitHubProvider,
     query: &GhStructureQueryTree,
     context: &RequestContext,
 ) -> Result<(String, String), ProviderError> {
@@ -39,8 +40,8 @@ pub(super) struct ListingPage<'a> {
 
 impl<'a> ListingPage<'a> {
     pub(super) fn of(query: &GhStructureQueryTree, all: &'a [TreeEntry]) -> Self {
-        let current = query.page.map_or(1, crate::tools::num::usize_of);
-        let per_page = crate::tools::num::usize_of(
+        let current = query.page.map_or(1, crate::num::usize_of);
+        let per_page = crate::num::usize_of(
             query
                 .page_size
                 .map_or(DEFAULT_ENTRIES_PER_PAGE, std::num::NonZeroU64::get),
@@ -115,7 +116,7 @@ pub(super) fn disclose_limits(
     value: &mut Value,
     output: &mut ToolData,
 ) {
-    use crate::tools::paging::{mark_partial, terminal_limit};
+    use crate::response::paging::{mark_partial, terminal_limit};
     if traversal.contents_limit {
         terminal_limit(value, "providerContentsLimit", &[]);
         value["providerLimit"] = json!({
@@ -148,17 +149,15 @@ pub(super) fn disclose_limits(
 /// A directory past GitHub's Contents listing limit is complete only in a
 /// checkout: the clone of the listed path at the listed commit.
 pub(super) fn clone_lead(query: &GhStructureQueryTree, scope: &Scope, commit_sha: &str) -> Value {
-    let mut clone = json!({
-        "owner": query.owner.as_str(),
-        "repo": query.repo.as_str(),
-        "ref": commit_sha,
-    });
-    if !scope.path.is_empty() {
-        clone["path"] = json!(scope.path);
+    crate::tools::gh_shared::RepoPath {
+        owner: query.owner.as_str(),
+        repo: query.repo.as_str(),
+        path: &scope.path,
+        reference: Some(commit_sha),
     }
-    crate::tools::result::Continuation::new(ToolId::GhCloneRepo, clone)
-        .confidence("exact")
-        .build()
+    .lead(ToolId::GhCloneRepo)
+    .confidence(Confidence::Exact)
+    .build()
 }
 
 /// The read a listing leads to on its first page: the best-ranked listed
@@ -200,8 +199,8 @@ pub(super) fn entry_read(
         read["minify"] = json!("symbols");
     }
     Some(
-        crate::tools::result::Continuation::new(ToolId::GhGetFileContent, read)
-            .confidence("high")
+        crate::response::result::Continuation::new(ToolId::GhGetFileContent, read)
+            .confidence(Confidence::High)
             .build(),
     )
 }
@@ -220,114 +219,72 @@ fn bare_words<'a>(include: impl IntoIterator<Item = &'a str>) -> Vec<String> {
         .collect()
 }
 
-/// Listing rows grouped by directory. `dir` is repo-relative (the same base
-/// as `path` and `include`), `"."` only for the repository root.
-/// Each listed entry carries its facts in the structureSearch entry
-/// form, `"<name> (<fields>)"` (the last `" ("` opens them): a file its
-/// size in bytes, then the day of its last commit; a folder that day. The
-/// row's `updated` map ([`super::dates::attach`], keyed by bare name) folds
-/// into the entries, so no name is written twice.
-pub(super) fn attach_fields(value: &mut Value, entries: &[TreeEntry]) {
-    let sizes = entries
-        .iter()
-        .filter(|entry| entry.kind == EntryKind::File)
-        .filter_map(|entry| Some((entry.path.as_str(), entry.size?)))
-        .collect::<std::collections::HashMap<_, _>>();
-    let Some(rows) = value.get_mut("files").and_then(Value::as_array_mut) else {
-        return;
-    };
-    for row in rows {
-        let dir = row["dir"].as_str().unwrap_or(".").to_owned();
-        let mut updated = match row
-            .as_object_mut()
-            .and_then(|fields| fields.shift_remove("updated"))
-        {
-            Some(Value::Object(updated)) => updated,
-            _ => Map::new(),
-        };
-        for key in ["files", "folders"] {
-            let Some(names) = row.get_mut(key).and_then(Value::as_array_mut) else {
-                continue;
-            };
-            for entry in names {
-                let Some(name) = entry.as_str() else { continue };
-                let path = if dir == "." {
-                    name.to_owned()
-                } else {
-                    format!("{dir}/{name}")
-                };
-                let mut fields = Vec::new();
-                if key == "files"
-                    && let Some(size) = sizes.get(path.as_str())
-                {
-                    fields.push(size.to_string());
-                }
-                if let Some(Value::String(day)) = updated.shift_remove(name) {
-                    fields.push(day);
-                }
-                if !fields.is_empty() {
-                    *entry = json!(format!("{name} ({})", fields.join(", ")));
-                }
-            }
-        }
+/// Listing rows grouped by directory, built in one pass. `dir` is
+/// repo-relative (the same base as `path` and `include`), `"."` only for
+/// the repository root, which leads. Each listed entry carries its facts in
+/// the structureSearch entry form, `"<name> (<fields>)"` (the last `" ("`
+/// opens them): a file its size in bytes, then the day of its last commit
+/// (`dates`, keyed by repo-relative path); a folder that day. Names sort
+/// within each row.
+pub(super) fn build_structure(
+    entries: &[TreeEntry],
+    dates: &std::collections::HashMap<String, String>,
+) -> Vec<Value> {
+    #[derive(Default)]
+    struct Row<'a> {
+        files: Vec<(&'a str, String)>,
+        folders: Vec<(&'a str, String)>,
     }
-}
-
-pub(super) fn build_structure(entries: &[TreeEntry]) -> Vec<Value> {
-    let mut dirs = Map::<String, Value>::new();
+    let mut dirs = std::collections::BTreeMap::<&str, Row<'_>>::new();
     for entry in entries {
         let path = entry.path.as_str();
         let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
-        let bucket = dirs
-            .entry(parent.to_owned())
-            .or_insert_with(|| json!({"files": [], "folders": []}));
-        let key = if entry.kind == EntryKind::File {
-            "files"
+        let file = entry.kind == EntryKind::File;
+        let fields = file
+            .then_some(entry.size)
+            .flatten()
+            .map(|size| size.to_string())
+            .into_iter()
+            .chain(dates.get(path).cloned())
+            .collect::<Vec<_>>();
+        let text = if fields.is_empty() {
+            name.to_owned()
         } else {
-            "folders"
+            format!("{name} ({})", fields.join(", "))
         };
-        if let Some(values) = bucket[key].as_array_mut() {
-            values.push(json!(name));
-        }
-    }
-    for bucket in dirs.values_mut() {
-        for key in ["files", "folders"] {
-            if let Some(values) = bucket[key].as_array_mut() {
-                values.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
-            }
-        }
-    }
-    let mut rows = dirs
-        .into_iter()
-        .map(|(dir, entry)| {
-            let mut row = json!({"dir": dir});
-            if entry["files"]
-                .as_array()
-                .is_some_and(|values| !values.is_empty())
-            {
-                row["files"] = entry["files"].clone();
-            }
-            if entry["folders"]
-                .as_array()
-                .is_some_and(|values| !values.is_empty())
-            {
-                row["folders"] = entry["folders"].clone();
-            }
-            row
-        })
-        .collect::<Vec<_>>();
-    rows.sort_by(|left, right| {
-        let left = left["dir"].as_str().unwrap_or("");
-        let right = right["dir"].as_str().unwrap_or("");
-        if left == "." {
-            std::cmp::Ordering::Less
-        } else if right == "." {
-            std::cmp::Ordering::Greater
+        let row = dirs.entry(parent).or_default();
+        if file {
+            row.files.push((name, text));
         } else {
-            left.cmp(right)
+            row.folders.push((name, text));
         }
+    }
+    let listed = |mut names: Vec<(&str, String)>| {
+        names.sort_by(|left, right| left.0.cmp(right.0));
+        Value::Array(
+            names
+                .into_iter()
+                .map(|(_, text)| Value::String(text))
+                .collect(),
+        )
+    };
+    let mut rows = dirs.into_iter().collect::<Vec<_>>();
+    // The root leads; the other directories follow in path order.
+    rows.sort_by(|(left, _), (right, _)| {
+        (*left != ".").cmp(&(*right != ".")).then(left.cmp(right))
     });
-    rows
+    rows.into_iter()
+        .map(|(dir, row)| {
+            let mut value = json!({"dir": dir});
+            if !row.files.is_empty() {
+                value["files"] = listed(row.files);
+            }
+            if !row.folders.is_empty() {
+                value["folders"] = listed(row.folders);
+            }
+            value
+        })
+        .collect()
 }
 
 pub(super) fn relative(path: &str, root: &str) -> String {
@@ -357,7 +314,7 @@ pub(super) fn attach_continuations(
         })
     });
     let cursor = |value: &mut Value, field: &str, next: usize| {
-        crate::tools::paging::next_cursor(value, ToolId::GhStructure, None, field, next)
+        crate::response::paging::next_cursor(value, ToolId::GhStructure, None, field, next)
     };
     if let Some(resume) = materialize_resume {
         let page_cursor = cursor(value, "page", resume.page);
@@ -368,7 +325,7 @@ pub(super) fn attach_continuations(
             next_query["pageSize"] = json!(page.per_page);
             next_query["materialize"] = json!(true);
             next_query["materializeOffset"] = json!(offset);
-            value["next"]["continueMaterialize"] = continuation(next_query, "exact");
+            value["next"]["continueMaterialize"] = continuation(next_query);
         }
         mark_materialize_partial(value);
     } else if has_more
@@ -378,20 +335,21 @@ pub(super) fn attach_continuations(
         let mut next_query = query_row(query, &[]);
         next_query["page"] = json!(next_page);
         next_query["pageSize"] = json!(page.per_page);
-        value["next"]["nextPage"] = continuation(next_query, "exact");
+        value["next"]["nextPage"] = continuation(next_query);
     }
     if retry_tree {
         let mut retry = query_row(query, &[]);
         retry["page"] = json!(current);
         retry["pageSize"] = json!(page.per_page);
-        value["next"]["retry"] = continuation(retry, "exact");
+        value["next"]["retry"] = continuation(retry);
     }
     Ok(())
 }
 
-pub(super) fn continuation(query: Value, confidence: &'static str) -> Value {
-    crate::tools::result::Continuation::new(ToolId::GhStructure, query)
-        .confidence(confidence)
+/// An exact `ghStructure` call of `query` (a page, retry or ref listing).
+pub(super) fn continuation(query: Value) -> Value {
+    crate::response::result::Continuation::new(ToolId::GhStructure, query)
+        .confidence(Confidence::Exact)
         .build()
 }
 

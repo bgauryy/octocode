@@ -3,14 +3,14 @@
 use super::*;
 
 /// The pages and widened scans from `query` (`walk_pages`): each page offers
-/// at most one of `next.nextPage` and `next.expandScan`, and the page that
+/// at most one of `next.nextPage` and `next.continueWalk`, and the page that
 /// offers neither ends the listing without a terminal limit. Returns every
 /// listed entry and the calls made.
 fn walk_chain(root: &std::path::Path, query: Value) -> (Vec<Value>, usize) {
     let pages = walk_pages(root, query);
     for out in &pages {
         let page = out["next"].get("nextPage");
-        let expand = out["next"].get("expandScan");
+        let expand = out["next"].get("continueWalk");
         assert!(
             page.is_none() || expand.is_none(),
             "one continuation per page: {out}"
@@ -28,7 +28,7 @@ fn listed_paths(rows: &[Value]) -> Vec<String> {
         .collect()
 }
 
-/// `next.expandScan` resumes after the rows its window listed, so the
+/// `next.continueWalk` resumes after the rows its window listed, so the
 /// chain of pages and widened scans lists every entry exactly once (each
 /// window groups its own rows by directory), for `files` under each sort and
 /// for `tree`.
@@ -108,7 +108,7 @@ fn minimum_scan_windows_recover_every_listing_entry() {
             query["pageSize"] = json!(1);
             let first = run(&root.0, query.clone()).expect("first page");
             if listed(&first).is_empty() {
-                let expand = &first["next"]["expandScan"]["query"]["queries"][0];
+                let expand = &first["next"]["continueWalk"]["query"]["queries"][0];
                 assert!(expand.get("scanOffset").is_none(), "{first}");
                 assert!(expand["maxEntries"].as_u64().expect("limit") > limit);
             }
@@ -133,13 +133,13 @@ fn expand_scan_rides_the_last_page_of_its_window() {
         json!({"operation":"files","path":root.0,"extensions":["go"],"maxEntries":4,"pageSize":2}),
     )
     .expect("first");
-    assert!(first["next"].get("expandScan").is_none(), "{first}");
+    assert!(first["next"].get("continueWalk").is_none(), "{first}");
     let second = run(
         &root.0,
         first["next"]["nextPage"]["query"]["queries"][0].clone(),
     )
     .expect("second");
-    let expand = &second["next"]["expandScan"]["query"]["queries"][0];
+    let expand = &second["next"]["continueWalk"]["query"]["queries"][0];
     assert_eq!(expand["maxEntries"], 8, "{second}");
     assert_eq!(expand["scanOffset"], 4, "{second}");
     assert_eq!(expand["page"], 1, "{second}");
@@ -359,7 +359,7 @@ fn a_glob_that_reaches_above_path_is_named_by_both_operations() {
             resumed["walkOffset"] = json!(1);
             let window = run(&root.0, resumed.clone()).expect("resumed window");
             let row = crate::response::rows::result_row(
-                crate::tools::id::ToolId::StructureSearch,
+                crate::id::ToolId::StructureSearch,
                 0,
                 &resumed,
                 window,
@@ -430,16 +430,17 @@ fn a_filtered_listing_names_the_links_it_does_not_follow() {
     }
 }
 
-/// An empty listing's probe of what it skipped stops at its first hits: it
+/// An empty listing's probe of what it skipped stops at its entry cap: it
 /// proves "some" and names the reason without walking the whole directory.
 #[test]
-fn an_empty_listings_probe_stops_at_its_first_hits() {
+fn an_empty_listings_probe_stops_at_its_entry_cap() {
     let root = Fixture::new();
     std::fs::create_dir_all(root.0.join("build/gen")).expect("build");
     std::fs::create_dir(root.0.join("src")).expect("src");
     std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
-    for index in 0..40 {
-        std::fs::write(root.0.join(format!("build/gen/f{index:02}.ts")), "x\n").expect("ts");
+    let cap = super::super::TAGGED_PROBE_ENTRIES;
+    for index in 0..cap + 40 {
+        std::fs::write(root.0.join(format!("build/gen/f{index:04}.ts")), "x\n").expect("ts");
     }
     for operation in ["files", "tree"] {
         let out = run(
@@ -450,7 +451,10 @@ fn an_empty_listings_probe_stops_at_its_first_hits() {
         assert_eq!(out["status"], "empty", "{out}");
         let hint = out["hints"][0].as_str().expect("hint");
         assert_eq!(
-            hint, "At least 9 entries sit behind skipped paths (build/); the lead lists them.",
+            hint,
+            format!(
+                "At least {cap} entries sit behind skipped paths (build/); the lead lists them."
+            ),
             "{out}"
         );
         let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
@@ -458,6 +462,44 @@ fn an_empty_listings_probe_stops_at_its_first_hits() {
         // The lead itself lists every one of them.
         let found = run(&root.0, retry.clone()).expect("retry");
         assert_ne!(found["status"], "empty", "{found}");
+    }
+}
+
+/// An empty listing whose matches sit behind several skip causes (a dot
+/// directory and a default-excluded one) walks once more to find why: one
+/// walk with every cause lifted, its entries tagged with the causes that hid
+/// them, answers every narrower relaxation the diagnosis asks about. The
+/// lead lifts exactly the causes that hold matches, and the hint names both.
+#[test]
+fn an_empty_listing_diagnoses_every_skip_cause_from_one_probe_walk() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join(".notes")).expect("hidden dir");
+    std::fs::create_dir_all(root.0.join("build")).expect("build");
+    std::fs::create_dir(root.0.join("src")).expect("src");
+    std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
+    std::fs::write(root.0.join(".notes/a.ts"), "x\n").expect("hidden ts");
+    std::fs::write(root.0.join("build/b.ts"), "x\n").expect("built ts");
+    for operation in ["files", "tree"] {
+        let before = super::super::listing::listing_walks();
+        let out = run(
+            &root.0,
+            json!({"operation": operation, "path": root.0, "extensions": ["ts"]}),
+        )
+        .expect("listing");
+        let walks = super::super::listing::listing_walks() - before;
+        assert_eq!(out["status"], "empty", "{out}");
+        assert_eq!(walks, 2, "the listing and one probe walk: {out}");
+        assert_eq!(
+            out["hints"][0],
+            "2 entries sit behind skipped paths (hidden .notes/, build/); the lead lists them.",
+            "{operation}: {out}"
+        );
+        let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
+        assert_eq!(retry["includeHidden"], true, "{out}");
+        assert_eq!(retry["defaultExcludes"], false, "{out}");
+        let found = run(&root.0, retry.clone()).expect("retry");
+        assert!(found.to_string().contains("a.ts"), "{found}");
+        assert!(found.to_string().contains("b.ts"), "{found}");
     }
 }
 

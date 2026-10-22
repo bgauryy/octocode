@@ -9,11 +9,13 @@ use super::pull_request::{FileOutcome, PrPlan, ShapedPr};
 use super::util::{nonzero, str_at, string};
 use super::window::clamp_warning;
 use super::{HistoryItemRequest, Section, Sections};
-use crate::contracts::tool_types::ExtraKind;
+use crate::id::ToolId;
+use crate::response::paging::{mark_partial, push_warnings};
+use crate::response::result::Confidence;
+use crate::response::result::{ToolData, remove_nulls};
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::ensure_next;
-use crate::tools::id::ToolId;
-use crate::tools::paging::{mark_partial, push_warnings};
-use crate::tools::result::{ToolData, remove_nulls};
+use octocode_contract_types::ExtraKind;
 use serde_json::{Map, Value, json};
 
 /// A scope or literal that matched nothing: an empty row whose leads run the
@@ -30,7 +32,7 @@ fn mark_unmatched(
     if !files.scope_unmatched || !files.unsearched.is_empty() {
         return None;
     }
-    let literal = query.match_string().filter(|_| plan.needle.is_some());
+    let literal = gh_get_history_item_query::match_string(query).filter(|_| plan.needle.is_some());
     let literal_warning = literal
         .filter(|_| files.in_scope > 0)
         .map(|literal| super::filter::match_removed_all_warning(literal, files.in_scope));
@@ -79,7 +81,7 @@ pub(super) fn finish_pr(
         files,
         menu,
         comment_reads,
-        rest,
+        remainder,
         commit_file_pages,
     } = shaped;
     let patches = wants.has(Section::Patches);
@@ -111,7 +113,7 @@ pub(super) fn finish_pr(
             [super::filter::match_dropped_warning(dropped, listed)],
         );
     }
-    let remaining = promote_pr_continuations(&mut out, query, &rest);
+    let remaining = promote_pr_continuations(&mut out, query, &remainder);
     if !commit_file_pages.is_empty() {
         out["isPartial"] = json!(true);
         ensure_next(&mut out);
@@ -136,10 +138,10 @@ pub(super) fn finish_pr(
     let merge_read = files.merge_read.filter(|_| patches);
     attach_leads(&mut out, files.side_reads, menu, merge_read);
     lead_with_comment_reads(&mut out, comment_reads);
-    if !query.wants(ExtraKind::Details) {
+    if !gh_get_history_item_query::wants(query, ExtraKind::Details) {
         trim_content_pagination(&mut out);
     }
-    if query.wants(ExtraKind::Diagnostics)
+    if gh_get_history_item_query::wants(query, ExtraKind::Diagnostics)
         && let Some(reason) = graphql_fallback
     {
         out["graphqlFallback"] = json!(reason);
@@ -208,21 +210,21 @@ pub(super) fn attach_unsearched_read(
     sha: Option<&str>,
 ) {
     mark_partial(out, "patchUnavailable", &[]);
-    let (Some(needle), Some(sha)) = (query.match_string(), sha) else {
+    let (Some(needle), Some(sha)) = (gh_get_history_item_query::match_string(query), sha) else {
         return;
     };
     ensure_next(out);
-    out["next"]["searchUnpatchedFile"] = crate::tools::result::Continuation::new(
+    out["next"]["searchUnpatchedFile"] = crate::response::result::Continuation::new(
         ToolId::GhGetFileContent,
         json!({
-            "owner": query.owner(),
-            "repo": query.repo(),
+            "owner": gh_get_history_item_query::owner(query),
+            "repo": gh_get_history_item_query::repo(query),
             "path": path,
             "ref": sha,
             "matchString": needle,
         }),
     )
-    .confidence("high")
+    .confidence(Confidence::High)
     .build();
 }
 
@@ -256,17 +258,17 @@ fn attach_context_reads(
         } else {
             format!("expandContext{}", index + 1)
         };
-        out["next"][name] = crate::tools::result::Continuation::new(
+        out["next"][name] = crate::response::result::Continuation::new(
             ToolId::GhGetFileContent,
             json!({
-                "owner": query.owner(),
-                "repo": query.repo(),
+                "owner": gh_get_history_item_query::owner(query),
+                "repo": gh_get_history_item_query::repo(query),
                 "path": path,
                 "ref": sha,
                 "ranges": ranges,
             }),
         )
-        .confidence("exact")
+        .confidence(Confidence::Exact)
         .build();
     }
 }
@@ -334,9 +336,9 @@ fn lift_terminal_limits(out: &mut Value) {
 }
 
 /// A section read (or a later page) is read for its sections; the summary
-/// read owns the rest of the header. It keeps the identity and the commits
-/// code is read at: `number`, `state`, `headSha` and a merged PR's
-/// `mergeCommitSha` (gh `pr view --json files` carries no header at all).
+/// read owns the rest of the header. It keeps what names the PR and the
+/// commits code is read at: `number`, `title`, `author`, `state`, `headSha`
+/// and a merged PR's `mergeCommitSha`.
 /// The first page of a file inventory also keeps `changedFilesCount`: the
 /// denominator of the list it opens, which a one-page list would not state.
 pub(super) fn slim_row(row: &mut Value, query: &HistoryItemRequest) {
@@ -344,11 +346,13 @@ pub(super) fn slim_row(row: &mut Value, query: &HistoryItemRequest) {
         return;
     };
     let wants = query.sections();
-    let inventory = wants.lists_files() && !wants.has(Section::Patches) && !query.later_page();
+    let inventory = wants.lists_files()
+        && !wants.has(Section::Patches)
+        && !gh_get_history_item_query::later_page(query);
     fields.retain(|key, _| {
         matches!(
             key.as_str(),
-            "number" | "state" | "headSha" | "mergeCommitSha"
+            "number" | "title" | "author" | "state" | "headSha" | "mergeCommitSha"
         ) || (inventory && key == "changedFilesCount")
     });
 }
@@ -426,7 +430,7 @@ pub(super) fn pr_metadata(raw: &Value, query: &HistoryItemRequest) -> Value {
     {
         row["bodyPreview"] = json!(preview);
     }
-    if query.wants(ExtraKind::Details) {
+    if gh_get_history_item_query::wants(query, ExtraKind::Details) {
         // Details keep the provider's timestamps whole.
         if let Some(updated) = raw.get("updated_at").filter(|v| v.is_string()) {
             row["updatedAt"] = updated.clone();
@@ -501,8 +505,9 @@ mod tests {
 
     /// The summary names the change's three commits: the head
     /// (`headSha`), the recorded target-branch tip (`baseSha`) and a
-    /// merged PR's merge commit. A section read keeps the identity and the
-    /// commits code is read at (`headSha`, `mergeCommitSha`), nothing else.
+    /// merged PR's merge commit. A section read keeps what names the PR
+    /// (number, title, author) and the commits code is read at (`headSha`,
+    /// `mergeCommitSha`), nothing else.
     #[test]
     fn every_pr_view_keeps_source_target_and_merge_commits() {
         let raw = json!({"number":1,"title":"t","user":{"login":"a"},"state":"closed",
@@ -531,8 +536,8 @@ mod tests {
             .expect("query");
             let mut row = pr_metadata(&raw, &query);
             slim_row(&mut row, &query);
-            let mut expected =
-                json!({"number":1,"state":"merged","headSha":"h1","mergeCommitSha":"m1"});
+            let mut expected = json!({"number":1,"title":"t","author":"a","state":"merged",
+                "headSha":"h1","mergeCommitSha":"m1"});
             // Only the first page of a file inventory keeps the count the
             // list it opens is measured against.
             if fields == json!({"sections":["files"]}) {

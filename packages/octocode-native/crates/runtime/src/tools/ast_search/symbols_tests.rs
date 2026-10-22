@@ -1,7 +1,8 @@
 //! A directory symbols scan holds what its filters keep, not every file's
 //! declarations: peak memory follows the answer, not the repository.
 use super::symbols::{AstSearchQuerySymbols, Outline, outline_directory};
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
+use crate::tools::ast_search::symbols::ast_search_query_symbols;
 use crate::tools::test_support::{Fixture, checks, simple_policy};
 use serde_json::json;
 
@@ -34,8 +35,8 @@ fn files(root: &std::path::Path, count: usize) {
     }
 }
 
-/// A `languageGlobs` refusal keeps its declared code in astSearch, as in
-/// astTopology: both read the engine's typed scan error.
+/// A `languageGlobs` refusal keeps its declared code in astSearch: it reads
+/// the engine's typed scan error.
 #[test]
 fn a_bad_language_glob_is_refused_with_its_declared_code() {
     let root = Fixture::new();
@@ -78,7 +79,7 @@ fn a_kind_search_retains_only_the_asked_kinds() {
 
 fn empty_outline(root: &std::path::Path, extra: serde_json::Value) -> serde_json::Value {
     let (paths, security) = simple_policy(root);
-    let query: crate::contracts::tool_types::AstSearchQuery = {
+    let query: octocode_contract_types::AstSearchQuery = {
         let mut row = json!({"operation":"symbols","path":root.to_string_lossy()});
         row.as_object_mut()
             .expect("object")
@@ -126,7 +127,7 @@ fn skipped_lead(out: &serde_json::Value) -> serde_json::Value {
 
 fn run_lead(root: &std::path::Path, lead: serde_json::Value) -> serde_json::Value {
     let (paths, security) = simple_policy(root);
-    let query: crate::contracts::tool_types::AstSearchQuery =
+    let query: octocode_contract_types::AstSearchQuery =
         serde_json::from_value(lead).expect("the lead is a typed row");
     super::execute_ast(&query, &paths, &security, &NeverCancel, None).expect("the lead runs")
 }
@@ -400,7 +401,7 @@ fn cut_page(resume: u32) -> serde_json::Value {
 /// (or one that skips the whole walk again).
 #[test]
 fn a_scan_cut_past_the_scan_offset_bound_is_terminal() {
-    use crate::tools::id::query_limits::ast_search::symbols::SCAN_OFFSET_MAXIMUM;
+    use crate::contracts::query_limits::ast_search::symbols::SCAN_OFFSET_MAXIMUM;
     let ceiling = octocode_engine::scan_budget::SCAN_WALK_FILES;
     for resume in [
         1_000,
@@ -492,11 +493,15 @@ fn an_edit_to_a_language_globs_file_is_not_served_from_the_page_memo() {
 /// fact, not a literal), and a size within it is kept exactly.
 #[test]
 fn a_symbols_page_size_is_held_to_the_contract_maximum() {
-    use crate::tools::id::query_limits::ast_search::symbols::PAGE_SIZE_MAXIMUM;
+    use crate::contracts::query_limits::ast_search::symbols::PAGE_SIZE_MAXIMUM;
     let root = Fixture::new();
     for (asked, kept) in [(PAGE_SIZE_MAXIMUM + 1, PAGE_SIZE_MAXIMUM), (7, 7)] {
         let q = query(&root.0, json!({ "pageSize": asked }));
-        assert_eq!(q.page_size(), Some(kept), "pageSize {asked}");
+        assert_eq!(
+            ast_search_query_symbols::page_size(&q),
+            Some(kept),
+            "pageSize {asked}"
+        );
     }
 }
 

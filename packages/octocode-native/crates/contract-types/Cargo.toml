@@ -1,0 +1,27 @@
+[package]
+name = "octocode-contract-types"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tool wire types generated from the Octocode tool contract"
+
+# No doctests: the generated doc comments are not examples.
+[lib]
+doctest = false
+
+[dependencies]
+# Generated contract types use ECMAScript pattern validation.
+regress = "0.12"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
+
+# The generated file `src/lib.rs` `include!`s uses all three; cargo-shear does
+# not read included source.
+[package.metadata.cargo-shear]
+ignored = ["regress", "serde", "serde_json"]

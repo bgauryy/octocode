@@ -3,8 +3,9 @@
 //! [`tool_error_result`]: the typed `{error, details?, errorCode}` envelope
 //! and its one-line text.
 
-use super::{RuntimeError, ToolOutcome};
-use crate::tools::id::ToolId;
+use super::RuntimeError;
+use crate::id::ToolId;
+use crate::response::outcome::ToolOutcome;
 use serde_json::{Value, json};
 
 /// A rejected call as every surface prints it.
@@ -131,7 +132,7 @@ mod tests {
                 let mut payload = contracts::format_input_error(tool, &error);
                 crate::response::channels::publish_hints(
                     &mut payload,
-                    crate::tools::id::ToolId::from_name(tool).expect("tool"),
+                    crate::id::ToolId::from_name(tool).expect("tool"),
                 );
                 payload
             })),

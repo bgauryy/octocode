@@ -1,7 +1,8 @@
 //! Freshness of a tree page: each listed entry's last-commit date at the
 //! listed commit, and that commit's own date, as `YYYY-MM-DD`.
 use super::*;
-use crate::tools::paging::push_warnings;
+use crate::response::paging::push_warnings;
+use crate::response::result::Confidence;
 use std::collections::HashMap;
 
 /// Dates of one listing page.
@@ -37,8 +38,8 @@ fn day(timestamp: &str) -> Option<String> {
 /// A failure dates what was answered and names the rest in
 /// [`PageDates::warning`]; entries past the first chunk are counted in
 /// [`PageDates::undated`].
-pub(super) async fn page_dates<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn page_dates(
+    provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     commit_sha: &str,
@@ -56,7 +57,7 @@ pub(super) async fn page_dates<C: octocode_github::ConditionalCache>(
     let key = cache_key(owner, repo, commit_sha, &paths);
     let partition = provider.transport.cache_partition(context, None).ok();
     if let Some(partition) = &partition
-        && let Some(cached) = provider.cache.get(partition, &key).await
+        && let Some(cached) = provider.transport.cache.get(partition, &key).await
         && let Ok(mut dates) = serde_json::from_slice::<PageDates>(&cached.bytes)
     {
         dates.undated = undated;
@@ -91,6 +92,7 @@ pub(super) async fn page_dates<C: octocode_github::ConditionalCache>(
                 && let Ok(bytes) = serde_json::to_vec(&dates)
             {
                 provider
+                    .transport
                     .cache
                     .put(
                         partition,
@@ -99,6 +101,7 @@ pub(super) async fn page_dates<C: octocode_github::ConditionalCache>(
                             etag: None,
                             bytes: bytes.into(),
                             resolved_ref: commit_sha.to_owned(),
+                            has_more: false,
                         },
                         octocode_github::Retention::Pinned,
                     )
@@ -140,10 +143,12 @@ pub(super) fn expand(
             "Dates cover the first {DATED_PER_PAGE} entries; {undated} more are undated."
         )],
     );
-    value["next"]["expandDates"] =
-        crate::tools::result::Continuation::input(ToolId::GhStructure, json!({ "queries": rows }))
-            .confidence("exact")
-            .build();
+    value["next"]["expandDates"] = crate::response::result::Continuation::input(
+        ToolId::GhStructure,
+        json!({ "queries": rows }),
+    )
+    .confidence(Confidence::Exact)
+    .build();
     Ok(())
 }
 
@@ -164,9 +169,8 @@ fn cache_key(owner: &str, repo: &str, commit_sha: &str, paths: &[&str]) -> Strin
     format!("github-tree-dates:{}", hex::encode(digest.finalize()))
 }
 
-/// State the page's dates on its rows: each row's `updated` maps a listed
-/// name to its date; the listed commit's date is `commitDate`. Row `dir`s
-/// are repo-relative, like the dated paths.
+/// State the page's commit date (`commitDate`) and its dating warning; the
+/// entries' dates are already in their rows ([`super::listing::build_structure`]).
 pub(super) fn attach(value: &mut Value, dates: PageDates) {
     if let Some(commit) = dates.commit {
         value["commitDate"] = json!(commit);
@@ -174,44 +178,17 @@ pub(super) fn attach(value: &mut Value, dates: PageDates) {
     if let Some(warning) = dates.warning {
         push_warnings(value, [warning]);
     }
-    if dates.entries.is_empty() {
-        return;
-    }
-    let Some(rows) = value.get_mut("files").and_then(Value::as_array_mut) else {
-        return;
-    };
-    for row in rows {
-        let dir = row["dir"].as_str().unwrap_or(".").to_owned();
-        let mut updated = Map::new();
-        for key in ["files", "folders"] {
-            for name in row[key].as_array().into_iter().flatten() {
-                let Some(name) = name.as_str() else { continue };
-                let full = if dir == "." {
-                    name.to_owned()
-                } else {
-                    format!("{dir}/{name}")
-                };
-                if let Some(date) = dates.entries.get(&full) {
-                    updated.insert(name.to_owned(), json!(date));
-                }
-            }
-        }
-        if !updated.is_empty() {
-            row["updated"] = Value::Object(updated);
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Each name is written once: the day joins the size inside the
+    /// entry's fields (keyed by repo-relative path), and the page states its
+    /// commit's date once.
     #[test]
-    fn rows_map_each_listed_name_to_its_repo_relative_date() {
-        let mut value = json!({"files": [
-            {"dir": "src", "files": ["a.rs"], "folders": ["sub"]},
-            {"dir": "src/sub", "files": ["b.rs"]}
-        ]});
+    fn dates_fold_into_the_entries_after_their_size() {
         let dates = PageDates {
             commit: Some("2026-02-03".into()),
             entries: [
@@ -222,49 +199,33 @@ mod tests {
             .into_iter()
             .map(|(path, date)| (path.to_owned(), date.to_owned()))
             .collect(),
-            warning: None,
-            undated: 0,
-        };
-        attach(&mut value, dates);
-        assert_eq!(value["commitDate"], "2026-02-03");
-        assert_eq!(
-            value["files"][0]["updated"],
-            json!({"a.rs": "2025-01-01", "sub": "2025-02-02"})
-        );
-        assert_eq!(value["files"][1]["updated"], json!({"b.rs": "2025-03-03"}));
-        assert!(value.get("warnings").is_none());
-    }
-
-    /// Each name is written once: the day joins the size inside the
-    /// entry's fields, and the row keeps no `updated` map.
-    #[test]
-    fn dates_fold_into_the_entries_after_their_size() {
-        let mut value = json!({"files": [
-            {"dir": "src", "files": ["a.rs", "b (1).rs"], "folders": ["sub", "old"]}
-        ]});
-        let dates = PageDates {
-            entries: [("src/a.rs", "2025-01-01"), ("src/sub", "2025-02-02")]
-                .into_iter()
-                .map(|(path, date)| (path.to_owned(), date.to_owned()))
-                .collect(),
             ..PageDates::default()
         };
-        attach(&mut value, dates);
         let entries = [
             ("src/a.rs", super::super::EntryKind::File, Some(12)),
             ("src/b (1).rs", super::super::EntryKind::File, Some(3)),
+            ("src/sub", super::super::EntryKind::Dir, None),
+            ("src/old", super::super::EntryKind::Dir, None),
+            ("src/sub/b.rs", super::super::EntryKind::File, None),
         ]
         .map(|(path, kind, size)| super::super::TreeEntry {
             path: path.to_owned(),
             kind,
             size,
         });
-        super::super::listing::attach_fields(&mut value, &entries);
+        let rows = super::super::listing::build_structure(&entries, &dates.entries);
         assert_eq!(
-            value["files"][0],
-            json!({"dir": "src", "files": ["a.rs (12, 2025-01-01)", "b (1).rs (3)"],
-                "folders": ["sub (2025-02-02)", "old"]})
+            rows,
+            vec![
+                json!({"dir": "src", "files": ["a.rs (12, 2025-01-01)", "b (1).rs (3)"],
+                    "folders": ["old", "sub (2025-02-02)"]}),
+                json!({"dir": "src/sub", "files": ["b.rs (2025-03-03)"]}),
+            ]
         );
+        let mut value = json!({"files": rows});
+        attach(&mut value, dates);
+        assert_eq!(value["commitDate"], "2026-02-03");
+        assert!(value.get("warnings").is_none());
     }
 
     #[test]

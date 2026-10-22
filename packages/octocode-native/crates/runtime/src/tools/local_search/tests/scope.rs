@@ -1,5 +1,57 @@
 use super::*;
 
+#[test]
+fn cancellation_during_the_walk_reports_cancelled() {
+    use crate::execution::cancel::CancellationCheck;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    struct CancelAfter(AtomicU32, u32);
+    impl CancellationCheck for CancelAfter {
+        fn check(&self) -> Result<(), String> {
+            if self.0.fetch_add(1, Ordering::SeqCst) >= self.1 {
+                Err("cancelled".into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+    let root = tempfile::tempdir().expect("fixture directory");
+    for i in 0..40 {
+        fs::write(root.path().join(format!("f{i:02}.txt")), "needle\n").expect("fixture");
+    }
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "needle".to_string()}),
+        None,
+    );
+    // The first check (before the walk) passes; the walk's polls cancel.
+    let cancel = CancelAfter(AtomicU32::new(0), 3);
+    let error = execute_local_search(&request, &policy, &security, &cancel, None, None, None)
+        .expect_err("cancelled mid-walk");
+    assert_eq!(error.code, "cancelled");
+    assert!(
+        cancel.0.load(Ordering::SeqCst) < 40,
+        "walk polled every file"
+    );
+}
+
+/// A bare word include also searches inside directories named by it.
+#[test]
+fn bare_word_include_searches_inside_named_dir() {
+    let body = search_fixture(
+        &[
+            ("tools/local_fetch/a.rs", "needle\n"),
+            ("tools/other/b.rs", "needle\n"),
+        ],
+        ls_query(
+            serde_json::json!({"matchString": "needle", "include": ["local_fetch"]}),
+            None,
+        ),
+    );
+    let text = body["files"].to_string();
+    assert!(text.contains("local_fetch/a.rs"), "{body}");
+    assert!(!text.contains("other/b.rs"), "{body}");
+}
+
 /// The `expandValues` lead of one page: its tool and its rows, after
 /// asserting the page offers no other value-expansion lead and states no
 /// value left out.
@@ -27,7 +79,7 @@ fn page_expansion(result: &LocalSearchResult) -> Option<(String, Vec<serde_json:
         .cloned()
         .unwrap_or_default();
     assert!(
-        rows.len() <= crate::tools::result::rows_per_call(crate::tools::id::ToolId::LocalFetch),
+        rows.len() <= crate::response::result::rows_per_call(crate::id::ToolId::LocalFetch),
         "{lead}"
     );
     Some((lead["tool"].as_str().unwrap_or_default().to_owned(), rows))
@@ -256,7 +308,7 @@ fn files_past_the_collection_cap_are_disclosed() {
     let scanned = octocode_engine::types::TextSearchStats {
         files_matched: Some(10_851),
         capped: Some(true),
-        cap_reason: Some("maxCollectedFiles".into()),
+        cap_reasons: vec![octocode_engine::types::CapReason::MaxCollectedFiles],
         ..Default::default()
     };
     let stats = executor::search_stats(
@@ -265,7 +317,7 @@ fn files_past_the_collection_cap_are_disclosed() {
         executor::MAX_COLLECTED_FILES,
     );
     let warning =
-        leads::uncollected_warning(&stats, executor::MAX_COLLECTED_FILES).expect("disclosed");
+        coverage::uncollected_warning(&stats, executor::MAX_COLLECTED_FILES).expect("disclosed");
     assert!(warning.contains("851 of 10851"), "{warning}");
     let uncapped = executor::search_stats(
         LocalSearchQueryResultView::Paginated,
@@ -275,7 +327,7 @@ fn files_past_the_collection_cap_are_disclosed() {
         },
         10,
     );
-    assert!(leads::uncollected_warning(&uncapped, 10).is_none());
+    assert!(coverage::uncollected_warning(&uncapped, 10).is_none());
 }
 
 /// A PCRE2 matching limit on a readable file is the pattern's failure,
@@ -564,7 +616,7 @@ fn a_search_row_serializes_flat_totals_that_satisfy_the_output_contract() {
         files_searched: 3,
         bytes_searched: None,
         capped: Some(true),
-        cap_reason: Some("maxFiles, maxOnlyMatchingPerLine".into()),
+        cap_reasons: Vec::new(),
         partial_reasons: vec!["maxFiles".into(), "maxOnlyMatchingPerLine".into()],
         error_count: Some(1),
         first_error: Some("x.bin: denied".into()),
@@ -717,7 +769,7 @@ fn reverse_is_the_exact_reverse_of_a_count_view_including_ties() {
 /// the pages reads every clipped value once.
 #[test]
 fn every_clipped_value_on_a_default_page_is_one_expand_values_call_away() {
-    let limit = crate::tools::result::rows_per_call(crate::tools::id::ToolId::LocalFetch);
+    let limit = crate::response::result::rows_per_call(crate::id::ToolId::LocalFetch);
     let root = tempfile::tempdir().expect("fixture directory");
     let total = limit + 2;
     for index in 0..total {
@@ -804,8 +856,8 @@ fn every_clipped_value_on_a_default_page_is_one_expand_values_call_away() {
 /// full call, and together they read every clipped row's line.
 #[test]
 fn a_grid_page_reads_every_clipped_value_in_numbered_calls() {
-    use crate::tools::id::{ToolId, channel, is_enrichment};
-    let limit = crate::tools::result::rows_per_call(ToolId::LocalFetch);
+    use crate::id::{ToolId, channel, is_enrichment};
+    let limit = crate::response::result::rows_per_call(ToolId::LocalFetch);
     let root = tempfile::tempdir().expect("fixture directory");
     let files = limit * 6;
     for index in 0..files {
@@ -863,10 +915,7 @@ fn a_grid_page_reads_every_clipped_value_in_numbered_calls() {
     assert_eq!(names, expected);
     let mut read = std::collections::BTreeSet::new();
     for name in &names {
-        assert_eq!(
-            channel(ToolId::LocalSearch, name),
-            crate::tools::id::Channel::Page
-        );
+        assert_eq!(channel(ToolId::LocalSearch, name), crate::id::Channel::Page);
         assert!(is_enrichment(name), "{name}");
         let lead = &next[name];
         assert_eq!(lead["tool"], "localFetch", "{lead}");
@@ -943,7 +992,7 @@ fn mixed_value_reads_are_one_executable_expand_values_call() {
     );
     let (tool, rows) = page_expansion(&result).expect("expandValues");
     assert_eq!(tool, "localFetch", "{rows:?}");
-    let to_end = format!("-{}", leads::READ_TO_END_LINE);
+    let to_end = format!("-{}", handoff::READ_TO_END_LINE);
     assert_eq!(
         rows,
         [
@@ -1023,8 +1072,7 @@ fn an_include_naming_a_pruned_directory_walks_it() {
 /// row at a terminal limit the shared cursor owner states.
 #[test]
 fn the_page_ceiling_names_the_file_pages_past_it() {
-    let max =
-        crate::contracts::query_schema_max(crate::tools::id::ToolId::LocalSearch, None, "page");
+    let max = crate::contracts::query_schema_max(crate::id::ToolId::LocalSearch, None, "page");
     let root = tempfile::tempdir().expect("fixture");
     for index in 0..max + 2 {
         fs::write(root.path().join(format!("f{index:05}.txt")), "CEILING\n").expect("file");
@@ -1059,7 +1107,7 @@ fn the_page_ceiling_names_the_file_pages_past_it() {
     assert!(result.terminal_limit && result.is_partial);
     assert_eq!(
         result.stats.partial_reasons,
-        [crate::tools::paging::CURSOR_MAXIMUM]
+        [crate::response::paging::CURSOR_MAXIMUM]
     );
 }
 
@@ -1192,7 +1240,7 @@ fn skipped_paths_are_first_page_disclosure_with_copied_search_scope() {
         }
         paths.extend(result.files.iter().map(|f| f.path.clone()));
         let published = crate::tools::test_support::published(
-            crate::tools::id::ToolId::LocalSearch,
+            crate::id::ToolId::LocalSearch,
             &serde_json::to_value(&request).expect("query"),
             &body,
         );

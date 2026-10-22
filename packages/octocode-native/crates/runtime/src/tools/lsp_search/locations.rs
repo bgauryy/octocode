@@ -11,11 +11,13 @@
 use super::LspSearchQuery;
 use super::failure::{empty, offer_next_page};
 use super::render::{
-    PageCut, as_array, document_symbol_rows, flatten_document_symbol, page_window, paginate,
+    PageCut, document_symbol_rows, flatten_document_symbol, into_items, page_window, paginate,
     plain_sizes, read_row_cursor, symbol_kind_name, uri_to_path,
 };
 use super::source::SourceCache;
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::tools::lsp_search::lsp_search_query;
 use serde_json::{Value, json};
 
 /// One-based public `displayRange` of a zero-based LSP range.
@@ -138,24 +140,29 @@ pub(super) async fn salted_locations(
     }
     // groupByFile summarizes per file INSTEAD of returning every location, so
     // the page unit becomes a file summary.
-    let grouped = query.group_by_file() == Some(true);
+    let grouped = lsp_search_query::group_by_file(query) == Some(true);
     // A reference list without an explicit row form pages locations as usual
     // but prints each page as compact `line:col text` rows per file.
-    let compact =
-        kind == "references" && query.group_by_file().is_none() && query.context_lines().is_none();
+    let compact = kind == "references"
+        && lsp_search_query::group_by_file(query).is_none()
+        && lsp_search_query::context_lines(query).is_none();
     let entries = if grouped {
         group_by_file(&locations)
     } else {
         locations.clone()
     };
-    let sizes = location_sizes(&entries, grouped, compact, query.context_lines());
+    let sizes = location_sizes(
+        &entries,
+        grouped,
+        compact,
+        lsp_search_query::context_lines(query),
+    );
     let mut budget = budget;
     // Only context-free compact references are already held in their public
     // form. Detailed extras and source-context reads keep the conservative cut.
     if compact
-        && query.page_size().is_none()
-        && query
-            .to_row()
+        && lsp_search_query::page_size(query).is_none()
+        && lsp_search_query::to_row(query)
             .get("extras")
             .and_then(Value::as_array)
             .is_none_or(Vec::is_empty)
@@ -183,16 +190,16 @@ pub(super) async fn salted_locations(
                 &locations,
                 pagination,
             );
-            if crate::tools::page_windows::terminal_row_fits(response_window, &full) {
+            if crate::response::page_windows::terminal_row_fits(response_window, &full) {
                 budget = budget.max(full_budget);
             }
         }
     }
     let (page, pagination, next_page) = paginate(
         &entries,
-        query.page().unwrap_or(1),
+        lsp_search_query::page(query).unwrap_or(1),
         &PageCut {
-            page_size: query.page_size(),
+            page_size: lsp_search_query::page_size(query),
             budget,
             sizes: &sizes,
             snapshot: &snapshot,
@@ -207,7 +214,7 @@ pub(super) async fn salted_locations(
     } else {
         // Context lines are read for this page only, not the whole set.
         let mut page = page;
-        if let Some(context_lines) = query.context_lines() {
+        if let Some(context_lines) = lsp_search_query::context_lines(query) {
             for location in &mut page {
                 apply_context_lines(location, context_lines, sources).await;
             }
@@ -225,7 +232,7 @@ pub(super) async fn salted_locations(
     // A clipped body is a partial row with its reason; the reads reach the
     // omitted lines.
     if !declaration_reads.is_empty() {
-        crate::tools::paging::mark_partial(&mut row, DECLARATION_CLIPPED, &[]);
+        crate::response::paging::mark_partial(&mut row, DECLARATION_CLIPPED, &[]);
     }
     // One read per capped body: `readDeclaration`, `readDeclaration2`, ….
     for (index, read) in declaration_reads.into_iter().enumerate() {
@@ -265,7 +272,7 @@ fn location_sizes(
     compact: bool,
     context_lines: Option<u32>,
 ) -> Vec<usize> {
-    use crate::tools::stream_page::json_text_chars;
+    use crate::response::stream_page::json_text_chars;
     let mut previous_uri: Option<&str> = None;
     entries
         .iter()
@@ -405,11 +412,11 @@ pub(super) fn cap_declaration_content(location: &mut Value) -> Option<Value> {
     });
     let read = match (&path, rest) {
         (Some(path), Some((from, to))) => Some(
-            crate::tools::result::Continuation::new(
+            crate::response::result::Continuation::new(
                 ToolId::LocalFetch,
                 json!({"path": path, "ranges": [format!("{from}-{to}")]}),
             )
-            .confidence("exact")
+            .confidence(Confidence::Exact)
             .build(),
         ),
         _ => None,
@@ -482,7 +489,7 @@ fn number_content(content: &str, start: u64) -> String {
         if record.starts_with("… ") && record.contains(" more lines omitted") {
             out.push_str(record);
         } else {
-            crate::tools::numbered::push_numbered(&mut out, line, record);
+            crate::response::numbered::push_numbered(&mut out, line, record);
             line += 1;
         }
     }
@@ -677,9 +684,9 @@ fn salted_snapshot(
     items: &[Value],
     salt: Option<&str>,
 ) -> String {
-    let mut scope = query.to_row();
+    let mut scope = lsp_search_query::to_row(query);
     if let Some(object) = scope.as_object_mut() {
-        for field in crate::tools::result::INTENT_FIELDS
+        for field in crate::response::result::INTENT_FIELDS
             .iter()
             .chain(&["page", "snapshot"])
         {
@@ -706,18 +713,17 @@ fn salted_snapshot(
 /// does not bind to this page; a page without one pins nothing and pages the
 /// current answer.
 pub(super) fn snapshot_mismatch(query: &LspSearchQuery, actual: &str) -> bool {
-    let page = query.page().unwrap_or(1) as usize;
+    let page = lsp_search_query::page(query).unwrap_or(1) as usize;
     page > 1
-        && query.snapshot().is_some_and(|pinned| {
+        && lsp_search_query::snapshot(query).is_some_and(|pinned| {
             read_row_cursor(pinned, page).is_none_or(|(digest, _)| digest != actual)
         })
 }
 
 /// The row a later page's copied cursor starts at, when it names one.
 fn resume_at(query: &LspSearchQuery) -> Option<usize> {
-    let page = query.page().unwrap_or(1) as usize;
-    query
-        .snapshot()
+    let page = lsp_search_query::page(query).unwrap_or(1) as usize;
+    lsp_search_query::snapshot(query)
         .filter(|_| page > 1)
         .and_then(|pinned| read_row_cursor(pinned, page)?.1)
 }
@@ -725,9 +731,9 @@ fn resume_at(query: &LspSearchQuery) -> Option<usize> {
 /// The stale-snapshot row; its restart walks from the first location page
 /// of the first importer window.
 pub(super) fn snapshot_changed(query: &LspSearchQuery) -> Value {
-    crate::tools::result::stale_snapshot(crate::tools::result::restart_query(
+    crate::response::result::stale_snapshot(crate::response::result::restart_query(
         ToolId::LspSearch,
-        &super::failure::query_value(query),
+        &lsp_search_query::to_row(query),
     ))
 }
 
@@ -751,7 +757,7 @@ pub(super) fn salted_items_payload(
     budget: usize,
     sizes: impl FnOnce(&[Value]) -> Vec<usize>,
 ) -> Value {
-    let raw_items = as_array(&value);
+    let raw_items = into_items(value);
     if kind == "documentSymbols" {
         return document_symbols_payload(query, &raw_items, budget);
     }
@@ -778,9 +784,9 @@ pub(super) fn salted_items_payload(
     let sizes = sizes(&raw_items);
     let (page, pagination, next_page) = paginate(
         &raw_items,
-        query.page().unwrap_or(1),
+        lsp_search_query::page(query).unwrap_or(1),
         &PageCut {
-            page_size: query.page_size(),
+            page_size: lsp_search_query::page_size(query),
             budget,
             sizes: &sizes,
             snapshot: &snapshot,
@@ -814,7 +820,7 @@ fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value], budget:
     }
     // Pages count top-level rows, each with its members; a row costs what
     // it prints as, not its raw provider objects.
-    let spans = crate::tools::symbol_outline::top_level_spans(&symbols);
+    let spans = crate::response::symbol_outline::top_level_spans(&symbols);
     let sizes = spans
         .iter()
         .map(|span| {
@@ -827,9 +833,9 @@ fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value], budget:
         })
         .collect::<Vec<_>>();
     let (window, pagination, next_page) = page_window(
-        query.page().unwrap_or(1),
+        lsp_search_query::page(query).unwrap_or(1),
         &PageCut {
-            page_size: query.page_size(),
+            page_size: lsp_search_query::page_size(query),
             budget,
             sizes: &sizes,
             snapshot: &snapshot,
@@ -852,12 +858,12 @@ fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value], budget:
         "pagination": pagination
     });
     offer_next_page(query, &mut row, next_page);
-    if let (Some(path), Some(read)) = (query.path(), outline_read(&page)) {
-        row["next"]["read"] = crate::tools::result::Continuation::input(
+    if let (Some(path), Some(read)) = (lsp_search_query::path(query), outline_read(&page)) {
+        row["next"]["read"] = crate::response::result::Continuation::input(
             ToolId::LocalFetch,
             json!({ "queries": [{ "path": path, "ranges": [read] }] }),
         )
-        .confidence("medium")
+        .confidence(Confidence::Medium)
         .build();
     }
     row
@@ -915,29 +921,23 @@ pub(super) fn attach_read_lead(row: &mut Value) {
     let Some(files) = row.pointer("/files").and_then(Value::as_array) else {
         return;
     };
-    let max_ranges = crate::tools::id::query_limits::local_fetch::RANGES_MAX_ITEMS;
+    let max_ranges = crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
     let reads = files
         .iter()
         .filter_map(|file| {
             let path = file.get("path")?.as_str()?;
-            let mut lines = file
-                .get("matches")?
-                .as_array()?
-                .iter()
-                .flat_map(site_lines)
-                .collect::<Vec<_>>();
-            lines.sort_unstable();
-            let mut windows: Vec<(u64, u64)> = Vec::new();
-            for line in lines {
-                let (start, end) = (
-                    line.saturating_sub(READ_LEAD_CONTEXT).max(1),
-                    line + READ_LEAD_CONTEXT,
-                );
-                match windows.last_mut() {
-                    Some(last) if start <= last.1 + 1 => last.1 = last.1.max(end),
-                    _ => windows.push((start, end)),
-                }
-            }
+            let windows = crate::tools::line_spans::merge_spans(
+                file.get("matches")?
+                    .as_array()?
+                    .iter()
+                    .flat_map(site_lines)
+                    .map(|line| {
+                        (
+                            line.saturating_sub(READ_LEAD_CONTEXT).max(1),
+                            line + READ_LEAD_CONTEXT,
+                        )
+                    }),
+            );
             (!windows.is_empty() && windows.len() <= max_ranges).then(|| {
                 json!({
                     "path": path,
@@ -953,17 +953,18 @@ pub(super) fn attach_read_lead(row: &mut Value) {
     if reads.is_empty() {
         return;
     }
-    row["next"]["read"] =
-        crate::tools::result::Continuation::input(ToolId::LocalFetch, json!({ "queries": reads }))
-            .confidence("high")
-            .build();
+    row["next"]["read"] = crate::response::result::Continuation::input(
+        ToolId::LocalFetch,
+        json!({ "queries": reads }),
+    )
+    .confidence(Confidence::High)
+    .build();
 }
 
 /// Whether no ancestor of the anchor file holds a project marker: the server
 /// then indexes a bare directory, and an empty answer says nothing.
 fn without_project(query: &LspSearchQuery) -> bool {
-    query
-        .path()
+    lsp_search_query::path(query)
         .map(super::render::uri_to_path)
         .and_then(|path| {
             std::path::Path::new(&path)

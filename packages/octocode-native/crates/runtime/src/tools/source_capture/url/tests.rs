@@ -539,7 +539,7 @@ fn captured_page(home: &Home) -> (Selection, Captured) {
 fn a_capture_is_saved_immutably_and_its_lead_reads_exactly_those_bytes() {
     let home = Home::new();
     let (selection, captured) = captured_page(&home);
-    let snapshot = crate::digest::sha256(selection.text.as_bytes());
+    let snapshot = octocode_engine::digest::sha256(selection.text.as_bytes());
     let file = capture_root(&home.home).join(&snapshot).join("source.txt");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), selection.text);
     #[cfg(unix)]
@@ -639,7 +639,7 @@ async fn local_fetch(runtime: &ToolRuntime, query: Value) -> Value {
 async fn the_lead_survives_output_sanitization_and_still_reads_the_capture() {
     let home = Home::new();
     let (selection, captured) = captured_page(&home);
-    let snapshot = crate::digest::sha256(selection.text.as_bytes());
+    let snapshot = octocode_engine::digest::sha256(selection.text.as_bytes());
     let installed = json!({
         "tool": "localFetch",
         "query": {"queries": [{
@@ -650,7 +650,7 @@ async fn the_lead_survives_output_sanitization_and_still_reads_the_capture() {
     });
     let row =
         |read: &Value| json!({"queries": [{"source": captured.source, "hints": {"read": read}}]});
-    let context = crate::runtime::ExecutionContext {
+    let context = crate::execution::ExecutionContext {
         cancellation: tokio_util::sync::CancellationToken::new(),
         deadline: std::time::Instant::now() + Duration::from_secs(5),
         walk_threads: None,
@@ -713,10 +713,10 @@ fn a_stopped_call_ends_html_extraction_with_its_own_reason() {
         emails: false,
     };
     for reason in [
-        crate::runtime::ExecutionError::Timeout,
-        crate::runtime::ExecutionError::Cancelled,
+        crate::execution::ExecutionError::Timeout,
+        crate::execution::ExecutionError::Cancelled,
     ] {
-        let expected = if reason == crate::runtime::ExecutionError::Timeout {
+        let expected = if reason == crate::execution::ExecutionError::Timeout {
             "timeout"
         } else {
             "cancelled"

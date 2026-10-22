@@ -1,5 +1,3 @@
-mod deep_stack;
-
 /// Largest source the parsers accept (declarations, graph facts, oxc,
 /// syntax trees). Separate from the minifier's 1 MiB guard: parsing a real
 /// monolithic source (TypeScript's 3 MB checker.ts) is cheap and bounded,
@@ -11,14 +9,14 @@ pub mod graph_facts;
 pub(crate) mod js_oxc;
 mod nodes;
 
-pub(crate) use deep_stack::run_on_deep_stack;
 mod js_oxc_calls;
 mod js_oxc_commonjs;
 mod js_oxc_receiver;
 mod js_oxc_references;
 mod js_oxc_shared;
 
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 1;
+/// v2: diagnostics are typed records (`code`, `message`, `line`), not text.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 2;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking
@@ -64,18 +62,12 @@ fn tree_sitter_graph_facts(content: &str, file_path: &str) -> Option<GraphFactsE
 
 /// 0-based line where the comment block directly above a declaration
 /// starting at `start` (0-based) begins, if any. Blank lines end the block;
-/// Rust `#[...]` attributes between the comment and the item are skipped. `#`
-/// is a comment only in Python (C/C++ `#include`/`#define` are code), and a
-/// `*` continuation run must reach its `/*` opener.
+/// Rust `#[...]` attributes between the comment and the item are skipped.
+/// Comments follow the grammar's [`CommentStyle`] (so C/C++ `#include` and
+/// `#define` are code), and a `*` continuation run must reach its `/*` opener.
 pub(crate) fn leading_doc_line(lines: &[&str], start: usize, ext: &str) -> Option<u32> {
-    let is_comment = |line: &str| {
-        let line = line.trim_start();
-        if ext == "py" {
-            line.starts_with('#')
-        } else {
-            line.starts_with("//") || line.starts_with("/*") || line.starts_with('*')
-        }
-    };
+    let style = languages::find_entry(ext).map_or(CommentStyle::C, |entry| entry.comment_style);
+    let is_comment = |line: &str| renderer::is_pure_comment(line, style);
     let mut top = start.min(lines.len());
     while ext == "rs" && top > 0 && lines[top - 1].trim_start().starts_with("#[") {
         top -= 1;
@@ -84,7 +76,8 @@ pub(crate) fn leading_doc_line(lines: &[&str], start: usize, ext: &str) -> Optio
     while doc > 0 && is_comment(lines[doc - 1]) {
         doc -= 1;
     }
-    if doc == top || (ext != "py" && lines[doc].trim_start().starts_with('*')) {
+    // A block's continuation line alone (` * …`) is not where it starts.
+    if doc == top || (style != CommentStyle::Hash && lines[doc].trim_start().starts_with('*')) {
         return None;
     }
     u32::try_from(doc).ok()
@@ -126,8 +119,10 @@ pub fn extract_signatures_with_declarations(
     Option<crate::graph::GraphFactsDocument>,
 ) {
     let (content, file_path) = (content.to_owned(), file_path.to_owned());
-    run_on_deep_stack(move || Some(signatures_with_declarations(&content, &file_path)))
-        .unwrap_or((Err(OutlineUnavailable::ParseFailed), None))
+    crate::deep_stack::run_on_deep_stack(move || {
+        Some(signatures_with_declarations(&content, &file_path))
+    })
+    .unwrap_or((Err(OutlineUnavailable::ParseFailed), None))
 }
 
 fn signatures_with_declarations(
@@ -234,6 +229,7 @@ pub const DECLARATION_KINDS: &[&str] = &[
 
 use crate::text::file_extension::extension_of;
 use extractor::LangExtractConfig;
+use languages::CommentStyle;
 
 /// Why a file has no symbols outline: the typed reason a reader falls back
 /// to another view.
@@ -453,13 +449,6 @@ mod tests {
             expected.as_object_mut().map(|facts| facts.remove("paths"));
             if let Some(edges) = expected["edges"].as_array_mut() {
                 edges.retain(|edge| edge["relation"] != "calls");
-            }
-            if let Some(imports) = expected["imports"].as_array_mut() {
-                for import in imports {
-                    if let Some(import) = import.as_object_mut() {
-                        import.remove("usedIn");
-                    }
-                }
             }
             // An edge id ends in its push position, which skipped call
             // edges shift; consumers read from/relation/to.

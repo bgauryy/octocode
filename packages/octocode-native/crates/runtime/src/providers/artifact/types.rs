@@ -4,30 +4,34 @@ use std::collections::BTreeMap;
 use std::fmt;
 use url::Url;
 
-pub use crate::contracts::tool_types::{ArtifactSearchQuery, ArtifactType};
-use crate::contracts::tool_types::{RegistryDiscoveryEcosystem, RegistryExactEcosystem};
+pub use octocode_contract_types::{ArtifactSearchQuery, ArtifactType};
+use octocode_contract_types::{RegistryDiscoveryEcosystem, RegistryExactEcosystem};
 
-impl ArtifactType {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Npm => "npm",
-            Self::Pypi => "pypi",
-            Self::Crates => "crates",
-            Self::Maven => "maven",
-            Self::Nuget => "nuget",
-            Self::Go => "go",
-            Self::Packagist => "packagist",
-            Self::Rubygems => "rubygems",
+pub(crate) mod artifact_type {
+    use super::*;
+    pub(crate) fn as_str(kind: ArtifactType) -> &'static str {
+        match kind {
+            ArtifactType::Npm => "npm",
+            ArtifactType::Pypi => "pypi",
+            ArtifactType::Crates => "crates",
+            ArtifactType::Maven => "maven",
+            ArtifactType::Nuget => "nuget",
+            ArtifactType::Go => "go",
+            ArtifactType::Packagist => "packagist",
+            ArtifactType::Rubygems => "rubygems",
         }
     }
 }
 
 /// Registry-facing views over the generated wire query.
-impl ArtifactSearchQuery {
-    pub(crate) fn artifact_type(&self) -> ArtifactType {
-        match self {
-            Self::NpmExact(_) | Self::NpmDiscovery(_) => ArtifactType::Npm,
-            Self::RegistryExact(query) => match query.ecosystem {
+pub(crate) mod artifact_search_query {
+    use super::*;
+    pub(crate) fn artifact_type(query: &ArtifactSearchQuery) -> ArtifactType {
+        match query {
+            ArtifactSearchQuery::NpmExact(_) | ArtifactSearchQuery::NpmDiscovery(_) => {
+                ArtifactType::Npm
+            }
+            ArtifactSearchQuery::RegistryExact(query) => match query.ecosystem {
                 RegistryExactEcosystem::Pypi => ArtifactType::Pypi,
                 RegistryExactEcosystem::Crates => ArtifactType::Crates,
                 RegistryExactEcosystem::Maven => ArtifactType::Maven,
@@ -36,7 +40,7 @@ impl ArtifactSearchQuery {
                 RegistryExactEcosystem::Packagist => ArtifactType::Packagist,
                 RegistryExactEcosystem::Rubygems => ArtifactType::Rubygems,
             },
-            Self::RegistryDiscovery(query) => match query.ecosystem {
+            ArtifactSearchQuery::RegistryDiscovery(query) => match query.ecosystem {
                 RegistryDiscoveryEcosystem::Crates => ArtifactType::Crates,
                 RegistryDiscoveryEcosystem::Maven => ArtifactType::Maven,
                 RegistryDiscoveryEcosystem::Nuget => ArtifactType::Nuget,
@@ -46,39 +50,41 @@ impl ArtifactSearchQuery {
             },
         }
     }
-    pub(crate) fn package_name(&self) -> Option<&str> {
-        match self {
-            Self::NpmExact(query) => Some(query.package_name.as_str()),
-            Self::RegistryExact(query) => Some(query.package_name.as_str()),
+    pub(crate) fn package_name(query: &ArtifactSearchQuery) -> Option<&str> {
+        match query {
+            ArtifactSearchQuery::NpmExact(query) => Some(query.package_name.as_str()),
+            ArtifactSearchQuery::RegistryExact(query) => Some(query.package_name.as_str()),
             _ => None,
         }
     }
     /// The requested version, range, or tag: the `version` field, else the
     /// registry's own coordinate suffix (`name@x` on npm/crates, `name==x`
     /// on PyPI), which stays valid input. `None` means the latest release.
-    pub(crate) fn version(&self) -> Option<&str> {
-        let explicit = match self {
-            Self::NpmExact(query) => query.version.as_deref().map(String::as_str),
-            Self::RegistryExact(query) => query.version.as_deref().map(String::as_str),
+    pub(crate) fn version(query: &ArtifactSearchQuery) -> Option<&str> {
+        let explicit = match query {
+            ArtifactSearchQuery::NpmExact(query) => query.version.as_deref().map(String::as_str),
+            ArtifactSearchQuery::RegistryExact(query) => {
+                query.version.as_deref().map(String::as_str)
+            }
             _ => None,
         };
         explicit
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .or_else(|| self.split_coordinate().1)
+            .or_else(|| split_coordinate(query).1)
     }
 
     /// The package name without a coordinate version suffix.
-    pub(crate) fn bare_package_name(&self) -> Option<&str> {
-        self.package_name().map(|_| self.split_coordinate().0)
+    pub(crate) fn bare_package_name(query: &ArtifactSearchQuery) -> Option<&str> {
+        package_name(query).map(|_| split_coordinate(query).0)
     }
 
-    fn split_coordinate(&self) -> (&str, Option<&str>) {
-        let Some(name) = self.package_name() else {
+    fn split_coordinate(query: &ArtifactSearchQuery) -> (&str, Option<&str>) {
+        let Some(name) = package_name(query) else {
             return ("", None);
         };
-        match self.artifact_type() {
-            ArtifactType::Npm => super::npm::split_npm_coordinate(name),
+        match artifact_type(query) {
+            ArtifactType::Npm => crate::providers::artifact::npm::split_npm_coordinate(name),
             ArtifactType::Pypi => match name.split_once("==") {
                 Some((bare, version)) if !bare.trim().is_empty() && !version.trim().is_empty() => {
                     (bare.trim(), Some(version.trim()))
@@ -96,56 +102,67 @@ impl ArtifactSearchQuery {
     }
 
     /// Whether the query's `extras` names `kind`.
-    pub(crate) fn wants(&self, kind: crate::contracts::tool_types::ExtraKind) -> bool {
-        match self {
-            Self::NpmExact(query) => query.extras.contains(&kind),
-            Self::NpmDiscovery(query) => query.extras.contains(&kind),
-            Self::RegistryExact(query) => query.extras.contains(&kind),
-            Self::RegistryDiscovery(query) => query.extras.contains(&kind),
+    pub(crate) fn wants(
+        query: &ArtifactSearchQuery,
+        kind: octocode_contract_types::ExtraKind,
+    ) -> bool {
+        match query {
+            ArtifactSearchQuery::NpmExact(query) => query.extras.contains(&kind),
+            ArtifactSearchQuery::NpmDiscovery(query) => query.extras.contains(&kind),
+            ArtifactSearchQuery::RegistryExact(query) => query.extras.contains(&kind),
+            ArtifactSearchQuery::RegistryDiscovery(query) => query.extras.contains(&kind),
         }
     }
 
-    pub fn registry_url(&self) -> Option<&str> {
-        match self {
-            Self::NpmExact(query) => query.registry_url.as_deref(),
-            Self::NpmDiscovery(query) => query.registry_url.as_deref(),
+    pub fn registry_url(query: &ArtifactSearchQuery) -> Option<&str> {
+        match query {
+            ArtifactSearchQuery::NpmExact(query) => query.registry_url.as_deref(),
+            ArtifactSearchQuery::NpmDiscovery(query) => query.registry_url.as_deref(),
             _ => None,
         }
     }
     /// The 1-based discovery page (`page`); exact lookups have one.
-    pub(crate) fn page(&self) -> u64 {
-        match self {
-            Self::NpmDiscovery(query) => query.page.map_or(1, |page| page.get()),
-            Self::RegistryDiscovery(query) => query.page.map_or(1, |page| page.get()),
+    pub(crate) fn page(query: &ArtifactSearchQuery) -> u64 {
+        match query {
+            ArtifactSearchQuery::NpmDiscovery(query) => query.page.map_or(1, |page| page.get()),
+            ArtifactSearchQuery::RegistryDiscovery(query) => {
+                query.page.map_or(1, |page| page.get())
+            }
             _ => 1,
         }
     }
     /// Points a discovery query at `page`. A cursor names the start of one
     /// page, so it is cleared with the page it named.
-    pub(crate) fn set_page(&mut self, page: u64) {
+    pub(crate) fn set_page(query: &mut ArtifactSearchQuery, page: u64) {
         let page = std::num::NonZeroU64::new(page);
-        match self {
-            Self::NpmDiscovery(query) => (query.page, query.cursor) = (page, None),
-            Self::RegistryDiscovery(query) => (query.page, query.cursor) = (page, None),
+        match query {
+            ArtifactSearchQuery::NpmDiscovery(query) => (query.page, query.cursor) = (page, None),
+            ArtifactSearchQuery::RegistryDiscovery(query) => {
+                (query.page, query.cursor) = (page, None)
+            }
             _ => {}
         }
     }
     /// The opaque registry cursor that starts this discovery page
     /// (`cursor`, copied from `next.nextPage`).
-    pub(crate) fn cursor(&self) -> Option<&str> {
-        match self {
-            Self::NpmDiscovery(query) => query.cursor.as_deref().map(String::as_str),
-            Self::RegistryDiscovery(query) => query.cursor.as_deref().map(String::as_str),
+    pub(crate) fn cursor(query: &ArtifactSearchQuery) -> Option<&str> {
+        match query {
+            ArtifactSearchQuery::NpmDiscovery(query) => query.cursor.as_deref().map(String::as_str),
+            ArtifactSearchQuery::RegistryDiscovery(query) => {
+                query.cursor.as_deref().map(String::as_str)
+            }
             _ => None,
         }
     }
     /// Names the cursor that starts this discovery page. A cursor the
     /// contract's bound rejects is left off: the page then walks to its
     /// start instead of carrying an input the tool would refuse.
-    pub(crate) fn set_cursor(&mut self, cursor: Option<&str>) {
-        match self {
-            Self::NpmDiscovery(query) => query.cursor = cursor.and_then(|text| text.parse().ok()),
-            Self::RegistryDiscovery(query) => {
+    pub(crate) fn set_cursor(query: &mut ArtifactSearchQuery, cursor: Option<&str>) {
+        match query {
+            ArtifactSearchQuery::NpmDiscovery(query) => {
+                query.cursor = cursor.and_then(|text| text.parse().ok())
+            }
+            ArtifactSearchQuery::RegistryDiscovery(query) => {
                 query.cursor = cursor.and_then(|text| text.parse().ok());
             }
             _ => {}
@@ -153,26 +170,28 @@ impl ArtifactSearchQuery {
     }
     /// Rows per page: a discovery query's `pageSize` (absent, the contract
     /// default); an exact lookup, one page, at the contract default.
-    pub(crate) fn page_size(&self) -> usize {
-        match self {
-            Self::NpmDiscovery(query) => query.page_size.get() as usize,
-            Self::RegistryDiscovery(query) => query.page_size.get() as usize,
-            _ => crate::tools::id::query_limits::artifact_search::PAGE_SIZE_DEFAULT,
+    pub(crate) fn page_size(query: &ArtifactSearchQuery) -> usize {
+        match query {
+            ArtifactSearchQuery::NpmDiscovery(query) => query.page_size.get() as usize,
+            ArtifactSearchQuery::RegistryDiscovery(query) => query.page_size.get() as usize,
+            _ => crate::contracts::query_limits::artifact_search::PAGE_SIZE_DEFAULT,
         }
     }
     /// A discovery query's keywords as written; an exact lookup has none.
-    pub(crate) fn keyword_list(&self) -> Vec<String> {
-        match self {
-            Self::NpmDiscovery(query) => query.keywords.iter().map(ToString::to_string).collect(),
-            Self::RegistryDiscovery(query) => {
+    pub(crate) fn keyword_list(query: &ArtifactSearchQuery) -> Vec<String> {
+        match query {
+            ArtifactSearchQuery::NpmDiscovery(query) => {
+                query.keywords.iter().map(ToString::to_string).collect()
+            }
+            ArtifactSearchQuery::RegistryDiscovery(query) => {
                 query.keywords.iter().map(ToString::to_string).collect()
             }
             _ => Vec::new(),
         }
     }
     /// Keywords as one space-joined registry search text.
-    pub(crate) fn terms(&self) -> String {
-        self.keyword_list().join(" ")
+    pub(crate) fn terms(query: &ArtifactSearchQuery) -> String {
+        keyword_list(query).join(" ")
     }
 }
 
@@ -200,13 +219,16 @@ pub(crate) fn artifact_query(
 
 #[test]
 fn page_size_defaults_from_the_contract() {
-    use crate::tools::id::query_limits::artifact_search::PAGE_SIZE_DEFAULT;
+    use crate::contracts::query_limits::artifact_search::PAGE_SIZE_DEFAULT;
     let discovery = artifact_query(serde_json::json!({"keywords": ["http"]}), None);
     let exact = artifact_query(serde_json::json!({"packageName": "ajv"}), None);
     let sized = artifact_query(serde_json::json!({"pageSize": 3}), Some(&discovery));
-    assert_eq!(discovery.page_size(), PAGE_SIZE_DEFAULT);
-    assert_eq!(exact.page_size(), PAGE_SIZE_DEFAULT);
-    assert_eq!(sized.page_size(), 3);
+    assert_eq!(
+        artifact_search_query::page_size(&discovery),
+        PAGE_SIZE_DEFAULT
+    );
+    assert_eq!(artifact_search_query::page_size(&exact), PAGE_SIZE_DEFAULT);
+    assert_eq!(artifact_search_query::page_size(&sized), 3);
 }
 
 /// A cursor names one page's start: moving the page clears it, and a
@@ -214,26 +236,67 @@ fn page_size_defaults_from_the_contract() {
 #[cfg(test)]
 #[test]
 fn a_cursor_belongs_to_its_page_and_the_contract_bounds_it() {
-    use crate::tools::id::query_limits::artifact_search::CURSOR_MAX_LENGTH;
+    use crate::contracts::query_limits::artifact_search::CURSOR_MAX_LENGTH;
     let mut query = artifact_query(
         serde_json::json!({"ecosystem": "go", "keywords": ["http"], "page": 2, "cursor": "c2"}),
         None,
     );
-    assert_eq!(query.cursor(), Some("c2"));
-    query.set_page(3);
-    assert_eq!((query.page(), query.cursor()), (3, None));
-    query.set_cursor(Some("c3"));
-    assert_eq!(query.cursor(), Some("c3"));
-    query.set_cursor(Some(&"x".repeat(CURSOR_MAX_LENGTH + 1)));
-    assert_eq!(query.cursor(), None);
+    assert_eq!(artifact_search_query::cursor(&query), Some("c2"));
+    artifact_search_query::set_page(&mut query, 3);
+    assert_eq!(
+        (
+            artifact_search_query::page(&query),
+            artifact_search_query::cursor(&query)
+        ),
+        (3, None)
+    );
+    artifact_search_query::set_cursor(&mut query, Some("c3"));
+    assert_eq!(artifact_search_query::cursor(&query), Some("c3"));
+    artifact_search_query::set_cursor(&mut query, Some(&"x".repeat(CURSOR_MAX_LENGTH + 1)));
+    assert_eq!(artifact_search_query::cursor(&query), None);
     let exact = artifact_query(serde_json::json!({"packageName": "ajv"}), None);
-    assert_eq!(exact.cursor(), None);
+    assert_eq!(artifact_search_query::cursor(&exact), None);
+}
+
+/// An exact lookup of `name` at `version`.
+#[cfg(test)]
+pub(crate) fn versioned(
+    artifact_type: ArtifactType,
+    name: &str,
+    version: &str,
+) -> ArtifactSearchQuery {
+    artifact_query(
+        serde_json::json!({"ecosystem": artifact_type, "packageName": name, "version": version}),
+        None,
+    )
+}
+
+/// An exact lookup of `name` (the latest release).
+#[cfg(test)]
+pub(crate) fn exact_query(artifact_type: ArtifactType, name: &str) -> ArtifactSearchQuery {
+    artifact_query(
+        serde_json::json!({"ecosystem": artifact_type, "packageName": name.to_string()}),
+        None,
+    )
+}
+
+/// A `json` keyword discovery query with `fields` set.
+#[cfg(test)]
+pub(crate) fn discovery(
+    artifact_type: ArtifactType,
+    fields: serde_json::Value,
+) -> ArtifactSearchQuery {
+    let mut query = serde_json::json!({"ecosystem": artifact_type, "keywords": ["json"]});
+    for (key, value) in fields.as_object().into_iter().flatten() {
+        query[key] = value.clone();
+    }
+    artifact_query(query, None)
 }
 
 /// A request budget no artifact test exhausts.
 #[cfg(test)]
-pub(crate) fn test_budget() -> octocode_github::RequestBudget {
-    octocode_github::RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000)
+pub(crate) fn test_budget() -> octocode_io::budget::RequestBudget {
+    octocode_io::budget::RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -482,6 +545,19 @@ pub struct ResolvedNpmRegistry {
 }
 
 impl ResolvedNpmRegistry {
+    /// The public npm registry (`npmjs` in cache keys), without credentials.
+    pub(crate) fn npmjs() -> Self {
+        static BASE: std::sync::LazyLock<Url> = std::sync::LazyLock::new(|| {
+            #[expect(clippy::expect_used, reason = "static URL, valid by construction")]
+            Url::parse("https://registry.npmjs.org/").expect("npm registry URL")
+        });
+        Self {
+            base: BASE.clone(),
+            authorization: None,
+            cache_identity: "npmjs".into(),
+        }
+    }
+
     /// Attach credentials only inside their original origin and npmrc path scope.
     pub(crate) fn authorization_for(&self, target: &Url) -> Option<SecretString> {
         if target.origin() != self.base.origin()

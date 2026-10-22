@@ -626,7 +626,7 @@ async fn rename_lookup_runs_only_when_the_search_finds_nothing() {
     assert_eq!(data["pullRequests"][0]["number"], 7, "{data}");
     // A static notice: the response says it once, not on every row.
     assert_eq!(
-        data[crate::tools::paging::NOTICES][0],
+        data[crate::response::paging::NOTICES][0],
         crate::tools::gh_shared::renamed_warning("old", "r", &("new".into(), "r".into())),
         "one shared rename wording: {data}"
     );
@@ -1408,7 +1408,7 @@ async fn a_commit_listing_of_a_renamed_repository_names_the_canonical_repository
     .expect("renamed listing");
     assert_eq!(data["commits"][0]["commitSha"], "aaa", "{data}");
     assert_eq!(
-        data[crate::tools::paging::NOTICES],
+        data[crate::response::paging::NOTICES],
         json!([crate::tools::gh_shared::renamed_warning(
             "old",
             "r",

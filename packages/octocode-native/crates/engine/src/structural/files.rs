@@ -6,7 +6,9 @@ use rayon::prelude::*;
 
 use super::language::AgLanguage;
 use super::octo::{CompileError, Found, OctoCompiledMatcher, compile_matcher};
-use super::query::{Prefilter, StructuralQuery, invalid_query_explanation};
+use super::query::{
+    Prefilter, StructuralQuery, invalid_query_diagnostic, invalid_query_explanation,
+};
 use super::types::{
     FileMatches, StructuralDemand, StructuralDetailedMatch, StructuralDiagnostic,
     StructuralSearchDetailedFileResult, StructuralSearchFilesDetailedResult,
@@ -14,7 +16,7 @@ use super::types::{
 };
 use crate::error::{Error, Result as EngineResult};
 use crate::search::glob::Globs;
-use crate::search::walk::{IgnorePolicy, Prune, Stop, pruned_walk_builder};
+use crate::search::walk::{IgnorePolicy, Prune, RootedPrune, Stop, walk_builder};
 use crate::signatures::languages;
 use crate::text::file_extension::extension_of;
 
@@ -88,6 +90,7 @@ pub(crate) fn search_files_with_budget(
         include,
         exclude,
         exclude_dir,
+        default_exclude_dir,
         ignore,
         max_depth,
         max_files,
@@ -126,12 +129,12 @@ pub(crate) fn search_files_with_budget(
         &Walked {
             globs: &globs,
             prune: Prune::new(exclude_dir.iter().flatten()),
+            defaults: default_exclude_dir.map(|names| Prune::new(names).at(&root)),
             ignore,
             max_depth,
             max_files: max_files.saturating_add(1),
         },
         admit,
-        &|_| true,
         stop,
     )?;
     let scan_truncated = candidate_files.len() > max_files;
@@ -220,14 +223,7 @@ fn invalid_query_result(
     rule: Option<&str>,
     message: String,
 ) -> StructuralSearchFilesDetailedResult {
-    let diagnostic = StructuralDiagnostic::new(
-        "structural.query.invalid",
-        "error",
-        "match",
-        message.clone(),
-    )
-    .with_path(path)
-    .with_recovery("Provide exactly one non-empty structural pattern or YAML rule.");
+    let diagnostic = invalid_query_diagnostic(message.clone()).with_path(path);
     StructuralSearchFilesDetailedResult {
         scan_truncated: false,
         scan_resume: None,
@@ -258,7 +254,7 @@ fn compile_matchers(
             continue;
         }
         if let Some(entry) = languages::find_entry(&ext) {
-            let lang = AgLanguage::new(&ext, entry);
+            let lang = AgLanguage::new(entry);
             let compiled = compile_matcher(&lang, query);
             matchers.insert(ext, compiled);
         }
@@ -715,24 +711,25 @@ fn check_root_exists(root: &Path) -> EngineResult<std::fs::Metadata> {
 struct Walked<'a> {
     globs: &'a Globs,
     prune: Prune,
+    /// The default excludes, pruned only where git ignores them.
+    defaults: Option<RootedPrune>,
     ignore: IgnorePolicy,
     max_depth: Option<u32>,
     max_files: usize,
 }
 
 /// The candidate files under `root`, in path order. A file root is its own
-/// candidate when the globs and `accept_file` admit it.
+/// candidate when the globs admit it.
 fn collect_files(
     root: &Path,
     walked: &Walked<'_>,
     admit: &(dyn Fn(&Path) -> bool + Sync),
-    accept_file: &dyn Fn(&Path) -> bool,
     stop: &Stop<'_>,
 ) -> EngineResult<Vec<PathBuf>> {
     let metadata = check_root_exists(root)?;
     if metadata.is_file() {
         let admitted = !walked.globs.overrides().matched(root, false).is_ignore();
-        return Ok(if admitted && accept_file(root) {
+        return Ok(if admitted {
             vec![root.to_path_buf()]
         } else {
             Vec::new()
@@ -741,12 +738,15 @@ fn collect_files(
     if !metadata.is_dir() {
         return Ok(Vec::new());
     }
-    let mut builder = pruned_walk_builder(
-        root,
-        walked.ignore,
-        walked.max_depth.map(|n| n as usize),
-        walked.prune.clone(),
-    );
+    let mut builder = walk_builder(root, walked.ignore, walked.max_depth.map(|n| n as usize));
+    let (prune, defaults) = (walked.prune.clone(), walked.defaults.clone());
+    builder.filter_entry(move |entry| {
+        !prune.prunes_entry(entry)
+            && !(entry.depth() > 0
+                && defaults.as_ref().is_some_and(|defaults| {
+                    defaults.prunes(entry.path(), entry.file_type().is_some_and(|kind| kind.is_dir()))
+                }))
+    });
     builder
         .overrides(walked.globs.overrides())
         .sort_by_file_path(Ord::cmp);
@@ -774,10 +774,7 @@ fn collect_files(
         if !entry.file_type().is_some_and(|ft| ft.is_file()) || !admit(entry.path()) {
             continue;
         }
-        let path = entry.into_path();
-        if accept_file(&path) {
-            out.push(path);
-        }
+        out.push(entry.into_path());
     }
     Ok(out)
 }

@@ -1,19 +1,21 @@
 //! The `Command` enum: one sub-command per native tool plus system commands.
 //!
-//! The CLI surface is intentionally minimal — every tool is invoked by its
-//! canonical name with a raw JSON query, and `schema` is the single discovery
-//! command. No per-tool flag wrappers, no aliases.
+//! Every tool is invoked by its canonical name with a JSON query, or with the
+//! flags and positionals `flags.rs` builds from the contract (one long flag per
+//! field, short letters from rg/grep/fd/ast-grep/gh). `schema` is the single
+//! discovery command.
 use clap::{ArgMatches, Args, FromArgMatches, Subcommand};
-use octocode_native::tools::id::ToolId;
+use octocode_native::id::ToolId;
 
-/// Shared arguments for every tool sub-command: a raw JSON query (inline,
-/// from a file, or from stdin) executed against the tool's contract.
+/// Shared arguments for every tool sub-command: positionals (one JSON query,
+/// or the tool's positional fields) and a JSON query file.
 #[derive(Args, Debug)]
 pub(super) struct ToolArgs {
-    /// JSON query: one query object, or '{"queries":[…]}' to batch. Fields: `octocode schema <tool> --view query`.
-    pub query: Option<String>,
+    /// A JSON query ('{…}' or '{"queries":[…]}'), or the tool's positional fields (see Usage).
+    #[arg(value_name = "ARGS", num_args = 0.., action = clap::ArgAction::Append)]
+    pub args: Vec<String>,
     /// Read the JSON query from a file, or from stdin with `-`.
-    #[arg(long, value_name = "FILE|-", conflicts_with = "query")]
+    #[arg(long, value_name = "FILE|-")]
     pub input: Option<std::path::PathBuf>,
 }
 
@@ -25,7 +27,7 @@ impl ToolArgs {
     /// argument. `Ok(None)` means no query was supplied.
     pub fn query_text(&self) -> Result<Option<String>, String> {
         let Some(path) = &self.input else {
-            return Ok(self.query.clone());
+            return Ok(self.json_arg().map(str::to_owned));
         };
         let (source, read) = if path.as_os_str() == "-" {
             (
@@ -51,12 +53,24 @@ impl ToolArgs {
     }
 }
 
+impl ToolArgs {
+    /// The positional JSON query: one argument that starts with `{`.
+    pub fn json_arg(&self) -> Option<&str> {
+        match self.args.as_slice() {
+            [only] if only.trim_start().starts_with('{') => Some(only),
+            _ => None,
+        }
+    }
+}
+
 /// One tool sub-command. The tool list and each command's `about` come from
 /// the embedded tool contract, so the CLI never spells the tool set itself.
 #[derive(Debug)]
 pub(super) struct ToolCommand {
     pub name: &'static str,
     pub args: ToolArgs,
+    /// The query the flags and positionals built; `None` for the JSON form.
+    pub flags: Result<Option<serde_json::Value>, String>,
 }
 
 /// `(name, about)` for every tool in the embedded contract: its
@@ -81,9 +95,7 @@ fn contract_tools() -> impl Iterator<Item = (&'static str, String)> {
 }
 
 fn contract_tool_name(name: &str) -> Option<&'static str> {
-    contract_tools()
-        .map(|(tool, _)| tool)
-        .find(|tool| *tool == name)
+    ToolId::from_name(name).map(ToolId::as_str)
 }
 
 impl FromArgMatches for ToolCommand {
@@ -92,7 +104,7 @@ impl FromArgMatches for ToolCommand {
     }
 
     fn from_arg_matches_mut(matches: &mut ArgMatches) -> Result<Self, clap::Error> {
-        let Some((name, mut sub_matches)) = matches.remove_subcommand() else {
+        let Some((name, sub_matches)) = matches.remove_subcommand() else {
             return Err(clap::Error::raw(
                 clap::error::ErrorKind::MissingSubcommand,
                 "a tool name is required",
@@ -104,8 +116,15 @@ impl FromArgMatches for ToolCommand {
                 format!("unrecognized subcommand '{name}'"),
             ));
         };
-        let args = ToolArgs::from_arg_matches_mut(&mut sub_matches)?;
-        Ok(Self { name, args })
+        // Read without taking: flags::query needs the positionals' places.
+        let args = ToolArgs::from_arg_matches(&sub_matches)?;
+        let positionals: &[String] = if args.json_arg().is_some() {
+            &[]
+        } else {
+            &args.args
+        };
+        let flags = super::flags::query(name, &sub_matches, positionals);
+        Ok(Self { name, args, flags })
     }
 
     fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::Error> {
@@ -117,15 +136,19 @@ impl FromArgMatches for ToolCommand {
 impl Subcommand for ToolCommand {
     fn augment_subcommands(command: clap::Command) -> clap::Command {
         contract_tools().fold(command, |command, (name, about)| {
-            command.subcommand(ToolArgs::augment_args(clap::Command::new(name)).about(about))
+            command.subcommand(super::flags::augment(
+                ToolArgs::augment_args(clap::Command::new(name)).about(about),
+                name,
+            ))
         })
     }
 
     fn augment_subcommands_for_update(command: clap::Command) -> clap::Command {
         contract_tools().fold(command, |command, (name, about)| {
-            command.subcommand(
+            command.subcommand(super::flags::augment(
                 ToolArgs::augment_args_for_update(clap::Command::new(name)).about(about),
-            )
+                name,
+            ))
         })
     }
 
@@ -212,22 +235,10 @@ pub(super) enum Command {
         socket: std::path::PathBuf,
     },
     /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`, `status`).
-    #[command(name = "lsp-server", hide = true)]
+    #[command(name = "lsp-server", hide = true, disable_help_subcommand = true)]
     LspServer {
-        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, `clean`, or `status [file]`.
-        #[arg(value_parser = ["list", "install", "uninstall", "clean", "status"])]
-        action: String,
-        /// Server names for install/uninstall (e.g. `rust-analyzer`, `clangd`).
-        names: Vec<String>,
-        /// Install every auto-downloadable server.
-        #[arg(long)]
-        all: bool,
-        /// Confirm destructive operations (clean) or force re-download (install).
-        #[arg(long)]
-        yes: bool,
-        /// Skip the auto-install prompt policy for this run.
-        #[arg(long)]
-        force: bool,
+        #[command(subcommand)]
+        command: super::lsp_provision::LspServerCommand,
     },
 }
 
@@ -295,7 +306,7 @@ mod tests {
         let file = dir.path().join("query.json");
         std::fs::write(&file, "\u{feff}{\"queries\":[]}").expect("query file");
         let args = ToolArgs {
-            query: None,
+            args: Vec::new(),
             input: Some(file),
         };
         assert_eq!(

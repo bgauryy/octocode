@@ -3,6 +3,7 @@
 //! plus the one-based `resolvedSymbol` receipt presented to the caller.
 
 use super::LspSearchQuery;
+use crate::tools::lsp_search::lsp_search_query;
 use octocode_engine::lsp::resolver::resolve_position_in_file_content;
 use octocode_engine::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
 use octocode_io::memo::{Memo, MemoLimits};
@@ -56,18 +57,24 @@ pub(super) fn resolve_anchor(
     canonical_uri: &str,
     source: Option<&str>,
 ) -> Result<Anchor, String> {
-    if !is_anchored(query.operation()) {
+    if !is_anchored(lsp_search_query::operation(query)) {
         return Ok(Anchor {
             line: 0,
             character: 0,
             resolved_symbol: None,
         });
     }
-    if let Some(name) = query.symbol_name() {
+    if let Some(name) = lsp_search_query::symbol_name(query) {
         let source = source.ok_or_else(|| {
             "symbolName anchors require a readable source file in path".to_owned()
         })?;
-        let resolved = resolve_symbol(path, source, name, query.anchor_line(), query.order_hint())?;
+        let resolved = resolve_symbol(
+            path,
+            source,
+            name,
+            lsp_search_query::anchor_line(query),
+            lsp_search_query::order_hint(query),
+        )?;
         // The receipt adds what the request did not say: the column, and the
         // line only when the symbol sat off its `line`. The name is the
         // request's own `symbolName`.
@@ -75,10 +82,12 @@ pub(super) fn resolve_anchor(
             "path": super::render::uri_to_path(canonical_uri),
             "foundAtCharacter": resolved.position.character + 1
         });
-        if let Some(order_hint) = query.order_hint() {
+        if let Some(order_hint) = lsp_search_query::order_hint(query) {
             symbol["orderHint"] = json!(order_hint);
         }
-        if resolved.line_offset != 0 || query.anchor_line() != Some(resolved.found_at_line) {
+        if resolved.line_offset != 0
+            || lsp_search_query::anchor_line(query) != Some(resolved.found_at_line)
+        {
             symbol["foundAtLine"] = json!(resolved.found_at_line);
         }
         if resolved.line_offset != 0 {

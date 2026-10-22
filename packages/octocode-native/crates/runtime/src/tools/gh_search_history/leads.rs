@@ -2,9 +2,11 @@
 //! recovery from an empty search.
 use super::rows::{is_completed, is_merged, item_number, item_repo, read_target};
 use super::{GhSearchHistoryQuery, HistorySearch};
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, query_row};
+use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::gh_shared::{Broaden, broaden};
-use crate::tools::id::ToolId;
-use crate::tools::result::{Continuation, query_row};
 use serde_json::{Value, json};
 
 /// The default PR read: body and the patch-free file inventory.
@@ -22,7 +24,8 @@ pub(super) fn issue_read_query(owner: &str, repo: &str, number: u64) -> Value {
 /// Rows in GitHub's relevance order: a keyword search without an explicit
 /// sort. Any other order (a sort, a REST listing) says nothing about fit.
 fn best_match_order(q: &GhSearchHistoryQuery) -> bool {
-    !q.keywords().is_empty() && q.sort().is_none_or(|sort| sort == "best-match")
+    !gh_search_history_query::keywords(q).is_empty()
+        && gh_search_history_query::sort(q).is_none_or(|sort| sort == "best-match")
 }
 
 /// The PR read: the best match (row 0) of a relevance-ordered search, else
@@ -35,9 +38,8 @@ pub(super) fn read_pull_request(q: &GhSearchHistoryQuery, items: &[Value]) -> Op
         is_merged
     };
     let target = read_target(items, prefer)?;
-    let (owner, repo) = q
-        .owner()
-        .zip(q.repo())
+    let (owner, repo) = gh_search_history_query::owner(q)
+        .zip(gh_search_history_query::repo(q))
         .map(|(owner, repo)| (owner.to_owned(), repo.to_owned()))
         .or_else(|| item_repo(&items[target]))?;
     let number = item_number(&items[target])?;
@@ -47,9 +49,9 @@ pub(super) fn read_pull_request(q: &GhSearchHistoryQuery, items: &[Value]) -> Op
             pr_read_query(&owner, &repo, number),
         )
         .confidence(if is_merged(&items[target]) {
-            "medium"
+            Confidence::Medium
         } else {
-            "low"
+            Confidence::Low
         })
         .build(),
     )
@@ -58,19 +60,19 @@ pub(super) fn read_pull_request(q: &GhSearchHistoryQuery, items: &[Value]) -> Op
 /// The PR a commit row's `(#N)` headline names: the first such row's read,
 /// scoped to the listed path (any other row's `(#N)` runs the same read).
 pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value]) -> Option<Value> {
-    let (owner, repo) = q.owner().zip(q.repo())?;
+    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
     let number = rows.iter().find_map(|row| {
         row.get("messageHeadline")
             .and_then(Value::as_str)
             .and_then(crate::tools::gh_shared::commit::headline_pull_request)
     })?;
     let mut read = pr_read_query(owner, repo, number);
-    if let Some(path) = q.path() {
+    if let Some(path) = gh_search_history_query::path(q) {
         read["include"] = json!([path]);
     }
     Some(
         Continuation::new(ToolId::GhGetHistoryItem, read)
-            .confidence("high")
+            .confidence(Confidence::High)
             .build(),
     )
 }
@@ -78,14 +80,14 @@ pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value])
 /// The issue read: a completed issue first.
 pub(super) fn read_issue(q: &GhSearchHistoryQuery, items: &[Value]) -> Option<Value> {
     let target = read_target(items, is_completed)?;
-    let (owner, repo) = q.owner().zip(q.repo())?;
+    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
     let number = item_number(&items[target])?;
     Some(
         Continuation::new(
             ToolId::GhGetHistoryItem,
             issue_read_query(owner, repo, number),
         )
-        .confidence("low")
+        .confidence(Confidence::Low)
         .build(),
     )
 }
@@ -93,16 +95,16 @@ pub(super) fn read_issue(q: &GhSearchHistoryQuery, items: &[Value]) -> Option<Va
 /// The first commit's patches, scoped to the listed path in the read's
 /// published `include`; the read takes any row's sha as `ref`.
 pub(super) fn read_commit(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> {
-    let (owner, repo) = q.owner().zip(q.repo())?;
+    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
     let mut read = json!({
         "operation":"commit","owner":owner,"repo":repo,"ref":sha,"sections":["patches"]
     });
-    if let Some(path) = q.path() {
+    if let Some(path) = gh_search_history_query::path(q) {
         read["include"] = json!([path]);
     }
     Some(
         Continuation::new(ToolId::GhGetHistoryItem, read)
-            .confidence("low")
+            .confidence(Confidence::Low)
             .build(),
     )
 }
@@ -110,8 +112,8 @@ pub(super) fn read_commit(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> 
 /// A PR search whose keywords are one bare issue number (`13786`, `#13786`)
 /// is an issue → fix-PR hop: the issue read lists the PRs that closed it.
 pub(super) fn issue_links_read(q: &GhSearchHistoryQuery) -> Option<Value> {
-    let (owner, repo) = q.owner().zip(q.repo())?;
-    let [keyword] = q.keywords()[..] else {
+    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
+    let [keyword] = gh_search_history_query::keywords(q)[..] else {
         return None;
     };
     let number = keyword
@@ -125,7 +127,7 @@ pub(super) fn issue_links_read(q: &GhSearchHistoryQuery) -> Option<Value> {
             ToolId::GhGetHistoryItem,
             json!({"operation":"issue","owner":owner,"repo":repo,"number":number}),
         )
-        .confidence("high")
+        .confidence(Confidence::High)
         .build(),
     )
 }
@@ -141,12 +143,16 @@ fn same_query(q: &GhSearchHistoryQuery) -> Value {
 /// when nothing would scope the search without them: no owner, repository,
 /// keyword or other qualifier).
 pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
-    let qualifiers = q.qualifiers()?;
+    let qualifiers = gh_search_history_query::qualifiers(q)?;
     let kept = super::filters::without_person_terms(qualifiers);
     if kept == qualifiers.split_whitespace().collect::<Vec<_>>().join(" ") {
         return None;
     }
-    if kept.is_empty() && q.owner().is_none() && q.repo().is_none() && q.keywords().is_empty() {
+    if kept.is_empty()
+        && gh_search_history_query::owner(q).is_none()
+        && gh_search_history_query::repo(q).is_none()
+        && gh_search_history_query::keywords(q).is_empty()
+    {
         return None;
     }
     let mut row = same_query(q);
@@ -157,19 +163,19 @@ pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
     }
     Some(
         Continuation::new(ToolId::GhSearchHistory, row)
-            .confidence("medium")
+            .confidence(Confidence::Medium)
             .build(),
     )
 }
 
-/// Result page `page` (the cursor [`crate::tools::paging::next_cursor`]
+/// Result page `page` (the cursor [`crate::response::paging::next_cursor`]
 /// admitted), at the page size this one used.
 pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize, page_size: usize) -> Value {
     let mut next = same_query(q);
     next["page"] = json!(page);
     next["pageSize"] = json!(page_size);
     Continuation::new(ToolId::GhSearchHistory, next)
-        .confidence("exact")
+        .confidence(Confidence::Exact)
         .build()
 }
 
@@ -229,7 +235,7 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
             let date = last(&["/updated_at"])?;
             let bound = if newest_first { "<=" } else { ">=" };
             let term = format!("updated:{bound}{date}");
-            row["qualifiers"] = json!(match q.qualifiers() {
+            row["qualifiers"] = json!(match gh_search_history_query::qualifiers(q) {
                 Some(qualifiers) => format!("{} {term}", qualifiers.trim()),
                 None => term,
             });
@@ -247,7 +253,11 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
     .ok()?;
     Some(
         Continuation::new(ToolId::GhSearchHistory, row)
-            .confidence(if resumed { "exact" } else { "medium" })
+            .confidence(if resumed {
+                Confidence::Exact
+            } else {
+                Confidence::Medium
+            })
             .build(),
     )
 }

@@ -1,6 +1,7 @@
 //! The one bounded read of a local source file and the one binary sniff.
 //!
-//! [`read_source`] opens without blocking (a FIFO cannot hang it), checks the
+//! [`read_source_from`] reads an open source up to a limit, checking between
+//! chunks (a cancel stops it). [`read_source`] opens without blocking (a FIFO cannot hang it), checks the
 //! opened handle is a regular file, and reads through `take(limit + 1)`, so a
 //! file grown past the limit since it was listed is refused without being
 //! read whole. [`open_regular`] also refuses a final symlink, for a walk
@@ -259,17 +260,49 @@ pub fn read_source(path: &Path, limit: u64) -> Result<Source, ReadError> {
     if metadata.len() > limit {
         return Err(ReadError::TooLarge(metadata.len()));
     }
-    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
-    (&file)
-        .take(limit.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(ReadError::Io)?;
+    let bytes = read_source_from(
+        &file,
+        Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0)),
+        limit,
+        || Ok(()),
+    )?;
+    let metadata = file.metadata().map_err(ReadError::Io)?;
+    Ok(Source { bytes, metadata })
+}
+
+/// Bytes [`read_source_from`] reads between two checks.
+const READ_CHUNK_BYTES: u64 = 64 * 1024;
+
+/// `prefix` (the bytes already read from `reader`) followed by the rest of
+/// `reader`, at most `limit` bytes in all: the one bounded read of an open
+/// source. It reads through `take(limit + 1)`, so a source grown past the
+/// limit fails as [`ReadError::TooLarge`] (with the length read) without
+/// being read whole. `check` runs before each chunk; its error (a cancel)
+/// ends the read as [`ReadError::Io`].
+pub fn read_source_from(
+    reader: impl Read,
+    prefix: Vec<u8>,
+    limit: u64,
+    mut check: impl FnMut() -> std::io::Result<()>,
+) -> Result<Vec<u8>, ReadError> {
+    let mut bytes = prefix;
+    let held = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let mut reader = reader.take(limit.saturating_add(1).saturating_sub(held));
+    loop {
+        check().map_err(ReadError::Io)?;
+        let read = (&mut reader)
+            .take(READ_CHUNK_BYTES)
+            .read_to_end(&mut bytes)
+            .map_err(ReadError::Io)?;
+        if read == 0 {
+            break;
+        }
+    }
     let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     if read > limit {
         return Err(ReadError::TooLarge(read));
     }
-    let metadata = file.metadata().map_err(ReadError::Io)?;
-    Ok(Source { bytes, metadata })
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -343,6 +376,37 @@ mod tests {
             read_source(&dir.path().join("missing"), 1024),
             Err(ReadError::Io(_))
         ));
+    }
+
+    /// One bounded read serves every caller: it continues after the bytes
+    /// already read, refuses a source past the limit with the length it
+    /// read, and stops at the first failed check between chunks.
+    #[test]
+    fn a_bounded_read_continues_a_prefix_and_stops_at_its_limit_or_a_check() {
+        let source = b"0123456789".repeat(10_000);
+        let read = read_source_from(&source[4..], source[..4].to_vec(), 100_000, || Ok(()))
+            .expect("within the limit");
+        assert_eq!(read, source);
+        assert!(matches!(
+            read_source_from(&source[..], Vec::new(), 99_999, || Ok(())),
+            Err(ReadError::TooLarge(100_000))
+        ));
+        let mut checks = 0;
+        let stopped = read_source_from(&source[..], Vec::new(), 100_000, || {
+            checks += 1;
+            if checks > 1 {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "cancelled",
+                ))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(
+            matches!(&stopped, Err(ReadError::Io(error)) if error.kind() == std::io::ErrorKind::Interrupted),
+            "{stopped:?}"
+        );
     }
 
     #[cfg(unix)]

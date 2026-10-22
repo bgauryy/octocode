@@ -5,9 +5,10 @@
 //! trees (`node_modules`, build output) are never walked. Everything here is
 //! best effort: an unreadable or malformed manifest contributes nothing and
 //! never fails ingest.
+use super::classify::SourceMarks;
 use octocode_engine::text::JS_TS_EXTENSIONS;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
 /// One build unit: an npm package, Cargo crate, Go module, or Python project.
@@ -280,7 +281,8 @@ fn python_component(
         ..Default::default()
     };
     let mut found = false;
-    if let Some(pyproject) = read_toml(read, &base.join("pyproject.toml")) {
+    let pyproject = read_toml(read, &base.join("pyproject.toml"));
+    if let Some(pyproject) = &pyproject {
         found = true;
         let project = pyproject.get("project");
         if let Some(name) = project.and_then(|p| p.get("name")).and_then(|n| n.as_str()) {
@@ -351,7 +353,7 @@ fn python_component(
     ]
     .iter()
     .any(|marker| base.join(marker).is_file())
-        || read_toml(read, &base.join("pyproject.toml")).is_some_and(|p| {
+        || pyproject.as_ref().is_some_and(|p| {
             p.get("project").and_then(|x| x.get("scripts")).is_some()
                 || p.get("tool")
                     .and_then(|t| t.get("poetry"))
@@ -398,14 +400,17 @@ impl Workspace {
     /// Discovers manifests on the ancestors of `files` (root-relative) and
     /// infers entrypoints.
     /// `mains` are files that declare a `main`/`Main` function or method
-    /// (from parsed facts, so JVM/.NET entries need no file reads). `read`
-    /// reads a manifest through the caller's path and content policy.
+    /// and `marks` what each file's scanned source says (both from the
+    /// parse, so conventions need no file reads). `read` reads a manifest
+    /// through the caller's path and content policy.
     pub(crate) fn discover(
         root: &Path,
         files: &[&str],
         mains: &BTreeSet<&str>,
+        marks: &dyn Fn(&str) -> SourceMarks,
         read: &dyn Fn(&Path) -> Option<String>,
     ) -> Self {
+        let known = files.iter().copied().collect::<HashSet<_>>();
         let mut workspace = Self::default();
         let mut dirs = BTreeSet::new();
         for file in files {
@@ -424,11 +429,11 @@ impl Workspace {
             let base = root.join(dir);
             let mut found = Vec::new();
             if let Some(manifest) = read_json(read, &base.join("package.json")) {
-                workspace.npm_entries(root, dir, &manifest, files);
+                workspace.npm_entries(root, dir, &manifest, &known);
                 found.push(npm_component(dir, &manifest));
             }
             if let Some(manifest) = read_toml(read, &base.join("Cargo.toml")) {
-                workspace.cargo_entries(dir, &manifest, files);
+                workspace.cargo_entries(dir, &manifest, files, &known);
                 found.push(cargo_component(dir, &manifest));
             }
             found.extend(go_component(dir, root, read));
@@ -437,7 +442,7 @@ impl Workspace {
                 workspace.components.insert(dir.clone(), found);
             }
         }
-        workspace.convention_entries(root, files, mains);
+        workspace.convention_entries(files, mains, marks);
         workspace
     }
 
@@ -571,9 +576,9 @@ impl Workspace {
         }
     }
 
-    fn add_entry(&mut self, file: &str, rule: &'static str, files: &[&str]) {
+    fn add_entry(&mut self, file: &str, rule: &'static str, known: &HashSet<&str>) {
         let file = file.trim_start_matches("./").to_owned();
-        if files.contains(&file.as_str()) {
+        if known.contains(file.as_str()) {
             self.entries.entry(file).or_insert(rule);
             return;
         }
@@ -591,7 +596,7 @@ impl Workspace {
         for candidate in &stems {
             for ext in JS_TS_EXTENSIONS {
                 let path = format!("{candidate}.{ext}");
-                if files.contains(&path.as_str()) {
+                if known.contains(path.as_str()) {
                     self.entries.entry(path).or_insert(rule);
                     return;
                 }
@@ -599,7 +604,7 @@ impl Workspace {
         }
     }
 
-    fn npm_entries(&mut self, root: &Path, dir: &str, manifest: &Value, files: &[&str]) {
+    fn npm_entries(&mut self, root: &Path, dir: &str, manifest: &Value, known: &HashSet<&str>) {
         fn leaves(value: &Value, out: &mut Vec<String>) {
             match value {
                 Value::String(s) => out.push(s.clone()),
@@ -616,7 +621,7 @@ impl Workspace {
             .iter()
             .filter(|t| !t.contains('*') && !super::super::js_paths::is_declaration(t))
         {
-            self.add_entry(&join(dir, target), "package.json", files);
+            self.add_entry(&join(dir, target), "package.json", known);
         }
         for script in manifest["scripts"]
             .as_object()
@@ -631,7 +636,7 @@ impl Workspace {
                     .is_some_and(|(_, ext)| JS_TS_EXTENSIONS.contains(&ext))
                     && root.join(dir).join(token).is_file()
                 {
-                    self.add_entry(&join(dir, token), "package.json scripts", files);
+                    self.add_entry(&join(dir, token), "package.json scripts", known);
                 }
             }
         }
@@ -639,7 +644,7 @@ impl Workspace {
             for base in ["", "src/"] {
                 for ext in JS_TS_EXTENSIONS {
                     let candidate = join(dir, &format!("{base}{name}.{ext}"));
-                    if files.contains(&candidate.as_str()) {
+                    if known.contains(candidate.as_str()) {
                         self.entries
                             .entry(candidate)
                             .or_insert("default entry name");
@@ -649,9 +654,15 @@ impl Workspace {
         }
     }
 
-    fn cargo_entries(&mut self, dir: &str, manifest: &toml::Table, files: &[&str]) {
+    fn cargo_entries(
+        &mut self,
+        dir: &str,
+        manifest: &toml::Table,
+        files: &[&str],
+        known: &HashSet<&str>,
+    ) {
         for file in ["src/main.rs", "src/lib.rs", "build.rs"] {
-            self.add_entry(&join(dir, file), "cargo target", files);
+            self.add_entry(&join(dir, file), "cargo target", known);
         }
         for section in ["bin", "example", "test", "bench"] {
             for target in manifest
@@ -661,7 +672,7 @@ impl Workspace {
                 .flatten()
             {
                 if let Some(path) = target.get("path").and_then(|p| p.as_str()) {
-                    self.add_entry(&join(dir, path), "cargo target", files);
+                    self.add_entry(&join(dir, path), "cargo target", known);
                 }
             }
         }
@@ -670,7 +681,7 @@ impl Workspace {
             .and_then(|l| l.get("path"))
             .and_then(|p| p.as_str())
         {
-            self.add_entry(&join(dir, path), "cargo target", files);
+            self.add_entry(&join(dir, path), "cargo target", known);
         }
         let prefix = if dir.is_empty() {
             String::new()
@@ -696,9 +707,14 @@ impl Workspace {
     }
 
     /// Framework routing conventions and language-level `main`s.
-    fn convention_entries(&mut self, root: &Path, files: &[&str], mains: &BTreeSet<&str>) {
+    fn convention_entries(
+        &mut self,
+        files: &[&str],
+        mains: &BTreeSet<&str>,
+        marks: &dyn Fn(&str) -> SourceMarks,
+    ) {
         for file in files {
-            if let Some(rule) = convention_rule(root, file, mains) {
+            if let Some(rule) = convention_rule(file, mains, marks(file)) {
                 self.entries.entry((*file).to_owned()).or_insert(rule);
             }
         }
@@ -706,7 +722,7 @@ impl Workspace {
 }
 
 /// The convention that makes `file` an entry point, if any.
-fn convention_rule(root: &Path, file: &str, mains: &BTreeSet<&str>) -> Option<&'static str> {
+fn convention_rule(file: &str, mains: &BTreeSet<&str>, marks: SourceMarks) -> Option<&'static str> {
     let segments = file.split('/').collect::<Vec<_>>();
     let name = segments.last().copied().unwrap_or_default();
     let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
@@ -730,13 +746,8 @@ fn convention_rule(root: &Path, file: &str, mains: &BTreeSet<&str>) -> Option<&'
     {
         return Some("script directory");
     }
-    if matches!(ext, "js" | "mjs" | "cjs" | "ts" | "mts" | "py")
-        && let Ok(mut handle) = std::fs::File::open(root.join(file))
-    {
-        let mut head = [0u8; 2];
-        if std::io::Read::read_exact(&mut handle, &mut head).is_ok() && &head == b"#!" {
-            return Some("executable script");
-        }
+    if matches!(ext, "js" | "mjs" | "cjs" | "ts" | "mts" | "py") && marks.shebang {
+        return Some("executable script");
     }
     // C-family and assembly sources are linker inputs, never `#include`d:
     // each translation unit is a root, so only headers can be unreachable.
@@ -746,12 +757,12 @@ fn convention_rule(root: &Path, file: &str, mains: &BTreeSet<&str>) -> Option<&'
     ) {
         return Some("compilation unit");
     }
-    let (needle, rule) = match ext {
-        "go" => ("package main", "go package main"),
+    let rule = match ext {
+        "go" => "go package main",
         "py" if matches!(name, "__main__.py" | "manage.py" | "wsgi.py" | "asgi.py") => {
             return Some("python entry name");
         }
-        "py" => ("__name__ == \"__main__\"", "python __main__ guard"),
+        "py" => "python __main__ guard",
         "java" | "kt" | "scala" | "cs" => {
             return mains.contains(file).then_some(if ext == "cs" {
                 "dotnet Main"
@@ -761,18 +772,7 @@ fn convention_rule(root: &Path, file: &str, mains: &BTreeSet<&str>) -> Option<&'
         }
         _ => return None,
     };
-    // `package main` is the first clause of a Go file; Python's `__main__`
-    // guard sits anywhere, usually at the end.
-    let limit = if ext == "go" { 4096 } else { 1 << 20 };
-    let handle = std::fs::File::open(root.join(file)).ok()?;
-    let mut bytes = Vec::new();
-    std::io::Read::read_to_end(&mut std::io::Read::take(handle, limit), &mut bytes).ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-    let hit = match ext {
-        "py" => text.contains(needle) || text.contains("__name__ == '__main__'"),
-        _ => text.contains(needle),
-    };
-    hit.then_some(rule)
+    marks.main_marker.then_some(rule)
 }
 
 /// Framework route and convention files (Next, Remix, SvelteKit, Nuxt).
@@ -846,9 +846,13 @@ mod tests {
             "crates/core/src/bin/tool.rs",
             "crates/core/src/x.rs",
         ];
-        let ws = Workspace::discover(root, &files, &BTreeSet::new(), &|path| {
-            std::fs::read_to_string(path).ok()
-        });
+        let ws = Workspace::discover(
+            root,
+            &files,
+            &BTreeSet::new(),
+            &|_| SourceMarks::default(),
+            &|path| std::fs::read_to_string(path).ok(),
+        );
         assert_eq!(
             ws.entries.get("packages/app/src/index.ts"),
             Some(&"package.json")

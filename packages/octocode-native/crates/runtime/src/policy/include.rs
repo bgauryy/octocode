@@ -5,7 +5,7 @@
 /// The glob an `include` entry stands for: a bare word (no `/`, no glob
 /// metacharacter) becomes `*word*`, names containing it at any depth; any
 /// other entry is a glob as written, with a leading `./` dropped.
-pub fn include_glob(pattern: &str) -> String {
+pub(crate) fn include_glob(pattern: &str) -> String {
     let pattern = pattern.trim().trim_start_matches("./");
     if is_bare_word(pattern) {
         format!("*{pattern}*")
@@ -26,7 +26,7 @@ fn is_bare_word(pattern: &str) -> bool {
 /// contains it, so naming a directory scopes to its files instead of
 /// matching nothing. A blank entry names nothing and adds no glob (it would
 /// read as `**`, which matches every path and lifts every ignore).
-pub fn include_globs(patterns: &[String]) -> Vec<String> {
+pub(crate) fn include_globs(patterns: &[String]) -> Vec<String> {
     patterns
         .iter()
         .filter(|pattern| !pattern.trim().trim_start_matches("./").is_empty())
@@ -46,13 +46,13 @@ pub fn include_globs(patterns: &[String]) -> Vec<String> {
 
 /// Whether a glob has a `..` segment. Globs match paths under the listed or
 /// searched `path`, so such a glob never matches anything there.
-pub fn reaches_above(glob: &str) -> bool {
+pub(crate) fn reaches_above(glob: &str) -> bool {
     glob.split(['/', '\\']).any(|segment| segment == "..")
 }
 
 /// The warning for the first include or exclude glob that reaches above
 /// `path` (see [`reaches_above`]): why it never matches, and the repair.
-pub fn parent_glob_warning(include: &[String], exclude: &[String]) -> Option<String> {
+pub(crate) fn parent_glob_warning(include: &[String], exclude: &[String]) -> Option<String> {
     let glob = include
         .iter()
         .chain(exclude)

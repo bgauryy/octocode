@@ -272,26 +272,12 @@ fn value_type(value: &Value) -> &'static str {
 /// `start-end` strings), which a `start…`/`end…` pair of numbers spells.
 fn span_field(root: &Value, properties: &serde_json::Map<String, Value>) -> Option<String> {
     const SPAN: &str = "^[1-9]\\d*-[1-9]\\d*$";
-    let resolve = |schema: &Value| {
-        let mut schema = schema.clone();
-        for _ in 0..8 {
-            match schema
-                .get("$ref")
-                .and_then(Value::as_str)
-                .and_then(|reference| reference.strip_prefix("#/$defs/"))
-                .and_then(|name| root["$defs"].get(name))
-            {
-                Some(target) => schema = target.clone(),
-                None => break,
-            }
-        }
-        schema
-    };
+    let defs = &root["$defs"];
     properties
         .iter()
         .find(|(_, schema)| {
-            let schema = resolve(schema);
-            resolve(&schema["items"])["pattern"] == SPAN
+            let items = &super::super::resolve_ref(schema, defs)["items"];
+            super::super::resolve_ref(items, defs)["pattern"] == SPAN
         })
         .map(|(name, _)| name.clone())
 }
@@ -310,18 +296,7 @@ pub(super) fn fields_listing(
         return Vec::new();
     }
     let lists = |schema: &Value| {
-        let mut schema = schema;
-        for _ in 0..8 {
-            match schema
-                .get("$ref")
-                .and_then(Value::as_str)
-                .and_then(|reference| reference.strip_prefix("#/$defs/"))
-                .and_then(|name| root["$defs"].get(name))
-            {
-                Some(target) => schema = target,
-                None => break,
-            }
-        }
+        let schema = super::super::resolve_ref(schema, &root["$defs"]);
         schema.get("const") == Some(value)
             || schema
                 .get("enum")

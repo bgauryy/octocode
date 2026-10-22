@@ -1,6 +1,7 @@
 //! Recovery reads for a number read under the wrong operation.
-use crate::tools::id::ToolId;
-use crate::tools::result::Continuation;
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::Continuation;
 use octocode_github::{ProviderErrorKind, ProviderErrorReason};
 use serde_json::{Map, Value, json};
 
@@ -70,7 +71,7 @@ pub fn recovery(
     }
     next.insert("operation".into(), json!(operation));
     let read = Continuation::new(ToolId::GhGetHistoryItem, Value::Object(next))
-        .confidence("exact")
+        .confidence(Confidence::Exact)
         .build();
     Some(Value::Object(Map::from_iter([(name.to_owned(), read)])))
 }
@@ -91,7 +92,7 @@ fn find_item(operation: Option<&str>, query: &Value) -> Option<Value> {
         ToolId::GhSearchHistory,
         json!({"operation": search, "owner": owner, "repo": repo}),
     )
-    .confidence("high")
+    .confidence(Confidence::High)
     .build();
     Some(Value::Object(Map::from_iter([(name.to_owned(), listing)])))
 }

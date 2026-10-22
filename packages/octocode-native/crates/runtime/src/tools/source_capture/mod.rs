@@ -12,11 +12,65 @@ pub(crate) mod assets;
 pub(crate) mod resource;
 pub(crate) mod url;
 
+use crate::config::ConfigOutput;
+use crate::execution::availability::ToolAvailability;
+use crate::execution::{ExecutionContext, ExecutionError, RuntimeLimits};
+use crate::id::ToolId;
+use crate::policy::path::PathPolicy;
+use crate::response::outcome::DomainResult;
 use crate::response::rows;
-use crate::runtime::{ExecutionContext, domain_dispatch::DomainDispatcher};
-use crate::tools::id::ToolId;
+use crate::security::ContentSecurity;
 use crate::tools::judgment::ClassificationError;
+use crate::tools::judgment::Evaluator;
 use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
+
+/// The runtime services a capture reads through: the authorized readers,
+/// their policies, and the shared handles. The runtime's domain dispatcher
+/// implements it, so a capture (and clasify, which captures) never names the
+/// dispatcher that runs it.
+pub(crate) trait SourceReader: Sync {
+    fn paths(&self) -> &PathPolicy;
+    fn security(&self) -> &ContentSecurity;
+    fn config(&self) -> &ConfigOutput;
+    fn limits(&self) -> &RuntimeLimits;
+    fn home(&self) -> &Path;
+    fn handle(&self) -> &tokio::runtime::Handle;
+    fn availability(&self) -> &ToolAvailability;
+    fn evaluator(&self) -> &Evaluator;
+    /// One row of `tool` through the same domain path as a direct call.
+    fn execute(
+        &self,
+        tool: ToolId,
+        query: &Value,
+        context: &ExecutionContext,
+    ) -> Result<DomainResult, ExecutionError>;
+    /// The saved GitHub access identity, checked against the live one.
+    fn retained_github_identity(
+        &self,
+        context: &ExecutionContext,
+    ) -> Result<Option<String>, ClassificationError>;
+    fn validate_retained_github_identity(
+        &self,
+        expected: Option<&str>,
+        context: &ExecutionContext,
+    ) -> Result<(), ClassificationError>;
+    /// The most source text one capture reads.
+    fn text_capture_limit(&self) -> usize;
+    /// A local file's text, canonical path and snapshot.
+    fn capture_local_text(
+        &self,
+        query: &Value,
+        context: &ExecutionContext,
+    ) -> Result<(String, PathBuf, String), ClassificationError>;
+    /// GitHub source bytes through the file-read credential, cache and budget.
+    fn capture_github_content(
+        &self,
+        query: &Value,
+        context: &ExecutionContext,
+        max_bytes: usize,
+    ) -> Result<octocode_github::ContentResponse, ClassificationError>;
+}
 
 /// Pages one selection may take; a reader that keeps paging past this is
 /// treated as a failed capture, not judged in part.
@@ -51,7 +105,7 @@ fn too_large(max_chars: usize) -> ClassificationError {
 /// `max_chars` characters of text.
 pub(crate) fn capture(
     source: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     max_chars: usize,
 ) -> Result<Captured, ClassificationError> {
@@ -68,7 +122,7 @@ pub(crate) fn capture(
                 "Name localFetch or ghGetFileContent, or supply the data as state.",
             )
         })?;
-    if !dispatcher.availability.is_available(tool) {
+    if !dispatcher.availability().is_available(tool) {
         return Err(failure(
             "classificationContextUnavailable",
             format!("{tool} is not available in this runtime, so its source cannot be read."),
@@ -122,7 +176,7 @@ struct Page {
 pub(super) fn prepare_source(
     id: ToolId,
     row: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
 ) -> Result<Value, ClassificationError> {
     let tool = id.as_str();
     let mut prepared = crate::contracts::prepare_many_and_validate(tool, json!({"queries":[row]}))
@@ -141,7 +195,7 @@ pub(super) fn prepare_source(
             )
         })?;
     let prepared = prepared.pop().unwrap_or(Value::Null);
-    let checked = dispatcher.security.validate_input_parameters(&prepared);
+    let checked = dispatcher.security().validate_input_parameters(&prepared);
     if !checked.is_valid {
         return Err(failure(
             "securityValidationFailed",
@@ -155,14 +209,14 @@ pub(super) fn prepare_source(
 fn read_page(
     id: ToolId,
     row: &Value,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
 ) -> Result<Page, ClassificationError> {
     let prepared = prepare_source(id, row, dispatcher)?;
     let tool = id.as_str();
     context.check().map_err(|stop| {
         let (code, hint) = match stop {
-            crate::runtime::ExecutionError::Timeout => (
+            crate::execution::ExecutionError::Timeout => (
                 "timeout",
                 "Retry with more time, or supply the source text as state.",
             ),
@@ -177,8 +231,8 @@ fn read_page(
     let result = dispatcher.execute(id, &prepared, context).map_err(|stop| {
         failure(
             match stop {
-                crate::runtime::ExecutionError::Timeout => "timeout",
-                crate::runtime::ExecutionError::Cancelled => "cancelled",
+                crate::execution::ExecutionError::Timeout => "timeout",
+                crate::execution::ExecutionError::Cancelled => "cancelled",
                 _ => "classificationContextFailed",
             },
             format!("The {tool} source read could not complete."),
@@ -187,13 +241,13 @@ fn read_page(
     })?;
     let source_digest = result.source_digest.clone();
     let row_value = rows::result_row(id, 0, &prepared, result.data, result.status);
-    let mut state = rows::envelope_in(vec![row_value], id, &[Some(&prepared)], &dispatcher.paths);
+    let mut state = rows::envelope_in(vec![row_value], id, &[Some(&prepared)], dispatcher.paths());
     rows::sanitize_output(
         &mut state,
         id,
-        &dispatcher.security,
+        dispatcher.security(),
         context,
-        dispatcher.config.resolved.output.redact_emails,
+        dispatcher.config().resolved.output.redact_emails,
     )
     .map_err(|_| {
         failure(
@@ -242,7 +296,7 @@ const RERUN_HINT: &str = "Run the same read directly to inspect it.";
 /// hints say what to do (else the code's shared recovery); any other failure
 /// also offers the re-run.
 fn reader_failure(tool: ToolId, data: &Value) -> ClassificationError {
-    use crate::tools::id::error_codes::{ErrorClass, class};
+    use crate::id::error_codes::{ErrorClass, class};
     let declared = data["errorCode"]
         .as_str()
         .and_then(|code| Some((code, class(code)?)));
@@ -333,7 +387,7 @@ pub(super) fn read_lead(id: ToolId, query: &Value, pin: Option<&str>) -> Value {
         }
         (_, None) => {}
     }
-    crate::tools::result::Continuation::new(id, Value::Object(row)).build()
+    crate::response::result::Continuation::new(id, Value::Object(row)).build()
 }
 
 #[cfg(test)]

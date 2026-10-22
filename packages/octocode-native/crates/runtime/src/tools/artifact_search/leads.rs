@@ -1,10 +1,12 @@
 //! Leads from an exact registry row to its source on GitHub.
+use crate::id::ToolId;
+use crate::providers::artifact::types::artifact_search_query;
 use crate::providers::artifact::{
     ArtifactError, ArtifactItem, ArtifactSearchQuery, ArtifactType, github_repo_dir, github_slug,
     page_out_of_range, release_ref_in,
 };
-use crate::tools::id::ToolId;
-use crate::tools::result::{Continuation, query_row};
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, query_row};
 use serde_json::{Map, Value, json};
 
 /// Labels a row's release source, the one place the label is decided: a
@@ -105,23 +107,18 @@ pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
         .or_else(|| artifact.repository.as_deref().and_then(github_repo_dir))
         .filter(|directory| !directory.is_empty());
     // The root at depth one is ghStructure's default listing.
-    let mut query = json!({ "owner": owner, "repo": repo });
-    if let Some(path) = directory {
-        query["path"] = json!(path);
-    }
-    match artifact.source_ref.as_deref() {
-        None => {
-            leads.insert(
-                "viewRepo".into(),
-                Continuation::new(ToolId::GhStructure, query).build(),
-            );
-        }
-        Some(reference) => {
-            query["ref"] = json!(reference);
-            let tree = Continuation::new(ToolId::GhStructure, query).build();
-            leads.insert("viewReleaseSource".into(), tree);
-        }
-    }
+    let at = crate::tools::gh_shared::RepoPath {
+        owner: &owner,
+        repo: &repo,
+        path: directory.as_deref().unwrap_or_default(),
+        reference: artifact.source_ref.as_deref(),
+    };
+    let name = if at.reference.is_some() {
+        "viewReleaseSource"
+    } else {
+        "viewRepo"
+    };
+    leads.insert(name.into(), at.lead(ToolId::GhStructure).build());
     leads
 }
 
@@ -150,12 +147,12 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
         last.insert("page".into(), json!(super::last_reachable_page(query)));
         error.message = limit.warning;
         let lead = Continuation::new(ToolId::ArtifactSearch, Value::Object(last))
-            .confidence("exact")
+            .confidence(Confidence::Exact)
             .build();
         error.next = Some(Box::new(json!({ "repair": lead })));
         return error;
     }
-    let Some(name) = query.bare_package_name() else {
+    let Some(name) = artifact_search_query::bare_package_name(query) else {
         return error;
     };
     let mut exact = copied(query);
@@ -163,13 +160,13 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
     exact.remove("version");
     let searchable = error.code == "notFound" || error.searchable_name;
     let lead = match error.code.as_str() {
-        _ if searchable && query.artifact_type() != ArtifactType::Pypi => {
+        _ if searchable && artifact_search_query::artifact_type(query) != ArtifactType::Pypi => {
             exact.remove("packageName");
             exact.insert("keywords".into(), json!([name]));
             Some((
                 "broadenSearch",
                 Continuation::new(ToolId::ArtifactSearch, Value::Object(exact))
-                    .confidence("low")
+                    .confidence(Confidence::Low)
                     .build(),
             ))
         }
@@ -186,16 +183,20 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
             Some((
                 "repair",
                 Continuation::input(ToolId::ArtifactSearch, json!({ "queries": queries }))
-                    .confidence("medium")
+                    .confidence(Confidence::Medium)
                     .build(),
             ))
         }
-        "versionNotFound" | "capabilityUnavailable" if query.version().is_some() => Some((
-            "repair",
-            Continuation::new(ToolId::ArtifactSearch, Value::Object(exact))
-                .confidence("medium")
-                .build(),
-        )),
+        "versionNotFound" | "capabilityUnavailable"
+            if artifact_search_query::version(query).is_some() =>
+        {
+            Some((
+                "repair",
+                Continuation::new(ToolId::ArtifactSearch, Value::Object(exact))
+                    .confidence(Confidence::Medium)
+                    .build(),
+            ))
+        }
         _ => None,
     };
     if let Some((name, lead)) = lead {
@@ -208,7 +209,7 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
 /// (a single multi-word keyword: per dropped word), run as one batch, so
 /// the variant that returns rows names what emptied the search.
 pub(super) fn broaden_keywords(query: &ArtifactSearchQuery) -> Option<Value> {
-    let terms = query.keyword_list();
+    let terms = artifact_search_query::keyword_list(query);
     let words: Vec<&str> = match terms.as_slice() {
         [single] => single.split_whitespace().collect(),
         many => many.iter().map(String::as_str).collect(),
@@ -239,7 +240,7 @@ pub(super) fn broaden_keywords(query: &ArtifactSearchQuery) -> Option<Value> {
         .collect::<Vec<_>>();
     Some(
         Continuation::input(ToolId::ArtifactSearch, json!({ "queries": variants }))
-            .confidence("low")
+            .confidence(Confidence::Low)
             .build(),
     )
 }

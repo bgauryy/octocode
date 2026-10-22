@@ -1,7 +1,8 @@
 use super::types::{
-    ExtractionError, ExtractionErrorKind, LineRange, LocalFetchQuery, NextCalls, RegexMatch,
-    RegexSpans, line_read, uncovered,
+    ExtractionError, ExtractionErrorKind, LineRange, LocalFetchQuery, NextCalls, RegexSpans,
+    line_read, uncovered,
 };
+use crate::tools::local_fetch::types::local_fetch_query;
 use octocode_engine::text::case_fold::Folded;
 
 pub struct Extraction {
@@ -49,35 +50,31 @@ pub const OMISSION_LINE: usize = 0;
 /// gap never reads as lines cut from a span the read asked for: a requested
 /// span is never elided.
 pub(super) fn omission_marker(start: usize, end: usize) -> String {
-    crate::tools::numbered::omission_marker(
+    crate::response::numbered::omission_marker(
         start,
         end,
-        crate::tools::numbered::Omitted::NotRequested,
+        crate::response::numbered::Omitted::NotRequested,
     )
 }
 pub fn line_count(s: &str) -> usize {
     s.split_inclusive('\n').count()
 }
-pub fn extract(
-    q: &LocalFetchQuery,
-    content: &str,
-    regex: &impl RegexMatch,
-) -> Result<Extraction, ExtractionError> {
+pub fn extract(q: &LocalFetchQuery, content: &str) -> Result<Extraction, ExtractionError> {
     if selects_whole(q) {
         return Ok(Extraction::whole(content.into()));
     }
-    let patterns = q.match_strings();
-    let requested = q.line_ranges();
+    let patterns = local_fetch_query::match_strings(q);
+    let requested = local_fetch_query::line_ranges(q);
     let lines = content.split_inclusive('\n').collect::<Vec<_>>();
     if !patterns.is_empty() {
-        return match_extract(q, content, &lines, &patterns, regex);
+        return match_extract(q, content, &lines, &patterns);
     }
     ranges_extract(q, content, &lines, &requested)
 }
 
 /// A read with no pattern and no range selects the whole text.
 pub(super) fn selects_whole(q: &LocalFetchQuery) -> bool {
-    q.match_strings().is_empty() && q.line_ranges().is_empty()
+    local_fetch_query::match_strings(q).is_empty() && local_fetch_query::line_ranges(q).is_empty()
 }
 
 impl Extraction {
@@ -137,8 +134,14 @@ fn ranges_extract(
         ));
     }
     let mut rest = vec![];
-    if q.block() {
-        kept = super::block::widen_ranges(content, q.path(), kept, &mut warnings, &mut rest);
+    if local_fetch_query::block(q) {
+        kept = super::block::widen_ranges(
+            content,
+            local_fetch_query::path(q),
+            kept,
+            &mut warnings,
+            &mut rest,
+        );
     }
     let windows = merge_ranges(kept);
     let (text, selected) = windows_text(lines, &windows);
@@ -211,20 +214,17 @@ fn match_spans(
     q: &LocalFetchQuery,
     content: &str,
     patterns: &[&str],
-    regex: &impl RegexMatch,
 ) -> Result<RegexSpans, ExtractionError> {
     let mut found = RegexSpans::default();
     // Case-insensitive literals share one folded copy of the source.
     let mut folded: Option<Folded<'_>> = None;
     for (index, pattern) in patterns.iter().enumerate() {
-        let sensitive = q.case_sensitive_for(pattern);
+        let sensitive = local_fetch_query::case_sensitive_for(q, pattern);
         let name = |error| failing_item(error, index, pattern, patterns.len());
-        let one = if q.is_pcre2() {
+        let one = if local_fetch_query::is_pcre2(q) {
             pcre2_ranges(pattern, sensitive, content).map_err(name)?
-        } else if q.is_regex() {
-            regex
-                .matching_ranges(pattern, sensitive, content)
-                .map_err(name)?
+        } else if local_fetch_query::is_regex(q) {
+            rust_ranges(pattern, sensitive, content).map_err(name)?
         } else {
             RegexSpans {
                 spans: if sensitive {
@@ -241,11 +241,11 @@ fn match_spans(
             }
         };
         found.truncated |= one.truncated;
-        found.spans.extend(
-            one.spans
-                .into_iter()
-                .filter(|&(start, end)| !q.whole_word() || is_whole_word(content, start, end)),
-        );
+        found
+            .spans
+            .extend(one.spans.into_iter().filter(|&(start, end)| {
+                !local_fetch_query::whole_word(q) || is_whole_word(content, start, end)
+            }));
     }
     if patterns.len() > 1 {
         found.spans.sort_unstable();
@@ -288,6 +288,37 @@ fn failing_item(
 /// its `findText` lead (delivered as `hints.findText`) pages every match
 /// through localSearch.
 pub(super) const MAX_REGEX_MATCHES: usize = 100_000;
+
+/// `regex:"rust"` spans: the Rust regex engine `localSearch` runs, so a
+/// pattern has one verdict and one reason in both tools, whatever the
+/// source's size.
+fn rust_ranges(
+    pattern: &str,
+    case_sensitive: bool,
+    content: &str,
+) -> Result<RegexSpans, ExtractionError> {
+    use octocode_engine::search::rust_ranges::RustRangesError;
+    use octocode_engine::search::rust_ranges::rust_find_ranges;
+    #[cfg(test)]
+    RUST_REGEX_RUNS.with(|runs| runs.set(runs.get() + 1));
+    // One probe past the limit tells a capped prefix from the whole set.
+    let probe = MAX_REGEX_MATCHES + 1;
+    let mut spans = rust_find_ranges(pattern, !case_sensitive, content, probe).map_err(
+        |RustRangesError::InvalidPattern(reason)| {
+            ExtractionError::new(ExtractionErrorKind::InvalidPattern, reason)
+        },
+    )?;
+    let truncated = spans.len() > MAX_REGEX_MATCHES;
+    spans.truncate(MAX_REGEX_MATCHES);
+    Ok(RegexSpans { spans, truncated })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// `regex:"rust"` scans ([`rust_ranges`]) this thread ran, for tests
+    /// that count them.
+    pub(super) static RUST_REGEX_RUNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// `regex:"pcre2"` spans through the engine's deadline-bounded PCRE2 scan,
 /// with the read's error prefixes (`invalidPattern`, `executionFailed`).
@@ -379,11 +410,11 @@ fn inline_cut_declarations(
     hits: &[usize],
     ranges: &mut Vec<LineRange>,
 ) {
-    let Some(blocks) = super::block::enclosing(content, q.path(), hits) else {
+    let Some(blocks) = super::block::enclosing(content, local_fetch_query::path(q), hits) else {
         return;
     };
     let mut rest = uncovered(&merge_ranges(blocks), ranges);
-    let requested = q.line_ranges();
+    let requested = local_fetch_query::line_ranges(q);
     if !requested.is_empty() {
         rest = merge_ranges(
             rest.into_iter()
@@ -465,7 +496,7 @@ fn whole_lines_lead(q: &LocalFetchQuery) -> Option<super::types::FetchCall> {
 
 /// Lines shown around each `matchString` hit when `contextLines` is unset:
 /// contract `limits.defaultReadContextLines`.
-pub(crate) const DEFAULT_MATCH_CONTEXT_LINES: usize = crate::tools::id::DEFAULT_READ_CONTEXT_LINES;
+pub(crate) const DEFAULT_MATCH_CONTEXT_LINES: usize = crate::id::DEFAULT_READ_CONTEXT_LINES;
 
 /// The requested ranges' byte spans, with `spans` kept to the hits inside
 /// them: with `ranges`, only those hits count, and their windows stay inside
@@ -475,8 +506,8 @@ fn ranged_spans(
     lines: &[&str],
     spans: &mut Vec<(usize, usize)>,
 ) -> Result<Vec<Region>, ExtractionError> {
-    let regions = region_bytes(lines, &q.line_ranges());
-    if q.has_ranges() {
+    let regions = region_bytes(lines, &local_fetch_query::line_ranges(q));
+    if local_fetch_query::has_ranges(q) {
         if regions.is_empty() {
             return Err(ExtractionError::new(
                 ExtractionErrorKind::InvalidInput,
@@ -505,8 +536,8 @@ fn context_windows(
     hits: &[usize],
     regions: &[Region],
 ) -> (Vec<LineRange>, bool) {
-    let context = q.context_lines().unwrap_or(DEFAULT_MATCH_CONTEXT_LINES);
-    let default_window = q.context_lines().is_none();
+    let context = local_fetch_query::context_lines(q).unwrap_or(DEFAULT_MATCH_CONTEXT_LINES);
+    let default_window = local_fetch_query::context_lines(q).is_none();
     let mut narrowed = false;
     let windows = hits
         .iter()
@@ -542,12 +573,11 @@ fn match_extract(
     content: &str,
     lines: &[&str],
     patterns: &[&str],
-    regex: &impl RegexMatch,
 ) -> Result<Extraction, ExtractionError> {
     let RegexSpans {
         mut spans,
         truncated,
-    } = match_spans(q, content, patterns, regex)?;
+    } = match_spans(q, content, patterns)?;
     let regions = ranged_spans(q, lines, &mut spans)?;
     let hits = hit_lines(lines, &spans);
     // The last line the capped scan reached: matches after it went unseen.
@@ -567,15 +597,15 @@ fn match_extract(
             match_limited: false,
         });
     }
-    let context = q.context_lines().unwrap_or(DEFAULT_MATCH_CONTEXT_LINES);
+    let context = local_fetch_query::context_lines(q).unwrap_or(DEFAULT_MATCH_CONTEXT_LINES);
     let mut warnings = vec![];
     let (windows, narrowed) = context_windows(q, lines, &hits, &regions);
     let mut oversized = vec![];
     let mut blocks = vec![];
-    let windows = if q.block() {
+    let windows = if local_fetch_query::block(q) {
         super::block::widen_matches(
             content,
-            q.path(),
+            local_fetch_query::path(q),
             &hits,
             windows,
             &mut warnings,
@@ -592,8 +622,8 @@ fn match_extract(
         continue_block: line_read(q, &first_unseen(oversized, &ranges)).and_then(follow_up),
         ..NextCalls::default()
     };
-    if !q.block()
-        && q.context_lines() != Some(0)
+    if !local_fetch_query::block(q)
+        && local_fetch_query::context_lines(q) != Some(0)
         && content.len() <= INLINE_PARSE_MAX_BYTES
         && !hits
             .iter()
@@ -607,8 +637,8 @@ fn match_extract(
     // `contextLines:0` asks for the matched lines themselves, whole; any
     // other context cannot show neighbouring lines of a minified line
     // without its kilobytes, so the hit's bytes are the window.
-    let long_lines = !q.block()
-        && q.context_lines() != Some(0)
+    let long_lines = !local_fetch_query::block(q)
+        && local_fetch_query::context_lines(q) != Some(0)
         && hits
             .iter()
             .any(|line| lines[line - 1].len() > LONG_LINE_BYTES);
@@ -685,7 +715,7 @@ fn match_extract(
 /// A localSearch over the same file and pattern(s): it streams and pages
 /// every match, past the read's in-process match limit.
 fn match_limit_lead(q: &LocalFetchQuery, patterns: &[&str]) -> Option<serde_json::Value> {
-    search_lead(q, q.path(), patterns)
+    search_lead(q, local_fetch_query::path(q), patterns)
 }
 
 /// A localSearch under `path` for exactly what the read looked for, so the
@@ -698,10 +728,14 @@ pub(super) fn search_lead(
     path: &str,
     patterns: &[&str],
 ) -> Option<serde_json::Value> {
-    use crate::tools::id::ToolId;
-    let dialect = if q.is_pcre2() { "pcre2" } else { "rust" };
+    use crate::id::ToolId;
+    let dialect = if local_fetch_query::is_pcre2(q) {
+        "pcre2"
+    } else {
+        "rust"
+    };
     let case = |pattern: &str| {
-        if q.case_sensitive_for(pattern) {
+        if local_fetch_query::case_sensitive_for(q, pattern) {
             "sensitive"
         } else {
             "insensitive"
@@ -715,7 +749,7 @@ pub(super) fn search_lead(
                 "matchString": one,
                 "caseMode": case(one),
             });
-            if q.is_regex() {
+            if local_fetch_query::is_regex(q) {
                 row["regex"] = serde_json::json!(dialect);
             }
             row
@@ -723,8 +757,8 @@ pub(super) fn search_lead(
         many => {
             let alternation = crate::tools::match_list::alternation(
                 many.iter()
-                    .map(|pattern| (*pattern, q.case_sensitive_for(pattern))),
-                q.is_regex(),
+                    .map(|pattern| (*pattern, local_fetch_query::case_sensitive_for(q, pattern))),
+                local_fetch_query::is_regex(q),
             );
             serde_json::json!({
                 "path": path,
@@ -734,10 +768,10 @@ pub(super) fn search_lead(
             })
         }
     };
-    if q.whole_word() {
+    if local_fetch_query::whole_word(q) {
         row["wholeWord"] = serde_json::json!(true);
     }
-    Some(crate::tools::result::Continuation::new(ToolId::LocalSearch, row).build())
+    Some(crate::response::result::Continuation::new(ToolId::LocalSearch, row).build())
 }
 
 /// Byte windows of `bytes` around each match span, with `... [N bytes

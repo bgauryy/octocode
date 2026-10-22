@@ -1931,6 +1931,57 @@ fn first_open_after_a_confirmed_project_load_skips_the_settle() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A client whose options cap the settle waits never waits longer than the
+/// cap for a server that reports no progress: the startup settle, the
+/// first-open settle and a settled request's delay all end at the cap. A
+/// harness of fake servers that answer at once sets it to zero.
+#[cfg(unix)]
+#[test]
+fn a_settle_cap_bounds_every_silent_server_wait() {
+    if !node_available() {
+        return;
+    }
+    let (_tmp, root, config) = configurable_server("octocode-engine-settle-cap", &[], None);
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let client = NativeLspClient::with_options(
+            config,
+            LspClientOptions {
+                settle_cap: Some(Duration::ZERO),
+            },
+        );
+        client.start().await.expect("fake server starts");
+        let started = std::time::Instant::now();
+        assert_eq!(
+            client.wait_for_ready(Some(5_000)).await.unwrap(),
+            "settledWithoutProgress"
+        );
+        let file = root.join("a.sh").to_string_lossy().into_owned();
+        let readiness = client
+            .open_document_and_wait(file.clone(), "echo hi\n", Some(400), Some(5_000))
+            .await
+            .expect("document syncs");
+        assert_eq!(readiness.as_deref(), Some("settledWithoutProgress"));
+        client
+            .get_locations(
+                LocationRequest::Definition,
+                file,
+                0,
+                0,
+                &SnippetReadPolicy::default(),
+                Some(Duration::from_millis(400)),
+            )
+            .await
+            .expect("definition");
+        let waited = started.elapsed();
+        assert!(
+            waited < Duration::from_millis(400),
+            "every settle ends at the zero cap: {waited:?}"
+        );
+        client.stop().await.unwrap();
+    });
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// The response cache weighs an entry by its JSON length, measured
 /// once without building the text.
 #[test]

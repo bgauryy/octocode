@@ -2,7 +2,7 @@ use super::normalize_host;
 use octocode_github::{ProviderError, ProviderErrorKind};
 use serde::{Deserialize, Serialize};
 
-pub fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
+pub(crate) fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
     let Ok(entry) = platform_entry(host) else {
         return Ok(());
     };
@@ -41,7 +41,9 @@ fn platform_entry(host: &str) -> Result<keyring_core::Entry, ProviderError> {
     }
 }
 
-pub fn load_stored_credentials(host: &str) -> Result<Option<StoredCredentials>, ProviderError> {
+pub(crate) fn load_stored_credentials(
+    host: &str,
+) -> Result<Option<StoredCredentials>, ProviderError> {
     let host = normalize_host(host);
     Ok(load_platform_password(&host)?.and_then(|blob| parse_stored_blob(host, &blob)))
 }
@@ -123,7 +125,9 @@ impl std::fmt::Debug for OAuthToken {
     }
 }
 
-pub fn store_platform_credential(credentials: &StoredCredentials) -> Result<(), ProviderError> {
+pub(crate) fn store_platform_credential(
+    credentials: &StoredCredentials,
+) -> Result<(), ProviderError> {
     let payload = serde_json::to_string(credentials).map_err(|_| {
         ProviderError::new(
             ProviderErrorKind::CredentialStoreUnavailable,

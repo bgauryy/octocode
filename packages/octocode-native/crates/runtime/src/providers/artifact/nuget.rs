@@ -7,6 +7,7 @@ use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
     ArtifactType, TerminalLimit,
 };
+use crate::providers::artifact::types::artifact_search_query;
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
 use url::Url;
@@ -16,16 +17,20 @@ pub(crate) async fn nuget(
     state: &ArtifactProviderState,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    if let Some(name) = query.package_name() {
-        return exact(name, requested_version(query.version())?, client).await;
+    if let Some(name) = artifact_search_query::package_name(query) {
+        return exact(
+            name,
+            requested_version(artifact_search_query::version(query))?,
+            client,
+        )
+        .await;
     }
     // The shared page bounds ([`super::page_out_of_range`]) keep `offset`
     // below [`REACHABLE_END`] and end the last reachable page.
     let offset = state.offset.unwrap_or(0);
     let base = service_endpoint("SearchQueryService", client).await?;
-    let size = query
-        .page_size()
-        .min(REACHABLE_END.saturating_sub(offset) as usize);
+    let size =
+        artifact_search_query::page_size(query).min(REACHABLE_END.saturating_sub(offset) as usize);
     // NuGet rejects skip > 3000. Past it, fetch one window from skip=3000
     // (take stays <= 1000) and slice the caller's page out locally.
     let (skip, drop) = if offset > MAX_SKIP {
@@ -37,7 +42,7 @@ pub(crate) async fn nuget(
     let url = endpoint(
         base.as_str(),
         &[
-            ("q", Some(query.terms())),
+            ("q", Some(artifact_search_query::terms(query))),
             ("skip", Some(skip.to_string())),
             ("take", Some(take.to_string())),
             ("prerelease", Some("true".into())),
@@ -197,7 +202,11 @@ async fn exact(
                             .filter(|edge| !edge.is_empty())
                             .collect();
                     }
-                    return Err(super::npm::version_not_found(package_name, wanted, &seen));
+                    return Err(super::versions::version_not_found(
+                        package_name,
+                        wanted,
+                        &seen,
+                    ));
                 }
             }
         }
@@ -539,7 +548,7 @@ mod tests {
     use crate::providers::artifact::http::{
         ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
     };
-    use octocode_github::RequestBudget;
+    use octocode_io::budget::RequestBudget;
     use serde_json::json;
 
     /// The exact `Newtonsoft.Json` lookup against `http`.
@@ -852,21 +861,29 @@ mod tests {
         let page = nuget(&q, &at(3998), &client).await.unwrap();
         assert_eq!(names(&page), ["pkg3998", "pkg3999"]);
         let mut paged = q.clone();
-        paged.set_page(2000);
+        artifact_search_query::set_page(&mut paged, 2000);
         assert!(super::super::page_out_of_range(&paged).is_none());
-        paged.set_page(2001);
+        artifact_search_query::set_page(&mut paged, 2001);
         assert_eq!(
             super::super::page_out_of_range(&paged).map(|limit| limit.reason),
             Some("providerResultCap")
         );
         assert!(
-            super::super::validate_cursor_state(ArtifactType::Nuget, &at(3999), q.page_size())
-                .is_ok()
+            super::super::validate_cursor_state(
+                ArtifactType::Nuget,
+                &at(3999),
+                artifact_search_query::page_size(&q)
+            )
+            .is_ok()
         );
         assert_eq!(
-            super::super::validate_cursor_state(ArtifactType::Nuget, &at(4000), q.page_size())
-                .expect_err("past the reach")
-                .code,
+            super::super::validate_cursor_state(
+                ArtifactType::Nuget,
+                &at(4000),
+                artifact_search_query::page_size(&q)
+            )
+            .expect_err("past the reach")
+            .code,
             "invalidInput"
         );
         assert!(

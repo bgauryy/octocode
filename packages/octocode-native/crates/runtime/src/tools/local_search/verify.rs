@@ -3,10 +3,10 @@
 
 use super::types::*;
 use super::{cursor::*, layout::*};
+use crate::execution::cancel::CancellationCheck;
+use crate::num::u32_of_usize;
+use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
-use crate::tools::cancel::CancellationCheck;
-use crate::tools::num::u32_of_usize;
-use crate::tools::result::ToolError;
 use octocode_engine::signatures::MAX_PARSE_SIZE;
 use sha2::{Digest, Sha256};
 
@@ -108,11 +108,11 @@ pub(super) fn redact_scan(
     };
     // Files redact independently: on parallel workers, merged in file order
     // so the record (and the first failure) is the one a serial pass makes.
-    let mut outcomes = redact_files(&mut parsed.files, scope.walk_threads, |file| {
+    let workers = crate::tools::workers::workers(scope.walk_threads, parsed.files.len(), None);
+    let outcomes = crate::tools::workers::each_parallel(&mut parsed.files, workers, |file| {
         redact_file(scope, file)
     });
-    outcomes.sort_by_key(|(file_index, _)| *file_index);
-    for (file_index, outcome) in outcomes {
+    for (file_index, outcome) in outcomes.into_iter().enumerate() {
         let FileRedaction {
             key_file,
             changes,
@@ -139,43 +139,6 @@ struct FileRedaction {
     path: String,
 }
 
-/// `redact` of every file, by file index, on scoped workers that each take
-/// the next unredacted file (the work per file varies widely).
-fn redact_files<T: Send>(
-    files: &mut [octocode_engine::types::TextSearchFile],
-    walk_threads: Option<u32>,
-    redact: impl Fn(&mut octocode_engine::types::TextSearchFile) -> T + Sync,
-) -> Vec<(usize, T)> {
-    let workers = crate::tools::workers::workers(walk_threads, files.len(), None);
-    let queue = std::sync::Mutex::new(files.iter_mut().enumerate());
-    let next = || {
-        queue
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .next()
-    };
-    let drain = || {
-        let mut done = Vec::new();
-        while let Some((index, file)) = next() {
-            done.push((index, redact(file)));
-        }
-        done
-    };
-    if workers < 2 {
-        return drain();
-    }
-    std::thread::scope(|scope| {
-        let tasks = (0..workers).map(|_| scope.spawn(drain)).collect::<Vec<_>>();
-        tasks
-            .into_iter()
-            .flat_map(|task| {
-                task.join()
-                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-            })
-            .collect()
-    })
-}
-
 /// Make one file's path relative to the output root and redact secrets in
 /// its values (see [`redact_scan`]).
 fn redact_file(
@@ -188,7 +151,6 @@ fn redact_file(
         output_root,
         expected_digest,
         security,
-        cancel,
         ..
     } = *scope;
     if let Ok(relative) = std::path::Path::new(&file.path).strip_prefix(output_root) {
@@ -234,7 +196,6 @@ fn redact_file(
         file,
         0..file.matches.len(),
         |match_index, matched| {
-            cancel.check().map_err(ToolError::cancelled)?;
             let changed = if let Some((ranges, lines)) = &key_lines
                 && crate::security::match_window_intersects_key_block(
                     matched.line,
@@ -574,7 +535,7 @@ fn parallel_outlines(
         return files
             .into_iter()
             .map(|(source, bytes)| {
-                let outline = super::leads::outline_of(&bytes, &source, security);
+                let outline = super::enclosing::outline_of(&bytes, &source, security);
                 (source, outline)
             })
             .collect();
@@ -590,7 +551,7 @@ fn parallel_outlines(
                 chunk
                     .into_iter()
                     .map(|(source, bytes)| {
-                        let outline = super::leads::outline_of(&bytes, &source, security);
+                        let outline = super::enclosing::outline_of(&bytes, &source, security);
                         (source, outline)
                     })
                     .collect::<Vec<_>>()
@@ -605,28 +566,21 @@ fn parallel_outlines(
     })
 }
 
-/// Outlines a default page cut charges names by, by file index (see
-/// [`super::leads::ENCLOSING_CUT_FILES`]): the first files with rows in an
-/// outlined language, each read within the parse cap once the read policy
-/// passes it. A file the map lacks (denied or unreadable) reserves per row;
-/// `None` is a file without an outline, whose rows carry no names. A stored
-/// scan's file that no longer hashes to the bytes it matched restarts, as
-/// on the page that shows it, so a continuation never cuts other pages.
-pub(super) fn cut_outlines(
+/// Outlines the files a page cut prices names by (see
+/// [`super::layout::NamePricing`]), each read within the parse cap once the
+/// read policy passes it and parsed in parallel; each parsed outline is
+/// kept in `cut` for the page's shown files. A file the policy denies or
+/// that cannot be read is unread (its rows reserve). A stored scan's file
+/// that no longer hashes to the bytes it matched restarts, as on the page
+/// that shows it, so a continuation never cuts other pages.
+pub(super) fn outline_for_cut(
     scope: &PageScope<'_, impl CancellationCheck>,
-    files: &[octocode_engine::types::TextSearchFile],
-) -> Result<CutOutlines, ToolError> {
-    let query = scope.query;
-    if list_view(query.result_view) || query.match_page_size().is_some() {
-        return Ok(CutOutlines::new());
-    }
+    files: &[(usize, &octocode_engine::types::TextSearchFile)],
+    cut: &mut CutOutlines,
+) -> Result<Vec<(usize, FilePrice)>, ToolError> {
     let mut indexes = std::collections::HashMap::new();
     let mut reads = Vec::new();
-    let outlined = files.iter().enumerate().filter(|(_, file)| {
-        !file.matches.is_empty()
-            && super::leads::outlined_language(std::path::Path::new(&file.path))
-    });
-    for (index, file) in outlined.take(super::leads::ENCLOSING_CUT_FILES) {
+    for &(index, file) in files {
         scope.cancel.check().map_err(ToolError::cancelled)?;
         let source = scope.output_root.join(&file.path);
         if validate_matched(scope.paths, &source).is_err() {
@@ -638,19 +592,23 @@ pub(super) fn cut_outlines(
         if let Some(expected) = (scope.expected_digest)(&source)
             && expected != Some(<[u8; 32]>::from(Sha256::digest(&bytes)))
         {
-            return Err(changed_since_scan(query));
+            return Err(changed_since_scan(scope.query));
         }
-        indexes.insert(source.clone(), index);
+        indexes.insert(source.clone(), (index, file));
         reads.push((source, bytes));
     }
     Ok(parallel_outlines(reads, scope)
         .into_iter()
-        .filter_map(|(source, outline)| Some((*indexes.get(&source)?, outline)))
+        .filter_map(|(source, outline)| {
+            let &(index, file) = indexes.get(&source)?;
+            let price = FilePrice::of(file, outline.as_ref());
+            cut.insert(index, outline);
+            Some((index, price))
+        })
         .collect())
 }
 
-/// Outlines of the files a page cut charges names by, by file index (see
-/// [`cut_outlines`]).
+/// Outlines a page cut parsed, by file index (see [`outline_for_cut`]).
 pub(super) type CutOutlines = std::collections::HashMap<usize, Option<super::enclosing::Outline>>;
 
 /// Remove `…` window markers and `...` truncation suffixes from a value line.
@@ -1056,12 +1014,14 @@ fn visit_values(
     mut visit: impl FnMut(usize, &mut octocode_engine::types::TextSearchMatch) -> Result<(), ToolError>,
 ) -> Result<(), ToolError> {
     use std::io::BufRead;
+    // One check per file: a row's visit is bounded work, and every worker
+    // polling the shared cancel per row contended on its lock.
+    scope.cancel.check().map_err(ToolError::cancelled)?;
     let mut wanted = Vec::new();
     for index in rows {
         let Some(hit) = file.matches.get_mut(index) else {
             continue;
         };
-        scope.cancel.check().map_err(ToolError::cancelled)?;
         if hit.deferred.is_some() && hit.value.is_empty() {
             wanted.push(index);
         } else {
@@ -1086,8 +1046,9 @@ fn visit_values(
     let mut line = 0u32;
     let mut at = 0;
     let mut size = 0u64;
+    // `CheckedRead` polls the cancel on every read of the file, so the
+    // lines served from its buffer need no check of their own.
     while at < wanted.len() {
-        scope.cancel.check().map_err(ToolError::cancelled)?;
         bytes.clear();
         // Match the engine's line-buffer ceiling, including a terminating newline.
         let read = std::io::Read::take(&mut input, 64 * 1024 * 1024 + 1)
@@ -1109,7 +1070,6 @@ fn visit_values(
         size += read as u64;
         line = line.saturating_add(1);
         while let Some(&index) = wanted.get(at).filter(|&&i| file.matches[i].line == line) {
-            scope.cancel.check().map_err(ToolError::cancelled)?;
             let value_bytes = if line == 1 {
                 &bytes[octocode_engine::text::bom_len(&bytes)..]
             } else {
@@ -1179,12 +1139,13 @@ impl<C: CancellationCheck> std::io::Read for CheckedRead<'_, C> {
 #[cfg(test)]
 mod verification_tests {
     use super::*;
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
 
     fn hit(line: u32, value: &str) -> octocode_engine::types::TextSearchMatch {
         octocode_engine::types::TextSearchMatch {
             deferred: None,
             line,
+            last_line: None,
             column: 0,
             byte_offset: 0,
             value: value.into(),

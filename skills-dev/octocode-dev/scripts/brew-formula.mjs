@@ -112,7 +112,7 @@ ${arch('linux', 'intel')}
     assert_match "octocode #{version}", shell_output("#{bin}/octocode --version")
     (testpath/"notes.txt").write "alpha\\nneedle beta\\n"
     query = '{"path":"notes.txt","matchString":"needle b[a-z]+","regex":"rust"}'
-    assert_match '"line":2,"value":"needle beta"', shell_output("#{bin}/octocode localSearch '#{query}'")
+    assert_match '"line":2,"value":"needle beta"', shell_output("#{bin}/octocode localSearch '#{query}' --json")
   end
 end
 `;

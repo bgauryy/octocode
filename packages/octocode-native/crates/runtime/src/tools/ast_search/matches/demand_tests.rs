@@ -1,5 +1,5 @@
 use super::*;
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, simple_policy};
 
 /// A nested Rust fixture where `$A` matches every named node.

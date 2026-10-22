@@ -337,7 +337,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Encoding of rendered text content (the MCP text channel): yaml or json. Structured content is always JSON. The CLI prints this text on a terminal and JSON on a pipe or with --json.",
+    "description": "Encoding of rendered text content (the MCP text channel): yaml or json. Structured content is always JSON. The CLI prints this text unless --json.",
     "env": {
       "name": "OCTOCODE_OUTPUT_FORMAT",
       "normalize": "lower"

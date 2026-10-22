@@ -1,6 +1,6 @@
 //! Optional on-disk mirror of a key's blocking facts, so short-lived CLI
 //! processes honor each other's limits.
-use super::{KeyFacts, KeyState, now_ms, pause};
+use super::{KeyState, key_state::KeyFacts, now_ms, pause};
 use crate::ProviderError;
 use octocode_io::lock::TryLock;
 use std::{
@@ -175,7 +175,7 @@ impl KeyState {
 
     /// Merge the on-disk view when another process has written it since we
     /// last looked (one `stat` per logical request; see [`FileStamp`]).
-    pub fn refresh_from_disk(&self) {
+    pub(crate) fn refresh_from_disk(&self) {
         let mut persist = self
             .persist
             .lock()
@@ -382,7 +382,11 @@ fn lock_file_blocking(path: &Path, deadline: Instant) -> Option<octocode_io::loc
 
 #[cfg(test)]
 mod tests {
+    use super::super::slots::{SlotPlan, Subject};
     use super::super::*;
+    use super::KeyFacts;
+    use reqwest::header::HeaderMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn code_search_window_merge_preserves_same_millisecond_reservations() {
@@ -648,7 +652,10 @@ mod tests {
 
     /// Two budgets with separate key states and one state file stand in for
     /// two processes: together they stay within one window, and their starts
-    /// keep the spacing across both.
+    /// keep the spacing across both. The spacing is read from the starts the
+    /// shared file reserved, and the wait from the last admission against the
+    /// loop's start: a task resumed late after one admission would shorten
+    /// the gap observed to the next, so observed gaps prove nothing.
     #[tokio::test]
     async fn two_processes_share_one_window_and_one_spacing() {
         let dir = tempfile::tempdir().expect("state directory");
@@ -668,6 +675,7 @@ mod tests {
             .collect::<Vec<_>>();
         let mut starts = Vec::new();
         let mut refused = 0;
+        let began = Instant::now();
         for turn in 0..6 {
             let which = turn % 2;
             match admit_code_search(&states[which], &budgets[which], Duration::from_secs(1)).await {
@@ -682,17 +690,26 @@ mod tests {
             }
         }
         assert_eq!((starts.len(), refused), (4, 2), "one window of 4 for both");
-        for pair in starts.windows(2) {
-            assert!(
-                pair[1] - pair[0] >= Duration::from_millis(140),
-                "starts {:?} apart across processes",
-                pair[1] - pair[0]
-            );
-        }
         let disk: KeyFacts =
             serde_json::from_slice(&std::fs::read(dir.path().join(key.file_name())).expect("file"))
                 .expect("json");
         assert_eq!(disk.code_search_ms.len(), 4);
+        let reserved = Vec::from(disk.code_search_ms);
+        for pair in reserved.windows(2) {
+            assert!(
+                pair[1] - pair[0] >= 150,
+                "reserved starts {}ms apart across processes",
+                pair[1] - pair[0]
+            );
+        }
+        // Each admission waits for its reserved start: the fourth is three
+        // spacings after the first, which is no earlier than the loop began
+        // (a few ms for the stamps' millisecond rounding).
+        assert!(
+            starts[3] - began >= Duration::from_millis(445),
+            "the fourth start came {:?} after the first request",
+            starts[3] - began
+        );
     }
 
     /// A corrupt file, stamps older than the window, and stamps from a clock

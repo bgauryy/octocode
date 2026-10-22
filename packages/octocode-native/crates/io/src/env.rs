@@ -19,9 +19,7 @@ pub fn home_dir() -> Option<PathBuf> {
 
 /// The lossy conversion over any `(name, value)` source; testable without
 /// mutating the process environment.
-pub fn lossy_pairs(
-    pairs: impl IntoIterator<Item = (OsString, OsString)>,
-) -> BTreeMap<String, String> {
+fn lossy_pairs(pairs: impl IntoIterator<Item = (OsString, OsString)>) -> BTreeMap<String, String> {
     pairs
         .into_iter()
         .map(|(name, value)| {

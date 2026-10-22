@@ -57,7 +57,7 @@ When this skill runs inside Octocode, recheck these owners before applying a loc
 |---|---|---|
 | Crate boundaries and host ownership | `packages/octocode-native/ARCHITECTURE.md` | Runtime is an `rlib`; hosts own conversion, not tool execution |
 | Resolver, LTO, codegen units, shared metadata | `packages/octocode-native/Cargo.toml` | Explicit resolver 2; thin LTO; engine regression note |
-| Request admission and cleanup | `packages/octocode-native/crates/runtime/src/runtime/lifecycle.rs` | `RequestAdmission`, `RequestGuard`, cancellation and blocking-task join |
+| Request admission and cleanup | `packages/octocode-native/crates/runtime/src/execution/lifecycle.rs` | `RequestAdmission`, `RequestGuard`, cancellation and blocking-task join |
 | Contract generation and field effects | `packages/octocode-native/ARCHITECTURE.md`; `packages/octocode-native/crates/runtime/tests/contract_field_effects.rs` | One generator; generated wire types; effect coverage |
 | Native artifact staging | `packages/octocode-native/scripts/native-addon-utils.cjs` | `stageFile`, signing before rename, subprocess load check |
 | Test selection and page replay | `packages/octocode-native/package.json`; `packages/octocode-native/crates/runtime/tests/runtime_page_replay.rs` | Test-only features; snapshots and source-edit replay |

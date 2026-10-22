@@ -528,7 +528,7 @@ async function replayHints(entries, ws) {
     seen.add(key);
     offered.push({ name: h.path.split('.').at(-1), hint: { tool: h.tool, query: h.query }, byRecipe: executed.has(key) });
   }
-  // CLI-only tools (ghCloneRepo, astTopology) never list on MCP; they are counted, not replayed.
+  // CLI-only tools (ghCloneRepo) never list on MCP; they are counted, not replayed.
   const client = await clientFor(ws);
   const onMcp = o => client.tools.some(t => t.name === o.hint.tool);
   const sample = offered.filter(o => !o.byRecipe && onMcp(o)).slice(0, Math.max(0, REPLAY_MAX));

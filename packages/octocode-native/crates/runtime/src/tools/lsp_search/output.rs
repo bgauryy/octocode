@@ -1,5 +1,5 @@
 //! lspSearch output facts for the shared response stages.
-use crate::tools::output::{PathAnchor, TextShape, ToolOutput};
+use crate::response::output::{PathAnchor, TextShape, ToolOutput};
 use serde_json::Value;
 
 pub(crate) struct Output;
@@ -27,7 +27,7 @@ impl ToolOutput for Output {
     /// recovery (the shared timeout tip says to narrow the call instead).
     fn error_hint(&self, code: &str) -> Option<&'static str> {
         match code {
-            "noDiagnostics" => Some(crate::tools::output::NO_HINT),
+            "noDiagnostics" => Some(crate::response::output::NO_HINT),
             "timeout" => Some(TIMEOUT_HINT),
             _ => None,
         }
@@ -50,7 +50,7 @@ impl ToolOutput for Output {
 
 #[cfg(test)]
 mod tests {
-    use crate::tools::id::ToolId;
+    use crate::id::ToolId;
     use serde_json::json;
 
     #[test]
@@ -74,7 +74,7 @@ mod tests {
         );
         assert_eq!(
             lsp.error_hint("noDiagnostics"),
-            Some(crate::tools::output::NO_HINT)
+            Some(crate::response::output::NO_HINT)
         );
         assert!(lsp.error_hint("anchorUnresolved").is_none());
     }

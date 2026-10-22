@@ -29,7 +29,7 @@ node packages/octocode/out/octocode.js schema
 node packages/octocode/out/octocode.js schema localFetch --view query
 ```
 
-- The catalog has 15 tools, with 12 enabled by default in MCP. `ghCloneRepo` is CLI-only; beta (`OCTOCODE_BETA` or `local.beta`) adds `clasify` (which also needs a classification key) and the CLI-only `astTopology`.
+- The catalog has 14 tools, with 12 enabled by default in MCP. `ghCloneRepo` is CLI-only; beta (`OCTOCODE_BETA` or `local.beta`) adds `clasify` (which also needs a classification key). File graphs are the `octocode graph ingest|query` CLI, not a catalog tool.
 - `clasify` is omitted when no key resolves (`OCTOCODE_CLASSIFICATION_API` or `.octocoderc` `classification.api`), when `OCTOCODE_CLASSIFICATION_API` is blank, or when beta is off. Local-tool, clone, storage, and allowlist settings also gate tools.
 - Record effective configuration and unavailable capabilities per run; enabling a tool installs no language server and grants no provider access. Test CLI and MCP when registration, schema projection, formatting, or continuation rendering changes.
 
@@ -62,7 +62,7 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 - Cover every independent partial surface (lists, file/match pages, graph data, diagnostics, source lines, transformed characters, history collections, patches, response text). Continuations keep filters, operation, view, snapshot/ref, and other pagination axes.
 - Requested length is a window target: validate actual offsets and coverage; mark estimated page counters. Test tiny windows, boundary-crossing tokens, multibyte text, empty results, a short final page.
 - A provider or public cap that blocks continuation needs a typed terminal-limit diagnostic; a bare page number or cursor fails the contract.
-- A numeric cursor (`page`, `matchPage`, `importerPage`, `scanOffset`, `materializeOffset`, …) advances only through `tools/paging.rs`: `next_cursor` (or `admitted`) checks the query schema `maximum`, and past it writes the terminal limit (`terminalLimit`, `partialReasons:["cursorMaximum"]`, a warning). `terminal_limit` and `mark_partial` there are the one writer of those signals. The table test in `paging.rs` covers every bounded cursor field of every tool, and a source scan fails on a cursor advanced by hand.
+- A numeric cursor (`page`, `matchPage`, `importerPage`, `scanOffset`, `materializeOffset`, …) advances only through `response/paging.rs`: `next_cursor` (or `admitted`) checks the query schema `maximum`, and past it writes the terminal limit (`terminalLimit`, `partialReasons:["cursorMaximum"]`, a warning). `terminal_limit` and `mark_partial` there are the one writer of those signals. The table test in `paging.rs` covers every bounded cursor field of every tool, and a source scan fails on a cursor advanced by hand.
 - An invalid continuation is a defect that fails debug builds and tests. In release, the continuation stage drops the invalid lead and keeps the row, marking it `partialReasons:["leadInvalid"]` with a warning, so a page is never lost to a bad lead.
 
 ### Efficiency with preserved behavior
@@ -79,7 +79,6 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 | `clasify` | Noul, Choice, Score over values and unread resources. | Body-free answers, coverage, focus scopes, provider failures, cache reuse on exact reads. |
 | `structureSearch` | `tree` and `files` with name and metadata filters. | Pagination, snapshots, depth bounds, exclusions. |
 | `astSearch` | `match`, `syntaxTree`, `symbols`. | Pattern/rule exclusivity, language selection; captures, nodes, results; parser and scan limits. |
-| `astTopology` | All seven graph analyses. | Results and diagnostics; unresolved edges and coverage limits; corroborated deletion candidates. |
 | `lspSearch` | Document, workspace, anchored, hierarchy operations. | Distinguish no server, unsupported capability, failed anchor, valid empty; provenance; snapshots. |
 | `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Exercise code, repository, and tree variants (one tool each); reject branch selection for indexed code search. | Candidate matches, immutable tree identity, metadata pages, indexing uncertainty, provider-limit diagnostics. |
 | `ghGetFileContent` | Exact, compact, full, paginated views. | Local/remote parity; pinned refs, repeated-outline prevention, redaction, directory-input rejection. |

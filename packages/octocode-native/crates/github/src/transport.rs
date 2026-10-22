@@ -12,15 +12,19 @@ use std::{
 };
 use url::Url;
 
+use octocode_io::{
+    budget::{BudgetStop, RequestBudget},
+    retry::{Backoff, BodyError, classify_status, header_u64, retry_after_delay},
+};
+
 use super::{
-    BudgetStop, GitHubEndpoint, ProviderError, ProviderErrorKind, ProviderErrorReason, RateLimit,
-    RequestBudget, ResolvedCredential,
+    GitHubEndpoint, ProviderError, ProviderErrorKind, ProviderErrorReason, RateLimit,
+    ResolvedCredential,
     budget::{
         Admission, CircuitCause, ExecutorConfig, GitHubBudget, GitHubResource, Group, KeyState,
         LimiterKey, is_primary_rate_limit, is_secondary_rate_limit, now_ms, pause,
         rate_limited_error,
     },
-    retry::{Backoff, BodyError, classify_status, header_u64, retry_after_delay},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +84,7 @@ impl RequestSpec {
             headers: HeaderMap::new(),
         }
     }
-    pub fn graphql(url: Url, body: Value) -> Self {
+    pub(crate) fn graphql(url: Url, body: Value) -> Self {
         Self {
             method: HttpMethod::Post,
             url,
@@ -126,7 +130,7 @@ impl ResponsePage {
     /// Organization ids whose results GitHub withheld (`x-github-sso:
     /// partial-results; organizations=1,2`): the token is not authorized
     /// for them, so the page is partial.
-    pub fn sso_partial_organizations(&self) -> Vec<u64> {
+    pub(crate) fn sso_partial_organizations(&self) -> Vec<u64> {
         sso_directive(&self.headers, "partial-results")
             .and_then(|parameters| sso_parameter(parameters, "organizations"))
             .map(|ids| {
@@ -167,14 +171,14 @@ pub struct GraphQlError {
 }
 
 impl GraphQlError {
-    pub fn is_rate_limited(&self) -> bool {
+    pub(crate) fn is_rate_limited(&self) -> bool {
         self.error_type.as_deref() == Some("RATE_LIMITED")
             || self.extensions.get("type").and_then(Value::as_str) == Some("RATE_LIMITED")
             || self.message.contains("RATE_LIMITED")
     }
 
     /// Octokit plugin-retry retries this GraphQL failure like a 500.
-    pub fn is_transient(&self) -> bool {
+    pub(crate) fn is_transient(&self) -> bool {
         self.message
             .contains("Something went wrong while executing your query")
     }
@@ -185,6 +189,19 @@ pub struct GraphQlPage {
     pub data: Option<Value>,
     #[serde(default)]
     pub errors: Vec<GraphQlError>,
+}
+
+/// The HTTP client a transport for `endpoint` uses: a loopback API is
+/// reached directly, any other through the user's system proxy.
+fn client_policy(endpoint: &GitHubEndpoint) -> octocode_io::http::ClientPolicy {
+    octocode_io::http::ClientPolicy {
+        proxy: if endpoint.is_loopback() {
+            octocode_io::http::Proxy::Direct
+        } else {
+            octocode_io::http::Proxy::System
+        },
+        ..Default::default()
+    }
 }
 
 #[derive(Clone)]
@@ -209,21 +226,14 @@ pub struct GitHubTransport {
     pub(crate) owners: Arc<super::search::OwnerSources>,
 }
 impl GitHubTransport {
-    pub fn new(endpoint: GitHubEndpoint, retry: RetryPolicy) -> Result<Self, ProviderError> {
-        let budget = if cfg!(test) {
-            GitHubBudget::relaxed()
-        } else {
-            GitHubBudget::global()
-        };
-        Self::with_budget(endpoint, retry, budget)
-    }
-
-    pub fn with_budget(
+    /// A transport admitting its requests through `budget`: production
+    /// passes [`GitHubBudget::global`] (or [`GitHubBudget::paced`]).
+    pub fn new(
         endpoint: GitHubEndpoint,
         retry: RetryPolicy,
         budget: Arc<GitHubBudget>,
     ) -> Result<Self, ProviderError> {
-        let client = octocode_io::http::client(&Default::default()).map_err(|_| {
+        let client = octocode_io::http::client(&client_policy(&endpoint)).map_err(|_| {
             ProviderError::new(
                 ProviderErrorKind::Configuration,
                 "failed to initialize GitHub HTTP client",
@@ -509,7 +519,7 @@ impl<'a> Attempts<'a> {
     ) -> Self {
         let state = transport.key_state(context.resolved_credential());
         let config = transport.budget.config();
-        let resource = GitHubResource::classify(&spec.url);
+        let resource = transport.endpoint.resource(&spec.url);
         let group = match (resource, spec.method) {
             (GitHubResource::Graphql, _) => Some(Group::Graphql),
             (GitHubResource::Search, _) => Some(Group::Search),
@@ -910,7 +920,7 @@ async fn read_bounded(
     response: reqwest::Response,
     context: &RequestContext,
 ) -> Result<Bytes, ProviderError> {
-    crate::retry::read_bounded(response, &context.budget, context.budget.max_body_bytes)
+    octocode_io::retry::read_bounded(response, &context.budget, context.budget.max_body_bytes)
         .await
         .map_err(|error| match error {
             // A body that stalls after the headers is bounded by the
@@ -1091,6 +1101,24 @@ fn sso_parameter<'a>(parameters: &'a str, name: &str) -> Option<&'a str> {
 mod response_error_tests {
     use super::*;
     use reqwest::header::AUTHORIZATION;
+
+    /// A loopback API (a test server, a local proxy to GHES) is reached
+    /// directly: no system proxy lookup, which is the first client's
+    /// startup cost, and no proxy that could see the token.
+    #[test]
+    fn a_loopback_api_connects_directly() {
+        use octocode_io::http::Proxy;
+        for (base, proxy) in [
+            ("http://127.0.0.1:8080/api/v3", Proxy::Direct),
+            ("http://localhost:1/api/v3", Proxy::Direct),
+            ("https://api.github.com", Proxy::System),
+            ("https://ghe.example.com/api/v3", Proxy::System),
+        ] {
+            let endpoint =
+                GitHubEndpoint::new(url::Url::parse(base).expect("url")).expect("endpoint");
+            assert_eq!(client_policy(&endpoint).proxy, proxy, "{base}");
+        }
+    }
 
     /// Review open item: the token header is marked sensitive so `Debug`
     /// output of a request or header map never prints it.

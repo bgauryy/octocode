@@ -1,16 +1,16 @@
 use super::*;
-use crate::contracts::tool_types::{GhCloneRepoQueryPathArrayItem, GhCloneRepoQueryRef};
+use crate::execution::cancel::NeverCancel;
 use crate::policy::path::PathPolicyConfig;
-use crate::tools::cancel::NeverCancel;
 use crate::tools::gh_shared::test_support as gh_shared_support;
 use crate::tools::test_support;
+use octocode_contract_types::{GhCloneRepoQueryPathArrayItem, GhCloneRepoQueryRef};
 use octocode_github::CredentialSource;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Barrier, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 fn api_github_endpoint() -> GitHubEndpoint {
@@ -27,8 +27,12 @@ struct RewriteRunner {
 
 impl RewriteRunner {
     fn new(from: &str, to: &str) -> Self {
+        Self::with_git(from, to, SystemGit::default())
+    }
+
+    fn with_git(from: &str, to: &str, system: SystemGit) -> Self {
         Self {
-            system: SystemGit::default(),
+            system,
             from: from.into(),
             to: to.into(),
             seen: Mutex::new(vec![]),
@@ -194,6 +198,20 @@ impl Fixture {
         pinned
     }
 
+    /// The fixture the tests that never commit share: one origin while any
+    /// test holds it, removed when the last holder drops it (a test that
+    /// commits builds its own with [`Self::new`]).
+    fn shared() -> Arc<Self> {
+        static SHARED: Mutex<Weak<Fixture>> = Mutex::new(Weak::new());
+        let mut slot = SHARED.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(fixture) = slot.upgrade() {
+            return fixture;
+        }
+        let fixture = Arc::new(Self::new());
+        *slot = Arc::downgrade(&fixture);
+        fixture
+    }
+
     fn push_second(&self) -> String {
         fs::write(self.work.join("README.md"), "fixture two\n").expect("update");
         git(&self.work, &["add", "README.md"]);
@@ -295,6 +313,7 @@ fn fixture_main_meta() -> cache::CacheMeta {
         },
         &"1".repeat(40),
         Duration::from_secs(60),
+        cache::CheckoutFacts::default(),
     )
 }
 
@@ -395,7 +414,7 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
 /// sparse subtree when one was requested), and a cache hit names its age.
 #[test]
 fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -490,7 +509,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
 
 #[test]
 fn creates_a_new_configured_home_before_authorizing_the_clone_target() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let root = test_support::Fixture::new();
     let cache_home = root.0.join("new").join("home");
     let policy = PathPolicy::new(PathPolicyConfig {
@@ -516,7 +535,7 @@ fn creates_a_new_configured_home_before_authorizing_the_clone_target() {
 /// must authorize its clones root, not the whole home.
 #[test]
 fn clones_with_only_the_clones_root_allowed_under_an_existing_home() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (_root, cache_home) = home_root();
     let policy = PathPolicy::new(PathPolicyConfig {
         workspace_root: Some(fixture.work.clone()),
@@ -611,7 +630,6 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
 
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
     assert!(!fresh.location.cached);
-    assert!(fresh.location.verified);
     assert_eq!(fresh.location.commit_sha, fixture.first_commit);
     assert_eq!(
         fs::read_to_string(Path::new(&fresh.location.local_path).join("README.md"))
@@ -621,10 +639,6 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     assert!(fresh.bytes > 0);
     let cached = clone_pinned(&fixture, &query(), &context).expect("cached clone");
     assert!(cached.location.cached);
-    // A cache hit reports the verification state persisted at clone time, not a
-    // bare false: this checkout was verified when created, so the warm read
-    // surfaces verified:true rather than a false negative.
-    assert!(cached.location.verified);
     assert_eq!(cached.location.local_path, fresh.location.local_path);
     // Editing the cached working tree must not replace the user's bytes.
     let readme = Path::new(&cached.location.local_path).join("README.md");
@@ -731,7 +745,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
 
 #[test]
 fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -831,7 +845,7 @@ fn refresh_rechecks_user_changes_written_while_fetching() {
             self.inner.run_nul_records(request, control, record)
         }
     }
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -866,7 +880,7 @@ fn refresh_rechecks_user_changes_written_while_fetching() {
 
 #[test]
 fn clone_eviction_preserves_dirty_expired_and_over_budget_checkouts() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -1012,7 +1026,7 @@ fn repository_metadata_filename_conflict_never_replaces_an_existing_checkout() {
             self.inner.run_nul_records(request, control, record)
         }
     }
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -1101,7 +1115,7 @@ impl GitRunner for FailingLsTree {
 /// whole folder beside a requested file.
 #[test]
 fn an_unresolvable_sparse_path_type_fails_the_clone() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -1121,9 +1135,60 @@ fn an_unresolvable_sparse_path_type_fails_the_clone() {
     assert_eq!(error.message, "ls-tree failed");
 }
 
+/// Only the git steps that reach the remote run with the credential: the
+/// local `remote add` and `config` steps take no askpass helper and no
+/// network permit.
+#[test]
+fn only_network_git_steps_carry_the_credential() {
+    let fixture = Fixture::shared();
+    let (root, cache_home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            path: Some(one("README.md")),
+            ..query()
+        },
+        &context,
+    )
+    .expect("sparse clone");
+    let seen = runner
+        .seen
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let step = |label: &str| {
+        seen.iter()
+            .find(|value| value.contains(label))
+            .unwrap_or_else(|| panic!("{label} not run: {seen:?}"))
+            .clone()
+    };
+    for local in [
+        "configure commit remote",
+        "configure sparse promisor",
+        "configure sparse filter",
+    ] {
+        assert!(
+            step(local).contains("authorization_url: None"),
+            "{}",
+            step(local)
+        );
+    }
+    for network in ["fetch requested commit", "set sparse commit paths"] {
+        assert!(
+            step(network).contains("authorization_url: Some"),
+            "{}",
+            step(network)
+        );
+    }
+}
+
 #[test]
 fn sparse_file_path_checks_out_only_that_file() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -1159,7 +1224,7 @@ fn sparse_file_path_checks_out_only_that_file() {
 
 #[test]
 fn corruption_expiry_stale_lock_and_failed_publication_preserve_cache() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -1222,7 +1287,7 @@ fn corruption_expiry_stale_lock_and_failed_publication_preserve_cache() {
 
 #[test]
 fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -1530,7 +1595,7 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
 
 #[test]
 fn concurrent_requests_publish_once_and_validation_fails_closed() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = Arc::new(test_support::workspace_policy(&root.0));
     let endpoint = Arc::new(api_github_endpoint());
@@ -1576,7 +1641,7 @@ fn concurrent_requests_publish_once_and_validation_fails_closed() {
     // A traversal owner never reaches the clone: the contract rejects it.
     assert!(
         "../escape"
-            .parse::<crate::contracts::tool_types::GhCloneRepoQueryOwner>()
+            .parse::<octocode_contract_types::GhCloneRepoQueryOwner>()
             .is_err(),
         "the contract rejects a traversal owner"
     );
@@ -1641,19 +1706,27 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
             assert_eq!(clone.location.symlinks, None, "{branch} {sparse:?}");
         }
     }
-    // An entry recorded before symlinks were kept lists them on a hit.
-    let full = clone_pinned(&fixture, &query(), &context).expect("cached clone");
-    let meta_path = Path::new(&full.location.local_path).join(cache::META_FILE);
-    let mut meta: serde_json::Value =
-        serde_json::from_slice(&fs::read(&meta_path).expect("meta")).expect("meta JSON");
-    assert_eq!(meta["symlinks"], serde_json::json!(["escape"]));
-    meta.as_object_mut()
-        .expect("meta object")
-        .remove("symlinks");
-    fs::write(&meta_path, serde_json::to_vec(&meta).expect("meta bytes")).expect("old meta");
-    let old = clone_pinned(&fixture, &query(), &context).expect("old entry hit");
-    assert!(old.location.cached);
-    assert_eq!(old.location.symlinks, Some(vec!["escape".to_owned()]));
+    // An entry whose meta lacks a recorded fact (an older layout) is no
+    // cache hit: it is cloned again, and the new meta records every fact.
+    for field in ["symlinks", "checkoutBytes", "sizeBytes"] {
+        let full = clone_pinned(&fixture, &query(), &context).expect("cached clone");
+        assert!(full.location.cached, "{field}");
+        let meta_path = Path::new(&full.location.local_path).join(cache::META_FILE);
+        let mut meta: serde_json::Value =
+            serde_json::from_slice(&fs::read(&meta_path).expect("meta")).expect("meta JSON");
+        assert_eq!(meta["symlinks"], serde_json::json!(["escape"]));
+        meta.as_object_mut().expect("meta object").remove(field);
+        fs::write(&meta_path, serde_json::to_vec(&meta).expect("meta bytes")).expect("old meta");
+        let old = clone_pinned(&fixture, &query(), &context).expect("old entry re-cloned");
+        assert!(
+            !old.location.cached,
+            "{field}: an incomplete meta was served"
+        );
+        assert_eq!(old.location.symlinks, Some(vec!["escape".to_owned()]));
+        let meta: serde_json::Value =
+            serde_json::from_slice(&fs::read(&meta_path).expect("meta")).expect("meta JSON");
+        assert!(meta.get(field).is_some(), "{field} recorded again: {meta}");
+    }
     let seen = runner
         .seen
         .lock()
@@ -1677,7 +1750,7 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
 
 #[test]
 fn uppercase_commit_refs_share_the_cache_and_mismatched_meta_is_a_miss() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -1728,7 +1801,7 @@ fn uppercase_commit_refs_share_the_cache_and_mismatched_meta_is_a_miss() {
 /// A fixture context whose caller did not resolve a default branch, as the
 /// runtime now calls it (no GitHub API before cloning).
 struct Bench {
-    fixture: Fixture,
+    fixture: Arc<Fixture>,
     /// Holds the temp directory for the bench's lifetime.
     _root: test_support::Fixture,
     policy: PathPolicy,
@@ -1742,10 +1815,18 @@ impl Bench {
         Self::at(api_github_endpoint())
     }
 
-    /// A bench whose GitHub API is `endpoint`; git clones the fixture in
-    /// place of the repository URL that endpoint derives.
+    /// A bench whose GitHub API is `endpoint`; git clones the shared
+    /// fixture in place of the repository URL that endpoint derives.
     fn at(endpoint: GitHubEndpoint) -> Self {
-        let fixture = Fixture::new();
+        Self::over(endpoint, Fixture::shared())
+    }
+
+    /// [`Self::at`] over its own fixture, for a test that commits to it.
+    fn committing(endpoint: GitHubEndpoint) -> Self {
+        Self::over(endpoint, Arc::new(Fixture::new()))
+    }
+
+    fn over(endpoint: GitHubEndpoint, fixture: Arc<Fixture>) -> Self {
         let (root, cache_home) = home_root();
         let policy = test_support::workspace_policy(&root.0);
         let url = repository_url(
@@ -1947,7 +2028,7 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
 /// `depth` fetches that many commits and keys its own cache entry.
 #[test]
 fn history_depth_fetches_that_many_commits() {
-    let bench = Bench::new();
+    let bench = Bench::committing(api_github_endpoint());
     let context = bench.context();
     bench.fixture.push_second();
     let shallow = clone_pinned(&bench.fixture, &query(), &context).expect("shallow");
@@ -2045,7 +2126,7 @@ fn api_refusals_name_what_is_missing() {
 /// recorded when the checkout was published.
 #[test]
 fn cache_hits_skip_the_git_probe_and_report_the_recorded_size() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -2131,15 +2212,15 @@ fn credential(token: &str) -> ResolvedCredential {
 
 /// One ghCloneRepo row run as the holder of `token`, through the runtime's
 /// entry point (`run`), with that token for both the API and git.
-async fn clone_as<C: ConditionalCache>(
+async fn clone_as(
     bench: &Bench,
-    provider: &GitHubProvider<C>,
+    provider: &GitHubProvider,
     query: &GhCloneRepoQuery,
     token: &str,
 ) -> Result<CloneResult, CloneFailure> {
     let credential = credential(token);
     let request = RequestContext::new(
-        octocode_github::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20),
+        octocode_io::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20),
         Some(credential.clone()),
     );
     run(
@@ -2270,7 +2351,7 @@ async fn cache_hit_is_served_after_the_callers_access_check() {
 #[tokio::test]
 async fn checkouts_are_keyed_by_the_commit_the_ref_names_now() {
     let server = wiremock::MockServer::builder().start().await;
-    let bench = Bench::at(gh_shared_support::mock_endpoint(&server));
+    let bench = Bench::committing(gh_shared_support::mock_endpoint(&server));
     let provider = gh_shared_support::one_shot_provider(&server);
     let first = bench.fixture.first_commit.clone();
     answer_commit(&server, "main", ALICE, commit(&first)).await;
@@ -2322,7 +2403,7 @@ async fn the_default_branch_and_canonical_name_pin_the_checkout() {
             format!("{}/api/v3/repositories/1{to}", server.uri()),
         )
     };
-    for (from, to) in [("", ""), ("/commits/main", "/commits/main")] {
+    for (from, to) in [("", ""), ("/commits/HEAD", "/commits/HEAD")] {
         wiremock::Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/old-owner/fixture-repo{from}")))
             .respond_with(redirect(to))
@@ -2337,7 +2418,7 @@ async fn the_default_branch_and_canonical_name_pin_the_checkout() {
         .mount(&server)
         .await;
     wiremock::Mock::given(method("GET"))
-        .and(path("/api/v3/repositories/1/commits/main"))
+        .and(path("/api/v3/repositories/1/commits/HEAD"))
         .respond_with(commit(&bench.fixture.first_commit))
         .mount(&server)
         .await;
@@ -2415,8 +2496,8 @@ async fn the_default_branch_requires_access() {
         ))
         .mount(&server)
         .await;
-    answer_commit(&server, "main", ALICE, commit(&bench.fixture.first_commit)).await;
-    answer_commit(&server, "main", BOB, not_found()).await;
+    answer_commit(&server, "HEAD", ALICE, commit(&bench.fixture.first_commit)).await;
+    answer_commit(&server, "HEAD", BOB, not_found()).await;
 
     let alice = clone_as(&bench, &provider, &unbranched(), ALICE)
         .await
@@ -2505,7 +2586,7 @@ async fn an_unreachable_api_refuses_the_row_before_git() {
 /// pass; rows for two entries run at once and both publish.
 #[test]
 fn entries_record_their_size_orphans_are_swept_and_distinct_rows_run_at_once() {
-    let fixture = Fixture::new();
+    let fixture = Fixture::shared();
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
@@ -2523,10 +2604,10 @@ fn entries_record_their_size_orphans_are_swept_and_distinct_rows_run_at_once() {
     let meta: cache::CacheMeta =
         serde_json::from_slice(&fs::read(local.join(cache::META_FILE)).expect("meta"))
             .expect("meta json");
-    let checkout = meta.checkout_bytes.expect("checkout bytes");
+    let checkout = meta.checkout_bytes;
     assert_eq!(checkout, fresh.bytes);
     assert!(
-        meta.size_bytes.is_some_and(|size| size > checkout),
+        meta.size_bytes > checkout,
         "the entry's size counts .git too: {meta:?}"
     );
     assert!(!orphan.exists(), "an orphaned file is swept");
@@ -2569,9 +2650,12 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
     fs::write(&target_file, target).expect("link target bytes");
     let link_blob = git_output(&fixture.work, &["hash-object", "-w", "link-target.txt"]);
     fs::remove_file(target_file).expect("remove unstaged helper");
+    // Git output is capped at 64 KiB here (5 MiB in production), so about
+    // 800 files carry the index past the cap.
+    let cap = 64 * 1024;
     let mut entries = Vec::new();
     let mut files = 0;
-    while entries.len() <= process::MAX_OUTPUT_BYTES {
+    while entries.len() <= cap {
         write!(
             &mut entries,
             "100644 {}\tbulk/file-{files:06}-with spaces.txt\0",
@@ -2605,14 +2689,18 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
         .stdout
         .len();
     assert!(
-        index_bytes > process::MAX_OUTPUT_BYTES,
+        index_bytes > cap,
         "fixture must exceed collected output cap"
     );
 
     let (root, cache_home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let runner = fixture_runner(&fixture);
+    let runner = RewriteRunner::with_git(
+        "https://github.com/fixture-owner/fixture-repo.git",
+        &fixture.bare_url,
+        SystemGit::default().with_max_output(cap),
+    );
     let mut config = CloneConfig::persistent(&cache_home);
     config.cache_ttl = Duration::from_secs(120);
     let mut context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);

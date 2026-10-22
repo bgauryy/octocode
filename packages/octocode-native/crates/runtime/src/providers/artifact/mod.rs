@@ -1,16 +1,22 @@
+mod crates;
+mod go;
 mod http;
 mod maven;
 mod npm;
 mod npmrc;
 mod nuget;
-mod registries;
+mod packagist;
+mod pypi;
 mod release_ref;
+mod rubygems;
 #[cfg(test)]
 pub(crate) mod test_http;
-mod types;
+pub(crate) mod types;
 mod util;
 mod versions;
 
+use crate::providers::artifact::types::artifact_search_query;
+use crate::providers::artifact::types::artifact_type;
 pub use http::{ArtifactCache, ArtifactHttp, SystemArtifactHttp};
 pub(crate) use npm::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
@@ -22,8 +28,7 @@ pub use types::{
 pub(crate) use util::{github_repo_dir, github_repository, github_slug, release_ref_in};
 
 use http::RegistryClient;
-use octocode_github::RequestBudget;
-use url::Url;
+use octocode_io::budget::RequestBudget;
 
 pub struct ArtifactProviderContext<'a> {
     pub http: &'a dyn ArtifactHttp,
@@ -49,27 +54,35 @@ pub async fn execute_artifact(
         tags: context.tags,
     };
     let state = page_state(query);
-    validate_cursor_state(query.artifact_type(), &state, query.page_size())?;
-    if query.version().is_some() && version_support(query.artifact_type().as_str()) == "none" {
+    validate_cursor_state(
+        artifact_search_query::artifact_type(query),
+        &state,
+        artifact_search_query::page_size(query),
+    )?;
+    if artifact_search_query::version(query).is_some()
+        && version_support(artifact_type::as_str(artifact_search_query::artifact_type(
+            query,
+        ))) == "none"
+    {
         return Err(ArtifactError::new(
             "capabilityUnavailable",
             format!(
                 "{}; {} lookups return the latest release.",
                 version_support_summary(),
-                query.artifact_type().as_str()
+                artifact_type::as_str(artifact_search_query::artifact_type(query))
             ),
         ));
     }
-    match query.artifact_type() {
+    match artifact_search_query::artifact_type(query) {
         ArtifactType::Npm => {
-            let default_registry = ResolvedNpmRegistry {
-                base: Url::parse("https://registry.npmjs.org/").map_err(|_| {
-                    ArtifactError::new("invalidInput", "Invalid default npm registry URL.")
-                })?,
-                authorization: None,
-                cache_identity: "npmjs".into(),
+            let default_registry;
+            let registry = match context.npm_registry {
+                Some(registry) => registry,
+                None => {
+                    default_registry = ResolvedNpmRegistry::npmjs();
+                    &default_registry
+                }
             };
-            let registry = context.npm_registry.unwrap_or(&default_registry);
             npm::npm(
                 query,
                 &state,
@@ -79,11 +92,11 @@ pub async fn execute_artifact(
             )
             .await
         }
-        ArtifactType::Pypi => registries::pypi(query, &client).await,
-        ArtifactType::Crates => registries::crates(query, &state, &client).await,
-        ArtifactType::Go => registries::go(query, &state, &client).await,
-        ArtifactType::Packagist => registries::packagist(query, &state, &client).await,
-        ArtifactType::Rubygems => registries::rubygems(query, &state, &client).await,
+        ArtifactType::Pypi => pypi::pypi(query, &client).await,
+        ArtifactType::Crates => crates::crates(query, &state, &client).await,
+        ArtifactType::Go => go::go(query, &state, &client).await,
+        ArtifactType::Packagist => packagist::packagist(query, &state, &client).await,
+        ArtifactType::Rubygems => rubygems::rubygems(query, &state, &client).await,
         ArtifactType::Maven => maven::maven(query, &state, &client).await,
         ArtifactType::Nuget => nuget::nuget(query, &state, &client).await,
     }
@@ -96,10 +109,10 @@ pub async fn execute_artifact(
 /// A token-paged registry's page also carries the query's `cursor`, the
 /// registry token that starts it (the contract bounds its length).
 fn page_state(query: &ArtifactSearchQuery) -> ArtifactProviderState {
-    let page = query.page();
-    let size = query.page_size() as u64;
-    let token = query.cursor().map(str::to_owned);
-    match query.artifact_type() {
+    let page = artifact_search_query::page(query);
+    let size = artifact_search_query::page_size(query) as u64;
+    let token = artifact_search_query::cursor(query).map(str::to_owned);
+    match artifact_search_query::artifact_type(query) {
         ArtifactType::Crates | ArtifactType::Packagist | ArtifactType::Go => {
             ArtifactProviderState {
                 page: Some(page),
@@ -119,11 +132,16 @@ fn page_state(query: &ArtifactSearchQuery) -> ArtifactProviderState {
 /// position past the paging range; `None` when the registry can serve it.
 /// A next-page lead names only a page this admits.
 pub(crate) fn page_out_of_range(query: &ArtifactSearchQuery) -> Option<TerminalLimit> {
-    let artifact_type = query.artifact_type();
-    validate_cursor_state(artifact_type, &page_state(query), query.page_size()).err()?;
+    let artifact_type = artifact_search_query::artifact_type(query);
+    validate_cursor_state(
+        artifact_type,
+        &page_state(query),
+        artifact_search_query::page_size(query),
+    )
+    .err()?;
     Some(TerminalLimit::result_cap(format!(
         "page {} starts past result {}, the deepest {artifact_type} search pages.",
-        query.page(),
+        artifact_search_query::page(query),
         max_start_offset(artifact_type)
     )))
 }
@@ -168,7 +186,7 @@ impl Reach {
 fn reach(artifact_type: ArtifactType) -> Reach {
     match artifact_type {
         ArtifactType::Npm => Reach::starting_at_most(NPM_MAX_FROM),
-        ArtifactType::Crates => Reach::ending_at(registries::CRATES_RELEVANCE_LIMIT),
+        ArtifactType::Crates => Reach::ending_at(crates::CRATES_RELEVANCE_LIMIT),
         ArtifactType::Maven => Reach::ending_at(maven::REACHABLE_END),
         ArtifactType::Nuget => Reach::ending_at(nuget::REACHABLE_END),
         _ => Reach::starting_at_most(MAX_CURSOR_OFFSET),
@@ -233,7 +251,7 @@ fn version_table() -> &'static [(String, String)] {
                 _ => None,
             }
         }
-        crate::contracts::tool_contract(crate::tools::id::ToolId::ArtifactSearch)
+        crate::contracts::tool_contract(crate::id::ToolId::ArtifactSearch)
             .ok()
             .and_then(|tool| find(&tool["inputSchema"]))
             .map(|table| {
@@ -371,5 +389,106 @@ mod cursor_state_tests {
             summary.contains("exact versions for go, maven, nuget"),
             "{summary}"
         );
+    }
+}
+
+#[cfg(test)]
+mod exact_lookup_tests {
+    use super::http::RegistryClient;
+    use super::test_http::RouteHttp;
+    use super::types::{exact_query, test_budget};
+    use super::*;
+    use serde_json::json;
+
+    /// An exact lookup on each registry parses one row with its name,
+    /// version and registry page.
+    #[tokio::test]
+    async fn exact_lookups_parse_one_row_per_registry() {
+        let cases = [
+            (
+                ArtifactType::Pypi,
+                "requests",
+                json!({
+                    "info": {
+                        "name": "requests",
+                        "version": "2.31.0",
+                        "summary": "Python HTTP for Humans.",
+                        "license": "Apache-2.0",
+                        "home_page": "https://requests.readthedocs.io",
+                        "project_urls": {"Source": "https://github.com/psf/requests"}
+                    }
+                }),
+                "2.31.0",
+                "https://pypi.org/project/requests/",
+            ),
+            (
+                ArtifactType::Crates,
+                "serde",
+                json!({
+                    "crate": {
+                        "id": "serde",
+                        "name": "serde",
+                        "max_stable_version": "1.0.200",
+                        "description": "A generic serialization/deserialization framework",
+                        "license": "MIT OR Apache-2.0",
+                        "repository": "https://github.com/serde-rs/serde"
+                    }
+                }),
+                "1.0.200",
+                "https://crates.io/crates/serde",
+            ),
+            (
+                ArtifactType::Packagist,
+                "laravel/framework",
+                // p2/{name}.json response with entries for the tagged URL
+                json!({
+                    "packages": {
+                        "laravel/framework": [
+                            {
+                                "name": "laravel/framework",
+                                "version": "10.0.0",
+                                "description": "The Laravel Framework.",
+                                "license": ["MIT"]
+                            }
+                        ]
+                    }
+                }),
+                "10.0.0",
+                "https://packagist.org/packages/laravel/framework",
+            ),
+            (
+                ArtifactType::Rubygems,
+                "rails",
+                json!({
+                    "name": "rails",
+                    "version": "7.0.6",
+                    "info": "Full-stack web application framework.",
+                    "homepage_uri": "https://rubyonrails.org",
+                    "source_code_uri": "https://github.com/rails/rails"
+                }),
+                "7.0.6",
+                "https://rubygems.org/gems/rails",
+            ),
+        ];
+        for (ecosystem, name, body, version, registry_url) in cases {
+            let http = RouteHttp::always(body);
+            let b = test_budget();
+            let client = RegistryClient::uncached(&http, &b);
+            let q = exact_query(ecosystem, name);
+            let state = ArtifactProviderState::default();
+            let page = match ecosystem {
+                ArtifactType::Pypi => pypi::pypi(&q, &client).await,
+                ArtifactType::Crates => crates::crates(&q, &state, &client).await,
+                ArtifactType::Packagist => packagist::packagist(&q, &state, &client).await,
+                ArtifactType::Rubygems => rubygems::rubygems(&q, &state, &client).await,
+                other => unreachable!("no exact-lookup case for {other:?}"),
+            }
+            .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+            assert_eq!(page.artifacts.len(), 1, "{name}");
+            let item = &page.artifacts[0];
+            assert_eq!(item.name, name);
+            assert_eq!(item.version.as_deref(), Some(version), "{name}");
+            assert_eq!(item.registry_url, registry_url, "{name}");
+        }
     }
 }

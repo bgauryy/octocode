@@ -1,12 +1,14 @@
 //! The runnable next steps of a GitHub file read: its own pages rewritten
 //! from the shared localFetch read, and the leads of a match that found
 //! nothing.
+use crate::response::result::Confidence;
+use crate::tools::local_fetch::types::local_fetch_query;
 use serde_json::{Value, json};
 
 use super::GhGetFileContentQuery;
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
+use crate::response::result::{Continuation, query_row};
 use crate::tools::local_fetch::{LocalFetchQuery, MinifyMode};
-use crate::tools::result::{Continuation, query_row};
 
 /// The runnable next step of a match that found nothing: a ghSearchCode of
 /// the repository for the literal (it may live in another file). A regex
@@ -15,9 +17,9 @@ pub(super) fn empty_match_lead(
     query: &GhGetFileContentQuery,
     local: &LocalFetchQuery,
 ) -> Option<(&'static str, Value)> {
-    let literals = local.match_strings();
+    let literals = local_fetch_query::match_strings(local);
     let first = literals.first()?.trim();
-    if local.is_regex() || first.is_empty() {
+    if local_fetch_query::is_regex(local) || first.is_empty() {
         return None;
     }
     Some((
@@ -26,7 +28,7 @@ pub(super) fn empty_match_lead(
             ToolId::GhSearchCode,
             json!({"owner": query.owner.as_str(), "repo": query.repo.as_str(), "keywords": [first]}),
         )
-        .confidence("medium")
+        .confidence(Confidence::Medium)
         .build(),
     ))
 }
@@ -41,13 +43,13 @@ pub(super) fn last_window_repair(
     total_lines: usize,
     sha: &str,
 ) -> Option<Value> {
-    let (start, end) = local.last_window_span(total_lines)?;
+    let (start, end) = local_fetch_query::last_window_span(local, total_lines)?;
     let mut row = query_row(query, &[]);
     row["ref"] = json!(sha);
     row["ranges"] = json!([format!("{start}-{end}")]);
     Some(
         Continuation::new(ToolId::GhGetFileContent, row)
-            .confidence("high")
+            .confidence(Confidence::High)
             .build(),
     )
 }
@@ -117,7 +119,10 @@ pub(super) fn rewrite_continuations(
             .map(|row| github_row(row.clone(), source, view, resolved_ref))
             .collect::<Vec<_>>();
         let mut call = Continuation::input(ToolId::GhGetFileContent, json!({"queries": rows}));
-        if let Some(confidence) = continuation["confidence"].as_str() {
+        if let Some(confidence) = continuation["confidence"]
+            .as_str()
+            .and_then(Confidence::from_wire)
+        {
             call = call.confidence(confidence);
         }
         *continuation = call.build();
@@ -128,7 +133,7 @@ pub(super) fn rewrite_continuations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::local_fetch::{FetchCall, LocalFetchResult, NextCalls};
+    use crate::tools::local_fetch::{FetchCall, LocalFetchResult, NextCalls, ReadStatus};
 
     fn read(fields: Value) -> FetchCall {
         let mut row = json!({"path":"README.md"});
@@ -158,7 +163,7 @@ mod tests {
             )
             .build(),
         );
-        let mut result = LocalFetchResult::blank("success");
+        let mut result = LocalFetchResult::blank(ReadStatus::Success);
         result.next = Some(NextCalls {
             unfiltered: Some(read(json!({"fullContent":true}))),
             unfiltered_unknown: Some(read(json!({"ranges":["3-4"]}))),

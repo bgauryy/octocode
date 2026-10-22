@@ -1,6 +1,7 @@
-use super::{Captured, Input, Row};
-use crate::tools::id::{error_class, error_codes::ErrorClass};
-use crate::tools::{id::ToolId, source_capture};
+use super::{Captured, Input, Row, Target};
+use crate::id::ToolId;
+use crate::id::{error_class, error_codes::ErrorClass};
+use crate::tools::source_capture;
 use serde_json::{Value, json};
 
 /// Recovery for a failed row. A captured source failed in classification:
@@ -12,9 +13,9 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
     if matches!(row.input, Input::Models) {
         return;
     }
-    let acquisition = captured.is_none() && matches!(row.input, Input::Source(_));
+    let acquisition = captured.is_none() && matches!(row.input, Input::Judge(Target::Source(_)));
     let read = captured.map(|capture| capture.read.clone()).or_else(|| {
-        let Input::Source(source) = &row.input else {
+        let Input::Judge(Target::Source(source)) = &row.input else {
             return None;
         };
         let tool = ToolId::from_name(source["tool"].as_str()?)?;
@@ -82,9 +83,9 @@ mod tests {
     #[test]
     fn captured_read_wins_and_existing_error_guidance_survives() {
         let row = row(
-            Input::Source(json!({"tool":"ghGetFileContent","query":{
+            Input::Judge(Target::Source(json!({"tool":"ghGetFileContent","query":{
                 "owner":"o","repo":"r","path":"a.rs","ref":"main"
-            }})),
+            }}))),
             None,
         );
         let captured = Captured {
@@ -116,7 +117,10 @@ mod tests {
                 json!({"owner":"o","repo":"r","path":"a.rs","ref":"release","ranges":["8-12"]}),
             ),
         ] {
-            let row = row(Input::Source(json!({"tool":tool,"query":query})), None);
+            let row = row(
+                Input::Judge(Target::Source(json!({"tool":tool,"query":query}))),
+                None,
+            );
             let mut failure = json!({"errorCode":"classificationSourceUnavailable"});
             add(&row, None, &mut failure);
             let read = &failure["hints"]["read"];
@@ -135,9 +139,9 @@ mod tests {
             "largeSourceWindowOnly",
         ] {
             let row = row(
-                Input::Source(
+                Input::Judge(Target::Source(
                     json!({"tool":"localFetch","query":{"path":"nope/missing.rs","ranges":["1-5"]}}),
-                ),
+                )),
                 None,
             );
             let mut failure = json!({"errorCode":code,"error":"missing","hints":{
@@ -156,7 +160,7 @@ mod tests {
     #[test]
     fn image_failure_routes_to_image_tools_without_fabricating_a_text_read() {
         let row = row(
-            Input::State(json!({})),
+            Input::Judge(Target::State(json!({}))),
             Some(json!({"screen":{
                 "type":"image","source":{"tool":"localFetch","query":{"path":"screen.png"}}
             }})),

@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use wiremock::{
     Mock, MockServer, Request, ResponseTemplate,
@@ -407,8 +408,6 @@ async fn concurrent_failed_evaluations_share_attempts_without_double_counting_us
 
 #[test]
 fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
-    use crate::runtime::ExecutionContext;
-    use crate::runtime::SelectionLimits;
     use crate::tools::selection::{self, Candidate};
     let executor = tokio::runtime::Runtime::new().unwrap();
     let server = executor.block_on(MockServer::start());
@@ -430,23 +429,13 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
     let home = tempfile::tempdir().unwrap();
     let mut evaluator = evaluator(&server);
     evaluator.stats_home = Some(home.path().to_owned());
-    let runtime = selection::Runtime {
-        limits: SelectionLimits {
-            max_candidates: 10,
-            max_chars: 32_000,
-            timeout: Duration::from_secs(10),
-        },
-        available: true,
-        judge: Arc::new(evaluator),
-        handle: executor.handle().clone(),
-        context: ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: Instant::now() + Duration::from_secs(10),
-            walk_threads: None,
-            response_window: None,
-            github_credential: None,
-        },
-    };
+    let mut runtime = crate::tools::test_support::selection_fake::runtime(
+        evaluator,
+        executor.handle().clone(),
+        Duration::from_secs(10),
+    );
+    runtime.limits.max_candidates = 10;
+    runtime.limits.max_chars = 32_000;
     let candidates = ["fail", "second", "third"]
         .into_iter()
         .map(|text| Candidate::new(Some(json!({"text":text}))))
@@ -458,7 +447,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
         None,
         &candidates,
         None,
-        crate::contracts::tool_types::SelectionUnit::Files,
+        octocode_contract_types::SelectionUnit::Files,
     )
     .map_err(|_| "ranking order failed")
     .unwrap();
@@ -467,7 +456,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
     assert_eq!(outcome.receipt.unknown_items, 1);
     assert_eq!(
         outcome.receipt.status,
-        crate::contracts::tool_types::SelectionStatus::Partial
+        octocode_contract_types::SelectionStatus::Partial
     );
     assert!(outcome.receipt.reason.is_some());
     let recorded: Value =

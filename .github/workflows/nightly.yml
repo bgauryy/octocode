@@ -1,0 +1,40 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The default test run samples the union, pager and read_share matrices;
+  # their `*_full_matrix` twins are #[ignore]d and walk every case. The name
+  # filter keeps out the other ignored tests, which need local corpora.
+  full-matrices:
+    name: Native full matrices
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: packages/octocode-native
+    steps:
+      - uses: actions/checkout@v5
+      # rustup reads rust-toolchain.toml, so the pinned toolchain is the one used here.
+      - uses: rui314/setup-mold@v1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/octocode-native
+          key: full-matrices
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Full matrices (nextest)
+        run: cargo nextest run --locked -p octocode-native --run-ignored only -E 'test(/full_matrix/)'
+        env:
+          NEXTEST_PROFILE: ci

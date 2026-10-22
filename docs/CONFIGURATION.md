@@ -166,7 +166,7 @@ Any env var can go in the client config instead of a shell profile:
 {"mcpServers":{"octocode":{"command":"npx","args":["-y","octocode-mcp@latest"],"env":{"GITHUB_TOKEN":"ghp_...","OCTOCODE_LSP_PREWARM":"off"}}}}
 ```
 
-`npx octocode install --ide cursor` writes this entry; `install --list` shows every client id with its entry status and config path ([CLI `install`](../packages/octocode/docs/OCTOCODE_CLI.md#install--mcp-client-setup)).
+`npx octocode install --ide cursor` writes this entry; `install --list` shows every client id with its entry status and config path ([CLI `install`](OCTOCODE_CLI.md#install--mcp-client-setup)).
 
 ## All settings reference
 
@@ -178,7 +178,7 @@ Defaults, ranges, enums, and env mappings: [generated settings](generated/CONFIG
 
 ### Fixed internal limits
 
-These are code constants, not settings (one owner: `RuntimeLimits` in `packages/octocode-native/crates/runtime/src/runtime/limits.rs`). Their old setting names are [removed](generated/CONFIG_SETTINGS.md#removed-settings).
+These are code constants, not settings (one owner: `RuntimeLimits` in `packages/octocode-native/crates/runtime/src/execution/limits.rs`). Their old setting names are [removed](generated/CONFIG_SETTINGS.md#removed-settings).
 
 | Limit | Value |
 |---|---|
@@ -209,7 +209,6 @@ Start with `npx octocode auth status --json` (token source, identity), `npx octo
 |---|---|
 | Token, login, Enterprise, or `clasify` key problem | [AUTHENTICATION.md troubleshooting](AUTHENTICATION.md#troubleshooting) |
 | `ghCloneRepo` unavailable | Use the CLI with `OCTOCODE_STORAGE_MODE=persistent`; MCP never exposes cloning. |
-| `astTopology` unavailable | Beta and CLI-only: set `OCTOCODE_BETA=true` or `local.beta: true` (shell or home config) and run `npx octocode astTopology`. MCP never registers it. |
 | Local tools off | Neither `OCTOCODE_ENABLE_LOCAL` nor `local.enabled` may be `false`. |
 | A tool is missing | `npx octocode schema <name>`; check `TOOLS_TO_RUN` / `tools.enabled` and `DISABLE_TOOLS` / `tools.disabled`. |
 | Slow or timeouts | The 30 s request timeout is fixed; narrow the query (path, `include`, `pageSize`) or check the network or GitHub Enterprise host. |
@@ -225,4 +224,4 @@ Start with `npx octocode auth status --json` (token source, identity), `npx octo
 ## See also
 
 - [Adding config](../skills-dev/octocode-dev/docs/ADDING_CONFIG.md) — contributor guide for settings and credentials
-- [Octocode CLI guide](../packages/octocode/docs/OCTOCODE_CLI.md)
+- [Octocode CLI guide](OCTOCODE_CLI.md)

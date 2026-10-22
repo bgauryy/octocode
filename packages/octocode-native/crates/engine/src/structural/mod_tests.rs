@@ -135,6 +135,7 @@ fn structural_review_rule_prefilter_preserves_directory_recall() {
             include: None,
             exclude: None,
             exclude_dir: None,
+            default_exclude_dir: None,
             ignore: crate::search::walk::IgnorePolicy::default(),
             max_depth: None,
             max_files: None,
@@ -352,6 +353,7 @@ fn search_files_finds_matches_and_prefilters_non_matching_files() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -388,6 +390,7 @@ fn search_files_flags_the_file_whose_recovered_syntax_could_hide_a_match() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -425,6 +428,7 @@ fn search_files_errors_on_nonexistent_root_for_every_prefilter_branch() {
             rule,
             include: None,
             exclude_dir: None,
+            default_exclude_dir: None,
             exclude: None,
             ignore: crate::search::walk::IgnorePolicy::default(),
             max_depth: None,
@@ -460,6 +464,7 @@ fn search_files_respects_excluded_directories_and_large_file_limit() {
         rule: None,
         include: Some(vec!["*.ts".to_owned()]),
         exclude_dir: Some(vec!["node_modules".to_owned()]),
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -487,6 +492,7 @@ fn search_files_reports_non_utf8_and_oversized_sources_per_file() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -545,6 +551,7 @@ fn search_files_accepts_single_file_root() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -631,6 +638,7 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -871,6 +879,7 @@ fn search_files_supports_recursive_glob_includes() {
         rule: None,
         include: Some(vec!["src/**/*.ts".to_owned()]),
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -906,6 +915,7 @@ fn search_files_honors_dot_ignore_files() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -935,6 +945,7 @@ fn search_files_prefilters_rule_by_inner_pattern() {
         rule: Some("rule:\n  pattern: await $C\n".to_owned()),
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -962,6 +973,7 @@ fn search_files_operator_only_pattern_parses_every_candidate() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -989,6 +1001,7 @@ fn operator_spacing_does_not_split_directory_and_file_results() {
             rule: None,
             include: None,
             exclude_dir: None,
+            default_exclude_dir: None,
             exclude: None,
             ignore: crate::search::walk::IgnorePolicy::default(),
             max_depth: None,
@@ -1092,6 +1105,7 @@ fn structural_files_honor_scope_options() {
             include: None,
             exclude: None,
             exclude_dir: None,
+            default_exclude_dir: None,
             ignore: crate::search::walk::IgnorePolicy::default(),
             max_depth: None,
             max_files: Some(50),
@@ -1128,6 +1142,7 @@ fn structural_anchor_prefilter_prunes_beyond_max_depth_before_search() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         // Structural native depth counts the root as 0 and root files as 1.
@@ -1163,6 +1178,7 @@ fn search_files_prefilter_read_feeds_the_parse_and_keeps_skip_reasons() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -1232,6 +1248,7 @@ fn search_files_separates_unsupported_from_prefilter_skips() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -1311,6 +1328,7 @@ fn review_file_options(
         include: None,
         exclude: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: Some(1),
         max_files: Some(limit),
@@ -1443,6 +1461,7 @@ fn scan_options(root: &std::path::Path, skip: u32) -> StructuralSearchFilesOptio
         include: None,
         exclude: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
         max_files: None,
@@ -1662,6 +1681,7 @@ fn a_capped_file_walk_names_the_first_candidate_it_left_out() {
         rule: None,
         include: None,
         exclude_dir: None,
+        default_exclude_dir: None,
         exclude: None,
         ignore: crate::search::walk::IgnorePolicy::default(),
         max_depth: None,
@@ -1684,4 +1704,33 @@ fn a_capped_file_walk_names_the_first_candidate_it_left_out() {
     let unbounded = search_files_detailed(options(None)).expect("search");
     assert_eq!(unbounded.scan_resume, Some(3));
     assert_eq!(name(&unbounded.scan_frontier).as_deref(), Some("f3.rs"));
+}
+
+/// Default-excluded names are pruned like the text search prunes them: in a
+/// git work tree only where git ignores them, so a tracked `build/` is
+/// source the walk reads and an ignored `out/build/` is not.
+#[test]
+fn default_excludes_skip_only_what_git_ignores() {
+    let root = TmpDir::new();
+    fs::create_dir_all(root.join(".git")).expect("git dir");
+    fs::write(root.join(".gitignore"), "out/\n").expect("ignore");
+    for dir in ["build", "out/build", "src"] {
+        fs::create_dir_all(root.join(dir)).expect("dir");
+        fs::write(root.join(dir).join("a.ts"), "probe();").expect("file");
+    }
+    let found = |root: &std::path::Path| {
+        let mut options = review_file_options(root, "pattern: probe()", 10);
+        options.max_depth = None;
+        options.default_exclude_dir = Some(vec!["build".to_owned()]);
+        let result = search_files_detailed(options).expect("search");
+        let prefix = format!("{}/", root.display());
+        matched_paths(&result)
+            .iter()
+            .map(|path| path.trim_start_matches(&prefix).to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(found(&root), ["build/a.ts", "src/a.ts"]);
+    fs::remove_dir_all(root.join(".git")).expect("leave the repository");
+    // Outside a repository a listed name is pruned by name alone.
+    assert_eq!(found(&root), ["src/a.ts"]);
 }

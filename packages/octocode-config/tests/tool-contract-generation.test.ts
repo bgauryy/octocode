@@ -58,17 +58,16 @@ describe('generated tool types', () => {
           new RegExp(`^export (?:interface|type) ${base}${suffix}\\b`, 'm')
         );
       }
-      // Native parses queries and inputs; outputs are checked against the
-      // JSON schema, so their Rust types would be dead code.
-      for (const suffix of ['Query', 'Input']) {
-        expect(rust, `${base}${suffix} (Rust)`).toMatch(
+      // Native checks inputs and outputs against the JSON schema and
+      // decodes rows: envelope and output types would be dead code (the
+      // rest is trimmed to what native names; see rust-reach.test.ts).
+      for (const suffix of ['Input', 'Output']) {
+        expect(rust, `${base}${suffix} (Rust)`).not.toMatch(
           new RegExp(`^pub (?:struct|enum) ${base}${suffix}\\b`, 'm')
         );
       }
-      expect(rust, `${base}Output (Rust)`).not.toMatch(
-        new RegExp(`^pub (?:struct|enum) ${base}Output\\b`, 'm')
-      );
     }
+    expect(rust).toMatch(/^pub struct LocalFetchQuery\b/m);
   });
 
   it('drops only the per-tool output roots from the Rust bundle', () => {

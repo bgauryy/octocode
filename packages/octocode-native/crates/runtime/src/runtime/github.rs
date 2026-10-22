@@ -1,13 +1,13 @@
 //! One pooled HTTP client; credential acquisition stays inside admitted blocking work.
-use super::{
-    ExecutionContext, ExecutionError, FailureKind,
-    dispatch::{DomainResult, Upstream},
-    github_cache::GitHubContentCache,
-};
+use super::{FailureKind, github_cache::GitHubContentCache};
+use crate::execution::{ExecutionContext, ExecutionError};
 use crate::{
     config::ConfigOutput,
+    id::{GitHubTool, ToolId},
     policy::path::PathPolicy,
     providers::github::{AuthMode, Authentication},
+    response::outcome::{DomainResult, Upstream},
+    response::result::{Continuation, ToolData},
     security::ContentSecurity,
     tools::{
         gh_clone_repo::{self, CloneConfig, CloneContext, CloneFailure, SystemGit},
@@ -15,12 +15,10 @@ use crate::{
         gh_search_repo,
         gh_shared::{GhFailure, provider_hint},
         gh_structure,
-        id::{GitHubTool, ToolId},
-        local_fetch::LocalFetchRegex,
-        result::{Continuation, ToolData},
     },
 };
 use octocode_github::*;
+use octocode_io::budget::RequestBudget;
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -160,11 +158,11 @@ pub(super) struct QueryExecution<'a> {
 
 pub(super) struct GitHubServices {
     credentials: Authentication,
-    provider: GitHubProvider<GitHubContentCache>,
+    provider: GitHubProvider,
     timeout: Duration,
     home: PathBuf,
     /// The ghCloneRepo cache limits.
-    clone_limits: crate::runtime::CloneLimits,
+    clone_limits: crate::execution::CloneLimits,
     /// ghCloneRepo's git, keeping the runtime env's PATH, proxy and CA names.
     git: SystemGit,
     /// The automatic response page: file and patch pages are sized to fit
@@ -208,7 +206,7 @@ impl GitHubServices {
 
     pub fn new(
         config: Arc<ConfigOutput>,
-        limits: &crate::runtime::RuntimeLimits,
+        limits: &crate::execution::RuntimeLimits,
         home: PathBuf,
         cache: GitHubContentCache,
     ) -> Result<Self, ProviderError> {
@@ -223,9 +221,9 @@ impl GitHubServices {
                 max_rate_limit_wait: limits.max_rate_limit_wait,
                 ..Default::default()
             },
+            octocode_github::GitHubBudget::paced(limits.github_pacing),
         )?;
         transport.graphql_enabled = config.resolved.github.graphql_enabled;
-        transport.cache = Arc::new(cache.clone());
         // Same persistence switch as the response cache: cross-process
         // rate-limit facts live under ~/.octocode/tmp/ratelimit.
         transport.set_rate_limit_state_dir(
@@ -236,7 +234,7 @@ impl GitHubServices {
         let credentials = Authentication::new(config);
         Ok(Self {
             credentials,
-            provider: GitHubProvider { transport, cache },
+            provider: GitHubProvider::new(transport, cache),
             timeout: limits.network_timeout,
             home,
             clone_limits: limits.clone,
@@ -252,7 +250,6 @@ impl GitHubServices {
         query: &Value,
         execution: QueryExecution<'_>,
         security: &ContentSecurity,
-        regex: &LocalFetchRegex,
         paths: &PathPolicy,
         selection: &crate::tools::selection::Runtime,
     ) -> Result<DomainResult, ExecutionError> {
@@ -273,7 +270,6 @@ impl GitHubServices {
             request_context.as_ref(),
             context,
             security,
-            regex,
             paths,
             selection,
         ))?;
@@ -382,7 +378,6 @@ impl GitHubServices {
         request: Result<&RequestContext, &ProviderError>,
         context: &ExecutionContext,
         security: &ContentSecurity,
-        regex: &LocalFetchRegex,
         paths: &PathPolicy,
         selection: &crate::tools::selection::Runtime,
     ) -> Result<DomainResult, ExecutionError> {
@@ -413,26 +408,18 @@ impl GitHubServices {
             }
             GitHubTool::GhGetFileContent => {
                 let query = typed!(gh_get_file_content::GhGetFileContentQuery);
-                let selected_shape = (!query.clasify_context.is_none()
-                    || query.selection.is_some())
-                .then(|| gh_get_file_content::SelectedShape {
+                let shaping = gh_get_file_content::Shaping {
                     security: security.clone(),
                     memo: self.sanitized_views.clone(),
                     context: context.clone(),
-                    regex: *regex,
                     selection: selection.clone(),
-                });
-                let security =
-                    crate::security::scan::MemoizedScan::new(security, &self.sanitized_views);
+                };
                 match gh_get_file_content::run(
                     &self.provider,
                     &query,
                     request,
                     Some(context.row_page_chars(self.auto_page_chars)),
-                    &security,
-                    context,
-                    regex,
-                    selected_shape,
+                    shaping,
                 )
                 .await
                 {
@@ -523,7 +510,7 @@ impl GitHubServices {
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let raw_query = query;
-        let mut query = match gh_get_history_item::HistoryItemRequest::from_row(query.clone()) {
+        let mut query = match gh_get_history_item::HistoryItemRequest::from_row(query) {
             Ok(query) => query,
             Err(error) => return Ok(super::dispatch::invalid_query(&error)),
         };
@@ -575,7 +562,7 @@ impl GitHubServices {
         let retry = async |fields: &[&str]| {
             crate::tools::gh_shared::default_branch_retry(
                 &self.provider,
-                crate::tools::id::ToolId::GhGetHistoryItem,
+                crate::id::ToolId::GhGetHistoryItem,
                 query.clone(),
                 fields,
                 context,
@@ -677,7 +664,7 @@ pub(crate) struct ReleaseTagCheck<'a> {
 }
 
 impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
-    fn exists<'a>(
+    fn tag_exists<'a>(
         &'a self,
         owner: &'a str,
         repo: &'a str,
@@ -689,11 +676,34 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                 .resolve_request(self.context, self.access)
                 .await
                 .ok()?;
+            // A tag ref, not `commits/{tag}`: a branch of the same name is
+            // no release tag.
+            self.services
+                .provider
+                .transport
+                .tag_exists(owner, repo, tag, &request)
+                .await
+                .ok()
+        })
+    }
+
+    fn commit_exists<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        commit: &'a str,
+    ) -> crate::providers::artifact::TagFuture<'a> {
+        Box::pin(async move {
+            let request = self
+                .services
+                .resolve_request(self.context, self.access)
+                .await
+                .ok()?;
             match self
                 .services
                 .provider
                 .transport
-                .commit_sha(owner, repo, tag, &request)
+                .commit_sha(owner, repo, commit, &request)
                 .await
             {
                 Ok(_) => Some(true),
@@ -728,524 +738,7 @@ fn history_error(error: ProviderError, search: bool, next: Option<Value>) -> Dom
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn search_row(error: ProviderError) -> DomainResult {
-        tool_row(Err(crate::tools::gh_shared::search_failure(
-            error,
-            Some("Lower page to reach deeper results."),
-        )))
-    }
-
-    fn file_row(error: ProviderError, query: Value) -> DomainResult {
-        let query: gh_get_file_content::GhGetFileContentQuery =
-            serde_json::from_value(query).expect("file query");
-        tool_row(Err(gh_get_file_content::errors::failure(
-            error, &query, None,
-        )))
-    }
-
-    /// The row as the response stage publishes it: the shared recovery of
-    /// its `errorCode` when the arm stated no hint and no lead.
-    fn staged(tool: ToolId, result: &DomainResult) -> Value {
-        let query = json!({"owner":"a","repo":"b"});
-        let mut row =
-            crate::response::rows::result_row(tool, 0, &query, result.data.clone(), result.status);
-        crate::response::rows::apply_hint_policy(&mut row, tool, &query);
-        row["data"].take()
-    }
-
-    /// A file read and a patch window fill the row's share of the call's
-    /// response page; only a call without one uses the automatic page.
-    #[test]
-    fn github_rows_page_by_the_calls_response_window() {
-        let context = |response_window| ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: std::time::Instant::now() + Duration::from_secs(5),
-            walk_threads: None,
-            response_window,
-            github_credential: None,
-        };
-        assert_eq!(context(Some(5_000)).row_page_chars(20_000), 5_000);
-        assert_eq!(context(Some(50_000)).row_page_chars(20_000), 50_000);
-        assert_eq!(context(None).row_page_chars(20_000), 20_000);
-    }
-
-    #[test]
-    fn authentication_errors_explain_canonical_login_and_environment_precedence() {
-        let error = || ProviderError {
-            kind: ProviderErrorKind::Authentication,
-            message: "Bad credentials".into(),
-            status: Some(401),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason: None,
-            sso_url: None,
-        };
-        for (tool, result) in [
-            (ToolId::GhSearchCode, search_row(error())),
-            (ToolId::GhSearchHistory, history_error(error(), true, None)),
-            (
-                ToolId::GhGetHistoryItem,
-                history_error(error(), false, None),
-            ),
-            (
-                ToolId::GhGetFileContent,
-                file_row(error(), json!({"owner":"a","repo":"b","path":"x"})),
-            ),
-            (ToolId::GhCloneRepo, provider_error(error())),
-        ] {
-            let rendered = staged(tool, &result).to_string();
-            assert!(rendered.contains("octocode auth login"), "{rendered}");
-            assert!(rendered.contains("GH_TOKEN"), "{rendered}");
-            assert!(rendered.contains("invalid env token"), "{rendered}");
-            assert!(!rendered.contains("octocode login"), "{rendered}");
-        }
-    }
-
-    #[test]
-    fn legal_block_is_not_rendered_as_a_network_failure() {
-        let error = || ProviderError {
-            kind: ProviderErrorKind::Unavailable,
-            message: "GitHub resource blocked for legal reasons (HTTP 451)".into(),
-            status: Some(451),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason: None,
-            sso_url: None,
-        };
-        for result in [
-            search_row(error()),
-            history_error(error(), true, None),
-            history_error(error(), false, None),
-            file_row(error(), json!({"owner":"a","repo":"b","path":"x"})),
-            provider_error(error()),
-        ] {
-            let text = result.data["error"].as_str().unwrap_or_default();
-            assert!(text.contains("legal reasons"), "{}", result.data);
-            assert!(result.data.get("retryable").is_none(), "{}", result.data);
-            assert_eq!(result.data["errorCode"], "unavailable");
-            let rendered = result.data.to_string();
-            assert!(
-                !rendered.contains("Network connection failed"),
-                "{rendered}"
-            );
-            assert!(!rendered.contains("Retry the request"), "{rendered}");
-            assert!(!rendered.contains("internet connection"), "{rendered}");
-        }
-    }
-
-    #[test]
-    fn search_validation_keeps_github_detail_and_tool_specific_window_hint() {
-        let error = |message: &str, reason| ProviderError {
-            kind: ProviderErrorKind::Validation,
-            message: message.into(),
-            status: Some(422),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason,
-            sso_url: None,
-        };
-        let result = search_row(error("\"abc\" is not a numeric value", None));
-        assert_eq!(
-            result.data["error"],
-            "Invalid search query or request parameters: \"abc\" is not a numeric value"
-        );
-        let generic = search_row(error("Validation Failed", None));
-        assert_eq!(
-            generic.data["error"],
-            "Invalid search query or request parameters"
-        );
-        // Each search tool names its own deeper-result filters.
-        let window = Some(ProviderErrorReason::SearchWindowExceeded);
-        let paged = search_row(error("window", window));
-        assert_eq!(
-            paged.data["hints"][0], "Lower page to reach deeper results.",
-            "{}",
-            paged.data
-        );
-    }
-
-    #[test]
-    fn permission_errors_keep_the_provider_reason_across_github_tools() {
-        let reason = "Resource protected by organization SAML SSO authorization";
-        let error = || ProviderError {
-            kind: ProviderErrorKind::Permission,
-            message: reason.into(),
-            status: Some(403),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason: None,
-            sso_url: None,
-        };
-        for result in [
-            search_row(error()),
-            history_error(error(), true, None),
-            history_error(error(), false, None),
-            file_row(error(), json!({"owner":"a","repo":"b","path":"src/lib.rs"})),
-        ] {
-            assert_eq!(result.data["error"], reason);
-            assert_eq!(result.data["httpStatus"], 403);
-            assert_eq!(result.failure, Some(FailureKind::Permission));
-        }
-    }
-
-    /// Regression: a provider failure whose body decoded into a structured
-    /// error (here modelled as a Validation 422 carrying rate-limit metadata)
-    /// must still shape `data.error` as a plain string. Before the fix
-    /// `history_error` nested the diagnostic object under `error`, producing
-    /// `results.0.data.error: Expected string` (`outputContractViolation`) and
-    /// masking the real 422.
-    #[test]
-    fn history_error_shapes_error_as_string() {
-        let error = ProviderError {
-            kind: ProviderErrorKind::Validation,
-            message: "Validation Failed: repository rename not followed".into(),
-            status: Some(422),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: Some(Box::new(RateLimit {
-                remaining: Some(11),
-                reset_epoch_seconds: Some(1_700_000_000),
-                retry_after_seconds: None,
-                resource: None,
-            })),
-            retryable: false,
-            reason: None,
-            sso_url: None,
-        };
-
-        let result = history_error(error, true, None);
-        let data = &result.data;
-
-        assert_eq!(result.status, Some("error"));
-        // The contract requires a string here; a nested object regresses it.
-        assert!(
-            data["error"].is_string(),
-            "data.error must be a string, got {}",
-            data["error"]
-        );
-        // GitHub's own 422 detail names the bad input.
-        assert_eq!(
-            data["error"].as_str(),
-            Some("Invalid search query or request parameters: repository rename not followed"),
-        );
-        // One row shape: each fact once, no `status`/`type`/
-        // `rateLimitRemaining`/`scopesSuggestion` siblings, and no hint
-        // restating that the named field is invalid.
-        assert_eq!(
-            data,
-            &json!({
-                "error": "Invalid search query or request parameters: repository rename not followed",
-                "errorCode": "invalidInput",
-                "httpStatus": 422,
-                "rateLimit": {"remaining": 11, "resetEpochSeconds": 1_700_000_000_u64}
-            })
-        );
-    }
-
-    /// A ghGetFileContent request with an explicit ref that GitHub rejects
-    /// ("No commit found for the ref …", canned 404 here) must name the
-    /// missing branch/tag/SHA and hint at checking the ref instead of the
-    /// generic "Invalid search query or request parameters" message.
-    #[test]
-    fn file_error_names_the_missing_ref_for_explicit_branches() {
-        // The transport types GitHub's "No commit found" as a missing ref.
-        let error = ProviderError {
-            kind: ProviderErrorKind::NotFound,
-            message: "No commit found for the ref no-such-branch".into(),
-            status: Some(404),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason: Some(ProviderErrorReason::RefNotFound),
-            sso_url: None,
-        };
-        let query = json!({
-            "owner": "a",
-            "repo": "b",
-            "path": "src/lib.rs",
-            "ref": "no-such-branch"
-        });
-
-        let result = file_row(error, query.clone());
-        let data = &result.data;
-
-        assert_eq!(result.status, Some("error"));
-        assert_eq!(result.failure, Some(FailureKind::NotFound));
-        assert_eq!(data["errorCode"], json!("notFound"));
-        assert_eq!(data["httpStatus"], json!(404));
-        assert!(data.get("retryable").is_none(), "{data}");
-        assert_eq!(
-            data["error"].as_str(),
-            Some("Branch, tag, or SHA not found for a/b: \"no-such-branch\"")
-        );
-        // The error names the ref and the `viewRefs` lead lists the refs:
-        // the lead is the fix, so no hint text beside it.
-        assert!(data.get("hints").is_none(), "{data}");
-        assert!(data["next"]["viewRefs"].is_object(), "{data}");
-
-        // The commits-endpoint flavor (422) maps the same way.
-        let error = ProviderError {
-            kind: ProviderErrorKind::NotFound,
-            message: "No commit found for SHA: no-such-branch".into(),
-            status: Some(422),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason: Some(ProviderErrorReason::RefNotFound),
-            sso_url: None,
-        };
-        let result = file_row(error, query.clone());
-        assert_eq!(
-            result.data["error"].as_str(),
-            Some("Branch, tag, or SHA not found for a/b: \"no-such-branch\"")
-        );
-
-        // Without an explicit ref the existing not-found shaping is unchanged.
-        let error = ProviderError {
-            kind: ProviderErrorKind::NotFound,
-            message: "Not Found".into(),
-            status: Some(404),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason: None,
-            sso_url: None,
-        };
-        let result = file_row(error, json!({"owner":"a","repo":"b","path":"src/lib.rs"}));
-        assert_eq!(
-            result.data["error"].as_str(),
-            Some("Repository, resource, or path not found")
-        );
-    }
-
-    #[test]
-    fn file_error_directory_and_binary_get_accurate_recovery() {
-        let query = json!({"owner":"a","repo":"b","path":"src","ref":"main"});
-        let error = ProviderError::new(
-            ProviderErrorKind::Validation,
-            "Path \"src\" is a directory, not a file; list it with ghStructure.",
-        )
-        .with_reason(ProviderErrorReason::PathIsDirectory);
-        let result = file_row(error, query.clone());
-        let data = &result.data;
-        assert!(
-            data["error"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("is a directory"),
-            "{data}"
-        );
-        assert_eq!(
-            data["next"]["viewTree"]["query"]["queries"][0]["path"],
-            "src"
-        );
-        assert_eq!(
-            data["next"]["viewTree"]["query"]["queries"][0]["ref"],
-            "main"
-        );
-
-        let error = ProviderError::new(
-            ProviderErrorKind::Validation,
-            "Binary file (1234 bytes, blob abc); ghGetFileContent returns text only.",
-        )
-        .with_reason(ProviderErrorReason::BinaryFile);
-        let result = file_row(error, json!({"owner":"a","repo":"b","path":"x.png"}));
-        let hint = result.data["hints"][0].as_str().unwrap_or_default();
-        assert!(!hint.contains("Retry once"), "{hint}");
-        assert!(hint.contains("Binary"), "{hint}");
-        // The caller's request cannot be served (exit 2), with the
-        // file's size and blob SHA, never a decode/execution failure.
-        assert_eq!(result.data["errorCode"], "invalidInput", "{}", result.data);
-        let message = result.data["error"].as_str().unwrap_or_default();
-        assert!(
-            message.contains("1234 bytes") && message.contains("blob abc"),
-            "{message}"
-        );
-        assert!(result.data.get("next").is_none(), "{}", result.data);
-    }
-
-    /// Recovery keys on the typed reason: the same text without the reason
-    /// gets no directory continuation.
-    #[test]
-    fn directory_recovery_keys_on_the_typed_reason_not_the_message() {
-        let query = json!({"owner":"a","repo":"b","path":"src","ref":"main"});
-        let untyped = ProviderError::new(ProviderErrorKind::Validation, "src is a directory");
-        assert!(
-            file_row(untyped, query.clone()).data["next"]
-                .get("viewTree")
-                .is_none()
-        );
-    }
-
-    fn rate_limited(remaining: Option<u64>, reset: Option<u64>, resource: &str) -> ProviderError {
-        let mut error = ProviderError::new(ProviderErrorKind::RateLimited, "slow down");
-        error.status = Some(403);
-        error.retryable = true;
-        error.rate_limit = Some(Box::new(RateLimit {
-            remaining,
-            reset_epoch_seconds: reset,
-            retry_after_seconds: Some(60),
-            resource: Some(resource.into()),
-        }));
-        error
-    }
-
-    /// A rate-limited row states each fact once, in seconds, with
-    /// unknown members absent, the same on every GitHub tool; the one
-    /// recovery hint is the response stage's, keyed by the code.
-    #[test]
-    fn rate_limit_rows_have_one_shape_on_every_github_tool() {
-        let primary = rate_limited(Some(0), Some(1_700_000_000), "core");
-        let secondary = rate_limited(None, None, "search");
-        let hint = "Wait for Retry-After or the rate-limit reset before retrying.";
-        for (error, rate_limit) in [
-            (
-                primary,
-                json!({"resource": "core", "remaining": 0, "resetEpochSeconds": 1_700_000_000_u64, "retryAfterSeconds": 60}),
-            ),
-            (
-                secondary,
-                json!({"resource": "search", "retryAfterSeconds": 60}),
-            ),
-        ] {
-            let expected = json!({
-                "error": "slow down",
-                "errorCode": "rateLimited",
-                "retryable": true,
-                "httpStatus": 403,
-                "rateLimit": rate_limit,
-            });
-            for (tool, result) in [
-                (ToolId::GhSearchCode, search_row(error.clone())),
-                (
-                    ToolId::GhSearchHistory,
-                    history_error(error.clone(), true, None),
-                ),
-                (
-                    ToolId::GhGetHistoryItem,
-                    history_error(error.clone(), false, None),
-                ),
-                (ToolId::GhCloneRepo, provider_error(error.clone())),
-            ] {
-                assert_eq!(result.data, expected);
-                let keys: Vec<&str> = result
-                    .data
-                    .as_object()
-                    .expect("row")
-                    .keys()
-                    .map(String::as_str)
-                    .collect();
-                assert_eq!(
-                    keys,
-                    ["error", "errorCode", "retryable", "httpStatus", "rateLimit"]
-                );
-                assert_eq!(result.failure, Some(FailureKind::RateLimited));
-                assert_eq!(staged(tool, &result)["hints"], json!([hint]), "{tool:?}");
-            }
-            // A file read adds only the file's identity.
-            let file = file_row(error.clone(), json!({"owner":"a","repo":"b","path":"x"}));
-            let mut with_identity = expected.clone();
-            with_identity["owner"] = json!("a");
-            with_identity["repo"] = json!("b");
-            with_identity["path"] = json!("x");
-            assert_eq!(file.data, with_identity);
-        }
-    }
-
-    /// Only an anonymous caller whose primary quota is spent is told that
-    /// logging in helps; a secondary limit or an authenticated caller keeps
-    /// the wait hint.
-    #[test]
-    fn login_advice_needs_an_anonymous_caller_and_a_spent_primary_quota() {
-        let advised = |error: ProviderError, anonymous: bool| {
-            let mut data = history_error(error, true, None).data;
-            advise_login_for_anonymous_quota(&mut data, anonymous);
-            data["hints"][0]
-                .as_str()
-                .unwrap_or_default()
-                .contains("auth login")
-        };
-        let primary = || rate_limited(Some(0), Some(1_700_000_000), "core");
-        let secondary = || rate_limited(None, None, "search");
-        let secondary_with_quota = || rate_limited(Some(21), Some(1_700_000_000), "search");
-        assert!(advised(primary(), true));
-        assert!(!advised(primary(), false));
-        assert!(!advised(secondary(), true));
-        assert!(!advised(secondary_with_quota(), true));
-    }
-
-    /// A provider/transport row states `retryable:true` when a retry can
-    /// help and omits the key otherwise (absence = do not retry unchanged).
-    #[test]
-    fn provider_rows_state_retryable_only_when_true() {
-        for kind in [
-            ProviderErrorKind::Transport,
-            ProviderErrorKind::Timeout,
-            ProviderErrorKind::Server,
-            ProviderErrorKind::NotFound,
-            ProviderErrorKind::Configuration,
-        ] {
-            let error = ProviderError::new(kind, "failed");
-            let expected = error.retryable;
-            for result in [
-                search_row(error.clone()),
-                history_error(error.clone(), false, None),
-                file_row(error.clone(), json!({"owner":"a","repo":"b","path":"x"})),
-                provider_error(error.clone()),
-            ] {
-                assert_eq!(
-                    result.data.get("retryable"),
-                    expected.then_some(&json!(true)),
-                    "{kind:?}: {}",
-                    result.data
-                );
-                assert!(result.data.get("provider").is_none(), "{}", result.data);
-            }
-        }
-    }
-
-    /// A ghSearchHistory 422 names the search query, with no extra field.
-    /// (ghGetHistoryItem's bogus-SHA 422 is mapped inside the tool and
-    /// covered end to end in tests/runtime_github_history.rs.)
-    #[test]
-    fn history_search_422_names_the_query() {
-        let error = ProviderError {
-            kind: ProviderErrorKind::Validation,
-            message: "Validation Failed".into(),
-            status: Some(422),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason: None,
-            sso_url: None,
-        };
-        let result = history_error(error, true, None);
-        assert_eq!(
-            result.data["error"],
-            "Invalid search query or request parameters"
-        );
-        assert!(
-            result.data.get("scopesSuggestion").is_none(),
-            "{}",
-            result.data
-        );
-    }
-}
+mod tests;
 
 #[cfg(test)]
 mod response_access_tests {

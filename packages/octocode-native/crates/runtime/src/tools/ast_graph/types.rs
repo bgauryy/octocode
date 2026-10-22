@@ -1,199 +1,8 @@
-use crate::tools::id::ToolId;
-use crate::tools::num::{u32_of, usize_of};
-use crate::tools::paging::clamp_page_size;
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-
-pub use crate::contracts::tool_types::{AstTopologyQuery, AstTopologyQueryRustWorkspace};
-
-/// The file bound of a scan without `maxFiles` (contract
-/// `astTopology.semanticPolicy.defaultScanFiles`).
-pub(crate) const DEFAULT_SCAN_FILES: u32 = {
-    let files = crate::tools::id::ast_topology_policy::DEFAULT_SCAN_FILES;
-    assert!(files <= u32::MAX as usize);
-    files as u32
-};
-
-/// The `analysis` discriminant of an [`AstTopologyQuery`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GraphAnalysis {
-    Dependencies,
-    Dependents,
-    Path,
-    Cycles,
-    Reachability,
-    DeadCode,
-    Drift,
-}
-
-impl GraphAnalysis {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Dependencies => "dependencies",
-            Self::Dependents => "dependents",
-            Self::Path => "path",
-            Self::Cycles => "cycles",
-            Self::Reachability => "reachability",
-            Self::DeadCode => "deadCode",
-            Self::Drift => "drift",
-        }
-    }
-}
-
-/// Binds `$field` from whichever analysis variant `$query` is.
-macro_rules! every_analysis {
-    ($query:expr, $field:ident => $value:expr) => {
-        match $query {
-            AstTopologyQuery::DeadCode { $field, .. }
-            | AstTopologyQuery::Cycles { $field, .. }
-            | AstTopologyQuery::Dependencies { $field, .. }
-            | AstTopologyQuery::Dependents { $field, .. }
-            | AstTopologyQuery::Path { $field, .. }
-            | AstTopologyQuery::Reachability { $field, .. }
-            | AstTopologyQuery::Drift { $field, .. } => $value,
-        }
-    };
-}
-
-/// Analysis-independent views over the generated wire query, in the graph
-/// engine's `u32` units.
-impl AstTopologyQuery {
-    pub(crate) fn analysis(&self) -> GraphAnalysis {
-        match self {
-            Self::DeadCode { .. } => GraphAnalysis::DeadCode,
-            Self::Cycles { .. } => GraphAnalysis::Cycles,
-            Self::Dependencies { .. } => GraphAnalysis::Dependencies,
-            Self::Dependents { .. } => GraphAnalysis::Dependents,
-            Self::Path { .. } => GraphAnalysis::Path,
-            Self::Reachability { .. } => GraphAnalysis::Reachability,
-            Self::Drift { .. } => GraphAnalysis::Drift,
-        }
-    }
-    pub fn path(&self) -> Option<&str> {
-        match self {
-            Self::Cycles { path, .. } | Self::Drift { path, .. } => Some(path),
-            Self::DeadCode { path, .. }
-            | Self::Dependencies { path, .. }
-            | Self::Dependents { path, .. }
-            | Self::Path { path, .. }
-            | Self::Reachability { path, .. } => path.as_deref(),
-        }
-    }
-    /// Points the scan at another root (the drift baseline snapshot).
-    pub(crate) fn set_path(&mut self, root: String) {
-        match self {
-            Self::Cycles { path, .. } | Self::Drift { path, .. } => *path = root,
-            Self::DeadCode { path, .. }
-            | Self::Dependencies { path, .. }
-            | Self::Dependents { path, .. }
-            | Self::Path { path, .. }
-            | Self::Reachability { path, .. } => *path = Some(root),
-        }
-    }
-    /// The traversal start file.
-    pub(crate) fn source(&self) -> Option<&str> {
-        match self {
-            Self::Dependencies { source, .. }
-            | Self::Dependents { source, .. }
-            | Self::Path { source, .. } => Some(source),
-            _ => None,
-        }
-    }
-    pub(crate) fn target(&self) -> Option<&str> {
-        match self {
-            Self::Path { target, .. } => Some(target),
-            _ => None,
-        }
-    }
-    pub(crate) fn baseline(&self) -> Option<&str> {
-        match self {
-            Self::Drift { baseline, .. } => Some(baseline),
-            _ => None,
-        }
-    }
-    pub(crate) fn depth(&self) -> Option<u32> {
-        match self {
-            Self::Dependencies { graph_depth, .. } | Self::Dependents { graph_depth, .. } => {
-                Some(u32_of(*graph_depth))
-            }
-            _ => None,
-        }
-    }
-    pub(crate) fn entrypoints(&self) -> Option<&Vec<String>> {
-        match self {
-            Self::DeadCode { entrypoints, .. } | Self::Reachability { entrypoints, .. } => {
-                Some(entrypoints)
-            }
-            _ => None,
-        }
-    }
-    pub(crate) fn include_tests(&self) -> Option<bool> {
-        match self {
-            Self::DeadCode { include_tests, .. } | Self::Reachability { include_tests, .. } => {
-                Some(*include_tests)
-            }
-            _ => None,
-        }
-    }
-    pub(crate) fn default_excludes(&self) -> bool {
-        use crate::policy::prune::DefaultsFlag;
-        every_analysis!(self, default_excludes => default_excludes.defaults())
-    }
-    pub(crate) fn exclude(&self) -> Option<&[String]> {
-        every_analysis!(self, exclude => (!exclude.is_empty()).then_some(exclude.as_slice()))
-    }
-    /// Language globs in a deterministic (sorted) order.
-    pub(crate) fn language_globs(&self) -> Option<BTreeMap<String, Vec<String>>> {
-        every_analysis!(self, language_globs => (!language_globs.is_empty()).then(|| {
-            language_globs
-                .iter()
-                .map(|(language, globs)| (language.clone(), globs.clone()))
-                .collect()
-        }))
-    }
-    /// The narrower scan's `maxFiles` whose rows this widened scan replaces
-    /// (`next.expandScan`).
-    pub(crate) fn supersedes(&self) -> Option<u32> {
-        every_analysis!(self, supersedes => supersedes.map(|value| u32_of(value.get())))
-    }
-    pub(crate) fn max_files(&self) -> Option<u32> {
-        every_analysis!(self, max_files => max_files.map(u32_of))
-    }
-    /// The file bound the scan walks under: `maxFiles`, else
-    /// [`DEFAULT_SCAN_FILES`].
-    pub(crate) fn scan_files(&self) -> u32 {
-        self.max_files().unwrap_or(DEFAULT_SCAN_FILES)
-    }
-    pub(crate) fn page(&self) -> u32 {
-        every_analysis!(self, page => u32_of(*page))
-    }
-    pub(crate) fn page_size(&self) -> Option<usize> {
-        every_analysis!(self, page_size => page_size.map(|size| {
-            clamp_page_size(ToolId::AstTopology, None, usize_of(size))
-        }))
-    }
-    pub(crate) fn diagnostic_page(&self) -> u32 {
-        every_analysis!(self, diagnostic_page => diagnostic_page.map_or(1, u32_of))
-    }
-    /// Coverage diagnostic rows are returned only when the caller asks for a
-    /// diagnostic page (`next.nextDiagnosticPage`); the default carries counts.
-    pub(crate) fn diagnostic_rows_requested(&self) -> bool {
-        every_analysis!(self, diagnostic_page => diagnostic_page.is_some())
-    }
-    pub(crate) fn diagnostic_page_size(&self) -> u32 {
-        every_analysis!(self, diagnostic_page_size => u32_of(*diagnostic_page_size))
-    }
-    pub(crate) fn snapshot(&self) -> Option<&str> {
-        every_analysis!(self, snapshot => snapshot.as_deref().map(String::as_str))
-    }
-    pub(crate) fn rust_workspace(&self) -> Option<AstTopologyQueryRustWorkspace> {
-        every_analysis!(self, rust_workspace => *rust_workspace)
-    }
-}
 
 pub(crate) type RawFacts = octocode_engine::graph::GraphFactsDocument;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct Declaration {
     /// Stable occurrence id from the facts (file + name + position + kind).
     pub id: String,
@@ -219,7 +28,7 @@ impl Declaration {
         }
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct Import {
     pub imported_name: String,
     /// Binding name inside the importing file (`import { a as b }` → `b`).
@@ -230,17 +39,14 @@ pub(crate) struct Import {
     /// Unlinked because it names a third-party/standard package, not because
     /// an internal path failed to resolve.
     pub external: bool,
-    /// Declaration ids (or `IMPORT_USE_MODULE`) whose code uses the binding;
-    /// `None` when the producer could not tell, so the import counts as used.
-    pub used_in: Option<Vec<String>>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct Reexport {
     pub local_name: String,
     pub imported_name: String,
     pub target: Option<String>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct Call {
     /// Declaration id of the caller; `None` for module-level code.
     pub caller_id: Option<String>,
@@ -251,22 +57,10 @@ pub(crate) struct Call {
     /// Syntactic receiver type of a member call (`Store` for `s.save()`),
     /// from the engine fact; `None` when the parser could not read it.
     pub receiver_type: Option<String>,
-    /// File that the module prefix of a Rust qualified callee names
-    /// (`crate::portable::sanitize` → `src/portable.rs`); `None` when the
-    /// callee is unqualified or the prefix did not resolve.
-    pub target: Option<String>,
-}
-/// A Rust qualified path outside call and `use` position (a constant, type,
-/// function value, or a path in a macro body): its line and the file its
-/// module prefix names; `target` is `None` when the prefix did not resolve.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct PathRef {
-    pub line: u32,
-    pub target: Option<String>,
 }
 /// A declaration's base type (`class A extends Base`, `impl Display for A`),
 /// as written at the declaration site.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct Heritage {
     /// Declaration id of the derived type.
     pub decl_id: String,
@@ -276,7 +70,7 @@ pub(crate) struct Heritage {
     pub target: String,
     pub line: u32,
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct FileFacts {
     pub declarations: Vec<Declaration>,
     pub imports: Vec<Import>,
@@ -284,61 +78,98 @@ pub(crate) struct FileFacts {
     /// Line of each linked re-export statement (named or `*`), by target.
     pub reexport_lines: Vec<(String, u32)>,
     pub calls: Vec<Call>,
-    /// Rust qualified paths outside call and `use` position.
-    pub paths: Vec<PathRef>,
     /// Base-type relations of this file's declarations.
     pub heritage: Vec<Heritage>,
     /// Value-reference count per declaration id (declaration names, export
     /// clauses and call targets excluded). A missing id was not counted.
     pub reference_counts: BTreeMap<String, u32>,
-    /// How the counts were produced.
-    pub reference_basis: ReferenceBasis,
     pub language: String,
     /// Source content digest (`octocode_engine::digest::sha256`).
     pub digest: String,
     /// Size and change times of the bytes `digest` hashed, when settled.
-    pub stamp: Option<octocode_engine::graph::SourceStamp>,
+    pub stamp: Option<octocode_engine::stamp::SourceStamp>,
+    /// What the scanned source says about the file (roles, entry markers).
+    pub marks: super::store::classify::SourceMarks,
 }
-/// How a file's reference counts were produced.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum ReferenceBasis {
-    /// Scope-resolved JS/TS symbols.
-    #[default]
-    #[serde(rename = "semantic-references")]
-    Semantic,
-    /// Identifier tokens by name.
-    #[serde(rename = "syntax-references")]
-    Syntax,
+pub(crate) type Node = octocode_engine::graph::FileGraphNode;
+
+/// What a build diagnostic reports. Variants are in the order of their
+/// codes, so diagnostics sort as their stored text does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) enum DiagnosticCode {
+    FactsSchemaUnsupported,
+    GraphEdgeCap,
+    ParseRecovery,
+    ScanSkip,
+    /// A bare import names a scanned file by path, but nothing links it.
+    UnlinkedPathImport,
+    UnresolvedInternal,
+    UnsupportedLinking,
 }
 
-impl ReferenceBasis {
+impl DiagnosticCode {
+    /// The code a snapshot stores and `graph query diagnostics` prints.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::Semantic => "semantic-references",
-            Self::Syntax => "syntax-references",
+            Self::FactsSchemaUnsupported => "facts-schema-unsupported",
+            Self::GraphEdgeCap => "graph-edge-cap",
+            Self::ParseRecovery => "parse-recovery",
+            Self::ScanSkip => "scan-skip",
+            Self::UnlinkedPathImport => "unlinked-path-import",
+            Self::UnresolvedInternal => "unresolved-internal",
+            Self::UnsupportedLinking => "unsupported-linking",
         }
     }
 }
 
-pub(crate) type Node = octocode_engine::graph::FileGraphNode;
-
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct Diagnostic {
     pub file: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>,
-    pub code: String,
+    pub code: DiagnosticCode,
     pub message: String,
+    /// The scanned file the diagnostic is about, when that is not `file`
+    /// (the file an unlinked path import names).
+    pub target: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+impl Diagnostic {
+    pub(crate) fn new(
+        file: impl Into<String>,
+        line: Option<u32>,
+        code: DiagnosticCode,
+        message: String,
+    ) -> Self {
+        Self {
+            file: file.into(),
+            line,
+            code,
+            message,
+            target: None,
+        }
+    }
+}
+
+/// How one import statement linked: the index of its tally in
+/// [`BuiltGraph::imports`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ImportOutcome {
+    Resolved,
+    External,
+    UnresolvedInternal,
+    Unsupported,
+    /// A relative JSON/style/asset specifier: no graph edge, no linking gap.
+    NonCode,
+}
+
+/// The linked graph of one scan: per-file facts and the file graph. The
+/// build's intermediate model, never stored or queried itself: ingest
+/// projects it into the persisted [`super::store::tables`].
+#[derive(Clone, Debug, Default)]
 pub(crate) struct BuiltGraph {
     pub root: std::path::PathBuf,
-    pub display_path: String,
     pub facts: BTreeMap<String, FileFacts>,
     pub nodes: BTreeMap<String, Node>,
-    pub code_graph: octocode_engine::graph::CodeGraphSnapshot,
     pub files_skipped: u32,
     /// The file scan stopped at `maxFiles`.
     pub truncated: bool,
@@ -347,15 +178,11 @@ pub(crate) struct BuiltGraph {
     pub edge_count: u32,
     pub edges_capped: bool,
     pub languages: Vec<(String, u32, String)>,
-    /// Import tallies: `[resolved, external, unresolvedInternal, unsupported,
-    /// nonCode]`; `nonCode` counts relative JSON/style/asset specifiers, which
-    /// are not graph edges and are not linking gaps.
+    /// Import tallies indexed by [`ImportOutcome`].
     pub imports: [u32; 5],
     /// Statements already tallied in `imports` for the file named by
     /// `counted_file`, so a statement that binds several names counts once.
-    #[serde(skip)]
     pub(super) counted_file: String,
-    #[serde(skip)]
     pub(super) counted: BTreeSet<(usize, u32, String)>,
     pub diagnostics: Vec<Diagnostic>,
     pub namespace_targets: BTreeSet<String>,
@@ -363,11 +190,18 @@ pub(crate) struct BuiltGraph {
 }
 
 impl BuiltGraph {
-    /// Tallies one import statement under `outcome` (an index of `imports`).
+    /// Tallies one import statement under `outcome`.
     /// The unit is the statement, like the diagnostics: a statement binding
     /// three names adds one, and one with several outcomes adds one per
     /// outcome. Files are visited one at a time.
-    pub(super) fn count_import(&mut self, outcome: usize, file: &str, line: u32, spec: &str) {
+    pub(super) fn count_import(
+        &mut self,
+        outcome: ImportOutcome,
+        file: &str,
+        line: u32,
+        spec: &str,
+    ) {
+        let outcome = outcome as usize;
         if self.counted_file != file {
             self.counted_file = file.to_owned();
             self.counted.clear();
@@ -377,5 +211,3 @@ impl BuiltGraph {
         }
     }
 }
-
-pub type AstGraphResult = Result<serde_json::Value, crate::tools::result::ToolError>;

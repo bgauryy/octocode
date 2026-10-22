@@ -9,6 +9,9 @@
   "os": [
     "linux"
   ],
+  "libc": [
+    "glibc"
+  ],
   "files": [
     "octocode",
     "README.md",

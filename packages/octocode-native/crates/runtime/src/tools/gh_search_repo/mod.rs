@@ -3,26 +3,25 @@
 mod provider_tests;
 mod query;
 
+use crate::id::ToolId;
+use crate::num::usize_of;
+use crate::response::paging::{clamp_page_size, push_warnings};
+use crate::response::result::{Continuation, ToolData, query_row, remove_null_fields};
 use crate::tools::gh_shared::{
-    Broaden, GhFailure, Rescope, SearchCompleteness, SearchWindow, add_next, apply_partial,
-    broaden, field_names, pick_rows, push_warning_front, rescope_on_rename, search_failure,
-    search_may_be_renamed, with_search_repair,
+    Broaden, GhFailure, SearchCompleteness, SearchWindow, add_next, apply_partial, broaden,
+    field_names, pick_rows, rerun_renamed, search_failure, search_may_be_renamed,
+    with_search_repair,
 };
-use crate::tools::id::ToolId;
-use crate::tools::num::usize_of;
-use crate::tools::paging::{clamp_page_size, push_warnings};
-use crate::tools::result::{Continuation, ToolData, query_row, remove_null_fields};
 use octocode_github::{
-    ConditionalCache, GitHubProvider, ProviderError, RepositorySearchPage, RepositorySearchRequest,
-    RequestContext,
+    GitHubProvider, ProviderError, RepositorySearchPage, RepositorySearchRequest, RequestContext,
 };
 use serde_json::{Value, json};
 
-pub use crate::contracts::tool_types::{GhSearchRepoQuery, GhSearchRepoQuerySort};
+pub use octocode_contract_types::{GhSearchRepoQuery, GhSearchRepoQuerySort};
 
 /// Run one ghSearchRepo row.
-pub async fn run<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub async fn run(
+    provider: &GitHubProvider,
     query: &GhSearchRepoQuery,
     request: Result<&RequestContext, ProviderError>,
 ) -> Result<ToolData, GhFailure> {
@@ -59,8 +58,8 @@ fn page_size(query: &GhSearchRepoQuery) -> usize {
     clamp_page_size(ToolId::GhSearchRepo, None, usize_of(query.page_size))
 }
 
-pub(crate) async fn execute<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn execute(
+    provider: &GitHubProvider,
     query: &GhSearchRepoQuery,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
@@ -81,29 +80,11 @@ pub(crate) async fn execute<C: ConditionalCache>(
             page.items.is_empty() && page.total_count == 0
         })
     {
-        match rescope_on_rename(provider, owner, repo, context).await? {
-            Rescope::Renamed {
-                owner,
-                repo,
-                warning,
-            } => {
-                let decode = |error: &dyn std::fmt::Display| {
-                    ProviderError::new(
-                        octocode_github::ProviderErrorKind::Decode,
-                        error.to_string(),
-                    )
-                };
-                let renamed = GhSearchRepoQuery {
-                    owner: Some(owner.parse().map_err(|error| decode(&error))?),
-                    repo: Some(repo.parse().map_err(|error| decode(&error))?),
-                    ..query.clone()
-                };
-                let mut output = Box::pin(execute(provider, &renamed, context)).await?;
-                push_warning_front(&mut output.data, warning);
-                return Ok(output);
-            }
-            Rescope::Missing(error) => return Err(error),
-            Rescope::Stands => {}
+        let rerun = |renamed: GhSearchRepoQuery| async move {
+            Box::pin(execute(provider, &renamed, context)).await
+        };
+        if let Some(output) = rerun_renamed(provider, query, owner, repo, context, rerun).await? {
+            return Ok(output);
         }
     }
     let (data, listing) = fetched?;
@@ -158,8 +139,8 @@ pub(crate) async fn execute<C: ConditionalCache>(
 
 /// One page of repositories: an owner's REST listing (no 1,000-result
 /// search window, no total) or a search page.
-async fn fetch_page<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn fetch_page(
+    provider: &GitHubProvider,
     query: &GhSearchRepoQuery,
     current: usize,
     per: usize,
@@ -301,8 +282,8 @@ impl RepoPage {
 
 /// `owner`+`repo` alone: that repository's row, with its default branch, from the
 /// repository endpoint; no search request and no page.
-async fn exact_repository<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn exact_repository(
+    provider: &GitHubProvider,
     query: &GhSearchRepoQuery,
     owner: &str,
     repo: &str,
@@ -359,8 +340,8 @@ fn sets_filter(query: &GhSearchRepoQuery) -> bool {
 /// happen to agree), one more search without the qualifier decides: an
 /// ignored qualifier leaves the count unchanged. That probe runs only on
 /// such a page, so an alias costs one extra search request.
-async fn ignored_language<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn ignored_language(
+    provider: &GitHubProvider,
     query: &GhSearchRepoQuery,
     rows: &[Value],
     matched: usize,
@@ -439,8 +420,8 @@ fn owner_only(query: &GhSearchRepoQuery) -> Option<&str> {
 /// page budget. A page never holds more than `per` rows: a provider page
 /// whose kept rows would overflow it is left whole to the next call (the
 /// cursor resumes at it), so no kept row is cut or shown twice.
-async fn owner_listing<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+async fn owner_listing(
+    provider: &GitHubProvider,
     owner: &str,
     current: usize,
     per: usize,
@@ -495,7 +476,9 @@ fn top_leads(top: Option<&octocode_github::RepositorySearchItem>) -> Vec<(&'stat
     };
     vec![(
         "viewRepo",
-        Continuation::new(ToolId::GhStructure, json!({"owner": owner, "repo": repo})).build(),
+        crate::tools::gh_shared::RepoPath::root(owner, repo)
+            .lead(ToolId::GhStructure)
+            .build(),
     )]
 }
 
@@ -653,7 +636,7 @@ fn repository_row(item: octocode_github::RepositorySearchItem, wanted: &[String]
 
 /// This tool's output facts for the shared response stages.
 pub(crate) struct Output;
-impl crate::tools::output::ToolOutput for Output {
+impl crate::response::output::ToolOutput for Output {
     /// A search with a filter to drop leads to `broadenSearch` instead.
     fn fallback_hint(&self, _query: &serde_json::Value) -> &'static str {
         "Use fewer or broader keywords, or set owner and repo to open one."
@@ -662,7 +645,7 @@ impl crate::tools::output::ToolOutput for Output {
     /// repository that did not resolve carries its own `findRepository`
     /// lead. Neither is helped by the search fallback.
     fn error_hint(&self, code: &str) -> Option<&'static str> {
-        (code == "notFound").then_some(crate::tools::output::NO_HINT)
+        (code == "notFound").then_some(crate::response::output::NO_HINT)
     }
     fn evidence_kind(&self, _query: &serde_json::Value, _data: &serde_json::Value) -> &'static str {
         "provider"
@@ -675,7 +658,7 @@ mod tests {
     /// the login, and no search change repairs it.
     #[test]
     fn a_missing_owner_gets_no_search_fallback_hint() {
-        use crate::tools::id::ToolId;
+        use crate::id::ToolId;
         let query = serde_json::json!({"owner": "no-such-owner"});
         let mut row = serde_json::json!({"status": "error", "data": {
             "errorCode": "notFound",

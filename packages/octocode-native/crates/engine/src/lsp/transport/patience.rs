@@ -20,10 +20,12 @@
 //! share one [`WaitBudget`] (a request and its retries) share that one
 //! ceiling.
 
-use super::connection::CpuClock;
 use super::progress::ProgressTracker;
 use std::sync::Arc;
 use tokio::time::{Duration, Instant, timeout_at};
+
+/// Cumulative CPU time of the server's process tree; `None` when unreadable.
+pub(crate) type CpuClock = Arc<dyn Fn() -> Option<Duration> + Send + Sync>;
 
 /// The base timeout is split into this many check steps; each extension
 /// grants one step.

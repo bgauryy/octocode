@@ -603,3 +603,39 @@ async fn compare_file_page_continuations_continue_the_same_grid_in_any_batch() {
     }
     runtime.close().await;
 }
+
+/// A pinned comparison's files-only continuation reads the comparison page
+/// the first read cached: it spends no second compare request.
+#[tokio::test]
+async fn a_compare_file_page_continuation_reuses_the_first_read() {
+    let server = MockServer::builder().start().await;
+    mount_capped_compare(&server).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let first = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"compare","owner":"a","repo":"b","base":BASE_SHA,"head":HEAD_SHA,
+               "pageSize":3}),
+    )
+    .await
+    .expect("compare");
+    let data = row_data(&first).clone();
+    assert_eq!(row_status(&first), "success", "{data}");
+    let next = data["next"]["nextFilePage"]["query"].clone();
+    assert!(next.is_object(), "{data}");
+    let second = call(&runtime, "ghGetHistoryItem", next)
+        .await
+        .expect("file page");
+    assert_eq!(row_status(&second), "success", "{}", row_data(&second));
+    let compares = server
+        .received_requests()
+        .await
+        .expect("recorded requests")
+        .iter()
+        .filter(|request| request.url.path().contains("/compare/"))
+        .map(|request| request.url.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(compares.len(), 1, "{compares:#?}");
+    runtime.close().await;
+}

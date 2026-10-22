@@ -1,7 +1,6 @@
 //! ghSearchRepo query syntax.
 use super::GhSearchRepoQuery;
-use crate::tools::gh_shared::query::{push, push_qualifiers, range_value};
-use octocode_github::quote_search_keyword;
+use crate::tools::gh_shared::query::SearchTerms;
 
 pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
     let GhSearchRepoQuery {
@@ -17,45 +16,22 @@ pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
         topics,
         ..
     } = query;
-    let mut parts: Vec<String> = keywords
-        .iter()
-        .map(|v| quote_search_keyword(v))
-        .filter(|v| !v.is_empty())
-        .collect();
+    let mut terms = SearchTerms::new(keywords.iter().map(String::as_str));
     // owner+repo with filters searches inside that one repository.
-    match (owner.as_deref(), query.repo.as_deref()) {
-        (Some(owner), Some(repo)) => push(
-            &mut parts,
-            "repo",
-            Some(&format!("{}/{}", owner.as_str(), repo.as_str())),
-        ),
-        (owner, _) => push(&mut parts, "user", owner.map(String::as_str)),
-    }
+    terms.scope(
+        owner.as_deref().map(String::as_str),
+        query.repo.as_deref().map(String::as_str),
+    );
     for topic in topics {
-        push(&mut parts, "topic", Some(topic));
+        terms.text("topic", Some(topic));
     }
-    let stars = stars.as_deref().map(|value| range_value(value, false));
-    push(&mut parts, "stars", stars.as_deref());
-    let dates = [
-        ("pushed", pushed.as_deref()),
-        ("created", created.as_deref()),
-    ];
-    for (key, value) in dates {
-        let value = value.map(|value| range_value(value, true));
-        push(&mut parts, key, value.as_deref());
-    }
-    push(
-        &mut parts,
-        "language",
-        language.as_ref().map(|value| value.as_str()),
-    );
-    push(
-        &mut parts,
-        "license",
-        license.as_ref().map(|value| value.as_str()),
-    );
+    terms.range("stars", stars.as_deref().map(String::as_str));
+    terms.range("pushed", pushed.as_deref().map(String::as_str));
+    terms.range("created", created.as_deref().map(String::as_str));
+    terms.text("language", language.as_ref().map(|value| value.as_str()));
+    terms.text("license", license.as_ref().map(|value| value.as_str()));
     for kind in match_in {
-        push(&mut parts, "in", Some(&kind.to_string()));
+        terms.text("in", Some(&kind.to_string()));
     }
     // Repository search ignores `is:archived`/`is:not-archived`; they become
     // the `archived:` filter it honours, which replaces the default
@@ -77,12 +53,12 @@ pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
             .join(" ")
     });
     if *include_archived != Some(true) || archive.is_some() {
-        parts.push(archive.unwrap_or("archived:false").into());
+        terms.push(archive.unwrap_or("archived:false"));
     }
     if let Some(qualifiers) = qualifiers {
-        push_qualifiers(&mut parts, &qualifiers);
+        terms.qualifiers(&qualifiers);
     }
-    parts.join(" ").trim().into()
+    terms.finish()
 }
 
 #[cfg(test)]

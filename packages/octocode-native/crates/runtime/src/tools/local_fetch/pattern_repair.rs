@@ -1,6 +1,7 @@
 //! The runnable repair of a read whose regex `matchString` does not compile.
 
 use super::types::{FetchCall, LocalFetchQuery, MatchString, ReadRegex};
+use crate::tools::local_fetch::types::local_fetch_query;
 
 /// Whether `pattern` compiles under the read's own regex engine.
 fn compiles(pattern: &str, pcre2: bool) -> bool {
@@ -22,11 +23,11 @@ fn repair_item(item: &str, pcre2: bool) -> String {
 /// Otherwise every item that does not compile is repaired (the items that
 /// compile stay as written).
 pub(super) fn repair(q: &LocalFetchQuery) -> Option<FetchCall> {
-    if !q.is_regex() {
+    if !local_fetch_query::is_regex(q) {
         return None;
     }
     let pcre2 = q.regex == Some(ReadRegex::Pcre2);
-    let items = q.match_strings();
+    let items = local_fetch_query::match_strings(q);
     if items.iter().all(|item| compiles(item, pcre2)) {
         return None;
     }
@@ -61,13 +62,14 @@ pub(super) fn repair(q: &LocalFetchQuery) -> Option<FetchCall> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::local_fetch::types::test_local_fetch_query;
 
     fn read(regex: ReadRegex, items: serde_json::Value) -> LocalFetchQuery {
         LocalFetchQuery {
             path: "a.py".parse().expect("path"),
             match_string: Some(serde_json::from_value(items).expect("matchString")),
             regex: Some(regex),
-            ..LocalFetchQuery::test_default()
+            ..test_local_fetch_query()
         }
     }
 
@@ -79,7 +81,7 @@ mod tests {
         );
         let fixed = repair(&q).expect("repair");
         assert_eq!(
-            fixed.query.match_strings(),
+            local_fetch_query::match_strings(&fixed.query),
             vec!["^class ", "    def route\\("]
         );
         assert_eq!(fixed.query.regex, Some(ReadRegex::Rust));
@@ -89,7 +91,10 @@ mod tests {
     fn an_unclosed_group_of_bare_alternatives_is_closed() {
         let q = read(ReadRegex::Rust, serde_json::json!("poll_(proceed|budget"));
         let fixed = repair(&q).expect("repair");
-        assert_eq!(fixed.query.match_strings(), vec!["poll_(proceed|budget)"]);
+        assert_eq!(
+            local_fetch_query::match_strings(&fixed.query),
+            vec!["poll_(proceed|budget)"]
+        );
     }
 
     #[test]
@@ -97,7 +102,10 @@ mod tests {
         let q = read(ReadRegex::Rust, serde_json::json!(["^fn ", r"(\w)\1"]));
         let fixed = repair(&q).expect("repair");
         assert_eq!(fixed.query.regex, Some(ReadRegex::Pcre2));
-        assert_eq!(fixed.query.match_strings(), vec!["^fn ", r"(\w)\1"]);
+        assert_eq!(
+            local_fetch_query::match_strings(&fixed.query),
+            vec!["^fn ", r"(\w)\1"]
+        );
         // A PCRE2 read that fails is not retried as itself.
         let q = read(ReadRegex::Pcre2, serde_json::json!("def route("));
         assert_eq!(

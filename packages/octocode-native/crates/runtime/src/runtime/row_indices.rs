@@ -1,7 +1,8 @@
 //! Original batch row positions and placement of rejected rows on page one.
 
-use crate::runtime::ToolOutcome;
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
+use crate::response::outcome::ToolOutcome;
+use crate::response::pages::Remaining;
 use serde_json::{Value, json};
 
 /// Original indices of the admitted rows: every input position not rejected.
@@ -24,6 +25,42 @@ pub(crate) fn by_position<'a>(queries: &'a [Value], rejected: &[usize]) -> Vec<O
             }
         })
         .collect()
+}
+
+/// A settled envelope without its rejected rows (the body a page
+/// continuation reproduces), the remaining-notes of the rows it keeps, and
+/// the rejected rows themselves.
+pub(crate) fn split_rejected(
+    mut structured: Value,
+    remaining: Vec<Vec<Remaining>>,
+    rejected: &[usize],
+) -> (Value, Vec<Vec<Remaining>>, Vec<Value>) {
+    let is_rejected = |row: &Value| {
+        row["index"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+            .is_some_and(|index| rejected.contains(&index))
+    };
+    let Some(rows) = structured
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
+        .map(std::mem::take)
+    else {
+        return (structured, remaining, Vec::new());
+    };
+    let mut notes = remaining.into_iter();
+    let (mut kept, mut kept_notes, mut taken) = (Vec::new(), Vec::new(), Vec::new());
+    for row in rows {
+        let note = notes.next().unwrap_or_default();
+        if is_rejected(&row) {
+            taken.push(row);
+        } else {
+            kept.push(row);
+            kept_notes.push(note);
+        }
+    }
+    structured["results"] = Value::Array(kept);
+    (structured, kept_notes, taken)
 }
 
 /// Whether `outcome` is one page of a longer response.

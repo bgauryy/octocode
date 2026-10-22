@@ -7,7 +7,8 @@
 //! `false`, and the exit class says the call did not succeed.
 
 use crate::support::{self, PROVIDER_LIMITS, Workspace};
-use octocode_native::runtime::{ExitClass, ToolOutcome};
+use octocode_native::response::exit::ExitClass;
+use octocode_native::response::outcome::ToolOutcome;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -186,28 +187,6 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
             "lspSearch",
             "error",
             json!({"path":"missing.rs","symbolName":"x","line":1,"operation":"definition"}),
-        ),
-        probe(
-            "astTopology",
-            "error",
-            json!({"operation":"cycles","path":"missing"}),
-        ),
-        // Every operation whose answer rows are empty is an empty result
-        // (exit 1, as a search with no match), with a hint naming the operation.
-        probe(
-            "astTopology",
-            "empty",
-            json!({"operation":"cycles","path":"src"}),
-        ),
-        probe(
-            "astTopology",
-            "empty",
-            json!({"operation":"dependents","path":"src","source":"a.rs"}),
-        ),
-        probe(
-            "astTopology",
-            "empty",
-            json!({"operation":"dependencies","path":"src","source":"a.rs"}),
         ),
         probe("ghSearchRepo", "empty", json!({"keywords":[NEVER]})),
         probe(

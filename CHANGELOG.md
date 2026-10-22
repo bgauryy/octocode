@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Removed — astTopology folded into graph query (2026-10-22)
+- **The beta `astTopology` tool is gone** from the CLI, `schema`, and the tool contract; the catalog has 14 tools. Run `octocode graph ingest <dir>` (an unchanged tree reuses its snapshot), then `graph query`.
+- Replacements: `deadCode` → `issues --detector unreachable-file,unused-export`; `reachability` → `issues --detector unreachable-file,test-only`; `cycles` → `cycles` (witness and cuts: `issues --detector cycle`); `dependencies`/`dependents` → `deps`/`dependents <file> [--depth n]`; `path` → `path <from> <to>`; `drift` → `drift --graph <head> --baseline <baseline>`.
+- **New in `graph`:** `query drift --baseline` (rows `{category: file|cycle|transition|relation, change}`), `issues --entry <ref,...>` for explicit entrypoints, `dependents` rows through re-exporting modules (`edge: uses, via: reexport`), `graph.partialReasons` with a `graph.reingest` command on answers over a cut scan, and `ingest --language-glob <lang>=<glob>` (repeatable) for root-relative parser choice.
+- Old installs keep an unused `<octocode home>/tmp/topology/` directory; delete it by hand.
+
+### Fixed — native audit (2026-10-21/22)
+- **`graph ingest` redacts secrets before writing a snapshot.** A credential the graph keeps (an import specifier stored as a package name, a diagnostic quoting source) is stored as its redaction placeholder, e.g. `pkg:[REDACTED-GITHUBTOKENS]`.
+- **The dotenv secret pattern no longer redacts code** such as `frame.expect_key = frame.object;`.
+- On a paged batch, a rejected row's `hints` are a string list, not an internal object.
+- `responsePageMismatch` and `invalidClassificationView` are declared error codes; a restart past the last page answers `hasMore: false`.
+- ghSearchHistory `updated:30d` (and other relative dates) matches again.
+- localSearch `modifiedWithin` too large to represent is `invalidInput` instead of a silently dropped filter.
+- `minify: "standard"` no longer halves indentation twice.
+- `graph` edges carry their source line, and `pub use` re-exports link calls, so `callers` of a re-exported Rust function resolve.
+- A selected read shows one `filtered` notice, not one per stage.
+- artifactSearch release tags are checked as tag refs: a branch with the same name no longer counts.
+- ghGetHistoryItem commit pages read by branch continue at the pinned commit SHA.
+- GitHub pacing is chosen by request route, so GraphQL and REST calls are spaced by their own limits.
+
+### Changed — native audit (2026-10-21/22)
+- **structureSearch: `next.expandScan` is now `next.continueWalk`.** A listing cut at `maxEntries` widens through `continueWalk` (doubled `maxEntries`, `scanOffset`), the same lead that resumes a time-cut walk (`walkOffset`); astSearch keeps `expandScan`. A filtered `tree` offers a read lead, an empty listing diagnoses its filters in one probe walk, and the walk reads sibling directories ahead (1.7× faster on a 1.08M-entry tree).
+- **localFetch pages fill their window**: about 89–93% of `responseLength` instead of about 64%, with each row cut once from the view it holds; continuations keep the page size asked for.
+- **localSearch prices pages lazily**: a cold first page for `self` went from 237 ms to 86 ms, and continuation pages read no files. Earlier cursors restart (snapshot v8).
+- ghCloneRepo's `location.verified` is gone; a clone cached by an older build is cloned again.
+- Stored formats changed and rebuild on first use: GitHub disk cache v4 (raw bytes beside a header line; old `.json` entries are pruned), graph facts schema 2, `graph.bin` v4 and its memo.
+- A large GitHub file read (the graphql-spec repo case) takes 0.70 s instead of 3.36 s.
+- Development: `cargo dev-test` runs the workspace tests with the right features; a nightly CI job runs the full test matrices; the generated `tool_types.rs` holds only the types native names (6.1 MB → 0.86 MB, runtime check 11.8 s → 3.3 s); the runtime crate's modules import only lower layers, guarded by a test.
+
+### Changed — cleanup and speed (2026-10-22)
+- **`graph query dependents` names imports that cannot resolve**: an import that names a file by path (`vs/base/common/x`) with no tsconfig or workspace link is listed under `summary.unlinkedPathImports`, and `diagnostics` rows of code `unlinked-path-import` carry its `target`. Snapshots are format v5; older ones ask for a re-ingest.
+- **`graph ingest` is faster**: a cold vscode ingest takes 6.8 s instead of 17.3 s (next.js 11.2 s instead of 18.4 s); snapshots and answers are byte-identical.
+- **Wide searches are faster**: localSearch over 13k hits answers in 95 ms instead of 223 ms on a warm server, and astSearch `match` in 83 ms instead of 169 ms; output is byte-identical.
+- **Validating rejected input or output is about 9× faster** per case (median 15.5 ms → 1.7 ms).
+- **`octocode --help` and `auth --help` start about 40% faster**: help without a tool section no longer parses the tool presentation.
+- Outlines and graph facts find doc comments by the grammar's comment style: `.pyi` stubs read `#` comments, assembly reads `;`.
+- Development: the generated wire types moved to their own crate (`crates/contract-types`); a runtime edit re-checks in 2.1 s instead of 3.6 s and rebuilds in 4.3 s instead of 6.2 s.
+
 ### Changed — CLI install, cache command, error wording (2026-10-21)
 - **`install` manages every scope a client reads.** `--scope home|workspace|local` writes the user config, the project file under the current directory (Cursor, Claude Code, Continue, Kiro, Codex) or Claude Code's per-directory section, resolved like the config view. `--remove` deletes the entry with a rolling backup (no entry is a no-op; an entry install did not write needs `--force`). `--list` and the terminal picker show each client's status (`installed`, `disabled`, `custom`, `absent`, `invalid`, `unsupported`) and config path; `--list --json` rows are objects. `--pass-env` says it stores the token in the client config in plain text.
 - **Removed the hidden `cache status|clear` command.** Delete `tmp/response/`, `tmp/artifact/` or a `tmp/clone/` checkout under `octocode config home` instead; `logs/evictions.jsonl` still records every clone eviction.

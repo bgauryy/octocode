@@ -60,7 +60,9 @@ const HASH_LINE: LineRule = LineRule {
     preserve_shebang: true,
 };
 
-/// Comment rules per `CommentPatternGroup`.
+/// Comment rules per comment group name (the names a [`FileTypeConfig`] lists).
+///
+/// [`FileTypeConfig`]: crate::minify::config::FileTypeConfig
 static COMMENT_GROUPS: &[(&str, CommentRules)] = &[
     (
         "c-style",
@@ -227,7 +229,7 @@ static COMMENT_GROUPS: &[(&str, CommentRules)] = &[
     ),
 ];
 
-/// Return the CommentRules for the named CommentPatternGroup.
+/// The [`CommentRules`] of the named comment group.
 pub fn rules_for(group: &str) -> Option<&'static CommentRules> {
     COMMENT_GROUPS
         .iter()

@@ -75,7 +75,7 @@ A search result is a candidate. It does not prove identity, completeness, or beh
 | Local declarations or code shape | `astSearch` | Server-resolved identity. Comments and strings never match. A zero-match pattern can be a grammar or pattern mismatch. |
 | Callers, references, or which same-name symbol | `lspSearch` (after a line anchor) | Anything outside the server's project and capabilities. An empty result can be server scope; a syntactic fallback is not cross-file identity. |
 | A known local file | `localFetch` with `matchString` or a range, not a whole large file | Verbatim text when a transformed view is selected. |
-| File imports, cycles, reachability (beta, CLI) | `astTopology` | Safe deletion or runtime reachability. Unresolved imports, dynamic loading, and excluded files limit coverage. |
+| File imports, cycles, reachability (CLI) | `octocode graph ingest`, then `graph query` | Safe deletion or runtime reachability. Unresolved imports, dynamic loading, and excluded files limit coverage. |
 | An unknown GitHub repository | `ghSearchRepo`, not a guessed `owner/repo` | — |
 | GitHub layout or paths at a ref | `ghStructure` | — |
 | GitHub code on the default branch | `ghSearchCode` (`ref` reads hit lines at a tag, SHA, or PR head) | The full file set at another ref, or absence outside the index. |
@@ -119,7 +119,7 @@ flowchart LR
 - Read each hit with `localFetch` and `matchString` or a line range. Read only the lines that decide the claim.
 - If the question is about callers or references, or a name has more than one declaration, use `lspSearch`. Text hits show where a name occurs, not which symbol it is.
 - An `astSearch` symbols declaration (top level or in a container's `members`) gives `symbolName` and `line`. An identifier capture gives `text` and `line`. Send them to `lspSearch` as `symbolName` and `line` without change; `orderHint` picks among repeats on that line. If the tool reports drift, read and anchor again.
-- For file topology (beta, CLI), run `astTopology` with `dependencies`, `dependents`, `path`, `cycles`, `reachability`, `deadCode`, or `drift`. Read its diagnostics for skipped files and unresolved edges. Keep `entrypoints`, `includeTests`, exclusions, and caps the same when you compare runs.
+- For file topology (CLI), run `octocode graph ingest <dir>`, then `graph query deps`, `dependents`, `path`, `cycles`, `issues --detector unreachable-file,unused-export,test-only` (`--entry` names entrypoints), or `drift --baseline`. An answer over a cut scan carries `graph.partialReasons` and a `graph.reingest` command. Keep entrypoints and the ingested scope the same when you compare runs.
 - Before you delete code or claim changed behavior, read callers and imports, check wiring outside the language project, and run the affected tests and the real CLI, MCP, or build path.
 - Check runtime behavior against the installed dependency version: its package metadata and entry points if access allows, else the lockfile. Do not use the upstream default branch in its place.
 

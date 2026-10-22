@@ -1,18 +1,15 @@
-//! Source line pages share one response window. The ordinary read owns source
-//! coordinates and security; this boundary accounts for JSON escaping, UTF-16
-//! and source gutters before the public response is rendered. Oversized rows
-//! are reread as shorter line pages, retaining their executable continuations.
-//! A byte page or a completed ranked row without a replay plan remains
-//! indivisible; one source line may itself exceed the response target.
+//! Source line pages share one response window. Each source row is read with
+//! an equal share of the window ([`row_window`]), and the reader cuts its line
+//! page so the whole row fits that share ([`fitted_lines`]): this boundary
+//! accounts for JSON escaping, UTF-16 and source gutters, so no row is read
+//! twice. A byte page or a completed ranked row without a replay plan remains
+//! indivisible; one source line may itself exceed the share.
 
 use serde_json::{Map, Value};
 
-use super::row_pages::fair_shares;
-use crate::runtime::ExecutionError;
-use crate::runtime::dispatch::DomainResult;
-use crate::tools::id::ToolId;
-use crate::tools::id::continuation_channels::PAGES_KEY;
-use crate::tools::stream_page::json_text_chars;
+use crate::id::ToolId;
+use crate::id::continuation_channels::PAGES_KEY;
+use crate::response::stream_page::json_text_chars;
 
 /// Room for the envelope around the rows: `base`, `shared`, and the
 /// response-level warning that names the partial rows.
@@ -24,7 +21,19 @@ const CONTINUATION_EXTRA_CHARS: usize = 192;
 
 /// Tools whose rows each carry one source `content` string.
 fn reads_source(tool: ToolId) -> bool {
-    tool.output().text_shape() == crate::tools::output::TextShape::FileText
+    tool.output().text_shape() == crate::response::output::TextShape::FileText
+}
+
+/// The response chars each row of a `tool` call of `rows` rows may take
+/// from a `page`-char response: an equal share, less the envelope when the
+/// rows read sources (their readers fit the share exactly).
+pub(crate) fn row_window(tool: ToolId, page: usize, rows: usize) -> usize {
+    let page = if reads_source(tool) {
+        page.saturating_sub(ENVELOPE_CHARS)
+    } else {
+        page
+    };
+    (page / rows.max(1)).max(1)
 }
 
 /// Chars the `<line>\t` gutter adds to each content line once the response
@@ -51,20 +60,29 @@ fn line_chars(line: &str, gutter: usize) -> usize {
     json_text_chars(line) + gutter
 }
 
-/// The row's `content`, when the row is a successful read with text.
-fn content(row: &DomainResult) -> Option<(&str, usize)> {
-    if row.failure.is_some() || row.status.is_some() {
+/// Response chars of numbered source `text` from a source of `total_lines`
+/// lines: each line's JSON text and its gutter.
+pub(crate) fn text_chars(text: &str, total_lines: usize) -> usize {
+    let gutter = total_lines.max(1).to_string().len() + 2;
+    text.split_inclusive('\n')
+        .map(|line| line_chars(line, gutter))
+        .sum()
+}
+
+/// The row's `content` and its gutter, when the row is a successful read
+/// with text.
+fn content(row: &Value) -> Option<(&str, usize)> {
+    let file = row.as_object()?;
+    if file.get("error").is_some_and(|error| !error.is_null()) {
         return None;
     }
-    let file = row.data.as_object()?;
     let text = file.get("content")?.as_str()?;
     (!text.is_empty()).then(|| (text, gutter_chars(file)))
 }
 
 /// Estimated response chars of a row: its JSON plus the line-number gutter.
-fn row_chars(row: &DomainResult) -> usize {
+pub(crate) fn row_chars(row: &Value) -> usize {
     let gutter = row
-        .data
         .as_object()
         .and_then(|file| {
             file.get("content")?
@@ -74,7 +92,7 @@ fn row_chars(row: &DomainResult) -> usize {
         .map_or(0, |(text, gutter)| {
             text.split_inclusive('\n').count() * gutter
         });
-    octocode_engine::json_size::utf16_units(&row.data).unwrap_or(0) + gutter
+    octocode_engine::json_size::utf16_units(row).unwrap_or(0) + gutter
 }
 
 /// Line windows keep their coordinate; a full read can become a line
@@ -106,164 +124,39 @@ fn lines_within(text: &str, gutter: usize, allowance: usize) -> usize {
     lines
 }
 
-/// Line-page sizes for the rows of one batch that overflow `window`: row
-/// index to the lines its shorter page keeps.
-fn plan(
-    tool: ToolId,
-    queries: &[Value],
-    rows: &[DomainResult],
-    window: usize,
-) -> Vec<(usize, usize)> {
-    if !reads_source(tool) || rows.is_empty() || rows.len() != queries.len() {
-        return Vec::new();
-    }
-    let sizes: Vec<usize> = rows.iter().map(row_chars).collect();
-    if sizes.iter().sum::<usize>() + ENVELOPE_CHARS <= window {
-        return Vec::new();
-    }
-    let shares = fair_shares(&sizes, window.saturating_sub(ENVELOPE_CHARS));
-    let mut cuts = Vec::new();
-    for (index, (row, query)) in rows.iter().zip(queries).enumerate() {
-        let byte_page =
-            row.data.pointer("/pagination/unit").and_then(Value::as_str) == Some("bytes");
-        let selected_without_plan = row.data.get("selection").is_some_and(Value::is_object)
-            && query.get("selection").is_none()
-            && read_continuation(row)
-                .and_then(|query| query.get("selection"))
-                .is_none();
-        if sizes[index] <= shares[index]
-            || !pages_by_lines(query)
-            || byte_page
-            || selected_without_plan
-        {
-            continue;
-        }
-        let Some((text, gutter)) = content(row) else {
-            continue;
-        };
-        let text_chars: usize = text
-            .split_inclusive('\n')
-            .map(|line| line_chars(line, gutter))
-            .sum();
-        let around = sizes[index].saturating_sub(text_chars)
-            + octocode_engine::json_size::utf16_units(query).unwrap_or(0)
-            + CONTINUATION_EXTRA_CHARS;
-        let keep = lines_within(text, gutter, shares[index].saturating_sub(around));
-        if keep < text.split_inclusive('\n').count() {
-            cuts.push((index, keep));
-        }
-    }
-    cuts
-}
-
-fn read_continuation(row: &DomainResult) -> Option<&Value> {
-    row.data
-        .get(PAGES_KEY)?
+/// The query row of the row's own next page.
+fn read_continuation(row: &Value) -> Option<&Value> {
+    row.get(PAGES_KEY)?
         .get("continueWindow")
-        .and_then(crate::tools::result::continuation_row)
+        .and_then(crate::response::result::continuation_row)
 }
 
-/// Restore the caller's line-page maximum rather than the temporary share.
-/// Byte continuations retain their own coordinate and page length. A call
-/// that is no window of the read (no `offset`, no `ranges`: a classified
-/// read's whole view or next candidate page) reads the view as asked: the
-/// caller's `fullContent` and `unit` return.
-fn restore_page_size(data: &mut Value, original: &Value) {
-    let Some(Value::Object(next)) = data.get_mut(PAGES_KEY) else {
-        return;
-    };
-    for call in next.values_mut() {
-        let Some(rows) = call
-            .pointer_mut("/query/queries")
-            .and_then(Value::as_array_mut)
-        else {
-            continue;
-        };
-        for query in rows.iter_mut().filter_map(Value::as_object_mut) {
-            if query.get("unit").and_then(Value::as_str) == Some("bytes") {
-                continue;
-            }
-            for field in ["length", "unit", "fullContent"] {
-                let windowed = query.contains_key("offset") || query.contains_key("ranges");
-                if field != "length" && windowed {
-                    continue;
-                }
-                match original.get(field) {
-                    Some(value) => {
-                        query.insert(field.into(), value.clone());
-                    }
-                    None => {
-                        query.remove(field);
-                    }
-                }
-            }
-            if query.contains_key("fullContent") {
-                query.remove("length");
-            }
-        }
+/// How many lines of a source `row` (a reader's row as published, read by
+/// `query`) fit `share` response chars, when the row is over its share and
+/// pages by lines: the reader cuts that line page instead. `None` when the
+/// row fits, is a byte page, is a ranked row its continuation cannot replay,
+/// or shows no more lines than it would keep.
+pub(crate) fn fitted_lines(row: &Value, query: &Value, share: usize) -> Option<usize> {
+    let size = row_chars(row);
+    let byte_page = row.pointer("/pagination/unit").and_then(Value::as_str) == Some("bytes");
+    let selected_without_plan = row.get("selection").is_some_and(Value::is_object)
+        && query.get("selection").is_none()
+        && read_continuation(row)
+            .and_then(|query| query.get("selection"))
+            .is_none();
+    if size <= share || !pages_by_lines(query) || byte_page || selected_without_plan {
+        return None;
     }
-}
-
-/// Re-read each row of an overflowing `localFetch`/`ghGetFileContent` response
-/// that exceeds its fair share of `window` as a shorter line page. `rerun`
-/// executes the shortened queries (in order) and returns one row each; a
-/// shortened read that fails keeps the row's first result. A `window` of 0
-/// leaves every row as read.
-pub(crate) fn share_window(
-    tool: ToolId,
-    queries: &[Value],
-    mut rows: Vec<DomainResult>,
-    window: usize,
-    rerun: impl FnOnce(&[Value]) -> Result<Vec<DomainResult>, ExecutionError>,
-) -> Result<Vec<DomainResult>, ExecutionError> {
-    if window == 0 {
-        return Ok(rows);
-    }
-    let cuts = plan(tool, queries, &rows, window);
-    if cuts.is_empty() {
-        return Ok(rows);
-    }
-    let shortened: Vec<Value> = cuts
-        .iter()
-        .map(|&(index, lines)| {
-            let mut query = queries[index].clone();
-            if let Some(replay) = read_continuation(&rows[index]) {
-                for field in ["snapshot", "selection", "ref"] {
-                    if let Some(value) = replay.get(field) {
-                        query[field] = value.clone();
-                    }
-                }
-            }
-            // A whole-file read pages as the same view without
-            // `fullContent`, which window controls cannot accompany. An
-            // omitted `minify` is the verbatim view on both readers.
-            if let Some(fields) = query.as_object_mut()
-                && fields.remove("fullContent") == Some(Value::Bool(true))
-            {
-                fields.insert("offset".into(), Value::from(0));
-            }
-            query["unit"] = Value::from("lines");
-            query["length"] = Value::from(lines);
-            query
-        })
-        .collect();
-    let reread = rerun(&shortened)?;
-    for (&(index, _), mut row) in cuts.iter().zip(reread) {
-        if content(&row).is_none() {
-            continue;
-        }
-        restore_page_size(&mut row.data, &queries[index]);
-        // The shortened read names the commit as its `ref`, so the reader
-        // omits `commitSha` as an echo of the request; the caller asked for
-        // another ref, and the first read's pin stays the row's.
-        if row.data.get("commitSha").is_none()
-            && let Some(sha) = rows[index].data.get("commitSha")
-        {
-            row.data["commitSha"] = sha.clone();
-        }
-        rows[index] = row;
-    }
-    Ok(rows)
+    let (text, gutter) = content(row)?;
+    let text_chars: usize = text
+        .split_inclusive('\n')
+        .map(|line| line_chars(line, gutter))
+        .sum();
+    let around = size.saturating_sub(text_chars)
+        + octocode_engine::json_size::utf16_units(query).unwrap_or(0)
+        + CONTINUATION_EXTRA_CHARS;
+    let keep = lines_within(text, gutter, share.saturating_sub(around));
+    (keep < text.split_inclusive('\n').count()).then_some(keep)
 }
 
 #[cfg(test)]
@@ -271,46 +164,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// A shortened whole-file read's routes that are no window (the whole
-    /// view, the next candidate page) read the file as asked; its windows
-    /// keep their offsets and drop the temporary share.
-    #[test]
-    fn non_window_routes_of_a_shortened_read_keep_the_asked_view() {
-        let call = |row: Value| json!({"tool":"localFetch","query":{"queries":[row]}});
-        let mut data = json!({"next":{
-            "unfiltered": call(json!({"path":"a.txt","unit":"lines"})),
-            "nextCandidatePage": call(json!({"path":"a.txt","unit":"lines","length":40,"selection":"t"})),
-            "continueWindow": call(json!({"path":"a.txt","unit":"lines","length":40,"offset":40})),
-            "unfilteredUnknown": call(json!({"path":"a.txt","ranges":["3-4"],"unit":"lines"})),
-        }});
-        restore_page_size(&mut data, &json!({"path":"a.txt","fullContent":true}));
-        let row = |name: &str| data["next"][name]["query"]["queries"][0].clone();
-        assert_eq!(
-            row("unfiltered"),
-            json!({"path":"a.txt","fullContent":true})
-        );
-        assert_eq!(
-            row("nextCandidatePage"),
-            json!({"path":"a.txt","selection":"t","fullContent":true})
-        );
-        assert_eq!(
-            row("continueWindow"),
-            json!({"path":"a.txt","unit":"lines","offset":40})
-        );
-        assert_eq!(
-            row("unfilteredUnknown"),
-            json!({"path":"a.txt","ranges":["3-4"],"unit":"lines"})
-        );
-    }
-
-    fn local_row(lines: usize, width: usize) -> DomainResult {
+    fn local_row(lines: usize, width: usize) -> Value {
         let text: String = (1..=lines)
             .map(|line| format!("{line:05}{}\n", "x".repeat(width)))
             .collect();
-        DomainResult::payload(
-            json!({"path":"a.txt","content":text,"totalLines":lines}),
-            None,
-        )
+        json!({"path":"a.txt","content":text,"totalLines":lines})
     }
 
     fn query(extra: Value) -> Value {
@@ -321,12 +179,90 @@ mod tests {
         query
     }
 
+    #[test]
+    fn source_rows_share_the_page_less_the_envelope_and_others_split_it() {
+        assert_eq!(
+            row_window(ToolId::LocalFetch, 20_000, 3),
+            (20_000 - ENVELOPE_CHARS) / 3
+        );
+        assert_eq!(
+            row_window(ToolId::GhGetFileContent, 20_000, 1),
+            20_000 - ENVELOPE_CHARS
+        );
+        assert_eq!(row_window(ToolId::LocalSearch, 20_000, 4), 5_000);
+        assert_eq!(row_window(ToolId::LocalFetch, 100, 0), 1);
+    }
+
+    #[test]
+    fn a_row_within_its_share_keeps_its_page() {
+        assert_eq!(
+            fitted_lines(&local_row(10, 20), &query(json!({})), 10_000),
+            None
+        );
+        let explicit = local_row(7, 60);
+        assert_eq!(
+            fitted_lines(&explicit, &query(json!({"length":7})), 20_000),
+            None
+        );
+    }
+
+    #[test]
+    fn a_row_over_its_share_keeps_the_lines_that_fit() {
+        let share = row_window(ToolId::LocalFetch, 20_000, 3);
+        let lines = fitted_lines(&local_row(300, 60), &query(json!({})), share).expect("cut");
+        assert!((50..300).contains(&lines), "{lines}");
+        let row = local_row(lines, 60);
+        let continued = row_chars(&row)
+            + octocode_engine::json_size::utf16_units(&query(json!({}))).unwrap_or(0)
+            + CONTINUATION_EXTRA_CHARS;
+        assert!(continued <= share, "{continued} > {share}");
+    }
+
+    #[test]
+    fn byte_pages_are_not_reshaped() {
+        for asked in [
+            json!({"unit": "bytes", "length": 300}),
+            json!({"fullContent": true, "offset": 4096}),
+            json!({"unit": "bytes", "offset": 10}),
+        ] {
+            assert_eq!(
+                fitted_lines(&local_row(300, 60), &query(asked.clone()), 6_000),
+                None,
+                "{asked}"
+            );
+        }
+        let mut paged = local_row(300, 60);
+        paged["pagination"] = json!({"unit": "bytes"});
+        assert_eq!(fitted_lines(&paged, &query(json!({})), 6_000), None);
+    }
+
+    /// A ranked row its continuation cannot replay, and one line, are
+    /// indivisible.
+    #[test]
+    fn indivisible_rows_keep_their_page() {
+        let mut ranked = local_row(900, 60);
+        ranked["selection"] =
+            json!({"status":"complete","scope":"selectedView","selectedItems":2,"totalItems":2});
+        assert_eq!(fitted_lines(&ranked, &query(json!({})), 20_000), None);
+        ranked["next"] = json!({"continueWindow":{"tool":"localFetch","query":{"queries":[{
+            "path":"a.txt", "offset":900, "selection":"native-plan"
+        }]}}});
+        assert!(fitted_lines(&ranked, &query(json!({})), 20_000).is_some());
+        assert_eq!(
+            fitted_lines(&local_row(1, 60_000), &query(json!({})), 20_000),
+            None
+        );
+        let mut failed = local_row(900, 60);
+        failed["error"] = json!("gone");
+        assert_eq!(fitted_lines(&failed, &query(json!({})), 20_000), None);
+    }
+
     fn read_local(
         query: &Value,
         policy: &crate::policy::path::PathPolicy,
         security: &crate::security::ContentSecurity,
-        window: usize,
-    ) -> DomainResult {
+        window: Option<usize>,
+    ) -> Value {
         let prepared =
             crate::contracts::prepare_many_and_validate("localFetch", json!({"queries":[query]}))
                 .expect("canonical query");
@@ -335,52 +271,36 @@ mod tests {
             &request,
             policy,
             security,
-            &crate::tools::cancel::NeverCancel,
-            &crate::tools::local_fetch::LocalFetchRegex,
-            Some(window),
+            &crate::execution::cancel::NeverCancel,
+            window,
             None,
         );
-        assert_eq!(result.status, "success", "{result:?}");
-        DomainResult::payload(serde_json::to_value(result).expect("result"), None)
+        assert_eq!(
+            result.status,
+            crate::tools::local_fetch::ReadStatus::Success,
+            "{result:?}"
+        );
+        serde_json::to_value(result).expect("result")
     }
 
+    /// The lines of every page of a walk from `query`, each read with its
+    /// share of `window` (`None`: the reader's own page), and the pages.
     fn walk_local(
         mut query: Value,
         policy: &crate::policy::path::PathPolicy,
-        window: usize,
-        shared: bool,
+        window: Option<usize>,
     ) -> (Vec<String>, usize) {
         let security = crate::security::ContentSecurity::new();
+        let share = window.map(|window| row_window(ToolId::LocalFetch, window, 1));
         let mut records = Vec::new();
-        let mut rereads = 0;
-        for _ in 0..200 {
-            let mut rows = vec![read_local(&query, policy, &security, window)];
-            if shared {
-                rows = share_window(
-                    ToolId::LocalFetch,
-                    &[query.clone()],
-                    rows,
-                    window,
-                    |shortened| {
-                        rereads += 1;
-                        Ok(shortened
-                            .iter()
-                            .map(|query| read_local(query, policy, &security, window))
-                            .collect())
-                    },
-                )
-                .expect("shared read");
-            }
-            let mut wire =
-                crate::tools::test_support::published(ToolId::LocalFetch, &query, &rows[0].data);
-            crate::tools::numbered::number_read_rows(ToolId::LocalFetch, &mut wire);
+        for pages in 1..=200 {
+            let row = read_local(&query, policy, &security, share);
+            let mut wire = crate::tools::test_support::published(ToolId::LocalFetch, &query, &row);
+            crate::response::numbered::number_read_rows(ToolId::LocalFetch, &mut wire);
             crate::tools::test_support::checks::assert_output_contract("localFetch", &wire);
-            if shared {
-                assert!(
-                    octocode_engine::json_size::utf16_units(&wire).unwrap_or(0) <= window,
-                    "{} > {window}",
-                    octocode_engine::json_size::utf16_units(&wire).unwrap_or(0)
-                );
+            if let Some(window) = window {
+                let size = octocode_engine::json_size::utf16_units(&wire).unwrap_or(0);
+                assert!(size <= window, "{size} > {window}");
             }
             let data = &wire["results"][0]["data"];
             records.extend(
@@ -392,7 +312,7 @@ mod tests {
                     .map(str::to_owned),
             );
             let Some(next) = data["next"].get("continueWindow") else {
-                return (records, rereads);
+                return (records, pages);
             };
             let prepared =
                 crate::contracts::prepare_many_and_validate("localFetch", next["query"].clone())
@@ -418,8 +338,8 @@ mod tests {
                     .as_object_mut()
                     .expect("object")
                     .extend(extra.as_object().expect("extra").clone());
-                let (expected, _) = walk_local(query.clone(), &policy, window, false);
-                let (actual, _) = walk_local(query, &policy, window, true);
+                let (expected, _) = walk_local(query.clone(), &policy, None);
+                let (actual, _) = walk_local(query, &policy, Some(window));
                 assert_eq!(actual, expected);
                 assert_eq!(
                     actual
@@ -432,8 +352,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn late_match_and_transformed_line_pages_keep_their_source_coordinates() {
+    /// Every view of a late-match source pages identically walked at the
+    /// reader's own page size and walked through shares of each of
+    /// `windows`. Its escape-heavy lines put a byte-sized page over its
+    /// share, so every share is met by the reader's fit.
+    fn late_and_transformed_pages_keep_source_coordinates(windows: &[usize]) {
         let root = crate::tools::test_support::Fixture::new();
         let literal = format!("\"{}🙂\"", "\\".repeat(16));
         let source: String = (1..=5_000)
@@ -449,7 +372,7 @@ mod tests {
             .collect();
         let path = root.write("views.ts", source);
         let policy = crate::tools::test_support::workspace_policy(&root.0);
-        for window in [20_000, 50_000] {
+        for &window in windows {
             for extra in [
                 json!({"matchString":"needle", "contextLines":1}),
                 json!({"minify":"standard", "unit":"lines"}),
@@ -460,9 +383,8 @@ mod tests {
                     .as_object_mut()
                     .expect("object")
                     .extend(extra.as_object().expect("extra").clone());
-                let (expected, _) = walk_local(query.clone(), &policy, window, false);
-                let (actual, rereads) = walk_local(query, &policy, window, true);
-                assert!(rereads > 0, "view must exercise response resizing: {extra}");
+                let (expected, _) = walk_local(query.clone(), &policy, None);
+                let (actual, _) = walk_local(query, &policy, Some(window));
                 assert!(!actual.is_empty());
                 assert_eq!(actual, expected);
                 assert_eq!(
@@ -476,261 +398,16 @@ mod tests {
         }
     }
 
+    /// The default run walks one window; the full matrix (ignored: `cargo
+    /// test -- --ignored full_matrix`) walks both.
     #[test]
-    fn indivisible_rows_keep_their_receipt_and_do_not_rerun_evaluation() {
-        for mut row in [local_row(900, 60), local_row(1, 60_000)] {
-            if row.data["content"]
-                .as_str()
-                .expect("content")
-                .lines()
-                .count()
-                > 1
-            {
-                row.data["selection"] = json!({"status":"complete","scope":"selectedView","selectedItems":2,"totalItems":2});
-            }
-            let expected = row.data.clone();
-            let mut calls = 0;
-            let result = share_window(
-                ToolId::LocalFetch,
-                &[query(json!({}))],
-                vec![row],
-                20_000,
-                |_| {
-                    calls += 1;
-                    Ok(Vec::new())
-                },
-            )
-            .expect("unchanged");
-            assert_eq!(calls, 0);
-            assert_eq!(result[0].data, expected);
-        }
-        let row = local_row(7, 60);
-        let expected = row.data.clone();
-        let mut calls = 0;
-        let result = share_window(
-            ToolId::LocalFetch,
-            &[query(json!({"length":7}))],
-            vec![row],
-            20_000,
-            |_| {
-                calls += 1;
-                Ok(Vec::new())
-            },
-        )
-        .expect("explicit fit");
-        assert_eq!(calls, 0);
-        assert_eq!(result[0].data, expected);
+    fn late_match_and_transformed_line_pages_keep_their_source_coordinates() {
+        late_and_transformed_pages_keep_source_coordinates(&[20_000]);
     }
 
     #[test]
-    fn shortened_reads_reuse_native_identity_and_restore_explicit_line_maximums() {
-        for tool in [ToolId::LocalFetch, ToolId::GhGetFileContent] {
-            let original = query(json!({"unit":"lines", "length":900}));
-            let mut row = local_row(900, 60);
-            row.data["selection"] = json!({"status":"complete"});
-            row.data["next"] = json!({"continueWindow":{"tool":tool.as_str(),"query":{"queries":[{
-                "path":"a.txt", "offset":900, "snapshot":"native-snapshot", "selection":"native-plan", "ref":"native-commit"
-            }]}}});
-            let mut calls = 0;
-            let result = share_window(tool, std::slice::from_ref(&original), vec![row], 20_000, |shortened| {
-                calls += 1;
-                assert_eq!(shortened.len(), 1);
-                let query = &shortened[0];
-                assert_eq!(query["selection"], "native-plan");
-                assert_eq!(query["snapshot"], "native-snapshot");
-                assert_eq!(query["ref"], "native-commit");
-                assert!(query.get("offset").is_none());
-                assert!(query["length"].as_u64().is_some_and(|length| length < 900));
-                let length = query["length"].as_u64().expect("length") as usize;
-                let mut row = local_row(length, 60);
-                row.data["next"] = json!({"continueWindow":{"tool":tool.as_str(),"query":{"queries":[{
-                    "path":"a.txt", "offset":length, "length":length, "unit":"lines", "selection":"native-plan"
-                }]}}});
-                Ok(vec![row])
-            }).expect("shortened");
-            assert_eq!(calls, 1);
-            let continued = read_continuation(&result[0]).expect("continuation");
-            assert_eq!(continued["length"], 900);
-            assert_eq!(continued["selection"], "native-plan");
-        }
-    }
-
-    #[test]
-    fn a_batch_that_fits_is_left_alone() {
-        let rows = vec![local_row(10, 20), local_row(10, 20)];
-        let queries = vec![query(json!({})), query(json!({}))];
-        assert!(plan(ToolId::LocalFetch, &queries, &rows, 20_000).is_empty());
-    }
-
-    #[test]
-    fn overflowing_rows_get_fair_line_pages_and_small_rows_keep_theirs() {
-        let rows = vec![local_row(5, 20), local_row(300, 60), local_row(300, 60)];
-        let queries = vec![query(json!({})), query(json!({})), query(json!({}))];
-        let cuts = plan(ToolId::LocalFetch, &queries, &rows, 20_000);
-        assert_eq!(cuts.iter().map(|cut| cut.0).collect::<Vec<_>>(), vec![1, 2]);
-        for (_, lines) in &cuts {
-            assert!((100..300).contains(lines), "{cuts:?}");
-        }
-    }
-
-    #[test]
-    fn byte_offsets_are_not_reshaped() {
-        let rows = vec![local_row(300, 60), local_row(300, 60), local_row(300, 60)];
-        let queries = vec![
-            query(json!({"unit": "bytes", "length": 300})),
-            query(json!({"fullContent": true, "offset": 4096})),
-            query(json!({"unit": "bytes", "offset": 10})),
-        ];
-        assert!(plan(ToolId::LocalFetch, &queries, &rows, 20_000).is_empty());
-    }
-
-    #[test]
-    fn single_rows_are_sized_and_other_tools_are_not_reshaped() {
-        let rows = vec![local_row(900, 60)];
-        assert_eq!(
-            plan(ToolId::LocalFetch, &[query(json!({}))], &rows, 20_000).len(),
-            1
-        );
-        let rows = vec![local_row(300, 60), local_row(300, 60)];
-        let queries = vec![query(json!({})), query(json!({}))];
-        assert!(plan(ToolId::LocalSearch, &queries, &rows, 20_000).is_empty());
-    }
-
-    #[test]
-    fn shortened_rows_replace_the_first_read_and_continue_at_the_default_page() {
-        let rows = vec![local_row(300, 60), local_row(300, 60)];
-        let queries = vec![query(json!({})), query(json!({}))];
-        let mut seen = Vec::new();
-        let shared = share_window(
-            ToolId::LocalFetch,
-            &queries,
-            rows,
-            20_000,
-            |shortened| {
-                seen = shortened.to_vec();
-                Ok(shortened
-                    .iter()
-                    .map(|query| {
-                        let lines = query["length"].as_u64().unwrap_or(0) as usize;
-                        let mut row = local_row(lines, 60);
-                        row.data["next"] = json!({"continueWindow":{"tool":"localFetch","query":{"queries":[{
-                        "path":"a.txt","offset":lines,"unit":"lines","length":lines}]}}});
-                        row
-                    })
-                    .collect())
-            },
-        )
-        .expect("shared");
-        assert_eq!(seen.len(), 2);
-        assert!(seen.iter().all(|query| query["unit"] == "lines"));
-        for row in &shared {
-            let next = &row.data["next"]["continueWindow"]["query"]["queries"][0];
-            assert!(next.get("length").is_none(), "{next}");
-            assert!(next["offset"].as_u64().is_some_and(|offset| offset > 0));
-        }
-        let total: usize = shared.iter().map(row_chars).sum();
-        assert!(total + ENVELOPE_CHARS <= 20_000, "{total}");
-    }
-
-    #[test]
-    fn a_failed_shortened_read_keeps_the_first_result() {
-        let rows = vec![local_row(300, 60), local_row(300, 60)];
-        let queries = vec![query(json!({})), query(json!({}))];
-        let shared = share_window(ToolId::LocalFetch, &queries, rows, 20_000, |shortened| {
-            Ok(shortened
-                .iter()
-                .map(|_| DomainResult::payload(json!({"error":"gone"}), Some("error")))
-                .collect())
-        })
-        .expect("shared");
-        assert!(shared.iter().all(|row| row.data["content"].is_string()));
-    }
-
-    #[test]
-    fn github_rows_are_measured_and_reshaped_through_their_file() {
-        let file = |lines: usize| {
-            let text: String = (1..=lines)
-                .map(|line| format!("{line:05}{}\n", "y".repeat(60)))
-                .collect();
-            DomainResult::payload(
-                json!({"owner":"o","repo":"r","path":"a.rs","content":text,"totalLines":lines}),
-                None,
-            )
-        };
-        let rows = vec![file(300), file(300), file(4)];
-        let queries = vec![
-            json!({"owner":"o","repo":"r","path":"a.rs","fullContent":true}),
-            json!({"owner":"o","repo":"r","path":"b.rs","fullContent":true}),
-            json!({"owner":"o","repo":"r","path":"c.rs","fullContent":true}),
-        ];
-        let cuts = plan(ToolId::GhGetFileContent, &queries, &rows, 20_000);
-        assert_eq!(cuts.iter().map(|cut| cut.0).collect::<Vec<_>>(), vec![0, 1]);
-    }
-
-    /// A GitHub read of a movable ref keeps the commit it pinned when a
-    /// shortened re-read names that commit as its `ref`.
-    #[test]
-    fn a_shortened_github_read_keeps_the_commit_it_pinned() {
-        let text: String = (1..=900)
-            .map(|line| format!("{line:05}{}\n", "y".repeat(60)))
-            .collect();
-        let first = DomainResult::payload(
-            json!({"owner":"o","repo":"r","path":"a.rs","commitSha":"abc123","content":text,"totalLines":900}),
-            None,
-        );
-        let original =
-            json!({"owner":"o","repo":"r","path":"a.rs","ref":"main","fullContent":true});
-        let rows = share_window(
-            ToolId::GhGetFileContent,
-            std::slice::from_ref(&original),
-            vec![first],
-            20_000,
-            |shortened| {
-                assert_eq!(shortened.len(), 1);
-                Ok(vec![DomainResult::payload(
-                    json!({"owner":"o","repo":"r","path":"a.rs","content":"00001y\n","totalLines":900}),
-                    None,
-                )])
-            },
-        )
-        .expect("shared");
-        assert_eq!(rows[0].data["commitSha"], "abc123", "{}", rows[0].data);
-    }
-
-    /// The shortened read that drops `fullContent` keeps the caller's view:
-    /// a named one, else none (the verbatim default).
-    #[test]
-    fn dropping_full_content_keeps_the_view() {
-        for (tool, minify, expected) in [
-            (ToolId::GhGetFileContent, None, Value::Null),
-            (
-                ToolId::GhGetFileContent,
-                Some("standard"),
-                json!("standard"),
-            ),
-            (ToolId::GhGetFileContent, Some("symbols"), json!("symbols")),
-            (ToolId::LocalFetch, None, Value::Null),
-            (ToolId::LocalFetch, Some("standard"), json!("standard")),
-        ] {
-            let mut original = query(json!({"fullContent":true}));
-            if let Some(minify) = minify {
-                original["minify"] = json!(minify);
-            }
-            let mut seen = Vec::new();
-            share_window(
-                tool,
-                std::slice::from_ref(&original),
-                vec![local_row(900, 60)],
-                20_000,
-                |shortened| {
-                    seen = shortened.to_vec();
-                    Ok(Vec::new())
-                },
-            )
-            .expect("shortened");
-            assert_eq!(seen.len(), 1, "{tool:?} {minify:?}");
-            assert!(seen[0].get("fullContent").is_none(), "{}", seen[0]);
-            assert_eq!(seen[0]["minify"], expected, "{tool:?} {}", seen[0]);
-        }
+    #[ignore = "full matrix: cargo test -- --ignored full_matrix"]
+    fn late_match_and_transformed_line_pages_keep_their_source_coordinates_full_matrix() {
+        late_and_transformed_pages_keep_source_coordinates(&[20_000, 50_000]);
     }
 }

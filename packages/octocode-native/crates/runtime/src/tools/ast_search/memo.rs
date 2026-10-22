@@ -22,11 +22,11 @@
 //! the same way: a present one keeps its stamp, an absent one stays absent;
 //! a repository marker (`.git`, `.jj`) above the scope keeps its presence.
 //!
-//! [`SETTLE`]: octocode_engine::graph::SourceStamp::SETTLE
+//! [`SETTLE`]: octocode_engine::stamp::SourceStamp::SETTLE
 use super::super::page_memo::{PageMemo, Proof, Watch};
 use crate::tools::source::Link;
 #[cfg(test)]
-use octocode_engine::graph::SourceStamp;
+use octocode_engine::stamp::SourceStamp;
 #[cfg(test)]
 use std::path::{Path, PathBuf};
 use std::{
@@ -62,14 +62,12 @@ impl<T> ScanMemo<T> {
     /// The scan stored for `snapshot` under `key` while every stamped entry
     /// is unchanged; a changed one is evicted.
     pub(super) fn get(&self, snapshot: &str, key: &str) -> Option<Arc<T>> {
-        let (scan, proof) = self.store.get(snapshot, key, |stored| {
-            (Arc::clone(&stored.scan), stored.proof.clone())
-        })?;
-        if proof.holds() {
-            return Some(scan);
-        }
-        self.evict(snapshot);
-        None
+        self.store.get_current(
+            snapshot,
+            key,
+            |stored| (Arc::clone(&stored.scan), stored.proof.clone()),
+            Some,
+        )
     }
 
     /// Keep `scan` for the pages after the first, stamped by what it

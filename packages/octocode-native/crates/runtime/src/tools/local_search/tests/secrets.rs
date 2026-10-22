@@ -1,5 +1,101 @@
 use super::*;
 
+#[test]
+fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
+    let security = ContentSecurity::new();
+    let mut file = octocode_engine::types::TextSearchFile {
+        path: "gone.txt".into(),
+        match_count: 1,
+        matches: vec![octocode_engine::types::TextSearchMatch {
+            deferred: None,
+            line: 1,
+            last_line: None,
+            column: 0,
+            byte_offset: 0,
+            value: "…token = ghp_abcdefghijklmnop".into(),
+            value_digest: <sha2::Sha256 as sha2::Digest>::digest(
+                "…token = ghp_abcdefghijklmnop".as_bytes(),
+            )
+            .into(),
+            count: None,
+            rank: None,
+            original_chars: Some(400),
+
+            original_bytes: Some(400),
+        }],
+        source: None,
+    };
+    let missing = tempfile::tempdir()
+        .expect("fixture directory")
+        .path()
+        .join("gone.txt");
+    let verified = verify::guard_clipped_secrets(
+        &mut file,
+        &missing,
+        None,
+        0..10,
+        &verify::ValueCheck {
+            security: &security,
+            match_only: false,
+            cancel: &NeverCancel,
+        },
+    )
+    .expect("not cancelled");
+    assert_eq!(verified, verify::Verification::Unverified);
+    assert!(!file.matches[0].value.contains("ghp_"));
+    assert!(file.matches[0].value.contains("REDACTED"));
+}
+
+/// A source that shrank or was replaced after the search no longer holds
+/// the matched line, so the clipped value cannot be verified.
+#[test]
+fn clipped_secret_guard_fails_closed_when_the_match_line_is_gone() {
+    let security = ContentSecurity::new();
+    let root = tempfile::tempdir().expect("fixture directory");
+    let source = root.path().join("shrunk.txt");
+    fs::write(&source, "one line now\n").expect("fixture");
+    let mut file = octocode_engine::types::TextSearchFile {
+        path: "shrunk.txt".into(),
+        match_count: 1,
+        matches: vec![octocode_engine::types::TextSearchMatch {
+            deferred: None,
+            line: 40,
+            last_line: None,
+            column: 0,
+            byte_offset: 0,
+            value: "…token = ghp_abcdefghijklmnop".into(),
+            value_digest: <sha2::Sha256 as sha2::Digest>::digest(
+                "…token = ghp_abcdefghijklmnop".as_bytes(),
+            )
+            .into(),
+            count: None,
+            rank: None,
+            original_chars: Some(400),
+
+            original_bytes: Some(400),
+        }],
+        source: None,
+    };
+    let verified = verify::guard_clipped_secrets(
+        &mut file,
+        &source,
+        None,
+        0..10,
+        &verify::ValueCheck {
+            security: &security,
+            match_only: false,
+            cancel: &NeverCancel,
+        },
+    )
+    .expect("not cancelled");
+    assert_eq!(verified, verify::Verification::Unverified);
+    assert!(
+        !file.matches[0].value.contains("ghp_"),
+        "{}",
+        file.matches[0].value
+    );
+}
+
 /// Make `dir` unreadable; returns false when the process can still read it
 /// (e.g. running as root), so the caller skips.
 #[cfg(unix)]
@@ -83,7 +179,7 @@ fn walk_every_page_route(
             !result.terminal_limit,
             "a complete scan's exhausted branch is not a terminal limit: {result:?}"
         );
-        if request.page()
+        if local_search_query::page(&request)
             < result
                 .pagination
                 .as_ref()
@@ -93,7 +189,7 @@ fn walk_every_page_route(
         }
         walk.pages += 1;
         assert!(walk.pages < 50, "pagination must terminate");
-        let match_page = request.match_page().max(1);
+        let match_page = local_search_query::match_page(&request).max(1);
         for file in &result.files {
             for row in file.matches.iter().flatten() {
                 assert!(
@@ -101,7 +197,7 @@ fn walk_every_page_route(
                     "repeated evidence {}:{} at page {} matchPage {match_page}",
                     file.path,
                     row.line,
-                    request.page()
+                    local_search_query::page(&request)
                 );
             }
         }
@@ -116,7 +212,7 @@ fn walk_every_page_route(
             assert!(
                 offered.insert(query.to_string()),
                 "duplicate page route {name} at page {} matchPage {match_page}: {query}",
-                request.page()
+                local_search_query::page(&request)
             );
             queue.push_back(serde_json::from_value(query).expect("continuation query"));
         }
@@ -735,7 +831,7 @@ fn a_default_walk_reaches_every_row_once_in_budget_sized_pages() {
     for (index, body) in bodies.iter().enumerate() {
         let chars = octocode_engine::json_size::utf16_units(&body["files"]).unwrap_or(0);
         assert!(
-            chars <= crate::tools::page_windows::page_budget(None, &serde_json::json!({})),
+            chars <= crate::response::page_windows::page_budget(None, &serde_json::json!({})),
             "page {}: {chars} chars",
             index + 1
         );
@@ -1511,7 +1607,7 @@ fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
     assert!(!result.is_partial, "{body}");
     assert!(!result.terminal_limit, "{body}");
     assert_eq!(result.status, SearchStatus::Success, "{body}");
-    assert_eq!(result.stats.cap_reason, None, "{body}");
+    assert!(result.stats.cap_reasons.is_empty(), "{body}");
     // A row with hits states the count in stats, not as a warning.
     assert!(result.warnings.is_empty(), "{body}");
     assert_eq!(body["binarySkipped"], 31, "{body}");
@@ -1540,11 +1636,10 @@ fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
 
 #[test]
 fn classification_candidates_never_receive_clipped_secrets_even_when_excluded() {
-    use crate::runtime::SelectionLimits;
-    use crate::tools::selection::{Decision, JudgeCall, Runtime, SelectionJudge};
+    use crate::tools::selection::{Decision, JudgeCall, SelectionJudge};
     use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     struct RecordingJudge(Arc<Mutex<Vec<Value>>>);
     impl SelectionJudge for RecordingJudge {
@@ -1590,23 +1685,11 @@ fn classification_candidates_never_receive_clipped_secrets_even_when_excluded() 
         json!({"matchString":"token|needle", "regex":"rust", "matchContentLength":30}),
     ] {
         let recorded = Arc::new(Mutex::new(Vec::new()));
-        let selection = Runtime {
-            limits: SelectionLimits {
-                max_candidates: 64,
-                max_chars: 131_072,
-                timeout: Duration::from_secs(5),
-            },
-            available: true,
-            judge: Arc::new(RecordingJudge(recorded.clone())),
-            handle: executor.handle().clone(),
-            context: crate::runtime::ExecutionContext {
-                cancellation: tokio_util::sync::CancellationToken::new(),
-                deadline: Instant::now() + Duration::from_secs(5),
-                walk_threads: None,
-                response_window: None,
-                github_credential: None,
-            },
-        };
+        let selection = crate::tools::test_support::selection_fake::runtime(
+            RecordingJudge(recorded.clone()),
+            executor.handle().clone(),
+            Duration::from_secs(5),
+        );
         let request = ls_query(
             json!({
                 "path": root.path(),

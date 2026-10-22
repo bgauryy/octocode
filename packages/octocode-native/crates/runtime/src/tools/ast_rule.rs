@@ -25,7 +25,7 @@ pub(crate) fn language_globs(
 /// `languageGlobs` compiled against a scan root, by the rules the graph-facts
 /// scan applies: each rule's parser extension and matcher.
 #[derive(Default)]
-pub(crate) struct GlobParsers(Vec<octocode_engine::graph::ParserOverride>);
+pub(crate) struct GlobParsers(Vec<octocode_engine::fact_scan::ParserOverride>);
 
 impl GlobParsers {
     /// No map compiles to no rules. A malformed glob is `invalidGlob`; a key
@@ -33,9 +33,9 @@ impl GlobParsers {
     pub(crate) fn compile(
         root: &std::path::Path,
         map: Option<&BTreeMap<String, Vec<String>>>,
-    ) -> Result<Self, octocode_engine::graph::GraphScanError> {
+    ) -> Result<Self, octocode_engine::fact_scan::GraphScanError> {
         let rules = map.map(language_globs);
-        octocode_engine::graph::parser_overrides(root, rules.as_deref()).map(Self)
+        octocode_engine::fact_scan::parser_overrides(root, rules.as_deref()).map(Self)
     }
 
     /// Whether any rule names `path`: a file only `languageGlobs` map to a
@@ -63,6 +63,16 @@ impl GlobParsers {
 
 /// Error code for a pattern or rule that compiles for no grammar.
 pub(crate) const INVALID_PATTERN: &str = "invalidPattern";
+
+/// A diagnostic that says the query does not compile in the file's grammar.
+pub(crate) fn is_compile_failure(
+    diagnostic: &octocode_engine::structural::StructuralDiagnostic,
+) -> bool {
+    matches!(
+        diagnostic.code.as_str(),
+        octocode_engine::structural::COMPILE_FAILED | octocode_engine::structural::RULE_INVALID
+    )
+}
 
 /// Recovery for [`INVALID_PATTERN`], in both tools: the code covers a
 /// pattern that parses as no node and a rule whose YAML does not parse.
@@ -171,14 +181,6 @@ pub(crate) struct RuleError {
     pub message: String,
 }
 
-/// Engine text without its leading `[code] ` tag.
-pub(crate) fn untagged(message: &str) -> &str {
-    message
-        .strip_prefix('[')
-        .and_then(|rest| rest.split_once("] "))
-        .map_or(message, |(_, text)| text)
-}
-
 /// Compiles the pattern or YAML rule as a search for each extension of one
 /// grammar; it passes when any of them parses it (`.tsx` accepts JSX that
 /// `.ts` rejects).
@@ -196,16 +198,15 @@ pub(crate) fn compile_check(
             pattern,
             rule,
         );
-        match result.diagnostics.iter().find(|diagnostic| {
-            matches!(
-                diagnostic.code.as_str(),
-                "structural.query.compileFailed" | octocode_engine::structural::RULE_INVALID
-            )
-        }) {
+        match result
+            .diagnostics
+            .iter()
+            .find(|diagnostic| is_compile_failure(diagnostic))
+        {
             Some(diagnostic) => {
                 first_error.get_or_insert_with(|| RuleError {
                     code: INVALID_PATTERN,
-                    message: untagged(&diagnostic.message).to_owned(),
+                    message: diagnostic.message.clone(),
                 });
             }
             None => return Ok(()),

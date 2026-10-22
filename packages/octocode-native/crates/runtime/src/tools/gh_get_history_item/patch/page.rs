@@ -7,7 +7,8 @@ use super::super::util::str_at;
 use super::super::window::{literal_patch_window, patch_window};
 use super::hunks::history_patch_view;
 use crate::response::pages::SpanFacts;
-use crate::tools::result::remove_nulls;
+use crate::response::result::remove_nulls;
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use serde_json::{Value, json};
 
 /// A page of changed files sharing one patch char window.
@@ -66,13 +67,18 @@ pub(in crate::tools::gh_get_history_item) fn shape_patch_page_reserving(
         })
         .collect::<Vec<_>>();
     let total = lengths.iter().sum::<usize>();
-    let offset = query.char_offset().unwrap_or(0).min(total);
-    let window = match (needle(query), query.char_length()) {
+    let offset = gh_get_history_item_query::char_offset(query)
+        .unwrap_or(0)
+        .min(total);
+    let window = match (needle(query), gh_get_history_item_query::char_length(query)) {
         // A literal search returns many short hit runs: their row headers
         // are small, so the hits may fill the page share without the fixed
         // metadata reserve.
         (Some(_), None) => literal_patch_window(query.auto_page_chars),
-        _ => patch_window(query.char_length(), query.auto_page_chars),
+        _ => patch_window(
+            gh_get_history_item_query::char_length(query),
+            query.auto_page_chars,
+        ),
     };
     let window = window.saturating_sub(reserve).max(window / 4).max(1);
     // The first window also lists every patch-less file of the page as a

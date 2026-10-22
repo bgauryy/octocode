@@ -32,7 +32,7 @@ impl Partition {
 
     /// The same credential under a narrower origin (`<origin>#<scope>`), such
     /// as one session of a provider.
-    pub fn within(&self, scope: &str) -> Self {
+    pub(crate) fn within(&self, scope: &str) -> Self {
         Self::from_parts(format!("{}#{scope}", self.origin), self.credential)
     }
 
@@ -57,13 +57,9 @@ impl Partition {
         }
     }
 
-    pub fn origin(&self) -> &str {
-        &self.origin
-    }
-
     /// A short, stable label for the credential (`anon` when anonymous): the
     /// per-credential part of persisted limiter file names.
-    pub fn credential_tag(&self) -> &str {
+    pub(crate) fn credential_tag(&self) -> &str {
         &self.tag
     }
 

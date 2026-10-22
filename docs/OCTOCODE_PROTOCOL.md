@@ -19,7 +19,7 @@ Context is a coding agent's scarcest resource. Whole files, whole diffs, and raw
 | **Files** (layout) | Which files exist, how big are they, where should I look? | `structureSearch`, `ghStructure`, `ghSearchRepo` |
 | **Syntax** (AST) | Which declarations or code shapes exist, ignoring comments and strings? | `astSearch` |
 | **Semantics** (LSP) | Is this the same symbol? Where is it defined, who references or calls it? | `lspSearch` |
-| **Connections** (graph) | Who imports this file? What does it depend on? Is it reachable? | `astTopology` (beta, CLI), LSP call hierarchy |
+| **Connections** (graph) | Who imports this file? What does it depend on? Is it reachable? | `octocode graph query` (CLI), LSP call hierarchy |
 | **History** | Which change introduced this, what did the PR do, what differs between two refs? | `ghSearchHistory`, `ghGetHistoryItem` |
 | **Packages** | Which repository and directory hold this package's source? | `artifactSearch` |
 | **Judgment** (optional) | Which captured hits or passages are relevant; a typed decision about held or unread source | `clasifyContext` on search/fetch, `clasify` (beta) |
@@ -90,7 +90,7 @@ External to local is one flow: `artifactSearch` maps a package to its repository
   - **`next.*` = pages and recovery:** follow the pages needed for the claim's scope. `next.unfiltered`, when offered, is optional recovery of the complete view after classification ([context selection](OCTOCODE_TOOLS.md#context-selection)); it does not make a sufficient selected answer incomplete.
   - **`hints` = optional strings:** plain text or `<action>: <tool> <JSON input>` suggestions named by purpose (`read` the top match, `readPullRequest` the fix, `viewTree` the scope); `hints` adds a sentence only for a per-call fact. Each suggestion keeps its complete validated input; duplicate text and calls appear once. A successful row shows leads only with `extras:["hints"]`, except a few default leads (`includeIgnored`, `countFiles`, `apply`, …).
 - An empty result keeps its leads. It is not an absence claim until scope, spelling, ref, and index limits are checked; the general repairs are stated once in each tool's description.
-- Errors are typed (`invalidInput`, `notFound`, `authentication`, `rateLimited`, …) and carry `retryable: true` only when a retry can help. Each class has its own CLI exit code; see the [CLI guide](../packages/octocode/docs/OCTOCODE_CLI.md#exit-codes).
+- Errors are typed (`invalidInput`, `notFound`, `authentication`, `rateLimited`, …) and carry `retryable: true` only when a retry can help. Each class has its own CLI exit code; see the [CLI guide](OCTOCODE_CLI.md#exit-codes).
 - GitHub tools follow a renamed repository to its canonical name and add a warning that names it.
 - Channels and fields: [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md#executable-continuations).
 

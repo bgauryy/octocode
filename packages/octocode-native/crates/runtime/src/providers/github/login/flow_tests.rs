@@ -65,6 +65,10 @@ async fn refresh_cannot_restore_logout_or_overwrite_a_new_login() {
     }
 }
 
+/// One device-flow second in tests: each `authorization_pending` poll waits
+/// this long instead of a real second.
+const TEST_SECOND: Duration = Duration::from_millis(10);
+
 fn endpoints(server: &MockServer) -> LoginEndpoints {
     LoginEndpoints {
         web_origin: server.uri(),
@@ -156,6 +160,7 @@ async fn device_login_waits_for_authorization_then_saves_complete_credentials_on
         "client",
         &CancellationToken::new(),
         &save,
+        TEST_SECOND,
     )
     .await
     .unwrap();
@@ -194,6 +199,7 @@ async fn device_login_reports_failed_save_instead_of_success() {
         "client",
         &CancellationToken::new(),
         &save,
+        TEST_SECOND,
     )
     .await
     .unwrap_err();
@@ -220,6 +226,7 @@ async fn denied_or_expired_device_authorization_never_saves_credentials() {
             "client",
             &CancellationToken::new(),
             &save,
+            TEST_SECOND,
         )
         .await
         .unwrap_err();
@@ -239,15 +246,22 @@ async fn cancelled_or_timed_out_device_login_never_saves_credentials() {
         "client",
         &CancellationToken::new(),
         &save,
+        TEST_SECOND,
     )
     .await
     .unwrap_err();
     assert_eq!(error.kind, ProviderErrorKind::Timeout);
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let error = login_device_flow_with_store(&endpoints(&server), "client", &cancellation, &save)
-        .await
-        .unwrap_err();
+    let error = login_device_flow_with_store(
+        &endpoints(&server),
+        "client",
+        &cancellation,
+        &save,
+        TEST_SECOND,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(error.kind, ProviderErrorKind::Cancelled);
 }
 
@@ -319,11 +333,12 @@ async fn device_login_persists_into_home_and_a_new_store_reads_it() {
     device(&server, 15).await;
     user(&server).await;
     grant_token_once(&server).await;
-    login_device_flow_in_store(
+    login_device_flow_with_store(
         &endpoints(&server),
         "client",
         &CancellationToken::new(),
-        &store,
+        &|value| store.save(value),
+        TEST_SECOND,
     )
     .await
     .unwrap();
@@ -416,11 +431,12 @@ async fn failed_reauthentication_preserves_existing_home_login() {
         .mount(&server)
         .await;
     assert!(
-        login_device_flow_in_store(
+        login_device_flow_with_store(
             &endpoints(&server),
             "client",
             &CancellationToken::new(),
-            &store
+            &|value| store.save(value),
+            TEST_SECOND,
         )
         .await
         .is_err()
@@ -436,9 +452,13 @@ async fn failed_reauthentication_preserves_existing_home_login() {
 #[test]
 fn slow_down_adopts_the_returned_interval_with_an_rfc_floor() {
     let secs = Duration::from_secs;
-    assert_eq!(slow_down_interval(secs(5), Some(10)), secs(10));
-    assert_eq!(slow_down_interval(secs(5), None), secs(10));
-    assert_eq!(slow_down_interval(secs(10), Some(3)), secs(15));
+    let second = secs(1);
+    assert_eq!(slow_down_interval(secs(5), Some(10), second), secs(10));
+    assert_eq!(slow_down_interval(secs(5), None, second), secs(10));
+    assert_eq!(slow_down_interval(secs(10), Some(3), second), secs(15));
+    // A test clock scales every term, the RFC floor included.
+    let tick = Duration::from_millis(10);
+    assert_eq!(slow_down_interval(tick, Some(3), tick), tick * 6);
 }
 
 /// A refresh on a new runtime reaches the provider while an earlier runtime
@@ -461,8 +481,10 @@ fn a_new_runtime_refreshes_through_its_own_client() {
     stored.hostname = "fixture.example".into();
     let refresh = |runtime: &tokio::runtime::Runtime| {
         runtime.block_on(async {
+            // A refresh on another runtime's connection never completes:
+            // the bound only stands for "never", not for a slow machine.
             tokio::time::timeout(
-                std::time::Duration::from_secs(5),
+                std::time::Duration::from_secs(60),
                 refresh_stored_credentials(
                     stored.clone(),
                     &endpoints(&server),

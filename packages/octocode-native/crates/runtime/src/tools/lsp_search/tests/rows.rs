@@ -332,8 +332,8 @@ fn page_two_query_hashes_like_page_one() {
         semantic_snapshot(&first, "references", &items),
         semantic_snapshot(&second, "references", &items),
         "first={} second={}",
-        first.to_row(),
-        second.to_row()
+        lsp_search_query::to_row(&first),
+        lsp_search_query::to_row(&second)
     );
 }
 
@@ -789,10 +789,16 @@ fn relative_and_absolute_anchors_share_one_query_identity() {
     ));
     let canonical = root.join("src/a.ts").to_string_lossy().into_owned();
     for query in [&mut absolute, &mut relative, &mut uri] {
-        assert_eq!(query.resolve_paths(&paths).expect("valid"), canonical);
+        assert_eq!(resolve_paths(query, &paths).expect("valid"), canonical);
     }
-    assert_eq!(absolute.to_row(), relative.to_row());
-    assert_eq!(absolute.to_row(), uri.to_row());
+    assert_eq!(
+        lsp_search_query::to_row(&absolute),
+        lsp_search_query::to_row(&relative)
+    );
+    assert_eq!(
+        lsp_search_query::to_row(&absolute),
+        lsp_search_query::to_row(&uri)
+    );
     let items = [serde_json::json!({"name":"a"})];
     let snapshot = |query: &LspSearchQuery| semantic_snapshot(query, "documentSymbols", &items);
     assert_eq!(snapshot(&absolute), snapshot(&relative));
@@ -1106,7 +1112,7 @@ fn file_level_partial_clears_when_text_files_match() {
     let paths = crate::tools::test_support::workspace_policy(&root);
     tokio::runtime::Runtime::new()
         .expect("rt")
-        .block_on(scope.text_files("foo", &paths, &crate::tools::cancel::NeverCancel))
+        .block_on(scope.text_files("foo", &paths, &crate::execution::cancel::NeverCancel))
         .expect("scan");
     let q = query(serde_json::json!({
         "operation": "references", "path": root.join("a.ts").to_string_lossy(),
@@ -1161,7 +1167,7 @@ fn site_level_partial_survives_matching_counts() {
     let paths = crate::tools::test_support::workspace_policy(&root);
     tokio::runtime::Runtime::new()
         .expect("rt")
-        .block_on(scope.text_files("get", &paths, &crate::tools::cancel::NeverCancel))
+        .block_on(scope.text_files("get", &paths, &crate::execution::cancel::NeverCancel))
         .expect("scan");
     scope.answer([root.join("a.py").to_string_lossy()]);
     let q = query(serde_json::json!({
@@ -1251,18 +1257,19 @@ fn workspace_symbol_accepts_directory_path() {
         "operation": "workspaceSymbol", "symbolName": "f",
         "path": root.join("src").to_string_lossy()
     }));
-    let resolved = q
-        .resolve_paths(&paths)
-        .expect("a directory path is the root");
+    let resolved = resolve_paths(&mut q, &paths).expect("a directory path is the root");
     let src = root.join("src").canonicalize().expect("canonical");
     assert_eq!(resolved, src.to_string_lossy());
-    assert_eq!(q.workspace_root(), Some(src.to_string_lossy().as_ref()));
+    assert_eq!(
+        lsp_search_query::workspace_root(&q),
+        Some(src.to_string_lossy().as_ref())
+    );
     // Other operations still need a file.
     let mut refs = query(serde_json::json!({
         "operation": "references", "symbolName": "f", "line": 1,
         "path": root.join("src").to_string_lossy()
     }));
-    assert!(refs.resolve_paths(&paths).is_err());
+    assert!(resolve_paths(&mut refs, &paths).is_err());
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1278,7 +1285,7 @@ async fn incoming_walk_answers_level_one_before_importer_roots_join() {
     ]);
     graph.uri = Some(uri.clone());
     let at = |name: &str| node_at(name, Some(&uri));
-    let cancel = crate::tools::cancel::NeverCancel;
+    let cancel = crate::execution::cancel::NeverCancel;
     let mut walk = Walk::new(&paths, &[at("target")], Expansion::IncomingCalls, 2);
     assert!(walk.step(&graph, &cancel).await.expect("level 1"));
     // The level-1 answer names its files before any importer is verified.
@@ -1684,7 +1691,7 @@ fn a_cursor_past_the_end_or_of_another_answer_never_skips_rows() {
     let stale = items_payload(&next, "symbols", serde_json::json!(changed), 600);
     assert_eq!(stale["errorCode"], "staleSnapshot", "{stale}");
     // A cursor at the end of the set is out of range, not a clamped repeat.
-    let pinned = next.snapshot().expect("snapshot");
+    let pinned = lsp_search_query::snapshot(&next).expect("snapshot");
     let digest = pinned.split('@').next().expect("digest");
     let past = requery(
         &next,
@@ -1714,33 +1721,33 @@ fn a_forged_or_misplaced_cursor_is_a_stale_snapshot() {
         &q,
         items_payload(&q, "symbols", serde_json::json!(items), 600),
     ));
-    assert_eq!(second.page(), Some(2));
+    assert_eq!(lsp_search_query::page(&second), Some(2));
     let second_row = with_next(
         &second,
         items_payload(&second, "symbols", serde_json::json!(items), 600),
     );
     assert!(second_row.get("errorCode").is_none(), "{second_row}");
     let third = continuation(&second_row);
-    assert_eq!(third.page(), Some(3));
+    assert_eq!(lsp_search_query::page(&third), Some(3));
     let stale = |pinned: &str| {
         let forged = requery(&second, serde_json::json!({"snapshot": pinned}));
         let row = items_payload(&forged, "symbols", serde_json::json!(items), 600);
         assert_eq!(row["errorCode"], "staleSnapshot", "{pinned}: {row}");
         let restart = &row["next"]["restart"]["query"]["queries"][0];
-        for cursor in crate::tools::result::CURSOR_FIELDS {
+        for cursor in crate::response::result::CURSOR_FIELDS {
             assert!(restart.get(cursor).is_none(), "{cursor}: {row}");
         }
         assert!(row.get("matches").is_none(), "{row}");
     };
     // The row edited, the rest of the cursor kept.
-    let pinned = second.snapshot().expect("snapshot");
+    let pinned = lsp_search_query::snapshot(&second).expect("snapshot");
     let (digest, rest) = pinned.rsplit_once('@').expect("row cursor");
     let digits = rest.chars().take_while(char::is_ascii_digit).count();
     let row: usize = rest[..digits].parse().expect("row");
     stale(&format!("{digest}@{}{}", row + 1, &rest[digits..]));
     stale(&format!("{digest}@{}{}", row - 1, &rest[digits..]));
     // Page 3's cursor named on page 2.
-    stale(third.snapshot().expect("snapshot"));
+    stale(lsp_search_query::snapshot(&third).expect("snapshot"));
 }
 
 /// A callers page is cut on the compact call rows it prints, so it fills

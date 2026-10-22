@@ -1,6 +1,6 @@
 use super::*;
+use crate::execution::cancel::{CancellationCheck, NeverCancel};
 use crate::security::scan::ContentScan;
-use crate::tools::cancel::{CancellationCheck, NeverCancel};
 use crate::tools::test_support::Fixture;
 use sha2::Digest;
 use std::fs;
@@ -61,21 +61,22 @@ impl ContentScan for Safe {
 /// Read `req` under `paths` with the redacting test scan, no cancellation,
 /// default regex and no response window.
 fn fetch(req: &LocalFetchQuery, paths: &impl PathAccess) -> LocalFetchResult {
-    execute_local_fetch(
-        req,
-        paths,
-        &Safe,
-        &NeverCancel,
-        &LocalFetchRegex,
-        None,
-        None,
-    )
+    fetch_with(req, paths, &Safe)
+}
+
+/// [`fetch`] under the content scan `scan`.
+pub(super) fn fetch_with(
+    req: &LocalFetchQuery,
+    paths: &impl PathAccess,
+    scan: &impl crate::security::scan::ContentScan,
+) -> LocalFetchResult {
+    execute_local_fetch(req, paths, scan, &NeverCancel, None, None)
 }
 
 pub(super) fn q(path: &Path) -> LocalFetchQuery {
     LocalFetchQuery {
         path: path.to_string_lossy().parse().expect("path"),
-        ..LocalFetchQuery::test_default()
+        ..test_local_fetch_query()
     }
 }
 fn numbered(n: usize) -> String {

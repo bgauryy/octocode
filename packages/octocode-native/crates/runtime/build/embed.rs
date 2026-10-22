@@ -1,13 +1,17 @@
 //! Tool contract embedding: fingerprint and provenance guards, per-tool byte
 //! spans, and the `tool_contract.rs` include of the exact bytes read.
 
-use super::tool_gen::render_tool_ids;
+use super::tool_gen::{render_listing_roles, render_query_limits, render_tool_ids};
 use super::{config_path, integer, invalid, string};
 use serde_json::Value;
 use std::env;
 use std::error::Error;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+
+/// Lines of the generated `tool_types.rs` header that hold its fingerprint.
+const TOOL_TYPES_HEADER_LINES: usize = 32;
 
 /// Byte span of every `tools[]` element inside the embedded contract text, in
 /// contract (= `ToolId::ALL`) order. The runtime parses only the tool a call
@@ -126,9 +130,15 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
             "octocode-config contract/provenance.json does not match tool-contract.json; run `yarn workspace @octocodeai/config generate:tool-contract`",
         ));
     }
-    if !fs::read_to_string(file("tool_types.rs"))?.contains(&format!(
-        "pub const TOOL_TYPES_CONTRACT_FINGERPRINT: &str = \"{fingerprint}\";"
-    )) {
+    // The generator writes the fingerprint in the file's header; only the
+    // header is read, never the multi-megabyte type definitions.
+    let fingerprint_line =
+        format!("pub const TOOL_TYPES_CONTRACT_FINGERPRINT: &str = \"{fingerprint}\";");
+    let header = BufReader::new(fs::File::open(file("tool_types.rs"))?)
+        .lines()
+        .take(TOOL_TYPES_HEADER_LINES)
+        .collect::<Result<Vec<_>, _>>()?;
+    if !header.contains(&fingerprint_line) {
         return Err(invalid(
             "octocode-config contract/tool_types.rs was generated from a different contract; run `yarn workspace @octocodeai/config generate:tool-contract`",
         ));
@@ -142,14 +152,19 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
             "octocode-config contract/cli-presentation.json does not match tool-contract.json; run `yarn workspace @octocodeai/config generate:tool-contract`",
         ));
     }
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    fs::write(out_dir.join("tool_ids.rs"), render_tool_ids(&contract)?)?;
     fs::write(
-        PathBuf::from(env::var("OUT_DIR")?).join("tool_ids.rs"),
-        render_tool_ids(&contract)?,
+        out_dir.join("query_limits.rs"),
+        render_query_limits(&contract)?,
+    )?;
+    fs::write(
+        out_dir.join("listing_roles.rs"),
+        render_listing_roles(&contract)?,
     )?;
     // Embed the exact bytes read above: spans and fingerprint come from this
     // read, so a regeneration racing the build cannot pair them with newer
     // text that `include_str!` of the source file would pick up.
-    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::write(out_dir.join("tool-contract.json"), &text)?;
     fs::write(out_dir.join("provenance.json"), &provenance_text)?;
     fs::write(out_dir.join("cli-presentation.json"), &presentation_text)?;

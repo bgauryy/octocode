@@ -59,13 +59,12 @@ impl<'a> Folded<'a> {
         }
         // Between changed chars every char keeps its width: the offset
         // shifts by the widths the changes before it gained or lost.
-        let mut byte = match index.checked_sub(1).map(|before| &self.changes[before]) {
-            Some((folded, source)) => at - folded.end + source.end,
-            None => at,
-        };
-        while !self.source.is_char_boundary(byte) {
-            byte -= 1;
-        }
+        let byte = self.source.floor_char_boundary(
+            match index.checked_sub(1).map(|before| &self.changes[before]) {
+                Some((folded, source)) => at - folded.end + source.end,
+                None => at,
+            },
+        );
         let width = self.source[byte..].chars().next().map_or(0, char::len_utf8);
         byte..byte + width
     }

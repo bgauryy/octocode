@@ -3,10 +3,15 @@
 
 use super::LspSearchQuery;
 use super::render::uri_to_path;
-use crate::tools::id::ToolId;
-use crate::tools::num::u32_of_usize;
+use crate::id::ToolId;
+use crate::num::u32_of_usize;
+use crate::response::result::Confidence;
+use crate::tools::lsp_search::lsp_search_query;
 use octocode_engine::error::{Error as EngineError, ErrorCode, ErrorKind};
 use serde_json::{Value, json};
+
+/// The code of a failure the request's cancel or deadline caused.
+const CANCELLED: &str = "cancelled";
 
 /// A request-level failure `execute` could not render as a row. The
 /// dispatcher emits `code`/`message`/`hint`/`retryable` verbatim, so each
@@ -75,12 +80,18 @@ impl LspFailure {
     /// the runtime cancellation outcome instead of this row.
     pub(super) fn cancelled(message: String) -> Self {
         Self {
-            code: "cancelled",
+            code: CANCELLED,
             message,
             retryable: false,
             hint: "The request was cancelled or exceeded its deadline.",
             lexical_fallback: false,
         }
+    }
+
+    /// Whether the request's cancel or deadline caused this failure: such a
+    /// failure ends the request instead of falling back.
+    pub(super) fn is_cancelled(&self) -> bool {
+        self.code == CANCELLED
     }
 
     /// Path-policy refusal: the same code local reads use, so agents route it
@@ -89,9 +100,9 @@ impl LspFailure {
         use crate::policy::PolicyErrorCode;
         let hint = match error.code {
             PolicyErrorCode::OutsideAllowedRoots | PolicyErrorCode::SymlinkEscape => {
-                crate::tools::output::SANDBOX_HINT
+                crate::response::output::SANDBOX_HINT
             }
-            _ => crate::tools::output::LIST_FILES_HINT,
+            _ => crate::response::output::LIST_FILES_HINT,
         };
         Self {
             code: error.local_error_code("fileAccessFailed"),
@@ -171,9 +182,9 @@ impl LspFailure {
     pub(super) fn row(&self, query: &LspSearchQuery, canonical_uri: &str) -> Value {
         let mut value = failure(query, canonical_uri, self.code, &self.message, false);
         value["hints"] = json!([self.hint]);
-        if query.operation() == "callers" {
+        if lsp_search_query::operation(query) == "callers" {
             let mut references =
-                crate::tools::result::query_row(query, &["graphDepth", "page", "snapshot"]);
+                crate::response::result::query_row(query, &["graphDepth", "page", "snapshot"]);
             references["operation"] = json!("references");
             value["next"]["findReferences"] = continuation(references);
         }
@@ -214,17 +225,23 @@ impl From<EngineError> for LspFailure {
 /// per-call notes say it all (`anchorUnresolved`: `findSimilar`/`read`).
 pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> Option<&'static str> {
     Some(match code {
-        "serverUnavailable" if query.operation() == "workspaceSymbol" && query.path().is_none() => {
+        "serverUnavailable"
+            if lsp_search_query::operation(query) == "workspaceSymbol"
+                && lsp_search_query::path(query).is_none() =>
+        {
             "Provide path for a representative workspace source file so Octocode can select its language server."
         }
         // The row's `next.read` (and `next.findText` for a symbol) is the
         // fallback; no static tip repeats it.
-        "serverUnavailable" if query.path().is_some() => return None,
+        "serverUnavailable" if lsp_search_query::path(query).is_some() => return None,
         "serverUnavailable" => {
             "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
         }
         "capabilityUnavailable"
-            if matches!(query.op(), super::Op::Supertypes | super::Op::Subtypes) =>
+            if matches!(
+                lsp_search_query::op(query),
+                super::Op::Supertypes | super::Op::Subtypes
+            ) =>
         {
             "This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source."
         }
@@ -283,15 +300,15 @@ pub(super) fn failure(
         value["path"] = json!(super::render::uri_to_path(canonical_uri));
     }
     if code == "timeout" {
-        value["next"]["retry"] = continuation(query_value(query));
+        value["next"]["retry"] = continuation(lsp_search_query::to_row(query));
     }
-    if query.path().is_some() {
+    if lsp_search_query::path(query).is_some() {
         attach_recovery_next(&mut value, query);
         match code {
             "serverUnavailable" => attach_text_search(&mut value, query, None),
             // Whatever the server held is lost: the lexical check is all
             // that is left, and no verification stands behind it.
-            "serverCrashed" => attach_text_search(&mut value, query, Some("low")),
+            "serverCrashed" => attach_text_search(&mut value, query, Some(Confidence::Low)),
             _ => {}
         }
     }
@@ -301,17 +318,19 @@ pub(super) fn failure(
 /// With no language server, the lexical check of a named symbol: a
 /// whole-word, case-sensitive localSearch over the workspace (else the
 /// file's directory).
-fn attach_text_search(value: &mut Value, query: &LspSearchQuery, confidence: Option<&str>) {
-    let Some(symbol) = query.symbol_name().filter(|name| !name.trim().is_empty()) else {
+fn attach_text_search(value: &mut Value, query: &LspSearchQuery, confidence: Option<Confidence>) {
+    let Some(symbol) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
+    else {
         return;
     };
-    let path = query.path().map(uri_to_path).unwrap_or_default();
+    let path = lsp_search_query::path(query)
+        .map(uri_to_path)
+        .unwrap_or_default();
     let file = std::path::Path::new(&path);
     if file.is_dir() {
         return; // `next.read` already searches the directory.
     }
-    let Some(scope) = query
-        .workspace_root()
+    let Some(scope) = lsp_search_query::workspace_root(query)
         .map(uri_to_path)
         .or_else(|| file.parent().map(|dir| dir.to_string_lossy().into_owned()))
     else {
@@ -338,17 +357,17 @@ pub(super) fn empty(
         "reason": reason,
         "lsp": { "serverAvailable": server_available },
     });
-    if let Some(hint) = empty_hint(category, query.operation()) {
+    if let Some(hint) = empty_hint(category, lsp_search_query::operation(query)) {
         row["hints"] = json!([hint]);
     }
     // A workspaceRoot-only query has no file: the row names none.
-    if let Some(path) = query.path() {
+    if let Some(path) = lsp_search_query::path(query) {
         row["path"] = json!(path);
         // Incoming rows get the evidence-based include disclosure instead
         // (see `server_coverage`).
         if category == "noLocations"
             && path.ends_with(".rs")
-            && !super::inferred_project::is_incoming(query.operation())
+            && !super::inferred_project::is_incoming(lsp_search_query::operation(query))
             && let Some(includes) = super::server_coverage::package_includes(&uri_to_path(path))
             && let Some(hints) = row["hints"].as_array_mut()
         {
@@ -381,35 +400,29 @@ const OUTSIDE_INCLUDE_TIP: &str = "A name defined in source this package include
 /// (`rustContext.buildScripts: true`, the rest of its Rust context kept),
 /// from the walk's first page.
 pub(super) fn build_scripts_rerun(query: &LspSearchQuery) -> Value {
-    let mut rerun = query.to_row();
+    let mut rerun = lsp_search_query::to_row(query);
     if let Some(fields) = rerun.as_object_mut() {
         fields.retain(|key, value| {
-            !value.is_null() && !crate::tools::result::CURSOR_FIELDS.contains(&key.as_str())
+            !value.is_null() && !crate::response::result::CURSOR_FIELDS.contains(&key.as_str())
         });
     }
-    let mut context = query.rust_context().unwrap_or_else(|| json!({}));
+    let mut context = lsp_search_query::rust_context(query).unwrap_or_else(|| json!({}));
     context["buildScripts"] = json!(true);
     rerun["rustContext"] = context;
-    crate::tools::result::Continuation::new(crate::tools::id::ToolId::LspSearch, rerun)
-        .confidence("medium")
+    crate::response::result::Continuation::new(crate::id::ToolId::LspSearch, rerun)
+        .confidence(Confidence::Medium)
         .build()
 }
 
 /// Whether the request already runs build scripts (`rustContext.buildScripts`).
 pub(super) fn runs_build_scripts(query: &LspSearchQuery) -> bool {
-    query
-        .rust_context()
-        .is_some_and(|context| context["buildScripts"] == true)
-}
-
-pub(super) fn query_value(query: &LspSearchQuery) -> Value {
-    serde_json::to_value(query).unwrap_or_else(|_| json!({}))
+    lsp_search_query::rust_context(query).is_some_and(|context| context["buildScripts"] == true)
 }
 
 /// An exact, executable `lspSearch` continuation.
 pub(super) fn continuation(query: Value) -> Value {
-    crate::tools::result::Continuation::new(ToolId::LspSearch, query)
-        .confidence("exact")
+    crate::response::result::Continuation::new(ToolId::LspSearch, query)
+        .confidence(Confidence::Exact)
         .build()
 }
 
@@ -464,8 +477,8 @@ pub(super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &Value, line
         return;
     }
     let line = u64::from(line);
-    let errors = super::render::as_array(diagnostics)
-        .into_iter()
+    let errors = super::render::items(diagnostics)
+        .iter()
         .filter(|item| item.get("severity").and_then(Value::as_str) == Some("error"))
         .filter(|item| {
             let start = item
@@ -500,7 +513,7 @@ pub(super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &Value, line
     let warning = format!(
         "The language server reports an error on line {line}: {message}{source}{more}. Its analysis of this line is incomplete, so empty is not absence."
     );
-    crate::tools::paging::mark_partial(row, ANCHOR_LINE_ERROR, &[warning]);
+    crate::response::paging::mark_partial(row, ANCHOR_LINE_ERROR, &[warning]);
     if let Some(path) = row.get("path").and_then(Value::as_str) {
         row["next"]["diagnostics"] = continuation(json!({"operation": "diagnostic", "path": path}));
     }
@@ -517,8 +530,8 @@ pub(super) fn partial_with_retry(
     if !row.is_object() {
         return;
     }
-    crate::tools::paging::mark_partial(row, reason, warnings);
-    row["next"]["retry"] = continuation(query_value(query));
+    crate::response::paging::mark_partial(row, reason, warnings);
+    row["next"]["retry"] = continuation(lsp_search_query::to_row(query));
 }
 
 /// Partial reason of a references or callers row whose alias recovery lost
@@ -542,7 +555,7 @@ pub(super) struct RequestFailures {
 impl RequestFailures {
     /// Record `failure`, or return it when it is a cancellation.
     pub(super) fn record(&mut self, failure: LspFailure) -> Result<(), LspFailure> {
-        if failure.code == "cancelled" {
+        if failure.is_cancelled() {
             return Err(failure);
         }
         self.push(format!("{} ({})", failure.message, failure.code), 1);
@@ -618,11 +631,11 @@ pub(super) fn offer_next_page(
         return;
     };
     let Some(page) =
-        crate::tools::paging::next_cursor(row, ToolId::LspSearch, None, "page", next.page)
+        crate::response::paging::next_cursor(row, ToolId::LspSearch, None, "page", next.page)
     else {
         return;
     };
-    let mut next_query = query_value(query);
+    let mut next_query = lsp_search_query::to_row(query);
     if let Some(object) = next_query.as_object_mut() {
         object.insert("page".into(), json!(page));
         object.insert("snapshot".into(), json!(next.snapshot));
@@ -636,13 +649,13 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
         // A workspaceRoot-only query has no file to fall back to reading, and
         // reading source cannot stand in for missing diagnostics.
         let category = value.pointer("/category").and_then(Value::as_str);
-        if query.path().is_some()
+        if lsp_search_query::path(query).is_some()
             && !matches!(category, Some("noDiagnostics" | "diagnosticsNotPublished"))
         {
             attach_recovery_next(&mut value, query);
         }
     }
-    if let Some(context) = &query.rust_context() {
+    if let Some(context) = &lsp_search_query::rust_context(query) {
         value["rustContext"] = json!({
             "context": context,
             "fingerprint": super::receipt::rust_fingerprint(context)
@@ -670,8 +683,10 @@ pub(super) fn path_failure(
         "error": failure.message,
         "lsp": { "serverAvailable": false },
     });
-    let requested = query.path().map(uri_to_path).unwrap_or_default();
-    if let Some(next) = crate::tools::result::missing_path_lead(paths, &requested) {
+    let requested = lsp_search_query::path(query)
+        .map(uri_to_path)
+        .unwrap_or_default();
+    if let Some(next) = crate::response::result::missing_path_lead(paths, &requested) {
         row["next"] = next;
     }
     Ok(row)
@@ -684,7 +699,7 @@ pub(super) fn directory_anchor(
     query: &LspSearchQuery,
     paths: &crate::policy::path::PathPolicy,
 ) -> Option<Value> {
-    let decoded = super::render::decode_uri_path(query.path()?).ok()?;
+    let decoded = super::render::decode_uri_path(lsp_search_query::path(query)?).ok()?;
     let directory = paths
         .validate(&decoded)
         .ok()
@@ -699,15 +714,12 @@ pub(super) fn directory_anchor(
         "error": format!("{name} is a directory, not a file."),
         "lsp": { "serverAvailable": false },
     });
-    match query
-        .symbol_name()
-        .filter(|symbol| !symbol.trim().is_empty())
-    {
+    match lsp_search_query::symbol_name(query).filter(|symbol| !symbol.trim().is_empty()) {
         Some(symbol) => {
             row["next"]["findText"] = text_search_lead(symbol, &name, &[], None).build();
         }
         None => {
-            row["next"]["list"] = crate::tools::result::Continuation::new(
+            row["next"]["list"] = crate::response::result::Continuation::new(
                 ToolId::StructureSearch,
                 json!({"operation": "files", "path": name}),
             )
@@ -720,12 +732,14 @@ pub(super) fn directory_anchor(
 /// `next.read` recovery: the symbol's match windows when a name anchored
 /// the request (not the whole file), otherwise the file's default view.
 pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
-    let path = query.path().map(uri_to_path).unwrap_or_default();
-    let symbol = query.symbol_name().filter(|name| !name.trim().is_empty());
+    let path = lsp_search_query::path(query)
+        .map(uri_to_path)
+        .unwrap_or_default();
+    let symbol = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty());
     // A directory (a workspaceSymbol scope) is searched, not fetched.
     if let Some(symbol) = symbol.filter(|_| std::path::Path::new(&path).is_dir()) {
         value["next"]["read"] = text_search_lead(symbol, &path, &[], None)
-            .confidence("exact")
+            .confidence(Confidence::Exact)
             .build();
         return;
     }
@@ -735,8 +749,8 @@ pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
         read["caseMode"] = json!("sensitive");
         read["contextLines"] = json!(3);
     }
-    value["next"]["read"] = crate::tools::result::Continuation::new(ToolId::LocalFetch, read)
-        .confidence("exact")
+    value["next"]["read"] = crate::response::result::Continuation::new(ToolId::LocalFetch, read)
+        .confidence(Confidence::Exact)
         .build();
 }
 
@@ -750,10 +764,13 @@ const SUGGESTION_RADIUS: usize = 20;
 /// `next.findSimilar`; without any candidate, a read of the lines around
 /// `line` (a `matchString` of the missing name cannot match).
 pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source: Option<&str>) {
-    let (Some(name), Some(path)) = (query.symbol_name(), query.path().map(uri_to_path)) else {
+    let (Some(name), Some(path)) = (
+        lsp_search_query::symbol_name(query),
+        lsp_search_query::path(query).map(uri_to_path),
+    ) else {
         return;
     };
-    let hint = query.anchor_line().filter(|line| *line > 0);
+    let hint = lsp_search_query::anchor_line(query).filter(|line| *line > 0);
     if let (Some(source), Some(line)) = (source, hint)
         && order_hint_recovery(value, query, source, name, line)
     {
@@ -784,12 +801,12 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
         .unwrap_or_default();
     let leads = exact
         .iter()
-        .map(|line| (name.to_owned(), *line, "high"))
+        .map(|line| (name.to_owned(), *line, Confidence::High))
         .chain(
             near.iter()
-                .map(|(word, line)| (word.clone(), *line, "medium")),
+                .map(|(word, line)| (word.clone(), *line, Confidence::Medium)),
         )
-        .take(crate::tools::result::rows_per_call(ToolId::LspSearch))
+        .take(crate::response::result::rows_per_call(ToolId::LspSearch))
         .collect::<Vec<_>>();
     if let Some(object) = value["next"].as_object_mut() {
         object.remove("read");
@@ -798,8 +815,8 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
     // declared elsewhere, so the lead searches the workspace for it.
     if leads.is_empty() && !mentions.is_empty() {
         value["next"]["findSimilar"] =
-            crate::tools::result::Continuation::new(ToolId::LspSearch, workspace_symbol(query))
-                .confidence("medium")
+            crate::response::result::Continuation::new(ToolId::LspSearch, workspace_symbol(query))
+                .confidence(Confidence::Medium)
                 .build();
         return;
     }
@@ -812,7 +829,7 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
             u32_of_usize(source.lines().count().max(1))
         });
         let line = line.min(last);
-        value["next"]["read"] = crate::tools::result::Continuation::new(
+        value["next"]["read"] = crate::response::result::Continuation::new(
             ToolId::LocalFetch,
             json!({
                 "path": path,
@@ -823,11 +840,11 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
                 )]
             }),
         )
-        .confidence("exact")
+        .confidence(Confidence::Exact)
         .build();
     }
     for (index, (symbol, line, confidence)) in leads.iter().enumerate() {
-        let mut retry = query_value(query);
+        let mut retry = lsp_search_query::to_row(query);
         if let Some(object) = retry.as_object_mut() {
             object.insert("symbolName".into(), json!(symbol));
             object.insert("line".into(), json!(line));
@@ -837,7 +854,7 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
             0 => "findSimilar".to_owned(),
             n => format!("findSimilar{}", n + 1),
         };
-        value["next"][key] = crate::tools::result::Continuation::new(ToolId::LspSearch, retry)
+        value["next"][key] = crate::response::result::Continuation::new(ToolId::LspSearch, retry)
             .confidence(*confidence)
             .build();
     }
@@ -875,7 +892,7 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
 /// server: the fields that operation takes, nothing anchor-specific.
 fn workspace_symbol(query: &LspSearchQuery) -> Value {
     let mut search = json!({"operation": "workspaceSymbol"});
-    let asked = query_value(query);
+    let asked = lsp_search_query::to_row(query);
     for key in ["path", "symbolName", "workspaceRoot", "rustContext"] {
         if let Some(value) = asked.get(key).filter(|value| !value.is_null()) {
             search[key] = value.clone();
@@ -895,7 +912,7 @@ fn order_hint_recovery(
     name: &str,
     line: u32,
 ) -> bool {
-    let Some(order_hint) = query.order_hint() else {
+    let Some(order_hint) = lsp_search_query::order_hint(query) else {
         return false;
     };
     let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
@@ -918,14 +935,14 @@ fn order_hint_recovery(
     if order_hint <= last {
         return false;
     }
-    let mut retry = query_value(query);
+    let mut retry = lsp_search_query::to_row(query);
     retry["orderHint"] = json!(last);
     if let Some(object) = value["next"].as_object_mut() {
         object.remove("read");
     }
     value["next"]["findSimilar"] =
-        crate::tools::result::Continuation::new(ToolId::LspSearch, retry)
-            .confidence("high")
+        crate::response::result::Continuation::new(ToolId::LspSearch, retry)
+            .confidence(Confidence::High)
             .build();
     true
 }
@@ -1028,11 +1045,11 @@ fn near_names(path: &str, source: &str, name: &str, hint: Option<u32>) -> Vec<(S
 /// reason is moot and is not flagged. Cfg-gated code can hide sites inside
 /// listed files, so file agreement never clears it.
 pub(super) const FILE_LEVEL_REASONS: [&str; 9] = [
-    "inferredProject",
-    "importerScanCapped",
-    "importerScanFailed",
-    "aliasScanCapped",
-    "noCompileDatabase",
+    super::inferred_project::REASON,
+    super::importers::CAPPED_REASON,
+    super::inferred_project::FAILED_REASON,
+    super::recovery::ALIAS_SCAN_CAPPED_REASON,
+    super::inferred_project::NO_COMPILE_DATABASE_REASON,
     super::server_coverage::BUILD_SCRIPTS_REASON,
     super::server_coverage::OUTSIDE_INCLUDE_REASON,
     super::server_coverage::SHARED_MODULE_REASON,
@@ -1041,7 +1058,7 @@ pub(super) const FILE_LEVEL_REASONS: [&str; 9] = [
 /// File-level reasons that are fixed per-request caps (a terminal limit).
 /// The importer cap is not one: `next.nextImporterPage` verifies the next
 /// window of candidates.
-const CAPPED_REASONS: [&str; 1] = ["aliasScanCapped"];
+const CAPPED_REASONS: [&str; 1] = [super::recovery::ALIAS_SCAN_CAPPED_REASON];
 /// At most this many text-only files are listed as one bulk lead.
 pub(super) const LISTED_TEXT_FILES: usize = 5;
 
@@ -1056,7 +1073,7 @@ pub(super) fn flag_partial(
     warning: Option<&str>,
     scope: &super::scope::Scope,
 ) {
-    let name = query.symbol_name().filter(|name| !name.trim().is_empty());
+    let name = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty());
     let text_only = name.and_then(|name| scope.text_only_files(name));
     let agrees = text_only.as_ref().is_some_and(Vec::is_empty);
     // The lead also reads the anchor file when it uses the name on lines
@@ -1091,16 +1108,16 @@ pub(super) fn flag_partial(
             // A fixed per-request cap: no page or retry reaches the
             // unchecked files, only the lexical lead below.
             if CAPPED_REASONS.contains(&reason) {
-                crate::tools::paging::terminal_limit(row, reason, &warnings);
+                crate::response::paging::terminal_limit(row, reason, &warnings);
             } else {
-                crate::tools::paging::mark_partial(row, reason, &warnings);
+                crate::response::paging::mark_partial(row, reason, &warnings);
             }
             row["next"]["findText"] =
                 text_search_lead(name, &scope.root, &scope.include, lead_files.as_deref()).build();
         }
         // A position anchor has no name to search for: coverage reason and
         // warning only.
-        None => crate::tools::paging::push_warnings(row, warnings),
+        None => crate::response::paging::push_warnings(row, warnings),
     }
 }
 
@@ -1161,11 +1178,11 @@ pub(super) fn ignored_text_lead(
     for row in &mut rows {
         row["includeIgnored"] = json!(true);
     }
-    crate::tools::result::Continuation::input(ToolId::LocalSearch, json!({"queries": rows}))
+    crate::response::result::Continuation::input(ToolId::LocalSearch, json!({"queries": rows}))
         .confidence(if broad || unfinished || files.is_empty() {
-            "medium"
+            Confidence::Medium
         } else {
-            "high"
+            Confidence::High
         })
         .build()
 }
@@ -1191,21 +1208,22 @@ pub(super) fn text_search_lead(
     root: &str,
     include: &[String],
     files: Option<&[String]>,
-) -> crate::tools::result::Continuation {
+) -> crate::response::result::Continuation {
     let row = |path: &str| text_search_row(name, path);
     if let Some(files) = files.filter(|files| (1..=LISTED_TEXT_FILES).contains(&files.len())) {
         let rows = files.iter().map(|file| row(file)).collect::<Vec<_>>();
-        return crate::tools::result::Continuation::input(
+        return crate::response::result::Continuation::input(
             ToolId::LocalSearch,
             json!({ "queries": rows }),
         )
-        .confidence("high");
+        .confidence(Confidence::High);
     }
     let mut search = row(root);
     if !include.is_empty() {
         search["include"] = json!(include);
     }
-    crate::tools::result::Continuation::new(ToolId::LocalSearch, search).confidence("medium")
+    crate::response::result::Continuation::new(ToolId::LocalSearch, search)
+        .confidence(Confidence::Medium)
 }
 
 /// `files` named as the response names them: relative to the workspace when
@@ -1227,8 +1245,8 @@ pub(super) fn shown_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::cancel::NeverCancel;
     use crate::security::ContentSecurity;
-    use crate::tools::cancel::NeverCancel;
     use crate::tools::local_search::{LocalSearchQuery, execute_local_search};
 
     /// The lexical lead is a call as given: each of its rows runs through

@@ -5,13 +5,14 @@
 //! contract validation, identically for CLI JSON and MCP.
 
 use super::pager::{
-    ResponseError, ResponseInput, ResponsePageOptions, ResponsePager, ResponsePagerConfig,
+    PreparedResponse, ResponseError, ResponseInput, ResponsePageOptions, ResponsePager,
+    ResponsePagerConfig, SavedPages,
 };
 use crate::contracts::{self, ContractValidationError};
-use crate::runtime::ToolOutcome;
-use crate::runtime::{ExecutionContext, ExecutionError};
-use crate::tools::id::ToolId;
-use crate::tools::result::FailureKind;
+use crate::execution::{ExecutionContext, ExecutionError};
+use crate::id::ToolId;
+use crate::response::outcome::ToolOutcome;
+use crate::response::result::FailureKind;
 use serde_json::Value;
 
 pub(crate) struct StageInput {
@@ -19,17 +20,16 @@ pub(crate) struct StageInput {
     /// Sanitized `{results}` envelope after evidence selection.
     pub structured: Value,
     /// Normalized input; the pager builds `responsePagination.next` from it.
-    pub response_query: Value,
+    pub(crate) response_query: Value,
     pub options: ResponsePageOptions,
     pub mcp: bool,
     pub failure: Option<FailureKind>,
     pub auto_page_chars: usize,
     /// Encoding of the rendered text channel (`output.format`).
-    pub text_format: super::render::TextFormat,
+    pub(crate) text_format: super::render::TextFormat,
     /// False only when saved-result storage failed and the complete result
     /// must be returned without an unusable display continuation.
-    pub allow_auto_paging: bool,
-    pub source_digest: Option<String>,
+    pub(crate) allow_auto_paging: bool,
 }
 
 /// The page-independent half of the stage: selection receipts, line
@@ -43,7 +43,7 @@ pub(crate) fn settle(
     response_query: &Value,
     failure: &mut Option<FailureKind>,
 ) -> Result<Vec<Vec<super::pages::Remaining>>, ContractValidationError> {
-    crate::tools::selection_errors::decorate(tool, structured, response_query);
+    crate::response::selection_errors::decorate(tool, structured, response_query);
     super::notices::place(structured, tool.output().rows_key());
     super::channels::publish_hints(structured, tool);
     // The notes stay with the pager for the pages a split row moves.
@@ -51,7 +51,7 @@ pub(crate) fn settle(
     // Hosts show agents this JSON: source reads carry their line numbers in
     // `content` itself, and both text encodings render from it. Numbering
     // precedes validation so an unpaged response is exactly what was checked.
-    crate::tools::numbered::number_read_rows(tool, structured);
+    crate::response::numbered::number_read_rows(tool, structured);
     // Validate the complete, sanitized rows before deriving text, error state,
     // or a pagination snapshot from them.
     if isolate_output_rows(tool.as_str(), structured)? && failure.is_none() {
@@ -61,37 +61,15 @@ pub(crate) fn settle(
     Ok(remaining)
 }
 
-/// Rendered text a replayed envelope keeps for its later pages: the text of
-/// the envelope with or without transient telemetry (`stripped`).
-#[derive(Default)]
-pub(crate) struct TextCache(std::sync::Mutex<Option<(bool, String)>>);
-
-impl TextCache {
-    fn get_or_render(&self, stripped: bool, render: impl FnOnce() -> String) -> String {
-        let mut cached = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match cached.as_ref() {
-            Some((was_stripped, text)) if *was_stripped == stripped => text.clone(),
-            _ => {
-                let text = render();
-                *cached = Some((stripped, text.clone()));
-                text
-            }
-        }
-    }
-}
-
 /// The page-dependent half of the stage over a [`settle`]d envelope: text,
-/// paging and the paged shape's contract check. `text` reuses a replay's
-/// rendered text; `keep` (a first execution's replay seed) receives the
-/// settled envelope only when the response windows, so a response that fits
-/// one page is never copied.
+/// paging and the paged shape's contract check. `keep` (a first execution's
+/// replay seed) receives the settled envelope, and `pages` the text it
+/// drew, only when the response windows, so a response that fits one page
+/// is never copied.
 pub(crate) fn respond(
     input: StageInput,
     remaining: Vec<Vec<super::pages::Remaining>>,
-    text: Option<&TextCache>,
+    pages: Option<&SavedPages>,
     keep: Option<&mut Option<Value>>,
     context: &ExecutionContext,
 ) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
@@ -105,7 +83,6 @@ pub(crate) fn respond(
         auto_page_chars,
         text_format,
         allow_auto_paging,
-        source_digest,
     } = input;
     let all_failed = response_all_failed(&structured);
     let mut keep = keep;
@@ -134,9 +111,10 @@ pub(crate) fn respond(
         (render && !windowed).then(|| {
             let draw =
                 || super::render::render_tool(tool, &structured, &response_query, text_format);
-            match text {
-                Some(cache) => cache.get_or_render(stripped, draw),
-                None => draw(),
+            match pages {
+                // Only a scoped response windows, and keeps its text.
+                Some(pages) if scoped => pages.text(stripped, draw),
+                _ => std::sync::Arc::new(draw()),
             }
         })
     };
@@ -175,26 +153,77 @@ pub(crate) fn respond(
             &context.cancellation,
         )
         .map_err(response_failure)?;
-    let mut structured_content = prepared.structured_content;
     context.check()?;
-    // Page shaping crosses the public contract as well; rows validated
-    // above and left unpaged are not validated twice.
+    Ok(finish(tool, prepared, reshaped, failure, all_failed))
+}
+
+/// A later page of a saved response: cut from `pages`, the memo built from
+/// its settled `envelope` on the first read, so the envelope is neither
+/// copied nor re-planned per page. `input.structured` is unused.
+pub(crate) fn respond_saved(
+    input: StageInput,
+    envelope: &Value,
+    remaining: &[Vec<super::pages::Remaining>],
+    pages: &SavedPages,
+    context: &ExecutionContext,
+) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
+    let StageInput {
+        tool,
+        response_query,
+        options,
+        failure,
+        text_format,
+        ..
+    } = input;
+    let all_failed = response_all_failed(envelope);
+    context.check()?;
+    let mut query = response_query.clone();
+    super::continuations::compact_input(tool.as_str(), &mut query);
+    let reshaped = options.rows_scope() || options.structured_scope();
+    let prepared = ResponsePager::new(ResponsePagerConfig::default())
+        .prepare_saved(
+            &ResponseInput {
+                tool: tool.as_str().into(),
+                query,
+                structured: Value::Null,
+                rendered_text: None,
+                is_error: all_failed,
+                options,
+                remaining: remaining.to_vec(),
+            },
+            envelope,
+            pages,
+            |structured| super::render::render_tool(tool, structured, &response_query, text_format),
+            &context.cancellation,
+        )
+        .map_err(response_failure)?;
+    context.check()?;
+    Ok(finish(tool, prepared, reshaped, failure, all_failed))
+}
+
+/// The paged shape's contract check, then the outcome. Page shaping crosses
+/// the public contract as well; rows validated before paging and left
+/// unpaged are not validated twice.
+fn finish(
+    tool: ToolId,
+    prepared: PreparedResponse,
+    reshaped: bool,
+    failure: Option<FailureKind>,
+    all_failed: bool,
+) -> Result<ToolOutcome, ContractValidationError> {
+    let mut structured_content = prepared.structured_content;
     let paged = reshaped
         || structured_content.get("responsePagination").is_some()
         || structured_content.get("responseWindow").is_some();
-    if paged
-        && let Err(error) =
-            contracts::validate_output_in_place(tool.as_str(), &mut structured_content)
-    {
-        return Ok(Err(error));
+    if paged {
+        contracts::validate_output_in_place(tool.as_str(), &mut structured_content)?;
     }
-    Ok(Ok(ToolOutcome {
+    Ok(ToolOutcome {
         structured_content,
         content: prepared.content,
-        source_digest,
         failure,
         all_failed,
-    }))
+    })
 }
 
 fn response_failure(error: ResponseError) -> ExecutionError {
@@ -307,7 +336,6 @@ mod tests {
                 auto_page_chars: 20_000,
                 text_format: super::super::render::TextFormat::Yaml,
                 allow_auto_paging: true,
-                source_digest: None,
             },
             &context(),
         )
@@ -323,44 +351,50 @@ mod tests {
 
     /// The envelope is sized before any text is drawn: one past the
     /// automatic page pages by rows without rendering, and only a windowed
-    /// response copies its envelope for later pages.
+    /// response copies its envelope (and keeps its text) for later pages.
     #[test]
     fn automatic_row_pages_skip_the_text_render_and_only_windows_keep_a_copy() {
-        let respond_with = |content: String| {
+        let respond_with = |content: String, scope: Option<&str>| {
             let structured = json!({"results":[{"index":0,"data":{"path":"a.txt","content":content,"totalLines":1}}]});
-            let text = TextCache::default();
+            let pages = SavedPages::default();
             let mut kept = None;
             let outcome = respond(
                 StageInput {
                     tool: ToolId::LocalFetch,
                     structured,
                     response_query: json!({"path":"/tmp/a.txt"}),
-                    options: ResponsePageOptions::default(),
+                    options: ResponsePageOptions {
+                        response_length: scope.map(|_| 1_000),
+                        response_scope: scope.map(Into::into),
+                        ..ResponsePageOptions::default()
+                    },
                     mcp: true,
                     failure: None,
                     auto_page_chars: 1_000,
                     text_format: super::super::render::TextFormat::Yaml,
                     allow_auto_paging: true,
-                    source_digest: None,
                 },
                 Vec::new(),
-                Some(&text),
+                Some(&pages),
                 Some(&mut kept),
                 &context(),
             )
             .expect("stage runs")
             .expect("valid envelope");
-            let rendered = text.0.lock().expect("cache").is_some();
-            (outcome, rendered, kept.is_some())
+            (outcome, pages.has_text(), kept.is_some())
         };
-        let (outcome, rendered, kept) = respond_with("x".repeat(5_000));
+        let (outcome, drawn, kept) = respond_with("x".repeat(5_000), None);
         assert_eq!(
             outcome.structured_content["responsePagination"]["scope"],
             "rows"
         );
-        assert!(!rendered, "row pages carry their own JSON");
-        assert!(kept, "a paged response keeps its envelope for later pages");
-        let (outcome, rendered, kept) = respond_with("small".into());
+        assert_eq!(
+            outcome.content[0].text,
+            serde_json::to_string(&outcome.structured_content).expect("json"),
+            "row pages carry their own JSON"
+        );
+        assert!(kept && !drawn, "a row-paged response keeps its envelope");
+        let (outcome, drawn, kept) = respond_with("small".into(), None);
         assert!(
             outcome
                 .structured_content
@@ -368,9 +402,15 @@ mod tests {
                 .is_none()
         );
         assert!(
-            rendered && !kept,
+            !outcome.content[0].text.starts_with('{') && !kept && !drawn,
             "a one-page response is rendered, never copied"
         );
+        let (outcome, drawn, kept) = respond_with("x".repeat(5_000), Some("text"));
+        assert_eq!(
+            outcome.structured_content["responsePagination"]["scope"],
+            "content.text"
+        );
+        assert!(kept && drawn, "a text window keeps its envelope and text");
     }
 
     /// An explicit `responseLength` alone sizes whole-row pages: both
@@ -402,7 +442,6 @@ mod tests {
                     auto_page_chars: 20_000,
                     text_format: super::super::render::TextFormat::Yaml,
                     allow_auto_paging: true,
-                    source_digest: None,
                 },
                 &context(),
             )
@@ -467,7 +506,6 @@ mod tests {
                     auto_page_chars: 0,
                     text_format: super::super::render::TextFormat::Yaml,
                     allow_auto_paging,
-                    source_digest: None,
                 },
                 &context(),
             )
@@ -746,7 +784,6 @@ mod tests {
                 auto_page_chars: 20_000,
                 text_format: super::super::render::TextFormat::Yaml,
                 allow_auto_paging: true,
-                source_digest: None,
             },
             &context(),
         )
@@ -778,7 +815,6 @@ mod tests {
                     auto_page_chars: 20_000,
                     text_format: super::super::render::TextFormat::Yaml,
                     allow_auto_paging: true,
-                    source_digest: None,
                 },
                 &context(),
             )
@@ -817,7 +853,6 @@ mod tests {
                 auto_page_chars: 20_000,
                 text_format: super::super::render::TextFormat::Yaml,
                 allow_auto_paging: false,
-                source_digest: None,
             },
             &context(),
         )
@@ -855,7 +890,6 @@ mod tests {
                     auto_page_chars: 20_000,
                     text_format: format,
                     allow_auto_paging: false,
-                    source_digest: None,
                 },
                 &context(),
             )

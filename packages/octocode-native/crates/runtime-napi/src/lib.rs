@@ -6,10 +6,10 @@
 
 use napi::{Env, bindgen_prelude::PromiseRaw};
 use napi_derive::napi;
+use octocode_native::id::{error_class, error_codes::ErrorClass};
 use octocode_native::runtime::error::mcp_result;
 use octocode_native::runtime::{Channel, HostOptions, RuntimeError, ToolRuntime};
 use octocode_native::security::{scrub_error_payload, scrub_error_text};
-use octocode_native::tools::id::{error_class, error_codes::ErrorClass};
 use serde_json::Value;
 use std::sync::Arc;
 

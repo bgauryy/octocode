@@ -25,7 +25,12 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
-pub(crate) const FORMAT_VERSION: u32 = 2;
+/// v3: every file `imports` edge carries the line of its own kind's evidence.
+/// v4: fact diagnostics are typed, so a Rust module-attribute note stores its
+/// line in the record instead of in its message.
+/// v5: a diagnostic names the file node it is about (`target`), so
+/// `dependents` finds the unlinked path imports of a file.
+pub(crate) const FORMAT_VERSION: u32 = 5;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;
 const TABLE_ENTRY_LEN: usize = 4 + 8 + 8;
 /// Sentinel for an absent `u32` reference (no file, no parent, no line).
@@ -191,6 +196,8 @@ pub(crate) struct DiagRec {
     pub line: u32,
     pub code: u32,
     pub message: u32,
+    /// File node the diagnostic is about besides `file`, or [`NONE`].
+    pub target: u32,
 }
 
 /// The decoded snapshot. Edges are sorted by `(src, kind, dst, line)`;
@@ -213,7 +220,7 @@ pub(crate) struct GraphTables {
     pub digests: Vec<(u32, u32)>,
     /// `(file node, stamp)` of the bytes each digest hashed, for files that
     /// were settled when read: an equal stamp skips the re-hash.
-    pub stamps: Vec<(u32, octocode_engine::graph::SourceStamp)>,
+    pub stamps: Vec<(u32, octocode_engine::stamp::SourceStamp)>,
     /// `(file node, component dir, component name, meta)`: owning build
     /// unit; meta is `ecosystem[;library][;templates]`.
     pub components: Vec<(u32, u32, u32, u32)>,
@@ -227,7 +234,7 @@ impl GraphTables {
     }
 
     /// Recorded source stamps by file node.
-    pub(crate) fn stamps_by_node(&self) -> HashMap<u32, octocode_engine::graph::SourceStamp> {
+    pub(crate) fn stamps_by_node(&self) -> HashMap<u32, octocode_engine::stamp::SourceStamp> {
         self.stamps.iter().copied().collect()
     }
 
@@ -420,7 +427,7 @@ pub(crate) fn encode(tables: &GraphTables) -> (Vec<u8>, String) {
 }
 
 /// Count, then per file: node, size, modified, changed and inode varints.
-fn stamp_section(stamps: &[(u32, octocode_engine::graph::SourceStamp)]) -> Vec<u8> {
+fn stamp_section(stamps: &[(u32, octocode_engine::stamp::SourceStamp)]) -> Vec<u8> {
     let mut out = Vec::with_capacity(stamps.len() * 24 + 5);
     put(&mut out, stamps.len() as u64);
     for (node, stamp) in stamps {
@@ -555,6 +562,7 @@ impl<'t> Encoder<'t> {
             put_opt(&mut diags, diag.line);
             put(&mut diags, u64::from(self.sid(diag.code)));
             put(&mut diags, u64::from(self.sid(diag.message)));
+            put_opt(&mut diags, diag.target);
         }
         diags
     }
@@ -971,8 +979,13 @@ fn read_file_tables(
             line: diags.var_opt()?,
             code: diags.var_u32()?,
             message: diags.var_u32()?,
+            target: diags.var_opt()?,
         };
-        if !string_ok(diag.file) || !string_ok(diag.code) || !string_ok(diag.message) {
+        if !string_ok(diag.file)
+            || !string_ok(diag.code)
+            || !string_ok(diag.message)
+            || diag.target != NONE && !node_ok(diag.target)
+        {
             return Err("graph diagnostic references are out of range".into());
         }
         tables.diagnostics.push(diag);
@@ -1001,7 +1014,7 @@ fn read_file_tables(
             if !node_ok(node) {
                 return Err("graph stamp references are out of range".into());
             }
-            let stamp = octocode_engine::graph::SourceStamp {
+            let stamp = octocode_engine::stamp::SourceStamp {
                 size: stamps.var()?,
                 modified_ns: stamps.var()?,
                 changed_ns: stamps.var()?,

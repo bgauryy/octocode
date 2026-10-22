@@ -3,7 +3,7 @@
 //! reaches every item exactly once, and totals agree on every page. An
 //! explicit count is honored exactly.
 use super::{AstSearchQuery, execute_ast};
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 
 use crate::tools::test_support::{Fixture, checks, simple_policy};
 use serde_json::{Value, json};
@@ -29,11 +29,7 @@ fn walk(root: &std::path::Path, row: Value, rows: fn(&Value) -> Vec<String>) -> 
             assert!(pagination["hasMore"].is_boolean(), "{out}");
         }
         let page = checks::Page {
-            output: crate::tools::test_support::published(
-                crate::tools::id::ToolId::AstSearch,
-                row,
-                &out,
-            ),
+            output: crate::tools::test_support::published(crate::id::ToolId::AstSearch, row, &out),
             rows: rows(&out),
         };
         outputs.push(out);

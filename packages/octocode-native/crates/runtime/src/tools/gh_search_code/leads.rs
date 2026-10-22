@@ -2,10 +2,11 @@
 //! lists, a file the index did not search at the requested ref).
 use super::GhSearchCodeQuery;
 use super::code_output::{Resolution, requested_ref, row_repo};
+use crate::id::ToolId;
+use crate::num::u32_of_usize;
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, continuation_row_mut, query_row};
 use crate::tools::gh_shared::{Broaden, broaden};
-use crate::tools::id::ToolId;
-use crate::tools::num::u32_of_usize;
-use crate::tools::result::{Continuation, continuation_row_mut, query_row};
 use serde_json::{Value, json};
 
 /// Code-search fragments carry no line numbers. Point the top hit at an exact
@@ -39,7 +40,7 @@ pub(super) fn read_top_match(top: &Value) -> Option<Value> {
                 "contextLines": 5,
             }),
         )
-        .confidence("medium")
+        .confidence(Confidence::Medium)
         .build(),
     )
 }
@@ -92,7 +93,7 @@ fn keyword_match(read: &mut Value, query: &GhSearchCodeQuery) -> Option<()> {
         .map(|keyword| keyword.trim())
         .filter(|keyword| !keyword.is_empty())
         .collect();
-    let max = crate::tools::id::query_limits::gh_get_file_content::MATCH_STRING_MAX_ITEMS;
+    let max = crate::contracts::query_limits::gh_get_file_content::MATCH_STRING_MAX_ITEMS;
     // The listing matched case-insensitively; smart case would turn an
     // uppercase keyword case-sensitive and miss counted hits.
     if keywords
@@ -197,7 +198,7 @@ pub(super) fn declaration_read(
     });
     Some(
         Continuation::new(ToolId::GhGetFileContent, read)
-            .confidence("medium")
+            .confidence(Confidence::Medium)
             .build(),
     )
 }
@@ -237,7 +238,7 @@ pub(super) fn line_read(
     });
     Some(
         Continuation::new(ToolId::GhGetFileContent, read)
-            .confidence("medium")
+            .confidence(Confidence::Medium)
             .build(),
     )
 }
@@ -261,7 +262,7 @@ pub(super) fn unsearched_ref_read(query: &GhSearchCodeQuery) -> Option<Value> {
             ToolId::GhGetFileContent,
             json!({"owner": query.owner.as_str(), "repo": repo.as_str(), "path": path, "ref": reference}),
         )
-        .confidence("medium")
+        .confidence(Confidence::Medium)
         .build(),
     )
 }

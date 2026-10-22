@@ -23,7 +23,7 @@ use serde_json::{Map, Value};
 const MIN_PROPAGATED_SECRET_CHARS: usize = 8;
 
 /// `sanitize` gets each string leaf and the file path of its enclosing result, if any.
-pub fn sanitize_json<E>(
+pub(crate) fn sanitize_json<E>(
     value: &mut Value,
     sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<String, E>,
 ) -> Result<(), E> {

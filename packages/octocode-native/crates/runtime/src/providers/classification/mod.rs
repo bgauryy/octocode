@@ -11,12 +11,29 @@
 pub mod jev;
 
 pub(crate) mod gate;
+pub(crate) mod transport;
 
 use serde_json::Value;
 
+/// The code of a provider that could not answer: unreachable, timed out,
+/// failing (5xx), overloaded without a retry delay, or paused by the open
+/// circuit those failures led to. Unlike a refused credential or request,
+/// it says nothing about the caller's input: retrying later can succeed.
+pub(crate) const CIRCUIT_OPEN: &str = "classificationProviderUnavailable";
+
+/// Whether a classification error `code` says the provider could not answer
+/// now (rate limited, overloaded, unreachable, failing, paused by its
+/// circuit) rather than refusing this caller or request (a credential,
+/// quota, content or size error the caller must fix). Evidence a reader
+/// already has is never withheld for the former.
+pub(crate) fn is_transient(code: &str) -> bool {
+    matches!(code, CIRCUIT_OPEN | "classificationRateLimited")
+}
+
 /// Vendor-neutral response-contract violation reported by
-/// [`ClassificationProvider::validate_response`]. Vendors map their own
-/// validator errors into this so vendor names never reach public error codes.
+/// [`ClassificationProvider::read`] and [`ClassificationProvider::models`].
+/// Vendors map their own validator errors into this so vendor names never
+/// reach public error codes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderContractError {
     /// `true` when the request (not the vendor response) broke the contract.
@@ -36,77 +53,68 @@ impl ProviderContractError {
     }
 }
 
-/// A classification vendor: its built-in defaults, wire format, and response
-/// contract. Every method is called from the generic clasify engine; vendor
-/// logic stays exclusively inside the impl.
-pub trait ClassificationProvider: Send + Sync {
-    /// Default API root used when `OCTOCODE_CLASSIFICATION_API_HOST` is unset.
-    fn default_host(&self) -> &'static str;
-
+/// A vendor's built-in defaults.
+#[derive(Debug)]
+pub struct ProviderDefaults {
+    /// API root used when `OCTOCODE_CLASSIFICATION_API_HOST` is unset.
+    pub host: &'static str,
     /// Model used when neither the query nor configuration selects one.
-    fn default_model(&self) -> &'static str;
+    pub model: &'static str,
+    /// Path joined onto the API root to reach the classify endpoint.
+    pub endpoint_path: &'static str,
+    /// Path of the read-only model catalog on the same API root.
+    pub models_path: &'static str,
+    /// Link to vendor setup docs; shown in `missingConfiguration` errors.
+    pub docs_url: &'static str,
+}
 
-    /// Path joined onto the API root to reach the vendor's endpoint.
-    fn endpoint_path(&self) -> &'static str;
+/// Token usage a response reports.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProviderUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
 
-    /// Read-only model catalog on the same configured API root.
-    fn models_path(&self) -> &'static str;
+/// What one vendor response holds for the request it answers.
+#[derive(Debug)]
+pub struct ProviderResponse {
+    /// One answer per requested question, in request order; a malformed or
+    /// missing answer fails only its own question. `Err` fails the whole
+    /// response (its metadata, or an answer the request never asked for).
+    pub answers: Result<Vec<Result<Value, ProviderContractError>>, ProviderContractError>,
+    /// The model that answered, as reported.
+    pub model: Option<String>,
+    /// Token usage, as reported, even on a response that failed validation.
+    pub usage: Option<ProviderUsage>,
+}
+
+/// A classification vendor: its built-in defaults, wire format and response
+/// contract. The generic clasify engine calls only these; request and
+/// response shapes (answer keys, usage and model fields) stay inside the impl.
+pub trait ClassificationProvider: Send + Sync {
+    /// API root, model, endpoint paths and setup docs.
+    fn defaults(&self) -> &'static ProviderDefaults;
 
     /// Provider capability opt-ins required by the prepared request.
-    fn request_headers(&self, images: bool, long_context: bool) -> reqwest::header::HeaderMap;
+    fn headers(&self, images: bool, long_context: bool) -> reqwest::header::HeaderMap;
 
-    /// Link to vendor setup docs; shown in `missingConfiguration` errors.
-    fn docs_url(&self) -> &'static str;
-
-    /// Build the JSON body sent for a **single-question** request.
-    /// The engine calls this once per state × question cell; the shape is
-    /// entirely vendor-defined.
-    fn build_request(
+    /// The JSON body asking `questions` (at least one) over one `state`, with
+    /// optional image `assets`; the shape is entirely vendor-defined.
+    fn build(
         &self,
         state: &Value,
-        question: &Value,
+        questions: &[&Value],
         model: &str,
         assets: Option<&Value>,
     ) -> Value;
 
-    /// Build the JSON body for a **multi-question batch** over the same state.
-    /// `questions` is a slice of `(original_index, &question_value)` pairs;
-    /// the index is available for key naming (e.g. `answer_0`, `answer_1`).
-    fn build_batch_request(
-        &self,
-        state: &Value,
-        questions: &[(usize, &Value)],
-        model: &str,
-        assets: Option<&Value>,
-    ) -> Value;
+    /// Validate `response` against the `request` [`Self::build`] made: each
+    /// answer against its question's rubric, plus the reported model and usage.
+    fn read(&self, request: &Value, response: &Value) -> ProviderResponse;
 
-    /// Extract the single answer object from a **non-batch** vendor response.
-    /// Returns `None` when the response does not contain the expected answer,
-    /// which the engine treats as an `invalidClassificationResponse` error.
-    fn extract_answer<'a>(&self, response: &'a Value) -> Option<&'a Value>;
-
-    /// Return the answer key used for question at `index` inside a batch
-    /// request/response (e.g. `"answer_0"` for Jev).
-    fn batch_answer_key(&self, index: usize) -> String;
-
-    /// Validate the vendor's answer shape against the requested rubric.
-    fn validate_response(
-        &self,
-        request: &Value,
-        response: &Value,
-    ) -> Result<(), ProviderContractError>;
-
-    /// Validate grouped answers independently in numeric question-index order.
-    /// Global metadata and unexpected identities fail the response; a missing
-    /// or malformed expected answer fails only its own question.
-    fn validate_batch_answers(
-        &self,
-        request: &Value,
-        response: &Value,
-    ) -> Result<Vec<Result<Value, ProviderContractError>>, ProviderContractError>;
-
-    /// Validate model metadata without interpreting model names or dates.
-    fn validate_models(&self, response: &Value) -> Result<(), ProviderContractError>;
+    /// The model catalog in the clasify `models` output shape, after
+    /// validating it without interpreting model names or dates.
+    fn models(&self, response: &Value) -> Result<Value, ProviderContractError>;
 }
 
 /// The built-in classification provider.
@@ -125,6 +133,6 @@ mod tests {
                 .all(|field| !field.path.starts_with("classification.type")),
             "no setting selects the provider"
         );
-        assert!(!super::provider().default_host().is_empty());
+        assert!(!super::provider().defaults().host.is_empty());
     }
 }

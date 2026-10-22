@@ -5,7 +5,7 @@ use crate::minify::comment_remover::remove_comments;
 /// JS/TS content-view minifier: strip comments, collapse whitespace, and tighten
 /// punctuation while **preserving every identifier, type, and per-statement line
 /// structure**. This is the right trade for an LLM/agent content view — mangling
-/// or AST-recodegen (the old OXC path) renamed/eliminated named bindings and
+/// or AST re-codegen renamed/eliminated named bindings and
 /// flattened the file to a single line, breaking symbol citation and file:line
 /// mapping (the very evidence octocode exists to provide). Unlike a full parser
 /// it needs no valid parse, so it degrades gracefully on partial/invalid source.

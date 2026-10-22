@@ -6,7 +6,7 @@
 //! every row, such as the checked-out head). A field an entry schema of the
 //! responding tool requires is never hoisted, so the returned JSON validates
 //! as it is: the output contract checks exactly what a client receives.
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
@@ -248,7 +248,7 @@ pub(crate) fn hoist(tool: ToolId, rows: &mut [Value]) -> Option<Map<String, Valu
 #[cfg(test)]
 mod tests {
     use crate::contracts::validate_output;
-    use crate::tools::id::ToolId;
+    use crate::id::ToolId;
     use serde_json::json;
 
     #[test]
@@ -326,7 +326,7 @@ mod tests {
             {"file":"a.ts","name":"one","distance":1},
             {"file":"a.ts","name":"two","distance":1}
         ]}})];
-        let shared = super::hoist(ToolId::AstTopology, &mut rows)
+        let shared = super::hoist(ToolId::StructureSearch, &mut rows)
             .expect("an identical non-identity field still hoists");
         assert!(!shared.contains_key("file"), "{shared:?}");
         assert_eq!(shared["distance"], 1);
@@ -453,33 +453,33 @@ mod tests {
     }
 
     /// A field an entry schema requires stays on every entry, so the wire a
-    /// client receives validates as returned: two drift edges sharing their
-    /// `from`, and repeated diagnostics, keep their required fields.
+    /// client receives validates as returned: two diagnostics sharing their
+    /// `message` keep it.
     #[test]
     fn required_entry_fields_stay_on_the_wire() {
-        let original = json!({"results":[{"index":0,"data":{"nodes":[
-            {"from":"a.ts","to":"b.ts"},
-            {"from":"a.ts","to":"c.ts"}
+        let original = json!({"results":[{"index":0,"data":{"kind":"diagnostics","matches":[
+            {"message":"unused","line":1},
+            {"message":"unused","line":2}
         ]}}]});
-        validate_output("astTopology", &original).expect("the original row is valid");
+        validate_output("lspSearch", &original).expect("the original row is valid");
         let mut rows = original["results"].as_array().expect("rows").clone();
-        let shared = super::hoist(ToolId::AstTopology, &mut rows);
+        let shared = super::hoist(ToolId::LspSearch, &mut rows);
         assert!(
             shared
                 .as_ref()
-                .is_none_or(|shared| !shared.contains_key("from")),
+                .is_none_or(|shared| !shared.contains_key("message")),
             "{shared:?}"
         );
         let mut wire = json!({"results": rows});
         if let Some(shared) = shared {
             wire["shared"] = serde_json::Value::Object(shared);
         }
-        validate_output("astTopology", &wire).expect("the returned wire validates");
-        for node in wire["results"][0]["data"]["nodes"]
+        validate_output("lspSearch", &wire).expect("the returned wire validates");
+        for entry in wire["results"][0]["data"]["matches"]
             .as_array()
-            .expect("nodes")
+            .expect("matches")
         {
-            assert_eq!(node["from"], "a.ts", "{wire}");
+            assert_eq!(entry["message"], "unused", "{wire}");
         }
     }
 
@@ -487,10 +487,10 @@ mod tests {
     /// never stands in for a required entry field.
     #[test]
     fn validation_never_restores_shared_fields() {
-        let wire = json!({"shared":{"from":"a.ts"},"results":[{"index":0,"data":{"nodes":[
-            {"to":"b.ts"},{"to":"c.ts"}
-        ]}}]});
-        assert!(validate_output("astTopology", &wire).is_err(), "{wire}");
+        let wire = json!({"shared":{"message":"unused"},"results":[{"index":0,"data":{
+            "kind":"diagnostics","matches":[{"line":1},{"line":2}]
+        }}]});
+        assert!(validate_output("lspSearch", &wire).is_err(), "{wire}");
     }
 
     /// Hoisting a shared key leaves every entry's other keys in the order
@@ -501,7 +501,8 @@ mod tests {
             {"a":1,"same":"x","b":2,"c":3},
             {"a":4,"same":"x","b":5,"c":6}
         ]}})];
-        let shared = super::hoist(ToolId::AstTopology, &mut rows).expect("the shared key hoists");
+        let shared =
+            super::hoist(ToolId::StructureSearch, &mut rows).expect("the shared key hoists");
         assert_eq!(shared["same"], "x");
         for row in rows[0]["data"]["rows"].as_array().expect("rows") {
             let keys = row
@@ -538,7 +539,7 @@ mod tests {
     #[test]
     fn the_required_field_guard_is_the_responding_tools() {
         let required = |tool| super::required_entry_fields(tool).contains("value");
-        assert!(required(ToolId::LspSearch) && !required(ToolId::AstTopology));
+        assert!(required(ToolId::LspSearch) && !required(ToolId::StructureSearch));
         let rows = || {
             vec![json!({"index":0,"data":{"nodes":[
                 {"file":"a.ts","value":"same"},
@@ -546,7 +547,7 @@ mod tests {
             ]}})]
         };
         let mut hoisted = rows();
-        let shared = super::hoist(ToolId::AstTopology, &mut hoisted).expect("value hoists");
+        let shared = super::hoist(ToolId::StructureSearch, &mut hoisted).expect("value hoists");
         assert_eq!(shared["value"], "same");
         assert!(hoisted[0]["data"]["nodes"][0].get("value").is_none());
         let mut kept = rows();

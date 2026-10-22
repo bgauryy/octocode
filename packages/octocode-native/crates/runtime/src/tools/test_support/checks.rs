@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 /// Pages a walk follows before it fails as unbounded.
-pub const WALK_CAP: usize = 200;
+pub(crate) const WALK_CAP: usize = 200;
 
 /// `output`, a public response (`{results:[...]}`; clasify `{queries:[...]}`),
 /// satisfies `tool`'s output contract.
@@ -22,7 +22,7 @@ pub fn assert_output_contract(tool: &str, output: &Value) {
 /// One `{tool, query}` call an output offers: `channel` is `next` or `hints`
 /// (`responsePagination` for the response-paging call), `name` its key.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Lead {
+pub(crate) struct Lead {
     pub channel: String,
     pub name: String,
     pub tool: String,
@@ -187,7 +187,7 @@ pub fn assert_absent(value: &Value, needle: &str) {
 
 /// Every string under a `path` key of `value`, at any depth (leads included),
 /// in document order.
-pub fn paths_in(value: &Value) -> Vec<String> {
+pub(crate) fn paths_in(value: &Value) -> Vec<String> {
     fn visit(value: &Value, out: &mut Vec<String>) {
         match value {
             Value::Array(items) => items.iter().for_each(|item| visit(item, out)),
@@ -231,7 +231,7 @@ pub fn canonical(value: &Value) -> String {
 }
 
 /// The contract's page channels (`continuationChannels.kinds.pages`).
-pub fn page_channels() -> BTreeSet<String> {
+pub(crate) fn page_channels() -> BTreeSet<String> {
     parsed_contract().expect("contract")["continuationChannels"]["kinds"]["pages"]
         .as_array()
         .expect("page channels")

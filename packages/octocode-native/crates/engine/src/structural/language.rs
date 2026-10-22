@@ -19,6 +19,11 @@ impl Expando {
     pub(super) fn matches_leading(self, c: char) -> bool {
         c == self.0
     }
+
+    /// `text` with this sigil spelled `$` again, as the caller wrote it.
+    pub(super) fn restore(self, text: &str) -> String {
+        text.replace(self.0, "$")
+    }
 }
 
 /// Shared tree-sitter wrapper with grammar-specific identifier substitutions
@@ -52,7 +57,7 @@ pub(super) struct AgLanguage {
 }
 
 impl AgLanguage {
-    pub(super) fn new(_ext: &str, entry: &LanguageEntry) -> Self {
+    pub(super) fn new(entry: &LanguageEntry) -> Self {
         Self {
             ts: entry.language.clone(),
             expando: Expando(entry.pattern_syntax.expando),
@@ -102,7 +107,7 @@ impl AgLanguage {
 
     /// `text` inside the synthetic class, when this grammar parses patterns
     /// in one (see `class_wrap`).
-    pub(super) fn wrap_class<'text>(&self, text: &'text str) -> Cow<'text, str> {
+    fn wrap_class<'text>(&self, text: &'text str) -> Cow<'text, str> {
         if self.class_wrap {
             Cow::Owned(format!("class {WRAP_MARKER} {{ {text} }}"))
         } else {

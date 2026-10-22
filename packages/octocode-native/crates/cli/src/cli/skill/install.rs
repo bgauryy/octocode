@@ -180,6 +180,36 @@ pub(super) enum CanonicalStatus {
     Failed,
 }
 
+impl CanonicalStatus {
+    /// The status as text: what happened, or with `dry_run` what would.
+    pub(super) fn text(self, dry_run: bool) -> &'static str {
+        match (self, dry_run) {
+            (Self::Installed, false) => "Installed",
+            (Self::Installed, true) => "Would install",
+            (Self::Upgraded, false) => "Upgraded",
+            (Self::Upgraded, true) => "Would upgrade",
+            (Self::Unchanged, _) => "Unchanged",
+            (Self::Conflict, _) => "Conflict",
+            (Self::Failed, _) => "Failed",
+        }
+    }
+}
+
+impl DestinationStatus {
+    /// The status as text: what happened, or with `dry_run` what would.
+    pub(super) fn text(self, dry_run: bool) -> &'static str {
+        match (self, dry_run) {
+            (Self::Linked, false) => "Linked",
+            (Self::Linked, true) => "Would link",
+            (Self::Copied, false) => "Copied",
+            (Self::Copied, true) => "Would copy",
+            (Self::Unchanged, _) => "Unchanged",
+            (Self::Conflict, _) => "Conflict",
+            (Self::Failed, _) => "Failed",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum DestinationStatus {

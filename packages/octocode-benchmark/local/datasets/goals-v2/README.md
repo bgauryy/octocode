@@ -30,7 +30,7 @@ Every question is read-only. Relevant tool opportunities include localSearch, lo
 
 ## Tool applicability and mutation safety
 
-The separate deterministic applicability lane covers the built local tools on pinned source. `astTopology` is CLI-only and requires the beta gate. Its syntactic graph is checked separately from the paired MCP research campaign.
+The separate deterministic applicability lane covers the built local tools on pinned source.
 
 Authoring preflight found a working TypeScript language server resolving the Q21 call. Go LSP returned `serverUnavailable` because gopls was absent; no Go LSP capability is claimed. HCL `.tf` AST returned `languageUnsupported`; exact reads remain available. C# AST reported recovered parse errors and partial coverage; a partial outline is not an exhaustive inventory. The runner freezes server/grammar availability equally for both arms and reports fallbacks explicitly.
 

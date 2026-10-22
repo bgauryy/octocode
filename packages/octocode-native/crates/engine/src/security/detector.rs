@@ -71,7 +71,35 @@ static KEEPS_NON_CREDENTIAL_VALUES: LazyLock<Vec<bool>> = LazyLock::new(|| {
 /// digest keyed by a file path ([`is_file_digest`]). `key` is the line's
 /// text before the value (ending in the key, its quotes and its operator).
 fn assigns_a_credential(key: &str, secret: &str) -> bool {
-    !is_identifier_name(secret) && !is_file_digest(key, secret)
+    !is_identifier_name(secret) && !is_file_digest(key, secret) && !reads_a_name(key, secret)
+}
+
+/// Whether an unquoted `secret` ends a code statement that assigns another
+/// name: an optional `!`, `&` or `*`, a dotted path of identifier words
+/// ([`is_identifier_word`]) and the `;` terminator
+/// (`frame.expect_key = frame.object;`). Dotenv, INI, properties and shell
+/// values carry no statement terminator, and a quoted value (`key` ends in
+/// its opening quote) is a literal whatever it spells.
+fn reads_a_name(key: &str, secret: &str) -> bool {
+    !key.ends_with(['"', '\''])
+        && secret.strip_suffix(';').is_some_and(|name| {
+            name.trim_start_matches(['!', '&', '*'])
+                .split('.')
+                .all(is_identifier_word)
+        })
+}
+
+/// One segment of a code name: a camelCase name ([`is_identifier_name`]) or
+/// snake_case / SCREAMING_SNAKE words that each read as a word
+/// ([`pronounceable_word`]): `object`, `inside_lines`, `API_KEY`.
+fn is_identifier_word(segment: &str) -> bool {
+    is_identifier_name(segment)
+        || (!segment.is_empty()
+            && segment
+                .split('_')
+                .filter(|word| !word.is_empty())
+                .all(|word| pronounceable_word(word.to_ascii_lowercase().as_bytes()))
+            && segment.bytes().any(|byte| byte != b'_'))
 }
 
 /// Whether `secret` is a hex digest (MD5, SHA-1, SHA-256 or SHA-512 length)

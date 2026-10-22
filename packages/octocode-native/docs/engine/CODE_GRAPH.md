@@ -2,45 +2,31 @@
 
 The native `crates/engine` crate owns the reusable code graph model and algorithms. Runtime packages own path policy, cancellation, language-server lifecycle, pagination, redaction, and public tool response shaping.
 
-## Evidence model
+## Models
 
-`CodeGraphSnapshot` is an immutable, deterministic syntax-evidence snapshot. `astTopology drift` builds one for the baseline and one for the head and diffs them with `diff_graphs`; no other operation builds it.
+One graph is queried and stored; the build has one intermediate:
 
-- `CodeNode` uses domain IDs such as `file:…`, `symbol:…`, and `occurrence:…`. Raw tree-sitter nodes and graph-library indexes aren't durable IDs.
-- `CodeEdge` links domain IDs and retains one or more `EvidenceId` values. Every edge is AST evidence (`EvidenceSource::Ast`); relation identity is `(from, kind, to)`, so a line shift changes evidence, not relations.
-- `SnapshotMetadata` holds the scan root, the graph-fact schema, and each normalized source path with its content digest.
-- `GraphCompleteness` records whether the scan was complete and why not.
+- `BuiltGraph` (`runtime/src/tools/ast_graph/types.rs`): the linker's output for one scan, per-file facts plus the file graph (target file and edge kinds with their first line). Ingest projects it and drops it; nothing stores or queries it.
+- `GraphTables` (`ast_graph/store/format.rs`): file, symbol and package nodes joined by `contains`, `imports`, `uses`, `calls` and `inherits` edges, with diagnostics, file digests, components and entries. It is the snapshot `graph.bin` holds and the one model every `graph query` operation, `drift` included, reads.
 
-The implementation is in `src/graph/model.rs` and `src/graph/diff.rs`. Native graph-fact extraction crosses the Rust package boundary as `GraphFactsMappedScan<T>`: `scan_walked_graph_facts` takes a `walk_graph_fact_files` walk, hands each parsed file to the caller's map as a borrowed `GraphFactsView`, and keeps only what the map returns. `FactsSource` picks full graph facts (`Graph`) or the caller's cached declarations (`Declarations`).
+The graph-facts scan (`engine/src/fact_scan/`) crosses the Rust package boundary as `GraphFactsMappedScan<T>`: `scan_walked_graph_facts` takes a `walk_graph_fact_files` walk, hands each parsed file to the caller's map as a borrowed `GraphFactsView`, and keeps only what the map returns. `FactsSource` picks full graph facts (`Graph`) or the caller's cached declarations (`Declarations`).
 
 ## Ingestion flow
 
-1. AST extraction produces typed declarations, imports, exports, calls, modules, ranges, and source diagnostics for every language in the [grammar registry](SUPPORTED_LANGUAGES_AND_FEATURES.md#language-matrix).
-2. `CodeGraphBuilder::ingest_facts` adds syntax nodes and evidence.
-3. The native linker adds resolved file relations without replacing extraction evidence.
-4. `CodeGraphBuilder::finish` returns the snapshot.
+1. AST extraction produces typed declarations, imports, exports, calls, modules, ranges, and source diagnostics (a code, a message and an optional line; facts schema v2) for every language in the [grammar registry](SUPPORTED_LANGUAGES_AND_FEATURES.md#language-matrix).
+2. `build_graph` (`ast_graph/graph.rs`) scans a `GraphScan` (root, pruned directories, file bound, language globs, Cargo linking) and links each file's imports, re-exports, calls and paths into a `BuiltGraph`.
+3. `tables::project` turns it into `GraphTables`; `format::encode` writes them.
 
-## Runtime integration status
+The graph is syntax evidence: `astSearch` and `graph` start no language server. Callers confirm identity with explicit `lspSearch` calls, which keeps syntax candidates distinct from semantic claims.
 
-Native topology construction retains the AST snapshot in `BuiltGraph::code_graph` for `drift` only. `astSearch` and `astTopology` remain AST-only: the canonical tool contract has no semantic-enrichment request or budget field, and the runtime must not start language servers silently and change latency or availability semantics. Callers combine `astSearch` candidates with explicit `lspSearch` proof, which keeps syntax candidates distinct from semantic claims.
+## Cycle engine
 
-## File topology algorithms
-
-Reusable deterministic algorithms are in `src/graph/algorithms.rs`:
-
-- forward and reverse traversal
-- shortest path
-- strongly connected components and cycle witnesses
-- condensation and topological layers
-- transitive-edge detection
-
-`crates/runtime/src/tools/ast_graph/algorithms.rs` re-exports these engine primitives and adds the `astTopology` JSON rendering, the dependency view (module-tree edges removed) and runtime view (eager-load edges only), and immediate dominators. The public `astTopology` response remains a syntax-confidence file-topology contract; semantic evidence isn't relabeled as syntax or exposed as proven symbol identity.
+`ast_graph/algorithms.rs` holds the one cycle engine (`Cycles`): the dependency view of a file graph (data and module-tree edges removed), its strongly connected groups, and the groups its eager-load (runtime) edges close. `graph query cycles`, the `cycle` detector, `drift` and the health summary read it. The engine crate supplies the primitives (`engine/src/graph/algorithms.rs`): strongly connected components (iterative Tarjan) and the condensation.
 
 ## Persisted graphs (CLI)
 
-`npx octocode graph ingest <path>` runs the same `build_graph` linker as
-`astTopology`. It projects the result into file, symbol, and package nodes with
-`contains`, `imports`, and `calls` edges, and publishes an immutable snapshot:
+`npx octocode graph ingest <path>` runs the `build_graph` linker. It projects the result into file, symbol, and package nodes with
+`contains`, `imports`, `uses`, `calls`, and `inherits` edges, and publishes an immutable snapshot:
 
 ```text
 <workspace>/.octocode/graph/
@@ -56,15 +42,14 @@ slug alike (`a-b`, `a/b`) never share an id, and pruning keeps snapshots per
 root. Before any read, hash or `git` call, a snapshot's manifest root must be
 canonical and inside the allowed roots.
 
-Freshness has one owner (`ast_graph/freshness.rs`), shared with the
-`astTopology` memo. It covers every source and the linking configs that change
+Freshness has one owner (`ast_graph/freshness.rs`). It covers every source and the linking configs that change
 resolution (tsconfig/jsconfig, `package.json`, `Cargo.toml`, `go.mod`, and the
 like). Both ingest reuse and `graph query stale` use it: `stale` rescans the
 scoped file list, so it reports `changed`, `missing`, `added` and `excluded`
 sources and changed configs. A snapshot truncated at its file limit is never
 reported fresh.
 
-`graph.bin` (format v2) is a sectioned, varint-coded file:
+`graph.bin` (format v5) is a sectioned, varint-coded file:
 
 - **Header:** magic `OCGRAPH\0`, format version, section count, and the
   SHA-256 of the body.
@@ -75,10 +60,11 @@ reported fresh.
 - **`NODE` and `EDGE`:** varint columns. Edges are delta-coded by source, and
   kind plus confidence share one byte.
 - **`KEYX` / `NAMX`:** lookup permutations.
-- **`DIAG`, `FDIG`, `FCMP`, `ENTR`:** diagnostics, per-file digests,
-  components, and entrypoints.
+- **`DIAG`, `FDIG`, `FCMP`, `ENTR`:** diagnostics (file, line, code,
+  message, and the file node a diagnostic is about, when that is another
+  file), per-file digests, components, and entrypoints.
 - **`FSTM`** (optional): per-file size, mtime, ctime and inode, recorded only
-  for files untouched for 2 seconds (`SourceStamp::SETTLE`) before the scan. An unchanged-tree re-ingest
+  for files untouched for 2 seconds (`stamp::SourceStamp::SETTLE`) before the scan. An unchanged-tree re-ingest
   compares these stamps before hashing a source; a file without a stamp, or with
   a different one, is hashed.
 - **Adjacency:** both CSR directions are rebuilt on load in O(V + E) instead
@@ -120,7 +106,28 @@ snapshot. It needs no new dependencies:
 - Lakos CCD/NCCD over the SCC condensation, using bitset reachability
 
 Finding ids hash the detector, the subject, and the identifying evidence, which
-is what lets `--baseline` diff two snapshots.
+is what lets `--baseline` diff two snapshots. `--entry a,b` names the
+entrypoints in place of the inferred ones (rule `explicit`) for every detector
+that reads them.
+
+`graph query drift --baseline <snapshot>` (`store/drift.rs`) diffs the
+selected snapshot against another by root-relative key, so a checkout of the
+base branch and the head compare: files added, removed and changed (content
+digest), cycle groups added and resolved, file import pairs whose load turned
+from module-load to deferred or back (`staticToDynamic`, `dynamicToStatic`),
+and relations `(from, edge kind, to)` added and removed. A transition is not
+also a removed and an added relation, and a moved line changes no relation.
+
+`dependents <file>` with the default edges also lists the files that use the
+file's exports through a re-exporting module (`edge: uses, via: reexport`).
+A bare JS/TS import that names a scanned file by path (`vs/base/common/x` for
+`src/vs/base/common/x.ts`) but that no tsconfig `paths`/`baseUrl` or workspace
+package links is no edge. Ingest records it as an `unlinked-path-import`
+diagnostic naming that file, and `dependents <file>` lists those importers
+under `summary.unlinkedPathImports` (`file`, `line`, `message`).
+Every answer's `graph` block carries `partialReasons` (`maxFiles`, `edgeCap`,
+`filesSkipped`) when the snapshot's scan was cut, and `reingest`, the widened
+ingest, when `maxFiles` cut it.
 
 Large inputs are bounded:
 

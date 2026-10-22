@@ -317,7 +317,7 @@ fn edit(runtime: &ToolRuntime, key: &str, value: Option<&str>, json_out: bool) -
                 &format!("Cannot edit global config: {error}"),
                 json_out,
             );
-            super::exit_code(octocode_native::runtime::ExitClass::of_code(code))
+            super::exit_code(octocode_native::response::exit::ExitClass::of_code(code))
         }
     }
 }

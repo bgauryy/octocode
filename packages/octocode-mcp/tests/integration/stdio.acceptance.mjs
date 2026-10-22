@@ -260,7 +260,7 @@ const executeCliTool = (name, queries, expectedStatus = 0) => {
   const startedAt = performance.now();
   const child = spawnSync(
     values.node,
-    [path.resolve(values.cli), name, JSON.stringify({ queries })],
+    [path.resolve(values.cli), name, JSON.stringify({ queries }), '--json'],
     {
       encoding: 'utf8',
       timeout: 120_000,
@@ -921,85 +921,6 @@ try {
       });
       assert.ok(JSON.stringify(data).includes('add(value, value)'));
     });
-    await check(
-      'astTopology is CLI-only: MCP rejects it, the CLI runs the file graph',
-      async () => {
-        assert.ok(
-          !expectedTools.includes('astTopology'),
-          'MCP must not list astTopology'
-        );
-        const query = {
-          operation: 'dependencies',
-          path: fixture,
-          source: 'entry.ts',
-          graphDepth: 2,
-          exclude: ['coverage', 'removed', 'rust'],
-        };
-        const rejected = await client
-          .callTool({ name: 'astTopology', arguments: { queries: [query] } })
-          .then(
-            result => result.isError === true,
-            error => /not found|not available/i.test(String(error?.message))
-          );
-        assert.ok(rejected, 'MCP must reject astTopology');
-        const data = executeCliTool('astTopology', [query]).results[0].data;
-        assert.ok(JSON.stringify(data).includes('math.ts'));
-      }
-    );
-    await check(
-      'graph diagnostic continuation union preserves the complete inventory (CLI)',
-      async () => {
-        const query = {
-          operation: 'dependencies',
-          path: `${fixture}-diagnostics`,
-          source: 'entry.ts',
-          graphDepth: 3,
-          pageSize: 50,
-          exclude: [],
-        };
-        // Withheld diagnostic rows are the opt-in hints.readDiagnostics lead;
-        // its pages chain through next.nextDiagnosticPage. Each call is the
-        // complete input, replayed verbatim through the CLI.
-        const follow = ({ tool, query: input }) => {
-          assert.equal(tool, 'astTopology');
-          return executeCliTool(tool, input.queries).results[0].data;
-        };
-        const cliPages = lead => {
-          let current = follow(lead);
-          const rows = [...(current.coverage.diagnostics ?? [])];
-          let count = 1;
-          while (current.next?.nextDiagnosticPage) {
-            assert.ok(count++ < 100, 'continuation did not terminate');
-            current = follow(current.next.nextDiagnosticPage);
-            rows.push(...(current.coverage.diagnostics ?? []));
-          }
-          return { rows, count };
-        };
-        // The entry's only imports are unresolved, so the answer has no
-        // rows: an empty result (CLI exit 1) whose diagnostics stay
-        // reachable through the lead.
-        const run = diagnosticPageSize => {
-          const [result] = executeCliTool(
-            'astTopology',
-            [{ ...query, diagnosticPageSize }],
-            1
-          ).results;
-          assert.equal(result.status, 'empty');
-          return result.data;
-        };
-        const first = run(2);
-        assert.equal(first.coverage.diagnostics, undefined);
-        assert.equal(first.coverage.imports.unresolvedInternal, 5);
-        const full = cliPages(suggestion(run(100), 'readDiagnostics'));
-        const paged = cliPages(suggestion(first, 'readDiagnostics'));
-        assert.equal(
-          full.rows.length,
-          first.coverage.imports.unresolvedInternal
-        );
-        assert.ok(paged.count > full.count);
-        assert.deepEqual(paged.rows, full.rows);
-      }
-    );
     await check('LSP definition identifies the declaration', async () => {
       const data = await call('lspSearch', {
         path: path.join(fixture, 'entry.ts'),
@@ -1668,7 +1589,6 @@ try {
   await writeFile(values.receipt, JSON.stringify(receipt, null, 2));
   if (!values.fixture) {
     await rm(fixture, { recursive: true, force: true });
-    await rm(`${fixture}-diagnostics`, { recursive: true, force: true });
   }
 }
 const failures = receipt.checks.filter(check => check.status === 'failed');

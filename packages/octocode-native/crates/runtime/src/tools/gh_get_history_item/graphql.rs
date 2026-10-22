@@ -9,7 +9,8 @@
 use super::util::str_at;
 use super::window::{MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES};
 use super::{HistoryItemRequest, ItemOperation, Section};
-use octocode_github::{GitHubTransport, ProviderError, ProviderErrorKind, RequestContext};
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
 /// The first-page PR served by GraphQL: REST-shaped metadata, the raw
@@ -43,7 +44,9 @@ impl GraphqlWants {
         let unmatched = super::text::needle(query).is_none();
         Self {
             body: wants.has(Section::Body),
-            files: wants.lists_files() && unmatched && !query.query.has_file_filter(),
+            files: wants.lists_files()
+                && unmatched
+                && !gh_get_history_item_query::has_file_filter(&query.query),
             discussion: wants.has(Section::Comments) && unmatched,
             reviews: wants.has(Section::Reviews) && unmatched,
             commits: wants.lists_commits(),
@@ -67,13 +70,12 @@ impl GraphqlWants {
 /// GraphQL pays off only for a first page of at least two collections it
 /// serves and no patches (GraphQL returns no patch text).
 pub(super) fn graphql_complete_collection_eligible(query: &HistoryItemRequest) -> bool {
-    if !matches!(
-        query.operation(),
-        ItemOperation::PullRequest | ItemOperation::Issue
-    ) {
+    if gh_get_history_item_query::operation(query) != ItemOperation::PullRequest {
         return false;
     }
-    if query.page().unwrap_or(1) > 1 || query.sections().has(Section::Patches) {
+    if gh_get_history_item_query::page(query).unwrap_or(1) > 1
+        || query.sections().has(Section::Patches)
+    {
         return false;
     }
     GraphqlWants::of(query).count() >= 2
@@ -225,32 +227,32 @@ pub(super) async fn graphql_pull_request(
     if !transport.graphql_enabled || !transport.graphql_available(context) {
         return Ok(GraphqlOutcome::Unavailable);
     }
-    let Some(number) = query.number() else {
+    let Some(number) = gh_get_history_item_query::number(query) else {
         return Ok(GraphqlOutcome::Unavailable);
     };
     let wants = GraphqlWants::of(query);
     let (document, bound) = pull_request_document(&wants);
     let mut variables = json!({
-        "owner": query.owner(),
-        "repo": query.repo(),
+        "owner": gh_get_history_item_query::owner(query),
+        "repo": gh_get_history_item_query::repo(query),
         "number": number
     });
     for (variable, first) in bound {
         variables[variable] = json!(first);
     }
-    let page = transport
+    let mut page = transport
         .execute_graphql(&document, variables.clone(), context)
         .await?;
     let mut pr = page
         .data
-        .as_ref()
-        .and_then(|value| value.pointer("/repository/pullRequest"))
-        .cloned()
+        .as_mut()
+        .and_then(|value| value.pointer_mut("/repository/pullRequest"))
+        .map(Value::take)
         .unwrap_or(Value::Null);
     if pr.is_null() {
         return Ok(GraphqlOutcome::Failed(graphql_failure(&page.errors)));
     }
-    let collection_page = query.collection_page_size();
+    let collection_page = gh_get_history_item_query::collection_page_size(query);
     let file_page = super::inventory::file_page_size(query, false);
     // Each wanted connection, the nodes its first page needs, and the
     // pages REST would read at most.
@@ -312,7 +314,7 @@ async fn read_on(
 ) -> Result<GraphqlCollection, ProviderError> {
     let mut pages = 1;
     loop {
-        let state = graphql_collection_state(pr, connection.key, true);
+        let state = graphql_collection_state(pr, connection.key);
         let held = &pr[connection.key];
         if state == GraphqlCollection::Complete || held.is_null() {
             return Ok(state);
@@ -337,42 +339,35 @@ async fn read_on(
         let mut next = variables.clone();
         next[connection.variable] = json!(CONNECTION_PAGE);
         next["after"] = json!(cursor);
-        let answer = match transport
+        let mut answer = match transport
             .execute_graphql(&connection.continuation_document(), next, context)
             .await
         {
             Ok(answer) => answer,
-            Err(error)
-                if matches!(
-                    error.kind,
-                    ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
-                ) =>
-            {
+            Err(error) if error.is_cancelled_or_timed_out() => {
                 return Err(error);
             }
             Err(_) => return Ok(GraphqlCollection::Incomplete),
         };
         let Some(page) = answer
             .data
-            .as_ref()
-            .and_then(|data| data.pointer(&format!("/repository/pullRequest/{}", connection.key)))
+            .as_mut()
+            .and_then(|data| {
+                data.pointer_mut(&format!("/repository/pullRequest/{}", connection.key))
+            })
             .filter(|page| page.is_object())
         else {
             return Ok(GraphqlCollection::Incomplete);
         };
-        let nodes = page
-            .get("nodes")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if nodes.is_empty() {
-            return Ok(GraphqlCollection::Incomplete);
-        }
+        let nodes = match page.get_mut("nodes").map(Value::take) {
+            Some(Value::Array(nodes)) if !nodes.is_empty() => nodes,
+            _ => return Ok(GraphqlCollection::Incomplete),
+        };
         let held = &mut pr[connection.key];
         if let Some(list) = held.get_mut("nodes").and_then(Value::as_array_mut) {
             list.extend(nodes);
         }
-        held["pageInfo"] = page["pageInfo"].clone();
+        held["pageInfo"] = page["pageInfo"].take();
         pages += 1;
     }
 }
@@ -389,10 +384,7 @@ pub(super) enum GraphqlCollection {
     Incomplete,
 }
 
-pub(super) fn graphql_collection_state(pr: &Value, key: &str, wanted: bool) -> GraphqlCollection {
-    if !wanted {
-        return GraphqlCollection::Unused;
-    }
+pub(super) fn graphql_collection_state(pr: &Value, key: &str) -> GraphqlCollection {
     if pr
         .pointer(&format!("/{key}/pageInfo/hasNextPage"))
         .and_then(Value::as_bool)
@@ -775,12 +767,12 @@ mod tests {
         assert_eq!(files[0]["status"], "added");
         assert!(files[0].get("patch").is_none());
         assert_eq!(
-            super::graphql_collection_state(&pr, "files", true),
+            super::graphql_collection_state(&pr, "files"),
             super::GraphqlCollection::Complete
         );
         let incomplete = json!({"files":{"pageInfo":{"hasNextPage":true},"nodes":[]}});
         assert_eq!(
-            super::graphql_collection_state(&incomplete, "files", true),
+            super::graphql_collection_state(&incomplete, "files"),
             super::GraphqlCollection::Incomplete
         );
     }
@@ -853,20 +845,16 @@ mod tests {
             "commits": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
         });
         assert_eq!(
-            super::graphql_collection_state(&pr, "reviews", true),
+            super::graphql_collection_state(&pr, "reviews"),
             super::GraphqlCollection::Incomplete
         );
         assert_eq!(
-            super::graphql_collection_state(&pr, "files", true),
+            super::graphql_collection_state(&pr, "files"),
             super::GraphqlCollection::Incomplete
         );
         assert_eq!(
-            super::graphql_collection_state(&pr, "commits", true),
+            super::graphql_collection_state(&pr, "commits"),
             super::GraphqlCollection::Complete
-        );
-        assert_eq!(
-            super::graphql_collection_state(&pr, "reviews", false),
-            super::GraphqlCollection::Unused
         );
     }
 }

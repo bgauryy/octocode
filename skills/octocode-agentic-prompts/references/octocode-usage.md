@@ -26,19 +26,20 @@ Use observed paths, lines, refs, and identifiers in real calls. For long request
 
 ## Availability
 
-Check `schema` availability, `auth status`, or `lsp-server status <file>` for the capability you need. Unavailable is a coverage gap, not an empty result. `ghCloneRepo` and beta `astTopology` are CLI-only. The connected catalog determines what MCP exposes.
+Check `schema` availability, `auth status`, or `lsp-server status <file>` for the capability you need. Unavailable is a coverage gap, not an empty result. `ghCloneRepo` is CLI-only. The connected catalog determines what MCP exposes.
 
-For credentials and settings, follow [configuration](configuration.md). GitHub uses `GH_TOKEN` or `GITHUB_TOKEN`. Inline `clasifyContext` needs `OCTOCODE_CLASSIFICATION_API` (or `classification.api`); public `clasify` additionally needs beta (`OCTOCODE_BETA=1`). `astTopology` also needs beta. Calls without classification perform ordinary retrieval; there is no separate selection switch.
+For credentials and settings, follow [configuration](configuration.md). GitHub uses `GH_TOKEN` or `GITHUB_TOKEN`. Inline `clasifyContext` needs `OCTOCODE_CLASSIFICATION_API` (or `classification.api`); public `clasify` additionally needs beta (`OCTOCODE_BETA=1`). Calls without classification perform ordinary retrieval; there is no separate selection switch.
 
 `ghCloneRepo` needs local tools enabled (`OCTOCODE_ENABLE_LOCAL`) and persistent `OCTOCODE_STORAGE_MODE`; `ENABLE_CLONE` is ignored. Inspect live configuration before selecting a capability. No setting change is implied by a missing capability.
 
-## 15 public tools
+## 14 public tools
 
 The default catalog contains 12 tools over MCP and 13 in the CLI; the full schema inventory includes beta tools. Live discovery remains authoritative for the selected environment.
 
 - GitHub: `ghSearchCode`, `ghStructure`, `ghSearchRepo`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo`.
 - Local: `localSearch`, `structureSearch`, `astSearch`, `localFetch`, `lspSearch`.
-- Other: `artifactSearch`, `astTopology`, `clasify`.
+- Other: `artifactSearch`, `clasify`.
+- File graphs (CLI, not a tool): `octocode graph ingest <dir>`, then `graph query deps|dependents|path|cycles|issues|drift`.
 
 ## Read results and recover
 

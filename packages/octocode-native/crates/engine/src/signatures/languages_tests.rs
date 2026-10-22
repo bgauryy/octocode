@@ -464,6 +464,18 @@ fn declarations_carry_the_comment_block_directly_above_them() {
         doc_lines("# Adds.\ndef add(a, b):\n    return a + b\n", "m.py"),
         vec![("add".into(), Some(0))]
     );
+    // The grammar's comment style decides: `.pyi` stubs are Python, and
+    // assembly comments start with `;`.
+    assert_eq!(
+        doc_lines("# Adds.\ndef add(a: int) -> int: ...\n", "m.pyi"),
+        vec![("add".into(), Some(0))]
+    );
+    let asm = doc_lines("; Entry point.\n_start:\n    ret\n", "boot.asm");
+    assert!(
+        asm.iter()
+            .any(|(name, doc)| name == "_start" && *doc == Some(0)),
+        "{asm:?}"
+    );
     let c = doc_lines("#define N 1\nint f(void) { return N; }\n", "a.c");
     assert!(
         c.iter().any(|(name, doc)| name == "f" && doc.is_none()),

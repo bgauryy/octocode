@@ -1,38 +1,39 @@
-use crate::tools::id::ToolId;
-use crate::tools::num::{u32_of, usize_of};
-use crate::tools::result::ToolError;
+use crate::id::ToolId;
+use crate::num::{u32_of, usize_of};
+use crate::response::result::Confidence;
+use crate::response::result::ToolError;
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
+    execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
 use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::json;
 const MAX_SOURCE: usize = super::MAX_PARSE_SOURCE_BYTES;
-pub use crate::contracts::tool_types::AstSearchQuerySyntaxTree;
+pub use octocode_contract_types::AstSearchQuerySyntaxTree;
 
 /// Engine-unit views over the generated `syntaxTree` query.
-impl AstSearchQuerySyntaxTree {
-    pub(crate) fn language(&self) -> Option<String> {
-        self.language.as_ref().map(ToString::to_string)
+pub(crate) mod ast_search_query_syntax_tree {
+    use super::*;
+    pub(crate) fn language(query: &AstSearchQuerySyntaxTree) -> Option<String> {
+        query.language.as_ref().map(ToString::to_string)
     }
-    pub(crate) fn page(&self) -> u32 {
-        u32_of(self.page.get())
+    pub(crate) fn page(query: &AstSearchQuerySyntaxTree) -> u32 {
+        u32_of(query.page.get())
     }
     /// The caller's nodes per page; unset fills the response window.
-    pub(crate) fn page_size(&self) -> Option<u32> {
-        self.page_size.map(|size| u32_of(size.get()))
+    pub(crate) fn page_size(query: &AstSearchQuerySyntaxTree) -> Option<u32> {
+        query.page_size.map(|size| u32_of(size.get()))
     }
     /// The first node of an explicit-size page; a window-sized page starts
     /// where the previous one ended, which only a walk of the nodes knows.
-    pub(crate) fn node_offset(&self) -> Option<u32> {
-        self.page_size()
-            .map(|size| self.page().saturating_sub(1).saturating_mul(size))
+    pub(crate) fn node_offset(query: &AstSearchQuerySyntaxTree) -> Option<u32> {
+        page_size(query).map(|size| page(query).saturating_sub(1).saturating_mul(size))
     }
-    pub(crate) fn snapshot(&self) -> Option<&str> {
-        self.snapshot.as_deref().map(String::as_str)
+    pub(crate) fn snapshot(query: &AstSearchQuerySyntaxTree) -> Option<&str> {
+        query.snapshot.as_deref().map(String::as_str)
     }
     /// The 1-based line whose covering node roots the tree (`line`).
-    pub(crate) fn line(&self) -> Option<u32> {
-        self.line.map(|line| u32_of(line.get()))
+    pub(crate) fn line(query: &AstSearchQuerySyntaxTree) -> Option<u32> {
+        query.line.map(|line| u32_of(line.get()))
     }
 }
 
@@ -47,7 +48,10 @@ pub fn execute_syntax(
     let p = paths
         .validate_read(q.path.as_str())
         .map_err(super::policy_error)?;
-    super::validate_file_language(&p.canonical, q.language().as_deref())?;
+    super::validate_file_language(
+        &p.canonical,
+        ast_search_query_syntax_tree::language(q).as_deref(),
+    )?;
     let Some(bytes) = super::read_parse_source(&p.canonical)? else {
         return Ok(super::source_limit(&p.canonical.to_string_lossy(), None));
     };
@@ -61,31 +65,36 @@ pub fn execute_syntax(
         q.language,
         sanitized.content,
         q.named_only,
-        q.line()
+        ast_search_query_syntax_tree::line(q)
     ]));
     // A page without a snapshot pins nothing: it pages the current tree, as
     // every astSearch and structureSearch listing does; only a snapshot
     // that no longer matches is stale.
-    if q.page() > 1 && q.snapshot().is_some_and(|given| given != snapshot) {
-        return Ok(crate::tools::result::stale_snapshot(
-            crate::tools::result::restart_query(
+    if ast_search_query_syntax_tree::page(q) > 1
+        && ast_search_query_syntax_tree::snapshot(q).is_some_and(|given| given != snapshot)
+    {
+        return Ok(crate::response::result::stale_snapshot(
+            crate::response::result::restart_query(
                 ToolId::AstSearch,
-                &crate::tools::result::query_row(q, &[]),
+                &crate::response::result::query_row(q, &[]),
             ),
         ));
     }
-    if let Some(line) = q.line() {
+    if let Some(line) = ast_search_query_syntax_tree::line(q) {
         check_line(q, line, &sanitized.content)?;
     }
     cancel.check().map_err(ToolError::cancelled)?;
     let source = Source {
         content: &sanitized.content,
         path: &p.canonical,
-        extension: super::parser_override(&p.canonical, q.language().as_deref()),
+        extension: super::parser_override(
+            &p.canonical,
+            ast_search_query_syntax_tree::language(q).as_deref(),
+        ),
     };
-    let budget = crate::tools::page_windows::page_budget(
+    let budget = crate::response::page_windows::page_budget(
         response_window,
-        &crate::tools::result::query_value(q),
+        &crate::response::result::query_value(q),
     );
     let page = read_page(q, &source, budget, &snapshot, cancel)?;
     Ok(render_tree_page(
@@ -107,9 +116,9 @@ fn check_line(q: &AstSearchQuerySyntaxTree, line: u32, content: &str) -> Result<
         "invalidInput",
         format!("line {line} is past the end of the file ({total} lines)."),
     );
-    let repaired = crate::tools::result::query_row(q, &["line", "page", "snapshot"]);
+    let repaired = crate::response::result::query_row(q, &["line", "page", "snapshot"]);
     error.next = Some(Box::new(json!({
-        "repair": crate::tools::result::Continuation::new(ToolId::AstSearch, repaired).confidence("exact").build()
+        "repair": crate::response::result::Continuation::new(ToolId::AstSearch, repaired).confidence(Confidence::Exact).build()
     })));
     Err(error)
 }
@@ -188,7 +197,7 @@ impl Source<'_> {
                 named_only: Some(q.named_only),
                 node_offset: Some(offset),
                 node_limit: Some(limit),
-                line: q.line(),
+                line: ast_search_query_syntax_tree::line(q),
             }),
         ))
     }
@@ -208,8 +217,10 @@ fn read_page(
     cancel: &dyn CancellationCheck,
 ) -> Result<TreePage, ToolError> {
     use crate::response::pages::PageFacts;
-    let page = usize_of(q.page());
-    if let Some((offset, size)) = q.node_offset().zip(q.page_size()) {
+    let page = usize_of(ast_search_query_syntax_tree::page(q));
+    if let Some((offset, size)) =
+        ast_search_query_syntax_tree::node_offset(q).zip(ast_search_query_syntax_tree::page_size(q))
+    {
         let r = source.inspect(q, offset, size)?;
         let more = r.next_offset.is_some();
         let total = usize_of(r.total_nodes);
@@ -291,7 +302,7 @@ fn page_windows(
     budget: usize,
 ) -> Vec<std::ops::Range<usize>> {
     let sizes = r.nodes.iter().map(node_page_chars).collect::<Vec<_>>();
-    crate::tools::page_windows::Paging::of(None, budget).windows(&sizes)
+    crate::response::page_windows::Paging::of(None, budget).windows(&sizes)
 }
 
 /// The row of one read page: its nodes and diagnostics, pagination and the
@@ -317,7 +328,7 @@ fn render_tree_page(
         .collect::<Vec<_>>();
     // A walk's notes do not change between its pages: page 1 states them, and
     // a walk cut is stated where the listing stops (an error row keeps all).
-    let first_page = q.page() == 1;
+    let first_page = ast_search_query_syntax_tree::page(q) == 1;
     let diagnostics = r
         .diagnostics
         .into_iter()
@@ -344,7 +355,7 @@ fn render_tree_page(
             .unwrap_or("The syntax tree could not be built.");
         return json!({"operation":"syntaxTree","path":display_path,"status":"error","errorCode":code,"error":message});
     }
-    let page = q.page();
+    let page = ast_search_query_syntax_tree::page(q);
     let complete = r.status == "ok" && !more;
     let pagination = facts.to_value();
     let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"returnedBytes":node_bytes,"snapshot":snapshot,"isPartial":!complete,
@@ -353,7 +364,7 @@ fn render_tree_page(
         out["diagnostics"] = json!(diagnostics);
     }
     if more {
-        let next_page = crate::tools::paging::next_cursor(
+        let next_page = crate::response::paging::next_cursor(
             &mut out,
             ToolId::AstSearch,
             Some("syntaxTree"),
@@ -361,14 +372,14 @@ fn render_tree_page(
             usize_of(page) + 1,
         );
         if let Some(next_page) = next_page {
-            let mut nq = crate::tools::result::query_row(q, &[]);
+            let mut nq = crate::response::result::query_row(q, &[]);
             nq["snapshot"] = json!(snapshot);
             nq["page"] = json!(next_page);
-            out["next"] = json!({"nextPage":crate::tools::result::Continuation::new(ToolId::AstSearch, nq).confidence("exact").build()})
+            out["next"] = json!({"nextPage":crate::response::result::Continuation::new(ToolId::AstSearch, nq).confidence(Confidence::Exact).build()})
         }
     } else if r.status == "partial" {
         for reason in walk_cuts(&codes) {
-            crate::tools::paging::terminal_limit(&mut out, reason, &[]);
+            crate::response::paging::terminal_limit(&mut out, reason, &[]);
         }
     }
     out
@@ -414,7 +425,7 @@ fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
 /// `returnedBytes` entry is a `stats` extra a default row drops, so a page
 /// asking for stats may run past the window by those entries.
 fn node_page_chars(n: &octocode_engine::structural::SyntaxTreeNode) -> usize {
-    crate::tools::stream_page::json_text_chars(&node_page_row(n)) + 1
+    crate::response::stream_page::json_text_chars(&node_page_row(n)) + 1
 }
 
 /// One node as `"<id> <kind> <startLine>:<startColumn>-<endLine>:<endColumn>
@@ -429,8 +440,8 @@ fn node_row(id: u32, kind: &str, named: bool, span: [u32; 4], parent: Option<u32
     };
     // 1-based lines and columns; the end stays exclusive.
     let (start_column, end_column) = (
-        crate::tools::num::one_based_column(start_column),
-        crate::tools::num::one_based_column(end_column),
+        crate::num::one_based_column(start_column),
+        crate::num::one_based_column(end_column),
     );
     let mut row = format!("{id} {kind} {start_line}:{start_column}-{end_line}:{end_column}");
     if let Some(parent) = parent {

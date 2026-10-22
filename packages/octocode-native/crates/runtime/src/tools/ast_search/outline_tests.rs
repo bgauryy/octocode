@@ -1,7 +1,7 @@
 //! astSearch `symbols`: outline rows, name filters, recovered parses,
 //! paging and the leads an outline offers.
 use super::test_rows::*;
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, checks, simple_policy};
 use serde_json::json;
 
@@ -79,10 +79,10 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     assert_eq!(error.code, "fileTooLarge");
     let next = error.next.expect("findText lead");
     assert_eq!(next["findText"]["query"]["queries"][0]["regex"], "literal");
-    use crate::tools::output::ToolOutput;
+    use crate::response::output::ToolOutput;
     assert_eq!(
         super::output::Output.error_hint("fileTooLarge"),
-        Some(crate::tools::output::NO_HINT)
+        Some(crate::response::output::NO_HINT)
     );
 }
 
@@ -115,8 +115,8 @@ fn single_file_symbols_are_compact_and_path_free() {
     // path, ranges or engine ids; an endLine only when the declaration
     // spans lines; members indented under the `impl` that holds them.
     assert_eq!(
-        json!(crate::tools::symbol_outline::outline_rows(
-            &crate::tools::symbol_outline::flatten_members(
+        json!(crate::response::symbol_outline::outline_rows(
+            &crate::response::symbol_outline::flatten_members(
                 out["symbols"].as_array().expect("rows")
             )
         )),
@@ -188,7 +188,7 @@ fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
             paged.extend(rows.iter().cloned());
             checks::Page {
                 output: crate::tools::test_support::published(
-                    crate::tools::id::ToolId::AstSearch,
+                    crate::id::ToolId::AstSearch,
                     row,
                     &page,
                 ),
@@ -297,8 +297,8 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
     // (line 6) sits in the second; the two `x` on one line differ only by
     // column, so only they carry it.
     assert_eq!(
-        json!(crate::tools::symbol_outline::outline_rows(
-            &crate::tools::symbol_outline::flatten_members(
+        json!(crate::response::symbol_outline::outline_rows(
+            &crate::response::symbol_outline::flatten_members(
                 out["symbols"].as_array().expect("rows")
             )
         )),
@@ -320,9 +320,11 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
     )
     .expect("second page");
     assert_eq!(
-        crate::tools::symbol_outline::outline_rows(&crate::tools::symbol_outline::flatten_members(
-            second["symbols"].as_array().expect("rows")
-        )),
+        crate::response::symbol_outline::outline_rows(
+            &crate::response::symbol_outline::flatten_members(
+                second["symbols"].as_array().expect("rows")
+            )
+        ),
         [json!("8 function x col 14")],
         "{second}"
     );
@@ -342,8 +344,8 @@ fn symbols_trait_impls_name_their_trait_and_macro_members_nest() {
     .expect("source");
     let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
     assert_eq!(
-        json!(crate::tools::symbol_outline::outline_rows(
-            &crate::tools::symbol_outline::flatten_members(
+        json!(crate::response::symbol_outline::outline_rows(
+            &crate::response::symbol_outline::flatten_members(
                 out["symbols"].as_array().expect("rows")
             )
         )),
@@ -861,7 +863,7 @@ fn c_one_line_typedef_struct_is_not_its_own_parent() {
     )
     .expect("symbols");
     let rows = &out["symbols"];
-    let flat = crate::tools::symbol_outline::flatten_members(rows.as_array().expect("rows"));
+    let flat = crate::response::symbol_outline::flatten_members(rows.as_array().expect("rows"));
     // Every declaration survives, in source order.
     let named: Vec<(&str, &str, u64)> = flat
         .iter()

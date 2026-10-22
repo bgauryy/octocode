@@ -13,10 +13,10 @@
 
 use super::executor::process_fetched_content;
 use super::types::*;
+use crate::execution::cancel::CancellationCheck;
+use crate::num::usize_of;
 use crate::security::scan::ContentScan;
 use crate::security::{BlockLine, KeyBlockState, LineShape, LineShapeScan, is_key_header_prefix};
-use crate::tools::cancel::CancellationCheck;
-use crate::tools::num::usize_of;
 use std::path::Path;
 
 /// Largest source a window may be streamed from.
@@ -25,7 +25,7 @@ pub(super) const MAX_STREAM_SOURCE_BYTES: u64 = 1024 * 1024 * 1024;
 const WINDOW_LINES: usize = 5_000;
 /// Lines the first bare read previews before continuing through bounded
 /// windows (contract `localFetch.semanticPolicy.streamedHeadLines`).
-const STREAMED_HEAD_LINES: usize = crate::tools::id::local_fetch_policy::STREAMED_HEAD_LINES;
+const STREAMED_HEAD_LINES: usize = crate::id::local_fetch_policy::STREAMED_HEAD_LINES;
 /// Bytes one streamed window holds; a longer window is cut at a line end or,
 /// for a single giant line, mid-line: its byte pages start the window at
 /// their own offset, so the rest of the line is the next window.
@@ -389,7 +389,7 @@ struct ViewPoint {
 /// block reaches the range, stops once its window is full.
 #[derive(Debug)]
 struct RangeView {
-    stamp: octocode_engine::graph::SourceStamp,
+    stamp: octocode_engine::stamp::SourceStamp,
     total: usize,
     keyed: bool,
     points: Vec<ViewPoint>,
@@ -441,7 +441,7 @@ struct Checkpoint {
 /// streams from the checkpoint before its window instead of the whole file.
 #[derive(Debug)]
 struct StreamIndex {
-    stamp: octocode_engine::graph::SourceStamp,
+    stamp: octocode_engine::stamp::SourceStamp,
     digest: String,
     total_lines: usize,
     binary: bool,
@@ -450,7 +450,7 @@ struct StreamIndex {
 
 /// Indexes of streamed sources by canonical path. The stamp (size, times,
 /// inode) recorded only for a file untouched for
-/// [`octocode_engine::graph::SourceStamp::SETTLE`] is the proof that the
+/// [`octocode_engine::stamp::SourceStamp::SETTLE`] is the proof that the
 /// bytes, and so the digest, are unchanged, as the graph and LSP memos use
 /// it. A miss costs a whole-file pass, so the byte weight bounds the memo
 /// and the entry cap sits far above a working set of large sources (an
@@ -528,7 +528,7 @@ impl<C: CancellationCheck> LineSink<'_, C> {
             return None;
         };
         Some(RangeView {
-            stamp: octocode_engine::graph::SourceStamp::default(),
+            stamp: octocode_engine::stamp::SourceStamp::default(),
             total: held.view_pos,
             keyed: held.inside_lines > 0,
             points,
@@ -594,7 +594,7 @@ fn stream(
         sink.line - 1
     };
     let index = StreamIndex {
-        stamp: octocode_engine::graph::SourceStamp::default(),
+        stamp: octocode_engine::stamp::SourceStamp::default(),
         digest,
         total_lines,
         binary: sink.binary,
@@ -700,7 +700,7 @@ fn remember_view(
     path: &Path,
     wants: &[Want],
     view: Option<RangeView>,
-    stamp: octocode_engine::graph::SourceStamp,
+    stamp: octocode_engine::stamp::SourceStamp,
 ) {
     let (Some(want), Some(mut view)) = (byte_page(wants), view) else {
         return;
@@ -722,11 +722,11 @@ fn remember_view(
 fn read_windows(
     source: &std::fs::File,
     path: &Path,
-    stamp: Option<octocode_engine::graph::SourceStamp>,
+    stamp: Option<octocode_engine::stamp::SourceStamp>,
     wants: &[Want],
     cancel: &impl CancellationCheck,
 ) -> Result<Vec<Streamed>, String> {
-    let unchanged = |stamp: &octocode_engine::graph::SourceStamp| {
+    let unchanged = |stamp: &octocode_engine::stamp::SourceStamp| {
         source
             .metadata()
             .ok()
@@ -772,7 +772,7 @@ fn unsupported(q: &LocalFetchQuery, len: u64, reason: &str, next: NextCalls) -> 
         format!(
             "This source is {}MB, above the {}MB whole-file read limit, so only bounded line windows are served: {reason}",
             len / (1024 * 1024),
-            super::executor::MAX_SOURCE_BYTES / (1024 * 1024)
+            super::acquire::MAX_SOURCE_BYTES / (1024 * 1024)
         ),
     );
     result.source_bytes = usize::try_from(len).ok();
@@ -788,7 +788,7 @@ fn line_chunk_query(q: &LocalFetchQuery, offset: usize) -> LocalFetchQuery {
     query.regex = None;
     query.case_mode = None;
     query.context_lines = None;
-    query.clear_block_selectors();
+    local_fetch_query::clear_block_selectors(&mut query);
     query.unit = Some(WindowUnit::Lines);
     query.offset = if offset == 0 {
         None
@@ -807,14 +807,15 @@ pub(super) fn fetch_window(
     source: &std::fs::File,
     meta: &std::fs::Metadata,
     modified: Option<String>,
+    share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
-    regex: &impl RegexMatch,
 ) -> LocalFetchResult {
     let len = meta.len();
     // Taken before any byte is read: a write during the pass changes it.
     let stamp = crate::tools::source::cache_stamp(meta).filter(|_| {
-        octocode_engine::graph::SourceStamp::settled(meta, std::time::SystemTime::now()).is_some()
+        octocode_engine::stamp::SourceStamp::settled(meta, octocode_engine::stamp::settle_clock())
+            .is_some()
     });
     let source = Opened {
         file: source,
@@ -822,13 +823,13 @@ pub(super) fn fetch_window(
         stamp,
         len,
     };
-    if !q.match_strings().is_empty() {
+    if !local_fetch_query::match_strings(q).is_empty() {
         return match_needs_whole_file(q, len);
     }
     if q.full_content == Some(true)
-        || q.minify_mode().is_some()
-        || (q.unit == Some(WindowUnit::Bytes) && q.start_line().is_none())
-        || q.block()
+        || local_fetch_query::minify_mode(q).is_some()
+        || (q.unit == Some(WindowUnit::Bytes) && local_fetch_query::start_line(q).is_none())
+        || local_fetch_query::block(q)
     {
         return unsupported(
             q,
@@ -837,12 +838,24 @@ pub(super) fn fetch_window(
             read_bounded(q),
         );
     }
-    if q.has_ranges() && q.start_line().is_none() {
-        return fetch_ranges(q, &source, modified, security, cancel, regex);
+    // A stream's first page carries its note: the page leaves it room.
+    let noted = |noted: bool| {
+        let note = crate::response::stream_page::json_text_chars(&streamed_warning(len)) + 4;
+        share.map(|share| {
+            if noted {
+                share.saturating_sub(note).max(1)
+            } else {
+                share
+            }
+        })
+    };
+    if local_fetch_query::has_ranges(q) && local_fetch_query::start_line(q).is_none() {
+        return fetch_ranges(q, &source, modified, noted(true), security, cancel);
     }
-    let mut result = stream_window(q, &source, modified, security, cancel, regex);
+    let first_page = local_fetch_query::offset(q).unwrap_or(0) == 0;
+    let mut result = stream_window(q, &source, modified, noted(first_page), security, cancel);
     // The note is the same on every page: the read's first page states it.
-    if result.status != "error" && q.offset().unwrap_or(0) == 0 {
+    if result.status != ReadStatus::Error && local_fetch_query::offset(q).unwrap_or(0) == 0 {
         result.warnings.insert(0, streamed_warning(len));
     }
     result
@@ -891,28 +904,32 @@ impl WindowSpan {
 }
 
 fn window_span(q: &LocalFetchQuery) -> WindowSpan {
-    let (first, requested_last, chunked) = match (q.start_line(), q.end_line()) {
+    let (first, requested_last, chunked) = match (
+        local_fetch_query::start_line(q),
+        local_fetch_query::end_line(q),
+    ) {
         // A range pages in its own lines: a line offset starts the window
         // there, so every window holds a full page past the offset (a byte
         // offset pages inside the range's first line instead).
         (Some(start), end) => {
             let skip = match q.unit {
                 Some(WindowUnit::Bytes) => 0,
-                _ => q.offset().unwrap_or(0),
+                _ => local_fetch_query::offset(q).unwrap_or(0),
             };
             (start + skip, end.unwrap_or(start), false)
         }
         _ => {
-            let offset = q.offset().unwrap_or(0);
+            let offset = local_fetch_query::offset(q).unwrap_or(0);
             (
                 offset + 1,
                 offset
-                    + q.window_length()
-                        .unwrap_or(if offset == 0 && q.snapshot.is_none() {
+                    + local_fetch_query::window_length(q).unwrap_or(
+                        if offset == 0 && q.snapshot.is_none() {
                             STREAMED_HEAD_LINES
                         } else {
                             WINDOW_LINES
-                        }),
+                        },
+                    ),
                 true,
             )
         }
@@ -926,7 +943,9 @@ fn window_span(q: &LocalFetchQuery) -> WindowSpan {
             requested_last.min(first + WINDOW_LINES - 1)
         },
         from: if byte_page {
-            q.offset().unwrap_or(0).saturating_sub(BYTE_LOOKBEHIND)
+            local_fetch_query::offset(q)
+                .unwrap_or(0)
+                .saturating_sub(BYTE_LOOKBEHIND)
         } else {
             0
         },
@@ -934,7 +953,7 @@ fn window_span(q: &LocalFetchQuery) -> WindowSpan {
         origin: if chunked {
             1
         } else {
-            q.start_line().unwrap_or(first)
+            local_fetch_query::start_line(q).unwrap_or(first)
         },
         chunked,
         byte_page,
@@ -946,7 +965,7 @@ fn window_span(q: &LocalFetchQuery) -> WindowSpan {
 struct Opened<'a> {
     file: &'a std::fs::File,
     path: &'a Path,
-    stamp: Option<octocode_engine::graph::SourceStamp>,
+    stamp: Option<octocode_engine::stamp::SourceStamp>,
     len: u64,
 }
 
@@ -960,25 +979,25 @@ impl Opened<'_> {
     }
 }
 
+/// Room an omission marker between two joined spans takes.
+const OMISSION_MARKER_CHARS: usize = 48;
+
 /// One streamed line window (a range or a chunk).
 fn stream_window(
     q: &LocalFetchQuery,
     source: &Opened<'_>,
     modified: Option<String>,
+    share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
-    regex: &impl RegexMatch,
 ) -> LocalFetchResult {
     let span = window_span(q);
-    let (path, len) = (source.path, source.len);
     // One span streams exactly one window.
     let streamed = source
         .windows(&[span.want()], cancel)
         .and_then(|mut windows| windows.pop().ok_or_else(|| "no window streamed".to_owned()));
     match streamed {
-        Ok(streamed) => serve_window(
-            q, streamed, span, path, len, modified, security, cancel, regex,
-        ),
+        Ok(streamed) => serve_window(q, streamed, span, source, modified, share, security, cancel),
         Err(error) => LocalFetchResult::error(q.path.to_string(), "fileReadFailed", error),
     }
 }
@@ -988,13 +1007,13 @@ fn serve_window(
     q: &LocalFetchQuery,
     streamed: Streamed,
     span: WindowSpan,
-    path: &Path,
-    len: u64,
+    source: &Opened<'_>,
     modified: Option<String>,
+    share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
-    regex: &impl RegexMatch,
 ) -> LocalFetchResult {
+    let (path, len) = (source.path, source.len);
     let WindowSpan {
         first,
         requested_last,
@@ -1009,12 +1028,12 @@ fn serve_window(
         return super::executor::stale_snapshot(q);
     }
     if streamed.binary {
-        return super::executor::refuse_binary(q, q.path.as_str());
+        return super::acquire::refuse_binary(q, q.path.as_str());
     }
     let total = streamed.total_lines;
     if !chunked && origin > total {
         // A range starting past the file end, as an in-memory read refuses it.
-        return super::executor::extraction_error(
+        return super::prepare::extraction_error(
             q,
             ExtractionError::new(
                 ExtractionErrorKind::InvalidInput,
@@ -1036,7 +1055,7 @@ fn serve_window(
         return past_end_row(q, &streamed, WindowUnit::Lines, read_total, len);
     }
     // A byte offset past the range's last byte, which no window holds.
-    let offset = q.offset().unwrap_or(0);
+    let offset = local_fetch_query::offset(q).unwrap_or(0);
     if byte_page && offset > 0 && offset >= streamed.origin.total {
         return past_end_row(q, &streamed, WindowUnit::Bytes, streamed.origin.total, len);
     }
@@ -1046,7 +1065,7 @@ fn serve_window(
     // This internal bounded read addresses only a temporary window digest.
     window_query.clasify_context = None;
     window_query.selection = None;
-    window_query.set_line_span(1, held_last + 1 - streamed.first);
+    local_fetch_query::set_line_span(&mut window_query, 1, held_last + 1 - streamed.first);
     window_query.snapshot = None;
     if chunked {
         // The chunk's file offset selected the window itself.
@@ -1059,77 +1078,96 @@ fn serve_window(
         // (`SourceFacts::byte_origin` places the page).
         window_query.offset = None;
     }
-    let mut result = process_fetched_content(
-        &window_query,
-        &streamed.window,
-        path,
-        &super::types::SourceFacts {
-            modified,
-            window: None,
-            first_page_bytes: None,
-            interior: streamed.first > 1 || streamed.origin.base > 0,
-            byte_origin: Some(streamed.origin),
-        },
-        security,
-        cancel,
-        regex,
-    );
-    if result.status == "error" {
-        return result;
-    }
-    map_to_file(&mut result, &streamed, len);
-    if !chunked && requested_last > total {
-        // The in-memory read states the same clamp.
-        result.warnings.push(format!(
-            "Range {first}-{requested_last} adjusted to end at {total} (file end)."
-        ));
-    }
-    // The read's last line: the file's for a chunk, the range's otherwise.
-    let last = if chunked {
-        total
-    } else {
-        requested_last.min(total)
-    };
-    // The lines the page returned, which the window's page budget may have
-    // cut short of the window it held.
-    let served = result
-        .source_line_ranges
-        .first()
-        .map(|range| range.start)
-        .zip(result.source_line_ranges.last().map(|range| range.end))
-        .or(result.start_line.zip(result.end_line))
-        .unwrap_or((streamed.first, held_last));
-    continue_window(
-        q,
-        &mut result,
-        &streamed,
-        span,
-        (served.1 < last).then_some(served.1 + 1 - origin),
-    );
-    // A line page pages the read's own lines (the file's for a chunk, the
-    // range's otherwise) whatever window held it, as an in-memory read's
-    // pagination does.
-    if let Some(page) = result.pagination.as_mut()
-        && page.unit == WindowUnit::Lines
-    {
-        let (start, end) = served;
-        page.offset = start - origin;
-        page.length = end + 1 - start;
-        page.total_lines = last + 1 - origin;
-        if chunked {
-            page.total_bytes = usize_of(len);
+    let serve = |window_query: &LocalFetchQuery| {
+        let mut result = process_fetched_content(
+            window_query,
+            &streamed.window,
+            path,
+            &super::types::SourceFacts {
+                modified: modified.clone(),
+                window: share,
+                beside: 0,
+                interior: streamed.first > 1 || streamed.origin.base > 0,
+                byte_origin: Some(streamed.origin),
+            },
+            security,
+            cancel,
+        );
+        if result.status == ReadStatus::Error {
+            return result;
         }
-        page.has_more = end < last;
-        page.next_offset = page.has_more.then_some(end + 1 - origin);
-        page.resume_line = None;
+        map_to_file(&mut result, &streamed, len);
+        if !chunked && requested_last > total {
+            // The in-memory read states the same clamp.
+            result.warnings.push(format!(
+                "Range {first}-{requested_last} adjusted to end at {total} (file end)."
+            ));
+        }
+        // The read's last line: the file's for a chunk, the range's otherwise.
+        let last = if chunked {
+            total
+        } else {
+            requested_last.min(total)
+        };
+        // The lines the page returned, which the window's page budget may have
+        // cut short of the window it held.
+        let served = result
+            .source_line_ranges
+            .first()
+            .map(|range| range.start)
+            .zip(result.source_line_ranges.last().map(|range| range.end))
+            .or(result.start_line.zip(result.end_line))
+            .unwrap_or((streamed.first, held_last));
+        continue_window(
+            q,
+            &mut result,
+            &streamed,
+            span,
+            (served.1 < last).then_some(served.1 + 1 - origin),
+        );
+        // A line page pages the read's own lines (the file's for a chunk, the
+        // range's otherwise) whatever window held it, as an in-memory read's
+        // pagination does.
+        if let Some(page) = result.pagination.as_mut()
+            && page.unit == WindowUnit::Lines
+        {
+            let (start, end) = served;
+            page.offset = start - origin;
+            page.length = end + 1 - start;
+            page.total_lines = last + 1 - origin;
+            if chunked {
+                page.total_bytes = usize_of(len);
+            }
+            page.has_more = end < last;
+            page.next_offset = page.has_more.then_some(end + 1 - origin);
+            page.resume_line = None;
+        }
+        // A byte page pages the bytes of the lines its window was cut from.
+        if let Some(page) = result.pagination.as_mut()
+            && page.unit == WindowUnit::Bytes
+        {
+            page.total_lines = span.last.min(total) + 1 - span.first;
+        }
+        result
+    };
+    let page = serve(&window_query);
+    // A page whose row the file's coordinates grew past its share is cut
+    // again from the window already held.
+    let Some(lines) = share
+        .filter(|_| page.status == ReadStatus::Success)
+        .and_then(|share| super::executor::fitted_lines(&page, q, share))
+    else {
+        return page;
+    };
+    let mut shorter = window_query;
+    shorter.unit = Some(WindowUnit::Lines);
+    shorter.length = wire_positive(lines);
+    let fitted = serve(&shorter);
+    if fitted.status == ReadStatus::Error {
+        page
+    } else {
+        fitted
     }
-    // A byte page pages the bytes of the lines its window was cut from.
-    if let Some(page) = result.pagination.as_mut()
-        && page.unit == WindowUnit::Bytes
-    {
-        page.total_lines = span.last.min(total) + 1 - span.first;
-    }
-    result
 }
 
 /// Several `ranges`: each (overlaps and neighbours merged, in line order) is
@@ -1143,13 +1181,13 @@ fn fetch_ranges(
     q: &LocalFetchQuery,
     source: &Opened<'_>,
     modified: Option<String>,
+    share: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
-    regex: &impl RegexMatch,
 ) -> LocalFetchResult {
-    let (path, len) = (source.path, source.len);
+    let len = source.len;
     let merged = crate::tools::line_spans::merge_spans(
-        q.line_ranges()
+        local_fetch_query::line_ranges(q)
             .into_iter()
             .map(|range| (range.start, range.end)),
     );
@@ -1157,7 +1195,7 @@ fn fetch_ranges(
         .iter()
         .map(|&(start, end)| {
             let mut one = q.clone();
-            one.set_line_span(start, end);
+            local_fetch_query::set_line_span(&mut one, start, end);
             let span = window_span(&one);
             (one, span)
         })
@@ -1172,27 +1210,55 @@ fn fetch_ranges(
     let mut parts = Vec::with_capacity(merged.len());
     // The span the page stops inside: its range and the calls that read on.
     let mut cut = None;
+    // The row's share is spent by the first span's whole row and each later
+    // span's text (with its omission marker); a later span is served with
+    // the text room left plus the first row's other chars, which each part's
+    // own row carries about as much of.
+    let last_line = merged.last().map_or(0, |span| span.1);
+    let mut text_left = share.map(|share| {
+        share
+            .saturating_sub(crate::response::stream_page::json_text_chars(&cut_note(
+                last_line, last_line, true,
+            )))
+            .saturating_sub(4)
+            .max(1)
+    });
+    let mut around = None;
     for (index, ((one, span), streamed)) in ones.into_iter().zip(streamed).enumerate() {
         let (start, end) = (span.first, span.requested_last);
+        let part_share = text_left.map(|left| left + around.unwrap_or(0));
         let mut part = serve_window(
             &one,
             streamed,
             span,
-            path,
-            len,
+            source,
             modified.clone(),
+            part_share,
             security,
             cancel,
-            regex,
         );
-        if part.status == "error" {
+        if part.status == ReadStatus::Error {
             return part;
+        }
+        if let Some(left) = text_left {
+            let text = part.content.as_deref().map_or(0, |text| {
+                crate::response::read_share::text_chars(text, part.total_lines.unwrap_or(0))
+            });
+            let row = serde_json::to_value(&part)
+                .map_or(0, |row| crate::response::read_share::row_chars(&row));
+            around.get_or_insert(row.saturating_sub(text));
+            let spent = if index == 0 {
+                row
+            } else {
+                text + OMISSION_MARKER_CHARS
+            };
+            text_left = Some(left.saturating_sub(spent).max(1));
         }
         if let Some(mut next) = part.next.take() {
             let after = &merged[index + 1..];
             next.read_other_ranges = (!after.is_empty()).then(|| {
                 let mut rest = q.clone();
-                rest.set_line_spans(after);
+                local_fetch_query::set_line_spans(&mut rest, after);
                 rest.snapshot = part.source_sha256.as_deref().and_then(|d| d.parse().ok());
                 FetchCall { query: rest }
             });
@@ -1261,26 +1327,38 @@ fn fetch_ranges(
     result.warnings.insert(0, streamed_warning(len));
     result.pagination = None;
     if let Some((start, end, next)) = cut {
-        let after = if next.read_other_ranges.is_some() {
-            "; the ranges after it are read on their own"
-        } else {
-            ""
-        };
-        result.warnings.push(format!(
-            "Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone{after}."
-        ));
+        result
+            .warnings
+            .push(cut_note(start, end, next.read_other_ranges.is_some()));
         result.is_partial = Some(true);
         result.next = Some(next);
     }
     result
 }
 
+/// The note of a ranges page that ends inside lines `start`-`end`, whose
+/// later ranges (`after`) are read on their own.
+fn cut_note(start: usize, end: usize, after: bool) -> String {
+    let after = if after {
+        "; the ranges after it are read on their own"
+    } else {
+        ""
+    };
+    format!(
+        "Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone{after}."
+    )
+}
+
 /// A match read needs the whole file: lead to localSearch, which streams
 /// it, and to bounded line windows.
 fn match_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
-    let needles = q.match_strings();
-    let is_regex = q.is_regex();
-    let engine = if q.is_pcre2() { "pcre2" } else { "rust" };
+    let needles = local_fetch_query::match_strings(q);
+    let is_regex = local_fetch_query::is_regex(q);
+    let engine = if local_fetch_query::is_pcre2(q) {
+        "pcre2"
+    } else {
+        "rust"
+    };
     // A list matches any entry: one alternation for localSearch.
     let (needle, is_regex) = match needles.as_slice() {
         [one] => ((*one).to_owned(), is_regex),
@@ -1305,18 +1383,17 @@ fn match_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
     });
     if let Some(mode) = q.case_mode {
         search["caseMode"] = serde_json::json!(match mode {
-            crate::contracts::tool_types::ReadCaseMode::Sensitive => "sensitive",
-            crate::contracts::tool_types::ReadCaseMode::Smart => "smart",
-            crate::contracts::tool_types::ReadCaseMode::Insensitive => "insensitive",
+            octocode_contract_types::ReadCaseMode::Sensitive => "sensitive",
+            octocode_contract_types::ReadCaseMode::Smart => "smart",
+            octocode_contract_types::ReadCaseMode::Insensitive => "insensitive",
         });
     }
-    if q.whole_word() {
+    if local_fetch_query::whole_word(q) {
         search["wholeWord"] = serde_json::json!(true);
     }
     let mut next = read_bounded(q);
     next.text_search = Some(
-        crate::tools::result::Continuation::new(crate::tools::id::ToolId::LocalSearch, search)
-            .build(),
+        crate::response::result::Continuation::new(crate::id::ToolId::LocalSearch, search).build(),
     );
     unsupported(q, len, "matchString needs the whole file.", next)
 }
@@ -1344,7 +1421,7 @@ fn past_end_row(
 ) -> LocalFetchResult {
     let mut warnings = Vec::new();
     let next = super::executor::past_end(q, read_total, unit, &mut warnings);
-    let offset = q.offset().unwrap_or(0);
+    let offset = local_fetch_query::offset(q).unwrap_or(0);
     let (total_lines, total_bytes) = match unit {
         WindowUnit::Lines => (read_total, usize_of(len)),
         WindowUnit::Bytes => (streamed.last + 1 - streamed.first, read_total),
@@ -1363,7 +1440,7 @@ fn past_end_row(
             unit,
             offset,
             length: 0,
-            window: q.window_length().unwrap_or(WINDOW_LINES),
+            window: local_fetch_query::window_length(q).unwrap_or(WINDOW_LINES),
             total_lines,
             total_bytes,
             has_more: false,
@@ -1372,7 +1449,7 @@ fn past_end_row(
         }),
         out_of_range: true,
         next: Some(next),
-        ..LocalFetchResult::blank("success")
+        ..LocalFetchResult::blank(ReadStatus::Success)
     }
 }
 
@@ -1421,9 +1498,11 @@ fn continue_window(
         && inner.query.unit == Some(WindowUnit::Bytes)
     {
         inner.query.path = q.path.clone();
-        inner
-            .query
-            .set_line_span(span.first, span.last.min(streamed.total_lines));
+        local_fetch_query::set_line_span(
+            &mut inner.query,
+            span.first,
+            span.last.min(streamed.total_lines),
+        );
         inner.query.snapshot = snapshot;
         return;
     }
@@ -1458,7 +1537,7 @@ fn continue_window(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use sha2::{Digest, Sha256};
 
     fn opened(path: &Path) -> std::fs::File {
@@ -1541,9 +1620,9 @@ mod tests {
             &opened(file.path()),
             &std::fs::metadata(file.path()).expect("meta"),
             None,
+            None,
             &crate::security::ContentSecurity::new(),
             &NeverCancel,
-            &LocalFetchRegex,
         );
         assert_eq!(read.content.as_deref(), Some("alpha\nbeta\n"), "{read:?}");
     }
@@ -1565,9 +1644,9 @@ mod tests {
             &opened(file.path()),
             &std::fs::metadata(file.path()).expect("meta"),
             None,
+            None,
             &crate::security::ContentSecurity::new(),
             &NeverCancel,
-            &LocalFetchRegex,
         );
         assert_eq!(read.content.as_deref(), Some("\u{feff}gamma\n"), "{read:?}");
     }
@@ -1586,9 +1665,9 @@ mod tests {
                 &opened(file.path()),
                 &std::fs::metadata(file.path()).expect("meta"),
                 None,
+                None,
                 &crate::security::ContentSecurity::new(),
                 &NeverCancel,
-                &LocalFetchRegex,
             )
         };
         let first = read(&query);
@@ -1613,7 +1692,7 @@ mod tests {
             .next
             .and_then(|next| next.continue_window)
             .expect("unread last line");
-        assert_eq!(rest.query.offset(), Some(1_200));
+        assert_eq!(local_fetch_query::offset(&rest.query), Some(1_200));
         crate::contracts::prepare_many_and_validate(
             "localFetch",
             serde_json::json!({"queries":[&rest.query]}),
@@ -1753,7 +1832,7 @@ mod tests {
         assert_eq!(again[0].key_lines, 12);
         // Another stamp is another version: the whole file streams again.
         let other = Blocks(Default::default());
-        let moved = stamp.map(|stamp| octocode_engine::graph::SourceStamp {
+        let moved = stamp.map(|stamp| octocode_engine::stamp::SourceStamp {
             size: stamp.size + 1,
             ..stamp
         });
@@ -1775,9 +1854,9 @@ mod tests {
                 &opened(file.path()),
                 &std::fs::metadata(file.path()).expect("meta"),
                 None,
+                None,
                 &crate::security::ContentSecurity::new(),
                 &NeverCancel,
-                &LocalFetchRegex,
             )
         };
         for query in [
@@ -1785,7 +1864,7 @@ mod tests {
             serde_json::json!({"path":file.path(),"ranges":["10-20"],"offset":30}),
         ] {
             let result = read(query);
-            assert_eq!(result.status, "success", "{result:?}");
+            assert_eq!(result.status, ReadStatus::Success, "{result:?}");
             assert!(result.out_of_range, "{result:?}");
             assert_eq!(result.content.as_deref(), Some(""));
             let restart = result.next.and_then(|next| next.restart).expect("restart");
@@ -1799,6 +1878,51 @@ mod tests {
         }
         let past = read(serde_json::json!({"path":file.path(),"ranges":["90-95"]}));
         assert_eq!(past.error_code.as_deref(), Some("invalidInput"), "{past:?}");
+    }
+
+    /// A streamed page fits the row's share: its window page is cut to it,
+    /// and ranges share it, the span that does not fit reading on.
+    #[test]
+    fn streamed_pages_fit_the_rows_share() {
+        let text: String = (1..=2_000)
+            .map(|line| format!("const s{line} = \"\\\\\\\\\";\n"))
+            .collect();
+        let file = temp(text.as_bytes());
+        let share = 5_000;
+        for (query, ranges) in [
+            (serde_json::json!({"path":file.path()}), false),
+            (
+                serde_json::json!({"path":file.path(),"ranges":["1-300","600-900"]}),
+                true,
+            ),
+        ] {
+            let query: LocalFetchQuery = serde_json::from_value(query).expect("query");
+            let result = fetch_window(
+                &query,
+                file.path(),
+                &opened(file.path()),
+                &std::fs::metadata(file.path()).expect("meta"),
+                None,
+                Some(share),
+                &crate::security::ContentSecurity::new(),
+                &NeverCancel,
+            );
+            assert_eq!(result.status, ReadStatus::Success, "{result:?}");
+            let row = serde_json::to_value(&result).expect("row");
+            assert_eq!(
+                crate::response::read_share::fitted_lines(
+                    &row,
+                    &crate::response::result::query_value(&query),
+                    share
+                ),
+                None,
+                "the page fits its share: {}",
+                row.to_string().len()
+            );
+            let next = result.next.expect("more to read");
+            assert!(next.continue_window.is_some());
+            assert_eq!(next.read_other_ranges.is_some(), ranges);
+        }
     }
 
     /// A NUL byte past the head sample makes a streamed source binary.
@@ -1815,9 +1939,9 @@ mod tests {
             &opened(file.path()),
             &std::fs::metadata(file.path()).expect("meta"),
             None,
+            None,
             &crate::security::ContentSecurity::new(),
             &NeverCancel,
-            &LocalFetchRegex,
         );
         assert_eq!(result.error_code.as_deref(), Some("binaryFileUnsupported"));
     }

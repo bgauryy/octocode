@@ -22,23 +22,58 @@ fn volatile(seconds: u64) -> CacheClass {
     }
 }
 
-/// The `.json` entry files directly under `dir`.
-pub(crate) fn json_files(dir: &Path) -> Vec<PathBuf> {
+/// The entry files directly under `dir`.
+pub(crate) fn entry_files(dir: &Path) -> Vec<PathBuf> {
     fs::read_dir(dir)
         .unwrap()
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .filter(|path| path.extension().is_some_and(|ext| ext == ENTRY_EXTENSION))
         .collect()
 }
 
-fn age_disk_entries(dir: &Path, seconds: u64) {
-    for file in json_files(dir) {
-        let mut entry: serde_json::Value =
-            serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
-        entry["storedAtUnix"] = serde_json::json!(now_unix() - seconds);
-        fs::write(&file, serde_json::to_vec(&entry).unwrap()).unwrap();
+/// Rewind every entry under `dir` by `seconds`: its header's store time.
+pub(crate) fn age_disk_entries(dir: &Path, seconds: u64) {
+    for file in entry_files(dir) {
+        let bytes = fs::read(&file).unwrap();
+        let (header, value) = DiskHeader::split(&bytes).unwrap();
+        let header = DiskHeader {
+            stored_at_unix: header.stored_at_unix - seconds,
+            ..header
+        };
+        let mut rewritten = serde_json::to_vec(&header).unwrap();
+        rewritten.push(b'\n');
+        rewritten.extend_from_slice(value);
+        fs::write(&file, rewritten).unwrap();
     }
+}
+
+/// An entry file of the retired layout (a JSON envelope) is never read, and
+/// the next prune removes it; a v4 entry beside it stays.
+#[test]
+fn retired_json_entries_are_removed_by_the_next_prune() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    let retired = dir.path().join(format!("{}.json", "a".repeat(64)));
+    fs::write(
+        &retired,
+        serde_json::to_vec(&serde_json::json!({
+            "class": "immutable", "storedAtUnix": now_unix(), "value": "old"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    store.put(key("kept", "x"), "new".into(), 3, CacheClass::Immutable);
+    store.disk.as_ref().unwrap().prune(u64::MAX);
+    assert!(!retired.exists(), "the retired layout is discarded");
+    assert_eq!(entry_files(dir.path()).len(), 1);
+    let reader = Store::<String>::new(CacheConfig::default(), Some(dir.path().into()));
+    assert_eq!(
+        reader
+            .get(&key("kept", "x"))
+            .map(|hit| (*hit.value).clone()),
+        Some("new".to_owned())
+    );
 }
 
 #[test]
@@ -109,7 +144,7 @@ fn zero_entries_disables_the_store() {
     );
     store.put(key("a", "x"), 1, 4, CacheClass::Immutable);
     assert!(store.get(&key("a", "x")).is_none());
-    assert!(json_files(dir.path()).is_empty());
+    assert!(entry_files(dir.path()).is_empty());
 }
 
 #[test]
@@ -142,12 +177,12 @@ fn disk_tier_keeps_immutable_entries_and_expires_volatile_ones() {
     assert!(!listing.fresh);
     assert!(reader.get(&key("search", "x")).is_none());
     assert_eq!(
-        json_files(dir.path()).len(),
+        entry_files(dir.path()).len(),
         2,
         "the expired file is removed"
     );
     // Promoted: later reads survive the file disappearing.
-    for file in json_files(dir.path()) {
+    for file in entry_files(dir.path()) {
         fs::remove_file(file).unwrap();
     }
     assert!(reader.get(&key("pinned", "x")).is_some());
@@ -166,12 +201,12 @@ fn disk_tier_is_byte_bounded_least_recently_used_first() {
     // The first write scans (here pruning everything); later writes skip the scan.
     store.put(key("old", "x"), "a".repeat(100), 100, CacheClass::Immutable);
     store.put(key("new", "x"), "b".repeat(100), 100, CacheClass::Immutable);
-    assert_eq!(json_files(dir.path()).len(), 1, "pruning is amortized");
+    assert_eq!(entry_files(dir.path()).len(), 1, "pruning is amortized");
     let _ = fs::remove_file(dir.path().join(PRUNE_MARKER));
     store.disk.as_ref().unwrap().prune(300);
-    assert_eq!(json_files(dir.path()).len(), 1);
+    assert_eq!(entry_files(dir.path()).len(), 1);
     store.disk.as_ref().unwrap().prune(0);
-    assert!(json_files(dir.path()).is_empty());
+    assert!(entry_files(dir.path()).is_empty());
 }
 
 /// A crash between the temp write and the rename leaves `.tmp` files; prune
@@ -180,8 +215,8 @@ fn disk_tier_is_byte_bounded_least_recently_used_first() {
 fn prune_sweeps_orphaned_temporary_files_but_not_fresh_ones() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
-    let orphan = dir.path().join(".abc.json-0011.tmp");
-    let fresh = dir.path().join(".def.json-0022.tmp");
+    let orphan = dir.path().join(".abc.entry-0011.tmp");
+    let fresh = dir.path().join(".def.entry-0022.tmp");
     fs::write(&orphan, b"partial").unwrap();
     fs::write(&fresh, b"in flight").unwrap();
     let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3_600);
@@ -204,12 +239,12 @@ fn corrupt_files_are_dropped() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
     store.put(key("b", "x"), 2, 4, CacheClass::Immutable);
-    for file in json_files(dir.path()) {
+    for file in entry_files(dir.path()) {
         fs::write(&file, b"corrupt").unwrap();
     }
     let reader = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
     assert!(reader.get(&key("b", "x")).is_none());
-    assert!(json_files(dir.path()).is_empty());
+    assert!(entry_files(dir.path()).is_empty());
 }
 
 /// A read that fails for an environmental reason (no permission, too many
@@ -221,7 +256,7 @@ fn a_transient_read_failure_keeps_the_entry() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
     store.put(key("b", "x"), 2, 4, CacheClass::Immutable);
-    let file = json_files(dir.path()).pop().unwrap();
+    let file = entry_files(dir.path()).pop().unwrap();
     fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
     let reader = Store::<u32>::new(CacheConfig::default(), Some(dir.path().into()));
     assert!(
@@ -256,7 +291,7 @@ fn disk_entries_are_owner_only_and_oversized_values_skip_disk() {
     store.put(key("a", "x"), "private".into(), 7, CacheClass::Immutable);
     let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&dir), 0o700);
-    let files = json_files(&dir);
+    let files = entry_files(&dir);
     assert_eq!(files.len(), 1);
     assert_eq!(mode(&files[0]), 0o600);
     store.put(
@@ -265,7 +300,7 @@ fn disk_entries_are_owner_only_and_oversized_values_skip_disk() {
         4096,
         CacheClass::Immutable,
     );
-    assert_eq!(json_files(&dir).len(), 1);
+    assert_eq!(entry_files(&dir).len(), 1);
 }
 
 /// A disk entry the store did not write as a regular file within its entry
@@ -285,10 +320,14 @@ fn disk_entries_that_are_not_bounded_regular_files_are_evicted_misses() {
     ));
     let disk = store.disk.as_ref().unwrap();
     let entry = |value: &str| {
-        serde_json::to_vec(&serde_json::json!({
-            "class": "immutable", "storedAtUnix": now_unix(), "value": value,
-        }))
-        .unwrap()
+        let mut bytes = serde_json::to_vec(&DiskHeader {
+            class: CacheClass::Immutable,
+            stored_at_unix: now_unix(),
+        })
+        .unwrap();
+        bytes.push(b'\n');
+        bytes.extend_from_slice(&serde_json::to_vec(value).unwrap());
+        bytes
     };
 
     let fifo = disk.file(&key("fifo", "x"));
@@ -310,7 +349,7 @@ fn disk_entries_that_are_not_bounded_regular_files_are_evicted_misses() {
     assert!(store.get(&key("oversized", "x")).is_none());
     assert!(!oversized.exists(), "oversized entry evicted");
 
-    let target = dir.path().join("elsewhere.json");
+    let target = dir.path().join("elsewhere.entry");
     fs::write(&target, entry("planted")).unwrap();
     let link = disk.file(&key("link", "x"));
     std::os::unix::fs::symlink(&target, &link).unwrap();
@@ -341,7 +380,7 @@ fn prune_removes_expired_entries_before_any_live_one() {
     store.put(key("live", "x"), "l".into(), 1, volatile(600));
     store.disk.as_ref().unwrap().prune(u64::MAX);
     assert_eq!(
-        json_files(dir.path()).len(),
+        entry_files(dir.path()).len(),
         2,
         "only the expired entry goes"
     );
@@ -380,7 +419,7 @@ fn confirmed_retention_requires_capacity_and_every_configured_tier() {
             .1
     );
     let dir = root.path().join("working");
-    let disk = Store::new(config.clone(), Some(dir.clone()));
+    let disk = Store::<String>::new(config.clone(), Some(dir.clone()));
     assert!(
         disk.put_confirmed(key("saved", "x"), "value".to_owned(), 5, volatile(120))
             .1

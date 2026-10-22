@@ -52,11 +52,23 @@ impl Blocks {
     }
 }
 
-/// The line spans (`"3, 7-9"`) the parser could not parse and recovered
-/// from (Flow types, a newer syntax); `None` after a clean parse.
-fn unparsed_lines(content: &str, path: &str) -> Option<String> {
-    let spans = file_document(content, path)?
-        .error_lines
+/// The 1-based line spans the parser could not parse and recovered from;
+/// empty after a clean parse.
+fn unparsed_spans(content: &str, path: &str) -> Vec<[usize; 2]> {
+    file_document(content, path)
+        .map(|document| {
+            document
+                .error_lines
+                .iter()
+                .map(|span| span.map(crate::num::usize_of))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `spans` as a note names them: `"3, 7-9"`.
+fn span_list(spans: &[[usize; 2]]) -> String {
+    spans
         .iter()
         .map(|&[start, end]| {
             if start == end {
@@ -65,29 +77,72 @@ fn unparsed_lines(content: &str, path: &str) -> Option<String> {
                 format!("{start}-{end}")
             }
         })
-        .collect::<Vec<_>>();
-    (!spans.is_empty()).then(|| spans.join(", "))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Why the parser could not parse lines of `content`, and what `misses`:
+/// a span holding a `redacted` line or the line after it (where the parser
+/// meets the placeholder's missing syntax) is redacted text the grammar
+/// cannot read; the rest are syntax the grammar lacks (Flow types, in
+/// JavaScript). `None` after a clean parse.
+fn unparsed_note(content: &str, path: &str, redacted: &[usize], misses: &str) -> Option<String> {
+    let (by_redaction, by_syntax): (Vec<_>, Vec<_>) = unparsed_spans(content, path)
+        .into_iter()
+        .partition(|&[start, end]| {
+            redacted
+                .iter()
+                .any(|&line| line <= end && start <= line.saturating_add(1))
+        });
+    let example = std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .filter(|ext| octocode_engine::text::JS_EXTENSIONS.contains(ext))
+        .map_or("", |_| ", e.g. Flow types");
+    let notes = [
+        (!by_syntax.is_empty()).then(|| {
+            format!(
+                "The parser could not parse lines {} of this file (syntax its grammar lacks{example}) and recovered, so {misses}.",
+                span_list(&by_syntax)
+            )
+        }),
+        (!by_redaction.is_empty()).then(|| {
+            format!(
+                "The parser could not parse lines {} of this file, where secret-shaped text was redacted, so {misses}.",
+                span_list(&by_redaction)
+            )
+        }),
+    ];
+    let notes = notes.into_iter().flatten().collect::<Vec<_>>();
+    (!notes.is_empty()).then(|| notes.join(" "))
 }
 
 /// Why a block may miss its enclosing declaration: the parser recovered
 /// from syntax errors, named with the skipped line spans. A read states it
 /// once, however many of its windows it explains.
 fn recovered_parse(content: &str, path: &str) -> Option<String> {
-    unparsed_lines(content, path).map(|lines| {
-        format!(
-            " The parser could not parse lines {lines} of this file (syntax its grammar lacks, e.g. Flow types) and recovered, so the outline may miss the enclosing declaration."
-        )
-    })
+    unparsed_note(
+        content,
+        path,
+        &[],
+        "the outline may miss the enclosing declaration",
+    )
+    .map(|note| format!(" {note}"))
 }
 
 /// Why a symbols outline may miss declarations: the same recovered parse
-/// a block read names.
-pub(super) fn outline_recovery_warning(content: &str, path: &str) -> Option<String> {
-    unparsed_lines(content, path).map(|lines| {
-        format!(
-            "The parser could not parse lines {lines} of this file (syntax its grammar lacks, e.g. Flow types) and recovered, so this outline may miss declarations there."
-        )
-    })
+/// a block read names, with the `redacted` lines (1-based) of `content`.
+pub(super) fn outline_recovery_warning(
+    content: &str,
+    path: &str,
+    redacted: &[usize],
+) -> Option<String> {
+    unparsed_note(
+        content,
+        path,
+        redacted,
+        "this outline may miss declarations there",
+    )
 }
 
 /// 1-based inclusive spans of the multi-line declarations the engine outlines.
@@ -374,12 +429,28 @@ mod tests {
         let note = recovered_parse(flow, "Hooks.js").expect("Flow types force a recovered parse");
         assert!(note.contains("could not parse lines"), "{note}");
         assert!(recovered_parse(PY, "m.py").is_none());
-        let warning = outline_recovery_warning(flow, "Hooks.js").expect("outline warning");
+        let warning = outline_recovery_warning(flow, "Hooks.js", &[]).expect("outline warning");
         assert!(
             warning.starts_with("The parser could not parse lines"),
             "{warning}"
         );
-        assert!(outline_recovery_warning(PY, "m.py").is_none());
+        assert!(warning.contains("Flow types"), "{warning}");
+        assert!(outline_recovery_warning(PY, "m.py", &[]).is_none());
+    }
+
+    /// Lines the parser skipped because redaction replaced them are named as
+    /// redacted, never blamed on syntax the grammar lacks; Flow is named only
+    /// for JavaScript.
+    #[test]
+    fn a_parse_broken_by_redaction_names_the_redacted_lines() {
+        let rust =
+            "fn a() {\n    let key = 1;\n[REDACTED-PRIVATEKEYFRAGMENT]\n    key\n}\n\nfn b() {}\n";
+        let warning = outline_recovery_warning(rust, "k.rs", &[3]).expect("recovered parse");
+        assert!(warning.contains("redacted"), "{warning}");
+        assert!(!warning.contains("Flow"), "{warning}");
+        let unredacted = outline_recovery_warning(rust, "k.rs", &[]).expect("recovered parse");
+        assert!(!unredacted.contains("Flow"), "{unredacted}");
+        assert!(!unredacted.contains("redacted"), "{unredacted}");
     }
 
     /// The lines a block widens up over are comments in the file's own

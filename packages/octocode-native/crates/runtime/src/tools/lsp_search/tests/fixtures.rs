@@ -116,7 +116,7 @@ pub(super) async fn walk_from(
     root: serde_json::Value,
     depth: u32,
     paths: &crate::policy::path::PathPolicy,
-    cancel: &dyn crate::tools::cancel::CancellationCheck,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<HierarchyWalk, LspFailure> {
     walk_hierarchy(
         graph,
@@ -137,7 +137,7 @@ pub(super) async fn walk(graph: &FakeGraph, depth: u32) -> HierarchyWalk {
         node("root"),
         depth,
         &paths,
-        &crate::tools::cancel::NeverCancel,
+        &crate::execution::cancel::NeverCancel,
     )
     .await
     .expect("walk")

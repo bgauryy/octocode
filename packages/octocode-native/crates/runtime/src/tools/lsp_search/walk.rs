@@ -12,20 +12,19 @@
 //! bound; per-node failures are collected as data.
 
 use super::anchor::Position;
+use super::call_sites::{callers_from_references, enclosing_callable, flatten_symbols};
 use super::failure::{
     IMPORTER_REQUEST_FAILED, LspFailure, RequestFailures, continuation, partial_with_retry,
 };
-use super::importers::{
-    ImporterSearch, Importers, WindowRequest, callers_from_references, enclosing_callable,
-    flatten_symbols, verified_anchors,
-};
+use super::importers::{ImporterSearch, Importers, WindowRequest, verified_anchors};
 use super::locations::{public_range, salted_items_payload, snapshot_changed};
-use super::render::{as_array, decode_uri_path, symbol_kind_name, uri_to_path};
+use super::render::{decode_uri_path, into_items, symbol_kind_name, uri_to_path};
 use super::scope::Scope;
 use super::source::{SourceCache, item_uri_is_authorized};
 use super::{LspSearchQuery, Op, cancellable};
+use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
-use crate::tools::cancel::CancellationCheck;
+use crate::tools::lsp_search::lsp_search_query;
 use futures_util::StreamExt;
 use octocode_engine::lsp::client::{NativeLspClient, SnippetReadPolicy};
 use serde_json::{Value, json};
@@ -183,7 +182,7 @@ impl<'a> NodeKeys<'a> {
             .canonical
             .entry(uri.to_owned())
             .or_insert_with(|| {
-                let decoded = decode_uri_path(uri).unwrap_or_else(|_| uri.to_owned());
+                let decoded = uri_to_path(uri);
                 std::fs::canonicalize(&decoded)
                     .map(|path| path.to_string_lossy().into_owned())
                     .unwrap_or(decoded)
@@ -293,7 +292,7 @@ impl<'a> Walk<'a> {
             match response {
                 Ok(results) => {
                     self.walker
-                        .expand(expansion, level, parent, as_array(&results), &mut next)
+                        .expand(expansion, level, parent, into_items(results), &mut next)
                 }
                 Err(error) => self.walker.walk.failures.push(error),
             }
@@ -356,7 +355,7 @@ impl<'a> Walk<'a> {
             .iter()
             .filter(|edge| edge.level == 1)
             .filter_map(|edge| edge.node.get("uri").and_then(Value::as_str))
-            .map(canonical_uri_path)
+            .map(super::scope::canonical_uri)
             .collect()
     }
 
@@ -465,7 +464,7 @@ impl<'a> Walker<'a> {
             && node
                 .get("uri")
                 .and_then(Value::as_str)
-                .is_some_and(|uri| self.foreign.contains(&canonical_uri_path(uri)))
+                .is_some_and(|uri| self.foreign.contains(&super::scope::canonical_uri(uri)))
         {
             return;
         }
@@ -992,7 +991,7 @@ pub(super) fn call_items_payload(
     // which the sizes charge only to the run's first call.
     let mut row = salted_items_payload(
         query,
-        query.operation(),
+        lsp_search_query::operation(query),
         json!(items),
         salt,
         budget.saturating_sub(reserve).max(1),
@@ -1198,7 +1197,7 @@ pub(super) fn mark_partial_expansion(
     if failures.is_empty() {
         return;
     }
-    let reason = if matches!(query.op(), Op::Supertypes | Op::Subtypes) {
+    let reason = if matches!(lsp_search_query::op(query), Op::Supertypes | Op::Subtypes) {
         "typeHierarchyExpansionFailed"
     } else {
         "callHierarchyExpansionFailed"
@@ -1235,7 +1234,7 @@ pub(super) fn mark_partial_expansion(
     if failures.iter().any(|failure| failure.retryable) {
         partial_with_retry(row, query, reason, &[warning]);
     } else {
-        crate::tools::paging::mark_partial(row, reason, &[warning]);
+        crate::response::paging::mark_partial(row, reason, &[warning]);
     }
     if let Some(object) = row.as_object_mut() {
         object.insert(
@@ -1297,7 +1296,7 @@ pub(super) fn mark_truncation(
     match queries {
         Some(queries) => {
             for (reason, warning) in limits {
-                crate::tools::paging::mark_partial(row, reason, &[warning]);
+                crate::response::paging::mark_partial(row, reason, &[warning]);
             }
             // One flat continuation per parent, so the whole frontier is
             // executable: `continueWalk`, `continueWalk2`, ….
@@ -1311,7 +1310,7 @@ pub(super) fn mark_truncation(
         }
         None => {
             for (reason, warning) in limits {
-                crate::tools::paging::terminal_limit(row, reason, &[warning]);
+                crate::response::paging::terminal_limit(row, reason, &[warning]);
             }
         }
     }
@@ -1400,7 +1399,7 @@ fn resume_query(query: &LspSearchQuery, resume: &Resume) -> Option<Value> {
     let line = u32::try_from(anchor.pointer("/start/line")?.as_u64()?).ok()?;
     let character = u32::try_from(anchor.pointer("/start/character")?.as_u64()?).ok()?;
     let path = uri_to_path(uri);
-    let mut next = query.to_row();
+    let mut next = lsp_search_query::to_row(query);
     let object = next.as_object_mut()?;
     object.insert("path".into(), json!(path));
     for field in ["orderHint", "page", "snapshot", "importerPage"] {
@@ -1469,10 +1468,6 @@ pub(super) fn class_uses_warning(operation: &str, roots: &[Value]) -> Option<Str
 /// Label for caller edges derived from verified importer references.
 const RECOVERED_FROM_REFERENCES: &str = "recoveredFromReferences";
 
-fn canonical_uri_path(uri: &str) -> String {
-    super::scope::canonical(&decode_uri_path(uri).unwrap_or_else(|_| uri.to_owned()))
-}
-
 /// The walk's authorized, deduplicated roots, prepared at the anchor, and
 /// the directions to expand.
 async fn hierarchy_roots(
@@ -1486,14 +1481,14 @@ async fn hierarchy_roots(
     }: Position<'_>,
     cancel: &dyn CancellationCheck,
 ) -> Result<(Vec<Value>, &'static [Expansion]), LspFailure> {
-    let (prepared, expansions): (Value, &[Expansion]) = match query.op() {
+    let (prepared, expansions): (Value, &[Expansion]) = match lsp_search_query::op(query) {
         Op::Callers | Op::Callees => (
             cancellable(
                 cancel,
                 client.prepare_call_hierarchy(path.to_owned(), line, character),
             )
             .await??,
-            if query.op() == Op::Callers {
+            if lsp_search_query::op(query) == Op::Callers {
                 &[Expansion::IncomingCalls]
             } else {
                 &[Expansion::OutgoingCalls]
@@ -1505,7 +1500,7 @@ async fn hierarchy_roots(
                 client.prepare_type_hierarchy(path.to_owned(), line, character),
             )
             .await??,
-            if query.op() == Op::Supertypes {
+            if lsp_search_query::op(query) == Op::Supertypes {
                 &[Expansion::Supertypes]
             } else {
                 &[Expansion::Subtypes]
@@ -1514,7 +1509,7 @@ async fn hierarchy_roots(
     };
     let mut keys = NodeKeys::new(paths);
     let mut root_keys = HashSet::new();
-    let roots = as_array(&prepared)
+    let roots = into_items(prepared)
         .into_iter()
         .filter(|root| item_uri_is_authorized(root, paths))
         .filter(|root| root_keys.insert(keys.key(root)))
@@ -1541,7 +1536,7 @@ async fn importer_roots(
         .await?
         {
             Ok(more) => roots.extend(
-                as_array(&more)
+                into_items(more)
                     .into_iter()
                     .filter(|root| item_uri_is_authorized(root, paths)),
             ),
@@ -1598,7 +1593,7 @@ pub(super) async fn hierarchy(
     } = request;
     let paths = sources.policy();
     let (roots, expansions) = hierarchy_roots(client, query, paths, anchor, cancel).await?;
-    let depth = query.graph_depth().unwrap_or(1);
+    let depth = lsp_search_query::graph_depth(query).unwrap_or(1);
     let mut items = Vec::new();
     let mut failures = Vec::new();
     let mut walks = Vec::new();
@@ -1662,7 +1657,7 @@ pub(super) async fn hierarchy(
     // Built-in callees are the answer: a walk that listed only those
     // resolved, it is not empty.
     let mut row = if items.is_empty() && !builtin_lib_names(&walks).is_empty() {
-        json!({"path": query.path(), "lsp": {"serverAvailable": true}})
+        json!({"path": lsp_search_query::path(query), "lsp": {"serverAvailable": true}})
     } else {
         call_items_payload(
             query,
@@ -1672,8 +1667,8 @@ pub(super) async fn hierarchy(
             paths,
         )
     };
-    if let Some(note) = class_uses_warning(query.operation(), &roots) {
-        crate::tools::paging::push_warnings(&mut row, [note]);
+    if let Some(note) = class_uses_warning(lsp_search_query::operation(query), &roots) {
+        crate::response::paging::push_warnings(&mut row, [note]);
     }
     mark_partial_expansion(&mut row, query, &failures);
     importer_failures.disclose(
@@ -1722,7 +1717,7 @@ impl IncomingRecovery<'_, '_> {
     ) -> Result<Option<Recovered>, LspFailure> {
         let paths = sources.policy();
         let mut answered = walk.answered_files();
-        answered.insert(canonical_uri_path(self.anchor.path));
+        answered.insert(super::scope::canonical_uri(self.anchor.path));
         let importers = verified_anchors(
             client,
             sources,

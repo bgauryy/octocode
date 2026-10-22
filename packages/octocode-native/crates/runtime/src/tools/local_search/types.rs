@@ -1,59 +1,61 @@
-use crate::tools::num::{u32_of, u32_of_signed};
+use crate::num::{u32_of, u32_of_signed};
 pub(super) use octocode_engine::types::SearchContext;
 use serde::Serialize;
 use std::path::PathBuf;
 
-pub use crate::contracts::tool_types::{
+pub use octocode_contract_types::{
     LocalSearchQuery, LocalSearchQueryCaseMode, LocalSearchQueryMultiline, LocalSearchQueryRegex,
     LocalSearchQueryResultView, LocalSearchQuerySort, LocalSearchQueryUnique, MatchString,
 };
 
 /// The engine counts in `u32`; the wire contract owns the field set and its
 /// JSON integer types.
-impl LocalSearchQuery {
+pub(crate) mod local_search_query {
+    use super::*;
     /// Resolve the shorthand once; explicit zero overrides either side.
-    pub(crate) fn context(&self) -> SearchContext {
-        let symmetric = self.context_lines.map(u32_of_signed).unwrap_or(0);
+    pub(crate) fn context(query: &LocalSearchQuery) -> SearchContext {
+        let symmetric = query.context_lines.map(u32_of_signed).unwrap_or(0);
         SearchContext {
-            before: self.context_before.map(u32_of_signed).unwrap_or(symmetric),
-            after: self.context_after.map(u32_of_signed).unwrap_or(symmetric),
+            before: query.context_before.map(u32_of_signed).unwrap_or(symmetric),
+            after: query.context_after.map(u32_of_signed).unwrap_or(symmetric),
         }
     }
-    pub(crate) fn match_content_length(&self) -> Option<u32> {
-        self.match_content_length.map(|n| u32_of(n.get()))
+    pub(crate) fn match_content_length(query: &LocalSearchQuery) -> Option<u32> {
+        query.match_content_length.map(|n| u32_of(n.get()))
     }
     /// The caller's per-file row cap; `None` lets the result size decide.
-    pub(crate) fn match_page_size(&self) -> Option<u32> {
-        self.match_page_size.map(|n| u32_of(n.get()))
+    pub(crate) fn match_page_size(query: &LocalSearchQuery) -> Option<u32> {
+        query.match_page_size.map(|n| u32_of(n.get()))
     }
     /// The walk depth below `path` in engine terms (0 = files directly in
     /// `path`): the wire `maxDepth` counts levels, 1 = its children.
-    pub(crate) fn max_depth(&self) -> Option<u32> {
-        self.max_depth
+    pub(crate) fn max_depth(query: &LocalSearchQuery) -> Option<u32> {
+        query
+            .max_depth
             .map(|depth| u32_of(depth.get()).saturating_sub(1))
     }
-    pub(crate) fn page(&self) -> u32 {
-        u32_of(self.page.get())
+    pub(crate) fn page(query: &LocalSearchQuery) -> u32 {
+        u32_of(query.page.get())
     }
-    pub(crate) fn match_page(&self) -> u32 {
-        u32_of(self.match_page.get())
+    pub(crate) fn match_page(query: &LocalSearchQuery) -> u32 {
+        u32_of(query.match_page.get())
     }
-    pub(crate) fn page_size(&self) -> Option<u32> {
-        self.page_size.map(|n| u32_of(n.get()))
+    pub(crate) fn page_size(query: &LocalSearchQuery) -> Option<u32> {
+        query.page_size.map(|n| u32_of(n.get()))
     }
-    pub(crate) fn snapshot(&self) -> Option<&str> {
-        self.snapshot.as_deref().map(String::as_str)
+    pub(crate) fn snapshot(query: &LocalSearchQuery) -> Option<&str> {
+        query.snapshot.as_deref().map(String::as_str)
     }
     /// The search mode: the caller's `regex`, else literal text in every tool
     /// (`a|b` finds that text; `regex:"rust"` runs it as a pattern).
-    pub(crate) fn regex_mode(&self) -> LocalSearchQueryRegex {
-        self.regex.unwrap_or(LocalSearchQueryRegex::Literal)
+    pub(crate) fn regex_mode(query: &LocalSearchQuery) -> LocalSearchQueryRegex {
+        query.regex.unwrap_or(LocalSearchQueryRegex::Literal)
     }
 
     /// The text the search runs: the one `matchString`. A list is only ever
-    /// seen here after [`Self::normalized`] folded it into its alternation.
-    pub(crate) fn pattern(&self) -> &str {
-        match &self.match_string {
+    /// seen here after [`LocalSearchQuery::normalized`] folded it into its alternation.
+    pub(crate) fn pattern(query: &LocalSearchQuery) -> &str {
+        match &query.match_string {
             MatchString::String(one) => one.as_str(),
             MatchString::Array(_) => unreachable!("a list matchString is normalized first"),
         }
@@ -66,17 +68,17 @@ impl LocalSearchQuery {
     /// this, leads and cursors included, sees an ordinary regex search that
     /// runs as written. A single `matchString` is returned as is.
     pub(crate) fn normalized(
-        &self,
-    ) -> Result<std::borrow::Cow<'_, Self>, crate::tools::result::ToolError> {
-        let MatchString::Array(list) = &self.match_string else {
-            return Ok(std::borrow::Cow::Borrowed(self));
+        query: &LocalSearchQuery,
+    ) -> Result<std::borrow::Cow<'_, LocalSearchQuery>, crate::response::result::ToolError> {
+        let MatchString::Array(list) = &query.match_string else {
+            return Ok(std::borrow::Cow::Borrowed(query));
         };
-        let sensitive = |entry: &str| match self.case_mode {
+        let sensitive = |entry: &str| match query.case_mode {
             LocalSearchQueryCaseMode::Smart => entry.chars().any(char::is_uppercase),
             LocalSearchQueryCaseMode::Sensitive => true,
             LocalSearchQueryCaseMode::Insensitive => false,
         };
-        let dialect = match self.regex_mode() {
+        let dialect = match regex_mode(query) {
             LocalSearchQueryRegex::Pcre2 => LocalSearchQueryRegex::Pcre2,
             LocalSearchQueryRegex::Literal | LocalSearchQueryRegex::Rust => {
                 LocalSearchQueryRegex::Rust
@@ -87,11 +89,11 @@ impl LocalSearchQuery {
                 let text: &str = entry;
                 (text, sensitive(text))
             }),
-            self.regex_mode() != LocalSearchQueryRegex::Literal,
+            regex_mode(query) != LocalSearchQueryRegex::Literal,
         );
-        let mut query = self.clone();
+        let mut query = query.clone();
         query.match_string = MatchString::String(alternation.parse().map_err(|_| {
-            crate::tools::result::ToolError::new(
+            crate::response::result::ToolError::new(
                 "invalidInput",
                 "matchString: a list needs at least one entry.",
             )
@@ -107,9 +109,9 @@ impl LocalSearchQuery {
     /// `matchContentLength`. The snapshot key and the page cut are derived
     /// from it, so a cursor never goes stale because a caller spelled a
     /// default; continuations still carry the fields as the caller sent them.
-    pub(crate) fn canonical(&self) -> Self {
+    pub(crate) fn canonical(query: &LocalSearchQuery) -> LocalSearchQuery {
         use crate::policy::prune::DefaultsFlag;
-        let mut query = self.clone();
+        let mut query = query.clone();
         for flag in [
             &mut query.include_hidden,
             &mut query.include_ignored,
@@ -127,7 +129,7 @@ impl LocalSearchQuery {
         if query.default_excludes.defaults() {
             query.default_excludes = None;
         }
-        let context = query.context();
+        let context = context(&query);
         let symmetric = context.before == context.after;
         query.context_lines =
             (symmetric && context.before > 0).then_some(i64::from(context.before));
@@ -136,7 +138,7 @@ impl LocalSearchQuery {
         query.context_after = (!symmetric && context.after > 0).then_some(i64::from(context.after));
         let length = query.match_content_length.take();
         if length.map(|n| u32_of(n.get()))
-            != Some(super::executor::effective_match_content_length(&query))
+            != Some(crate::tools::local_search::executor::effective_match_content_length(&query))
         {
             query.match_content_length = length;
         }
@@ -281,9 +283,9 @@ pub struct SearchStats {
     #[serde(skip)]
     pub capped: Option<bool>,
     #[serde(skip)]
-    pub cap_reason: Option<String>,
+    pub cap_reasons: Vec<octocode_engine::types::CapReason>,
     /// The limits that ended the scan early, one per reason (the engine's
-    /// `capReason` words).
+    /// [`octocode_engine::types::CapReason`] names).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub partial_reasons: Vec<String>,
     #[serde(skip)]
@@ -336,7 +338,7 @@ pub struct LocalSearchResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pagination: Option<FilePagination>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub selection: Option<crate::contracts::tool_types::Selection>,
+    pub selection: Option<octocode_contract_types::Selection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub hints: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -351,7 +353,7 @@ pub struct LocalSearchResult {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub skipped_paths: Option<crate::contracts::tool_types::LocalSearchSkippedPaths>,
+    pub skipped_paths: Option<octocode_contract_types::LocalSearchSkippedPaths>,
     #[serde(skip)]
     pub source_snapshot: Option<String>,
     #[serde(skip)]

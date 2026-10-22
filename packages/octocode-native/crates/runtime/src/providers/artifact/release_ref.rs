@@ -235,13 +235,17 @@ impl TarScan {
 /// A pending release-tag check.
 pub type TagFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<bool>> + 'a>>;
 
-/// Checks that a ref (a tag or a commit SHA) exists in a GitHub repository,
-/// through the configured GitHub API (its URL, the caller's credential and
-/// request budget).
+/// Checks that a release tag or a recorded commit exists in a GitHub
+/// repository, through the configured GitHub API (its URL, the caller's
+/// credential and request budget). Each answers `Some(true)` when it
+/// exists, `Some(false)` when the repository has none, `None` when the
+/// check failed.
 pub trait ReleaseTags: Send + Sync {
-    /// `Some(true)` when `tag` names a commit of `owner/repo`, `Some(false)`
-    /// when the repository has no such ref, `None` when the check failed.
-    fn exists<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str) -> TagFuture<'a>;
+    /// `tag` is a tag of `owner/repo` (a branch of that name is not).
+    fn tag_exists<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str) -> TagFuture<'a>;
+    /// `commit` (a SHA a registry recorded) is a commit of `owner/repo`.
+    fn commit_exists<'a>(&'a self, owner: &'a str, repo: &'a str, commit: &'a str)
+    -> TagFuture<'a>;
 }
 
 /// Pins `artifact`'s source to the upstream release tag of `version` when
@@ -275,8 +279,8 @@ pub(crate) async fn pin_release_tag(
 /// one package's releases ([`tag_candidates`]). Without a GitHub check, or
 /// when the check fails (rate limit, missing repository), there is no tag.
 /// A found tag is remembered as a release fact, so a repeated lookup spends
-/// no GitHub request; an absent one is checked again (it may be pushed
-/// later).
+/// no GitHub request; an absence is remembered as long as a registry answer
+/// (the tag may be pushed later).
 async fn github_release_tag(
     repository: &str,
     directory: Option<&str>,
@@ -295,12 +299,24 @@ async fn github_release_tag(
     if let Some(fact) = client.fact(&resource) {
         return string(fact.get("tag"));
     }
-    for tag in tag_candidates(&repo, package, directory, version) {
-        if tags.exists(&owner, &repo, &tag).await? {
-            client.remember_fact(&resource, &serde_json::json!({ "tag": tag }));
-            return Some(tag);
+    let candidates = tag_candidates(&repo, package, directory, version);
+    // Two rounds: the plain tags most releases carry, then a monorepo
+    // package's own shapes, each round's checks together.
+    let (plain, own) = candidates.split_at(candidates.len().min(2));
+    for round in [plain, own] {
+        let answers = futures_util::future::join_all(
+            round.iter().map(|tag| tags.tag_exists(&owner, &repo, tag)),
+        )
+        .await;
+        for (tag, exists) in round.iter().zip(answers) {
+            // A failed check is no answer: nothing is remembered.
+            if exists? {
+                client.remember_fact(&resource, &serde_json::json!({ "tag": tag }));
+                return Some(tag.clone());
+            }
         }
     }
+    client.remember_answer(&resource, &serde_json::json!({ "tag": null }));
     None
 }
 
@@ -374,7 +390,7 @@ pub(crate) async fn github_ref_missing(
     let (Some(tags), Some((owner, repo))) = (client.tags, github_slug(repository)) else {
         return false;
     };
-    tags.exists(&owner, &repo, reference).await == Some(false)
+    tags.commit_exists(&owner, &repo, reference).await == Some(false)
 }
 
 #[cfg(test)]
@@ -481,6 +497,104 @@ mod tests {
         assert_eq!(archive_entry(&bytes, "c-1/.cargo_vcs_info.json"), None);
         let bytes = test_archive(&[("././@LongLink", &big, b'L'), ("x", b"{}", b'0')]);
         assert_eq!(archive_entry(&bytes, "x"), None);
+    }
+
+    fn tag_client<'a>(
+        http: &'a super::super::test_http::RouteHttp,
+        budget: &'a octocode_io::budget::RequestBudget,
+        cache: &'a super::super::ArtifactCache,
+        tags: &'a super::super::test_http::KnownTags,
+    ) -> RegistryClient<'a> {
+        RegistryClient {
+            http,
+            budget,
+            cache: Some(cache),
+            tags: Some(tags),
+        }
+    }
+
+    /// A package with no matching tag is checked once per registry-answer
+    /// lifetime: the repeat lookup spends no GitHub request.
+    #[tokio::test]
+    async fn an_absent_release_tag_is_remembered_for_a_registry_answer_lifetime() {
+        let http = super::super::test_http::RouteHttp::new();
+        let budget = super::super::types::test_budget();
+        let cache = super::super::ArtifactCache::new(None);
+        let tags = super::super::test_http::KnownTags::always(Some(false));
+        let client = tag_client(&http, &budget, &cache, &tags);
+        let repository = "https://github.com/acme/monorepo";
+        for _ in 0..2 {
+            assert_eq!(
+                github_release_tag(
+                    repository,
+                    Some("packages/widget"),
+                    "widget",
+                    "1.0.0",
+                    &client
+                )
+                .await,
+                None
+            );
+        }
+        let candidates = tag_candidates("monorepo", "widget", Some("packages/widget"), "1.0.0");
+        assert_eq!(tags.seen().len(), candidates.len(), "{:?}", tags.seen());
+        // A failed check is not an absence: it is asked again.
+        let failing = super::super::test_http::KnownTags::always(None);
+        let client = tag_client(&http, &budget, &cache, &failing);
+        for _ in 0..2 {
+            assert_eq!(
+                github_release_tag(repository, None, "other", "2.0.0", &client).await,
+                None
+            );
+        }
+        assert_eq!(failing.seen().len(), 4, "{:?}", failing.seen());
+    }
+
+    /// The plain tags are asked first; a monorepo package's own tags are
+    /// asked together after them, and the earliest candidate that exists
+    /// wins whatever order the answers arrive in.
+    #[tokio::test]
+    async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
+        let http = super::super::test_http::RouteHttp::new();
+        let budget = super::super::types::test_budget();
+        let cache = super::super::ArtifactCache::new(None);
+        let plain = super::super::test_http::KnownTags::new(vec!["acme/widget@v1.0.0"]);
+        let client = tag_client(&http, &budget, &cache, &plain);
+        assert_eq!(
+            github_release_tag(
+                "https://github.com/acme/widget",
+                Some("packages/core"),
+                "core",
+                "1.0.0",
+                &client
+            )
+            .await
+            .as_deref(),
+            Some("v1.0.0")
+        );
+        assert_eq!(plain.seen(), ["acme/widget@v1.0.0", "acme/widget@1.0.0"]);
+        let stems = super::super::test_http::KnownTags::new(vec![
+            "acme/widget@core@1.0.0",
+            "acme/widget@core-v1.0.0",
+        ]);
+        let cache = super::super::ArtifactCache::new(None);
+        let client = tag_client(&http, &budget, &cache, &stems);
+        assert_eq!(
+            github_release_tag(
+                "https://github.com/acme/widget",
+                Some("packages/core"),
+                "core",
+                "1.0.0",
+                &client
+            )
+            .await
+            .as_deref(),
+            Some("core-v1.0.0")
+        );
+        assert_eq!(
+            stems.seen().len(),
+            tag_candidates("widget", "core", Some("packages/core"), "1.0.0").len()
+        );
     }
 
     /// A published crate's VCS info is read from its archive once.

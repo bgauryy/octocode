@@ -1,21 +1,14 @@
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { allowLocalExecutables } from '../../../../test-utils/external-effects-guard.js';
+import { resolveNativeBin } from '../../src/cli/native-delegate.js';
 
-const require = createRequire(import.meta.url);
 export const launcher = resolve(__dirname, '..', '..', 'out', 'octocode.js');
 
+/** The binary the launcher runs, resolved the way the launcher does. */
 function nativeBinary(): string | null {
-  try {
-    const { resolveNativeBinaryPath } =
-      require('@octocodeai/octocode-native/bin/resolve-binary.cjs') as {
-        resolveNativeBinaryPath(): string;
-      };
-    return resolveNativeBinaryPath();
-  } catch {
-    return null;
-  }
+  const resolved = resolveNativeBin({});
+  return 'bin' in resolved ? resolved.bin : null;
 }
 
 export const binary = nativeBinary();

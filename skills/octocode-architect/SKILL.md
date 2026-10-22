@@ -7,7 +7,7 @@ description: "Load this skill first whenever the question is module dependencies
 
 Scale rigor to consequence; never invent layers, findings, or work.
 
-Tools: [shared MCP/CLI guide](references/octocode-usage.md). Topology: `npx -y octocode graph` (persisted snapshot; `graph --help`) or `astTopology` when the live catalog enables it.
+Tools: [shared MCP/CLI guide](references/octocode-usage.md). Topology: `npx -y octocode graph ingest <dir>`, then `graph query` (persisted snapshot; `graph --help`).
 
 ```mermaid
 flowchart LR

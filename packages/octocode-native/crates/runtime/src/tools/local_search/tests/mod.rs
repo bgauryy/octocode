@@ -17,7 +17,7 @@ fn ls_query(fields: serde_json::Value, base: Option<&LocalSearchQuery>) -> Local
     }
     serde_json::from_value(value).expect("valid localSearch query")
 }
-use crate::{policy::path::PathPolicy, security::ContentSecurity, tools::cancel::NeverCancel};
+use crate::{execution::cancel::NeverCancel, policy::path::PathPolicy, security::ContentSecurity};
 use std::fs;
 
 /// Replace `path`'s bytes with `content` of the same length and restore
@@ -40,13 +40,11 @@ fn rewrite_keeping_stamp(path: &std::path::Path, content: &str) {
     );
 }
 
-/// Wait out the settle window of the fixture writes so far: a scan is
+/// Settle the fixture writes so far (on this thread's settle clock): a scan is
 /// stored for its later pages only when nothing its walk searched was
 /// written within it (see `manifest`).
 fn settle() {
-    std::thread::sleep(
-        octocode_engine::graph::SourceStamp::SETTLE + std::time::Duration::from_millis(200),
-    );
+    octocode_engine::stamp::settle_written_so_far();
 }
 
 /// A continuation of `request` cut from the stored scan it took before
@@ -61,7 +59,7 @@ fn stored_page_after(
     security: &ContentSecurity,
     response_window: Option<usize>,
     between: impl FnOnce(),
-) -> Result<LocalSearchResult, crate::tools::result::ToolError> {
+) -> Result<LocalSearchResult, crate::response::result::ToolError> {
     let scan = super::executor::scan_query(request, policy, &NeverCancel, None, response_window)
         .expect("scan");
     assert!(scan.digests.is_some(), "the page took the stored scan");
@@ -166,7 +164,6 @@ fn follow_expansions(result: &LocalSearchResult, policy: &PathPolicy) -> (usize,
                 policy,
                 &ContentSecurity::new(),
                 &NeverCancel,
-                &crate::tools::local_fetch::LocalFetchRegex,
                 None,
                 None,
             );
@@ -205,7 +202,7 @@ fn walk_search(
             let body = serde_json::to_value(&result).expect("result");
             let page = crate::tools::test_support::checks::Page {
                 output: crate::tools::test_support::published(
-                    crate::tools::id::ToolId::LocalSearch,
+                    crate::id::ToolId::LocalSearch,
                     row,
                     &body,
                 ),
@@ -233,10 +230,12 @@ fn row_ids(body: &serde_json::Value) -> Vec<String> {
 }
 
 mod binaries;
+mod empty_pages;
 mod match_list;
 mod pages;
 mod scope;
 mod secrets;
+mod stored;
 
 fn skipped_source_path(root: &std::path::Path, path: &str) -> serde_json::Value {
     serde_json::json!(root.canonicalize().expect("canonical fixture").join(path))
@@ -250,40 +249,14 @@ fn select_all_search(
     cancel: &NeverCancel,
     walk_threads: Option<u32>,
     response_window: Option<usize>,
-) -> Result<LocalSearchResult, crate::tools::result::ToolError> {
-    use crate::runtime::SelectionLimits;
-    use crate::tools::selection::{Decision, JudgeCall, Runtime, SelectionJudge};
-    struct All;
-    impl SelectionJudge for All {
-        fn identity(&self) -> serde_json::Value {
-            serde_json::json!({"test":"all-selected"})
-        }
-        fn select(&self, call: JudgeCall<'_>) -> crate::tools::selection::Judgments {
-            Ok(call
-                .admitted
-                .iter()
-                .map(|&i| (i, Decision::Selected))
-                .collect())
-        }
-    }
+) -> Result<LocalSearchResult, crate::response::result::ToolError> {
+    use crate::tools::test_support::selection_fake;
     let executor = tokio::runtime::Runtime::new().expect("runtime");
-    let selection = Runtime {
-        limits: SelectionLimits {
-            max_candidates: 64,
-            max_chars: 131_072,
-            timeout: std::time::Duration::from_secs(5),
-        },
-        available: true,
-        judge: std::sync::Arc::new(All),
-        handle: executor.handle().clone(),
-        context: crate::runtime::ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
-            walk_threads: None,
-            response_window: None,
-            github_credential: None,
-        },
-    };
+    let selection = selection_fake::runtime(
+        selection_fake::SelectAll,
+        executor.handle().clone(),
+        std::time::Duration::from_secs(5),
+    );
     execute_local_search(
         query,
         policy,
@@ -293,4 +266,16 @@ fn select_all_search(
         response_window,
         Some(&selection),
     )
+}
+
+/// A generated Rust file of `functions` functions with five `let ` lines
+/// each: an engine-like hot file whose hits all sit inside declarations.
+fn let_heavy_rust(prefix: &str, functions: usize) -> String {
+    (0..functions)
+        .map(|n| {
+            format!(
+                "pub fn {prefix}_{n:03}(input: &Request) -> Result<Response, Error> {{\n    let header = input.header();\n    let body = parse_body(&header)?;\n    let validated = validate(body)?;\n    let mapped = map_fields(&validated);\n    let response = Response::new(mapped);\n    Ok(response)\n}}\n\n"
+            )
+        })
+        .collect()
 }

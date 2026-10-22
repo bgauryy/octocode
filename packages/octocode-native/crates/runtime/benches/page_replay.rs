@@ -21,7 +21,7 @@
 //! --profile profiling>`.
 #![allow(clippy::expect_used, reason = "benchmark setup")]
 
-#[allow(
+#[expect(
     dead_code,
     reason = "shared integration-test fixture; the benchmark uses part of it"
 )]

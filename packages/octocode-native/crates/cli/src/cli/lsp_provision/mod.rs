@@ -307,7 +307,7 @@ where
     }
     if mode == LspAutoInstall::Off {
         return ProvisionOutcome::fail(
-            "Auto-install is off. Set OCTOCODE_LSP_AUTO_INSTALL=prompt|auto (or pass --yes) to allow downloading.",
+            "Auto-install is off. Set OCTOCODE_LSP_AUTO_INSTALL=prompt|auto (or pass --force) to allow downloading.",
         );
     }
     let Some(expected_sha) = asset.sha256 else {
@@ -586,50 +586,67 @@ fn run_status(
     0
 }
 
+/// `octocode lsp-server`: the managed (auto-downloadable) language servers.
+#[derive(clap::Subcommand)]
+pub(super) enum LspServerCommand {
+    /// List the auto-downloadable servers and whether each is installed.
+    List,
+    /// Download and install servers into the managed cache.
+    Install {
+        /// Server names (e.g. `rust-analyzer`, `clangd`).
+        names: Vec<String>,
+        /// Install every auto-downloadable server.
+        #[arg(long)]
+        all: bool,
+        /// Download even when `lsp.autoInstall` is `prompt` or `off`.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Remove installed servers from the managed cache.
+    Uninstall {
+        /// Server names.
+        names: Vec<String>,
+    },
+    /// Delete the whole managed cache (a dry run without `--yes`).
+    Clean {
+        /// Confirm the deletion.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Show the server a file (default: the workspace) routes to, and whether it resolves.
+    Status {
+        /// File whose language decides the server.
+        file: Option<String>,
+    },
+}
+
 /// Dispatch the `lsp-server` subcommand.
-pub async fn run(
-    runtime: &ToolRuntime,
-    action: &str,
-    names: Vec<String>,
-    all: bool,
-    yes: bool,
-    force: bool,
-    json: bool,
-) -> u8 {
+pub(super) async fn run(runtime: &ToolRuntime, command: LspServerCommand, json: bool) -> u8 {
     let discovery = discovery(runtime);
     let Some(root) = discovery.managed_root() else {
         eprintln!("The Octocode home is unavailable; cannot locate managed language servers.");
         return 5;
     };
     let platform = platform_id();
-    // `names` carries the optional file-path argument for status.
-    match action {
-        "list" => run_list(&root, &platform, json),
-        "install" => {
+    match command {
+        LspServerCommand::List => run_list(&root, &platform, json),
+        LspServerCommand::Install { names, all, force } => {
             let targets: Vec<String> = if all {
                 manifest().keys().map(|k| (*k).to_owned()).collect()
             } else {
                 names
             };
-            let mode = if yes || force {
+            let mode = if force {
                 LspAutoInstall::Auto
             } else {
                 runtime.config().resolved.lsp.auto_install
             };
             run_install(&root, &platform, targets, mode, json, fetch_allowlisted).await
         }
-        "uninstall" => run_uninstall(&root, &platform, names, json),
-        "clean" => run_clean(&root, yes, json),
-        "status" => run_status(
-            &discovery,
-            &root,
-            &platform,
-            names.first().map(String::as_str),
-            json,
-        ),
-        other => {
-            eprintln!("Unknown lsp-server subcommand: {other}");
-            2
+        LspServerCommand::Uninstall { names } => run_uninstall(&root, &platform, names, json),
+        LspServerCommand::Clean { yes } => run_clean(&root, yes, json),
+        LspServerCommand::Status { file } => {
+            run_status(&discovery, &root, &platform, file.as_deref(), json)
         }
     }
 }
@@ -774,6 +791,42 @@ fn run_clean(root: &Path, yes: bool, json: bool) -> u8 {
 mod tests {
     use super::*;
     use flate2::{Compression, write::GzEncoder};
+
+    fn parse(args: &[&str]) -> Result<LspServerCommand, clap::Error> {
+        #[derive(clap::Parser)]
+        struct Cli {
+            #[command(subcommand)]
+            command: LspServerCommand,
+        }
+        <Cli as clap::Parser>::try_parse_from(
+            std::iter::once("lsp-server").chain(args.iter().copied()),
+        )
+        .map(|cli| cli.command)
+    }
+
+    /// Each flag means one thing on one subcommand: `--force` overrides the
+    /// install policy, `--yes` confirms a clean; neither is taken elsewhere.
+    #[test]
+    fn each_flag_belongs_to_one_subcommand() {
+        assert!(matches!(
+            parse(&["install", "clangd", "--force"]),
+            Ok(LspServerCommand::Install { force: true, .. })
+        ));
+        assert!(matches!(
+            parse(&["clean", "--yes"]),
+            Ok(LspServerCommand::Clean { yes: true })
+        ));
+        assert!(parse(&["install", "clangd", "--yes"]).is_err());
+        assert!(parse(&["clean", "--force"]).is_err());
+        assert!(
+            parse(&["status", "a.rs", "b.rs"]).is_err(),
+            "status takes one file"
+        );
+        assert!(matches!(
+            parse(&["status", "a.rs"]),
+            Ok(LspServerCommand::Status { file: Some(file) }) if file == "a.rs"
+        ));
+    }
 
     /// The asset digest the manifest pins; resolve only trusts markers naming it.
     fn pinned_asset_sha(name: &str, platform: &str) -> &'static str {

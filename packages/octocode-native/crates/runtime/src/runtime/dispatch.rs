@@ -1,153 +1,22 @@
 //! Domain dispatch. Interfaces never select security or execution policy.
-use super::exit::failure_kind;
-use super::{ExecutionContext, ExecutionError, FailureKind};
+use super::FailureKind;
+use crate::execution::{ExecutionContext, ExecutionError};
+use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
+use crate::response::outcome::{DomainResult, Upstream};
+use crate::response::result::failure_kind;
 use crate::security::ContentSecurity;
-use crate::tools::ast_graph::{AstTopologyQuery, AstTopologyRuntimeOptions, execute_topology};
 use crate::tools::ast_search::{AstSearchQuery, execute_ast};
-use crate::tools::id::ToolId;
-use crate::tools::local_fetch::{LocalFetchQuery, LocalFetchRegex};
+use crate::tools::local_fetch::LocalFetchQuery;
 use crate::tools::local_search::{LocalSearchQuery, SearchStatus, execute_local_search};
 use crate::tools::structure_search::{StructureSearchQuery, execute_structure};
-use serde_json::{Value, json};
-
-pub(crate) struct DomainResult {
-    pub diagnostics: crate::tools::result::ToolDiagnostics,
-    pub data: Value,
-    pub cache: bool,
-    pub status: Option<&'static str>,
-    pub source_digest: Option<String>,
-    pub failure: Option<FailureKind>,
-    /// The tool's typed notes of what its pages leave to read
-    /// ([`crate::tools::result::ToolData::remaining`]).
-    pub remaining: Vec<crate::response::pages::Remaining>,
-}
-
-impl DomainResult {
-    /// A tool's own payload. Typed error codes use the shared failure class,
-    /// whether a tool returns its error as a payload or as a ToolError.
-    pub(crate) fn payload(data: Value, status: Option<&'static str>) -> Self {
-        let failure = (status == Some("error")).then(|| {
-            data.get("errorCode")
-                .and_then(Value::as_str)
-                .map_or(FailureKind::Execution, failure_kind)
-        });
-        Self {
-            diagnostics: Default::default(),
-            cache: false,
-            data,
-            status,
-            source_digest: None,
-            failure,
-            remaining: Vec::new(),
-        }
-    }
-
-    /// The one error row: `error`, `errorCode`, then `hints` (when any) and
-    /// `next` (when any). Arms add context fields to `data` afterwards.
-    pub(super) fn failure(
-        code: impl Into<String>,
-        message: impl Into<String>,
-        hints: Vec<String>,
-        next: Option<Value>,
-    ) -> Self {
-        let code = code.into();
-        // One exit class per code: the contract's table decides it.
-        let kind = failure_kind(&code);
-        let mut data = json!({"error": message.into(), "errorCode": code});
-        if !hints.is_empty() {
-            data["hints"] = json!(hints);
-        }
-        if let Some(next) = next {
-            data["next"] = next;
-        }
-        Self {
-            diagnostics: Default::default(),
-            cache: false,
-            data,
-            status: Some("error"),
-            source_digest: None,
-            failure: Some(kind),
-            remaining: Vec::new(),
-        }
-    }
-
-    /// The one provider/transport error row (GitHub, package registries, git,
-    /// language servers). Every fact is stated once, in this order:
-    ///
-    /// ```text
-    /// {error, errorCode, retryable?, httpStatus?,
-    ///  rateLimit?: {resource?, remaining?, resetEpochSeconds?, retryAfterSeconds?},
-    ///  hints?, next?}
-    /// ```
-    ///
-    /// `retryable:true` appears only when a retry can help (absence = do not
-    /// retry unchanged). `httpStatus` appears only
-    /// when the upstream answered. Rate-limit members are seconds and absent
-    /// when unknown, never null or a made-up 0. There is no `status`, `type`,
-    /// `rateLimitRemaining`, `rateLimitReset` sibling and no raw provider
-    /// dump. Arms add identity fields (owner/repo/path) or debug diagnostics
-    /// (`requestId`, `documentationUrl`) afterwards. Other error emitters
-    /// (clasify's resource errors) mirror these field names.
-    pub(super) fn provider(
-        code: impl Into<String>,
-        message: impl Into<String>,
-        hints: Vec<String>,
-        next: Option<Value>,
-        upstream: Upstream,
-    ) -> Self {
-        let mut row = Self::failure(code, message, Vec::new(), None);
-        let data = &mut row.data;
-        if upstream.retryable {
-            data["retryable"] = json!(true);
-        }
-        if let Some(status) = upstream.http_status {
-            data["httpStatus"] = json!(status);
-        }
-        if let Some(rate_limit) = upstream.rate_limit {
-            data["rateLimit"] = rate_limit;
-        }
-        if !hints.is_empty() {
-            data["hints"] = json!(hints);
-        }
-        if let Some(next) = next {
-            data["next"] = next;
-        }
-        row
-    }
-}
-
-impl From<crate::tools::result::ToolError> for DomainResult {
-    fn from(error: crate::tools::result::ToolError) -> Self {
-        let mut result = Self::failure(
-            error.code,
-            error.message,
-            error.hints,
-            error.next.map(|next| *next),
-        );
-        if let Some(selection) = error.selection {
-            result.data["selection"] = serde_json::to_value(*selection).unwrap_or(Value::Null);
-        }
-        result
-    }
-}
-
-/// What the upstream said about a failed call (see [`DomainResult::provider`]).
-#[derive(Default)]
-pub(super) struct Upstream {
-    pub retryable: bool,
-    pub http_status: Option<u16>,
-    /// `{resource?, remaining?, resetEpochSeconds?, retryAfterSeconds?}`.
-    pub rate_limit: Option<Value>,
-}
+use serde_json::Value;
 
 /// The runtime-owned services a local row runs against.
 pub(super) struct LocalEnv<'a> {
     pub paths: &'a PathPolicy,
     pub security: &'a ContentSecurity,
-    pub regex: &'a LocalFetchRegex,
     pub views: &'a crate::security::scan::SanitizedViewMemo,
-    pub topology: &'a AstTopologyRuntimeOptions,
     pub selection: Option<&'a crate::tools::selection::Runtime>,
 }
 
@@ -162,9 +31,7 @@ pub(super) fn execute_local(
     let &LocalEnv {
         paths,
         security,
-        regex,
         views,
-        topology,
         selection,
     } = env;
     // Generated query types carry the meta fields, so every tool parses the
@@ -186,15 +53,10 @@ pub(super) fn execute_local(
                 paths,
                 &scan,
                 context,
-                regex,
                 context.response_window,
                 selection,
             );
-            let status = match result.status.as_str() {
-                "error" => Some("error"),
-                "empty" => Some("empty"),
-                _ => None,
-            };
+            let status = result.status.row_status();
             let missing = result.resource_missing;
             let source_digest = result.source_sha256.clone();
             let data = serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
@@ -255,15 +117,6 @@ pub(super) fn execute_local(
                 },
             )
         }
-        ToolId::AstTopology => {
-            let request = parsed!(AstTopologyQuery);
-            Ok(
-                match execute_topology(&request, paths, security, context, topology) {
-                    Ok(data) => value_result(data),
-                    Err(error) => error.into(),
-                },
-            )
-        }
         ToolId::GhSearchRepo
         | ToolId::GhSearchCode
         | ToolId::GhStructure
@@ -295,10 +148,10 @@ pub(super) fn invalid_query(error: &serde_json::Error) -> DomainResult {
     )
 }
 
-/// A tool's [`crate::tools::result::ToolData`] (a bare `Value` converts):
+/// A tool's [`crate::response::result::ToolData`] (a bare `Value` converts):
 /// its payload as [`value_result`], keeping the typed notes of what its pages
 /// leave to read.
-pub(crate) fn data_result(data: impl Into<crate::tools::result::ToolData>) -> DomainResult {
+pub(crate) fn data_result(data: impl Into<crate::response::result::ToolData>) -> DomainResult {
     let data = data.into();
     let mut result = value_result(data.data);
     result.remaining = data.remaining;
@@ -373,6 +226,7 @@ pub(super) fn provider_failure(
 #[cfg(test)]
 mod provider_failure_tests {
     use super::*;
+    use serde_json::json;
 
     /// A tool's typed remaining notes survive dispatch; a bare value has none.
     #[test]
@@ -383,7 +237,8 @@ mod provider_failure_tests {
             "notFound",
         ] {
             let payload = DomainResult::payload(json!({"errorCode":code}), Some("error"));
-            let typed = DomainResult::from(crate::tools::result::ToolError::new(code, "failure"));
+            let typed =
+                DomainResult::from(crate::response::result::ToolError::new(code, "failure"));
             assert_eq!(payload.failure, typed.failure, "{code}");
         }
         assert_eq!(
@@ -403,9 +258,9 @@ mod provider_failure_tests {
             page: "nextPage".into(),
             left: "4900 more reachable".into(),
         };
-        let data = crate::tools::result::ToolData {
+        let data = crate::response::result::ToolData {
             remaining: vec![note.clone()],
-            ..crate::tools::result::ToolData::from(serde_json::json!({"artifacts": []}))
+            ..crate::response::result::ToolData::from(serde_json::json!({"artifacts": []}))
         };
         assert_eq!(data_result(data).remaining, vec![note]);
         assert!(data_result(serde_json::json!({})).remaining.is_empty());
@@ -503,7 +358,6 @@ mod provider_failure_tests {
                 json!({"operation": "syntaxTree", "path": path}),
             ),
             (ToolId::AstSearch, json!({"path": path})),
-            (ToolId::AstTopology, json!({"path": 5})),
         ] {
             let row = execute_local(
                 tool,
@@ -512,9 +366,7 @@ mod provider_failure_tests {
                 &LocalEnv {
                     paths: &paths,
                     security: &security,
-                    regex: &LocalFetchRegex,
                     views: &views,
-                    topology: &AstTopologyRuntimeOptions::default(),
                     selection: None,
                 },
             )
@@ -552,9 +404,7 @@ mod provider_failure_tests {
                 &LocalEnv {
                     paths: &paths,
                     security: &ContentSecurity::new(),
-                    regex: &LocalFetchRegex,
                     views: &crate::security::scan::SanitizedViewMemo::default(),
-                    topology: &AstTopologyRuntimeOptions::default(),
                     selection: None,
                 },
             );

@@ -42,6 +42,25 @@ impl<V> PageMemo<V> {
         (stored_policy == policy).then(|| read(value))
     }
 
+    /// The hit stored for `snapshot` under `policy` while it is current:
+    /// `read` copies the stored value's parts and its [`Proof`] out of the
+    /// store, and `serve` turns the parts into the hit once the proof holds.
+    /// A value whose proof fails, or that `serve` refuses, is evicted.
+    pub(crate) fn get_current<R, T>(
+        &self,
+        snapshot: &str,
+        policy: &str,
+        read: impl FnOnce(&V) -> (R, Proof),
+        serve: impl FnOnce(R) -> Option<T>,
+    ) -> Option<T> {
+        let (parts, proof) = self.get(snapshot, policy, read)?;
+        let hit = proof.holds().then(|| serve(parts)).flatten();
+        if hit.is_none() {
+            self.evict(snapshot);
+        }
+        hit
+    }
+
     /// Store `value`, replacing any value for the same snapshot and dropping
     /// expired values, then the least recently used beyond the entry and
     /// weight budgets. A value over the weight budget is not kept.
@@ -258,6 +277,41 @@ mod tests {
         assert_eq!(memo.contents().0.len(), 1);
         memo.evict("s");
         assert_eq!(memo.get("s", "a", |v| *v), None);
+    }
+
+    #[test]
+    fn a_value_is_served_while_its_proof_holds_and_evicted_when_refused() {
+        let root = tempfile::tempdir().expect("fixture");
+        let marker = root.path().join("marker");
+        let proof = || {
+            Watch {
+                root: root.path(),
+                sources: &[],
+                rules: &[],
+                markers: std::slice::from_ref(&marker),
+            }
+            .capture(Link::Follow, None)
+            .expect("proof")
+        };
+        let memo = PageMemo::new(Duration::from_secs(60), 4, 100);
+        let get = |serve: fn(u8) -> Option<u8>| {
+            memo.get_current(
+                "s",
+                "a",
+                |(value, proof): &(u8, Proof)| (*value, proof.clone()),
+                serve,
+            )
+        };
+        memo.put("s".into(), "a".into(), 1, (7, proof()));
+        assert_eq!(get(Some), Some(7));
+        // `serve` refusing the parts evicts them.
+        assert_eq!(get(|_| None), None);
+        assert!(memo.contents().0.is_empty());
+        // A changed watched entry fails the proof: not served, and evicted.
+        memo.put("s".into(), "a".into(), 1, (7, proof()));
+        std::fs::write(&marker, "").expect("marker");
+        assert_eq!(get(Some), None);
+        assert!(memo.contents().0.is_empty());
     }
 
     #[test]

@@ -17,11 +17,12 @@ mod extract;
 mod fetch;
 
 use super::{Captured, failure};
+use crate::execution::ExecutionContext;
+use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
-use crate::runtime::{ExecutionContext, domain_dispatch::DomainDispatcher};
 use crate::security::ContentSecurity;
-use crate::tools::id::ToolId;
 use crate::tools::judgment::ClassificationError;
+use crate::tools::source_capture::SourceReader;
 use fetch::Fetch;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -49,24 +50,24 @@ pub(crate) fn capture_root(home: &Path) -> PathBuf {
 
 pub(crate) fn capture(
     address: &str,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     max_chars: usize,
 ) -> Result<Captured, ClassificationError> {
     let target = parse(address)?;
     let store = Store::open(dispatcher)?;
     let network = fetch::Network {
-        handle: &dispatcher.handle,
+        handle: dispatcher.handle(),
         accept: fetch::ACCEPTED,
-        budget: octocode_github::RequestBudget::new(
+        budget: octocode_io::budget::RequestBudget::new(
             context.deadline,
             context.cancellation.clone(),
             fetch::MAX_BODY_BYTES,
         ),
     };
     let redaction = Redaction {
-        security: &dispatcher.security,
-        emails: dispatcher.config.resolved.output.redact_emails,
+        security: dispatcher.security(),
+        emails: dispatcher.config().resolved.output.redact_emails,
     };
     let check = || context.check().map_err(stopped);
     let selection = select(&network, target, &redaction, &check, max_chars)?;
@@ -77,14 +78,14 @@ pub(crate) fn capture(
 /// HTTPS acquisition as text. Embedded page resources are never followed.
 pub(super) fn image(
     address: &str,
-    dispatcher: &DomainDispatcher,
+    dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     max_bytes: usize,
 ) -> Result<(Vec<u8>, serde_json::Value), ClassificationError> {
     let target = parse(address)?;
     let network = fetch::Network {
-        handle: &dispatcher.handle,
-        budget: octocode_github::RequestBudget::new(
+        handle: dispatcher.handle(),
+        budget: octocode_io::budget::RequestBudget::new(
             context.deadline,
             context.cancellation.clone(),
             max_bytes,
@@ -184,9 +185,9 @@ struct Selection {
 }
 
 /// The call's deadline or cancellation as a capture failure.
-fn stopped(stop: crate::runtime::ExecutionError) -> ClassificationError {
+fn stopped(stop: crate::execution::ExecutionError) -> ClassificationError {
     match stop {
-        crate::runtime::ExecutionError::Cancelled => failure(
+        crate::execution::ExecutionError::Cancelled => failure(
             "cancelled",
             "The call stopped before its page was captured.",
             crate::response::rows::CANCELLED_HINT,
@@ -348,7 +349,7 @@ fn extraction_failure(
         // The check that stopped the parse says why.
         extract::Failure::Stopped => check()
             .err()
-            .unwrap_or_else(|| stopped(crate::runtime::ExecutionError::Timeout)),
+            .unwrap_or_else(|| stopped(crate::execution::ExecutionError::Timeout)),
         extract::Failure::Empty { scripted: true } => failure(
             "classificationContextUnavailable",
             "The page has no static text: it builds its content with scripts.",
@@ -410,8 +411,8 @@ pub(super) struct Store<'a> {
 
 impl<'a> Store<'a> {
     /// The storage, when a capture can be saved and read back here.
-    pub(super) fn open(dispatcher: &'a DomainDispatcher) -> Result<Self, ClassificationError> {
-        if !crate::config::is_persistent_storage_enabled(&dispatcher.config.resolved) {
+    pub(super) fn open(dispatcher: &'a dyn SourceReader) -> Result<Self, ClassificationError> {
+        if !crate::config::is_persistent_storage_enabled(&dispatcher.config().resolved) {
             return Err(failure(
                 "classificationContextUnavailable",
                 "Source captures need persistent storage to save the exact evidence; storage.mode is memory.",
@@ -419,7 +420,7 @@ impl<'a> Store<'a> {
             ));
         }
         let reader = ToolId::LocalFetch.as_str();
-        if !dispatcher.availability.is_available(reader) {
+        if !dispatcher.availability().is_available(reader) {
             return Err(failure(
                 "classificationContextUnavailable",
                 format!(
@@ -429,11 +430,11 @@ impl<'a> Store<'a> {
             ));
         }
         Self::at(
-            capture_root(&dispatcher.home),
+            capture_root(dispatcher.home()),
             // The clone cache retention: each capture publishes it as
             // `expiresAt`; the daily cache sweep removes captures older.
-            dispatcher.limits.clone.ttl,
-            &dispatcher.paths,
+            dispatcher.limits().clone.ttl,
+            dispatcher.paths(),
         )
     }
 
@@ -471,7 +472,7 @@ impl<'a> Store<'a> {
         let file = saved["path"].as_str().unwrap_or_default();
         let lines = selection.text.lines().count();
         let url = selection.url.as_str();
-        let read = crate::tools::result::Continuation::new(
+        let read = crate::response::result::Continuation::new(
             ToolId::LocalFetch,
             json!({
                 "path": file,
@@ -499,7 +500,7 @@ impl<'a> Store<'a> {
         bytes: &[u8],
         name: &str,
     ) -> Result<serde_json::Value, ClassificationError> {
-        let snapshot = crate::digest::sha256(bytes);
+        let snapshot = octocode_engine::digest::sha256(bytes);
         let directory = self.root.join(&snapshot);
         let file = directory.join(name);
         let unsaved = |_| {

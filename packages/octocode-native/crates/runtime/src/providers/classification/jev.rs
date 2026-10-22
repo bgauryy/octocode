@@ -6,30 +6,32 @@
 //! for single-question requests, and
 //! `{"model": "...", "state": <evidence>, "questions": {"answer_0": q0, ...}}`
 //! for batches. Response: `{"model": "...", "answers": {"answer": {...}}, "usage": {...}}`.
-use super::{ClassificationProvider, ProviderContractError};
+use super::{
+    ClassificationProvider, ProviderContractError, ProviderDefaults, ProviderResponse,
+    ProviderUsage,
+};
 use serde_json::{Map, Value, json};
 
 pub struct Jev;
 pub static JEV: Jev = Jev;
 
+static DEFAULTS: ProviderDefaults = ProviderDefaults {
+    host: "https://api.typesafe.ai",
+    model: "jev-latest",
+    endpoint_path: "v1/systemone",
+    models_path: "v1/models",
+    docs_url: "https://docs.typesafe.ai/introduction",
+};
+
+/// The question key of a single-question request and its response.
+const SINGLE_ANSWER_KEY: &str = "answer";
+
 impl ClassificationProvider for Jev {
-    fn default_host(&self) -> &'static str {
-        "https://api.typesafe.ai"
+    fn defaults(&self) -> &'static ProviderDefaults {
+        &DEFAULTS
     }
 
-    fn default_model(&self) -> &'static str {
-        "jev-latest"
-    }
-
-    fn endpoint_path(&self) -> &'static str {
-        "v1/systemone"
-    }
-
-    fn models_path(&self) -> &'static str {
-        "v1/models"
-    }
-
-    fn request_headers(&self, images: bool, long_context: bool) -> reqwest::header::HeaderMap {
+    fn headers(&self, images: bool, long_context: bool) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
         for (enabled, name) in [
             (images, "typesafe-danger-zone-images"),
@@ -42,121 +44,121 @@ impl ClassificationProvider for Jev {
         headers
     }
 
-    fn docs_url(&self) -> &'static str {
-        "https://docs.typesafe.ai/introduction"
-    }
-
-    fn build_request(
+    fn build(
         &self,
         state: &Value,
-        question: &Value,
+        questions: &[&Value],
         model: &str,
         assets: Option<&Value>,
     ) -> Value {
-        with_assets(
-            json!({"model": model, "state": state, "questions": {"answer": question}}),
-            assets,
-        )
-    }
-
-    fn build_batch_request(
-        &self,
-        state: &Value,
-        questions: &[(usize, &Value)],
-        model: &str,
-        assets: Option<&Value>,
-    ) -> Value {
-        let qs: Map<String, Value> = questions
-            .iter()
-            .map(|(i, q)| (format!("answer_{i}"), (*q).clone()))
-            .collect();
-        with_assets(
-            json!({"model": model, "state": state, "questions": qs}),
-            assets,
-        )
-    }
-
-    fn extract_answer<'a>(&self, response: &'a Value) -> Option<&'a Value> {
-        response.get("answers")?.get("answer")
-    }
-
-    fn batch_answer_key(&self, index: usize) -> String {
-        format!("answer_{index}")
-    }
-
-    fn validate_response(
-        &self,
-        request: &Value,
-        response: &Value,
-    ) -> Result<(), ProviderContractError> {
-        validate_wire(request, response)
-    }
-
-    fn validate_batch_answers(
-        &self,
-        request: &Value,
-        response: &Value,
-    ) -> Result<Vec<Result<Value, ProviderContractError>>, ProviderContractError> {
-        let questions = request
-            .get("questions")
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid_request("request.questions must be an object"))?;
-        let answers = response
-            .get("answers")
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid_response("response.answers must be an object"))?;
-        if answers.keys().any(|key| !questions.contains_key(key)) {
-            return Err(invalid_response(
-                "response contains an unexpected answer ID",
-            ));
+        let keyed: Map<String, Value> = match questions {
+            [question] => [(SINGLE_ANSWER_KEY.to_owned(), (*question).clone())]
+                .into_iter()
+                .collect(),
+            _ => questions
+                .iter()
+                .enumerate()
+                .map(|(index, question)| (batch_answer_key(index), (*question).clone()))
+                .collect(),
+        };
+        let mut request = json!({"model": model, "state": state, "questions": keyed});
+        if let Some(assets) = assets {
+            request["assets"] = assets.clone();
         }
-        // The same validator checks global metadata once, then each keyed
-        // answer. Projection omits state/assets, which response validation
-        // does not read, so large input bodies are never cloned here.
-        let mut projected =
-            json!({"model":response["model"],"usage":response["usage"],"answers":{}});
-        validate_wire(&json!({"questions":{}}), &projected)?;
-        (0..questions.len())
-            .map(|index| {
-                let key = self.batch_answer_key(index);
-                let question = questions
-                    .get(&key)
-                    .ok_or_else(|| invalid_request("batch question indexes must be contiguous"))?;
-                projected["answers"] =
-                    json!({key.clone():answers.get(&key).cloned().unwrap_or(Value::Null)});
-                let result =
-                    validate_wire(&json!({"questions":{key.clone():question}}), &projected)
-                        .map(|()| projected["answers"][&key].clone());
-                Ok(result)
-            })
-            .collect()
+        request
     }
 
-    fn validate_models(&self, response: &Value) -> Result<(), ProviderContractError> {
+    fn read(&self, request: &Value, response: &Value) -> ProviderResponse {
+        let usage = || {
+            let tokens = |key: &str| response["usage"][key].as_u64();
+            Some(ProviderUsage {
+                input_tokens: tokens("input_tokens")?,
+                output_tokens: tokens("output_tokens")?,
+            })
+        };
+        let single = request["questions"]
+            .as_object()
+            .is_some_and(|questions| questions.contains_key(SINGLE_ANSWER_KEY));
+        ProviderResponse {
+            answers: if single {
+                validate_wire(request, response)
+                    .map(|()| vec![Ok(response["answers"][SINGLE_ANSWER_KEY].clone())])
+            } else {
+                batch_answers(request, response)
+            },
+            model: response["model"].as_str().map(str::to_owned),
+            usage: usage(),
+        }
+    }
+
+    fn models(&self, response: &Value) -> Result<Value, ProviderContractError> {
         let models = response
             .get("models")
             .and_then(Value::as_array)
             .ok_or_else(|| invalid_response("response.models must be an array"))?;
-        for model in models {
-            for field in ["name", "description", "release_date"] {
-                let value = model
-                    .get(field)
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| invalid_response(format!("model.{field} must be a string")))?;
-                if field == "name" && value.trim().is_empty() {
-                    return Err(invalid_response("model.name must be non-blank"));
+        let models = models
+            .iter()
+            .map(|model| {
+                let mut listed = Map::new();
+                for field in ["name", "description", "release_date"] {
+                    let value = model.get(field).and_then(Value::as_str).ok_or_else(|| {
+                        invalid_response(format!("model.{field} must be a string"))
+                    })?;
+                    if field == "name" && value.trim().is_empty() {
+                        return Err(invalid_response("model.name must be non-blank"));
+                    }
+                    listed.insert(field.to_owned(), json!(value));
                 }
-            }
-        }
-        Ok(())
+                Ok(Value::Object(listed))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(json!({ "models": models }))
     }
 }
 
-fn with_assets(mut request: Value, assets: Option<&Value>) -> Value {
-    if let Some(assets) = assets {
-        request["assets"] = assets.clone();
+/// A batch response's answers, each validated on its own: global metadata
+/// and unexpected answer keys fail the response; a missing or malformed
+/// expected answer fails only its own question.
+fn batch_answers(
+    request: &Value,
+    response: &Value,
+) -> Result<Vec<Result<Value, ProviderContractError>>, ProviderContractError> {
+    let questions = request
+        .get("questions")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_request("request.questions must be an object"))?;
+    let answers = response
+        .get("answers")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_response("response.answers must be an object"))?;
+    if answers.keys().any(|key| !questions.contains_key(key)) {
+        return Err(invalid_response(
+            "response contains an unexpected answer ID",
+        ));
     }
-    request
+    // The same validator checks global metadata once, then each keyed
+    // answer. Projection omits state/assets, which response validation
+    // does not read, so large input bodies are never cloned here.
+    let mut projected = json!({"model":response["model"],"usage":response["usage"],"answers":{}});
+    validate_wire(&json!({"questions":{}}), &projected)?;
+    (0..questions.len())
+        .map(|index| {
+            let key = batch_answer_key(index);
+            let question = questions
+                .get(&key)
+                .ok_or_else(|| invalid_request("batch question indexes must be contiguous"))?;
+            projected["answers"] =
+                json!({key.clone():answers.get(&key).cloned().unwrap_or(Value::Null)});
+            let result = validate_wire(&json!({"questions":{key.clone():question}}), &projected)
+                .map(|()| projected["answers"][&key].clone());
+            Ok(result)
+        })
+        .collect()
+}
+
+/// The key of the question at `index` in a batch request and its response.
+fn batch_answer_key(index: usize) -> String {
+    format!("answer_{index}")
 }
 
 const PROBABILITY_TOLERANCE: f64 = 0.02;
@@ -401,9 +403,11 @@ fn validate_wire(request: &Value, response: &Value) -> Result<(), ProviderContra
         }
     }
     if !answers.is_empty() {
-        crate::contracts::validate_output(
+        // The candidate is built for this check alone, so it is validated in
+        // place instead of cloned again.
+        crate::contracts::validate_output_in_place(
             "clasify",
-            &json!({"queries":[{
+            &mut json!({"queries":[{
                 "id":"provider",
                 "model":response["model"],
                 "answers":response["answers"],
@@ -589,9 +593,9 @@ mod tests {
             json!({"type":"box","instructions":["locate","opaque"]}),
         ];
         let assets = json!({"opaque":{"type":"image","format":"png","data_base64":"bytes"}});
-        let request = super::JEV.build_batch_request(
+        let request = super::JEV.build(
             &json!(["opaque"]),
-            &questions.iter().enumerate().collect::<Vec<_>>(),
+            &questions.iter().collect::<Vec<_>>(),
             "vision",
             Some(&assets),
         );
@@ -599,26 +603,66 @@ mod tests {
         for (index, question) in questions.iter().enumerate() {
             assert_eq!(&request["questions"][format!("answer_{index}")], question);
         }
-        let plain = super::JEV.build_request(&json!("text"), &questions[0], "m", None);
+        let plain = super::JEV.build(&json!("text"), &[&questions[0]], "m", None);
+        assert_eq!(plain["questions"], json!({"answer": questions[0]}));
         assert!(plain.get("assets").is_none());
-        assert!(super::JEV.request_headers(false, false).is_empty());
-        let headers = super::JEV.request_headers(true, true);
+        assert!(super::JEV.headers(false, false).is_empty());
+        let headers = super::JEV.headers(true, true);
         assert_eq!(headers["TypeSafe-Danger-Zone-Images"], "true");
         assert_eq!(headers["TypeSafe-Danger-Zone-Long-Context"], "true");
     }
 
+    /// One question is one whole response; the model and usage are read
+    /// even from a response that fails validation.
+    #[test]
+    fn a_single_question_response_reads_its_answer_model_and_usage() {
+        let question = json!({"type":"noul","instructions":"q"});
+        let request = super::JEV.build(&json!("s"), &[&question], "m", None);
+        let response = json!({"model":"jev-1","usage":{"input_tokens":7,"output_tokens":2},
+            "answers":{"answer":{"type":"noul","noul":0.4}}});
+        let read = super::JEV.read(&request, &response);
+        assert_eq!(
+            read.answers.expect("valid response"),
+            vec![Ok(json!({"type":"noul","noul":0.4}))]
+        );
+        assert_eq!(read.model.as_deref(), Some("jev-1"));
+        assert_eq!(
+            read.usage,
+            Some(super::ProviderUsage {
+                input_tokens: 7,
+                output_tokens: 2
+            })
+        );
+        let mut invalid = response;
+        invalid["answers"]["answer"]["noul"] = json!(2);
+        let read = super::JEV.read(&request, &invalid);
+        assert!(read.answers.is_err());
+        assert_eq!(read.usage.map(|usage| usage.input_tokens), Some(7));
+        invalid["usage"] = json!({"input_tokens": 1});
+        assert_eq!(super::JEV.read(&request, &invalid).usage, None);
+    }
+
     #[test]
     fn model_discovery_accepts_live_timestamp_strings_and_rejects_missing_fields() {
-        let response = json!({"models":[{"name":"jev-preview","description":"Preview","release_date":"2026-09-10T18:39:06.057655+00:00"}]});
-        super::JEV.validate_models(&response).unwrap();
-        super::JEV.validate_models(&json!({"models":[]})).unwrap();
+        let response = json!({"object":"list","models":[{"name":"jev-preview","description":"Preview",
+            "release_date":"2026-09-10T18:39:06.057655+00:00","owner":"typesafe"}]});
+        // Only the clasify output fields leave the vendor wire.
+        assert_eq!(
+            super::JEV.models(&response).unwrap(),
+            json!({"models":[{"name":"jev-preview","description":"Preview",
+                "release_date":"2026-09-10T18:39:06.057655+00:00"}]})
+        );
+        assert_eq!(
+            super::JEV.models(&json!({"models":[]})).unwrap(),
+            json!({"models":[]})
+        );
         for invalid in [
             json!({}),
             json!({"models":null}),
             json!({"models":[{"name":""}]}),
             json!({"models":[{"name":"m","description":"d","release_date":null}]}),
         ] {
-            assert!(super::JEV.validate_models(&invalid).is_err());
+            assert!(super::JEV.models(&invalid).is_err());
         }
     }
 }

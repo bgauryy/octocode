@@ -250,24 +250,6 @@ fn commit_rows_keep_a_differing_committer_and_detail_the_parents() {
 }
 
 #[test]
-fn topology_coverage_diagnostics_survive_minimal_rows() {
-    // nextDiagnosticPage pages exist to return these entries; they explain
-    // graph gaps (unlinked imports, unsupported layouts).
-    let row = minimized(
-        ToolId::AstTopology,
-        json!({"operation":"dependents","path":"/r","source":"a.rs"}),
-        json!({"results":[],"filesScanned":9,"coverage":{
-            "diagnostics":[{"code":"unlinkedImport","file":"b.rs"}],
-            "diagnosticPagination":{"currentPage":1,"totalPages":2,"hasMore":true}}}),
-    );
-    assert_eq!(
-        row["data"]["coverage"]["diagnostics"][0]["file"], "b.rs",
-        "{row}"
-    );
-    assert!(row["data"].get("filesScanned").is_none(), "{row}");
-}
-
-#[test]
 fn open_pages_keep_pagination_and_totals() {
     let row = minimized(
         ToolId::LocalSearch,
@@ -435,22 +417,7 @@ fn a_complete_page_that_keeps_binary_skipped_keeps_the_required_match_count() {
 }
 
 #[test]
-fn tool_declared_fields_leave_confidence_signals() {
-    let topology = minimized(
-        ToolId::AstTopology,
-        json!({"operation":"dependencies"}),
-        json!({"operation":"dependencies","confidence":"low",
-            "coverage":{"state":"partial","parts":{"graph":"coverage-incomplete"},
-                "basis":"syntactic","diagnosticCounts":{"x":5},"diagnostics":[{"file":"a"}]}}),
-    );
-    let data = &topology["data"];
-    assert!(data.get("source").is_none(), "request echo: {topology}");
-    assert_eq!(data["confidence"], "low");
-    assert_eq!(
-        data["coverage"],
-        json!({"state":"partial","parts":{"graph":"coverage-incomplete"},
-            "basis":"syntactic","diagnosticCounts":{"x":5},"diagnostics":[{"file":"a"}]})
-    );
+fn read_rows_leave_byte_accounting_to_stats_extras() {
     let fetch = minimized(
         ToolId::LocalFetch,
         json!({}),
@@ -976,103 +943,6 @@ fn local_search_and_lsp_rows_are_workspace_relative_and_outside_rows_absolute() 
     assert_eq!(items[0]["path"], "src/a.rs", "{value}");
     assert_eq!(items[1]["path"], outside.as_str(), "{value}");
     assert!(items[1].get("uri").is_none(), "{value}");
-}
-
-/// astTopology rows are grouped under the scanned directory: `base` is
-/// the workspace like every local tool, the row `path` names the scanned
-/// directory relative to it, and `base` + `path` + `file` is the file.
-/// Continuations name the root relative to the workspace too.
-#[test]
-fn topology_rows_resolve_from_the_workspace_base() {
-    let ws = workspace();
-    let root = ws.root.to_string_lossy().into_owned();
-    let topology = vec![json!({"index":0,"data": {
-        "path": "workspace/relative",
-        "results": [{"file": "runtime/b.rs"}],
-        "next": {"nextPage": {"tool":"astTopology","query":{"queries":[{"path":format!("{root}/src"),"operation":"dependents","source":"runtime/b.rs","page":2}]}}}
-    }})];
-    let value = envelope_in(
-        topology,
-        ToolId::AstTopology,
-        &[Some(&json!({"path":"src"}))],
-        &ws.paths,
-    );
-    assert_eq!(value["root"], root.as_str(), "{value}");
-    let data = &value["results"][0]["data"];
-    assert_eq!(data["path"], "src", "{value}");
-    let file = data["results"][0]["file"].as_str().expect("file");
-    assert!(ws.root.join("src").join(file).is_file());
-    assert_eq!(
-        data["next"]["nextPage"]["query"]["queries"][0]["path"], "src",
-        "{value}"
-    );
-    // The workspace root itself is `.`; a root outside it is its own base.
-    let value = envelope_in(
-        vec![json!({"index":0,"data":{"path":"x","results":[{"file":"packages/app/src/a.rs"}]}})],
-        ToolId::AstTopology,
-        &[Some(&json!({"path":"."}))],
-        &ws.paths,
-    );
-    assert_eq!(value["results"][0]["data"]["path"], ".", "{value}");
-    let outside = ws.outside.to_string_lossy().into_owned();
-    let value = envelope_in(
-        vec![json!({"index":0,"data":{"path":"x","results":[{"file":"o.rs"}]}})],
-        ToolId::AstTopology,
-        &[Some(&json!({"path": outside.clone()}))],
-        &ws.paths,
-    );
-    assert_eq!(value["root"], outside.as_str(), "{value}");
-    assert_eq!(value["results"][0]["data"]["path"], ".", "{value}");
-}
-
-/// Rows over different scanned directories, or beside an error row, are
-/// each anchored on the workspace: `root` stays the workspace, each row
-/// `path` names its own directory relative to it, and every continuation
-/// path is workspace-relative.
-#[test]
-fn topology_rows_over_several_roots_each_resolve_from_the_workspace() {
-    let ws = workspace();
-    let root = ws.root.to_string_lossy().into_owned();
-    let row = |index: u64, dir: &str| {
-        json!({"index":index,"data":{
-            "path": dir,
-            "results": [{"file": "b.rs"}],
-            "next": {"read": {"tool":"localFetch","query":{"queries":[{"path":format!("{root}/{dir}/b.rs"),"ranges":["2-4"]}]}}}
-        }})
-    };
-    let check = |value: &Value, position: usize, dir: &str| {
-        let data = &value["results"][position]["data"];
-        assert_eq!(data["path"], dir, "{value}");
-        assert_eq!(
-            data["next"]["read"]["query"]["queries"][0]["path"],
-            format!("{dir}/b.rs"),
-            "{value}"
-        );
-    };
-    let value = envelope_in(
-        vec![row(0, "src"), row(1, "src/runtime")],
-        ToolId::AstTopology,
-        &[
-            Some(&json!({"path":"src"})),
-            Some(&json!({"path":"src/runtime"})),
-        ],
-        &ws.paths,
-    );
-    assert_eq!(value["root"], root.as_str(), "{value}");
-    check(&value, 0, "src");
-    check(&value, 1, "src/runtime");
-
-    let value = envelope_in(
-        vec![
-            row(0, "src/runtime"),
-            json!({"index":1,"status":"error","data":{"error":"x","errorCode":"pathValidationFailed"}}),
-        ],
-        ToolId::AstTopology,
-        &[Some(&json!({"path":"src/runtime"})), None],
-        &ws.paths,
-    );
-    assert_eq!(value["root"], root.as_str(), "{value}");
-    check(&value, 0, "src/runtime");
 }
 
 #[test]
@@ -1659,7 +1529,7 @@ fn path_errors_have_one_hint_on_every_tool() {
     for (code, expected) in [
         (
             crate::policy::PATH_NOT_FOUND,
-            crate::tools::output::VERIFY_PATH_HINT,
+            crate::response::output::VERIFY_PATH_HINT,
         ),
         (
             crate::policy::PATH_POLICY_DENIED,
@@ -1671,7 +1541,6 @@ fn path_errors_have_one_hint_on_every_tool() {
             "localSearch",
             "structureSearch",
             "astSearch",
-            "astTopology",
             "lspSearch",
             "ghCloneRepo",
         ]
@@ -1957,8 +1826,8 @@ fn a_bare_empty_row_gets_its_tools_fallback_hint() {
     assert!(found["data"].get("hints").is_none(), "{found}");
 }
 
-fn sanitize_context() -> crate::runtime::ExecutionContext {
-    crate::runtime::ExecutionContext {
+fn sanitize_context() -> crate::execution::ExecutionContext {
+    crate::execution::ExecutionContext {
         cancellation: tokio_util::sync::CancellationToken::new(),
         deadline: std::time::Instant::now() + std::time::Duration::from_secs(1),
         walk_threads: None,
@@ -2151,7 +2020,7 @@ fn an_item_section_past_its_end_settles_the_row() {
 fn nested_page_blocks_drop_cursors_and_the_restated_partial_flag() {
     let query = json!({"operation":"pullRequest","owner":"o","repo":"r","number":4,
         "sections":["files"],"extras":["stats"]});
-    let next = crate::tools::result::Continuation::new(
+    let next = crate::response::result::Continuation::new(
         ToolId::GhGetHistoryItem,
         json!({"operation":"pullRequest","owner":"o","repo":"r","number":4,
             "sections":["files"],"page":2}),
@@ -2172,4 +2041,19 @@ fn nested_page_blocks_drop_cursors_and_the_restated_partial_flag() {
     assert!(row["data"].get("isPartial").is_none(), "{row}");
     assert!(row.get("status").is_none(), "{row}");
     assert_eq!(row["data"]["next"]["nextFilePage"], next, "{row}");
+}
+
+/// An empty row whose only call is a retry (GitHub's incomplete results)
+/// stays empty, so the call exits 1; a next page still makes it a success.
+#[test]
+fn an_empty_row_offering_only_a_retry_stays_empty() {
+    let call = json!({"tool":"ghSearchRepo","query":{"queries":[{"keywords":["mcp"]}]}});
+    let query = json!({"keywords":["mcp"]});
+    let retry = json!({"repositories":[],"isPartial":true,
+        "partialReasons":["providerIncompleteResults"],"next":{"retry":call}});
+    let row = result_row(ToolId::GhSearchRepo, 0, &query, retry, Some("empty"));
+    assert_eq!(row["status"], "empty", "{row}");
+    let paged = json!({"repositories":[],"next":{"nextPage":call}});
+    let row = result_row(ToolId::GhSearchRepo, 0, &query, paged, Some("empty"));
+    assert_ne!(row["status"], "empty", "{row}");
 }

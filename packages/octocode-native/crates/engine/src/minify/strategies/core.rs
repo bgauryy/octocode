@@ -43,10 +43,17 @@ fn compact_lines(s: &str, comments: Option<&[&str]>, max_blanks: u32, indent: In
         let starts_in_literal = current.is_some_and(|(start, _)| start < offset);
         offset = end;
         if protected {
-            if indent == Indent::Strip && !starts_in_literal {
-                result.push_str(line.trim_start_matches([' ', '\t']));
-            } else {
-                result.push_str(line);
+            // The literal's own bytes stay exact; indentation before it is
+            // shaped like every other line's, so nesting reads the same.
+            let body = line.trim_start_matches([' ', '\t']);
+            match indent {
+                _ if starts_in_literal => result.push_str(line),
+                Indent::Keep => result.push_str(line),
+                Indent::Halve => {
+                    result.push_str(&" ".repeat((line.len() - body.len()) / 2));
+                    result.push_str(body);
+                }
+                Indent::Strip => result.push_str(body),
             }
             blank_run = 0;
             last_protected = true;

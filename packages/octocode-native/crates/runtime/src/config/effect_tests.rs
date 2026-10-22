@@ -3,7 +3,9 @@
 //! use) and changes what a call through the runtime returns. Flipping the
 //! value flips the outcome, so a setting that stops reaching its reader
 //! fails here.
-use crate::runtime::{Channel, RuntimeLimits, ToolOutcome, ToolRuntime};
+use crate::execution::RuntimeLimits;
+use crate::response::outcome::ToolOutcome;
+use crate::runtime::{Channel, ToolRuntime};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;

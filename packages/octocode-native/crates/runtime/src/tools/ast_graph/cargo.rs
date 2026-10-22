@@ -1,5 +1,6 @@
 use super::graph::normalize;
-use crate::tools::{bounded_process::run_bounded, cancel::CancellationCheck};
+use crate::execution::cancel::CancellationCheck;
+use crate::tools::bounded_process::run_bounded;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
@@ -84,6 +85,16 @@ pub(super) fn load_cargo_crates(
     cargo: Option<&str>,
     cancel: &dyn CancellationCheck,
 ) -> Result<CargoCrates, String> {
+    load_cargo_crates_within(root, cargo, cancel, Duration::from_secs(5))
+}
+
+/// [`load_cargo_crates`] with `cargo metadata` bounded at `limit`.
+fn load_cargo_crates_within(
+    root: &Path,
+    cargo: Option<&str>,
+    cancel: &dyn CancellationCheck,
+    limit: Duration,
+) -> Result<CargoCrates, String> {
     const MAX_METADATA_BYTES: usize = 32 * 1024 * 1024;
     // `--no-deps` keeps metadata to the workspace's own crates, cutting work
     // and attack surface.
@@ -97,13 +108,7 @@ pub(super) fn load_cargo_crates(
             "--offline",
         ])
         .current_dir(root);
-    let output = run_bounded(
-        command,
-        "cargo metadata",
-        Duration::from_secs(5),
-        MAX_METADATA_BYTES,
-        cancel,
-    )?;
+    let output = run_bounded(command, "cargo metadata", limit, MAX_METADATA_BYTES, cancel)?;
     if !output.status.success() {
         return Err("cargo metadata exited unsuccessfully".into());
     }
@@ -269,13 +274,16 @@ mod tests {
         let result = super::load_cargo_crates(
             root.path(),
             missing.to_str(),
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
         );
         assert!(result.is_err(), "a missing configured cargo cannot run");
     }
 
-    /// A cancelled build stops `cargo metadata` as cancelled (not at the
-    /// 5 s limit), and its process group dies with it.
+    /// A cancelled build stops `cargo metadata` as cancelled (not at its
+    /// time limit), and its process group dies with it. The limit is a
+    /// minute: the first exec of a new script can wait seconds on a busy
+    /// macOS host (executable scans run one at a time), so only the
+    /// cancellation may end this run.
     #[cfg(unix)]
     #[test]
     fn cancellation_stops_cargo_metadata_and_its_children() {
@@ -283,7 +291,7 @@ mod tests {
         use std::time::Duration;
         /// Cancels once the fake cargo has started its child.
         struct CancelOnceStarted(std::path::PathBuf);
-        impl crate::tools::cancel::CancellationCheck for CancelOnceStarted {
+        impl crate::execution::cancel::CancellationCheck for CancelOnceStarted {
             fn check(&self) -> Result<(), String> {
                 let started = std::fs::read_to_string(&self.0).is_ok_and(|pid| pid.ends_with('\n'));
                 if started {
@@ -306,7 +314,12 @@ mod tests {
         .expect("fake cargo");
         std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("chmod");
         let cancel = CancelOnceStarted(pidfile.clone());
-        let result = super::load_cargo_crates(root.path(), cargo.to_str(), &cancel);
+        let result = super::load_cargo_crates_within(
+            root.path(),
+            cargo.to_str(),
+            &cancel,
+            Duration::from_secs(60),
+        );
         assert_eq!(result.err().as_deref(), Some("cancelled"));
         let pid: u32 = std::fs::read_to_string(&pidfile)
             .expect("pid")

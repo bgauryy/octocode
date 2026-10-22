@@ -1,62 +1,15 @@
-//! File-graph algorithms (engine-owned, typed) and their astTopology JSON.
-//! Every algorithm here reads syntactic import edges, so rendered rows carry
-//! `confidence: "syntactic"`.
+//! The one cycle engine of the code graph: every cycle surface (`graph
+//! query cycles`, the `cycle` detector, `drift`) reads [`Cycles`] over a
+//! syntactic file graph.
 
 use super::edges::{Load, load};
 use super::types::Node;
-pub(crate) use octocode_engine::graph::{
-    Condensed, CycleWitnesses, condense, reachable, reverse, scc, scc_unsorted, transitive_edges,
-};
-use octocode_engine::graph::{FileEdge, FileGraphNode};
-use serde_json::{Value, json};
+use octocode_engine::graph::{Condensed, condense, scc};
 use std::collections::{BTreeMap, BTreeSet};
-
-/// Breadth-first rows from `source` up to `depth` hops.
-pub(crate) fn traverse(
-    graph: &BTreeMap<String, FileGraphNode>,
-    source: &str,
-    depth: u32,
-) -> Vec<Value> {
-    octocode_engine::graph::traverse(graph, source, depth)
-        .into_iter()
-        .map(|step| {
-            json!({"file":step.file,"distance":step.distance,"via":step.via,"edgeKinds":step.edge_kinds,"confidence":"syntactic"})
-        })
-        .collect()
-}
-
-/// The shortest path as `{found, files, edges, length, complete}`.
-pub(crate) fn shortest_path(
-    graph: &BTreeMap<String, FileGraphNode>,
-    source: &str,
-    target: &str,
-) -> Value {
-    match octocode_engine::graph::shortest_path(graph, source, target) {
-        Some(path) => {
-            let edges = path
-                .edges
-                .iter()
-                .map(|edge| {
-                    json!({"from":edge.from,"to":edge.to,"edgeKinds":edge.edge_kinds,"confidence":"syntactic"})
-                })
-                .collect::<Vec<_>>();
-            json!({"found":true,"files":path.files,"edges":edges,"length":path.files.len(),"complete":true,"confidence":"syntactic"})
-        }
-        None => json!({"found":false,"files":[],"edges":[]}),
-    }
-}
-
-/// A cycle witness as `[{from, to, edgeKinds}]`.
-pub(crate) fn witness_edges(edges: Vec<FileEdge>) -> Vec<Value> {
-    edges
-        .into_iter()
-        .map(|edge| json!({"from":edge.from,"to":edge.to,"edgeKinds":edge.edge_kinds}))
-        .collect()
-}
 
 /// The file graph without its data edges ([`Load::Data`]): the edges that
 /// link code.
-pub(super) fn code_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
+fn code_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
     nodes
         .iter()
         .map(|(file, node)| {
@@ -66,9 +19,9 @@ pub(super) fn code_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Nod
                 .filter_map(|(target, kinds)| {
                     let kinds = kinds
                         .iter()
-                        .filter(|kind| load(kind) != Load::Data)
-                        .cloned()
-                        .collect::<BTreeSet<_>>();
+                        .filter(|(kind, _)| load(kind) != Load::Data)
+                        .map(|(kind, line)| (kind.clone(), *line))
+                        .collect::<BTreeMap<_, _>>();
                     (!kinds.is_empty()).then(|| (target.clone(), kinds))
                 })
                 .collect();
@@ -85,13 +38,13 @@ pub(super) fn code_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Nod
 
 /// The code graph without its module tree: no data or `rust-module` edges,
 /// and no edge from a module file to one of its ancestors in that tree.
-pub(super) fn dependency_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
+fn dependency_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
     let nodes = &code_graph(nodes);
     let module_tree = |kind: &String| load(kind) == Load::ModuleTree;
     let mut parent = BTreeMap::<&str, &str>::new();
     for (file, node) in nodes {
         for (target, kinds) in &node.edges {
-            if kinds.iter().any(module_tree) {
+            if kinds.keys().any(module_tree) {
                 parent.entry(target.as_str()).or_insert(file.as_str());
             }
         }
@@ -120,9 +73,9 @@ pub(super) fn dependency_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<Strin
                 .filter_map(|(target, kinds)| {
                     let kinds = kinds
                         .iter()
-                        .filter(|kind| !module_tree(kind))
-                        .cloned()
-                        .collect::<BTreeSet<_>>();
+                        .filter(|(kind, _)| !module_tree(kind))
+                        .map(|(kind, line)| (kind.clone(), *line))
+                        .collect::<BTreeMap<_, _>>();
                     (!kinds.is_empty()).then(|| (target.clone(), kinds))
                 })
                 .collect();
@@ -137,29 +90,15 @@ pub(super) fn dependency_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<Strin
         .collect()
 }
 
-pub(super) fn collect_kinds(g: &BTreeMap<String, Node>, files: &[String]) -> Vec<String> {
-    let members = files.iter().collect::<BTreeSet<_>>();
-    let mut kinds = BTreeSet::new();
-    for f in files {
-        if let Some(n) = g.get(f) {
-            for (t, k) in &n.edges {
-                if members.contains(t) {
-                    kinds.extend(k.iter().cloned())
-                }
-            }
-        }
-    }
-    kinds.into_iter().collect()
-}
 /// The graph of the edges that run while their importer loads
 /// ([`Load::Eager`]): its cycles are runtime (module-load) cycles.
-pub(super) fn runtime_graph(g: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
+fn runtime_graph(g: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
     g.iter()
         .map(|(f, n)| {
             let edges = n
                 .edges
                 .iter()
-                .filter(|(_, k)| k.iter().any(|x| load(x) == Load::Eager))
+                .filter(|(_, k)| k.keys().any(|x| load(x) == Load::Eager))
                 .map(|(t, k)| (t.clone(), k.clone()))
                 .collect();
             (
@@ -173,8 +112,7 @@ pub(super) fn runtime_graph(g: &BTreeMap<String, Node>) -> BTreeMap<String, Node
         .collect()
 }
 
-/// The cycles of a file graph as every cycle surface reports them
-/// (astTopology `cycles`, `graph query cycles`, the `cycle` detector): the
+/// The cycles of a file graph as every cycle surface reports them: the
 /// strongly connected groups of the dependency graph (module trees left
 /// out), and inside each the groups its runtime edges close.
 pub(super) struct Cycles {
@@ -183,8 +121,7 @@ pub(super) struct Cycles {
     /// Its condensation; a cycle group is a component of several files or
     /// one importing itself.
     pub condensed: Condensed,
-    /// The runtime subgraph of `uses` and its own cycle groups.
-    pub runtime: BTreeMap<String, Node>,
+    /// The cycle groups of the runtime subgraph of `uses`.
     pub runtime_groups: Vec<Vec<String>>,
 }
 
@@ -192,12 +129,10 @@ impl Cycles {
     pub(super) fn of(nodes: &BTreeMap<String, Node>) -> Self {
         let uses = dependency_graph(nodes);
         let condensed = condense(&uses);
-        let runtime = runtime_graph(&uses);
-        let runtime_groups = scc(&runtime, true);
+        let runtime_groups = scc(&runtime_graph(&uses), true);
         Self {
             uses,
             condensed,
-            runtime,
             runtime_groups,
         }
     }
@@ -225,134 +160,4 @@ impl Cycles {
             .cloned()
             .collect()
     }
-}
-
-pub(super) fn layer_map(c: &Condensed) -> BTreeMap<usize, usize> {
-    let mut out = BTreeMap::new();
-    for (i, l) in c.layers.iter().enumerate() {
-        for x in l {
-            out.insert(*x, i);
-        }
-    }
-    out
-}
-pub(super) fn find_transitive(c: &Condensed) -> BTreeSet<(usize, usize)> {
-    transitive_edges(&c.edges)
-}
-pub(super) fn in_degree(g: &BTreeMap<String, Node>) -> BTreeMap<String, u32> {
-    let mut d = BTreeMap::new();
-    for n in g.values() {
-        for t in n.edges.keys() {
-            *d.entry(t.clone()).or_default() += 1
-        }
-    }
-    d
-}
-pub(super) fn dominators(
-    g: &BTreeMap<String, Node>,
-    source: &str,
-) -> BTreeMap<String, Option<String>> {
-    struct Frame {
-        node: String,
-        successors: Vec<String>,
-        offset: usize,
-    }
-    let mut seen = BTreeSet::from([source.to_owned()]);
-    let mut postorder = Vec::new();
-    let mut frames = vec![Frame {
-        node: source.to_owned(),
-        successors: g
-            .get(source)
-            .map(|node| node.edges.keys().cloned().collect())
-            .unwrap_or_default(),
-        offset: 0,
-    }];
-    while let Some(frame) = frames.last_mut() {
-        if let Some(successor) = frame.successors.get(frame.offset).cloned() {
-            frame.offset += 1;
-            if seen.insert(successor.clone()) {
-                frames.push(Frame {
-                    node: successor.clone(),
-                    successors: g
-                        .get(&successor)
-                        .map(|node| node.edges.keys().cloned().collect())
-                        .unwrap_or_default(),
-                    offset: 0,
-                });
-            }
-            continue;
-        }
-        // This branch is only reached with a frame on the stack.
-        #[expect(
-            clippy::expect_used,
-            reason = "the frame stack is non-empty inside this loop"
-        )]
-        let node = frames.pop().expect("frame exists").node;
-        postorder.push(node);
-    }
-    postorder.reverse();
-    let order: BTreeMap<String, usize> = postorder
-        .iter()
-        .enumerate()
-        .map(|(index, node)| (node.clone(), index))
-        .collect();
-    let mut predecessors: BTreeMap<String, BTreeSet<String>> = postorder
-        .iter()
-        .map(|node| (node.clone(), BTreeSet::new()))
-        .collect();
-    for node in &postorder {
-        for target in g.get(node).into_iter().flat_map(|node| node.edges.keys()) {
-            if let Some(entries) = predecessors.get_mut(target) {
-                entries.insert(node.clone());
-            }
-        }
-    }
-    let mut idom = BTreeMap::from([(source.to_owned(), source.to_owned())]);
-    fn intersect(
-        mut left: String,
-        mut right: String,
-        order: &BTreeMap<String, usize>,
-        idom: &BTreeMap<String, String>,
-    ) -> String {
-        while left != right {
-            while order[&left] > order[&right] {
-                left = idom[&left].clone();
-            }
-            while order[&right] > order[&left] {
-                right = idom[&right].clone();
-            }
-        }
-        left
-    }
-    loop {
-        let mut changed = false;
-        for node in postorder.iter().skip(1) {
-            let preds = predecessors[node]
-                .iter()
-                .filter(|pred| idom.contains_key(*pred))
-                .cloned()
-                .collect::<Vec<_>>();
-            let Some(mut next) = preds.first().cloned() else {
-                continue;
-            };
-            for pred in preds.iter().skip(1) {
-                next = intersect(pred.clone(), next, &order, &idom);
-            }
-            if idom.get(node) != Some(&next) {
-                idom.insert(node.clone(), next);
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-    let mut out = BTreeMap::from([(source.to_owned(), None)]);
-    out.extend(
-        postorder
-            .into_iter()
-            .skip(1)
-            .map(|node| (node.clone(), idom.get(&node).cloned())),
-    );
-    out
 }

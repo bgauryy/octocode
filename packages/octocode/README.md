@@ -53,12 +53,15 @@ stdin (`--input -`). Batch up to 5 with `{"queries":[…]}`.
 | `artifactSearch` | Find package versions, dependencies, or upstream release source (npm, PyPI, crates, Maven, NuGet, Go, Packagist, RubyGems). |
 | **Beta** (`OCTOCODE_BETA=true`) | |
 | `clasify` | Typed answers about unread text, images, or held data. Also needs `OCTOCODE_CLASSIFICATION_API`. |
-| `astTopology` | Analyze local dependency and reachability topology (CLI only). |
+
+Each tool takes flags like rg and gh, or one JSON query:
 
 ```bash
-npx octocode ghSearchHistory '{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","state":"merged"}'
-npx octocode artifactSearch '{"ecosystem":"npm","packageName":"zod"}'
-echo '{"path":"src/index.ts","ranges":["1-40"]}' | npx octocode localFetch --input -
+npx octocode localSearch createServer src -w -g '*.ts'
+npx octocode ghSearchHistory pullRequest -R bgauryy/octocode -s merged -L 5
+npx octocode artifactSearch zod --ecosystem npm
+npx octocode localFetch src/index.ts:1-40
+npx octocode localSearch '{"path":"src","matchString":"createServer"}'
 ```
 
 ### Code graph
@@ -82,13 +85,18 @@ npx octocode graph query impact --since main  # blast radius of your branch
 | `skill list\|info\|install\|remove\|check` | Manage the bundled Agent Skills. |
 | `help [command]` | Help for any command (also `--help`, `-h`). |
 
-Output is readable text on a terminal and JSON on a pipe or with `--json`:
-indented on a terminal, one line on a pipe. Exit `0` includes results with more
-pages: follow `next.*`.
+Output is text on a terminal or a pipe; search hits print as rg-style
+`path:line:text` lines, with counts and follow-up commands on stderr. `--json`
+prints JSON (indented on a terminal, one line on a pipe). Exit `0` includes
+results with more pages: run the printed `next` command.
+
+This package is a small launcher. npm installs the one native binary package
+for your platform (`@octocodeai/octocode-native-<platform>`) and the launcher
+runs it.
 
 ## Documentation
 
-- [CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md):
+- [CLI guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md):
   every command, flags, graph, and exit codes
 - [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)
 - [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)

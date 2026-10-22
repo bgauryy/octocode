@@ -28,7 +28,7 @@ pub(super) fn reject_removed(name: &str) -> Result<(), String> {
 }
 /// Whether `value` is one a setting's variable may be saved with: one the
 /// resolver accepts. Undeclared keys are free-form.
-pub fn validate_env_value(key: &str, value: &str) -> Result<(), String> {
+pub(crate) fn validate_env_value(key: &str, value: &str) -> Result<(), String> {
     let Some((field, binding)) = CONFIG_FIELDS.iter().find_map(|field| {
         field
             .env

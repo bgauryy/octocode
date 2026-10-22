@@ -1,5 +1,5 @@
-use crate::contracts::tool_types::{AstMatchScope, AstMatchScopeMode, AstScopePoint};
-use crate::tools::result::ToolError;
+use crate::response::result::ToolError;
+use octocode_contract_types::{AstMatchScope, AstMatchScopeMode, AstScopePoint};
 use octocode_engine::{structural::StructuralDetailedMatch, text::LineIndex};
 
 pub(super) fn select(

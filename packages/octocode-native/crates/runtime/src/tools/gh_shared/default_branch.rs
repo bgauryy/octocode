@@ -3,9 +3,10 @@
 //! which branch the repository actually has and offers the same call at that
 //! ref as a runnable lead.
 use super::GhFailure;
-use crate::tools::id::ToolId;
-use crate::tools::result::Continuation;
-use octocode_github::{ConditionalCache, GitHubProvider, ProviderError, RequestContext};
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::Continuation;
+use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use serde_json::Value;
 
 /// `prefix:owner/repo`; owner and repository are case-insensitive cache keys.
@@ -19,8 +20,8 @@ pub(crate) fn repo_key(prefix: &str, owner: &str, repo: &str) -> String {
 
 /// The default branch's name, memoized per repository for the cache's
 /// volatile lifetime (like the HEAD commit memo beside it).
-pub(crate) async fn default_branch<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn default_branch(
+    provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     context: &RequestContext,
@@ -28,7 +29,7 @@ pub(crate) async fn default_branch<C: ConditionalCache>(
     let key = repo_key("repo-default-branch", owner, repo);
     let partition = provider.transport.cache_partition(context, None).ok();
     if let Some(partition) = &partition
-        && let Some(cached) = provider.cache.get(partition, &key).await
+        && let Some(cached) = provider.transport.cache.get(partition, &key).await
         && let Ok(branch) = std::str::from_utf8(&cached.bytes)
     {
         return Ok(branch.to_owned());
@@ -45,6 +46,7 @@ pub(crate) async fn default_branch<C: ConditionalCache>(
     let branch = metadata.default_branch;
     if let Some(partition) = &partition {
         provider
+            .transport
             .cache
             .put(
                 partition,
@@ -53,6 +55,7 @@ pub(crate) async fn default_branch<C: ConditionalCache>(
                     etag: None,
                     bytes: branch.as_bytes().to_vec().into(),
                     resolved_ref: branch.clone(),
+                    has_more: false,
                 },
                 octocode_github::Retention::Revalidate,
             )
@@ -104,8 +107,8 @@ impl DefaultBranchRetry {
 /// (not a branch), the default branch is a ref that failed, or the
 /// repository's metadata cannot be read (so the repository itself may be
 /// the problem).
-pub(crate) async fn default_branch_retry<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn default_branch_retry(
+    provider: &GitHubProvider,
     tool: ToolId,
     mut row: Value,
     fields: &[&str],
@@ -131,7 +134,9 @@ pub(crate) async fn default_branch_retry<C: ConditionalCache>(
     for field in fields {
         row[*field] = Value::from(branch.clone());
     }
-    let lead = Continuation::new(tool, row).confidence("exact").build();
+    let lead = Continuation::new(tool, row)
+        .confidence(Confidence::Exact)
+        .build();
     Some(DefaultBranchRetry { branch, lead })
 }
 
@@ -140,8 +145,8 @@ pub(crate) async fn default_branch_retry<C: ConditionalCache>(
 /// (a comparison). Each named ref costs one SHA-only request; a full SHA is
 /// not probed (it is not a branch). Empty when every ref resolves or the
 /// repository itself does not (a probe fails for another reason).
-pub(crate) async fn unresolved_refs<'a, C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn unresolved_refs<'a>(
+    provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     refs: &[(&'a str, &str)],
@@ -170,8 +175,8 @@ pub(crate) async fn unresolved_refs<'a, C: ConditionalCache>(
 }
 
 /// [`default_branch_retry`] for a typed query's failed ref.
-pub(crate) async fn with_default_branch<C: ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(crate) async fn with_default_branch(
+    provider: &GitHubProvider,
     mut failure: GhFailure,
     tool: ToolId,
     query: &impl serde::Serialize,
@@ -180,7 +185,7 @@ pub(crate) async fn with_default_branch<C: ConditionalCache>(
     if failure.error.reason != Some(octocode_github::ProviderErrorReason::RefNotFound) {
         return failure;
     }
-    let row = crate::tools::result::query_row(query, &[]);
+    let row = crate::response::result::query_row(query, &[]);
     if let Some(retry) = default_branch_retry(provider, tool, row, &["ref"], context).await {
         retry.apply(&mut failure);
     }

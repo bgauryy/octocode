@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { keepReachable, nativeIdentifiers } from './rust-reach.ts';
 
 export const TYPIFY_VERSION = '0.8.0';
 
@@ -73,7 +75,10 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
   };
 }
 
-export function renderRust(header: string, bundleJson: string): string {
+/** The native crates whose sources name the generated types they use. */
+export const NATIVE_CRATES = fileURLToPath(new URL('../../../octocode-native/crates', import.meta.url));
+
+export function renderRust(header: string, bundleJson: string, roots = nativeIdentifiers(NATIVE_CRATES)): string {
   requireTypify();
   const scratch = mkdtempSync(join(tmpdir(), 'octocode-tool-types-'));
   try {
@@ -96,13 +101,15 @@ export function renderRust(header: string, bundleJson: string): string {
       ],
       { stdio: ['ignore', 'ignore', 'pipe'] }
     );
-    // Inner attributes cannot survive `include!`; the native wrapper module
-    // carries the equivalent `#[allow]`s.
-    const generated = readFileSync(output, 'utf8')
-      .split('\n')
-      .filter((line) => !line.startsWith('#![') && !line.startsWith('//!'))
-      .join('\n')
-      .trim();
+    // Inner attributes cannot survive `include!`; the native contract-types
+    // crate root (`crates/contract-types/src/lib.rs`) carries the equivalent `#[allow]`s.
+    const generated = keepReachable(
+      readFileSync(output, 'utf8')
+        .split('\n')
+        .filter((line) => !line.startsWith('#![') && !line.startsWith('//!'))
+        .join('\n'),
+      roots
+    ).trim();
     // Validated string newtypes format like the `String` they wrap.
     const display = [...generated.matchAll(/^pub struct (\w+)\(::std::string::String\);$/gm)]
       .map(

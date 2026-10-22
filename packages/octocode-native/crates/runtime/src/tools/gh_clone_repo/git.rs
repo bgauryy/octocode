@@ -248,12 +248,13 @@ pub(super) fn checkout(
         "initialize commit checkout",
         None,
     )?;
+    // `remote add` and `config` are local: no credential, no network permit.
     run(
         context,
         scoped(target, &["remote", "add", "origin", repository_url]),
         clone_timeout(context),
         "configure commit remote",
-        Some(repository_url),
+        None,
     )?;
     if sparse_paths.is_some() {
         run(
@@ -261,7 +262,7 @@ pub(super) fn checkout(
             scoped(target, &["config", "remote.origin.promisor", "true"]),
             sparse_timeout(context),
             "configure sparse promisor",
-            Some(repository_url),
+            None,
         )?;
         run(
             context,
@@ -271,7 +272,7 @@ pub(super) fn checkout(
             ),
             sparse_timeout(context),
             "configure sparse filter",
-            Some(repository_url),
+            None,
         )?;
     }
     let depth = depth.to_string();

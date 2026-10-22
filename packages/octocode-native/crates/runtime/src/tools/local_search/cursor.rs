@@ -4,11 +4,12 @@
 use super::executor::*;
 use super::layout::*;
 use super::types::*;
+use crate::id::ToolId;
+use crate::num::u32_of_usize;
 use crate::policy::prune::DefaultsFlag;
-use crate::tools::id::ToolId;
-use crate::tools::num::u32_of_usize;
-use crate::tools::result::Continuation;
-use crate::tools::result::ToolError;
+use crate::response::result::Confidence;
+use crate::response::result::Continuation;
+use crate::response::result::ToolError;
 use octocode_engine::digest::canonicalize_dropping_nulls;
 use serde_json::{Value, json};
 
@@ -25,8 +26,8 @@ pub(super) fn cursor(
     selection: Option<&str>,
     cancelled: &dyn Fn() -> bool,
 ) -> (Option<Value>, bool) {
-    let page = query.page().max(1);
-    let match_page = query.match_page().max(1);
+    let page = local_search_query::page(query).max(1);
+    let match_page = local_search_query::match_page(query).max(1);
     let streamed = layout.streamed;
     let empty = parsed.files.is_empty();
     // A streamed page names its continuation; a grid page also needs the
@@ -72,7 +73,7 @@ pub(super) fn cursor(
 /// A continuation whose snapshot no longer describes the source; `next.restart`
 /// reruns the query from its first page, without any cursor.
 pub(super) fn stale_snapshot(query: &LocalSearchQuery) -> ToolError {
-    ToolError::stale_snapshot(crate::tools::result::restart_query(
+    ToolError::stale_snapshot(crate::response::result::restart_query(
         ToolId::LocalSearch,
         &normalized_query(query, streamed_layout(query)),
     ))
@@ -81,7 +82,7 @@ pub(super) fn stale_snapshot(query: &LocalSearchQuery) -> ToolError {
 /// A stored scan's file no longer hashes to the bytes its values came from:
 /// drop the scan and restart rather than show or check them against new text.
 pub(super) fn changed_since_scan(query: &LocalSearchQuery) -> ToolError {
-    if let Some(snapshot) = query.snapshot() {
+    if let Some(snapshot) = local_search_query::snapshot(query) {
         super::manifest::evict(snapshot);
     }
     stale_snapshot(query)
@@ -137,7 +138,7 @@ pub(super) fn build_next(
     // A `nextPage` continuation is never emitted past the contract page
     // maximum; callers must narrow the query to reach later results.
     let cursor = |field: &str, current: u32| {
-        crate::tools::paging::admitted(ToolId::LocalSearch, None, field, current as usize + 1)
+        crate::response::paging::admitted(ToolId::LocalSearch, None, field, current as usize + 1)
     };
     let next_match_page = leftover_matches
         .then(|| cursor("matchPage", match_page))
@@ -149,10 +150,10 @@ pub(super) fn build_next(
     // that call was already offered, and every executable query appears
     // once in the chain. A chain's first call (no snapshot yet) offers it
     // at any match page, since no earlier page did.
-    let opens_file_group = match_page <= 1 || q.snapshot().is_none();
+    let opens_file_group = match_page <= 1 || local_search_query::snapshot(q).is_none();
     if page < total_pages
         && opens_file_group
-        && let Some(n) = crate::tools::paging::admitted_query(
+        && let Some(n) = crate::response::paging::admitted_query(
             ToolId::LocalSearch,
             None,
             &base,
@@ -164,7 +165,7 @@ pub(super) fn build_next(
         map.insert(
             "nextPage".into(),
             Continuation::new(ToolId::LocalSearch, n)
-                .confidence("exact")
+                .confidence(Confidence::Exact)
                 .build(),
         );
     }
@@ -174,7 +175,7 @@ pub(super) fn build_next(
         map.insert(
             "nextMatchPage".into(),
             Continuation::new(ToolId::LocalSearch, n)
-                .confidence("exact")
+                .confidence(Confidence::Exact)
                 .build(),
         );
     }
@@ -209,23 +210,38 @@ pub(super) fn fingerprint(
         ))
         .optional(Some(stats.files_searched.unwrap_or(0)))
         .number(u64::from(stats.capped.unwrap_or(false)))
-        .optional_text(stats.cap_reason.as_deref())
+        .optional_text(cap_text(&stats.cap_reasons).as_deref())
         .optional(stats.error_count.filter(|count| *count > 0))
         .optional_text(stats.first_error.as_deref());
     // v6 binds what v5 bound (the source and complete value identities that
     // determine page cuts and duplicate ranking, including text outside
-    // visible rows), hashed from a byte encoding instead of JSON.
+    // visible rows), hashed from a byte encoding instead of JSON. v8 binds
+    // what v7 bound; its pages charge exact names for the files that decide
+    // the first page instead of a fixed first 64 files, so a v7 cursor would
+    // resume at another cut and restarts instead.
     format!("{SNAPSHOT_SCHEME}{SNAPSHOT_VERSION}:{}", identity.finish())
 }
 
 const SNAPSHOT_SCHEME: &str = "lexical-live-v";
-const SNAPSHOT_VERSION: u32 = 7;
+const SNAPSHOT_VERSION: u32 = 8;
+
+/// The cap reasons as one stable text, as the snapshot fingerprint binds
+/// them: comma-joined names in their fixed order, `None` when uncapped.
+fn cap_text(reasons: &[octocode_engine::types::CapReason]) -> Option<String> {
+    (!reasons.is_empty()).then(|| {
+        reasons
+            .iter()
+            .map(|reason| reason.name())
+            .collect::<Vec<_>>()
+            .join(", ")
+    })
+}
 
 /// A `snapshot` no search could have issued: not `lexical-live-v<N>:` plus a
 /// SHA-256. That is input to correct; a well-formed snapshot of an older
 /// version or another result is stale and restarts instead.
 pub(super) fn malformed_snapshot(query: &LocalSearchQuery) -> Option<ToolError> {
-    let snapshot = query.snapshot()?;
+    let snapshot = local_search_query::snapshot(query)?;
     let well_formed = snapshot
         .strip_prefix(SNAPSHOT_SCHEME)
         .and_then(|rest| rest.split_once(':'))
@@ -271,14 +287,14 @@ pub(super) fn query_key(
     root: &std::path::Path,
     page_budget: usize,
 ) -> String {
-    let mut semantics = normalized_query(&q.canonical(), true);
+    let mut semantics = normalized_query(&local_search_query::canonical(q), true);
     if let Some(fields) = semantics.as_object_mut() {
         for field in NON_SEMANTIC_FIELDS {
             fields.remove(field);
         }
         fields.remove("path");
-        fields.insert("regex".into(), json!(q.regex_mode()));
-        let context = q.context();
+        fields.insert("regex".into(), json!(local_search_query::regex_mode(q)));
+        let context = local_search_query::context(q);
         fields.insert(
             "contextLines".into(),
             json!(if context.before == context.after {
@@ -322,6 +338,7 @@ mod tests {
         let hit = |line: u32, value: &str| TextSearchMatch {
             deferred: None,
             line,
+            last_line: None,
             column: 3,
             byte_offset: 3,
             value: value.into(),
@@ -361,13 +378,13 @@ mod tests {
 
     /// The snapshot binds every collected field of every row, each file's
     /// source digest and the totals, and nothing else: a source's size and
-    /// time alone (its bytes unchanged) keep it. It is a v7 snapshot a
+    /// time alone (its bytes unchanged) keep it. It is a v8 snapshot a
     /// later call accepts as well formed.
     #[test]
     fn the_snapshot_binds_every_row_field_and_no_stamp() {
         let (files, stats) = scan();
         let base = fingerprint("key", &files, &stats);
-        assert!(base.starts_with("lexical-live-v7:"), "{base}");
+        assert!(base.starts_with("lexical-live-v8:"), "{base}");
         assert_eq!(fingerprint("key", &files, &stats), base);
         let snapshot = serde_json::json!({"path": ".", "matchString": "x", "mainGoal": "t", "reasoning": "t", "snapshot": base});
         let query: LocalSearchQuery = serde_json::from_value(snapshot).expect("query");
@@ -409,7 +426,7 @@ mod tests {
             ("matchTotal", |_, s| s.match_count = Some(4)),
             ("filesScanned", |_, s| s.files_searched = Some(11)),
             ("capReason", |_, s| {
-                s.cap_reason = Some("maxCollectedFiles".into())
+                s.cap_reasons = vec![octocode_engine::types::CapReason::MaxCollectedFiles]
             }),
             ("firstError", |_, s| s.first_error = Some("denied".into())),
         ];

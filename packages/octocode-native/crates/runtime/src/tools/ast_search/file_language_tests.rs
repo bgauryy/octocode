@@ -1,9 +1,9 @@
 //! A single file's grammar: its extension, or an explicit `language` when
 //! the extension selects no grammar (an extensionless script, a `.txt`).
 use super::{AstSearchQuery, execute_ast};
-use crate::tools::cancel::NeverCancel;
-use crate::tools::id::ToolId;
-use crate::tools::result::ToolError;
+use crate::execution::cancel::NeverCancel;
+use crate::id::ToolId;
+use crate::response::result::ToolError;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::{Value, json};
 
@@ -65,7 +65,7 @@ fn a_file_of_another_grammar_is_a_mismatch_that_names_its_extension() {
     // The message states the repair; the generic hint would contradict it.
     assert_eq!(
         ToolId::AstSearch.output().error_hint("languageMismatch"),
-        Some(crate::tools::output::NO_HINT)
+        Some(crate::response::output::NO_HINT)
     );
 }
 

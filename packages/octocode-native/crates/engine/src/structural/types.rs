@@ -118,6 +118,7 @@ impl FileMatches {
     }
 }
 
+#[derive(Default)]
 pub struct StructuralSearchFilesOptions {
     pub path: String,
     pub pattern: Option<String>,
@@ -127,6 +128,11 @@ pub struct StructuralSearchFilesOptions {
     /// Mirrors local-search `exclude`.
     pub exclude: Option<Vec<String>>,
     pub exclude_dir: Option<Vec<String>>,
+    /// Default-excluded directory names (see [`Prune::at`]): pruned outside a
+    /// git work tree, and inside one only where git ignores them.
+    ///
+    /// [`Prune::at`]: crate::search::walk::Prune::at
+    pub default_exclude_dir: Option<Vec<String>>,
     /// Which ignore rules and dot entries the walk leaves out.
     pub ignore: crate::search::walk::IgnorePolicy,
     /// Maximum path depth below a directory root (1 = direct files; 0 = no descent). `None` = unbounded.

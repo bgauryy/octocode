@@ -48,7 +48,7 @@ impl LoginEndpoints {
         }
     }
 
-    pub fn from_api_url(api_url: &str) -> Self {
+    pub(crate) fn from_api_url(api_url: &str) -> Self {
         let parsed = url::Url::parse(api_url).ok();
         let api_host = parsed
             .as_ref()
@@ -95,11 +95,21 @@ struct TokenResponse {
     interval: Option<u64>,
 }
 
+/// One second of the device flow's clock: RFC 8628 states `interval` and
+/// `expires_in` in seconds. Tests pass a shorter one so a poll costs
+/// milliseconds instead of a real second.
+const DEVICE_SECOND: Duration = Duration::from_secs(1);
+
 /// RFC 8628 §3.5 `slow_down`: GitHub returns the new total `interval`; never
-/// poll sooner than the current interval plus 5 s.
-fn slow_down_interval(current: Duration, returned: Option<u64>) -> Duration {
-    let floor = current + Duration::from_secs(5);
-    returned.map_or(floor, |secs| Duration::from_secs(secs).max(floor))
+/// poll sooner than the current interval plus 5 s (`second` long each).
+fn slow_down_interval(current: Duration, returned: Option<u64>, second: Duration) -> Duration {
+    let floor = current + second * 5;
+    returned.map_or(floor, |secs| (second * secs_u32(secs)).max(floor))
+}
+
+/// A device-flow second count as a `Duration` multiplier.
+fn secs_u32(secs: u64) -> u32 {
+    u32::try_from(secs).unwrap_or(u32::MAX)
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -216,9 +226,13 @@ pub async fn login_device_flow_in_store(
     cancellation: &CancellationToken,
     store: &CredentialStore,
 ) -> Result<StoredCredentials, ProviderError> {
-    login_device_flow_with_store(endpoints, client_id, cancellation, &|value| {
-        store.save(value)
-    })
+    login_device_flow_with_store(
+        endpoints,
+        client_id,
+        cancellation,
+        &|value| store.save(value),
+        DEVICE_SECOND,
+    )
     .await
 }
 
@@ -227,6 +241,7 @@ async fn login_device_flow_with_store(
     client_id: &str,
     cancellation: &CancellationToken,
     store: &(dyn Fn(&StoredCredentials) -> Result<(), ProviderError> + Sync),
+    second: Duration,
 ) -> Result<StoredCredentials, ProviderError> {
     if client_id.trim().is_empty() {
         return Err(ProviderError::new(
@@ -253,8 +268,8 @@ async fn login_device_flow_with_store(
         "Open {} and enter code {}",
         device.verification_uri, device.user_code
     );
-    let deadline = Instant::now() + Duration::from_secs(device.expires_in.unwrap_or(900).min(900));
-    let mut interval = Duration::from_secs(device.interval.unwrap_or(5).max(1));
+    let deadline = Instant::now() + second * secs_u32(device.expires_in.unwrap_or(900).min(900));
+    let mut interval = second * secs_u32(device.interval.unwrap_or(5).max(1));
     while Instant::now() < deadline {
         tokio::select! {
             _ = cancellation.cancelled() => return Err(login_cancelled()),
@@ -281,7 +296,7 @@ async fn login_device_flow_with_store(
             continue;
         }
         if token.error.as_deref() == Some("slow_down") {
-            interval = slow_down_interval(interval, token.interval);
+            interval = slow_down_interval(interval, token.interval, second);
             continue;
         }
         if let Some(access) = token.access_token.clone().filter(|value| !value.is_empty()) {
@@ -349,6 +364,7 @@ pub async fn verify_token(api_url: &str, token: &str, timeout: Duration) -> Toke
                     max_attempts: 2,
                     ..Default::default()
                 },
+                octocode_github::GitHubBudget::global(),
             )
             .ok()?;
             Some((endpoint, transport))
@@ -363,7 +379,7 @@ pub async fn verify_token(api_url: &str, token: &str, timeout: Duration) -> Toke
         .execute(
             octocode_github::RequestSpec::get(url),
             &octocode_github::RequestContext::new(
-                octocode_github::RequestBudget::with_timeout(timeout, 1024 * 1024),
+                octocode_io::budget::RequestBudget::with_timeout(timeout, 1024 * 1024),
                 Some(octocode_github::ResolvedCredential::new(
                     token.to_owned(),
                     octocode_github::CredentialSource::Override,
@@ -383,7 +399,7 @@ pub async fn verify_token(api_url: &str, token: &str, timeout: Duration) -> Toke
 }
 
 /// The login GitHub reports for `token`, or `None` on any failure.
-pub async fn fetch_authenticated_login(
+pub(crate) async fn fetch_authenticated_login(
     api_url: &str,
     token: &str,
     timeout: Duration,
@@ -441,7 +457,7 @@ const REFRESH_SKEW: Duration = Duration::from_secs(5 * 60);
 /// When `credentials` must be refreshed: `REFRESH_SKEW` before the access
 /// token expires (`UNIX_EPOCH` when the expiry is unreadable), or `None`
 /// when the token does not expire.
-pub fn refresh_due(credentials: &StoredCredentials) -> Option<SystemTime> {
+pub(crate) fn refresh_due(credentials: &StoredCredentials) -> Option<SystemTime> {
     let expires_at = credentials.token.expires_at.as_deref()?;
     Some(
         parse_expiry(expires_at)
@@ -454,7 +470,7 @@ pub fn is_token_expired(credentials: &StoredCredentials) -> bool {
     refresh_due(credentials).is_some_and(|due| SystemTime::now() >= due)
 }
 
-pub fn is_refresh_token_expired(credentials: &StoredCredentials) -> bool {
+pub(crate) fn is_refresh_token_expired(credentials: &StoredCredentials) -> bool {
     let Some(expires_at) = credentials.token.refresh_token_expires_at.as_deref() else {
         return false;
     };
@@ -634,7 +650,7 @@ async fn refresh_selected(
     } else {
         credentials.home().join("tmp/locks").join(format!(
             "oauth-refresh-{}.lock",
-            crate::digest::sha256(endpoints.host.as_bytes())
+            octocode_engine::digest::sha256(endpoints.host.as_bytes())
         ))
     };
     refresh_locked(
@@ -650,7 +666,7 @@ async fn refresh_selected(
     .await
 }
 
-pub async fn refresh_auth_token_in_store(
+pub(crate) async fn refresh_auth_token_in_store(
     host: &str,
     client_id: &str,
     store: &CredentialStore,

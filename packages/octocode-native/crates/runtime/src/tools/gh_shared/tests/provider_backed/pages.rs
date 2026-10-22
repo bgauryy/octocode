@@ -1,6 +1,5 @@
 //! Search paging conformance: one table of the page outcomes every GitHub
-//! search tool shares. ghSearchCode's copy is still its own test
-//! (`gh_search_code::provider_tests`), pending its rows here.
+//! search tool shares.
 use super::*;
 use crate::tools::gh_search_history;
 
@@ -8,6 +7,13 @@ use crate::tools::gh_search_history;
 async fn page_data(server: &MockServer, tool: &str, row: Value) -> Value {
     let context = default_context();
     match tool {
+        "ghSearchCode" => {
+            let query = serde_json::from_value(row).expect("ghSearchCode query");
+            gh_search_code::execute(&provider(server), &query, &context, &Passthrough)
+                .await
+                .expect("ghSearchCode page")
+                .data
+        }
         "ghSearchRepo" => {
             let query = serde_json::from_value(row).expect("ghSearchRepo query");
             gh_search_repo::execute(&provider(server), &query, &context)
@@ -43,6 +49,7 @@ async fn a_page_past_the_end_is_out_of_range_not_an_empty_search() {
     )
     .await;
     mount_json(&server, "/api/v3/search/issues", 200, empty_search(12)).await;
+    mount_json(&server, "/api/v3/search/code", 200, empty_search(12)).await;
     mount_json(&server, "/api/v3/repos/o/r/commits", 200, json!([])).await;
     let history = |operation: &str, keywords: bool| {
         let mut row = json!({"operation": operation, "owner": "o", "repo": "r",
@@ -53,6 +60,12 @@ async fn a_page_past_the_end_is_out_of_range_not_an_empty_search() {
         row
     };
     for (tool, row, rows_key, total) in [
+        (
+            "ghSearchCode",
+            json!({"owner":"a","repo":"b","keywords":["needle"],"pageSize":5,"page":9}),
+            "files",
+            Some(12),
+        ),
         (
             "ghSearchRepo",
             json!({"keywords":["x"],"pageSize":5,"page":9}),

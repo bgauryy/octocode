@@ -41,10 +41,10 @@ pub(super) fn project_shape(
     if let Some((byte, chars)) = cut {
         let row = SearchMatch {
             line: matched.line,
-            column: Some(crate::tools::num::one_based_column(matched.column)),
+            column: Some(crate::num::one_based_column(matched.column)),
             value: String::new(),
             byte_offset: matched.byte_offset,
-            match_lines: None,
+            match_lines: spanned_lines(matched),
             count: matched.count,
             clipped: true,
             // A value the engine already clipped keeps its full length.
@@ -71,10 +71,10 @@ pub(super) fn project_shape(
     let clipped = matched.original_chars.is_some();
     let row = SearchMatch {
         line: matched.line,
-        column: Some(crate::tools::num::one_based_column(matched.column)),
+        column: Some(crate::num::one_based_column(matched.column)),
         value: String::new(),
         byte_offset: matched.byte_offset,
-        match_lines: None,
+        match_lines: spanned_lines(matched),
         count: matched.count,
         clipped,
         original_chars: matched.original_chars.map(|chars| chars as usize),
@@ -87,6 +87,15 @@ pub(super) fn project_shape(
         declaration: (matched.rank == Some(3)).then_some(true),
     };
     (row, &matched.value)
+}
+
+/// Every line a match spanning several lines covers (multiline mode), as
+/// `matchedLines`; `None` for a one-line match.
+fn spanned_lines(matched: &octocode_engine::types::TextSearchMatch) -> Option<Vec<u32>> {
+    matched
+        .last_line
+        .filter(|&last| last > matched.line)
+        .map(|last| (matched.line..=last).collect())
 }
 
 /// Source line range and lines of a content-view row's context window, or
@@ -102,8 +111,12 @@ pub(super) fn context_window(
         return None;
     }
     let lines: Vec<&str> = matched.value.split('\n').collect();
+    let span = matched
+        .match_lines
+        .as_ref()
+        .map_or(Some(1), |spanned| u32::try_from(spanned.len()).ok())?;
     let before = context.before.min(matched.line - 1);
-    let after = u32::try_from(lines.len()).ok()?.checked_sub(before + 1)?;
+    let after = u32::try_from(lines.len()).ok()?.checked_sub(before + span)?;
     (after <= context.after).then_some((matched.line - before, lines))
 }
 
@@ -164,7 +177,7 @@ pub(super) fn merge_context_windows(
             if index > 0 {
                 value.push('\n');
             }
-            crate::tools::numbered::push_numbered(&mut value, number, line);
+            crate::response::numbered::push_numbered(&mut value, number, line);
         }
         head.value = value;
         if block.match_lines.len() > 1 {
@@ -180,6 +193,19 @@ pub(super) fn merge_context_windows(
             out.push(row);
             continue;
         };
+        // A match spanning several lines stands alone: its window is its
+        // own, numbered, with every line it covers a matched line.
+        if let Some(spanned) = row.match_lines.clone() {
+            let lines = lines.into_iter().map(str::to_owned).collect();
+            out.extend(open.take().map(flush));
+            out.push(flush(Block {
+                head: row,
+                start,
+                lines,
+                match_lines: spanned,
+            }));
+            continue;
+        }
         let (start, lines) = {
             let (low, high) = owned_lines(row.line, context, hits);
             let end = start + lines.len() as u32; // exclusive

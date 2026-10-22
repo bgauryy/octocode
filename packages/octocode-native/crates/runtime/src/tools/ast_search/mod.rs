@@ -31,15 +31,16 @@ mod unwalked;
 #[cfg(test)]
 mod unwalked_tests;
 
+use crate::response::result::Confidence;
 use serde_json::Value;
 
-pub use crate::contracts::tool_types::AstSearchQuery;
 use matches::MatchQuery;
+pub use octocode_contract_types::AstSearchQuery;
 
 use crate::policy::PolicyError;
 #[cfg(test)]
 use crate::policy::PolicyErrorCode;
-use crate::tools::result::ToolError;
+use crate::response::result::ToolError;
 
 /// A path-policy refusal. Path-shape refusals without a shared code (empty,
 /// looping, over-long, not a regular file, binary, unreadable) are one code.
@@ -67,7 +68,7 @@ pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>
 /// to a text search of it in the same file.
 pub(super) fn source_limit(path: &str, literal: Option<&str>) -> Value {
     let mut row = serde_json::json!({"status":"error","path":path,"errorCode":"fileTooLarge","error":"Source exceeds the native parser byte limit."});
-    crate::tools::paging::terminal_limit(&mut row, "fileTooLarge", &[]);
+    crate::response::paging::terminal_limit(&mut row, "fileTooLarge", &[]);
     if let Some(lead) = literal.and_then(|literal| text_search(path, literal)) {
         row["next"] = serde_json::json!({ "findText": lead });
     }
@@ -85,8 +86,8 @@ pub(super) fn text_search(path: &str, literal: &str) -> Option<Value> {
         row["regex"] = serde_json::json!("literal");
     }
     Some(
-        crate::tools::result::Continuation::new(crate::tools::id::ToolId::LocalSearch, row)
-            .confidence("medium")
+        crate::response::result::Continuation::new(crate::id::ToolId::LocalSearch, row)
+            .confidence(Confidence::Medium)
             .build(),
     )
 }
@@ -118,14 +119,11 @@ fn path_not_found(path: &str) -> ToolError {
     )
 }
 
-/// An engine error as a tool error: a `[structural.…]` or declared tag names
-/// its code; otherwise the engine's typed kind does (never the message text).
+/// An engine error as a tool error: the engine's typed kind names its code
+/// (never the message text).
 pub(super) fn native_error(error: octocode_engine::error::Error) -> ToolError {
     use octocode_engine::error::ErrorKind;
     let message = error.to_string();
-    if let Some(tagged) = tagged_error(&message) {
-        return tagged;
-    }
     let code = match error.kind() {
         ErrorKind::NotFound => {
             return ToolError::new(
@@ -134,7 +132,7 @@ pub(super) fn native_error(error: octocode_engine::error::Error) -> ToolError {
             );
         }
         ErrorKind::PermissionDenied => "permissionDenied",
-        ErrorKind::InvalidPattern => "invalidPattern",
+        ErrorKind::InvalidPattern => crate::tools::ast_rule::INVALID_PATTERN,
         ErrorKind::InvalidGlob => "invalidGlob",
         ErrorKind::InvalidInput => "invalidInput",
         ErrorKind::Timeout => "timeout",
@@ -144,27 +142,13 @@ pub(super) fn native_error(error: octocode_engine::error::Error) -> ToolError {
     ToolError::new(code, message)
 }
 
-/// The tool error of a `[tag] …` engine message, when it carries one.
-fn tagged_error(message: &str) -> Option<ToolError> {
-    let rest = message.strip_prefix('[')?;
-    let (tag, _) = rest.split_once(']')?;
-    (tag.starts_with("structural.") || crate::tools::id::error_codes::class(tag).is_some()).then(
-        || {
-            ToolError::new(
-                engine_error_code(tag),
-                crate::tools::ast_rule::untagged(message),
-            )
-        },
-    )
-}
-
-/// The declared `errorCode` of an engine error tag (`[structural.…]` or an
-/// already-declared code): the engine's diagnostic names are its own, the
+/// The declared `errorCode` of an engine diagnostic code (`structural.…` or
+/// an already-declared code): the engine's diagnostic names are its own, the
 /// public set is the contract's.
-pub(super) fn engine_error_code(tag: &str) -> &'static str {
-    match tag {
-        "structural.query.compileFailed"
-        | "structural.query.invalid"
+pub(super) fn engine_error_code(code: &str) -> &'static str {
+    match code {
+        octocode_engine::structural::COMPILE_FAILED
+        | octocode_engine::structural::QUERY_INVALID
         | octocode_engine::structural::RULE_INVALID => crate::tools::ast_rule::INVALID_PATTERN,
         "structural.language.unsupported" | "syntaxTree.language.unsupported" => {
             "languageUnsupported"
@@ -172,8 +156,9 @@ pub(super) fn engine_error_code(tag: &str) -> &'static str {
         "structural.content.tooLarge" | "structural.file.tooLarge" => "fileTooLarge",
         "syntaxTree.options.lineOutOfRange" => "invalidInput",
         "structural.file.unreadable" => "fileReadFailed",
-        "structural.parse.interrupted" | "structural.match.deadline" => "timeout",
-        declared => crate::tools::id::error_codes::ALL
+        octocode_engine::structural::PARSE_INTERRUPTED
+        | octocode_engine::structural::MATCH_DEADLINE => "timeout",
+        declared => crate::id::error_codes::ALL
             .iter()
             .find(|(code, _)| *code == declared)
             .map_or("executionFailed", |(code, _)| code),
@@ -280,7 +265,7 @@ pub(super) fn cpp_header_note(
 
 fn header_parse_note(path: &std::path::Path, source: &str) -> Option<String> {
     let errors = |language| octocode_engine::structural::count_syntax_errors(source, language);
-    let (c, cpp) = (errors("c").ok()?, errors("cpp").ok()?);
+    let (c, cpp) = (errors("c")?, errors("cpp")?);
     let repair = "set language:\"cpp\" (languageGlobs for a directory).";
     if c > cpp {
         return Some(format!(
@@ -337,7 +322,7 @@ pub fn execute_ast(
     query: &AstSearchQuery,
     paths: &crate::policy::path::PathPolicy,
     security: &crate::security::ContentSecurity,
-    cancellation: &dyn crate::tools::cancel::CancellationCheck,
+    cancellation: &dyn crate::execution::cancel::CancellationCheck,
     response_window: Option<usize>,
 ) -> AstResult {
     match query {
@@ -383,9 +368,9 @@ mod tests {
 
     use super::*;
     use crate::{
+        execution::cancel::CancellationCheck,
         policy::path::{PathPolicy, PathPolicyConfig},
         security::ContentSecurity,
-        tools::cancel::CancellationCheck,
     };
 
     struct Cancelled;
@@ -449,7 +434,7 @@ mod tests {
             }),
             &paths,
             &security,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
         )
         .expect("syntax tree");
         assert_eq!(syntax["operation"], "syntaxTree");
@@ -468,7 +453,7 @@ mod tests {
             }),
             &paths,
             &security,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
         )
         .expect("token tree");
         assert_eq!(tokens["nodes"][2], "2 \"export\" 1:1-1:7 ^1", "{tokens}");
@@ -479,7 +464,7 @@ mod tests {
             "{syntax}"
         );
         assert!(
-            crate::response::extras::all_paths(crate::tools::id::ToolId::AstSearch)
+            crate::response::extras::all_paths(crate::id::ToolId::AstSearch)
                 .contains(&"results[].data.returnedBytes"),
             "returnedBytes is verbose"
         );
@@ -524,16 +509,12 @@ mod tests {
         );
         let denied = policy_error(PolicyError::new(PolicyErrorCode::PermissionDenied, "no"));
         assert_eq!(denied.code, "permissionDenied");
+        // The kind decides, never the words of the message (a bracketed
+        // code in the text included).
         assert_eq!(
             native_error(Error::new("[structural.query.compileFailed] bad pattern")).code,
-            "invalidPattern"
+            "executionFailed"
         );
-        // A rule that does not parse keeps its own engine tag and the same
-        // public code.
-        let rule = native_error(Error::new("[structural.rule.invalid] unknown field"));
-        assert_eq!(rule.code, "invalidPattern");
-        assert_eq!(rule.message, "unknown field");
-        // The kind decides, never the words of the message.
         assert_eq!(
             native_error(Error::with_kind(ErrorKind::InvalidPattern, "bad")).code,
             "invalidPattern"

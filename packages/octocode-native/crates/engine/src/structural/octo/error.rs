@@ -1,6 +1,7 @@
-//! Why a structural query does not compile. The wire text (`[code] message`)
-//! and the diagnostic code are derived from the variant, never parsed back out
-//! of a message.
+//! Why a structural query does not compile. The diagnostic code and its
+//! message are derived from the variant, so no caller parses a code back out
+//! of text; `Display` (`[code] message`) is the one-line form for a bare
+//! `String` error.
 
 use crate::structural::types::StructuralDiagnostic;
 
@@ -8,7 +9,7 @@ use super::matching::{ExecutionError, PARSE_INTERRUPTED};
 use super::rule::RULE_INVALID;
 
 /// The code of a rule or pattern the grammar cannot compile.
-pub(in crate::structural) const COMPILE_FAILED: &str = "structural.query.compileFailed";
+pub const COMPILE_FAILED: &str = "structural.query.compileFailed";
 
 #[derive(Debug, Clone)]
 pub(in crate::structural) enum CompileError {
@@ -39,11 +40,20 @@ impl CompileError {
         }
     }
 
-    /// The diagnostic of a query that does not compile.
+    /// The text of the error, without its code.
+    fn message(&self) -> &str {
+        match self {
+            Self::Rule(message) | Self::Grammar(message) => message,
+            Self::Parse(error) => &error.message,
+        }
+    }
+
+    /// The diagnostic of a query that does not compile: its code, and the
+    /// message without it.
     pub(in crate::structural) fn diagnostic(&self) -> StructuralDiagnostic {
         match self {
             Self::Rule(_) => {
-                StructuralDiagnostic::new(RULE_INVALID, "error", "match", self.to_string())
+                StructuralDiagnostic::new(RULE_INVALID, "error", "match", self.message())
                     .with_recovery(
                         "Fix the rule object: the message names the key or value it rejects.",
                     )
@@ -52,7 +62,7 @@ impl CompileError {
                 COMPILE_FAILED,
                 "error",
                 "match",
-                self.to_string(),
+                self.message(),
             )
             .with_recovery(
                 "Check the structural pattern or YAML rule against this file's language grammar.",

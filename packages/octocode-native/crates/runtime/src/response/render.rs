@@ -1,12 +1,12 @@
-use crate::tools::id::ToolId;
-use crate::tools::output::TextShape;
+use crate::id::ToolId;
+use crate::response::output::TextShape;
 use serde_json::{Value, json};
 use std::borrow::Cow;
 use std::fmt::Write as _;
 
 /// Encoding of the rendered text channel, selected by `output.format`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum TextFormat {
+pub(crate) enum TextFormat {
     #[default]
     Yaml,
     Json,
@@ -16,7 +16,7 @@ impl TextFormat {
     /// Map the resolved `output.format` value; the contract admits only
     /// `yaml` and `json`, so anything else keeps the YAML default.
     #[must_use]
-    pub fn from_config(format: &crate::config::OutputFormat) -> Self {
+    pub(crate) fn from_config(format: &crate::config::OutputFormat) -> Self {
         match format {
             crate::config::OutputFormat::Json => Self::Json,
             crate::config::OutputFormat::Yaml => Self::Yaml,
@@ -34,7 +34,12 @@ impl TextFormat {
     }
 }
 
-pub fn render_tool(tool: ToolId, response: &Value, query: &Value, format: TextFormat) -> String {
+pub(crate) fn render_tool(
+    tool: ToolId,
+    response: &Value,
+    query: &Value,
+    format: TextFormat,
+) -> String {
     // Envelope warnings (an incomplete batch) lead the text as they lead the
     // structured envelope.
     let warnings = response
@@ -178,7 +183,7 @@ fn render_search_hits(mut response: Value, query: &Value, format: TextFormat) ->
         }
         if let Some(next) = data.get_mut("next").and_then(Value::as_object_mut) {
             for call in next.values_mut() {
-                if let Some(query) = crate::tools::result::continuation_row_mut(call) {
+                if let Some(query) = crate::response::result::continuation_row_mut(call) {
                     order_fields(
                         query,
                         &[
@@ -312,7 +317,7 @@ fn render_outline(mut response: Value, format: TextFormat) -> String {
     if format == TextFormat::Json {
         return render_structured(response, format);
     }
-    let sections = crate::tools::symbol_outline::take_outlines(&mut response);
+    let sections = crate::response::symbol_outline::take_outlines(&mut response);
     let mut text = render_structured(response, format);
     for section in sections {
         if !text.ends_with('\n') {
@@ -497,6 +502,7 @@ fn order_fields(value: &mut Value, keys: &[&str]) {
 }
 
 fn yaml(mut value: Value, keys: &[&str]) -> String {
+    prose_line_breaks(&mut value);
     let mut rows = Vec::new();
     let tag = flow_tag(&value);
     flow_rows(&mut value, &mut rows, 0, &tag);
@@ -534,6 +540,31 @@ fn yaml(mut value: Value, keys: &[&str]) -> String {
         }
     }
     out
+}
+
+/// A discussion body (`body`, `bodyPreview`) written with CRLF line ends
+/// reads as lines, not as one quoted string full of `\r\n`: this text
+/// channel shows its line ends as `\n`. A lone `\r` stays, and the
+/// structured result keeps the exact bytes.
+fn prose_line_breaks(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                match child {
+                    Value::String(text)
+                        if matches!(key.as_str(), "body" | "bodyPreview")
+                            && text.contains("\r\n")
+                            && text.matches('\r').count() == text.matches("\r\n").count() =>
+                    {
+                        *text = text.replace("\r\n", "\n");
+                    }
+                    other => prose_line_breaks(other),
+                }
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(prose_line_breaks),
+        _ => {}
+    }
 }
 
 /// The placeholder prefix for flow rows: the first candidate that no key or
@@ -598,10 +629,10 @@ const FLOW_KEYS: [&str; 2] = ["matches", "symbols"];
 /// Replace every item of a location-row list (see [`FLOW_KEYS`]) that is a
 /// flow row with a placeholder string and record its flow text. Each
 /// `next`/`hints` call becomes one line, `<tool> <query JSON>`
-/// ([`crate::tools::result::call_line`], the hints channel's own string):
+/// ([`crate::response::result::call_line`], the hints channel's own string):
 /// the CLI runs it pasted back as `<tool> '<query JSON>'`.
 fn flow_rows(value: &mut Value, rows: &mut Vec<String>, depth: usize, tag: &str) {
-    if depth > crate::tools::result::NESTING_DEPTH {
+    if depth > crate::response::result::NESTING_DEPTH {
         return;
     }
     match value {
@@ -643,13 +674,13 @@ fn flow_rows(value: &mut Value, rows: &mut Vec<String>, depth: usize, tag: &str)
 /// lists, with a placeholder for its one-line text.
 fn call_lines(value: &mut Value, rows: &mut Vec<String>, tag: &str) {
     let mut line = |call: &mut Value| {
-        if let Some(text) = crate::tools::result::call_line(call) {
+        if let Some(text) = crate::response::result::call_line(call) {
             *call = Value::String(flow_placeholder(tag, rows.len()));
             rows.push(text);
         }
     };
     match value {
-        call if crate::tools::result::is_call(call) => line(call),
+        call if crate::response::result::is_call(call) => line(call),
         Value::Object(calls) => calls.values_mut().for_each(line),
         Value::Array(calls) => calls.iter_mut().for_each(line),
         _ => {}
@@ -675,7 +706,7 @@ fn flow_text(value: &Value) -> String {
     }
 }
 
-pub fn render_local_fetch(response: &Value) -> String {
+pub(crate) fn render_local_fetch(response: &Value) -> String {
     let mut lines = Vec::new();
     if let Some(root) = response["root"].as_str() {
         lines.push(format!("root: {root}"));
@@ -687,7 +718,7 @@ pub fn render_local_fetch(response: &Value) -> String {
     for (position, row) in rows.iter().enumerate() {
         let data = &row["data"];
         let mut metadata = data.clone();
-        let numbered = crate::tools::numbered::numbered_view(data);
+        let numbered = crate::response::numbered::numbered_view(data);
         if let Some(map) = metadata.as_object_mut() {
             map.remove("content");
             // Numbered lines state their own source range.
@@ -792,7 +823,7 @@ fn order_read_metadata(data: &mut Value) {
     if let Some(next) = map.get_mut("next").and_then(Value::as_object_mut) {
         for call in next.values_mut() {
             if let Some(query) =
-                crate::tools::result::continuation_row_mut(call).and_then(Value::as_object_mut)
+                crate::response::result::continuation_row_mut(call).and_then(Value::as_object_mut)
                 && let Some(offset) = query.remove("offset")
             {
                 query.insert("offset".into(), offset);
@@ -804,6 +835,20 @@ fn order_read_metadata(data: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A CRLF discussion body prints as lines; a lone `\r` and other
+    /// fields keep their bytes.
+    #[test]
+    fn crlf_bodies_render_as_lines() {
+        let mut value = json!({"body":"a\r\nb\r\n","comments":[{"body":"x\r\ny"}],
+            "value":"k\r\nv","bodyPreview":"lone\rcr\r\n"});
+        prose_line_breaks(&mut value);
+        assert_eq!(
+            value,
+            json!({"body":"a\nb\n","comments":[{"body":"x\ny"}],
+                "value":"k\r\nv","bodyPreview":"lone\rcr\r\n"})
+        );
+    }
+
     #[test]
     fn output_format_json_renders_parseable_json_text() {
         let response =
@@ -1049,7 +1094,7 @@ mod tests {
         );
         // Content the response stage already numbered renders unchanged.
         let mut staged = one.clone();
-        crate::tools::numbered::number_read_rows(ToolId::LocalFetch, &mut staged);
+        crate::response::numbered::number_read_rows(ToolId::LocalFetch, &mut staged);
         assert_eq!(render_local_fetch(&staged), render_local_fetch(&one));
         let two = json!({"root":"/r","results":[
             {"index":0,"data":row("a.rs", 1)["data"]},
@@ -1078,7 +1123,7 @@ mod tests {
         };
         let one = json!({"results":[{"index":0,"data":with(json!({"owner":"o","repo":"r"}), file("a.py", 7))}]});
         let mut staged = one.clone();
-        crate::tools::numbered::number_read_rows(ToolId::GhGetFileContent, &mut staged);
+        crate::response::numbered::number_read_rows(ToolId::GhGetFileContent, &mut staged);
         for response in [&one, &staged] {
             let text = render_tool(
                 ToolId::GhGetFileContent,
@@ -1171,23 +1216,23 @@ mod tests {
     /// own `next` call too. JSON text keeps the calls as objects.
     #[test]
     fn next_leads_render_as_one_line_calls() {
-        let page = crate::tools::result::Continuation::new(
+        let page = crate::response::result::Continuation::new(
             ToolId::LocalSearch,
             json!({"matchString":"f","path":"src","page":2}),
         )
         .build();
-        let lead = crate::tools::result::Continuation::new(
+        let lead = crate::response::result::Continuation::new(
             ToolId::LocalFetch,
             json!({"path":"src/a.rs","fullContent":true}),
         )
-        .confidence("low")
+        .confidence(crate::response::result::Confidence::Low)
         .build();
         let response = json!({
             "results":[{"index":0,"data":{"files":[{"path":"src/a.rs","matchCount":1}],
                 "next":{"nextPage":page},"hints":{"readFile":lead}}}],
             "responsePagination":{"hasMore":true,"next":page}});
         let text = render_tool(ToolId::LocalSearch, &response, &json!({}), TextFormat::Yaml);
-        let line = crate::tools::result::call_line(&page).expect("call");
+        let line = crate::response::result::call_line(&page).expect("call");
         assert_eq!(
             line,
             r#"localSearch {"queries":[{"matchString":"f","path":"src","page":2}]}"#

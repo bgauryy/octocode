@@ -1,12 +1,49 @@
 //! The GitHub conditional cache on the shared [`Store`]. Provider cache
 //! partitions are minted by the transport after credential pinning.
-use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
+use crate::cache::{CacheClass, CacheConfig, CacheKey, DiskCodec, Store};
 use octocode_github::{CachedContent, ConditionalCache, Partition, Retention};
 use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc, time::Duration};
 
 #[derive(Clone)]
 pub(super) struct GitHubContentCache {
-    store: Arc<Store<CachedContent>>,
+    store: Arc<Store<CachedContent, ContentCodec>>,
+}
+
+/// A cached read on disk: one JSON line of its small fields, then the body
+/// bytes as GitHub sent them (no base64, no envelope to parse on a hit).
+struct ContentCodec;
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentFields {
+    etag: Option<String>,
+    resolved_ref: String,
+    has_more: bool,
+}
+
+impl DiskCodec<CachedContent> for ContentCodec {
+    fn encode(value: &CachedContent) -> Option<Vec<u8>> {
+        let mut bytes = serde_json::to_vec(&ContentFields {
+            etag: value.etag.clone(),
+            resolved_ref: value.resolved_ref.clone(),
+            has_more: value.has_more,
+        })
+        .ok()?;
+        bytes.push(b'\n');
+        bytes.extend_from_slice(&value.bytes);
+        Some(bytes)
+    }
+
+    fn decode(bytes: &[u8]) -> Option<CachedContent> {
+        let end = bytes.iter().position(|byte| *byte == b'\n')?;
+        let fields: ContentFields = serde_json::from_slice(&bytes[..end]).ok()?;
+        Some(CachedContent {
+            etag: fields.etag,
+            bytes: bytes::Bytes::copy_from_slice(&bytes[end + 1..]),
+            resolved_ref: fields.resolved_ref,
+            has_more: fields.has_more,
+        })
+    }
 }
 
 impl GitHubContentCache {
@@ -99,15 +136,15 @@ impl ConditionalCache for GitHubContentCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::tests::json_files;
+    use crate::cache::tests::entry_files;
     use std::{fs, path::Path, time::Duration};
 
     async fn partition(identity: &str) -> Partition {
-        use octocode_github::RequestBudget;
         use octocode_github::{
             CredentialSource, GitHubEndpoint, GitHubTransport, RequestContext, ResolvedCredential,
             RetryPolicy,
         };
+        use octocode_io::budget::RequestBudget;
         let (endpoint, credential) = identity.split_once('/').unwrap_or(("fixture", identity));
         let transport = GitHubTransport::new(
             GitHubEndpoint::new(
@@ -117,6 +154,7 @@ mod tests {
             )
             .unwrap(),
             RetryPolicy::default(),
+            octocode_github::GitHubBudget::relaxed(),
         )
         .unwrap();
         transport
@@ -138,18 +176,13 @@ mod tests {
             bytes: b"private source".to_vec().into(),
             etag: etag.map(str::to_owned),
             resolved_ref: "sha".into(),
+            has_more: false,
         }
     }
 
     /// Rewind every disk entry by `seconds`, as if a later process read it.
     fn age_disk(dir: &Path, seconds: u64) {
-        for file in json_files(dir) {
-            let mut entry: serde_json::Value =
-                serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
-            let stored = entry["storedAtUnix"].as_u64().unwrap();
-            entry["storedAtUnix"] = serde_json::json!(stored - seconds);
-            fs::write(&file, serde_json::to_vec(&entry).unwrap()).unwrap();
-        }
+        crate::cache::tests::age_disk_entries(dir, seconds);
     }
 
     #[tokio::test]
@@ -255,6 +288,7 @@ mod tests {
                     bytes: vec![b'x'; 4 << 20].into(),
                     etag: None,
                     resolved_ref: "sha".into(),
+                    has_more: false,
                 },
                 Retention::Pinned,
             )
@@ -265,35 +299,39 @@ mod tests {
         assert_eq!(first.bytes.as_ptr(), second.bytes.as_ptr());
     }
 
+    /// A disk entry holds the body as it is after two short header lines
+    /// (no base64, no JSON envelope), and every field round-trips to a
+    /// later process: the ETag, the resolved ref and a page's `has_more`.
     #[tokio::test]
-    async fn disk_bodies_are_base64_and_retired_arrays_are_discarded() {
+    async fn disk_bodies_are_raw_bytes_after_their_header() {
         let dir = tempfile::tempdir().unwrap();
         let part = partition("endpoint/credential").await;
-        let body = vec![b'a'; 3000];
+        let body: Vec<u8> = (0..=255).cycle().take(3000).collect();
+        let value = CachedContent {
+            bytes: body.clone().into(),
+            etag: Some("\"v1\"".into()),
+            resolved_ref: "sha".into(),
+            has_more: true,
+        };
         GitHubContentCache::new(CacheConfig::default(), Some(dir.path().into()))
             .put(
                 &part,
                 "github-content:k".into(),
-                CachedContent {
-                    bytes: body.clone().into(),
-                    etag: None,
-                    resolved_ref: "sha".into(),
-                },
-                Retention::Pinned,
+                value.clone(),
+                // Never fresh, so a hit keeps its ETag to revalidate with.
+                Retention::AlwaysRevalidate,
             )
             .await;
-        let file = json_files(dir.path()).pop().unwrap();
-        let size = fs::metadata(&file).unwrap().len() as usize;
-        // base64 is 4/3 of the body; a number array was ~3.5-4x.
-        assert!(size < body.len() * 3 / 2, "disk entry is {size} bytes");
-        let mut entry: serde_json::Value =
-            serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
-        entry["value"]["bytes"] = serde_json::json!(b"legacy".to_vec());
-        fs::write(&file, serde_json::to_vec(&entry).unwrap()).unwrap();
+        let file = entry_files(dir.path()).pop().unwrap();
+        let stored = fs::read(&file).unwrap();
+        assert!(stored.ends_with(&body), "the body is stored raw");
+        assert!(stored.len() < body.len() + 200, "{} bytes", stored.len());
         let reader = GitHubContentCache::new(CacheConfig::default(), Some(dir.path().into()));
-        // Derived data: an entry from the retired array format is a miss, and
-        // the file is removed so the next read refetches it.
-        assert!(reader.get(&part, "github-content:k").await.is_none());
-        assert!(!file.exists());
+        let read = reader.get(&part, "github-content:k").await.unwrap();
+        assert!(read.bytes == value.bytes, "the body round-trips");
+        assert_eq!(
+            (read.etag, read.resolved_ref, read.has_more),
+            (value.etag, value.resolved_ref, value.has_more)
+        );
     }
 }

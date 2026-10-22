@@ -8,15 +8,18 @@
 //!
 //! Layout: this module owns the public query, validation, dispatch and the
 //! response boundary (sanitize, size cap). `pull_request`/`pr_sections`,
-//! `issue` and `commit_compare` shape each operation; `filter`, `inventory` and
-//! `patch` own changed files and patch windows, `window` provider-batch paging, `pr_menu`,
+//! `issue`, `commit` and `compare` shape each operation (`file_page` the
+//! changed-file page the last two share); `filter`, `inventory` and `patch`
+//! own changed files and patch windows, `window` provider-batch paging,
+//! `axis` the pagination axes, `remaining` what a page leaves, `pr_menu`,
 //! `patch_hop` and `promotion` every `next.*`, and `graphql` the PR fast path.
+use crate::num::usize_of;
+use crate::response::result::{ToolData, remove_nulls};
 use crate::security::scan::{ContentScan, sanitize_provider_text};
-use crate::tools::num::usize_of;
-use crate::tools::result::{ToolData, remove_nulls};
 use octocode_github::{
     GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
+use serde::Deserialize as _;
 use serde_json::Value;
 use std::path::Path;
 
@@ -25,7 +28,10 @@ const SCAN_PATH: &str = "github-history-item";
 
 #[cfg(test)]
 mod anchor_tests;
-mod commit_compare;
+mod axis;
+mod commit;
+mod compare;
+mod file_page;
 mod filter;
 mod graphql;
 #[cfg(test)]
@@ -41,7 +47,7 @@ mod pr_sections;
 mod promotion;
 mod pull_request;
 mod recovery;
-mod rest;
+mod remaining;
 mod text;
 mod util;
 mod window;
@@ -52,12 +58,12 @@ mod window;
 /// none (an omitted patch-free inventory sizes itself to the response page)
 /// and page their collections by the same default.
 pub(crate) const DEFAULT_PAGE_SIZE: usize =
-    crate::tools::id::query_limits::gh_get_history_item::issue::PAGE_SIZE_DEFAULT;
+    crate::contracts::query_limits::gh_get_history_item::issue::PAGE_SIZE_DEFAULT;
 /// Characters per body, comment or review window when `length` is omitted
 /// (contract `ghGetHistoryItem.semanticPolicy.textWindowChars`).
-const DEFAULT_TEXT_WINDOW: usize = crate::tools::id::gh_get_history_item_policy::TEXT_WINDOW_CHARS;
+const DEFAULT_TEXT_WINDOW: usize = crate::id::gh_get_history_item_policy::TEXT_WINDOW_CHARS;
 
-pub use crate::contracts::tool_types::GhGetHistoryItemQuery;
+pub use octocode_contract_types::GhGetHistoryItemQuery;
 pub(crate) use output::Output;
 pub use recovery::recovery;
 
@@ -90,9 +96,10 @@ pub struct HistoryItemRequest {
 }
 
 impl HistoryItemRequest {
-    /// Parses a validated `ghGetHistoryItem` row.
-    pub fn from_row(row: Value) -> Result<Self, serde_json::Error> {
-        let query: GhGetHistoryItemQuery = serde_json::from_value(row)?;
+    /// Parses a validated `ghGetHistoryItem` row (owned or borrowed: the
+    /// typed query is read from it without a copy).
+    pub fn from_row(row: impl std::borrow::Borrow<Value>) -> Result<Self, serde_json::Error> {
+        let query = GhGetHistoryItemQuery::deserialize(row.borrow())?;
         Ok(Self {
             sections: Sections::resolve(&query),
             public: serde_json::to_value(&query)?,
@@ -113,7 +120,7 @@ impl HistoryItemRequest {
 
 /// One section of a history item (`body`, `files`, `patches`, `comments`,
 /// `reviewComments`, `reviews`, `commits`, `commitFiles`).
-pub(crate) use crate::contracts::tool_types::GhGetHistoryItemQuerySectionsItem as Section;
+pub(crate) use octocode_contract_types::GhGetHistoryItemQuerySectionsItem as Section;
 
 /// The sections one read returns: the generated `sections`, with the one
 /// default resolved (a `matchString` with no section named reads the
@@ -156,7 +163,7 @@ impl Sections {
             | GhGetHistoryItemQuery::Commit { sections, .. }
             | GhGetHistoryItemQuery::Compare { sections, .. } => Self::of(sections.iter().copied()),
         };
-        if named.is_empty() && query.match_string().is_some() {
+        if named.is_empty() && gh_get_history_item_query::match_string(query).is_some() {
             Self::of([Section::Patches])
         } else {
             named
@@ -207,7 +214,7 @@ impl HistoryItemRequest {
     /// contract rejects (an empty one) is a validation error, never a
     /// silent fall back to the unpinned ref.
     pub(super) fn with_compare_refs(&self, base: &str, head: &str) -> Result<Self, ProviderError> {
-        use crate::contracts::tool_types::{GhGetHistoryItemQueryBase, GhGetHistoryItemQueryHead};
+        use octocode_contract_types::{GhGetHistoryItemQueryBase, GhGetHistoryItemQueryHead};
         let mut pinned = self.clone();
         if let GhGetHistoryItemQuery::Compare {
             base: pinned_base,
@@ -237,174 +244,189 @@ impl std::ops::Deref for HistoryItemRequest {
 
 /// Operation-independent views over the generated wire query, in the
 /// engine's `usize` units.
-impl GhGetHistoryItemQuery {
+pub(crate) mod gh_get_history_item_query {
+    use super::*;
     /// Any `sections` named: the read returns what they name.
-    pub(crate) fn has_sections(&self) -> bool {
-        match self {
-            Self::PullRequest { sections, .. } => !sections.is_empty(),
-            Self::Issue { sections, .. } => !sections.is_empty(),
-            Self::Commit { sections, .. } => !sections.is_empty(),
-            Self::Compare { sections, .. } => !sections.is_empty(),
+    pub(crate) fn has_sections(query: &GhGetHistoryItemQuery) -> bool {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { sections, .. } => !sections.is_empty(),
+            GhGetHistoryItemQuery::Issue { sections, .. } => !sections.is_empty(),
+            GhGetHistoryItemQuery::Commit { sections, .. } => !sections.is_empty(),
+            GhGetHistoryItemQuery::Compare { sections, .. } => !sections.is_empty(),
         }
     }
-    fn operation(&self) -> ItemOperation {
-        match self {
-            Self::PullRequest { .. } => ItemOperation::PullRequest,
-            Self::Issue { .. } => ItemOperation::Issue,
-            Self::Commit { .. } => ItemOperation::Commit,
-            Self::Compare { .. } => ItemOperation::Compare,
+    pub(super) fn operation(query: &GhGetHistoryItemQuery) -> ItemOperation {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { .. } => ItemOperation::PullRequest,
+            GhGetHistoryItemQuery::Issue { .. } => ItemOperation::Issue,
+            GhGetHistoryItemQuery::Commit { .. } => ItemOperation::Commit,
+            GhGetHistoryItemQuery::Compare { .. } => ItemOperation::Compare,
         }
     }
-    pub(crate) fn owner(&self) -> &str {
-        match self {
-            Self::PullRequest { owner, .. }
-            | Self::Issue { owner, .. }
-            | Self::Commit { owner, .. }
-            | Self::Compare { owner, .. } => owner.as_str(),
+    pub(crate) fn owner(query: &GhGetHistoryItemQuery) -> &str {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { owner, .. }
+            | GhGetHistoryItemQuery::Issue { owner, .. }
+            | GhGetHistoryItemQuery::Commit { owner, .. }
+            | GhGetHistoryItemQuery::Compare { owner, .. } => owner.as_str(),
         }
     }
-    pub(crate) fn repo(&self) -> &str {
-        match self {
-            Self::PullRequest { repo, .. }
-            | Self::Issue { repo, .. }
-            | Self::Commit { repo, .. }
-            | Self::Compare { repo, .. } => repo.as_str(),
+    pub(crate) fn repo(query: &GhGetHistoryItemQuery) -> &str {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { repo, .. }
+            | GhGetHistoryItemQuery::Issue { repo, .. }
+            | GhGetHistoryItemQuery::Commit { repo, .. }
+            | GhGetHistoryItemQuery::Compare { repo, .. } => repo.as_str(),
         }
     }
-    pub(crate) fn number(&self) -> Option<u64> {
-        match self {
-            Self::PullRequest { number, .. } | Self::Issue { number, .. } => Some(number.0.get()),
+    pub(crate) fn number(query: &GhGetHistoryItemQuery) -> Option<u64> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { number, .. }
+            | GhGetHistoryItemQuery::Issue { number, .. } => Some(number.0.get()),
             _ => None,
         }
     }
-    pub(crate) fn reference(&self) -> Option<&str> {
-        match self {
-            Self::Commit { ref_, .. } => Some(ref_.as_str()),
+    pub(crate) fn reference(query: &GhGetHistoryItemQuery) -> Option<&str> {
+        match query {
+            GhGetHistoryItemQuery::Commit { ref_, .. } => Some(ref_.as_str()),
             _ => None,
         }
     }
-    pub(crate) fn base(&self) -> Option<&str> {
-        match self {
-            Self::Compare { base, .. } => Some(base.as_str()),
+    pub(crate) fn base(query: &GhGetHistoryItemQuery) -> Option<&str> {
+        match query {
+            GhGetHistoryItemQuery::Compare { base, .. } => Some(base.as_str()),
             _ => None,
         }
     }
-    pub(crate) fn head(&self) -> Option<&str> {
-        match self {
-            Self::Compare { head, .. } => Some(head.as_str()),
+    pub(crate) fn head(query: &GhGetHistoryItemQuery) -> Option<&str> {
+        match query {
+            GhGetHistoryItemQuery::Compare { head, .. } => Some(head.as_str()),
             _ => None,
         }
     }
     /// The `include` path patterns (pull request, commit, comparison).
-    pub(crate) fn include_patterns(&self) -> Vec<&str> {
-        match self {
-            Self::PullRequest { include, .. }
-            | Self::Commit { include, .. }
-            | Self::Compare { include, .. } => include
+    pub(crate) fn include_patterns(query: &GhGetHistoryItemQuery) -> Vec<&str> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { include, .. }
+            | GhGetHistoryItemQuery::Commit { include, .. }
+            | GhGetHistoryItemQuery::Compare { include, .. } => include
                 .iter()
                 .flat_map(|include| include.iter())
                 .map(|pattern| pattern.as_str())
                 .collect(),
-            Self::Issue { .. } => Vec::new(),
+            GhGetHistoryItemQuery::Issue { .. } => Vec::new(),
         }
     }
     /// The pull-request head a page continuation is pinned to (`headSha`).
-    pub(crate) fn head_sha(&self) -> Option<&str> {
-        match self {
-            Self::PullRequest { head_sha, .. } => head_sha.as_deref().map(String::as_str),
+    pub(crate) fn head_sha(query: &GhGetHistoryItemQuery) -> Option<&str> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { head_sha, .. } => {
+                head_sha.as_deref().map(String::as_str)
+            }
             _ => None,
         }
     }
     /// The page of the section a read lists (`page`): every page
     /// continuation names the one section it pages.
-    pub(crate) fn page(&self) -> Option<usize> {
-        match self {
-            Self::PullRequest { page, .. }
-            | Self::Issue { page, .. }
-            | Self::Commit { page, .. }
-            | Self::Compare { page, .. } => page.as_ref().map(|page| usize_of(page.0.get())),
+    pub(crate) fn page(query: &GhGetHistoryItemQuery) -> Option<usize> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { page, .. }
+            | GhGetHistoryItemQuery::Issue { page, .. }
+            | GhGetHistoryItemQuery::Commit { page, .. }
+            | GhGetHistoryItemQuery::Compare { page, .. } => {
+                page.as_ref().map(|page| usize_of(page.0.get()))
+            }
         }
     }
-    pub(crate) fn page_size(&self) -> Option<usize> {
-        match self {
-            Self::PullRequest { page_size, .. }
-            | Self::Commit { page_size, .. }
-            | Self::Compare { page_size, .. } => page_size.map(|size| usize_of(size.get())),
-            Self::Issue { page_size, .. } => page_size.as_ref().map(|size| usize_of(size.0.get())),
+    pub(crate) fn page_size(query: &GhGetHistoryItemQuery) -> Option<usize> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { page_size, .. }
+            | GhGetHistoryItemQuery::Commit { page_size, .. }
+            | GhGetHistoryItemQuery::Compare { page_size, .. } => {
+                page_size.map(|size| usize_of(size.get()))
+            }
+            GhGetHistoryItemQuery::Issue { page_size, .. } => {
+                page_size.as_ref().map(|size| usize_of(size.0.get()))
+            }
         }
     }
     /// Items per page of a provider collection (comments, reviews, commits,
     /// patch file pages): `pageSize` capped at one provider batch.
-    pub(crate) fn collection_page_size(&self) -> usize {
-        self.page_size()
+    pub(crate) fn collection_page_size(query: &GhGetHistoryItemQuery) -> usize {
+        page_size(query)
             .unwrap_or(DEFAULT_PAGE_SIZE)
             .clamp(1, octocode_github::MAX_PER_PAGE)
     }
     /// Whether a pull request narrows its changed files (`include`,
     /// `status`, `minChanges`).
-    pub(crate) fn has_file_filter(&self) -> bool {
+    pub(crate) fn has_file_filter(query: &GhGetHistoryItemQuery) -> bool {
         matches!(
-            self,
-            Self::PullRequest { include, status, min_changes, .. }
+            query,
+            GhGetHistoryItemQuery::PullRequest { include, status, min_changes, .. }
                 if include.is_some() || status.is_some() || min_changes.is_some()
         )
     }
 
     /// The text window offset (`offset`, characters).
-    pub(crate) fn char_offset(&self) -> Option<usize> {
-        match self {
-            Self::PullRequest { offset, .. }
-            | Self::Issue { offset, .. }
-            | Self::Commit { offset, .. }
-            | Self::Compare { offset, .. } => offset.as_ref().map(|offset| usize_of(offset.0)),
+    pub(crate) fn char_offset(query: &GhGetHistoryItemQuery) -> Option<usize> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { offset, .. }
+            | GhGetHistoryItemQuery::Issue { offset, .. }
+            | GhGetHistoryItemQuery::Commit { offset, .. }
+            | GhGetHistoryItemQuery::Compare { offset, .. } => {
+                offset.as_ref().map(|offset| usize_of(offset.0))
+            }
         }
     }
     /// The text window length (`length`, characters).
-    pub(crate) fn char_length(&self) -> Option<usize> {
-        match self {
-            Self::PullRequest { length, .. }
-            | Self::Issue { length, .. }
-            | Self::Commit { length, .. }
-            | Self::Compare { length, .. } => {
+    pub(crate) fn char_length(query: &GhGetHistoryItemQuery) -> Option<usize> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { length, .. }
+            | GhGetHistoryItemQuery::Issue { length, .. }
+            | GhGetHistoryItemQuery::Commit { length, .. }
+            | GhGetHistoryItemQuery::Compare { length, .. } => {
                 length.as_ref().map(|length| usize_of(length.0.get()))
             }
         }
     }
-    pub(crate) fn match_string(&self) -> Option<&str> {
-        match self {
-            Self::PullRequest { match_string, .. }
-            | Self::Commit { match_string, .. }
-            | Self::Compare { match_string, .. } => {
+    pub(crate) fn match_string(query: &GhGetHistoryItemQuery) -> Option<&str> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { match_string, .. }
+            | GhGetHistoryItemQuery::Commit { match_string, .. }
+            | GhGetHistoryItemQuery::Compare { match_string, .. } => {
                 match_string.as_ref().map(|text| text.0.as_str())
             }
-            Self::Issue { .. } => None,
+            GhGetHistoryItemQuery::Issue { .. } => None,
         }
     }
     /// Lines kept around each `matchString` hit in a patch (`contextLines`).
-    pub(crate) fn match_context(&self) -> Option<usize> {
-        match self {
-            Self::PullRequest { context_lines, .. }
-            | Self::Commit { context_lines, .. }
-            | Self::Compare { context_lines, .. } => context_lines
+    pub(crate) fn match_context(query: &GhGetHistoryItemQuery) -> Option<usize> {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { context_lines, .. }
+            | GhGetHistoryItemQuery::Commit { context_lines, .. }
+            | GhGetHistoryItemQuery::Compare { context_lines, .. } => context_lines
                 .as_ref()
                 .and_then(|lines| usize::try_from(lines.0).ok()),
-            Self::Issue { .. } => None,
+            GhGetHistoryItemQuery::Issue { .. } => None,
         }
     }
     /// Whether the query reads a later page of a pull request (a section
     /// page after the first, or a text window that names its offset): the
     /// caller already holds the item header and menu from page one.
-    pub(crate) fn later_page(&self) -> bool {
-        matches!(self, Self::PullRequest { .. })
-            && (self.page().is_some_and(|page| page > 1) || self.char_offset().is_some())
+    pub(crate) fn later_page(query: &GhGetHistoryItemQuery) -> bool {
+        matches!(query, GhGetHistoryItemQuery::PullRequest { .. })
+            && (page(query).is_some_and(|page| page > 1) || char_offset(query).is_some())
     }
     /// Whether the read's `extras` names `kind`.
-    pub(crate) fn wants(&self, kind: crate::contracts::tool_types::ExtraKind) -> bool {
-        match self {
-            Self::PullRequest { extras, .. }
-            | Self::Issue { extras, .. }
-            | Self::Commit { extras, .. }
-            | Self::Compare { extras, .. } => extras.contains(&kind),
+    pub(crate) fn wants(
+        query: &GhGetHistoryItemQuery,
+        kind: octocode_contract_types::ExtraKind,
+    ) -> bool {
+        match query {
+            GhGetHistoryItemQuery::PullRequest { extras, .. }
+            | GhGetHistoryItemQuery::Issue { extras, .. }
+            | GhGetHistoryItemQuery::Commit { extras, .. }
+            | GhGetHistoryItemQuery::Compare { extras, .. } => extras.contains(&kind),
         }
     }
 }
@@ -426,13 +448,13 @@ pub async fn execute(
                 // types its "No commit found" as a missing ref).
                 ProviderErrorKind::NotFound
                     if error.reason == Some(ProviderErrorReason::RefNotFound)
-                        && query.operation() == ItemOperation::Commit =>
+                        && gh_get_history_item_query::operation(query) == ItemOperation::Commit =>
                 {
                     error.message = format!(
                         "Commit \"{}\" not found in {}/{}",
-                        query.reference().unwrap_or_default(),
-                        query.owner(),
-                        query.repo()
+                        gh_get_history_item_query::reference(query).unwrap_or_default(),
+                        gh_get_history_item_query::owner(query),
+                        gh_get_history_item_query::repo(query)
                     )
                     .into_boxed_str();
                 }
@@ -445,7 +467,10 @@ pub async fn execute(
                 // for, as refs.
                 ProviderErrorKind::NotFound => {
                     error.message = not_found_message(query, error.reason).into_boxed_str();
-                    if matches!(query.operation(), ItemOperation::Compare) && error.reason.is_none()
+                    if matches!(
+                        gh_get_history_item_query::operation(query),
+                        ItemOperation::Compare
+                    ) && error.reason.is_none()
                     {
                         error.reason = Some(ProviderErrorReason::RefNotFound);
                     }
@@ -473,38 +498,39 @@ pub async fn execute(
 /// The message of a not-found item read: the repository, number, or refs
 /// the query named (a bare GitHub 404 cannot tell which part is missing).
 fn not_found_message(query: &HistoryItemRequest, reason: Option<ProviderErrorReason>) -> String {
-    let (owner, repo) = (query.owner(), query.repo());
+    let (owner, repo) = (
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+    );
     if reason == Some(ProviderErrorReason::RepositoryNotFound) {
         return format!(
             "Repository {owner}/{repo} not found, or private and not accessible to this token"
         );
     }
     let or_repository = "or the repository is missing or private to this token";
-    match query.operation() {
+    match gh_get_history_item_query::operation(query) {
         ItemOperation::PullRequest => format!(
             "Pull request #{} not found in {owner}/{repo}, {or_repository}",
-            query.number().unwrap_or_default()
+            gh_get_history_item_query::number(query).unwrap_or_default()
         ),
         ItemOperation::Issue => format!(
             "Issue #{} not found in {owner}/{repo}, {or_repository}",
-            query.number().unwrap_or_default()
+            gh_get_history_item_query::number(query).unwrap_or_default()
         ),
         ItemOperation::Commit => format!(
             "Commit \"{}\" not found in {owner}/{repo}, {or_repository}",
-            query.reference().unwrap_or_default()
+            gh_get_history_item_query::reference(query).unwrap_or_default()
         ),
         ItemOperation::Compare => format!(
             "Cannot compare {}...{} in {owner}/{repo}: a ref (branch, tag, or SHA) was not found, {or_repository}",
-            query.base().unwrap_or_default(),
-            query.head().unwrap_or_default()
+            gh_get_history_item_query::base(query).unwrap_or_default(),
+            gh_get_history_item_query::head(query).unwrap_or_default()
         ),
     }
 }
 
 fn enforce_response_limit(value: &Value, max_body_bytes: usize) -> Result<(), ProviderError> {
-    let size = serde_json::to_vec(value)
-        .map(|bytes| bytes.len())
-        .unwrap_or(usize::MAX);
+    let size = octocode_engine::json_size::bytes(value).unwrap_or(usize::MAX);
     if size > max_body_bytes {
         return Err(ProviderError::new(
             ProviderErrorKind::ResponseTooLarge,
@@ -519,9 +545,8 @@ async fn execute_inner(
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
-    validate(query)?;
     context.check()?;
-    match query.operation() {
+    match gh_get_history_item_query::operation(query) {
         ItemOperation::PullRequest => {
             match pull_request::pull_request(transport, query, context).await {
                 Err(error) if error.status == Some(404) => {
@@ -531,28 +556,8 @@ async fn execute_inner(
             }
         }
         ItemOperation::Issue => issue::issue(transport, query, context).await,
-        ItemOperation::Commit => commit_compare::commit(transport, query, context).await,
-        ItemOperation::Compare => commit_compare::compare(transport, query, context).await,
-    }
-}
-
-fn validate(query: &HistoryItemRequest) -> Result<(), ProviderError> {
-    if query.owner().is_empty() || query.repo().is_empty() {
-        return Err(validation("owner and repo are required"));
-    }
-    match query.operation() {
-        ItemOperation::PullRequest | ItemOperation::Issue if query.number().is_none() => {
-            Err(validation("number is required"))
-        }
-        ItemOperation::Commit if query.reference().is_none_or(str::is_empty) => {
-            Err(validation("ref is required"))
-        }
-        ItemOperation::Compare
-            if query.base().is_none_or(str::is_empty) || query.head().is_none_or(str::is_empty) =>
-        {
-            Err(validation("base and head are required"))
-        }
-        _ => Ok(()),
+        ItemOperation::Commit => commit::commit(transport, query, context).await,
+        ItemOperation::Compare => compare::compare(transport, query, context).await,
     }
 }
 
@@ -636,7 +641,10 @@ mod tests {
             "ref":"head-sha","sections":["patches"],"include":["src/*.rs"]
         }))
         .expect("commit");
-        assert_eq!(commit.operation(), ItemOperation::Commit);
+        assert_eq!(
+            gh_get_history_item_query::operation(&commit),
+            ItemOperation::Commit
+        );
         assert!(
             HistoryItemRequest::from_row(json!({
                 "operation":"commit","owner":"o","repo":"r","ref":"h","base":"b"
@@ -644,7 +652,10 @@ mod tests {
             .is_err()
         );
         assert!(commit.include_diff());
-        assert_eq!(commit.include_patterns(), ["src/*.rs"]);
+        assert_eq!(
+            gh_get_history_item_query::include_patterns(&commit),
+            ["src/*.rs"]
+        );
         let grep = HistoryItemRequest::from_row(json!({
             "operation":"compare","owner":"o","repo":"r","base":"a","head":"b","matchString":"x"
         }))
@@ -679,11 +690,12 @@ mod tests {
         ] {
             assert!(HistoryItemRequest::from_row(row).is_err());
         }
-        let committed = HistoryItemRequest::from_row(
-            json!({"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"x"}),
-        )
-        .expect("GitHub history test data should be valid");
-        assert!(validate(&committed).is_ok());
+        assert!(
+            HistoryItemRequest::from_row(
+                json!({"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"x"}),
+            )
+            .is_ok()
+        );
         // The wire contract rejects a blank comparison ref.
         assert!(
             HistoryItemRequest::from_row(json!({
@@ -709,16 +721,6 @@ mod tests {
         // secret, so a legitimate path is untouched while a secret is masked.
         assert_eq!(value["next"]["tool"], "secret-tool");
         assert_eq!(value["next"]["query"]["path"], "[MASKED].rs");
-    }
-
-    #[test]
-    fn cancellation_is_observed_before_provider_work() {
-        let context = RequestContext::with_timeout(std::time::Duration::from_secs(1), 1024);
-        context.budget.cancellation.cancel();
-        let error = context
-            .check()
-            .expect_err("GitHub history operation should fail in this test");
-        assert_eq!(error.kind, ProviderErrorKind::Cancelled);
     }
 
     #[test]

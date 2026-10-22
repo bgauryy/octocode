@@ -19,6 +19,9 @@ pub struct GrammarCapability {
 pub struct TextSearchMatch {
     /// 1-based line number.
     pub line: u32,
+    /// The match's last line when it spans several (multiline mode); `None`
+    /// for a one-line match.
+    pub last_line: Option<u32>,
     /// 0-based column offset of the first submatch.
     pub column: u32,
     /// 0-based byte offset of the first submatch within its line (UTF-8): where
@@ -57,7 +60,7 @@ pub struct TextSearchFile {
     pub match_count: u32,
     pub matches: Vec<TextSearchMatch>,
     /// The bytes this file's values came from, when the search was asked to
-    /// prove them ([`TextSearchOptions::digest_max_bytes`]).
+    /// prove them ([`SourceValues::Hashed`]).
     pub source: Option<SearchedSource>,
 }
 
@@ -79,9 +82,10 @@ pub struct TextSearchStats {
     pub files_matched: Option<u32>,
     pub files_searched: Option<u32>,
     pub bytes_searched: Option<i64>,
-    pub search_time: Option<String>,
     pub capped: Option<bool>,
-    pub cap_reason: Option<String>,
+    /// The limits that ended the search early, in [`CapReason`] order; empty
+    /// when it covered its scope.
+    pub cap_reasons: Vec<CapReason>,
     /// Traversal or per-file search failures; nonzero means incomplete coverage.
     pub error_count: Option<u32>,
     /// Bounded first failure detail. Counts include every observed failure.
@@ -109,6 +113,37 @@ pub struct TextSearchStats {
     /// Non-empty directories at `max_depth` the walk did not enter: the
     /// files below them were not searched.
     pub depth_cut_dirs: Option<u32>,
+}
+
+/// A limit that ended a text search before it covered its scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CapReason {
+    /// More files matched than the collection cap keeps.
+    MaxCollectedFiles,
+    /// A file held more only-matching spans than are kept per file.
+    MaxOnlyMatchingPerFile,
+    /// The PCRE2 wall-clock deadline stopped the search.
+    Pcre2Deadline,
+    /// A file over the byte ceiling was skipped.
+    MaxFileSize,
+    /// The caller stopped the search.
+    Cancelled,
+    /// A file was searched only up to its first NUL byte.
+    BinaryQuit,
+}
+
+impl CapReason {
+    /// The reason's wire name (`capReason`, `partialReasons`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::MaxCollectedFiles => "maxCollectedFiles",
+            Self::MaxOnlyMatchingPerFile => "maxOnlyMatchingPerFile",
+            Self::Pcre2Deadline => "pcre2Deadline",
+            Self::MaxFileSize => "maxFileSize",
+            Self::Cancelled => "cancelled",
+            Self::BinaryQuit => "binaryQuit",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,14 +193,12 @@ pub struct TextSearchOptions {
     pub pattern: String,
 
     // ── match flags ──────────────────────────────────────────────────────────
-    /// Treat the pattern as a literal string, not a regex (`-F`).
-    pub fixed_string: Option<bool>,
-    /// Use the PCRE2 engine for lookaround/backreferences (`-P`).
-    pub perl_regex: Option<bool>,
-    /// Case-sensitive match (`-s`). Wins over `case_insensitive`.
-    pub case_sensitive: Option<bool>,
-    /// Case-insensitive match (`-i`). Default is smart-case (`-S`).
-    pub case_insensitive: Option<bool>,
+    /// How the pattern reads: literal text (`-F`), a Rust regex (default) or
+    /// a PCRE2 regex for lookaround/backreferences (`-P`).
+    pub syntax: PatternSyntax,
+    /// Smart-case (`-S`, default), case-sensitive (`-s`) or
+    /// case-insensitive (`-i`).
+    pub case: CaseRule,
     /// Match whole words only (`-w`).
     pub whole_word: Option<bool>,
     /// Invert: report non-matching lines (`-v`).
@@ -175,15 +208,9 @@ pub struct TextSearchOptions {
     /// In multi-line mode, let `.` match newlines (`--multiline-dotall`).
     pub multiline_dotall: Option<bool>,
 
-    // ── output modes (mutually exclusive; first set wins, matching the CLI) ───
-    /// List only the paths of files that contain a match (`-l`).
-    pub files_only: Option<bool>,
-    /// List only the paths of files with no match (`--files-without-match`).
-    pub files_without_match: Option<bool>,
-    /// Per-file count of matching lines (`-c`).
-    pub count_lines_per_file: Option<bool>,
-    /// Per-file count of individual matches (`--count-matches`).
-    pub count_matches_per_file: Option<bool>,
+    // ── output ───────────────────────────────────────────────────────────────
+    /// What each matched file reports.
+    pub output: SearchOutput,
 
     // ── filters ──────────────────────────────────────────────────────────────
     /// Context lines before and after each match (`-B`, `-A`).
@@ -208,24 +235,14 @@ pub struct TextSearchOptions {
     pub max_depth: Option<u32>,
 
     // ── ordering & result shaping ────────────────────────────────────────────
-    /// Sort key: `path` (default), `modified`, `accessed`, or `created`.
-    pub sort: Option<String>,
+    /// The order of the collected files (and which survive the collection
+    /// cap).
+    pub sort: SearchSort,
     /// Reverse the sort order (`--sortr`).
     pub sort_reverse: Option<bool>,
     /// Max Unicode chars per assembled snippet (default 500).
     pub max_snippet_chars: Option<u32>,
 
-    // ── only-matching ──────────────────────────────────────────────
-    /// Emit one match per *submatch* with `value` set to the matched span
-    /// (not the whole line). The win on a
-    /// minified one-liner: line mode can only count hits, this enumerates them.
-    pub only_matching: Option<bool>,
-    /// With `only_matching`, collapse duplicate values per file, preserving
-    /// first-occurrence order and anchor.
-    pub unique: Option<bool>,
-    /// With `only_matching`, collapse duplicate values and attach their
-    /// frequency, sorted by count descending.
-    pub count_unique: Option<bool>,
     /// Native collection guard: stop after this many matched files have been
     /// collected. Distinct from native runtime maxFiles, which is a per-page UI
     /// size, not an engine resource cap. The cap is applied as a stable
@@ -242,14 +259,125 @@ pub struct TextSearchOptions {
     /// several walks at once passes its share of the cores. Ignored when
     /// `sort` is `traversal`, which always walks on one thread.
     pub walk_threads: Option<u32>,
-    /// Hash each kept file of at most this many bytes while it is searched
-    /// and report it as [`TextSearchFile::source`], so a caller can prove the
-    /// values later without reading the file again. `None` hashes nothing.
-    pub digest_max_bytes: Option<u64>,
-    /// Keep anchors and complete value digests instead of owned snippets for
-    /// ordinary context-free, single-line searches. Requires source hashing;
-    /// other views retain their normal representation and semantics.
-    pub defer_values: bool,
+    /// How values are kept and whether each kept file's bytes are hashed.
+    pub values: SourceValues,
+}
+
+impl TextSearchOptions {
+    /// The same search over the same scope reporting `output`, without
+    /// context, digests or a ranked order: a bounded side search (a probe)
+    /// asks only which files or how many lines match.
+    pub fn probe(&self, output: SearchOutput) -> Self {
+        Self {
+            output,
+            context: SearchContext::default(),
+            sort: SearchSort::Path,
+            values: SourceValues::Owned,
+            ..self.clone()
+        }
+    }
+}
+
+/// How a text search reads its pattern.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PatternSyntax {
+    /// Literal text (`-F`).
+    Literal,
+    /// A Rust regex: linear time, no lookaround.
+    #[default]
+    Regex,
+    /// A PCRE2 regex (`-P`): lookaround and backreferences, bounded by a
+    /// wall-clock deadline.
+    Pcre2,
+}
+
+/// How a text search compares letter case.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CaseRule {
+    /// Case-insensitive unless the pattern holds an uppercase letter (`-S`).
+    #[default]
+    Smart,
+    /// Case-sensitive (`-s`).
+    Sensitive,
+    /// Case-insensitive (`-i`).
+    Insensitive,
+}
+
+/// What a text search reports for each matched file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SearchOutput {
+    /// The matching lines, with context.
+    #[default]
+    Lines,
+    /// One value per submatch, set to the matched span instead of the
+    /// whole line (`-o`): on a minified one-liner, line mode can only count
+    /// hits, this enumerates them.
+    Spans(SpanValues),
+    /// Only the paths of files that contain a match (`-l`).
+    FilesWithMatch,
+    /// Only the paths of files with no match (`--files-without-match`).
+    FilesWithoutMatch,
+    /// Per-file count of matching lines (`-c`).
+    CountLines,
+    /// Per-file count of individual matches (`--count-matches`).
+    CountMatches,
+}
+
+/// Which spans a [`SearchOutput::Spans`] search keeps per file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SpanValues {
+    /// Every span.
+    #[default]
+    Every,
+    /// Each distinct value once, in first-occurrence order and anchor.
+    Unique,
+    /// Each distinct value once with its frequency, most frequent first.
+    Counted,
+}
+
+/// The order of a text search's collected files. Every key ends with the
+/// path, so a collection cap always keeps the same files.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SearchSort {
+    /// Lexicographic by full path.
+    #[default]
+    Path,
+    /// The walk's own order (one walk thread).
+    Traversal,
+    /// Declarations of a searched identifier, coverage, density and source
+    /// paths first (see `search::relevance`).
+    Relevance,
+    /// Most matches first.
+    MatchCount,
+    /// Ascending modification time.
+    Modified,
+    /// Ascending access time.
+    Accessed,
+    /// Ascending creation time.
+    Created,
+}
+
+/// How a text search keeps its values.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SourceValues {
+    /// Owned snippets; no file is hashed.
+    #[default]
+    Owned,
+    /// Owned snippets, and each kept file is hashed while it is searched
+    /// and reported as [`TextSearchFile::source`], so a caller can prove the
+    /// values later without reading the file again.
+    Hashed,
+    /// [`Self::Hashed`], keeping anchors and complete value digests instead
+    /// of owned snippets for ordinary context-free, single-line searches;
+    /// other views keep their owned values.
+    Deferred,
+}
+
+impl SourceValues {
+    /// Whether each kept file is hashed.
+    pub fn hashed(self) -> bool {
+        self != Self::Owned
+    }
 }
 
 // ── filesystem query types ───────────────────────────────────────────────────
@@ -276,8 +404,8 @@ pub struct FileSystemQueryOptions {
     pub extensions: Option<Vec<String>>,
     /// Rust regex against basename.
     pub regex: Option<String>,
-    /// Entry type: `f` lists files, `d` directories; any other value fails.
-    pub entry_type: Option<String>,
+    /// List only files or only directories (other entries are still walked).
+    pub entry_type: Option<EntryType>,
     /// Match only empty files or directories.
     pub empty: Option<bool>,
     /// Modified within a duration string such as 7d, 2h, 30m.
@@ -300,6 +428,12 @@ pub struct FileSystemQueryOptions {
     /// policy (`policy::prune`) supplies the names for every tool walk.
     /// Pruned directories are reported in `pruned_dirs`.
     pub exclude_dir: Option<Vec<String>>,
+    /// Default-excluded directory names (see [`Prune::at`]): pruned outside a
+    /// git work tree, and inside one only where git ignores them. Reported in
+    /// `pruned_dirs` too.
+    ///
+    /// [`Prune::at`]: crate::search::walk::Prune::at
+    pub default_exclude_dir: Option<Vec<String>>,
     /// The caller's globs to skip (`search::glob`). A matching directory is
     /// skipped with everything under it.
     pub exclude: Option<Vec<String>>,
@@ -333,6 +467,23 @@ pub struct FileSystemQueryOptions {
     pub window_rows: Option<u32>,
 }
 
+/// The entries a filesystem query lists ([`FileSystemQueryOptions::entry_type`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryType {
+    File,
+    Directory,
+}
+
+/// What a listed entry is, from its `symlink_metadata` (a link is never
+/// followed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileKind {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
 #[derive(Debug, Clone)]
 pub struct FileSystemEntry {
     /// Absolute or input-root-relative path as returned by the platform.
@@ -340,21 +491,23 @@ pub struct FileSystemEntry {
     /// Path relative to the query root.
     pub relative_path: String,
     pub name: String,
-    /// "file", "directory", "symlink", or "other".
-    pub entry_type: String,
+    pub entry_type: FileKind,
     pub size: Option<i64>,
-    pub modified_ms: Option<f64>,
-    /// The exact modification time `modified_ms` rounds, for change checks.
+    /// The exact modification time, for change checks.
     pub modified_time: Option<std::time::SystemTime>,
-    pub accessed_ms: Option<f64>,
-    pub permissions: Option<String>,
-    pub extension: Option<String>,
-    /// Output depth where direct children are 0.
-    pub depth: u32,
     /// The entry's position in the walk (1-based, [`FileSystemQueryResult::walk_position`]
     /// counts the same way): a walk resumed at it (`skip_entries`) starts
     /// at the entry after it. 0 for the root.
     pub walk_position: u32,
+}
+
+impl FileSystemEntry {
+    /// [`Self::modified_time`] in milliseconds since the Unix epoch.
+    pub fn modified_ms(&self) -> Option<f64> {
+        self.modified_time
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|elapsed| elapsed.as_millis() as f64)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -371,7 +524,6 @@ pub struct FileSystemQueryResult {
     /// Entries the ignore rules left out (the topmost of each ignored
     /// subtree); a dot entry out of view is not counted.
     pub ignored: u32,
-    pub warnings: Vec<String>,
     /// Root-relative paths of the directories `exclude_dir` pruned, in walk
     /// order: what a listing or an empty result did not cover.
     pub pruned_dirs: Vec<String>,
@@ -425,6 +577,8 @@ impl FileSystemQueryResult {
 pub struct GraphFactsScanOptions {
     pub path: String,
     pub exclude_dir: Option<Vec<String>>,
+    /// See [`FileSystemQueryOptions::default_exclude_dir`].
+    pub default_exclude_dir: Option<Vec<String>>,
     /// The caller's path globs to skip (see [`FileSystemQueryOptions::exclude`]).
     pub exclude: Option<Vec<String>>,
     pub max_files: Option<u32>,
@@ -457,27 +611,6 @@ pub struct GraphFactsScanDiagnostic {
     pub relative_path: String,
     pub code: String,
     pub message: String,
-}
-
-// ── diff_parser types ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PatchLineType {
-    Addition,
-    Deletion,
-    Context,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct FilterPatchOptions {
-    /// Only keep additions at these new-file line numbers.
-    pub additions: Option<Vec<i64>>,
-    /// Only keep deletions at these original-file line numbers.
-    pub deletions: Option<Vec<i64>>,
-    /// Apply context trimming (equivalent to `trimDiffContext`, default false).
-    pub trim_context: Option<bool>,
-    /// Context window size when `trim_context` is true (default 2).
-    pub context_lines: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default)]

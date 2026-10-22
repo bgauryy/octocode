@@ -83,7 +83,7 @@ private rubrics, judge outputs or the competing answer.
 
 The [local model runner](../scripts/local_model_benchmark.py) uses FreeLlama MCP for
 inference and the built native CLI for repository research. It exposes only `structureSearch`,
-`localSearch`, `localFetch`, `astSearch`, `lspSearch` and beta `astTopology`. The classifier,
+`localSearch`, `localFetch`, `astSearch` and `lspSearch`. The classifier,
 GitHub tools and shell commands are outside this lane.
 
 Use an existing local Ollama/FreeLlama setup and a built FreeLlama MCP server. Read its

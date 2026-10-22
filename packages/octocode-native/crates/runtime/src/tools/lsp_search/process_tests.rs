@@ -3,7 +3,9 @@
 //! processes behind. Unix-only (process groups, `kill -0`).
 
 use super::failure::LspFailure;
-use crate::tools::id::ToolId;
+use super::tests::{FAKE_SERVER_CLIENT, fake_server_pool};
+use crate::id::ToolId;
+use crate::tools::lsp_search::lsp_search_query;
 use crate::tools::test_support::checks::{Page, Walker, assert_absent, paths_in};
 use crate::tools::test_support::{Fixture, assert_row_contract, node_available, require_node};
 use octocode_engine::error::ErrorKind;
@@ -141,19 +143,26 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
     std::fs::write(&script, server).expect("indexing server");
 
     let execution = execution_config(&root, &script, "shellscript");
-    let pool = LspClientPool::new(LspPoolOptions::default());
+    // The startup settle is the window in which the client reads the
+    // server's `begin` progress; a zero cap races the hover past it.
+    let pool = LspClientPool::new(LspPoolOptions {
+        client: octocode_engine::lsp::client::LspClientOptions {
+            settle_cap: Some(std::time::Duration::from_secs(1)),
+        },
+        ..LspPoolOptions::default()
+    });
     let query_row = serde_json::json!({
         "operation": "hover", "path": root.join("a.ts").to_string_lossy(),
         "symbolName": "a", "line": 1
     });
     let query: super::LspSearchQuery = serde_json::from_value(query_row.clone()).expect("query");
-    let expected_retry = query.to_row();
+    let expected_retry = lsp_search_query::to_row(&query);
     let paths = crate::tools::test_support::workspace_policy(&root);
     let runtime = tokio::runtime::Runtime::new().expect("rt");
     let first = runtime
         .block_on(super::execute(
             query,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
             &pool,
             &paths,
             &execution,
@@ -185,7 +194,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
     let second = runtime
         .block_on(super::execute(
             retried,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
             &pool,
             &paths,
             &execution,
@@ -251,6 +260,7 @@ fn acquire_stop_loop_leaves_no_child_processes() {
             idle_timeout_ms: 60_000,
             max_entries: 4,
             max_resident_bytes: 0,
+            client: FAKE_SERVER_CLIENT,
         });
         let config = config(&root, &script, Some(&pids));
         for _ in 0..5 {
@@ -291,7 +301,7 @@ fn prewarm_frees_its_key_when_the_file_is_not_opened() {
     let large = root.join("large.ts");
     std::fs::write(&large, "x".repeat(2 * 1024 * 1024 + 1)).expect("large source");
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
-        let pool = LspClientPool::new(LspPoolOptions::default());
+        let pool = fake_server_pool();
         let config = config(&root, &script, None);
         let file = |path: PathBuf| path.to_string_lossy().into_owned();
         assert!(
@@ -335,7 +345,7 @@ fn node_server_starts_under_the_default_address_space_cap() {
 fn nested_definition_failure_keeps_location_with_partial_provenance() {
     use super::ops::Operation;
     use super::source::{SourceCache, snippet_policy};
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use serde_json::json;
     assert!(
         node_available(),
@@ -430,7 +440,7 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
 fn type_hierarchy_falls_back_when_the_server_has_no_type_hierarchy() {
     use super::ops::Operation;
     use super::source::{SourceCache, snippet_policy};
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use serde_json::json;
     assert!(
         node_available(),
@@ -515,7 +525,7 @@ fn type_hierarchy_falls_back_when_the_server_has_no_type_hierarchy() {
 fn subtypes_fall_back_to_a_labelled_heritage_scan_when_implementation_fails() {
     use super::ops::Operation;
     use super::source::{SourceCache, snippet_policy};
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use serde_json::json;
     assert!(
         node_available(),
@@ -609,7 +619,7 @@ fn implementation_failing_row(
 ) -> Result<serde_json::Value, super::LspFailure> {
     use super::ops::Operation;
     use super::source::{SourceCache, snippet_policy};
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use serde_json::json;
     assert!(
         node_available(),
@@ -780,7 +790,7 @@ process.stdin.on('data', (d) => {
 fn warm_references_repeat_sends_no_requests_and_reads_each_file_once() {
     use super::ops::Operation;
     use super::source::SourceCache;
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use octocode_engine::lsp::client::{RESPONSE_SCOPE, ResponseScope, SnippetReadPolicy};
     use serde_json::json;
     use std::sync::Arc;
@@ -1068,7 +1078,7 @@ async fn walk_pages(
         let query = serde_json::from_value(row.clone()).expect("continuation is a valid query");
         let result = super::execute(
             query,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
             pool,
             &paths,
             execution,
@@ -1116,7 +1126,11 @@ fn without_rerun(
         if let Some(retry) = next.remove("retry") {
             let rerun: super::LspSearchQuery =
                 serde_json::from_value(retry["query"]["queries"][0].clone()).expect("retry query");
-            assert_eq!(rerun.to_row(), query.to_row(), "retry reruns this call");
+            assert_eq!(
+                lsp_search_query::to_row(&rerun),
+                lsp_search_query::to_row(query),
+                "retry reruns this call"
+            );
         }
         if next.is_empty() {
             published["results"][0]["data"]
@@ -1182,7 +1196,7 @@ fn reference_rows(row: &serde_json::Value) -> Vec<(String, u64, u64)> {
 /// then `silent` files that spell it without binding it, then one importer.
 async fn walk_across_silent_windows(operation: &str, silent: usize) -> (Fixture, Vec<Walked>) {
     let (dir, root, execution) = importer_fixture_of(&[("f", 24), ("n", silent), ("z", 1)]);
-    let pool = LspClientPool::new(LspPoolOptions::default());
+    let pool = fake_server_pool();
     let start = serde_json::json!({
         "operation": operation, "path": root.join("a.ts").to_string_lossy(),
         "symbolName": "target", "line": 1, "pageSize": 100,
@@ -1206,7 +1220,7 @@ fn a_failed_importer_request_marks_the_row_partial() {
     );
     assert_ne!(server, IMPORTER_SERVER, "the failing branch is injected");
     let (_dir, root, execution) = importer_fixture_serving(&[("f", 2)], &server);
-    let pool = LspClientPool::new(LspPoolOptions::default());
+    let pool = fake_server_pool();
     let query_row = serde_json::json!({
         "operation": "references", "path": root.join("a.ts").to_string_lossy(),
         "symbolName": "target", "line": 1, "pageSize": 100,
@@ -1218,7 +1232,7 @@ fn a_failed_importer_request_marks_the_row_partial() {
         .expect("rt")
         .block_on(super::execute(
             query,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
             &pool,
             &paths,
             &execution,
@@ -1265,7 +1279,7 @@ fn importer_recovery_without_declarations_keeps_import_bindings() {
         &IMPORTER_SERVER[end..]
     );
     let (_dir, root, execution) = importer_fixture_serving(&[("f", 2)], &server);
-    let pool = LspClientPool::new(LspPoolOptions::default());
+    let pool = fake_server_pool();
     let paths = crate::tools::test_support::workspace_policy(&root);
     let runtime = tokio::runtime::Runtime::new().expect("rt");
     let rows = |include_declaration: bool| {
@@ -1279,7 +1293,7 @@ fn importer_recovery_without_declarations_keeps_import_bindings() {
         let row = runtime
             .block_on(super::execute(
                 query,
-                &crate::tools::cancel::NeverCancel,
+                &crate::execution::cancel::NeverCancel,
                 &pool,
                 &paths,
                 &execution,
@@ -1326,7 +1340,7 @@ fn symlinked_twins_list_each_site_once_under_its_real_path() {
     let (_dir, root, execution) = importer_fixture_serving(&[("f", 1)], &server);
     std::fs::create_dir_all(root.join("node_modules")).expect("node_modules");
     std::os::unix::fs::symlink(&root, root.join("node_modules/pkg")).expect("package link");
-    let pool = LspClientPool::new(LspPoolOptions::default());
+    let pool = fake_server_pool();
     let paths = crate::tools::test_support::workspace_policy(&root);
     let runtime = tokio::runtime::Runtime::new().expect("rt");
     let rows = |include_declaration: bool| {
@@ -1340,7 +1354,7 @@ fn symlinked_twins_list_each_site_once_under_its_real_path() {
         let row = runtime
             .block_on(super::execute(
                 query,
-                &crate::tools::cancel::NeverCancel,
+                &crate::execution::cancel::NeverCancel,
                 &pool,
                 &paths,
                 &execution,
@@ -1391,7 +1405,7 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         "import { target } from '../a';\ntarget();\n",
     )
     .expect("ignored importer");
-    let pool = LspClientPool::new(LspPoolOptions::default());
+    let pool = fake_server_pool();
     let query_row = serde_json::json!({
         "operation": "references", "path": root.join("a.ts").to_string_lossy(),
         "symbolName": "target", "line": 1, "pageSize": 100,
@@ -1403,7 +1417,7 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         .expect("rt")
         .block_on(super::execute(
             query,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
             &pool,
             &paths,
             &execution,
@@ -1453,7 +1467,7 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
                 &query,
                 &policy,
                 &crate::security::ContentSecurity::new(),
-                &crate::tools::cancel::NeverCancel,
+                &crate::execution::cancel::NeverCancel,
                 None,
                 None,
                 None,
@@ -1528,7 +1542,7 @@ fn importer_windows_past_the_open_document_cap_keep_the_anchor_open() {
     // z000: page 2 opens 73 candidates in one request.
     let (_dir, root, execution) =
         importer_fixture_serving(&[("f", 24), ("n", 72), ("z", 1)], &tracking);
-    let pool = LspClientPool::new(LspPoolOptions::default());
+    let pool = fake_server_pool();
     let start = serde_json::json!({
         "operation": "references", "path": root.join("a.ts").to_string_lossy(),
         "symbolName": "target", "line": 1, "pageSize": 100,
@@ -1558,7 +1572,7 @@ fn a_first_page_of_silent_windows_with_more_to_scan_is_not_empty() {
     // side: each window of a silent server waits out its own settle.
     let walk = |operation: &'static str| async move {
         let (_dir, root, execution) = importer_fixture_of(&[("n", silent), ("z", 1)]);
-        let pool = LspClientPool::new(LspPoolOptions::default());
+        let pool = fake_server_pool();
         let start = serde_json::json!({
             "operation": operation, "path": root.join("a.ts").to_string_lossy(),
             "symbolName": "target", "line": 1, "pageSize": 100,
@@ -1643,7 +1657,7 @@ fn importer_pages_reach_every_reference_exactly_once() {
     }
     let (_dir, root, execution) = importer_fixture();
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
-        let pool = LspClientPool::new(LspPoolOptions::default());
+        let pool = fake_server_pool();
         let start = serde_json::json!({
             "operation": "references", "path": root.join("a.ts").to_string_lossy(),
             "symbolName": "target", "line": 1, "pageSize": 10,
@@ -1729,7 +1743,7 @@ fn importer_pages_reach_every_reference_exactly_once() {
             let query = serde_json::from_value(stale).expect("query");
             let row = super::execute(
                 query,
-                &crate::tools::cancel::NeverCancel,
+                &crate::execution::cancel::NeverCancel,
                 &pool,
                 &paths,
                 &execution,
@@ -1739,7 +1753,7 @@ fn importer_pages_reach_every_reference_exactly_once() {
             .expect("stale page");
             assert_eq!(row["errorCode"], "staleSnapshot", "{row}");
             let restart = next_row(&row, "restart").expect("restart");
-            for cursor in crate::tools::result::CURSOR_FIELDS {
+            for cursor in crate::response::result::CURSOR_FIELDS {
                 assert!(restart.get(cursor).is_none(), "{cursor}: {restart}");
             }
         }
@@ -1765,7 +1779,7 @@ fn importer_pages_reach_every_caller_exactly_once() {
     }
     let (_dir, root, execution) = importer_fixture();
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
-        let pool = LspClientPool::new(LspPoolOptions::default());
+        let pool = fake_server_pool();
         let start = serde_json::json!({
             "operation": "callers", "path": root.join("a.ts").to_string_lossy(),
             "symbolName": "target", "line": 1, "pageSize": 10,
@@ -1807,7 +1821,7 @@ fn importer_pages_reach_every_caller_exactly_once() {
 #[test]
 fn a_tsgo_that_fails_to_start_falls_back_to_tsserver_and_says_so() {
     use super::{Exit, Target, acquire_leased_client};
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use serde_json::json;
     assert!(
         node_available(),
@@ -1835,6 +1849,7 @@ fn a_tsgo_that_fails_to_start_falls_back_to_tsserver_and_says_so() {
             idle_timeout_ms: 60_000,
             max_entries: 4,
             max_resident_bytes: 0,
+            client: FAKE_SERVER_CLIENT,
         });
         let fallback = config(&root, &script, None);
         let leased =
@@ -1895,7 +1910,7 @@ fn fallback_graph_pages(
 ) -> Vec<Vec<serde_json::Value>> {
     use super::ops::Operation;
     use super::source::{SourceCache, snippet_policy};
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use serde_json::json;
     let (_dir, root, script) = fixture();
     for (file, content) in files {
@@ -1994,7 +2009,7 @@ fn fallback_graph_pages(
                 let row = super::failure::with_next(&query, row);
                 if let Some(next) = row.pointer("/next/nextPage/query/queries/0") {
                     let continued: super::LspSearchQuery = serde_json::from_value(next.clone()).expect("executable nextPage");
-                    assert!(continued.page() > query.page(), "page cursor must advance");
+                    assert!(lsp_search_query::page(&continued) > lsp_search_query::page(&query), "page cursor must advance");
                 }
                 let published = crate::tools::test_support::published(ToolId::LspSearch, &wire, &row);
                 walker.accept(Page { output: without_rerun(published, &query), rows: match_rows(&row) });
@@ -2441,7 +2456,7 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
 fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() {
     use super::ops::Operation;
     use super::source::{SourceCache, snippet_policy};
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use serde_json::{Value, json};
     assert!(
         node_available(),
@@ -2521,8 +2536,11 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
                     "unknown is not a proven cap"
                 );
                 assert_eq!(row["pagination"]["totalItems"], 4);
-                let published =
-                    crate::tools::test_support::published(ToolId::LspSearch, &query.to_row(), &row);
+                let published = crate::tools::test_support::published(
+                    ToolId::LspSearch,
+                    &lsp_search_query::to_row(&query),
+                    &row,
+                );
                 assert!(
                     published
                         .pointer("/results/0/data/next/inspectDocumentSymbols")
@@ -2627,7 +2645,7 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
 fn workspace_symbols_at_the_server_limit_say_capped() {
     use super::ops::Operation;
     use super::source::{SourceCache, snippet_policy};
-    use crate::tools::cancel::NeverCancel;
+    use crate::execution::cancel::NeverCancel;
     use serde_json::json;
     assert!(
         node_available(),

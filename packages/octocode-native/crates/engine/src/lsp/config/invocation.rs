@@ -1,5 +1,5 @@
-use super::catalog::{LspDiscoveryOptions, ServerSpec};
 use super::defaults::{apply_rust_analyzer_defaults, apply_server_default_options};
+use super::types::{LspDiscoveryOptions, ServerSpec};
 use crate::lsp::bundled_tsgo::bundled_tsgo;
 use crate::lsp::commands::{command_resolves_to_executable, is_executable_path};
 use crate::lsp::module_path::install_anchor;

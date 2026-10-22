@@ -1973,3 +1973,66 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
     assert_eq!(read["ref"], "c2", "{data}");
     runtime.close().await;
 }
+
+/// An issue read with its discussion asks for the first comment batch
+/// beside the issue itself: the batch depends only on the page asked for,
+/// so the read is one round trip, not two.
+#[tokio::test]
+async fn an_issue_discussion_loads_beside_the_issue() {
+    use octocode_github::mock_http::Delayed;
+    use std::time::Duration;
+    let server = MockServer::builder().start().await;
+    let delay = Duration::from_millis(400);
+    let issue = Delayed::new(
+        delay,
+        ResponseTemplate::new(200).set_body_json(json!({
+            "number": 7, "title": "Thread", "state": "open", "body": "repro",
+            "user": {"login": "alice"}, "labels": [], "comments": 2,
+            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
+        })),
+    );
+    let issue_arrivals = issue.arrivals.clone();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7"))
+        .respond_with(issue)
+        .mount(&server)
+        .await;
+    let comments = Delayed::new(
+        Duration::ZERO,
+        ResponseTemplate::new(200).set_body_json(json!([
+            {"id": 1, "user": {"login": "bob"}, "body": "one",
+             "created_at": "2026-09-21T00:00:00Z", "updated_at": "2026-09-21T00:00:00Z"},
+            {"id": 2, "user": {"login": "eve"}, "body": "two",
+             "created_at": "2026-09-22T00:00:00Z", "updated_at": "2026-09-22T00:00:00Z"}
+        ])),
+    );
+    let comment_arrivals = comments.arrivals.clone();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7/comments"))
+        .respond_with(comments)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"issue","owner":"a","repo":"b","number":7,
+               "sections":["comments"],"extras":[]}),
+    )
+    .await
+    .expect("issue comments");
+    let data = row_data(&outcome);
+    assert_eq!(
+        data["issues"][0]["comments"].as_array().map(Vec::len),
+        Some(2),
+        "{data}"
+    );
+    let (issue_at, comments_at) = (issue_arrivals.times(), comment_arrivals.times());
+    assert_eq!((issue_at.len(), comments_at.len()), (1, 1));
+    let gap = comments_at[0]
+        .checked_duration_since(issue_at[0])
+        .unwrap_or_default();
+    assert!(gap < delay / 2, "comments waited {gap:?} for the issue");
+    runtime.close().await;
+}

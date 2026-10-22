@@ -1,4 +1,4 @@
-use super::super::rest::Rest;
+use super::super::remaining::Remainder;
 use super::*;
 
 /// A commit's `continuePatch` copies the page-stream cursor named on
@@ -47,7 +47,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
         let mut out = json!({"pullRequests":[{"contentPagination":{
             "patches":{"hasMore":true,"nextOffset":900}
         }}]});
-        promote_pr_continuations(&mut out, &query, &Rest::default());
+        promote_pr_continuations(&mut out, &query, &Remainder::default());
         out["next"]["continuePatch"]["query"].clone()
     };
     for hop in [
@@ -95,7 +95,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
         let mut out = json!({"pullRequests":[{"contentPagination":{
             "files":{"hasMore":true,"nextPage":2}
         }}]});
-        promote_pr_continuations(&mut out, &query, &Rest::default());
+        promote_pr_continuations(&mut out, &query, &Remainder::default());
         out["next"]["nextFilePage"]["query"].clone()
     };
     let walk = file_page(json!(["patches"]), Some(31_000));
@@ -163,7 +163,7 @@ fn a_cut_comment_body_continues_with_offset_on_its_comment_page() {
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "commentBody":{"hasMore":true,"nextOffset":500}
     }}]});
-    promote_pr_continuations(&mut out, &query, &Rest::default());
+    promote_pr_continuations(&mut out, &query, &Remainder::default());
     let next = &out["next"]["continueCommentBody"]["query"]["queries"][0];
     assert_eq!(next["offset"], 500, "{out}");
     assert_eq!(next["page"], 2, "{out}");
@@ -356,7 +356,7 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     let sides = ChangeSides {
         new_ref: Some("c0ffee"),
         old_ref: Some("parent1"),
-        old_confidence: "high",
+        old_confidence: crate::response::result::Confidence::High,
     };
     let reads = change_reads("o", "r", std::slice::from_ref(&modified), &sides, |_| true);
     let names = reads.iter().map(|(name, _)| *name).collect::<Vec<_>>();
@@ -398,49 +398,6 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     assert_eq!(
         reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
         ["readAtCommit"]
-    );
-}
-
-/// Old-side hunk spans merge where their padded windows touch, start at
-/// line 1, skip pure additions, and fit one read's range cap.
-#[test]
-fn parent_windows_fit_one_ranged_read() {
-    assert_eq!(parent_windows("@@ -1,4 +1,3 @@ fn a\n"), ["1-14"]);
-    assert_eq!(parent_windows("@@ -5 +5 @@\n@@ -38,0 +40,2 @@\n"), ["1-15"]);
-    // A hunk with fewer trailing context lines than the diff keeps ends
-    // at the end of the file: its span stops at its last line.
-    assert_eq!(
-        parent_windows("@@ -10,5 +10,4 @@\n a\n b\n c\n-d\n e\n"),
-        ["1-14"]
-    );
-    assert_eq!(
-        parent_windows("@@ -10,7 +10,6 @@\n a\n b\n c\n-d\n e\n f\n g\n"),
-        ["1-26"]
-    );
-    let many = (0..15)
-        .map(|i| format!("@@ -{0},1 +{0},1 @@\n", 100 * (i + 1) + i))
-        .collect::<String>();
-    let ranges = parent_windows(&many);
-    assert_eq!(ranges.len(), PARENT_WINDOW_RANGES, "{ranges:?}");
-    assert!(ranges[0].starts_with("90-"), "{ranges:?}");
-    assert!(
-        ranges[PARENT_WINDOW_RANGES - 1].ends_with("-1524"),
-        "{ranges:?}"
-    );
-}
-
-/// One distinctive added line per hunk (the longest of at most
-/// 200 chars, not punctuation, not a redaction; under 12 chars only when
-/// no hunk has a longer one), duplicates once.
-#[test]
-fn distinctive_added_lines_pick_one_locator_per_hunk() {
-    let patch = "@@ -1,3 +1,4 @@\n a\n+  }\n+  const total = items.length;\n+  let x = 1;\n@@ -40 +41,2 @@\n+});\n+[REDACTED secret value here]\n@@ -90 +92 @@\n+  const total = items.length;\n@@ -99 +100 @@\n+    return computeTotal(items, options);";
-    assert_eq!(
-        distinctive_added_lines(patch),
-        [
-            "const total = items.length;",
-            "return computeTotal(items, options);"
-        ]
     );
 }
 
@@ -580,9 +537,9 @@ fn patch_hops_are_the_same_file_page_at_the_stream_cursor() {
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "patches":{"hasMore":true,"nextOffset":900}
     }}]});
-    let mut rest = Rest::default();
-    rest.unfinished_patches(2);
-    let notes = promote_pr_continuations(&mut out, &query, &rest);
+    let mut remainder = Remainder::default();
+    remainder.unfinished_patches(2);
+    let notes = promote_pr_continuations(&mut out, &query, &remainder);
     let hop = &out["next"]["continuePatch"]["query"]["queries"][0];
     assert!(hop.get("queries").is_none(), "{hop}");
     assert!(hop.get("content").is_none(), "{hop}");
@@ -617,7 +574,7 @@ fn the_next_file_page_follows_the_last_patch_window() {
         "patches":{"hasMore":true,"nextOffset":900},
         "files":{"hasMore":true,"nextPage":2}
     }}]});
-    promote_pr_continuations(&mut open, &query, &Rest::default());
+    promote_pr_continuations(&mut open, &query, &Remainder::default());
     let names = open["next"]
         .as_object()
         .map(|next| next.keys().cloned().collect::<Vec<_>>());
@@ -631,7 +588,7 @@ fn the_next_file_page_follows_the_last_patch_window() {
     let mut last = json!({"pullRequests":[{"contentPagination":{
         "files":{"hasMore":true,"nextPage":2}
     }}]});
-    promote_pr_continuations(&mut last, &hop, &Rest::default());
+    promote_pr_continuations(&mut last, &hop, &Remainder::default());
     let names = last["next"]
         .as_object()
         .map(|next| next.keys().cloned().collect::<Vec<_>>());
@@ -721,7 +678,7 @@ fn char_offset_continuations_narrow_content_to_their_own_surface() {
         "patches":{"hasMore":true,"nextOffset":900},
         "comments":{"hasMore":true,"nextPage":2}
     }}]});
-    promote_pr_continuations(&mut out, &query, &Rest::default());
+    promote_pr_continuations(&mut out, &query, &Remainder::default());
     let next = &out["next"];
     assert_eq!(
         next["continueBody"]["query"]["queries"][0]["sections"],
@@ -758,7 +715,7 @@ fn issue_pages_use_the_published_include_spelling() {
         "body":{"hasMore":true,"nextOffset":12000},
         "comments":{"hasMore":true,"nextPage":2}
     }}]});
-    promote_issue_continuations(&mut out, &query, &Rest::default());
+    promote_issue_continuations(&mut out, &query, &Remainder::default());
     let body = &out["next"]["continueBody"]["query"]["queries"][0];
     assert_eq!(body["sections"], json!(["body"]), "{out}");
     assert!(body.get("content").is_none(), "{out}");
@@ -783,7 +740,7 @@ fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
         let mut out = json!({"pullRequests":[{"contentPagination":{
             "files":{"hasMore":true,"nextPage":2}
         }}]});
-        promote_pr_continuations(&mut out, query, &Rest::default());
+        promote_pr_continuations(&mut out, query, &Remainder::default());
         out["next"]["nextFilePage"]["query"]["queries"][0].clone()
     };
     let pr = |fields: Value| {
@@ -850,7 +807,7 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
         "body":{"offset":0,"length":10,"total":30,"hasMore":true,"nextOffset":10},
         "files":{"currentPage":1,"hasMore":true,"nextPage":2}
     }}]});
-    promote_pr_continuations(&mut out, &pr, &Rest::default());
+    promote_pr_continuations(&mut out, &pr, &Remainder::default());
     assert!(out.get("isPartial").is_none(), "{out}");
     assert_eq!(
         out["next"]["nextFilePage"]["query"]["queries"][0]["page"],
@@ -868,7 +825,7 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "files":{"currentPage":1,"hasMore":true}
     }}]});
-    promote_pr_continuations(&mut out, &pr, &Rest::default());
+    promote_pr_continuations(&mut out, &pr, &Remainder::default());
     assert_eq!(out["isPartial"], true, "{out}");
     assert!(out.get("next").is_none(), "{out}");
 
@@ -879,7 +836,7 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
     let mut out = json!({"issues":[{"contentPagination":{
         "comments":{"currentPage":1,"hasMore":true,"nextPage":2}
     }}]});
-    promote_issue_continuations(&mut out, &issue, &Rest::default());
+    promote_issue_continuations(&mut out, &issue, &Remainder::default());
     assert!(out.get("isPartial").is_none(), "{out}");
     assert_eq!(
         out["next"]["nextCommentPage"]["query"]["queries"][0]["page"],

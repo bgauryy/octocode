@@ -31,12 +31,15 @@ fn a_long_line_yields_every_span() {
     t.write("many.txt", "needle ".repeat(total));
     for count_unique in [false, true] {
         let mut options = opts(t.path(), "needle");
-        options.only_matching = Some(true);
-        options.count_unique = Some(count_unique);
+        options.output = SearchOutput::Spans(if count_unique {
+            SpanValues::Counted
+        } else {
+            SpanValues::Every
+        });
         let result = search(options).expect("search ok");
         assert_eq!(result.stats.match_count, Some(total as u32));
         assert_eq!(result.stats.capped, Some(false));
-        assert_eq!(result.stats.cap_reason, None);
+        assert_eq!(result.stats.cap_reasons, []);
         if count_unique {
             assert_eq!(result.files[0].matches[0].count, Some(total as u32));
         } else {
@@ -51,13 +54,13 @@ fn span_collection_past_the_per_file_bound_reports_incomplete() {
     let bound = MAX_ONLY_MATCHING_PER_FILE as usize;
     t.write("many.txt", "needle ".repeat(bound + 1));
     let mut options = opts(t.path(), "needle");
-    options.only_matching = Some(true);
+    options.output = SearchOutput::Spans(SpanValues::Every);
     let result = search(options).expect("search ok");
     assert_eq!(result.stats.match_count, Some(bound as u32 + 1));
     assert_eq!(result.stats.capped, Some(true));
     assert_eq!(
-        result.stats.cap_reason.as_deref(),
-        Some("maxOnlyMatchingPerFile")
+        result.stats.cap_reasons,
+        [CapReason::MaxOnlyMatchingPerFile]
     );
     assert_eq!(result.files[0].matches.len(), bound);
 }
@@ -124,12 +127,6 @@ fn finds_matches_with_line_and_column() {
     assert_eq!(r.stats.match_count, Some(2));
     assert_eq!(r.stats.files_matched, Some(1));
     assert!(r.stats.bytes_searched.unwrap_or_default() > 0);
-    assert!(
-        r.stats
-            .search_time
-            .as_deref()
-            .is_some_and(|s| s.ends_with('s'))
-    );
 }
 
 #[test]
@@ -188,7 +185,7 @@ fn matcher_options_decide_the_match_count() {
             "case_sensitive is exact",
             "Hello\nhello\n",
             "hello",
-            |o| o.case_sensitive = Some(true),
+            |o| o.case = CaseRule::Sensitive,
             1,
             None,
             None,
@@ -198,7 +195,7 @@ fn matcher_options_decide_the_match_count() {
             "fixed_string treats the pattern literally",
             "a.b\naxb\n",
             "a.b",
-            |o| o.fixed_string = Some(true),
+            |o| o.syntax = PatternSyntax::Literal,
             1,
             Some((1, "a.b")),
             None,
@@ -207,7 +204,7 @@ fn matcher_options_decide_the_match_count() {
             "perl_regex supports lookahead",
             "foobar\nfoobaz\n",
             "foo(?=bar)",
-            |o| o.perl_regex = Some(true),
+            |o| o.syntax = PatternSyntax::Pcre2,
             1,
             Some((1, "foobar")),
             None,
@@ -225,7 +222,7 @@ fn matcher_options_decide_the_match_count() {
             "count_matches_per_file counts submatches",
             "x x x\nx\n",
             "x",
-            |o| o.count_matches_per_file = Some(true),
+            |o| o.output = SearchOutput::CountMatches,
             4,
             None,
             Some(4),
@@ -234,7 +231,7 @@ fn matcher_options_decide_the_match_count() {
             "count_lines_per_file counts matched lines",
             "x x x\nx\nnope\n",
             "x",
-            |o| o.count_lines_per_file = Some(true),
+            |o| o.output = SearchOutput::CountLines,
             2,
             None,
             None,
@@ -274,7 +271,7 @@ fn file_selection_options_decide_the_listed_files() {
             "files_without_match inverts the file set",
             &[("a.txt", "needle\n"), ("b.txt", "haystack\n")],
             "needle",
-            |o| o.files_without_match = Some(true),
+            |o| o.output = SearchOutput::FilesWithoutMatch,
             &["b.txt"],
         ),
         (
@@ -334,7 +331,7 @@ fn perl_regex_catastrophic_backtracking_terminates() {
     let (tx, rx) = mpsc::channel();
     let handle = std::thread::spawn(move || {
         let mut o = opts(path, "(a+)+$");
-        o.perl_regex = Some(true);
+        o.syntax = PatternSyntax::Pcre2;
         let _ = tx.send(search(o));
     });
     let outcome = rx
@@ -355,7 +352,7 @@ fn files_only_lists_paths_without_snippets() {
     t.write("a.txt", "needle\n");
     t.write("b.txt", "haystack\n");
     let mut o = opts(t.path(), "needle");
-    o.files_only = Some(true);
+    o.output = SearchOutput::FilesWithMatch;
     let r = search(o).expect("ok");
     assert_eq!(r.files.len(), 1);
     assert_eq!(r.files[0].match_count, 1);
@@ -378,8 +375,11 @@ fn invert_match_path_views_follow_rg_line_semantics() {
     let listed = |files_only: bool| {
         let mut o = opts(t.path(), "needle");
         o.invert_match = Some(true);
-        o.files_only = Some(files_only);
-        o.files_without_match = Some(!files_only);
+        o.output = if files_only {
+            SearchOutput::FilesWithMatch
+        } else {
+            SearchOutput::FilesWithoutMatch
+        };
         let mut names = search(o)
             .expect("ok")
             .files
@@ -489,7 +489,7 @@ fn caps_collected_files_and_reports_non_exhaustive_stats() {
 
     assert_eq!(r.files.len(), 2);
     assert_eq!(r.stats.capped, Some(true));
-    assert_eq!(r.stats.cap_reason.as_deref(), Some("maxCollectedFiles"));
+    assert_eq!(r.stats.cap_reasons, [CapReason::MaxCollectedFiles]);
 }
 
 #[test]
@@ -579,12 +579,7 @@ fn oversize_file_is_skipped_with_diagnostic_and_normal_file_still_matches() {
     assert_eq!(r.files.len(), 1);
     assert!(r.files[0].path.ends_with("small.txt"));
     assert_eq!(r.stats.capped, Some(true));
-    assert!(
-        r.stats
-            .cap_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("maxFileSize"))
-    );
+    assert!(r.stats.cap_reasons.contains(&CapReason::MaxFileSize));
     // The skipped file is not counted as covered (no overstated filesSearched).
     assert_eq!(r.stats.files_searched, Some(1));
 }
@@ -599,12 +594,7 @@ fn binary_quit_file_is_flagged_not_silently_absent() {
     let r = search(opts(t.path(), "needle")).expect("ok");
     assert!(r.files.iter().any(|f| f.path.ends_with("text.txt")));
     assert_eq!(r.stats.capped, Some(true));
-    assert!(
-        r.stats
-            .cap_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("binaryQuit"))
-    );
+    assert!(r.stats.cap_reasons.contains(&CapReason::BinaryQuit));
 }
 
 #[test]
@@ -637,7 +627,7 @@ fn traversal_sort_output_is_stable_across_runs() {
     }
     let run = || {
         let mut o = opts(t.path(), "needle");
-        o.sort = Some("traversal".to_owned());
+        o.sort = SearchSort::Traversal;
         search(o)
             .expect("ok")
             .files
@@ -655,9 +645,9 @@ fn traversal_sort_output_is_stable_across_runs() {
 #[test]
 fn explicit_traversal_sort_bypasses_post_collection_sorting() {
     let mut o = opts("/fixture".to_owned(), "m");
-    o.sort = Some("traversal".to_owned());
+    o.sort = SearchSort::Traversal;
     assert!(preserves_traversal_order(&o));
-    o.sort = None;
+    o.sort = SearchSort::Path;
     assert!(!preserves_traversal_order(&o));
 }
 
@@ -696,7 +686,7 @@ fn only_matching_emits_one_match_per_submatch() {
     let t = TmpDir::new();
     t.write("a.txt", "ab ab ab\n");
     let mut o = opts(t.path(), "ab");
-    o.only_matching = Some(true);
+    o.output = SearchOutput::Spans(SpanValues::Every);
     let r = search(o).expect("ok");
     let f = &r.files[0];
     assert_eq!(f.match_count, 3);
@@ -710,7 +700,7 @@ fn only_matching_value_is_the_span_not_the_line() {
     let t = TmpDir::new();
     t.write("a.txt", "prefix_NEEDLE_suffix\n");
     let mut o = opts(t.path(), "NEEDLE");
-    o.only_matching = Some(true);
+    o.output = SearchOutput::Spans(SpanValues::Every);
     let r = search(o).expect("ok");
     assert_eq!(r.files[0].matches.len(), 1);
     assert_eq!(r.files[0].matches[0].value, "NEEDLE");
@@ -728,7 +718,7 @@ fn only_matching_enumerates_every_hit_on_one_minified_line() {
         "a=\"x.cursor.sh\";b=\"y.cursor.sh\";c=\"z.cursor.sh\";\n",
     );
     let mut o = opts(t.path(), r"\w+\.cursor\.sh");
-    o.only_matching = Some(true);
+    o.output = SearchOutput::Spans(SpanValues::Every);
     let r = search(o).expect("ok");
     let vals: Vec<&str> = r.files[0]
         .matches
@@ -743,8 +733,8 @@ fn only_matching_unique_keeps_distinct_values_in_first_occurrence_order() {
     let t = TmpDir::new();
     t.write("a.txt", "ab ab cd ab cd ef\n");
     let mut o = opts(t.path(), r"\w+");
-    o.only_matching = Some(true);
-    o.unique = Some(true);
+    o.output = SearchOutput::Spans(SpanValues::Every);
+    o.output = SearchOutput::Spans(SpanValues::Unique);
     let r = search(o).expect("ok");
     let vals: Vec<&str> = r.files[0]
         .matches
@@ -760,8 +750,8 @@ fn only_matching_count_unique_attaches_frequency_sorted_descending() {
     let t = TmpDir::new();
     t.write("a.txt", "ab ab cd ab cd ef\n");
     let mut o = opts(t.path(), r"\w+");
-    o.only_matching = Some(true);
-    o.count_unique = Some(true);
+    o.output = SearchOutput::Spans(SpanValues::Every);
+    o.output = SearchOutput::Spans(SpanValues::Counted);
     let r = search(o).expect("ok");
     let vals: Vec<(&str, Option<u32>)> = r.files[0]
         .matches
@@ -772,16 +762,6 @@ fn only_matching_count_unique_attaches_frequency_sorted_descending() {
         vals,
         vec![("ab", Some(3)), ("cd", Some(2)), ("ef", Some(1))]
     );
-}
-
-#[test]
-fn unique_requires_only_matching() {
-    let t = TmpDir::new();
-    t.write("a.txt", "ab ab\n");
-    let mut o = opts(t.path(), "ab");
-    o.unique = Some(true);
-    let err = search(o).expect_err("unique without onlyMatching is invalid");
-    assert!(err.reason.contains("onlyMatching:true"));
 }
 
 #[test]
@@ -800,7 +780,7 @@ fn files_without_match_omits_binary_files_quit_before_matching() {
     t.write("plain.txt", "nothing here\n");
     t.write("hit.txt", "needle\n");
     let mut o = opts(t.path(), "needle");
-    o.files_without_match = Some(true);
+    o.output = SearchOutput::FilesWithoutMatch;
     let r = search(o).expect("ok");
     let paths: Vec<_> = r.files.iter().map(|f| f.path.as_str()).collect();
     assert_eq!(paths.len(), 1, "{paths:?}");
@@ -812,7 +792,7 @@ fn non_utf8_line_spans_and_columns_map_through_lossy_decoding() {
     let t = TmpDir::new();
     fs::write(t.0.join("latin.txt"), b"caf\xe9\xe9\xe9 foo bar\n").expect("write");
     let mut o = opts(t.path(), "foo");
-    o.only_matching = Some(true);
+    o.output = SearchOutput::Spans(SpanValues::Every);
     let r = search(o).expect("ok");
     let m = &r.files[0].matches[0];
     assert_eq!(m.value, "foo");
@@ -827,7 +807,6 @@ fn context_snippet_is_contiguous_and_includes_neighbouring_match_lines() {
     t.write("a.txt", "alpha foo\nFoo bar\nfoo foo foo\nbaz\n");
     let mut o = opts(t.path(), "foo");
     o.context = crate::types::SearchContext::symmetric(1);
-    o.case_sensitive = Some(false);
     let r = search(o).expect("ok");
     let m = &r.files[0].matches;
     assert_eq!(m[0].value, "alpha foo\nFoo bar");
@@ -874,7 +853,7 @@ fn opaque_binary_files_are_skipped_not_a_coverage_gap() {
     let r = search(opts(t.path(), "needle")).expect("ok");
     assert_eq!(r.files.len(), 1, "{:?}", r.files);
     assert!(r.files[0].path.ends_with("text.txt"));
-    assert_eq!(r.stats.cap_reason, None, "{:?}", r.stats);
+    assert_eq!(r.stats.cap_reasons, [], "{:?}", r.stats);
     assert_ne!(r.stats.capped, Some(true), "{:?}", r.stats);
     assert_eq!(r.stats.binary_files, None, "{:?}", r.stats);
     assert_eq!(r.stats.skipped_binary_count, Some(3), "{:?}", r.stats);
@@ -888,7 +867,7 @@ fn opaque_binary_files_are_skipped_not_a_coverage_gap() {
 
     // files-without-match still never lists a file it could not read as text.
     let mut o = opts(t.path(), "needle");
-    o.files_without_match = Some(true);
+    o.output = SearchOutput::FilesWithoutMatch;
     assert!(search(o).expect("ok").files.is_empty());
 }
 
@@ -919,7 +898,7 @@ fn binary_quit_keeps_matches_before_the_nul() {
     assert_eq!(matches[0].line, 1);
     assert_eq!(matches[0].value, "alpha before");
     assert_eq!(r.stats.match_count, Some(1));
-    assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+    assert_eq!(r.stats.cap_reasons, [CapReason::BinaryQuit]);
 }
 
 fn extension_groups(stats: &TextSearchStats) -> Vec<(&str, u32)> {
@@ -944,7 +923,7 @@ fn a_printable_magic_before_a_leading_nul_is_opaque_binary() {
     t.write("text.txt", "needle plain\n");
     let r = search(opts(t.path(), "needle")).expect("ok");
     assert_eq!(r.files.len(), 1, "{:?}", r.files);
-    assert_eq!(r.stats.cap_reason, None, "{:?}", r.stats);
+    assert_eq!(r.stats.cap_reasons, [], "{:?}", r.stats);
     assert_eq!(r.stats.binary_files, None, "{:?}", r.stats);
     assert_eq!(r.stats.skipped_binary_count, Some(4), "{:?}", r.stats);
     // Most files first; the extension is lowercased like structureSearch
@@ -976,7 +955,7 @@ fn text_lines_before_a_nul_stay_a_coverage_gap() {
     fs::write(t.0.join("log.txt"), b"first line\nsecond line\n\0needle\n").expect("log");
     let r = search(opts(t.path(), "needle")).expect("ok");
     assert!(r.files.is_empty(), "{:?}", r.files);
-    assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+    assert_eq!(r.stats.cap_reasons, [CapReason::BinaryQuit]);
     assert_eq!(r.stats.skipped_binary_count, None, "{:?}", r.stats);
     assert_eq!(r.stats.binary_file_count, Some(1));
     let named = r.stats.binary_files.unwrap_or_default();
@@ -994,7 +973,7 @@ fn a_match_before_a_leading_nul_keeps_the_file_a_gap() {
     fs::write(t.0.join("a.woff2"), b"wOF2\0\x01\0\0").expect("woff2");
     let r = search(opts(t.path(), "wOF2")).expect("ok");
     assert_eq!(r.files.len(), 1, "{:?}", r.files);
-    assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+    assert_eq!(r.stats.cap_reasons, [CapReason::BinaryQuit]);
     assert_eq!(r.stats.skipped_binary_count, None, "{:?}", r.stats);
 }
 
@@ -1007,7 +986,7 @@ fn a_long_text_run_before_a_nul_stays_a_gap() {
     body.extend_from_slice(b"\0needle\n");
     fs::write(t.0.join("bundle.js"), body).expect("bundle");
     let r = search(opts(t.path(), "needle")).expect("ok");
-    assert_eq!(r.stats.cap_reason.as_deref(), Some("binaryQuit"));
+    assert_eq!(r.stats.cap_reasons, [CapReason::BinaryQuit]);
     assert_eq!(r.stats.skipped_binary_count, None, "{:?}", r.stats);
 }
 
@@ -1070,7 +1049,7 @@ fn match_count_order_keeps_the_most_matched_file_past_the_path_prefix() {
     }
     t.write("zzz-hot.txt", "hit\n".repeat(40));
     let mut o = opts(t.path(), "hit");
-    o.sort = Some("matchCount".into());
+    o.sort = SearchSort::MatchCount;
     o.max_collected_files = Some(10);
     let r = search(o.clone()).expect("ok");
     assert_eq!(r.files.len(), 10);
@@ -1085,7 +1064,7 @@ fn match_count_order_keeps_the_most_matched_file_past_the_path_prefix() {
     // Totals count every matched file, not only the retained ones.
     assert_eq!(r.stats.files_matched, Some(31));
     assert_eq!(r.stats.match_count, Some(70));
-    assert_eq!(r.stats.cap_reason.as_deref(), Some("maxCollectedFiles"));
+    assert_eq!(r.stats.cap_reasons, [CapReason::MaxCollectedFiles]);
     for _ in 0..3 {
         let again = search(o.clone()).expect("ok");
         let paths =
@@ -1114,9 +1093,9 @@ fn bounded_retention_matches_a_full_sort() {
             source: None,
         }
     }
-    for sort in ["matchCount", "relevance"] {
+    for sort in [SearchSort::MatchCount, SearchSort::Relevance] {
         let mut o = opts("/fixture".to_owned(), "p");
-        o.sort = Some(sort.into());
+        o.sort = sort;
         let all: Vec<(String, u32, u32)> = (0..200u32)
             .map(|i| (format!("f{:03}", (i * 37) % 200), (i * 13) % 7, i))
             .collect();
@@ -1146,7 +1125,7 @@ fn bounded_retention_matches_a_full_sort() {
             &mut bounded,
         );
         let paths = |recs: &[FileRec]| recs.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
-        assert_eq!(paths(&bounded), paths(&full), "{sort}");
+        assert_eq!(paths(&bounded), paths(&full), "{sort:?}");
     }
 }
 
@@ -1159,7 +1138,7 @@ fn relevance_orders_by_count_then_source_path_then_line_weight_then_path() {
     t.write("d_two.rs", "// needle\n// needle\n");
     // A pattern (not a bare identifier) ranks by density first.
     let mut o = opts(t.path(), "ne+dle");
-    o.sort = Some("relevance".into());
+    o.sort = SearchSort::Relevance;
     let r = search(o.clone()).expect("ok");
     let names = r
         .files
@@ -1171,7 +1150,7 @@ fn relevance_orders_by_count_then_source_path_then_line_weight_then_path() {
         ["d_two.rs", "b_decl.rs", "a_comment.rs", "x_test.rs"]
     );
     // Path-list views: source paths first, then path.
-    o.files_only = Some(true);
+    o.output = SearchOutput::FilesWithMatch;
     let r = search(o).expect("ok");
     let names = r
         .files
@@ -1197,7 +1176,7 @@ fn relevance_ranks_generated_files_after_hand_written_ones() {
     t.write("src/one.c", "x = needle;\n");
     t.write("tests/two_test.c", "needle;\nneedle;\n");
     let mut o = opts(t.path(), "ne+dle");
-    o.sort = Some("relevance".into());
+    o.sort = SearchSort::Relevance;
     let r = search(o.clone()).expect("ok");
     let names = r
         .files
@@ -1211,7 +1190,7 @@ fn relevance_ranks_generated_files_after_hand_written_ones() {
     // Every hit is still returned; only the order changes.
     let total: usize = r.files.iter().map(|f| f.matches.len()).sum();
     assert_eq!(total, 8);
-    o.sort = Some("path".into());
+    o.sort = SearchSort::Path;
     let by_path = search(o).expect("ok");
     assert_eq!(by_path.files.len(), 4);
 }
@@ -1237,8 +1216,12 @@ fn identifier_search_ranks_the_declaring_source_file_first() {
     );
     let names = |pattern: &str, fixed: bool| {
         let mut o = opts(t.path(), pattern);
-        o.sort = Some("relevance".into());
-        o.fixed_string = Some(fixed);
+        o.sort = SearchSort::Relevance;
+        o.syntax = if fixed {
+            PatternSyntax::Literal
+        } else {
+            PatternSyntax::Regex
+        };
         o.whole_word = Some(fixed);
         search(o)
             .expect("ok")
@@ -1284,17 +1267,14 @@ fn cancellation_stops_the_walk_mid_tree() {
         t.write(&format!("f{i:02}.txt"), "needle\n");
     }
     let mut o = opts(t.path(), "needle");
-    o.sort = Some("traversal".into());
+    o.sort = SearchSort::Traversal;
     let polls = AtomicU32::new(0);
     let cancel = || polls.fetch_add(1, Ordering::SeqCst) >= 6;
     let r = search_cancellable(o, Arc::new(AllowAll), &cancel).expect("ok");
     let searched = r.stats.files_searched.unwrap_or(0);
     assert!(searched <= 6, "walk kept going after cancel: {searched}");
     assert!(
-        r.stats
-            .cap_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("cancelled")),
+        r.stats.cap_reasons.contains(&CapReason::Cancelled),
         "{:?}",
         r.stats
     );
@@ -1326,8 +1306,8 @@ fn pcre2_hard_deadline_returns_files_finished_so_far() {
         t.write(&format!("f{i}.txt"), "needle\n");
     }
     let mut o = opts(t.path(), "needle");
-    o.perl_regex = Some(true);
-    o.sort = Some("traversal".into());
+    o.syntax = PatternSyntax::Pcre2;
+    o.sort = SearchSort::Traversal;
     let filter = Arc::new(StallOnNth {
         seen: AtomicU32::new(0),
         nth: 4,
@@ -1352,7 +1332,7 @@ fn pcre2_hard_deadline_returns_files_finished_so_far() {
     assert_eq!(r.stats.files_searched, Some(3));
     assert_eq!(r.stats.files_matched, Some(3));
     assert_eq!(r.stats.capped, Some(true));
-    assert_eq!(r.stats.cap_reason.as_deref(), Some("pcre2Deadline"));
+    assert_eq!(r.stats.cap_reasons, [CapReason::Pcre2Deadline]);
 }
 
 #[test]
@@ -1363,8 +1343,8 @@ fn pcre2_driver_honours_cancellation_while_the_worker_is_stuck() {
         t.write(&format!("f{i}.txt"), "needle\n");
     }
     let mut o = opts(t.path(), "needle");
-    o.perl_regex = Some(true);
-    o.sort = Some("traversal".into());
+    o.syntax = PatternSyntax::Pcre2;
+    o.sort = SearchSort::Traversal;
     let filter = Arc::new(StallOnNth {
         seen: AtomicU32::new(0),
         nth: 2,
@@ -1375,12 +1355,7 @@ fn pcre2_driver_honours_cancellation_while_the_worker_is_stuck() {
     let r = search_with_limits(o, filter, &cancel, PCRE2_LIMITS).expect("ok");
     assert!(started.elapsed() < Duration::from_millis(1200));
     assert_eq!(r.files.len(), 1, "{:?}", r.stats);
-    assert!(
-        r.stats
-            .cap_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("cancelled"))
-    );
+    assert!(r.stats.cap_reasons.contains(&CapReason::Cancelled));
 }
 
 /// SHA-256 of a fixture file's bytes, for comparing with a search digest.
@@ -1390,7 +1365,7 @@ fn file_digest(path: &Path) -> [u8; 32] {
 
 /// A digest-asking search hashes each kept file after its search, and the
 /// digest equals a separate hash of the file; without the option nothing is
-/// hashed, and a file past the cap carries no digest.
+/// hashed.
 #[test]
 fn kept_files_carry_the_digest_of_the_bytes_searched() {
     let t = TmpDir::new();
@@ -1403,10 +1378,13 @@ fn kept_files_carry_the_digest_of_the_bytes_searched() {
     t.write("none.txt", "nothing here\n");
     for view in ["normal", "count", "files", "without"] {
         let mut options = opts(t.path(), "needle");
-        options.digest_max_bytes = Some(1 << 20);
-        options.count_matches_per_file = Some(view == "count");
-        options.files_only = Some(view == "files");
-        options.files_without_match = Some(view == "without");
+        options.values = SourceValues::Hashed;
+        options.output = match view {
+            "count" => SearchOutput::CountMatches,
+            "files" => SearchOutput::FilesWithMatch,
+            "without" => SearchOutput::FilesWithoutMatch,
+            _ => SearchOutput::Lines,
+        };
         let result = search(options).expect("search");
         assert!(!result.files.is_empty(), "{view}");
         for file in &result.files {
@@ -1420,17 +1398,6 @@ fn kept_files_carry_the_digest_of_the_bytes_searched() {
     }
     let unhashed = search(opts(t.path(), "needle")).expect("search");
     assert!(unhashed.files.iter().all(|file| file.source.is_none()));
-    let mut capped = opts(t.path(), "needle");
-    capped.digest_max_bytes = Some(64);
-    let capped = search(capped).expect("search");
-    for file in &capped.files {
-        assert_eq!(
-            file.source.is_some(),
-            file.path.ends_with("short.txt"),
-            "{}",
-            file.path
-        );
-    }
 }
 
 /// A symlink the walk admits but does not follow (to a file or a directory)
@@ -1488,7 +1455,7 @@ fn a_binary_cut_file_digest_covers_the_whole_file() {
     let path = t.0.join("mixed.log");
     fs::write(&path, &bytes).expect("fixture");
     let mut options = opts(t.path(), "needle");
-    options.digest_max_bytes = Some(1 << 22);
+    options.values = SourceValues::Hashed;
     let result = search(options).expect("search");
     assert_eq!(result.files.len(), 1);
     assert_eq!(result.files[0].matches.len(), 50);
@@ -1513,7 +1480,7 @@ fn relevance_reads_the_generated_header_from_the_searched_bytes() {
     );
     t.write("hand.c", "needle\n");
     let mut options = opts(t.path(), "needle");
-    options.sort = Some("relevance".into());
+    options.sort = SearchSort::Relevance;
     let result = search(options).expect("search");
     let names = result
         .files
@@ -1548,7 +1515,7 @@ fn only_matching_long_line_columns_are_linear_and_exact() {
     line.push('\n');
     t.write("long.txt", line);
     let mut o = opts(t.path(), "x");
-    o.only_matching = Some(true);
+    o.output = SearchOutput::Spans(SpanValues::Every);
     let started = std::time::Instant::now();
     let r = search(o).expect("ok");
     let elapsed = started.elapsed();
@@ -1576,7 +1543,11 @@ fn end_anchor_matches_crlf_lines() {
     );
     for perl in [false, true] {
         let mut o = opts(t.path(), "needle$");
-        o.perl_regex = Some(perl);
+        o.syntax = if perl {
+            PatternSyntax::Pcre2
+        } else {
+            PatternSyntax::Regex
+        };
         let r = search(o).expect("search ok");
         let lines: Vec<_> = r
             .files
@@ -1644,7 +1615,7 @@ fn relevance_ranks_gitattributes_generated_files_last() {
     t.write("lib/keep.ts", "needle\nneedle\n");
     t.write("src/a.ts", "needle\n");
     let mut options = opts(t.path(), "needle");
-    options.sort = Some("relevance".into());
+    options.sort = SearchSort::Relevance;
     let result = search(options).expect("search");
     let names: Vec<String> = result
         .files
@@ -1681,7 +1652,7 @@ fn relevance_ranks_alternation_coverage_before_hit_count() {
     t.write("two.rs", "retry\nretry\nbackoff\n");
     let rank = |pattern: &str| {
         let mut options = opts(t.path(), pattern);
-        options.sort = Some("relevance".into());
+        options.sort = SearchSort::Relevance;
         search(options)
             .expect("search")
             .files
@@ -1900,7 +1871,7 @@ fn the_search_walks_exactly_what_the_ignore_walker_walks() {
                 options.ignore = policy;
                 options.include.clone_from(include);
                 options.lang_type.clone_from(lang);
-                options.files_only = Some(true);
+                options.output = SearchOutput::FilesWithMatch;
                 let found =
                     search_cancellable(options, reported.clone(), &|| false).expect("search");
                 let searched = files_of(
@@ -1993,14 +1964,16 @@ fn deferred_lines_preserve_every_anchor_rank_digest_and_clip_length() {
     ] {
         let mut options = opts(t.path(), "needle");
         options.context = crate::types::SearchContext::symmetric(context);
-        options.only_matching = Some(only);
-        options.unique = Some(unique);
-        options.count_unique = Some(unique);
+        options.output = match (only, unique) {
+            (false, _) => SearchOutput::Lines,
+            (true, false) => SearchOutput::Spans(SpanValues::Every),
+            (true, true) => SearchOutput::Spans(SpanValues::Counted),
+        };
         options.multiline = Some(multiline);
-        options.digest_max_bytes = Some(u64::MAX);
+        options.values = SourceValues::Hashed;
         options.max_snippet_chars = Some(40);
         let before = search(options.clone()).expect("owned scan");
-        options.defer_values = true;
+        options.values = SourceValues::Deferred;
         let after = search(options).expect("compact scan");
         assert_eq!(before.stats.match_count, after.stats.match_count);
         assert_eq!(before.stats.matched_lines, after.stats.matched_lines);
@@ -2066,7 +2039,7 @@ fn asymmetric_context_surrounds_the_whole_multiline_match() {
     t.write("a.txt", "before\nstart\nend\nafter\nlast\n");
     let mut o = opts(t.path(), "start\nend");
     o.multiline = Some(true);
-    o.fixed_string = Some(false);
+    o.syntax = PatternSyntax::Regex;
     o.context = crate::types::SearchContext {
         before: 1,
         after: 2,

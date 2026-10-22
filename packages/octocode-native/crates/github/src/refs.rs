@@ -130,6 +130,21 @@ impl GitHubTransport {
         })
     }
 
+    /// Whether `tag` names a tag of `owner/repo`: its tag ref exists (a
+    /// branch of the same name does not count).
+    pub async fn tag_exists(
+        &self,
+        owner: &str,
+        repo: &str,
+        tag: &str,
+        context: &RequestContext,
+    ) -> Result<bool, ProviderError> {
+        Ok(self
+            .named_ref_sha(owner, repo, "tags", tag, context)
+            .await?
+            .is_some())
+    }
+
     /// The object SHA of `refs/{namespace}/{name}`; `None` when it does not
     /// exist (a ref name keeps its `/`, one path segment each).
     async fn named_ref_sha(

@@ -35,14 +35,6 @@ const numbered = text => sourceView({ content: text ?? '' }).ranges.flatMap(r =>
 /** Local budgets cover a cold CLI process; lsp covers a cold language server. */
 const LOCAL = 6000, REMOTE = 6000, LSP = 25000;
 
-/** A temp copy of the fixture as the tool's workspace, plus `extra` files (relative path → text). */
-function workspace(ctx, name, extra = {}) {
-  const dir = path.join(ctx.tmp, `ws-${name}`);
-  fs.cpSync(ctx.fixture, dir, { recursive: true });
-  for (const [rel, text] of Object.entries(extra)) { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); }
-  return dir;
-}
-
 /** Patch rows of a ghGetHistoryItem response: `path:line` per numbered patch line (`N\t+text`). */
 const patchRows = data => (data?.pullRequests ?? []).flatMap(pr => (pr.files ?? []).flatMap(f => (f.patch ?? '').split('\n').map(l => /^(\d+)\t/.exec(l)?.[1]).filter(Boolean).map(n => `${f.path}:${n}`)));
 const fileRows = data => (data?.pullRequests ?? []).flatMap(pr => inventoryRows(pr.files).map(f => `#${pr.number}:${f.path}:${f.status}`));
@@ -122,7 +114,7 @@ export const CASES = {
       const checks = [];
       for (const surface of surfaces) {
         const first = await callOn(surface)('structureSearch', { queries: [{ path: '.', operation: 'files', maxEntries: 1, pageSize: 1 }] });
-        const lead = first.json?.results?.[0]?.data?.next?.expandScan;
+        const lead = first.json?.results?.[0]?.data?.next?.continueWalk;
         const query = lead?.query?.queries?.[0];
         const valid = !first.isError && lead?.tool === 'structureSearch' && query?.maxEntries > 1 && query?.scanOffset === undefined;
         checks.push([`minimumScan.${surface}`, valid, valid ? '' : JSON.stringify(first.json)]);
@@ -194,50 +186,6 @@ export const CASES = {
       { label: 'definition', query: { path: 'src/app.ts', symbolName: 'greet', line: 6, operation: 'definition' }, deep: true },
       { label: 'documentSymbols', query: { path: 'src/greeter.ts', operation: 'documentSymbols' }, deep: true },
       { label: 'workspaceSymbol', query: { operation: 'workspaceSymbol', workspaceRoot: '.', symbolName: 'Greeter' }, deep: true },
-    ],
-  },
-  astTopology: {
-    budgetMs: LOCAL,
-    // Four unreachable modules plus util.ts greetLoudly: five dead exports from
-    // src/app.ts. Outside src, a hub in a cycle: cyc/a.ts imports b.ts and c.ts,
-    // and both import it back, so its two edges share one file.
-    workspace: ctx => workspace(ctx, 'astTopology', {
-      ...Object.fromEntries([1, 2, 3, 4].map(i => [`src/dead/unused${i}.ts`, `export function unused${i}(): number {\n  return ${i};\n}\n`])),
-      'cyc/a.ts': "import { b } from './b';\nimport { c } from './c';\nexport const a = (): number => b() + c();\n",
-      'cyc/b.ts': "import { a } from './a';\nexport const b = (): number => 1 + (0 && a());\n",
-      'cyc/c.ts': "import { a } from './a';\nexport const c = (): number => 2 + (0 && a());\n",
-    }),
-    // Wire validity under shared-field compaction (review R04): two edges that
-    // share their hub file are validated exactly as emitted, with the
-    // response's `shared` block left in place (no restoration).
-    extra: async ({ callOn, surfaces, validateOutput }) => {
-      const out = [];
-      for (const [label, row] of [
-        ['dependencies', { path: 'src', operation: 'dependencies', source: 'src/app.ts' }],
-        ['dependents', { path: 'cyc', operation: 'dependents', source: 'cyc/a.ts' }],
-      ]) {
-        for (const surface of surfaces) {
-          const res = await callOn(surface)('astTopology', { queries: [{ ...row, extras: ['details'] }] });
-          const nodes = res.json?.results?.[0]?.data?.nodes ?? [];
-          // Two edges through one file: the hub (`via`) is hoisted into `shared`.
-          out.push([`wire.${label}.${surface}.compacted`, nodes.length >= 2 && !!res.raw?.shared?.via, `${nodes.length} rows, shared ${JSON.stringify(res.raw?.shared)}: ${JSON.stringify(res.raw ?? res.text).slice(0, 160)}`]);
-          const error = validateOutput('astTopology', res.raw);
-          out.push([`wire.${label}.${surface}.contract`, !error, error ? `${error} (shared ${JSON.stringify(res.raw?.shared)})` : '']);
-        }
-      }
-      return out;
-    },
-    walks: [
-      { label: 'deadCode', query: { path: 'src', operation: 'deadCode', entrypoints: ['src/app.ts'], pageSize: 1 }, lead: 'nextPage', rows: data => (data.nodes ?? []).map(n => `${n.file}:${n.name}:${n.line}`), unpaged: { path: 'src', operation: 'deadCode', entrypoints: ['src/app.ts'] }, minPages: 3 },
-    ],
-    happy: { query: { path: 'src', operation: 'dependencies', source: 'src/app.ts' }, fields: ['nodes', 'coverage'], rows: data => (data.nodes ?? []).map(n => `${n.file}:${n.importLine}`), min: 2 },
-    page: { query: { path: 'src', operation: 'dependencies', source: 'src/app.ts', pageSize: 1 }, lead: 'nextPage' },
-    empty: { query: { path: 'src', operation: 'cycles' } },
-    invalid: { query: { path: 'src', operation: 'summary' } },
-    explore: [
-      { label: 'dependents', query: { path: 'src', operation: 'dependents', source: 'src/greeter.ts' } },
-      { label: 'reachability', query: { path: 'src', operation: 'reachability', entrypoints: ['src/app.ts'] }, deep: true },
-      { label: 'path', query: { path: 'src', operation: 'path', source: 'src/app.ts', target: 'src/greeter.ts' }, deep: true },
     ],
   },
   ghSearchCode: {

@@ -27,7 +27,7 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 /// Returns the `cache` field value from the first result row, or 0 if absent.
-fn row_cache_flag(outcome: &octocode_native::runtime::ToolOutcome) -> u64 {
+fn row_cache_flag(outcome: &octocode_native::response::outcome::ToolOutcome) -> u64 {
     outcome
         .structured_content
         .pointer("/results/0/cache")

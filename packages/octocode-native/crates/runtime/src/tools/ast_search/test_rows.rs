@@ -1,12 +1,12 @@
 //! Row helpers the astSearch behavior tests share: run a JSON row, read
 //! match and outline rows, follow page chains.
 use super::{AstResult, AstSearchQuery, execute_ast};
-use crate::tools::cancel::NeverCancel;
-use crate::tools::id::ToolId;
-use crate::tools::result::ToolError;
+use crate::execution::cancel::NeverCancel;
+use crate::id::ToolId;
+use crate::response::result::ToolError;
 use crate::tools::test_support::{checks, simple_policy};
 use crate::{
-    policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
+    execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
 use serde_json::json;
 
@@ -103,7 +103,7 @@ pub(super) fn value_reads(out: &serde_json::Value) -> Vec<serde_json::Value> {
     assert_eq!(read["tool"], "localFetch", "{read}");
     let rows = read["query"]["queries"].as_array().expect("rows").clone();
     assert!(
-        rows.len() <= crate::tools::result::rows_per_call(crate::tools::id::ToolId::LocalFetch),
+        rows.len() <= crate::response::result::rows_per_call(crate::id::ToolId::LocalFetch),
         "{read}"
     );
     for row in &rows {

@@ -33,19 +33,19 @@ Topology triages file relationships; it never proves symbol identity (use semant
 
 | Question | Start with | Candidate for |
 |---|---|---|
-| What a file affects or relies on | `astTopology` `dependents`/`dependencies`; `graph query impact <ref>` (`impact --since <rev>` for a diff) | Blast radius, coupling |
-| Layer reachability | `astTopology` `path` or `graph query path <from> <to>`, plus the declared rule | Boundary crossing |
-| Mutual dependency | `astTopology` `cycles` (`runtimeCycle` splits runtime from type-only) or `graph query cycles` | Initialization or change coupling |
-| Unreachable or removable | `astTopology` `reachability`/`deadCode` with explicit `entrypoints` and `includeTests` | Alternate entrypoint, stale code |
-| New edges or cycles | `astTopology` `drift` vs a baseline root, or `graph query issues --baseline <snapshot>` | Drift |
+| What a file affects or relies on | `graph query dependents`/`deps <file> [--depth n]`; `graph query impact <ref>` (`impact --since <rev>` for a diff) | Blast radius, coupling |
+| Layer reachability | `graph query path <from> <to>`, plus the declared rule | Boundary crossing |
+| Mutual dependency | `graph query cycles`; `issues --detector cycle` (runtime imports only, witness and `suggestedCuts`) | Initialization or change coupling |
+| Unreachable or removable | `graph query issues --detector unreachable-file,unused-export,test-only` with explicit `--entry <ref,...>` | Alternate entrypoint, stale code |
+| New edges or cycles | `graph query drift --graph <head> --baseline <baseline>` (ingest both trees), or `issues --baseline <snapshot>` | Drift |
 | Review order | `graph query issues` (ranked hypotheses with `controls` and `verify` commands) | Hotspot, never a finding |
 
 - Not topology: duplicated policy or leaky interfaces (scenarios, consumers, AST/LSP, history); runtime cost (profile, end-to-end benchmark); slow builds (timed clean/warm runs, I/O, process, cache counts).
-- Rust: `astTopology` with `rustWorkspace: "cargo"`, or crate edges from `cargo metadata --format-version 1` (or `cargo tree -e normal`); `rust-best-practices` when installed.
-- One bounded question: `astTopology`. Repeated: `npx octocode graph ingest <path>`, then `npx octocode graph query <op>`; re-ingest when `graph query stale` lists changed files.
-- Reruns: fix the absolute scan root, entrypoints, exclusions, test policy, page size.
-- Run `deadCode` `references` suggestions in `hints` unchanged.
-- Before an absence or completeness claim, check consumers outside the scanned roots and coverage signals: `astTopology` `coverage.state`, `isPartial`, `partialReasons`, `coverage.imports.unresolvedInternal` (diagnostics are counts until paged via `next.nextDiagnosticPage`), `pagination.outOfRange` on an empty page; `lspSearch` `coverage.exhaustive`; `graph` `callInternalRecall` and finding `tier`. Cold LSP servers undercount references: rerun, or treat partial as a lower bound.
+- Rust: crate edges from `cargo metadata --format-version 1` (or `cargo tree -e normal`); `rust-best-practices` when installed.
+- Run `npx octocode graph ingest <path>` once (an unchanged tree reuses its snapshot), then `npx octocode graph query <op>`; re-ingest when `graph query stale` lists changed files.
+- Reruns: fix the ingested root, `--entry` entrypoints, and detectors.
+- Run each `issues` finding's `verify` commands unchanged.
+- Before an absence or completeness claim, check consumers outside the scanned roots and coverage signals: `graph` `graph.partialReasons` (run its `graph.reingest` command), `callInternalRecall`, finding `tier`, and `unresolved-import` findings; `lspSearch` `coverage.exhaustive`. Cold LSP servers undercount references: rerun, or treat partial as a lower bound.
 
 ## Kill the strongest alternate
 

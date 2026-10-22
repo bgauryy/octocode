@@ -11,7 +11,8 @@ use super::{
     read_graph_file,
 };
 use crate::policy::path::PathPolicy;
-use crate::runtime::ExitClass;
+use crate::response::exit::ExitClass;
+use crate::tools::ast_graph::types::DiagnosticCode;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -45,6 +46,7 @@ pub const OPS: &[&str] = &[
     "stale",
     "issues",
     "impact",
+    "drift",
 ];
 
 #[derive(Clone, Debug, Default)]
@@ -84,6 +86,8 @@ pub struct QueryOptions {
     pub since: Option<String>,
     /// `issues`: lowest finding tier to show (100/90/60; default 90).
     pub min_tier: Option<u8>,
+    /// `issues`: entrypoints (node references) in place of the inferred ones.
+    pub entries: Vec<String>,
 }
 
 struct Graph {
@@ -325,8 +329,32 @@ impl Graph {
         coverage
     }
 
+    /// The snapshot every answer names. A scan cut (the `maxFiles` bound,
+    /// the edge cap, files skipped as unreadable or oversized) leaves every
+    /// answer partial: `partialReasons` names the cuts, and `reingest` the
+    /// widened ingest that lifts a file-scan cut (the others it cannot).
     fn summary(&self) -> Value {
-        json!({"id": self.id, "root": self.manifest["root"], "createdAt": self.manifest["createdAt"]})
+        let mut out = json!({"id": self.id, "root": self.manifest["root"], "createdAt": self.manifest["createdAt"]});
+        let scan = &self.manifest["scan"];
+        let truncated = scan["truncated"] == true;
+        let reasons = [
+            (truncated, "maxFiles"),
+            (scan["edgesCapped"] == true, "edgeCap"),
+            (
+                scan["filesSkipped"].as_u64().unwrap_or(0) > 0,
+                "filesSkipped",
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(cut, reason)| cut.then_some(reason))
+        .collect::<Vec<_>>();
+        if !reasons.is_empty() {
+            out["partialReasons"] = json!(reasons);
+        }
+        if truncated {
+            out["reingest"] = json!(reingest_command(&self.manifest));
+        }
+        out
     }
 
     /// Resolves a user reference to exactly one node.
@@ -443,6 +471,27 @@ impl Graph {
             .into_iter()
             .flatten();
         out.chain(incoming).filter(|(_, edge)| filter.admits(edge))
+    }
+}
+
+impl Graph {
+    /// The files that use an export of `file` through a re-exporting
+    /// module: `uses` edges resolved through a re-export into a symbol
+    /// `file` declares, from another file.
+    fn reexport_users(&self, file: u32) -> impl Iterator<Item = (u32, &EdgeRec)> + '_ {
+        contained_symbols(self, file)
+            .into_iter()
+            .flat_map(move |symbol| {
+                self.t
+                    .incoming(symbol)
+                    .filter(move |edge| {
+                        edge.kind == EdgeKind::Uses
+                            && self.t.str(edge.detail) == "reexport"
+                            && edge.src != file
+                            && self.t.nodes[edge.src as usize].kind == NodeKind::File
+                    })
+                    .map(|edge| (edge.src, edge))
+            })
     }
 }
 
@@ -609,6 +658,10 @@ fn next_command(options: &QueryOptions, id: &str, offset: usize) -> String {
             "--detector",
             (!options.detectors.is_empty()).then(|| options.detectors.join(",")),
         ),
+        (
+            "--entry",
+            (!options.entries.is_empty()).then(|| options.entries.join(",")),
+        ),
         ("--baseline", options.baseline.clone()),
         ("--min-score", options.min_score.map(|m| m.to_string())),
         (
@@ -652,7 +705,7 @@ fn git_changed(root: &Path, rev: &str) -> Result<Vec<String>, String> {
             "git",
             std::time::Duration::from_secs(30),
             32 * 1024 * 1024,
-            &crate::tools::cancel::NeverCancel,
+            &crate::execution::cancel::NeverCancel,
         )?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
@@ -737,6 +790,7 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
         )),
         "impact" => query.impact(),
         "issues" => query.issues(paths),
+        "drift" => query.drift(paths),
         "stale" => {
             let (extra, page) = stale(g, paths);
             let mut out = run_page(options, g, extra, page);
@@ -879,17 +933,31 @@ impl Query<'_> {
             vec![root]
         };
         let filter = self.filter(&default_edges);
+        // A file's default dependents include the files that use its exports
+        // through a re-exporting module; an explicit --edge walks only those
+        // edges.
+        let reexports =
+            op == "dependents" && node_kind == NodeKind::File && self.flags.edge_kinds.is_empty();
         let page = walk(
             g,
             &seeds,
-            self.flags.direction.unwrap_or(default_direction),
-            &filter,
-            self.flags.depth.unwrap_or(default_depth),
-            self.flags.kind,
+            &Walk {
+                direction: self.flags.direction.unwrap_or(default_direction),
+                filter: &filter,
+                depth: self.flags.depth.unwrap_or(default_depth),
+                kind: self.flags.kind,
+                reexports,
+            },
         );
         let mut extra = Map::new();
         extra.insert("target".into(), Value::Object(g.node_json(root)));
         extra.extend(edges_extra(&filter));
+        if op == "dependents" && filter.kinds.contains(&EdgeKind::Imports) {
+            let unlinked = unlinked_path_imports(g, root);
+            if !unlinked.is_empty() {
+                extra.insert("summary".into(), json!({"unlinkedPathImports": unlinked}));
+            }
+        }
         if filter.kinds.contains(&EdgeKind::Calls) {
             extra.insert("coverage".into(), g.coverage(root));
         }
@@ -1042,7 +1110,21 @@ impl Query<'_> {
         let invalid = |message: String| GraphOutput::error("invalidInput", message);
         let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
         let scan_root = root.is_dir().then_some(root.as_path());
-        let report = super::detect::run(&g.t, &detectors, scan_root).map_err(invalid)?;
+        let mut entries = Vec::new();
+        for reference in options
+            .entries
+            .iter()
+            .flat_map(|e| e.split(','))
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+        {
+            let file = g
+                .resolve(reference, Some(NodeKind::File))
+                .map_err(|failure| *failure)?;
+            entries.push(g.key(file).to_owned());
+        }
+        let entries = (!entries.is_empty()).then_some(entries.as_slice());
+        let report = super::detect::run(&g.t, &detectors, scan_root, entries).map_err(invalid)?;
         let min_tier = options.min_tier.unwrap_or(DEFAULT_MIN_TIER);
         let keep = |f: &&super::detect::Finding| {
             options.min_score.is_none_or(|min| f.score >= min) && f.tier >= min_tier
@@ -1061,7 +1143,8 @@ impl Query<'_> {
         extra.insert("summary".into(), summary);
         let mut status = BTreeMap::<String, &str>::new();
         if let Some(base) = &options.baseline {
-            let baseline = self.baseline(paths, base, &detectors, &findings, &mut status)?;
+            let baseline =
+                self.baseline(paths, base, &detectors, entries, &findings, &mut status)?;
             extra.insert("baseline".into(), baseline);
         }
         let rows = findings
@@ -1085,6 +1168,33 @@ impl Query<'_> {
         ))
     }
 
+    /// The structural drift from the `--baseline` snapshot to this one.
+    fn drift(&self, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
+        let base = self.options.baseline.as_deref().ok_or_else(|| {
+            GraphOutput::error("invalidInput", "`drift` needs --baseline <snapshot>")
+        })?;
+        let base_options = QueryOptions {
+            graph: Some(base.to_owned()),
+            workspace: self.options.workspace.clone(),
+            ..Default::default()
+        };
+        let base_graph = load(&base_options, paths).map_err(|failure| *failure)?;
+        let drift = super::drift::diff(&base_graph.t, &self.g.t);
+        let mut extra = Map::new();
+        extra.insert("baseline".into(), base_graph.summary());
+        extra.insert("summary".into(), drift.summary);
+        let rows = drift.rows;
+        Ok(run_page(
+            self.options,
+            self.g,
+            extra,
+            Page {
+                total: rows.len(),
+                rows,
+            },
+        ))
+    }
+
     /// Findings compared with a baseline graph: each current one is `new`
     /// or `existing` (written to `status`), and the resolved ones are listed.
     fn baseline(
@@ -1092,6 +1202,7 @@ impl Query<'_> {
         paths: &PathPolicy,
         base: &str,
         detectors: &[String],
+        entries: Option<&[String]>,
         findings: &[super::detect::Finding],
         status: &mut BTreeMap<String, &str>,
     ) -> Result<Value, GraphOutput> {
@@ -1106,6 +1217,7 @@ impl Query<'_> {
             &base_graph.t,
             detectors,
             base_root.is_dir().then_some(base_root.as_path()),
+            entries,
         )
         .map_err(|message| GraphOutput::error("invalidInput", message))?;
         let old = before
@@ -1304,15 +1416,26 @@ fn symbols(g: &Graph, root: u32) -> (Map<String, Value>, Page) {
     )
 }
 
-/// Breadth-first expansion from `seeds`; rows are in discovery order.
-fn walk(
-    g: &Graph,
-    seeds: &[u32],
+/// How a [`walk`] expands.
+struct Walk<'f> {
     direction: Direction,
-    filter: &EdgeFilter,
+    filter: &'f EdgeFilter,
     depth: u32,
     kind: Option<NodeKind>,
-) -> Page {
+    /// Inward from a file, also step to the files that use its exports
+    /// through a re-exporting module.
+    reexports: bool,
+}
+
+/// Breadth-first expansion from `seeds`; rows are in discovery order.
+fn walk(g: &Graph, seeds: &[u32], how: &Walk) -> Page {
+    let Walk {
+        direction,
+        filter,
+        depth,
+        kind,
+        reexports,
+    } = *how;
     let mut seen = vec![false; g.t.nodes.len()];
     let mut queue = VecDeque::new();
     for seed in seeds {
@@ -1325,7 +1448,13 @@ fn walk(
         if level >= depth {
             continue;
         }
-        for (next, edge) in g.neighbors(id, direction, filter) {
+        let through = (reexports
+            && direction != Direction::Out
+            && g.t.nodes[id as usize].kind == NodeKind::File)
+            .then(|| g.reexport_users(id))
+            .into_iter()
+            .flatten();
+        for (next, edge) in g.neighbors(id, direction, filter).chain(through) {
             if seen[next as usize] {
                 continue;
             }
@@ -1416,8 +1545,8 @@ fn cycle_preview_row(options: &QueryOptions, id: &str, keys: &[String]) -> Value
 
 /// Cycle groups as member keys, each with whether a runtime (module-load)
 /// loop runs inside it. Over import edges they are the one cycle engine's
-/// groups ([`crate::tools::ast_graph::algorithms::Cycles`], as astTopology
-/// and the `cycle` detector report them); over other edge kinds (calls),
+/// groups ([`crate::tools::ast_graph::algorithms::Cycles`], as the `cycle`
+/// detector reports them); over other edge kinds (calls),
 /// the strongly connected groups of those edges, with no runtime verdict.
 fn cycle_groups(g: &Graph, filter: &EdgeFilter) -> Vec<(Vec<String>, Option<bool>)> {
     if filter.kinds == [EdgeKind::Imports] {
@@ -1579,6 +1708,9 @@ fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
                 if diag.line != NONE {
                     row["line"] = json!(diag.line);
                 }
+                if diag.target != NONE {
+                    row["target"] = json!(g.key(diag.target));
+                }
                 row
             })
             .collect::<Vec<_>>();
@@ -1586,6 +1718,64 @@ fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
         total: rows.len(),
         rows,
     }
+}
+
+/// The unlinked path imports that name `file` (see the ingest's
+/// `unlinked-path-import` diagnostics): importers no edge records.
+fn unlinked_path_imports(g: &Graph, file: u32) -> Vec<Value> {
+    g.t.diagnostics
+        .iter()
+        .filter(|diag| {
+            diag.target == file && g.t.str(diag.code) == DiagnosticCode::UnlinkedPathImport.as_str()
+        })
+        .map(|diag| {
+            json!({
+                "file": g.t.str(diag.file),
+                "line": diag.line,
+                "message": g.t.str(diag.message),
+            })
+        })
+        .collect()
+}
+
+/// The ingest that rebuilds the snapshot of `manifest` with its own scan
+/// options; a scan cut at maxFiles re-ingests with twice the bound, the only
+/// limit a re-ingest can lift.
+fn reingest_command(manifest: &Value) -> String {
+    let scan = &manifest["scan"];
+    let root = manifest["root"].as_str().unwrap_or_default();
+    let mut command = format!("octocode graph ingest {}", quote(root));
+    let max_files = match scan["maxFiles"].as_u64() {
+        Some(max) if scan["truncated"] == true => {
+            Some(max.saturating_mul(2).min(u64::from(u32::MAX)))
+        }
+        max => max.filter(|max| *max != u64::from(super::DEFAULT_MAX_FILES)),
+    };
+    if let Some(max) = max_files {
+        command.push_str(&format!(" --max-files {max}"));
+    }
+    for dir in scan["excludeDir"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        command.push_str(&format!(" --exclude {}", quote(dir)));
+    }
+    for (language, globs) in scan["languageGlobs"].as_object().into_iter().flatten() {
+        for glob in globs
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            command.push_str(&format!(
+                " --language-glob {}",
+                quote(&format!("{language}={glob}"))
+            ));
+        }
+    }
+    command
 }
 
 /// What changed under the snapshot's root since ingest: sources edited,
@@ -1622,28 +1812,9 @@ fn stale(g: &Graph, paths: &PathPolicy) -> (Map<String, Value>, Page) {
             )),
         );
     }
-    if !rows.is_empty() || !freshness.added_checked {
-        // The snapshot's own scope: a scan cut at maxFiles re-ingests with
-        // a larger one, the only limit a re-ingest can lift.
-        let mut command = format!("octocode graph ingest {}", quote(&root.to_string_lossy()));
-        let max_files = match max_files {
-            Some(max) if !freshness.added_checked => {
-                Some(max.saturating_mul(2).min(u64::from(u32::MAX)))
-            }
-            max => max.filter(|max| *max != u64::from(super::DEFAULT_MAX_FILES)),
-        };
-        if let Some(max) = max_files {
-            command.push_str(&format!(" --max-files {max}"));
-        }
-        for dir in scan["excludeDir"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-        {
-            command.push_str(&format!(" --exclude {}", quote(dir)));
-        }
-        extra.insert("reingest".into(), json!(command));
+    // A scan cut at maxFiles names its widened re-ingest in the graph block.
+    if !rows.is_empty() && freshness.added_checked {
+        extra.insert("reingest".into(), json!(reingest_command(&g.manifest)));
     }
     (
         extra,

@@ -31,9 +31,11 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
     // The response and registry caches (`tmp/response`, `tmp/artifact`) age
     // by entry class and byte budget in their own store, which alone evicts
     // them: an age sweep would drop entries the store keeps.
-    // `tmp/tree` is written by octocode-mcp 19.x, which shares this home;
-    // native never reads it, so aged entries are cleared here.
+    // `tmp/tree` and `tmp/tree-staging` are written by octocode-mcp 19.x,
+    // which shares this home; native never reads them, so aged entries are
+    // cleared here.
     sweep_dir(&tmp.join("tree"), INTERVAL);
+    sweep_dir(&tmp.join("tree-staging"), INTERVAL);
     // Materialized checkouts: each snapshot ages by its last write and is
     // removed only under its own lock, so a materialize in progress keeps
     // it. `v2` is a retired layout no writer uses: it ages out whole.
@@ -230,17 +232,24 @@ mod tests {
                 .unwrap();
             kept.push(pinned);
         }
-        let stale_tree = home.path().join("tmp/tree/old");
-        fs::create_dir_all(&stale_tree).unwrap();
-        fs::File::open(&stale_tree)
-            .unwrap()
-            .set_times(fs::FileTimes::new().set_modified(old))
-            .unwrap();
+        let stale: Vec<_> = ["tmp/tree/old", "tmp/tree-staging/old"]
+            .into_iter()
+            .map(|dir| home.path().join(dir))
+            .collect();
+        for dir in &stale {
+            fs::create_dir_all(dir).unwrap();
+            fs::File::open(dir)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(old))
+                .unwrap();
+        }
         assert!(run_if_due(home.path(), INTERVAL));
         for pinned in kept {
             assert!(pinned.exists(), "{}", pinned.display());
         }
-        assert!(!stale_tree.exists(), "tmp/tree still ages out");
+        for dir in stale {
+            assert!(!dir.exists(), "{} still ages out", dir.display());
+        }
     }
 
     fn age(path: &Path, by: Duration) {

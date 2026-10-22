@@ -1,10 +1,12 @@
 //! The pull-request read menu: the public query a continuation starts from,
 //! the section menu, and the merge-commit read.
-use super::patch::hunks::DIFF_CONTEXT_LINES;
+use super::patch::locate::{distinctive_added_lines, parent_windows};
 use super::util::merge;
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, Section, Sections};
-use crate::tools::id::ToolId;
-use crate::tools::result::{Continuation, remove_nulls};
+use crate::id::ToolId;
+use crate::response::result::Confidence;
+use crate::response::result::{Continuation, remove_nulls};
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use serde_json::{Map, Value, json};
 
 /// The caller's query as a working query for `operation`: the public
@@ -54,7 +56,7 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
 /// An executable `ghGetHistoryItem` continuation.
 pub(super) fn continuation(q: Value) -> Value {
     Continuation::new(ToolId::GhGetHistoryItem, q)
-        .confidence("exact")
+        .confidence(Confidence::Exact)
         .build()
 }
 
@@ -199,28 +201,10 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
     Value::Object(next.into_iter().take(MENU_CAP).collect())
 }
 
-/// Lines `readParent` reads around each hunk's old-side span, so the
-/// window shows the enclosing code beyond the diff context.
-pub(super) const PARENT_WINDOW_PAD: usize = 10;
-
-/// Ranges one `ghGetFileContent` read takes (the contract's `maxItems`).
-pub(super) const PARENT_WINDOW_RANGES: usize = 10;
-
-/// Literals one `ghGetFileContent` `matchString` list takes (the contract's
-/// `maxItems`).
-pub(super) const MERGE_MATCH_LINES: usize = 10;
-
-/// Trimmed added lines this long locate a hunk well; when any hunk has
-/// one, shorter picks (`}`, `x = 1;`) are dropped as matching too much.
-const DISTINCTIVE_LINE_MIN: usize = 12;
-
-/// Longest line a merge read searches for: a minified or generated line is
-/// not a locator.
-const DISTINCTIVE_LINE_MAX: usize = 200;
-
 /// `next.readAtMerge`: a merged pull request whose patches were read offers
 /// its most-changed code file (not a test) at the merge commit, searched for
-/// one distinctive added line per hunk (at most [`MERGE_MATCH_LINES`]), so
+/// one distinctive added line per hunk (at most
+/// [`super::patch::locate::MERGE_MATCH_LINES`]), so
 /// the fix is checked in the code that shipped. The diff's line numbers
 /// belong to `headSha`; the target branch may have moved the lines by the
 /// merge, so the read locates them by text, never by number. `files` is
@@ -236,7 +220,7 @@ pub(super) fn read_at_merge(
     selected: impl Fn(&Value) -> bool,
 ) -> Option<Value> {
     use crate::content::{FileType, classify_file_type, is_test_path};
-    if query.match_string().is_some() {
+    if gh_get_history_item_query::match_string(query).is_some() {
         return None;
     }
     raw.get("merged_at").filter(|merged| !merged.is_null())?;
@@ -263,61 +247,16 @@ pub(super) fn read_at_merge(
         Continuation::new(
             ToolId::GhGetFileContent,
             json!({
-                "owner": query.owner(),
-                "repo": query.repo(),
+                "owner": gh_get_history_item_query::owner(query),
+                "repo": gh_get_history_item_query::repo(query),
                 "ref": sha,
                 "path": path,
                 "matchString": lines,
             }),
         )
-        .confidence("high")
+        .confidence(Confidence::High)
         .build(),
     )
-}
-
-/// One added line per hunk that locates it in another version of the file:
-/// the hunk's longest trimmed `+` line of at most [`DISTINCTIVE_LINE_MAX`]
-/// chars with three or more letters or digits and no redaction placeholder;
-/// when any pick reaches [`DISTINCTIVE_LINE_MIN`] chars the shorter ones
-/// are dropped. Duplicates once, at most [`MERGE_MATCH_LINES`].
-pub(super) fn distinctive_added_lines(patch: &str) -> Vec<String> {
-    let mut picks: Vec<String> = Vec::new();
-    let mut best: Option<&str> = None;
-    let flush = |best: &mut Option<&str>, picks: &mut Vec<String>| {
-        if let Some(line) = best.take()
-            && !picks.iter().any(|pick| pick == line)
-        {
-            picks.push(line.to_owned());
-        }
-    };
-    for line in patch.lines() {
-        if line.starts_with("@@") {
-            flush(&mut best, &mut picks);
-            continue;
-        }
-        if line.starts_with("+++") {
-            continue;
-        }
-        let Some(text) = line.strip_prefix('+').map(str::trim) else {
-            continue;
-        };
-        let chars = text.chars().count();
-        let qualifies = chars <= DISTINCTIVE_LINE_MAX
-            && text.chars().filter(|c| c.is_alphanumeric()).count() >= 3
-            && !text.contains("[REDACTED");
-        if qualifies && best.is_none_or(|current| current.chars().count() < chars) {
-            best = Some(text);
-        }
-    }
-    flush(&mut best, &mut picks);
-    if picks
-        .iter()
-        .any(|pick| pick.chars().count() >= DISTINCTIVE_LINE_MIN)
-    {
-        picks.retain(|pick| pick.chars().count() >= DISTINCTIVE_LINE_MIN);
-    }
-    picks.truncate(MERGE_MATCH_LINES);
-    picks
 }
 
 /// Added plus removed lines of a provider file.
@@ -328,63 +267,6 @@ pub(super) fn churn(file: &Value) -> u64 {
         .sum()
 }
 
-/// The old-side span (`-a,b`) of every hunk header, padded by
-/// [`PARENT_WINDOW_PAD`] lines and merged where they touch; past
-/// [`PARENT_WINDOW_RANGES`] spans, the closest neighbours merge. Old-side
-/// lines are context and `-` lines, so the ranges read the parent as the
-/// diff numbers it. A pure addition (`-a,0`) has no old-side lines. A whole
-/// hunk that opens with the diff's context but ends with less reaches the
-/// end of the file, so its span is not padded past it.
-pub(super) fn parent_windows(patch: &str) -> Vec<String> {
-    let mark = '-';
-    let mut spans: Vec<(usize, usize)> = Vec::new();
-    let mut lines = patch.lines().peekable();
-    while let Some(header) = lines.next() {
-        if !header.starts_with("@@") {
-            continue;
-        }
-        let (mut side_lines, mut leading, mut trailing) = (0usize, None, 0usize);
-        while let Some(line) = lines.next_if(|line| !line.starts_with("@@")) {
-            if line.starts_with(' ') {
-                side_lines += 1;
-                trailing += 1;
-            } else if line.starts_with('+') || line.starts_with('-') {
-                side_lines += usize::from(line.starts_with(mark));
-                leading.get_or_insert(trailing);
-                trailing = 0;
-            }
-        }
-        let Some((start, count)) = hunk_side(header, mark) else {
-            continue;
-        };
-        if count == 0 {
-            continue;
-        }
-        // Only a whole hunk with the diff's context says where the file ends.
-        let context = leading == Some(DIFF_CONTEXT_LINES) || start == 1;
-        let at_end = side_lines == count && context && trailing < DIFF_CONTEXT_LINES;
-        let span = (
-            start.saturating_sub(PARENT_WINDOW_PAD).max(1),
-            start + count - 1 + if at_end { 0 } else { PARENT_WINDOW_PAD },
-        );
-        match spans.last_mut() {
-            Some(last) if span.0 <= last.1 + 1 => last.1 = last.1.max(span.1),
-            _ => spans.push(span),
-        }
-    }
-    while spans.len() > PARENT_WINDOW_RANGES {
-        let closest = (1..spans.len())
-            .min_by_key(|&i| spans[i].0 - spans[i - 1].1)
-            .unwrap_or(1);
-        spans[closest - 1].1 = spans[closest].1;
-        spans.remove(closest);
-    }
-    spans
-        .into_iter()
-        .map(|(start, end)| format!("{start}-{end}"))
-        .collect()
-}
-
 /// The two refs a change's numbered gutters read at: `new_ref` for ` `/`+`
 /// lines (the commit, the PR head, the comparison head), `old_ref` for `-`
 /// lines (the first parent, the PR base, the comparison merge base).
@@ -393,7 +275,7 @@ pub(super) struct ChangeSides<'a> {
     pub(super) old_ref: Option<&'a str>,
     /// `high` when `old_ref` is the diff's exact old side; `medium` for a
     /// PR base, which may have moved past the diff's merge base.
-    pub(super) old_confidence: &'static str,
+    pub(super) old_confidence: Confidence,
 }
 
 /// The first selected file GitHub sent without a patch whose text is
@@ -454,7 +336,7 @@ pub(super) fn change_reads(
                 ToolId::GhGetFileContent,
                 json!({"owner": owner, "repo": repo, "path": path, "ref": new_ref}),
             )
-            .confidence("high")
+            .confidence(Confidence::High)
             .build(),
         ));
     }
@@ -478,18 +360,6 @@ pub(super) fn change_reads(
     reads
 }
 
-/// The `(start, count)` of a hunk header's `mark` side (`-` or `+`).
-fn hunk_side(header: &str, mark: char) -> Option<(usize, usize)> {
-    let side = header.split(' ').find_map(|part| part.strip_prefix(mark))?;
-    let mut numbers = side.split(',').map(str::parse::<usize>);
-    let start = numbers.next()?.ok()?;
-    let count = match numbers.next() {
-        Some(count) => count.ok()?,
-        None => 1,
-    };
-    Some((start, count))
-}
-
 pub(super) fn remove_key(value: &mut Value, key: &str) {
     if let Some(object) = value.as_object_mut() {
         object.remove(key);
@@ -508,7 +378,7 @@ mod tests {
         let sides = ChangeSides {
             new_ref: Some("head"),
             old_ref: Some("base"),
-            old_confidence: "medium",
+            old_confidence: Confidence::Medium,
         };
         let file = |name: &str, additions: u64, patch: Option<&str>| {
             let mut file = json!({"filename":name,"status":"modified","additions":additions,

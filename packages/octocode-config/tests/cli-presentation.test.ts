@@ -356,7 +356,6 @@ describe('CLI presentation embedded by the native binary', () => {
     expect(tool('astSearch').fields).toContain(
       '[operation:"match", path*, rule*, '
     );
-    expect(tool('astTopology').fields).toMatch(/^\[operation:"deadCode", /);
     expect(tool('structureSearch').fields).toBe(
       '[operation?:"tree", path*, extensions?, include?, maxDepth?] | [operation:"files", path*, extensions?, include?, maxDepth?]'
     );
@@ -403,7 +402,7 @@ describe('CLI presentation embedded by the native binary', () => {
     }
     expect(tool('localSearch').help).toMatch(/Required: .*path/);
     expect(tool('localSearch').help).toContain(
-      "Example:\n  octocode localSearch '"
+      "Examples:\n  octocode localSearch registerHandler src"
     );
   });
 });

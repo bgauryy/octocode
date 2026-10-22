@@ -1,19 +1,21 @@
 //! Changed-file inventory: compact rows, directory summaries, the review
 //! pick, and the pull-request file page.
+use super::axis::Axis;
 use super::filter::*;
 use super::patch::page::{shape_patch_page, shape_patch_page_reserving};
 use super::text::needle;
 use super::util::{str_at, string, usize_at};
 use super::window::{WindowState, auto_page, patch_window};
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest};
-use crate::tools::result::remove_nulls;
+use crate::response::result::remove_nulls;
+use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use octocode_github::MAX_PER_PAGE;
 use serde_json::{Map, Value, json};
 
 /// Largest patch-free inventory page (contract pullRequest `pageSize` maximum).
 pub(super) fn max_inventory_page() -> usize {
     crate::contracts::query_schema_max(
-        crate::tools::id::ToolId::GhGetHistoryItem,
+        crate::id::ToolId::GhGetHistoryItem,
         Some("pullRequest"),
         "pageSize",
     )
@@ -27,17 +29,17 @@ pub(super) const INVENTORY_ROW_CHARS: usize = 60;
 /// rows as fit one automatic response page (100–1000); a page carrying
 /// patches defaults to one provider batch.
 pub(super) fn file_page_size(query: &HistoryItemRequest, patches: bool) -> usize {
-    match (query.page_size(), patches) {
+    match (gh_get_history_item_query::page_size(query), patches) {
         // A literal search returns every hit file of the PR on one page:
         // hits are bounded by matches (and the patch window), not by files.
-        (None, true) if query.match_string().is_some() => {
+        (None, true) if gh_get_history_item_query::match_string(query).is_some() => {
             super::window::MAX_FILE_BATCHES * MAX_PER_PAGE
         }
         // Patches pack into one char window whatever the page size, so a
         // patch read lists a whole provider batch: one continuation stream
         // walks every patch of a PR of up to that many files.
         (None, true) => MAX_PER_PAGE,
-        (Some(_), true) => query.collection_page_size(),
+        (Some(_), true) => gh_get_history_item_query::collection_page_size(query),
         (Some(size), false) => size.clamp(1, max_inventory_page()),
         (None, false) => budget_inventory_page(query),
     }
@@ -58,7 +60,8 @@ fn budget_inventory_page(query: &HistoryItemRequest) -> usize {
 /// and skip or repeat files. Every other file page size is the caller's or
 /// a fixed batch, which the continuation reproduces as is.
 pub(super) fn pinned_file_page_size(query: &HistoryItemRequest, patches: bool) -> Option<usize> {
-    (query.page_size().is_none() && !patches).then(|| budget_inventory_page(query))
+    (gh_get_history_item_query::page_size(query).is_none() && !patches)
+        .then(|| budget_inventory_page(query))
 }
 
 /// GitHub file status as one inventory letter (git's diff letters; T is
@@ -335,7 +338,10 @@ pub(super) fn shape_pr_files(
         .into_iter()
         .map(|(reason, path, _)| format!("!{reason} {path}"))
         .collect::<Vec<_>>();
-    let match_dropped = (needle.is_some() && !query.later_page() && dropped > 0 && kept > 0)
+    let match_dropped = (needle.is_some()
+        && !gh_get_history_item_query::later_page(query)
+        && dropped > 0
+        && kept > 0)
         .then_some((dropped, in_scope));
     let review = review_selection(&slice, patch_window(None, query.auto_page_chars));
     if !patches {
@@ -343,7 +349,7 @@ pub(super) fn shape_pr_files(
         if !rows.is_empty() {
             row["files"] = Value::Array(rows);
         }
-        pagination.insert("files".into(), page);
+        pagination.insert(Axis::Files.key().into(), page);
         return ShapedFiles {
             review,
             unsearched,
@@ -355,8 +361,7 @@ pub(super) fn shape_pr_files(
     }
     // A patch read that does not fit one response lists its page's files
     // first (status, change counts, hunks), then the patches in file order.
-    let summary = query
-        .char_offset()
+    let summary = gh_get_history_item_query::char_offset(query)
         .is_none()
         .then(|| group_by_directory(&slice, summary_row));
     // The summary rides the first window of a page whose patches do not
@@ -393,9 +398,9 @@ pub(super) fn shape_pr_files(
     // One continuation covers the page's patch stream: the same file page
     // at the stream cursor, the window over the page's patch stream.
     if patches.cursor.is_some() {
-        pagination.insert("patches".into(), patches.stream.to_value());
+        pagination.insert(Axis::Patches.key().into(), patches.stream.to_value());
     }
-    pagination.insert("files".into(), page);
+    pagination.insert(Axis::Files.key().into(), page);
     ShapedFiles {
         review,
         unsearched,

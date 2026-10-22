@@ -77,7 +77,7 @@ Add it to any MCP client:
 
 ### 3. Or use the CLI
 
-No MCP client? Run `npx octocode`. Your agent reads the tool list it prints and calls each tool as a command ([CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md)).
+No MCP client? Run `npx octocode`. Your agent reads the tool list it prints and calls each tool as a command ([CLI guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)).
 
 ### Other hosts
 
@@ -113,7 +113,7 @@ Details: [benchmark method](https://github.com/bgauryy/octocode/blob/main/packag
 
 ## Tools
 
-**15 tools.** Your agent gets 12 tools over MCP and 13 in the CLI (which adds `ghCloneRepo`). Beta (`OCTOCODE_BETA=true`) adds `clasify` to both when a classification key is set, and `astTopology` to the CLI.
+**14 tools.** Your agent gets 12 tools over MCP and 13 in the CLI (which adds `ghCloneRepo`). Beta (`OCTOCODE_BETA=true`) adds `clasify` to both when a classification key is set.
 
 | You want to | Tool |
 |---|---|
@@ -131,7 +131,7 @@ Details: [benchmark method](https://github.com/bgauryy/octocode/blob/main/packag
 | Check package versions and dependencies | `artifactSearch` |
 | Pick the right file without reading them all (beta) | `clasify` |
 | Clone a repository for deep local work (CLI) | `ghCloneRepo` |
-| Map imports and module topology (CLI beta) | `astTopology` |
+| Map imports, callers, cycles and dead code (CLI) | `octocode graph ingest` + `graph query` |
 
 Full reference: [Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [clasify guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md).
 
@@ -147,7 +147,7 @@ Full reference: [Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOC
 | `npx octocode skill install octocode-research` | adds the research skill to your agent |
 | `npx octocode config` | shows your settings |
 
-Full guide: [CLI](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md).
+Full guide: [CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md).
 
 ---
 
@@ -160,7 +160,7 @@ Everything is optional. Set options in the MCP `env` block, the shell, or `~/.oc
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | which local directories tools may read |
 | `TOOLS_TO_RUN`, `DISABLE_TOOLS` | choose which tools your agent sees |
 | `OCTOCODE_CLASSIFICATION_API` | enable `clasifyContext` filtering ([get a key](https://docs.typesafe.ai/introduction)) |
-| `OCTOCODE_BETA` | enable beta tools: `clasify` (with the key above), `astTopology` |
+| `OCTOCODE_BETA` | enable the beta `clasify` tool (with the key above) |
 | `GITHUB_API_URL` | use GitHub Enterprise |
 
 All settings: [CONFIGURATION.md](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
@@ -228,7 +228,7 @@ All docs: [documentation hub](https://github.com/bgauryy/octocode/blob/main/docs
 | Topic | Docs |
 |---|---|
 | Concepts | [Protocol](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_PROTOCOL.md) · [Manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Workflows](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md) |
-| Interfaces | [MCP](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [CLI](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) |
+| Interfaces | [MCP](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) |
 | Tools | [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Data contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) · [clasify](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md) |
 | Setup | [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [All settings](https://github.com/bgauryy/octocode/blob/main/docs/generated/CONFIG_SETTINGS.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |
 | Engine | [Languages](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) · [Language servers](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [Code graph](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/CODE_GRAPH.md) |

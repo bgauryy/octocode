@@ -17,6 +17,7 @@ WORKFLOW
   octocode graph query impact <id>         blast radius: affected files by depth, tests to run
   octocode graph query impact --since main blast radius of a branch diff
   octocode graph query issues              ranked possible problems (cycles, dead code, ...)
+  octocode graph query drift --baseline <id>  structural diff from another snapshot
   octocode graph query stale               sources or configs changed/added since ingest -> re-ingest
 
 NODE IDS
@@ -62,11 +63,14 @@ pub(super) enum GraphCommand {
     /// NEIGHBORS  deps <ref> · dependents <ref> · callers <ref> · callees <ref>
     /// TRAVERSE   path <from> <to> · walk <ref> [--direction out|in|both] [--edge ..] [--depth n]
     /// STRUCTURE  cycles · hubs [--direction in|out] · diagnostics [code|path] · stale
-    /// ANALYSIS   issues [--detector a,b] [--min-score x] [--baseline <snapshot>]
+    /// ANALYSIS   issues [--detector a,b] [--min-score x] [--baseline <snapshot>] [--entry a,b]
     ///            impact <ref> | --changed a,b | --since <git-rev>
+    ///            drift --baseline <snapshot>
     ///
-    /// deps/dependents follow imports for files and calls for symbols; override with --edge
-    /// (contains, imports, uses, calls, inherits). `issues` findings are ranked hypotheses with
+    /// deps/dependents follow imports for files and calls for symbols (a file's dependents also
+    /// use its exports through a re-exporting module); override with --edge
+    /// (contains, imports, uses, calls, inherits). A file's dependents list bare-path imports
+    /// of it that no tsconfig or workspace links in summary.unlinkedPathImports. `issues` findings are ranked hypotheses with
     /// evidence and verify commands; `impact` rows carry depth, risk, confidence and typesOnly,
     /// and the summary lists affected entrypoints and tests to run.
     #[command(verbatim_doc_comment)]
@@ -95,6 +99,19 @@ pub(super) struct IngestArgs {
     /// unchanged tree reuses it and prints `reused: true`).
     #[arg(long)]
     force: bool,
+    /// AST parser for files matching a root-relative glob, as LANG=GLOB (repeatable),
+    /// e.g. cpp='include/**/*.h'.
+    #[arg(long = "language-glob", value_name = "LANG=GLOB", value_parser = language_glob)]
+    language_glob: Vec<(String, String)>,
+}
+
+fn language_glob(value: &str) -> Result<(String, String), String> {
+    match value.split_once('=') {
+        Some((language, glob)) if !language.is_empty() && !glob.is_empty() => {
+            Ok((language.to_owned(), glob.to_owned()))
+        }
+        _ => Err(format!("expected LANG=GLOB, got {value:?}")),
+    }
 }
 
 #[derive(Args)]
@@ -139,7 +156,11 @@ pub(super) struct QueryArgs {
     /// `issues`: detectors to run (comma-separated; default all).
     #[arg(long, value_delimiter = ',')]
     detector: Vec<String>,
-    /// `issues`: snapshot (id, substring, or dir) to diff findings against.
+    /// `issues`: entrypoints in place of the inferred ones (comma-separated files).
+    #[arg(long, value_delimiter = ',')]
+    entry: Vec<String>,
+    /// `issues`: snapshot (id, substring, or dir) to diff findings against;
+    /// `drift`: the snapshot to diff the graph against.
     #[arg(long)]
     baseline: Option<String>,
     /// `issues`: drop findings scoring below this (0–1).
@@ -170,7 +191,12 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand, mode: super::O
                 max_files,
                 keep,
                 force,
+                language_glob,
             } = *args;
+            let mut language_globs = std::collections::BTreeMap::<String, Vec<String>>::new();
+            for (language, glob) in language_glob {
+                language_globs.entry(language).or_default().push(glob);
+            }
             let options = IngestOptions {
                 path: std::path::absolute(&path).unwrap_or(path),
                 workspace,
@@ -178,6 +204,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand, mode: super::O
                 max_files,
                 keep,
                 force,
+                language_globs,
             };
             runtime.graph_ingest(&options)
         }
@@ -196,6 +223,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand, mode: super::O
                 limit,
                 offset,
                 detector,
+                entry,
                 baseline,
                 min_score,
                 changed,
@@ -223,6 +251,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand, mode: super::O
                 since,
                 min_tier,
                 list,
+                entries: entry,
             };
             runtime.graph_query(&options)
         }

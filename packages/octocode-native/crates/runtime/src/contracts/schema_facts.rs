@@ -8,7 +8,7 @@ use std::{
 
 use serde_json::Value;
 
-use crate::tools::id::ToolId;
+use crate::id::ToolId;
 
 /// One `oneOf`/`anyOf` branch of a tool's query schema (or the whole schema).
 struct Variant {
@@ -140,7 +140,7 @@ fn variants(tool: ToolId) -> Option<&'static [Variant]> {
 /// variant when `None`). Each such variant that has `field` must declare the
 /// same value; a missing or disagreeing declaration yields `None`.
 #[must_use]
-pub fn query_schema_value(
+pub(crate) fn query_schema_value(
     tool: ToolId,
     operation: Option<&str>,
     field: &str,
@@ -166,23 +166,24 @@ pub fn query_schema_value(
 }
 
 /// Top-level query fields validation can restore when absent: those with a
-/// schema `default` (at any depth, so the set over-approximates). A present
-/// field outside it never validates back after removal.
-pub(crate) fn restorable_fields(tool: ToolId) -> Option<&'static HashSet<&'static str>> {
-    static FIELDS: [OnceLock<HashSet<&'static str>>; ToolId::ALL.len()] =
+/// schema `default` (at any depth, so the set over-approximates), each with
+/// the one default its schemas declare, `None` when they declare several (an
+/// operation's own). A present field outside it never validates back after
+/// removal.
+pub(crate) fn restorable_fields(
+    tool: ToolId,
+) -> &'static HashMap<&'static str, Option<&'static Value>> {
+    static FIELDS: [OnceLock<HashMap<&'static str, Option<&'static Value>>>; ToolId::ALL.len()] =
         [const { OnceLock::new() }; ToolId::ALL.len()];
-    let index = ToolId::ALL.iter().position(|id| *id == tool)?;
-    let fields = FIELDS[index].get_or_init(|| {
-        let mut fields = HashSet::new();
-        let Ok(contract) = super::tool_contract(tool) else {
-            return fields;
-        };
-        for schema in [&contract["querySchema"], &contract["inputSchema"]] {
-            collect_defaulted(schema, &schema["$defs"], &mut fields);
+    FIELDS[tool.index()].get_or_init(|| {
+        let mut fields = HashMap::new();
+        if let Ok(contract) = super::tool_contract(tool) {
+            for schema in [&contract["querySchema"], &contract["inputSchema"]] {
+                collect_defaulted(schema, &schema["$defs"], &mut fields);
+            }
         }
         fields
-    });
-    Some(fields)
+    })
 }
 
 /// A field's default may sit on its own schema or on the definition it
@@ -190,17 +191,24 @@ pub(crate) fn restorable_fields(tool: ToolId) -> Option<&'static HashSet<&'stati
 fn collect_defaulted(
     schema: &'static Value,
     defs: &'static Value,
-    fields: &mut HashSet<&'static str>,
+    fields: &mut HashMap<&'static str, Option<&'static Value>>,
 ) {
     match schema {
         Value::Object(object) => {
             if let Some(Value::Object(properties)) = object.get("properties") {
-                fields.extend(
-                    properties
-                        .iter()
-                        .filter(|(_, field)| resolve_ref(field, defs).get("default").is_some())
-                        .map(|(name, _)| name.as_str()),
-                );
+                for (name, field) in properties {
+                    let Some(default) = resolve_ref(field, defs).get("default") else {
+                        continue;
+                    };
+                    fields
+                        .entry(name.as_str())
+                        .and_modify(|known| {
+                            if *known != Some(default) {
+                                *known = None;
+                            }
+                        })
+                        .or_insert(Some(default));
+                }
             }
             object
                 .values()
@@ -224,7 +232,7 @@ pub(crate) fn query_declares(tool: ToolId, field: &str) -> bool {
 
 /// [`query_schema_value`] as an unsigned integer.
 #[must_use]
-pub fn query_schema_number(
+pub(crate) fn query_schema_number(
     tool: ToolId,
     operation: Option<&str>,
     field: &str,
@@ -242,7 +250,7 @@ pub fn query_schema_number(
     clippy::panic,
     reason = "a missing bound is a contract defect caught by the contract tests, never a request-time failure"
 )]
-pub fn query_schema_max(tool: ToolId, operation: Option<&str>, field: &str) -> usize {
+pub(crate) fn query_schema_max(tool: ToolId, operation: Option<&str>, field: &str) -> usize {
     query_schema_number(tool, operation, field, "maximum")
         .and_then(|maximum| usize::try_from(maximum).ok())
         .unwrap_or_else(|| panic!("contract declares no maximum for {tool} {operation:?} {field}"))
@@ -350,9 +358,6 @@ mod tests {
                 "maximum",
             ),
             (ToolId::AstSearch, Some("match"), "pageSize", "maximum"),
-            (ToolId::AstTopology, None, "maxFiles", "maximum"),
-            (ToolId::AstTopology, None, "pageSize", "maximum"),
-            (ToolId::AstTopology, None, "diagnosticPageSize", "maximum"),
             (ToolId::StructureSearch, None, "maxEntries", "maximum"),
             (ToolId::StructureSearch, None, "pageSize", "maximum"),
             (ToolId::Clasify, None, "mainGoal", "maxLength"),

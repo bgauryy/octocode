@@ -2105,6 +2105,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "octocode-contract-types"
+version = "20.2.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "octocode-engine"
 version = "20.2.0"
 dependencies = [
@@ -2161,7 +2170,6 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "futures-util",
- "getrandom 0.4.3",
  "hex",
  "octocode-io",
  "reqwest",
@@ -2180,12 +2188,16 @@ dependencies = [
 name = "octocode-io"
 version = "20.2.0"
 dependencies = [
+ "bytes",
+ "futures-util",
  "getrandom 0.4.3",
  "hex",
  "libc",
  "reqwest",
  "tempfile",
  "tokio",
+ "tokio-util",
+ "wiremock",
 ]
 
 [[package]]
@@ -2210,6 +2222,7 @@ dependencies = [
  "imagesize",
  "keyring-core",
  "libc",
+ "octocode-contract-types",
  "octocode-engine",
  "octocode-github",
  "octocode-io",

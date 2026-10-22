@@ -2,7 +2,7 @@
 //! `narrowScope` call, and the calls together reach every unread file. The
 //! ceiling is lowered so a small tree reaches it.
 use super::{AstSearchQuery, execute_ast, unwalked};
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -72,7 +72,7 @@ fn reached_unsorted(root: &std::path::Path, row: &Value, calls: &mut Vec<Value>)
 /// ```
 fn tree(root: &Fixture) {
     std::fs::create_dir_all(root.0.join(".git")).expect("git dir");
-    root.write(".gitignore", "ignored/\n");
+    root.write(".gitignore", "ignored/\nnode_modules/\n");
     for (index, path) in [
         "a/a1.ts",
         "a/a2.ts",

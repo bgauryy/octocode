@@ -1,8 +1,9 @@
 //! The response for one page: rows, pagination, leads, warnings and the
 //! partial state.
 use super::{HistoryOperation, HistorySearch, leads, rows};
+use crate::response::result::remove_null_fields;
+use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::gh_shared::{SearchWindow, pick_rows};
-use crate::tools::result::remove_null_fields;
 use octocode_github::HistoryPage;
 use serde_json::{Value, json};
 
@@ -10,8 +11,6 @@ use serde_json::{Value, json};
 pub(super) struct Paging {
     page: usize,
     per: usize,
-    /// The page the provider answered (a REST list may differ).
-    current: usize,
     more: bool,
     /// The reachable total (search caps it).
     total: usize,
@@ -36,26 +35,19 @@ impl Paging {
         } else {
             SearchWindow::PageStart.reach(result.total_count, per)
         };
-        let current = if result.listed {
-            result.provider_page
-        } else {
-            page
-        };
         let more = if result.listed {
             result.has_more
         } else {
-            current < reach.pages
+            page < reach.pages
         };
         Self {
             page,
             per,
-            current,
             more,
             total: reach.total,
             capped: reach.capped,
             matched: result.total_count,
-            exact_list_total: (result.listed && current == 1 && !more)
-                .then_some(result.items.len()),
+            exact_list_total: (result.listed && page == 1 && !more).then_some(result.items.len()),
             listed: result.listed,
             incomplete: result.incomplete_results,
             past_end: result.items.is_empty()
@@ -84,8 +76,8 @@ impl Paging {
     /// one states `partialReasons:["providerResultCap"]` instead). The
     /// cursor rides `next.nextPage`, bounded by the contract's `page`
     /// maximum.
-    fn pagination(&self, current: usize) -> Value {
-        let facts = crate::response::pages::PageFacts::open(current, Some(self.per), self.more)
+    fn pagination(&self) -> Value {
+        let facts = crate::response::pages::PageFacts::open(self.page, Some(self.per), self.more)
             .out_of_range(self.past_end);
         match self.exact_total() {
             Some(total) => facts.with_total(total),
@@ -110,12 +102,12 @@ pub(super) fn shape(
     } else {
         None
     };
-    let mut value = match query.operation() {
+    let mut value = match gh_search_history_query::operation(query) {
         HistoryOperation::PullRequest => pull_requests(query, &items, paging, terms),
         HistoryOperation::Issue => issues(query, &items, paging, terms),
         HistoryOperation::Commit => commits(query, items, paging),
     };
-    if query.operation() == HistoryOperation::Commit
+    if gh_search_history_query::operation(query) == HistoryOperation::Commit
         && let Some(sha) = value
             .pointer("/commits/0/commitSha")
             .and_then(Value::as_str)
@@ -131,7 +123,7 @@ pub(super) fn shape(
     if !warnings.is_empty() {
         value["warnings"] = json!(warnings);
     }
-    if query.operation() == HistoryOperation::Issue
+    if gh_search_history_query::operation(query) == HistoryOperation::Issue
         && !paging.more
         && !paging.past_end
         && let Some(map) = value.as_object_mut()
@@ -139,12 +131,12 @@ pub(super) fn shape(
         map.remove("pagination");
     }
     let next_page = paging.more.then(|| {
-        crate::tools::paging::next_cursor(
+        crate::response::paging::next_cursor(
             &mut value,
-            crate::tools::id::ToolId::GhSearchHistory,
+            crate::id::ToolId::GhSearchHistory,
             None,
             "page",
-            paging.current + 1,
+            paging.page + 1,
         )
     });
     if let Some(next_page) = next_page.flatten() {
@@ -168,16 +160,15 @@ pub(super) fn shape(
 /// are sorted by creation, or filtered on it (`since`/`until` set the
 /// `created:` window, or a `created:` qualifier).
 pub(super) fn keeps_created(query: &HistorySearch) -> bool {
-    query.sort().as_deref() == Some("created")
-        || query.since().is_some()
-        || query.until().is_some()
-        || query
-            .qualifiers()
+    gh_search_history_query::sort(query).as_deref() == Some("created")
+        || gh_search_history_query::since(query).is_some()
+        || gh_search_history_query::until(query).is_some()
+        || gh_search_history_query::qualifiers(query)
             .is_some_and(|qualifiers| qualifiers.contains("created:"))
 }
 
 fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
-    let fields = query.fields();
+    let fields = gh_search_history_query::fields(query);
     let state = query.state();
     let keep_created = keeps_created(query);
     let rows = items
@@ -185,12 +176,17 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         .map(|item| {
             let mut row = rows::map_pr(item.clone());
             rows::drop_implied(&mut row, state.as_deref(), keep_created, &fields);
-            rows::name_repository(&mut row, item, query.owner(), query.repo());
+            rows::name_repository(
+                &mut row,
+                item,
+                gh_search_history_query::owner(query),
+                gh_search_history_query::repo(query),
+            );
             row
         })
         .collect::<Vec<_>>();
     let mut v = json!({"pullRequests":rows,"effectiveQuery":terms,
-        "pagination":paging.pagination(paging.current)});
+        "pagination":paging.pagination()});
     pick_rows(
         &mut v,
         "pullRequests",
@@ -220,8 +216,8 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
 }
 
 fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
-    let by_update = query.sort().as_deref() == Some("updated");
-    let fields = query.fields();
+    let by_update = gh_search_history_query::sort(query).as_deref() == Some("updated");
+    let fields = gh_search_history_query::fields(query);
     let state = query.state();
     let issues = items
         .iter()
@@ -233,7 +229,7 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         .collect::<Vec<_>>();
     // The rows' repository is the query's own owner/repo: not echoed.
     let mut v = json!({"issues":issues,
-        "effectiveQuery":terms,"pagination":paging.pagination(paging.current)});
+        "effectiveQuery":terms,"pagination":paging.pagination()});
     pick_rows(&mut v, "issues", &["number"], &fields);
     if let Some(total) = paging.reported_total() {
         v["pagination"]["totalItems"] = json!(total);
@@ -251,8 +247,8 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
 }
 
 fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
-    let fields = query.fields();
-    if query.keywords().is_empty() {
+    let fields = gh_search_history_query::fields(query);
+    if gh_search_history_query::keywords(query).is_empty() {
         let commits = items
             .into_iter()
             .map(rows::map_commit_list)
@@ -311,9 +307,9 @@ fn disclose_provider_limits(value: &mut Value, paging: &Paging, narrow: Option<V
     });
     let warnings = Vec::from_iter(count);
     if paging.more {
-        crate::tools::paging::mark_partial(value, reason, &warnings);
+        crate::response::paging::mark_partial(value, reason, &warnings);
     } else {
-        crate::tools::paging::terminal_limit(value, reason, &warnings);
+        crate::response::paging::terminal_limit(value, reason, &warnings);
     }
     if paging.capped
         && let Some(lead) = narrow

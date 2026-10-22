@@ -409,10 +409,10 @@ fn fields_reach_the_query_without_changing_the_search() {
         r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","keywords":["x"]}"#;
     let picked = r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","keywords":["x"],"fields":["number","title"]}"#;
     assert_eq!(
-        search(&parse(picked)).expect("search").fields(),
+        gh_search_history_query::fields(&search(&parse(picked)).expect("search")),
         vec!["number".to_string(), "title".to_string()]
     );
-    assert!(search(&parse(plain)).expect("search").fields().is_empty());
+    assert!(gh_search_history_query::fields(&search(&parse(plain)).expect("search")).is_empty());
     assert_eq!(
         build_query(&parse(picked)).expect("query"),
         build_query(&parse(plain)).expect("query")
@@ -538,4 +538,47 @@ fn a_missing_login_has_no_restating_hint() {
     let (message, hint) = history_failure(&error, true);
     assert!(message.contains("ghost"), "{message}");
     assert_eq!(hint, None);
+}
+
+/// A relative window (`30d`) on any date qualifier resolves to the
+/// absolute lower bound GitHub understands, as ghSearchRepo's
+/// `pushed`/`created` do; search would read a bare `30d` as no date and
+/// match nothing. A value that is no date is refused, not sent.
+#[test]
+fn date_qualifiers_resolve_relative_windows_or_refuse_non_dates() {
+    for (operation, key) in [
+        ("issue", "updated"),
+        ("issue", "closed"),
+        ("issue", "created"),
+        ("pullRequest", "merged"),
+    ] {
+        let row = json!({"operation":operation,"mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
+            "qualifiers":format!("{key}:30d")});
+        let query = build_query(&serde_json::from_value(row).expect("typed")).expect("query");
+        let term = query
+            .split(' ')
+            .find(|term| term.starts_with(&format!("{key}:")))
+            .unwrap_or_else(|| panic!("{key} term in {query}"));
+        assert!(term.starts_with(&format!("{key}:>=")), "{query}");
+        assert_eq!(term.len(), format!("{key}:>=2026-01-01").len(), "{query}");
+    }
+    for value in [
+        ">=2026-01-01",
+        "2026-01-01..2026-02-01",
+        "<2026-01-01T10:00:00Z",
+        "*..2026-01-01",
+    ] {
+        let row = json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
+            "qualifiers":format!("updated:{value}")});
+        let query = build_query(&serde_json::from_value(row).expect("typed")).expect("query");
+        assert!(query.contains(&format!("updated:{value}")), "{query}");
+    }
+    for value in ["yesterday", "30days", "2026"] {
+        let row = json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
+            "qualifiers":format!("updated:{value}")});
+        let error = build_query(&serde_json::from_value(row).expect("typed"))
+            .expect_err("a non-date is refused");
+        assert!(error.message.contains("updated"), "{}", error.message);
+        assert!(error.message.contains("30d"), "{}", error.message);
+    }
 }

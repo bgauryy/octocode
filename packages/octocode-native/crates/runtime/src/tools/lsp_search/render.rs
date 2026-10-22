@@ -61,7 +61,7 @@ pub(super) fn flatten_document_symbol(
     }
 }
 
-/// Outline rows (`tools::symbol_outline`) for a page of flattened
+/// Outline rows (`response::symbol_outline`) for a page of flattened
 /// document symbols: `endLine` only when it differs, and the column only
 /// when another listed symbol starts on the same line.
 pub(super) fn document_symbol_rows(page: &[Value], all: &[Value]) -> Vec<Value> {
@@ -90,7 +90,7 @@ pub(super) fn document_symbol_rows(page: &[Value], all: &[Value]) -> Vec<Value> 
             row
         })
         .collect::<Vec<_>>();
-    crate::tools::symbol_outline::declaration_rows(&objects)
+    crate::response::symbol_outline::declaration_rows(&objects)
 }
 
 /// typescript-language-server reports a `type X = …` alias as a variable
@@ -222,8 +222,8 @@ pub(super) fn page_window(
     page: u32,
     cut: &PageCut<'_>,
 ) -> (std::ops::Range<usize>, Value, Option<NextPage>) {
+    use crate::response::page_windows::Paging;
     use crate::response::pages::PageFacts;
-    use crate::tools::page_windows::Paging;
     let total = cut.sizes.len();
     let page = (page.max(1)) as usize;
     let paging = Paging::of(cut.page_size.map(|size| size as usize), cut.budget);
@@ -271,7 +271,7 @@ pub(super) fn row_cursor(digest: &str, row: usize, page: usize) -> String {
 const CURSOR_CHECK_HEX: usize = 8;
 
 fn cursor_check(digest: &str, row: usize, page: usize) -> String {
-    let mut check = crate::digest::sha256(format!("{digest}\n{row}\n{page}").as_bytes());
+    let mut check = octocode_engine::digest::sha256(format!("{digest}\n{row}\n{page}").as_bytes());
     check.truncate(CURSOR_CHECK_HEX);
     check
 }
@@ -297,11 +297,21 @@ pub(super) fn plain_sizes(items: &[Value]) -> Vec<usize> {
         .collect()
 }
 
-pub(super) fn as_array(value: &Value) -> Vec<Value> {
+/// An LSP result's items: an array's elements, one item, or none for `null`.
+pub(super) fn items(value: &Value) -> &[Value] {
     match value {
-        Value::Array(values) => values.clone(),
+        Value::Array(values) => values,
+        Value::Null => &[],
+        other => std::slice::from_ref(other),
+    }
+}
+
+/// [`items`] of an owned result, moved out instead of cloned.
+pub(super) fn into_items(value: Value) -> Vec<Value> {
+    match value {
+        Value::Array(values) => values,
         Value::Null => vec![],
-        other => vec![other.clone()],
+        other => vec![other],
     }
 }
 

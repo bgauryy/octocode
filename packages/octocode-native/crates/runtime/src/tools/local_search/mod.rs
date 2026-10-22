@@ -1,11 +1,15 @@
+mod binaries;
+mod coverage;
 mod cursor;
 mod enclosing;
 mod executor;
+mod handoff;
 mod layout;
 mod leads;
 mod manifest;
 mod output;
 mod packed;
+mod probes;
 mod regex_repair;
 mod rows;
 mod selection;

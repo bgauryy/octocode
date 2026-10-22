@@ -1,7 +1,7 @@
 //! 1-based inclusive line spans: merging, run compression, the `a-b` range
 //! text, and the bounded `moreLines` list localSearch writes.
 
-use crate::tools::num::u32_of_usize;
+use crate::num::u32_of_usize;
 
 /// A line number type the span helpers accept.
 pub(crate) trait LineNumber: Copy + Ord + std::fmt::Display {

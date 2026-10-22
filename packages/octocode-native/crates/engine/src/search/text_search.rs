@@ -30,9 +30,10 @@ use ignore::{WalkBuilder, WalkState};
 
 use crate::search::text_parser::{FileEntry, RawMatch, assemble_file, strip_trailing_newline};
 use crate::text::file_extension::extension_of;
-use crate::text::utf8_offsets::{byte_to_utf16_offset, ceil_char_boundary, floor_char_boundary};
+use crate::text::utf8_offsets::byte_to_utf16_offset;
 use crate::types::{
-    BinaryExtensionCount, SearchedSource, TextSearchFile, TextSearchMatch, TextSearchOptions,
+    BinaryExtensionCount, CapReason, CaseRule, PatternSyntax, SearchOutput, SearchSort,
+    SearchedSource, SourceValues, SpanValues, TextSearchFile, TextSearchMatch, TextSearchOptions,
     TextSearchResult, TextSearchStats,
 };
 use sha2::{Digest as _, Sha256};
@@ -91,6 +92,19 @@ const MAX_ONLY_MATCHING_PER_FILE: u32 = 200_000;
 /// PCRE2's internal default match limit (not the wall clock). Applied to every
 /// PCRE2 matcher we build (search + pattern validation).
 pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
+
+/// A PCRE2 builder with the settings every matcher we build shares: UTF and
+/// Unicode properties, JIT when available, and the
+/// [`PCRE2_MAX_JIT_STACK_BYTES`] stack cap.
+pub(crate) fn pcre2_builder() -> Pcre2MatcherBuilder {
+    let mut builder = Pcre2MatcherBuilder::new();
+    builder
+        .utf(true)
+        .ucp(true)
+        .jit_if_available(true)
+        .max_jit_stack_size(Some(PCRE2_MAX_JIT_STACK_BYTES));
+    builder
+}
 
 /// Wall-clock ceiling for a whole PCRE2 (`-P`) search. PCRE2's JIT-stack cap
 /// bounds a single catastrophic backtrack's *memory*, but nothing bounds its
@@ -239,7 +253,7 @@ impl<'a> SpanColumns<'a> {
     /// UTF-16 column of lossy byte offset `start`, same as
     /// `byte_to_utf16_offset(text, start)`.
     fn column(&mut self, start: usize) -> usize {
-        let target = floor_char_boundary(self.text, start.min(self.text.len()));
+        let target = self.text.floor_char_boundary(start);
         if target < self.cursor_byte {
             return byte_to_utf16_offset(self.text, target);
         }
@@ -252,8 +266,8 @@ impl<'a> SpanColumns<'a> {
 /// Slice the matched span `[start, end)` (byte offsets) out of `line` as a
 /// valid UTF-8 substring.
 fn span_value(line: &str, start: usize, end: usize) -> String {
-    let start = floor_char_boundary(line, start);
-    let end = ceil_char_boundary(line, end).max(start);
+    let start = line.floor_char_boundary(start);
+    let end = line.ceil_char_boundary(end).max(start);
     line[start..end].to_owned()
 }
 
@@ -295,7 +309,7 @@ fn lists_match_density(mode: Mode) -> bool {
 }
 
 fn ranks_by_relevance(opts: &TextSearchOptions) -> bool {
-    opts.sort.as_deref() == Some("relevance")
+    opts.sort == SearchSort::Relevance
 }
 
 /// A search for one bare identifier (`spawn_blocking`, literal or regex):
@@ -319,7 +333,7 @@ const MAX_ALTERNATION_WORDS: usize = 64;
 /// `relevance` rank puts files holding more of them first, so one common
 /// word repeated cannot outrank files that hold the rarer ones.
 fn alternation_words(opts: &TextSearchOptions) -> Option<AhoCorasick> {
-    if opts.fixed_string.unwrap_or(false) || opts.invert_match.unwrap_or(false) {
+    if opts.syntax == PatternSyntax::Literal || opts.invert_match.unwrap_or(false) {
         return None;
     }
     let mut pattern = opts.pattern.as_str();
@@ -342,9 +356,11 @@ fn alternation_words(opts: &TextSearchOptions) -> Option<AhoCorasick> {
     if words.len() < 2 || words.len() > MAX_ALTERNATION_WORDS || !words.iter().all(plain) {
         return None;
     }
-    let insensitive = opts.case_insensitive.unwrap_or(false)
-        || (!opts.case_sensitive.unwrap_or(false)
-            && !pattern.bytes().any(|byte| byte.is_ascii_uppercase()));
+    let insensitive = match opts.case {
+        CaseRule::Insensitive => true,
+        CaseRule::Sensitive => false,
+        CaseRule::Smart => !pattern.bytes().any(|byte| byte.is_ascii_uppercase()),
+    };
     AhoCorasick::builder()
         .ascii_case_insensitive(insensitive)
         .build(&words)
@@ -352,17 +368,18 @@ fn alternation_words(opts: &TextSearchOptions) -> Option<AhoCorasick> {
 }
 
 fn resolve_mode(opts: &TextSearchOptions) -> Mode {
-    if opts.files_only.unwrap_or(false) {
-        Mode::FilesOnly
-    } else if opts.files_without_match.unwrap_or(false) {
-        Mode::FilesWithoutMatch
-    } else if opts.count_matches_per_file.unwrap_or(false) {
-        Mode::CountMatches
-    } else if opts.count_lines_per_file.unwrap_or(false) {
-        Mode::CountLines
-    } else {
-        Mode::Normal
+    match opts.output {
+        SearchOutput::Lines | SearchOutput::Spans(_) => Mode::Normal,
+        SearchOutput::FilesWithMatch => Mode::FilesOnly,
+        SearchOutput::FilesWithoutMatch => Mode::FilesWithoutMatch,
+        SearchOutput::CountLines => Mode::CountLines,
+        SearchOutput::CountMatches => Mode::CountMatches,
     }
+}
+
+/// Whether the search reports submatch spans (`-o`).
+fn only_matching(opts: &TextSearchOptions) -> bool {
+    matches!(opts.output, SearchOutput::Spans(_))
 }
 
 /// Per-file collected state from a single `Searcher` pass.
@@ -373,7 +390,7 @@ struct FileRec {
     matched_lines: u32,
     /// Number of individual matches (submatches) across all matched lines.
     submatches: u32,
-    /// only-matching spans (empty unless `only_matching` is set).
+    /// only-matching spans (empty unless the output is spans).
     om_matches: Vec<TextSearchMatch>,
     /// Metadata timestamp captured for non-path sort keys.
     sort_time: Option<SystemTime>,
@@ -390,7 +407,7 @@ struct FileRec {
     /// `relevance` word alternation only: how many of its words matched
     /// (see [`alternation_words`]).
     covered: u32,
-    /// The bytes the values came from (see `digest_max_bytes`).
+    /// The bytes the values came from (see [`SourceValues::Hashed`]).
     source: Option<SearchedSource>,
 }
 
@@ -404,7 +421,6 @@ struct CollectResult {
     files_matched: u64,
     submatches: u64,
     matched_lines: u64,
-    elapsed: Duration,
     /// A per-file only-matching span cap was hit (`maxOnlyMatchingPerFile`).
     span_capped: bool,
     /// The PCRE2 wall-clock deadline was hit (`pcre2Deadline`).
@@ -435,7 +451,6 @@ struct CollectResult {
 /// files finished so far while a worker is still stuck in a match, and raise
 /// `stop` so every worker quits at its next check.
 struct CollectState {
-    started: Instant,
     recs: Mutex<Vec<FileRec>>,
     files_searched: AtomicU64,
     bytes_searched: AtomicU64,
@@ -466,7 +481,6 @@ struct CollectState {
 impl CollectState {
     fn new() -> Self {
         Self {
-            started: Instant::now(),
             recs: Mutex::new(Vec::new()),
             files_searched: AtomicU64::new(0),
             bytes_searched: AtomicU64::new(0),
@@ -590,7 +604,6 @@ impl CollectState {
             files_matched: self.files_matched.load(Ordering::Relaxed),
             submatches: self.submatches.load(Ordering::Relaxed),
             matched_lines: self.matched_lines.load(Ordering::Relaxed),
-            elapsed: self.started.elapsed(),
             span_capped: self.span_capped.load(Ordering::Relaxed),
             timed_out: self.timed_out.load(Ordering::Relaxed),
             size_skipped: self.size_skipped.load(Ordering::Relaxed),
@@ -749,6 +762,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                         om.push(TextSearchMatch {
                             deferred: None,
                             line: line_number,
+                            last_line: None,
                             column,
                             byte_offset: start as u32,
                             value_digest: Sha256::digest(value.trim().as_bytes()).into(),
@@ -771,6 +785,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                 self.om_matches.push(TextSearchMatch {
                     deferred: None,
                     line: line_number,
+                    last_line: None,
                     column: 0,
                     byte_offset: 0,
                     value_digest: Sha256::digest(line_text.trim().as_bytes()).into(),
@@ -974,11 +989,14 @@ fn is_hidden(dent: &ignore::DirEntry) -> bool {
 }
 
 fn capture_sort_time(opts: &TextSearchOptions, entry: &ignore::DirEntry) -> Option<SystemTime> {
-    match opts.sort.as_deref() {
-        Some("modified") => entry.metadata().ok()?.modified().ok(),
-        Some("accessed") => entry.metadata().ok()?.accessed().ok(),
-        Some("created") => entry.metadata().ok()?.created().ok(),
-        _ => None,
+    match opts.sort {
+        SearchSort::Modified => entry.metadata().ok()?.modified().ok(),
+        SearchSort::Accessed => entry.metadata().ok()?.accessed().ok(),
+        SearchSort::Created => entry.metadata().ok()?.created().ok(),
+        SearchSort::Path
+        | SearchSort::Traversal
+        | SearchSort::Relevance
+        | SearchSort::MatchCount => None,
     }
 }
 
@@ -1311,10 +1329,6 @@ fn collection_limit(opts: &TextSearchOptions) -> Option<usize> {
         .filter(|n| *n > 0)
 }
 
-fn elapsed_human(elapsed: Duration) -> String {
-    format!("{:.6}s", elapsed.as_secs_f64())
-}
-
 fn bytes_as_i64(bytes: u64) -> i64 {
     bytes.min(i64::MAX as u64) as i64
 }
@@ -1387,7 +1401,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let mut work = self.work;
         if work.deferred_snippet.is_some() {
             let prefix = read_prefix(file, 3)?;
-            if prefix.starts_with(&[0xff, 0xfe]) || prefix.starts_with(&[0xfe, 0xff]) {
+            if crate::text::has_utf16_bom(&prefix) {
                 work.deferred_snippet = None;
             }
             std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
@@ -1466,7 +1480,7 @@ fn collect<M: Matcher + Sync>(
     let WalkControl {
         deadline, eager, ..
     } = control;
-    let only_matching = opts.only_matching.unwrap_or(false);
+    let only_matching = only_matching(opts);
     // only-matching emits bare spans; only-matching ignores context too.
     let context = if mode == Mode::Normal && !only_matching {
         opts.context
@@ -1529,9 +1543,8 @@ fn collect<M: Matcher + Sync>(
             context,
             // `mode`/`only_matching` are invariant for the whole search.
             work: MatchWork {
-                deferred_snippet: (opts.defer_values
-                    && opts.digest_max_bytes == Some(u64::MAX)
-                    && !opts.perl_regex.unwrap_or(false)
+                deferred_snippet: (opts.values == SourceValues::Deferred
+                    && opts.syntax != PatternSyntax::Pcre2
                     && context.is_empty()
                     && !only_matching
                     && !opts.multiline.unwrap_or(false))
@@ -1662,9 +1675,7 @@ impl WalkScope<'_> {
         let demoted =
             generated || (ranks_by_relevance(opts) && relevance::is_demoted_path(&relative));
         // A stopped walk keeps what it found without reading further.
-        let source = opts
-            .digest_max_bytes
-            .is_some_and(|max| file_len <= max && !state.stopped())
+        let source = (opts.values.hashed() && !state.stopped())
             .then(|| hashed_source(&file, &meta))
             .flatten();
         drop(file);
@@ -1870,7 +1881,7 @@ fn sort_recs(opts: &TextSearchOptions, mode: Mode, recs: &mut [FileRec]) {
 fn rank_weight(opts: &TextSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
     match mode {
         Mode::CountLines => rec.matched_lines,
-        Mode::Normal if !opts.only_matching.unwrap_or(false) => rec.matched_lines,
+        Mode::Normal if !only_matching(opts) => rec.matched_lines,
         _ => rec.submatches,
     }
 }
@@ -1894,15 +1905,15 @@ fn compare_recs(
     a: &FileRec,
     b: &FileRec,
 ) -> std::cmp::Ordering {
-    let order = match opts.sort.as_deref() {
-        Some("modified" | "accessed" | "created") => a
+    let order = match opts.sort {
+        SearchSort::Modified | SearchSort::Accessed | SearchSort::Created => a
             .sort_time
             .cmp(&b.sort_time)
             .then_with(|| a.path.cmp(&b.path)),
-        Some("matchCount") => rank_weight(opts, mode, b)
+        SearchSort::MatchCount => rank_weight(opts, mode, b)
             .cmp(&rank_weight(opts, mode, a))
             .then_with(|| a.path.cmp(&b.path)),
-        Some("relevance") if lists_match_density(mode) => (b.declares && !b.demoted)
+        SearchSort::Relevance if lists_match_density(mode) => (b.declares && !b.demoted)
             .cmp(&(a.declares && !a.demoted))
             .then_with(|| a.generated.cmp(&b.generated))
             .then_with(|| b.covered.cmp(&a.covered))
@@ -1910,12 +1921,12 @@ fn compare_recs(
             .then_with(|| a.demoted.cmp(&b.demoted))
             .then_with(|| b.line_weight.cmp(&a.line_weight))
             .then_with(|| a.path.cmp(&b.path)),
-        Some("relevance") => a
+        SearchSort::Relevance => a
             .generated
             .cmp(&b.generated)
             .then_with(|| a.demoted.cmp(&b.demoted))
             .then_with(|| a.path.cmp(&b.path)),
-        _ => a.path.cmp(&b.path),
+        SearchSort::Path | SearchSort::Traversal => a.path.cmp(&b.path),
     };
     if opts.sort_reverse.unwrap_or(false) {
         order.reverse()
@@ -1925,7 +1936,7 @@ fn compare_recs(
 }
 
 fn preserves_traversal_order(opts: &TextSearchOptions) -> bool {
-    opts.sort.as_deref() == Some("traversal")
+    opts.sort == SearchSort::Traversal
 }
 
 fn collapse_unique_matches(
@@ -1970,7 +1981,6 @@ fn build_result(
         files_matched,
         submatches,
         matched_lines,
-        elapsed,
         span_capped,
         timed_out,
         size_skipped,
@@ -1992,29 +2002,19 @@ fn build_result(
     let retained_truncated = sort_and_cap(opts, mode, &mut recs);
     let cap_truncated = retained_truncated || files_matched > recs.len() as u64;
 
-    // Assemble cap reasons in a fixed order so single-cause results carry a
-    // stable, exact reason string.
-    let mut cap_reasons: Vec<&str> = Vec::new();
-    if cap_truncated {
-        cap_reasons.push("maxCollectedFiles");
-    }
-    if span_capped {
-        cap_reasons.push("maxOnlyMatchingPerFile");
-    }
-    if timed_out {
-        cap_reasons.push("pcre2Deadline");
-    }
-    if size_skipped {
-        cap_reasons.push("maxFileSize");
-    }
-    if cancelled {
-        cap_reasons.push("cancelled");
-    }
-    if binary_quit {
-        cap_reasons.push("binaryQuit");
-    }
+    // Cap reasons in a fixed order, so equal results carry equal reasons.
+    let cap_reasons: Vec<CapReason> = [
+        (cap_truncated, CapReason::MaxCollectedFiles),
+        (span_capped, CapReason::MaxOnlyMatchingPerFile),
+        (timed_out, CapReason::Pcre2Deadline),
+        (size_skipped, CapReason::MaxFileSize),
+        (cancelled, CapReason::Cancelled),
+        (binary_quit, CapReason::BinaryQuit),
+    ]
+    .into_iter()
+    .filter_map(|(hit, reason)| hit.then_some(reason))
+    .collect();
     let capped = !cap_reasons.is_empty();
-    let cap_reason = capped.then(|| cap_reasons.join(", "));
 
     let context = opts.context;
     let max_snippet = opts.max_snippet_chars.unwrap_or(DEFAULT_MAX_SNIPPET_CHARS) as usize;
@@ -2025,21 +2025,21 @@ fn build_result(
     let total_submatches = saturate_u32(submatches);
     let total_matched_lines = saturate_u32(matched_lines);
 
-    let only_matching = opts.only_matching.unwrap_or(false);
-    let unique = opts.unique.unwrap_or(false) || opts.count_unique.unwrap_or(false);
-    let count_unique = opts.count_unique.unwrap_or(false);
+    let spans = match opts.output {
+        SearchOutput::Spans(spans) => Some(spans),
+        _ => None,
+    };
     let bytes_searched = Some(bytes_as_i64(bytes_searched));
-    let search_time = Some(elapsed_human(elapsed));
     let files: Vec<TextSearchFile> = recs
         .into_iter()
         .map(|r| {
             let source = r.source;
             let mut file = match mode {
-                Mode::Normal if only_matching => {
-                    let matches = if unique {
-                        collapse_unique_matches(r.om_matches, count_unique)
-                    } else {
-                        r.om_matches
+                Mode::Normal if let Some(spans) = spans => {
+                    let matches = match spans {
+                        SpanValues::Every => r.om_matches,
+                        SpanValues::Unique => collapse_unique_matches(r.om_matches, false),
+                        SpanValues::Counted => collapse_unique_matches(r.om_matches, true),
                     };
                     TextSearchFile {
                         path: r.path,
@@ -2085,9 +2085,8 @@ fn build_result(
         files_matched: Some(files_matched),
         files_searched: Some(saturate_u32(files_searched)),
         bytes_searched,
-        search_time,
         capped: Some(capped),
-        cap_reason,
+        cap_reasons,
         error_count: Some(error_count),
         first_error,
         pattern_error_count: (pattern_error_count > 0).then_some(pattern_error_count),
@@ -2106,9 +2105,8 @@ fn build_result(
 
 /// Build the appropriate matcher (default Rust regex, or PCRE2 for `-P`) and run
 /// the search, stopping at the next entry once `cancelled` returns true (the
-/// partial result carries `capReason` `cancelled`). `fixed_string` is honored by
-/// escaping the pattern for the regex engine; the CLI gave `-F` precedence over
-/// `-P`, so PCRE2 only applies when `fixed_string` is not set.
+/// partial result carries [`CapReason::Cancelled`]). A literal pattern is
+/// escaped for the regex engine.
 pub fn search_cancellable(
     opts: TextSearchOptions,
     path_filter: Arc<dyn TextSearchPathFilter>,
@@ -2125,35 +2123,21 @@ fn search_with_limits(
 ) -> Result<TextSearchResult> {
     let mode = resolve_mode(&opts);
 
-    if (opts.unique.unwrap_or(false) || opts.count_unique.unwrap_or(false))
-        && !opts.only_matching.unwrap_or(false)
-    {
-        return Err(Error::new("unique/countUnique require onlyMatching:true"));
-    }
-
-    let case_sensitive = opts.case_sensitive.unwrap_or(false);
-    let case_insensitive = !case_sensitive && opts.case_insensitive.unwrap_or(false);
-    // Default (neither -s nor -i): smart-case, matching the builder's `-S`.
-    let smart_case = !case_sensitive && !opts.case_insensitive.unwrap_or(false);
+    let case_insensitive = opts.case == CaseRule::Insensitive;
+    let smart_case = opts.case == CaseRule::Smart;
     let whole_word = opts.whole_word.unwrap_or(false);
     let multiline = opts.multiline.unwrap_or(false);
     let dotall = multiline && opts.multiline_dotall.unwrap_or(false);
-    let fixed_string = opts.fixed_string.unwrap_or(false);
-    let perl_regex = !fixed_string && opts.perl_regex.unwrap_or(false);
 
     // ── PCRE2 path ──────────────────────────────────────────────────────────────
-    if perl_regex {
-        let mut b = Pcre2MatcherBuilder::new();
+    if opts.syntax == PatternSyntax::Pcre2 {
+        let mut b = pcre2_builder();
         b.caseless(case_insensitive)
             .case_smart(smart_case)
             .word(whole_word)
             .multi_line(multiline)
             .dotall(dotall)
-            .crlf(true)
-            .utf(true)
-            .ucp(true)
-            .jit_if_available(true)
-            .max_jit_stack_size(Some(PCRE2_MAX_JIT_STACK_BYTES));
+            .crlf(true);
         let matcher = b.build(&opts.pattern).map_err(to_engine_err)?;
         return search_pcre2(opts, mode, matcher, path_filter, cancelled, limits);
     }
@@ -2180,7 +2164,7 @@ fn search_with_limits(
         b.crlf(true);
         b.line_terminator(Some(b'\n'));
     }
-    let pattern = if fixed_string {
+    let pattern = if opts.syntax == PatternSyntax::Literal {
         regex::escape(&opts.pattern)
     } else {
         opts.pattern.clone()
@@ -2228,7 +2212,9 @@ fn search_pcre2(
     let hard_deadline = deadline + limits.grace;
     let state = Arc::new(CollectState::new());
     let (tx, rx) = std::sync::mpsc::channel();
-    let opts_worker = opts.clone();
+    // The worker and this driver share one copy of the options.
+    let opts = Arc::new(opts);
+    let opts_worker = Arc::clone(&opts);
     let state_worker = Arc::clone(&state);
     let spawned = std::thread::Builder::new()
         .name("pcre2-search".into())

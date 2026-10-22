@@ -2,8 +2,8 @@
 use super::super::login;
 use super::{StoredCredentials, configured_credential_host, normalize_host};
 use crate::config::ConfigOutput;
-use octocode_github::{BudgetStop, RequestBudget};
 use octocode_github::{CredentialSource, ProviderError, ProviderErrorKind, ResolvedCredential};
+use octocode_io::budget::{BudgetStop, RequestBudget};
 use secrecy::ExposeSecret;
 use std::{
     collections::{HashMap, HashSet},
@@ -65,6 +65,13 @@ pub struct Authentication {
     /// rejected stored or `gh` token is skipped, so the next request falls
     /// back as a fresh selection would instead of sending it again.
     rejected: Mutex<HashSet<octocode_github::Partition>>,
+    /// Request resolutions take turns per host: the rows of a cold batch
+    /// wait for the first one's answer in the memo instead of each reading
+    /// the store or spawning `gh`.
+    flights: octocode_io::flight::KeyedFlight<String, ()>,
+    /// The wall clock token expiry is judged by; tests move it forward
+    /// instead of sleeping past a refresh time.
+    now: fn() -> SystemTime,
 }
 impl Authentication {
     pub fn new(config: Arc<ConfigOutput>) -> Self {
@@ -72,11 +79,17 @@ impl Authentication {
             config,
             memo: Mutex::default(),
             rejected: Mutex::default(),
+            flights: octocode_io::flight::KeyedFlight::transient(),
+            now: SystemTime::now,
         }
+    }
+    /// Whether `stored`'s access token is due for a refresh now.
+    fn expired(&self, stored: &StoredCredentials) -> bool {
+        login::refresh_due(stored).is_some_and(|due| (self.now)() >= due)
     }
     /// GitHub rejected `credential` for `host` (HTTP 401): drop the
     /// remembered selection so the next request selects again, skipping it.
-    pub fn reject(&self, host: &str, credential: Option<&ResolvedCredential>) {
+    pub(crate) fn reject(&self, host: &str, credential: Option<&ResolvedCredential>) {
         let host = normalize_host(host);
         if let Some(credential) = credential {
             self.rejected
@@ -105,8 +118,8 @@ impl Authentication {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = memo.get(host)?;
-        let live = entry.at.elapsed() < MEMO_TTL
-            && entry.refresh_due.is_none_or(|due| SystemTime::now() < due);
+        let live =
+            entry.at.elapsed() < MEMO_TTL && entry.refresh_due.is_none_or(|due| (self.now)() < due);
         live.then(|| (entry.selection.clone(), entry.notice.clone()))
     }
     fn remember(&self, host: &str, resolved: &Resolved) {
@@ -184,6 +197,16 @@ impl Authentication {
                 username: None,
             }));
         }
+        let ticket = (mode == AuthMode::Request).then(|| self.flights.join(host.clone()));
+        let _turn = match &ticket {
+            Some(ticket) => Some(
+                budget
+                    .wait(ticket.turn())
+                    .await
+                    .map_err(resolution_stopped)?,
+            ),
+            None => None,
+        };
         if mode == AuthMode::Request
             && let Some((selection, notice)) = self.remembered(&host)
         {
@@ -213,7 +236,7 @@ impl Authentication {
         let stored = match backend.load(&host).await {
             Ok(Some((stored, _)))
                 if mode == AuthMode::Request
-                    && !login::is_token_expired(&stored)
+                    && !self.expired(&stored)
                     && self.is_rejected(&host, &stored.token.token) =>
             {
                 Ok(None)
@@ -223,9 +246,7 @@ impl Authentication {
         budget.check().map_err(resolution_stopped)?;
         let mut storage_error = None;
         match stored {
-            Ok(Some((stored, source)))
-                if mode == AuthMode::Inspect || !login::is_token_expired(&stored) =>
-            {
+            Ok(Some((stored, source))) if mode == AuthMode::Inspect || !self.expired(&stored) => {
                 return Ok(Resolved::stored(stored, source));
             }
             Ok(Some((_, source))) => {
@@ -250,7 +271,7 @@ impl Authentication {
                 match refreshed {
                     Ok(Some(stored)) => return Ok(Resolved::stored(stored, source)),
                     Ok(None) => {} // Deleted while waiting: never reuse the stale token.
-                    Err(error) if is_budget_error(&error) => return Err(error),
+                    Err(error) if error.is_cancelled_or_timed_out() => return Err(error),
                     Err(error) => storage_error = Some(error),
                 }
             }
@@ -391,12 +412,6 @@ pub(super) fn resolution_stopped(stop: BudgetStop) -> ProviderError {
             "GitHub credential resolution exceeded the request budget",
         ),
     }
-}
-fn is_budget_error(error: &ProviderError) -> bool {
-    matches!(
-        error.kind,
-        ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
-    )
 }
 /// `operation`'s result, unless `budget` stops it first.
 pub(super) async fn bounded<T>(

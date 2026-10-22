@@ -9,8 +9,8 @@ mod tests;
 
 /// Write this page's files under `location.localPath` (the listed
 /// directory) and return where a continuation resumes, if anywhere.
-pub(super) async fn materialize_page<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn materialize_page(
+    provider: &GitHubProvider,
     query: &GhStructureQueryTree,
     scope: &Scope,
     commit_sha: &str,
@@ -69,9 +69,9 @@ pub(super) async fn materialize_page<C: octocode_github::ConditionalCache>(
     location["coverage"] = json!({"state": if finished { "complete" } else { "partial" }});
     value["location"] = location;
     if !unwritten.is_empty() {
-        crate::tools::paging::mark_partial(value, "materializeDepth", &[]);
+        crate::response::paging::mark_partial(value, "materializeDepth", &[]);
     }
-    crate::tools::paging::push_warnings(value, warnings);
+    crate::response::paging::push_warnings(value, warnings);
     Ok(resume)
 }
 
@@ -100,7 +100,7 @@ pub(super) fn expand_depth(
     let mut next = query_row(
         &GhStructureQueryTree {
             ref_: Some(commit_sha.parse().map_err(
-                |error: crate::contracts::tool_types::error::ConversionError| {
+                |error: octocode_contract_types::error::ConversionError| {
                     ProviderError::new(ProviderErrorKind::Decode, error.to_string())
                 },
             )?),
@@ -114,7 +114,7 @@ pub(super) fn expand_depth(
     if scope.depth >= deepest {
         next["path"] = json!(first_unwritten);
     }
-    Ok(continuation(next, "exact"))
+    Ok(continuation(next))
 }
 
 #[derive(Clone, Copy)]
@@ -129,7 +129,7 @@ pub(super) fn mark_materialize_partial(value: &mut Value) {
     if value.get("location").is_none() {
         return;
     }
-    crate::tools::paging::mark_partial(value, "materializeIncomplete", &[]);
+    crate::response::paging::mark_partial(value, "materializeIncomplete", &[]);
 }
 
 pub(super) const MATERIALIZE_FILE_CAP: usize = 50;
@@ -171,8 +171,8 @@ pub(crate) fn materialize_root(home: &Path) -> PathBuf {
 /// listing order, so the write caps stop at the same entry as a serial
 /// walk. A cached file is reused only when its actual bytes match the recorded
 /// identity. `location.localPath` is the listed directory.
-pub(super) async fn materialize_tree<C: octocode_github::ConditionalCache>(
-    provider: &GitHubProvider<C>,
+pub(super) async fn materialize_tree(
+    provider: &GitHubProvider,
     snapshot: &Snapshot<'_>,
     entries: &[TreeEntry],
     offset: usize,
@@ -306,11 +306,7 @@ impl MaterializeWriter<'_> {
             // One unreadable file (binary, unsupported entry) must not abort
             // the batch; only auth/rate/timeout/cancel failures propagate.
             Acquired::Read(Err(error))
-                if !access_failure(&error)
-                    && !matches!(
-                        error.kind,
-                        ProviderErrorKind::Timeout | ProviderErrorKind::Cancelled
-                    ) =>
+                if !access_failure(&error) && !error.is_cancelled_or_timed_out() =>
             {
                 self.skips
                     .unreadable

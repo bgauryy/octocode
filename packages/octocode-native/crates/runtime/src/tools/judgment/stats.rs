@@ -20,27 +20,27 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 
 /// Section key under `stats` that classification usage accumulates into.
-const SECTION: &str = crate::tools::id::ToolId::Clasify.as_str();
+const SECTION: &str = crate::id::ToolId::Clasify.as_str();
 const LOCK_WAIT: Duration = Duration::from_secs(2);
 const LOCK_POLL: Duration = Duration::from_millis(10);
 
 /// Classification usage aggregated over one tool call.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ClassificationUsage {
+pub(crate) struct ClassificationUsage {
     pub calls: u64,
     pub known_usage_calls: u64,
     pub unknown_usage_calls: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
-    pub discovery_calls: u64,
-    pub replayed_evaluations: u64,
+    pub(crate) discovery_calls: u64,
+    pub(crate) replayed_evaluations: u64,
     pub models: BTreeSet<String>,
 }
 
 impl ClassificationUsage {
-    pub(crate) fn output(&self) -> crate::contracts::tool_types::SelectionUsage {
+    pub(crate) fn output(&self) -> octocode_contract_types::SelectionUsage {
         let count = |value| i64::try_from(value).unwrap_or(i64::MAX);
-        crate::contracts::tool_types::SelectionUsage {
+        octocode_contract_types::SelectionUsage {
             calls: count(self.calls),
             known_usage_calls: count(self.known_usage_calls),
             unknown_usage_calls: count(self.unknown_usage_calls),
@@ -55,33 +55,70 @@ impl ClassificationUsage {
         }
     }
 
-    /// Fold one provider usage record (`{input_tokens, output_tokens}`) in.
-    pub fn add_record(&mut self, usage: &Value) {
-        let tokens = |key: &str| usage.get(key).and_then(Value::as_u64);
-        let input = tokens("input_tokens");
-        let output = tokens("output_tokens");
-        let calls = usage
-            .get("provider_calls")
-            .and_then(Value::as_u64)
-            .unwrap_or(1);
+    /// Fold in `calls` provider requests, `known` of which reported their
+    /// tokens. Retained directional totals are never called complete when
+    /// a request did not report them; a reported zero is known usage.
+    pub(crate) fn add_usage(
+        &mut self,
+        calls: u64,
+        known: u64,
+        input_tokens: u64,
+        output_tokens: u64,
+    ) {
+        let known = known.min(calls);
         self.calls = self.calls.saturating_add(calls);
-        let known = if input.is_some() && output.is_some() {
-            usage
-                .get("known_usage_calls")
-                .and_then(Value::as_u64)
-                .unwrap_or(1)
-                .min(calls)
-        } else {
-            0
-        };
         self.known_usage_calls = self.known_usage_calls.saturating_add(known);
+        self.unknown_usage_calls = self.unknown_usage_calls.saturating_add(calls - known);
+        self.input_tokens = self.input_tokens.saturating_add(input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(output_tokens);
+    }
+
+    pub(crate) fn merge(&mut self, other: &Self) {
+        self.calls = self.calls.saturating_add(other.calls);
+        self.known_usage_calls = self
+            .known_usage_calls
+            .saturating_add(other.known_usage_calls);
         self.unknown_usage_calls = self
             .unknown_usage_calls
-            .saturating_add(calls.saturating_sub(known));
-        // Retain reported directional totals, but never call them complete
-        // when either counter was absent. A reported zero is known usage.
-        self.input_tokens = self.input_tokens.saturating_add(input.unwrap_or(0));
-        self.output_tokens = self.output_tokens.saturating_add(output.unwrap_or(0));
+            .saturating_add(other.unknown_usage_calls);
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.discovery_calls = self.discovery_calls.saturating_add(other.discovery_calls);
+        self.replayed_evaluations = self
+            .replayed_evaluations
+            .saturating_add(other.replayed_evaluations);
+        self.models.extend(other.models.iter().cloned());
+    }
+
+    /// Fold one evaluation in: its provider requests and reported tokens. A
+    /// replay made no request; its tokens are the earlier evaluation's.
+    pub(crate) fn add(&mut self, outcome: &Result<super::Judged, super::ClassificationError>) {
+        match outcome {
+            Ok(judged) => {
+                self.models.insert(judged.model.clone());
+                if judged.replayed {
+                    self.replayed_evaluations = self.replayed_evaluations.saturating_add(1);
+                }
+                if judged.provider_calls > 0 {
+                    self.add_usage(
+                        judged.provider_calls,
+                        judged.known_usage_calls,
+                        judged.input_tokens,
+                        judged.output_tokens,
+                    );
+                }
+            }
+            Err(error) if error.provider_calls > 0 => {
+                let usage = error.usage();
+                self.add_usage(
+                    error.provider_calls,
+                    usage.known_usage_calls,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                );
+            }
+            Err(_) => {}
+        }
     }
 }
 
@@ -104,8 +141,8 @@ fn acquire_lock(home: &Path) -> Option<octocode_io::lock::LockedFile> {
 }
 
 /// Record one tool call's aggregated classification usage.
-pub fn record_classification(home: &Path, enabled: bool, usage: ClassificationUsage) {
-    if !enabled || (usage.calls == 0 && usage.discovery_calls == 0) {
+pub(crate) fn record_classification(home: &Path, usage: ClassificationUsage) {
+    if usage.calls == 0 && usage.discovery_calls == 0 {
         return;
     }
     let Some(_lock) = acquire_lock(home) else {
@@ -177,9 +214,7 @@ mod tests {
     #[test]
     fn classification_usage_is_separate_and_has_no_workflow_counters() {
         let dir = tempfile::tempdir().unwrap();
-        record_classification(dir.path(), false, usage(1, 10, 2));
-        assert!(!dir.path().join("stats.json").exists());
-        record_classification(dir.path(), true, usage(1, 10, 2));
+        record_classification(dir.path(), usage(1, 10, 2));
         let stats = read(dir.path());
         assert_eq!(
             stats["stats"]["clasify"],
@@ -189,28 +224,16 @@ mod tests {
     }
 
     #[test]
-    fn records_fold_into_one_aggregate() {
+    fn requests_fold_into_one_aggregate_and_unreported_usage_stays_unknown() {
         let mut total = ClassificationUsage::default();
-        total.add_record(&json!({"input_tokens": 3, "output_tokens": 1}));
-        total.add_record(&json!({"input_tokens": 4}));
-        total.add_record(&Value::Null);
-        assert_eq!(total.calls, 3);
-        assert_eq!(total.known_usage_calls, 1);
+        total.add_usage(2, 1, 10, 3);
+        total.add_usage(1, 0, 0, 0);
+        total.add_usage(1, 1, 0, 0);
+        total.add_usage(1, 5, 4, 1);
+        assert_eq!(total.calls, 5);
+        assert_eq!(total.known_usage_calls, 3, "known never exceeds calls");
         assert_eq!(total.unknown_usage_calls, 2);
-        assert_eq!(total.input_tokens, 7);
-        assert_eq!(total.output_tokens, 1);
-    }
-
-    #[test]
-    fn reported_zero_is_known_but_invalid_or_missing_usage_is_unknown() {
-        let mut total = ClassificationUsage::default();
-        total.add_record(&json!({"input_tokens": 0, "output_tokens": 0}));
-        total.add_record(&json!({"input_tokens": -1, "output_tokens": 2}));
-        total.add_record(&json!({"input_tokens": "3", "output_tokens": 2}));
-        assert_eq!(total.calls, 3);
-        assert_eq!(total.known_usage_calls, 1);
-        assert_eq!(total.unknown_usage_calls, 2);
-        assert_eq!(total.input_tokens, 0);
+        assert_eq!(total.input_tokens, 14);
         assert_eq!(total.output_tokens, 4);
     }
 
@@ -224,7 +247,7 @@ mod tests {
             r#"{"version":1,"stats":{"clasify":{"calls":5,"input_tokens":50,"output_tokens":5}}}"#,
         )
         .unwrap();
-        record_classification(dir.path(), true, usage(1, 9, 1));
+        record_classification(dir.path(), usage(1, 9, 1));
         assert_eq!(
             read(dir.path())["stats"]["clasify"],
             json!({"calls": 6, "known_usage_calls": 1, "unknown_usage_calls": 0, "input_tokens": 59, "output_tokens": 6})
@@ -239,7 +262,7 @@ mod tests {
             r#"{"version":1,"stats":{"toolCalls":4,"clasify":"legacy"}}"#,
         )
         .unwrap();
-        record_classification(dir.path(), true, usage(1, 9, 1));
+        record_classification(dir.path(), usage(1, 9, 1));
         let stats = read(dir.path());
         assert_eq!(stats["stats"]["toolCalls"], 4);
         assert_eq!(stats["stats"]["clasify"]["calls"], 1);
@@ -251,7 +274,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let partial = r#"{"version":1,"stats":{"clasify":{"calls":41"#;
         fs::write(dir.path().join("stats.json"), partial).unwrap();
-        record_classification(dir.path(), true, usage(1, 1, 1));
+        record_classification(dir.path(), usage(1, 1, 1));
         assert_eq!(
             fs::read_to_string(dir.path().join("stats.json")).unwrap(),
             partial
@@ -261,7 +284,7 @@ mod tests {
     #[test]
     fn empty_usage_writes_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        record_classification(dir.path(), true, ClassificationUsage::default());
+        record_classification(dir.path(), ClassificationUsage::default());
         assert!(!dir.path().join("stats.json").exists());
     }
 
@@ -274,7 +297,7 @@ mod tests {
             for _ in 0..threads {
                 scope.spawn(|| {
                     for _ in 0..per_thread {
-                        record_classification(dir.path(), true, usage(1, 2, 1));
+                        record_classification(dir.path(), usage(1, 2, 1));
                     }
                 });
             }
@@ -290,17 +313,5 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .count();
         assert_eq!(leftovers, 0);
-    }
-
-    #[test]
-    fn retry_receipts_preserve_reported_tokens_and_unknown_attempts() {
-        let mut usage = ClassificationUsage::default();
-        usage.add_record(&json!({"provider_calls":2,"input_tokens":10,"output_tokens":3}));
-        usage.add_record(&json!({"provider_calls":1}));
-        assert_eq!(usage.calls, 3);
-        assert_eq!(usage.known_usage_calls, 1);
-        assert_eq!(usage.unknown_usage_calls, 2);
-        assert_eq!(usage.input_tokens, 10);
-        assert_eq!(usage.output_tokens, 3);
     }
 }

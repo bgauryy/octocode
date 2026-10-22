@@ -2,7 +2,7 @@
 //! rule every per-row fan-out sizes itself by, so concurrent rows split the
 //! cores the batch budget gave them instead of each taking every core.
 
-use crate::tools::num::usize_of;
+use crate::num::usize_of;
 
 /// The host's cores; one when the count is unknown, so an unproven host
 /// never runs more threads than it can.
@@ -22,6 +22,45 @@ pub(crate) fn workers(walk_threads: Option<u32>, items: usize, cap: Option<usize
         .max(1)
 }
 
+/// `job` of every item, by item index, on `workers` scoped threads that
+/// each take the next undone item (the work per item varies widely). A
+/// panicking job panics the caller. Returned in item order.
+pub(crate) fn each_parallel<T: Send, R: Send>(
+    items: &mut [T],
+    workers: usize,
+    job: impl Fn(&mut T) -> R + Sync,
+) -> Vec<R> {
+    if workers < 2 {
+        return items.iter_mut().map(job).collect();
+    }
+    let queue = std::sync::Mutex::new(items.iter_mut().enumerate());
+    let next = || {
+        queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .next()
+    };
+    let drain = || {
+        let mut done = Vec::new();
+        while let Some((index, item)) = next() {
+            done.push((index, job(item)));
+        }
+        done
+    };
+    let mut done = std::thread::scope(|scope| {
+        let tasks = (0..workers).map(|_| scope.spawn(drain)).collect::<Vec<_>>();
+        tasks
+            .into_iter()
+            .flat_map(|task| {
+                task.join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect::<Vec<_>>()
+    });
+    done.sort_unstable_by_key(|(index, _)| *index);
+    done.into_iter().map(|(_, outcome)| outcome).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -37,5 +76,20 @@ mod tests {
         assert_eq!(workers(Some(3), 0, None), 1);
         assert_eq!(workers(None, usize::MAX, None), host_cores());
         assert_eq!(workers(None, usize::MAX, Some(1)), 1);
+    }
+
+    /// Every item is done once, on any worker count, and the outcomes come
+    /// back in item order.
+    #[test]
+    fn each_parallel_does_every_item_once_in_order() {
+        for threads in [1, 2, 7] {
+            let mut items = (0..50).collect::<Vec<u32>>();
+            let out = each_parallel(&mut items, threads, |item| {
+                *item += 100;
+                *item * 2
+            });
+            assert_eq!(out, (100..150).map(|n| n * 2).collect::<Vec<_>>());
+            assert_eq!(items, (100..150).collect::<Vec<_>>());
+        }
     }
 }

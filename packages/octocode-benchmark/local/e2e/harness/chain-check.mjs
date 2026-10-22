@@ -55,14 +55,14 @@ const OUT = path.resolve(ROOT, opt('out') ?? `.octocode/evals/${new Date().toISO
 /** Native module that owns each ToolId (tools/<module>). */
 const MODULE = {
   localSearch: 'local_search', localFetch: 'local_fetch', structureSearch: 'structure_search', astSearch: 'ast_search',
-  lspSearch: 'lsp_search', astTopology: 'ast_graph', ghSearchRepo: 'gh_search_repo',
+  lspSearch: 'lsp_search', ghSearchRepo: 'gh_search_repo',
   ghSearchCode: 'gh_search_code', ghStructure: 'gh_structure', ghGetFileContent: 'gh_get_file_content',
   ghSearchHistory: 'gh_search_history', ghGetHistoryItem: 'gh_get_history_item', artifactSearch: 'artifact_search',
   ghCloneRepo: 'gh_clone_repo', clasify: 'clasify',
 };
 /** PLAN.md §4 targets: `ToolId::X` references allowed in shared runtime/ + response/ production code. */
 const REF_TARGET = {
-  localSearch: 5, localFetch: 5, structureSearch: 3, astSearch: 5, lspSearch: 5, astTopology: 3,
+  localSearch: 5, localFetch: 5, structureSearch: 3, astSearch: 5, lspSearch: 5,
   ghSearchRepo: 3, ghSearchCode: 3, ghStructure: 3, ghGetFileContent: 3, ghSearchHistory: 3, ghGetHistoryItem: 5,
   artifactSearch: 3, ghCloneRepo: 3, clasify: 3,
 };
@@ -93,7 +93,7 @@ const NATURAL_NEXT = {
   astSearch: ['localFetch', 'lspSearch'], lspSearch: ['localFetch'], ghSearchRepo: ['ghSearchCode', 'ghStructure'],
   ghSearchCode: ['ghGetFileContent'], ghStructure: ['ghGetFileContent', 'localSearch', 'localFetch'],
   ghSearchHistory: ['ghGetHistoryItem'], artifactSearch: ['ghStructure', 'ghGetFileContent', 'artifactSearch'],
-  clasify: ['localFetch', 'ghGetFileContent'], astTopology: ['localFetch', 'lspSearch'],
+  clasify: ['localFetch', 'ghGetFileContent'],
   ghCloneRepo: ['localSearch', 'structureSearch', 'astSearch', 'localFetch', 'lspSearch'],
   ghGetHistoryItem: ['ghGetHistoryItem', 'ghGetFileContent'],
   localFetch: null, ghGetFileContent: null, // final reads
@@ -107,7 +107,7 @@ const SAMPLES = {
   localSearch: ['L07', 'L01'], localFetch: ['L06', 'L02'], structureSearch: ['L13', 'L12'], astSearch: ['L17', 'L16'],
   lspSearch: ['L18', { id: 'Q3', inline: { tool: 'lspSearch', queries: [{ operation: 'documentSymbols', path: 'packages/octocode-benchmark/local/e2e/harness/mcp-client.mjs' }] } }], ghSearchRepo: ['G09'], ghSearchCode: ['G16'], ghStructure: ['G08'], ghGetFileContent: ['G02'],
   ghSearchHistory: ['G11'], ghGetHistoryItem: ['G13'], artifactSearch: ['G04'], clasify: ['C01'],
-  ghCloneRepo: [{ id: 'L20', drop: ['forceRefresh'] }], astTopology: ['L04'],
+  ghCloneRepo: [{ id: 'L20', drop: ['forceRefresh'] }],
 };
 
 /** C2 probes: one empty and one error row per tool (`null` = no stable probe). */
@@ -121,7 +121,6 @@ const PROBES = {
   structureSearch: { empty: { path: CFG, operation: 'files', nameRegex: NEVER }, error: { path: 'nope/dir' } },
   astSearch: { empty: { operation: 'symbols', path: CFG, symbolName: NEVER }, error: { operation: 'symbols', path: 'nope/dir', symbolName: 'x' } },
   lspSearch: { empty: null, error: { path: 'nope/x.ts', symbolName: 'foo', line: 1, operation: 'definition' } },
-  astTopology: { empty: null, error: { operation: 'cycles', path: 'nope/dir' } },
   ghSearchRepo: { empty: { keywords: [NEVER] }, error: null },
   ghSearchCode: { empty: { ...GH, keywords: [NEVER] }, error: { ...NO_REPO, keywords: ['x'] } },
   ghStructure: { empty: { ...GH, path: 'src', include: [`*.${NEVER}`] }, error: { ...NO_REPO } },

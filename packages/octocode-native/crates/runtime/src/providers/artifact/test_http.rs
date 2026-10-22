@@ -4,7 +4,7 @@ use super::http::{
     StatusFuture,
 };
 use super::release_ref::{ReleaseTags, TagFuture};
-use octocode_github::RequestBudget;
+use octocode_io::budget::RequestBudget;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -306,7 +306,22 @@ impl KnownTags {
 }
 
 impl ReleaseTags for KnownTags {
-    fn exists<'a>(&'a self, owner: &'a str, repo: &'a str, reference: &'a str) -> TagFuture<'a> {
+    fn tag_exists<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str) -> TagFuture<'a> {
+        self.known(owner, repo, tag)
+    }
+
+    fn commit_exists<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        commit: &'a str,
+    ) -> TagFuture<'a> {
+        self.known(owner, repo, commit)
+    }
+}
+
+impl KnownTags {
+    fn known<'a>(&'a self, owner: &'a str, repo: &'a str, reference: &'a str) -> TagFuture<'a> {
         let name = format!("{owner}/{repo}@{reference}");
         let exists = match &self.answer {
             Answer::Known(known) => Some(known.contains(&name.as_str())),

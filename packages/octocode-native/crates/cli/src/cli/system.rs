@@ -4,7 +4,8 @@
 //! the environment-management side of the CLI, distinct from tool dispatch in
 //! the parent module.
 use super::write_json;
-use octocode_native::runtime::{ExitClass, FailureKind, ToolRuntime};
+use octocode_native::response::exit::ExitClass;
+use octocode_native::runtime::{FailureKind, ToolRuntime};
 use serde_json::json;
 
 /// A failed auth command: the one `{error, errorCode}` envelope (JSON) or
@@ -40,7 +41,7 @@ async fn resolve_auth(
     runtime: &ToolRuntime,
     host: &str,
 ) -> Option<octocode_native::providers::github::AuthSelection> {
-    use octocode_github::RequestBudget;
+    use octocode_io::budget::RequestBudget;
     use octocode_native::providers::github::{AuthMode, Authentication};
     let auth = Authentication::new(std::sync::Arc::new(runtime.config().clone()));
     let budget = RequestBudget::with_timeout(std::time::Duration::from_secs(5), 0);

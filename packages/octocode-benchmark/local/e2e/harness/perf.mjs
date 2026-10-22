@@ -1,11 +1,12 @@
 // BENCHMARK, not a correctness test: run-all runs it only when named.
 // Cache effectiveness on real repos. lspSearch continuation pages reuse the
-// server answers for an unchanged anchor (checked). Symbols/topology pages
+// server answers for an unchanged anchor (checked). Symbols pages
 // re-read every file so edits are detected; their timings are reported (the
 // bench runs debug builds, where they are several times slower than release).
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, cliClient, cliEntry, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { spawnSync } from 'node:child_process';
+import { REPOS, ROOT, checks, rowData, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('perf');
 const client = await startServer({ env: { OCTOCODE_BETA: '1' } });
@@ -40,23 +41,24 @@ const rows = [];
   rows.push({ case: `astSearch symbols (${rowData(first.out)?.pagination?.totalItems} decls)`, page1: first.ms, page2: second?.ms ?? '-' });
 }
 
-// astTopology (CLI-only): page 2 and a different operation. Each CLI call is
-// a fresh process, so these timings include the scan; no memo is shared.
+// octocode graph (CLI): ingest, an unchanged re-ingest (reused snapshot), then
+// queries over the snapshot. Each call is a fresh process.
+const graph = (cwd, ...argv) => {
+  const started = performance.now();
+  const run = spawnSync(process.execPath, [path.join(ROOT, 'packages/octocode/out/octocode.js'), 'graph', ...argv, '--json'], { cwd, encoding: 'utf8', maxBuffer: 256 << 20 });
+  let json;
+  try { json = JSON.parse(run.stdout); } catch {}
+  return { json, status: run.status, ms: Math.round(performance.now() - started) };
+};
 {
   const root = path.join(REPOS, 'rust');
-  const base = { path: root, rustWorkspace: 'cargo', exclude: ['target'] };
-  const topology = async (query, lead) => {
-    const started = performance.now();
-    const out = lead ? await cliClient.follow(lead) : cliEntry('astTopology', { queries: [query] });
-    return { out, ms: Math.round(performance.now() - started) };
-  };
-  const first = await topology({ ...base, operation: 'dependents', source: 'tokio/src/sync/mpsc/bounded.rs', graphDepth: 6, pageSize: 5 });
-  const next = rowData(first.out)?.next?.nextPage;
-  const second = next ? await topology(null, next) : null;
-  const other = await topology({ ...base, operation: 'cycles', pageSize: 5 });
-  const coverage = rowData(first.out)?.coverage?.diagnosticCounts ?? {};
-  rows.push({ case: 'astTopology tokio dependents', page1: first.ms, page2: second?.ms ?? '-', repeat: other.ms, unsupportedLinking: coverage['unsupported-linking'] ?? 0 });
-  check('astTopology: tokio unsupported-linking gaps under 200 (was 1,023)', !first.out.isError && !first.out.rowErrors && !!rowData(first.out)?.coverage && (coverage['unsupported-linking'] ?? 0) < 200, JSON.stringify(coverage));
+  const ingest = graph(root, 'ingest', '.', '--workspace', root, '--exclude', 'target');
+  const reused = graph(root, 'ingest', '.', '--workspace', root, '--exclude', 'target');
+  const id = ingest.json?.id ?? '';
+  const dependents = graph(root, 'query', 'dependents', 'tokio/src/sync/mpsc/bounded.rs', '--depth', '6', '--graph', id, '--workspace', root);
+  const cycles = graph(root, 'query', 'cycles', '--graph', id, '--workspace', root);
+  rows.push({ case: 'graph tokio ingest / dependents', page1: ingest.ms, page2: dependents.ms, repeat: reused.ms, cycles: cycles.ms });
+  check('graph: tokio ingest, reuse, and dependents answer', ingest.status === 0 && reused.json?.reused === true && dependents.status === 0 && (dependents.json?.total ?? 0) > 0 && cycles.status !== 5, JSON.stringify({ ingest: ingest.status, reused: reused.json?.reused, dependents: dependents.json?.total ?? dependents.json?.error, cycles: cycles.status }));
 }
 
 // astSearch match and symbols over the native crates (this repository): walk
@@ -75,14 +77,16 @@ const rows = [];
 }
 
 // Real-repo import-resolution tallies (manual): OCTOCODE_GRAPH_SANITY_ROOTS=a:b
-// prints each root's astTopology cycles coverage (diagnostic counts by code)
-// and a sample of unresolved internal imports.
+// ingests each root and prints its graph diagnostic counts by code and a
+// sample of unresolved internal imports.
 for (const root of (process.env.OCTOCODE_GRAPH_SANITY_ROOTS ?? '').split(':').filter(Boolean)) {
-  const started = performance.now();
-  const out = cliEntry('astTopology', { queries: [{ operation: 'cycles', path: root, maxFiles: 20000, extras: ['diagnostics'] }] });
-  const data = rowData(out);
-  const unresolved = (data?.diagnostics ?? []).filter(d => d.code === 'unresolved-internal').slice(0, 8);
-  console.log(`SANITY ${root} ms=${Math.round(performance.now() - started)} coverage=${JSON.stringify(data?.coverage ?? data?.errorCode)}\n  sample unresolved: ${JSON.stringify(unresolved, null, 2)}`);
+  const ingest = graph(root, 'ingest', '.', '--workspace', root);
+  const diagnostics = graph(root, 'query', 'diagnostics', '--graph', ingest.json?.id ?? '', '--workspace', root, '--limit', '1000');
+  const rowsOf = diagnostics.json?.results ?? [];
+  const byCode = {};
+  for (const d of rowsOf) byCode[d.code] = (byCode[d.code] ?? 0) + 1;
+  const unresolved = rowsOf.filter(d => d.code === 'unresolved-internal').slice(0, 8);
+  console.log(`SANITY ${root} ms=${ingest.ms + diagnostics.ms} total=${diagnostics.json?.total ?? diagnostics.json?.error} byCode=${JSON.stringify(byCode)}\n  sample unresolved: ${JSON.stringify(unresolved, null, 2)}`);
 }
 
 console.table(rows);

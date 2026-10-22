@@ -8,8 +8,9 @@
 use tree_sitter::Node;
 
 use crate::graph::{
-    GraphFactCall, GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphFactImport,
-    GraphFactRustModule, GraphFactsDocument, GraphPosition, GraphRange,
+    GraphFactCall, GraphFactCode, GraphFactDeclaration, GraphFactDiagnostic, GraphFactEdge,
+    GraphFactExport, GraphFactImport, GraphFactRustModule, GraphFactsDocument, GraphPosition,
+    GraphRange,
 };
 
 use super::languages;
@@ -82,57 +83,35 @@ impl<'a> NodePositions<'a> {
     }
 }
 
-/// What a graph-facts diagnostic says. The facts carry the message text;
-/// consumers classify it here, next to the text it is built from, and
-/// branch on the kind instead of matching English.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GraphFactNoteKind {
-    /// The static caveat on every tree-sitter file: facts are syntax-only.
-    SyntaxOnly,
-    /// The parse recovered from syntax errors; facts may be partial.
-    RecoveredParse,
-    /// Rust macro-generated imports are not linked.
-    RustMacroExpansion,
-    /// A Rust module carries conditional or custom attributes.
-    RustModuleAttributes,
-    /// The crate root carries inner conditional or custom attributes.
-    RustCrateAttributes,
-}
-
-const SYNTAX_ONLY_NOTE: &str =
-    "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof";
-const RECOVERED_PARSE_NOTE: &str =
-    "tree-sitter recovered from parse errors; graph facts may be partial";
-const RUST_MACRO_EXPANSION_NOTE: &str =
-    "unsupported Rust macro expansion: macro-generated imports are not linked";
-/// Followed by ` at line <n>`.
-const RUST_MODULE_ATTRIBUTES_NOTE: &str =
-    "unsupported Rust conditional or custom module attributes";
-const RUST_CRATE_ATTRIBUTES_NOTE: &str =
-    "unsupported Rust inner conditional or custom crate attributes";
-
-impl GraphFactNoteKind {
-    /// The kind of a diagnostic this module emitted; `None` for any other
-    /// (deadline and scan diagnostics carry their own codes).
-    pub fn of(message: &str) -> Option<Self> {
-        [
-            (Self::SyntaxOnly, SYNTAX_ONLY_NOTE),
-            (Self::RecoveredParse, RECOVERED_PARSE_NOTE),
-            (Self::RustMacroExpansion, RUST_MACRO_EXPANSION_NOTE),
-            (Self::RustModuleAttributes, RUST_MODULE_ATTRIBUTES_NOTE),
-            (Self::RustCrateAttributes, RUST_CRATE_ATTRIBUTES_NOTE),
-        ]
-        .into_iter()
-        .find_map(|(kind, text)| message.starts_with(text).then_some(kind))
-    }
-
-    /// A caveat about import or module linking, which a declaration
-    /// listing never does.
-    pub fn is_linking_only(self) -> bool {
-        matches!(
-            self,
-            Self::RustMacroExpansion | Self::RustModuleAttributes | Self::RustCrateAttributes
-        )
+/// The diagnostic of `code`, with the message this module states for it.
+fn note(code: GraphFactCode) -> GraphFactDiagnostic {
+    let message = match code {
+        GraphFactCode::SyntaxOnly => {
+            "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof"
+        }
+        GraphFactCode::RecoveredParse => {
+            "tree-sitter recovered from parse errors; graph facts may be partial"
+        }
+        GraphFactCode::ParseDeadline => "graph parsing was interrupted; facts are incomplete",
+        GraphFactCode::TraversalDeadline => {
+            "graph extraction exceeded its execution deadline; facts are incomplete"
+        }
+        GraphFactCode::RustMacroExpansion => {
+            "unsupported Rust macro expansion: macro-generated imports are not linked"
+        }
+        GraphFactCode::RustModuleAttributes => {
+            "unsupported Rust conditional or custom module attributes"
+        }
+        GraphFactCode::RustCrateAttributes => {
+            "unsupported Rust inner conditional or custom crate attributes"
+        }
+        // `js_oxc` states its parser's own errors.
+        GraphFactCode::ParseError => "the parser reported a syntax error",
+    };
+    GraphFactDiagnostic {
+        code,
+        message: message.to_owned(),
+        line: None,
     }
 }
 
@@ -144,7 +123,7 @@ struct GraphAccumulator {
     exports: Vec<GraphFactExport>,
     calls: Vec<GraphFactCall>,
     edges: Vec<GraphFactEdge>,
-    diagnostics: Vec<String>,
+    diagnostics: Vec<GraphFactDiagnostic>,
     modules: Vec<GraphFactRustModule>,
     /// Rust qualified paths outside call and `use` position.
     paths: Vec<crate::graph::GraphFactPath>,
@@ -157,9 +136,6 @@ struct GraphAccumulator {
     macro_bodies: Vec<MacroBody>,
     /// Byte span of each entry of `declarations`, in the same order.
     declaration_spans: Vec<(usize, usize)>,
-    /// Indices into `imports` of bindings from private Rust `use` items,
-    /// whose uses `rust_import_uses` attributes to declarations.
-    private_use_imports: Vec<usize>,
     /// Name tokens the main walk passed, for `count_name_references`;
     /// `None` outside that walk (macro bodies are not counted).
     name_tokens: Option<Vec<NameToken>>,
@@ -192,10 +168,9 @@ impl GraphAccumulator {
             non_reference_tokens: std::collections::HashSet::new(),
             macro_bodies: Vec::new(),
             declaration_spans: Vec::new(),
-            private_use_imports: Vec::new(),
             name_tokens: None,
             declarations_only: false,
-            diagnostics: vec![SYNTAX_ONLY_NOTE.to_owned()],
+            diagnostics: vec![note(GraphFactCode::SyntaxOnly)],
         }
     }
 }
@@ -356,11 +331,9 @@ fn extract_facts_before(
     )
 }
 
-/// The registry entry of a grammar graph facts are extracted for.
+/// The registry entry of a grammar graph facts are extracted for: every
+/// registry grammar ([`graph_fact_extensions`]).
 fn graph_fact_entry(extension: &str) -> Option<&'static languages::LanguageEntry> {
-    if !graph_fact_extensions().iter().any(|item| item == extension) {
-        return None;
-    }
     languages::find_entry(extension)
 }
 
@@ -402,18 +375,17 @@ fn facts_from_tree(
     acc.declarations_only = declarations_only;
     let mut rust_root_unsupported = (ext == "rs").then_some(true);
     let mut reference_counts = Vec::new();
-    let mut import_uses = None;
     let mut error_lines = Vec::new();
-    let rust = ext == "rs";
     if let Some(tree) = tree {
         let root = tree.root_node();
         let line_index = NodePositions::new(content);
         rust_root_unsupported = (ext == "rs").then(|| rust_inner_unsupported(root, content));
         if rust_root_unsupported == Some(true) {
-            acc.diagnostics.push(RUST_CRATE_ATTRIBUTES_NOTE.to_owned());
+            acc.diagnostics
+                .push(note(GraphFactCode::RustCrateAttributes));
         }
         if root.has_error() {
-            acc.diagnostics.push(RECOVERED_PARSE_NOTE.to_owned());
+            acc.diagnostics.push(note(GraphFactCode::RecoveredParse));
             error_lines = syntax_error_lines(root);
         }
         acc.name_tokens = (!declarations_only).then(Vec::new);
@@ -425,7 +397,7 @@ fn facts_from_tree(
             // Facts gathered before the deadline are positive syntax facts and
             // stay. The diagnostic marks the file incomplete, so consumers must
             // not read a missing import, call or module as absent.
-            acc.diagnostics.push("graph.traversal.deadlineExceeded: graph extraction exceeded its execution deadline; facts are incomplete".to_owned());
+            acc.diagnostics.push(note(GraphFactCode::TraversalDeadline));
             rust_root_unsupported = (ext == "rs").then_some(true);
         } else if !declarations_only {
             let counts = count_name_references(content, &acc, &name_tokens);
@@ -437,15 +409,9 @@ fn facts_from_tree(
                     count: counts.get(&declaration.name).copied().unwrap_or(0),
                 })
                 .collect();
-            import_uses = rust
-                .then(|| rust_import_uses(root, content, &acc, deadline))
-                .flatten();
         }
     } else {
-        acc.diagnostics.push(
-            "graph.parse.deadlineExceeded: graph parsing was interrupted; facts are incomplete"
-                .to_owned(),
-        );
+        acc.diagnostics.push(note(GraphFactCode::ParseDeadline));
     }
 
     let lines = content.lines().collect::<Vec<_>>();
@@ -453,8 +419,7 @@ fn facts_from_tree(
         declaration.doc_line =
             super::leading_doc_line(&lines, declaration.range.start.line as usize, &ext);
     }
-    let private_use_imports = std::mem::take(&mut acc.private_use_imports);
-    let mut facts = GraphFactsDocument {
+    let facts = GraphFactsDocument {
         declarations: acc.declarations,
         imports: acc.imports,
         exports: acc.exports,
@@ -473,119 +438,10 @@ fn facts_from_tree(
         rust_root_unsupported,
         ..super::native_graph_facts(language_label(&ext, entry.language_id), file_path)
     };
-    if let Some(mut uses) = import_uses {
-        for index in private_use_imports {
-            if let Some(import) = facts.imports.get_mut(index)
-                && let Some(local) = import.local_name.as_deref()
-                && import.imported_name.as_deref() != Some("*")
-            {
-                import.used_in = uses.remove(local).map(|mut users| {
-                    users.sort_unstable();
-                    users
-                });
-            }
-        }
-    }
     Some(super::GraphFactsExtraction {
         facts,
         reference_counts,
     })
-}
-
-/// Where each binding of a private Rust `use` is named, by local name: the id
-/// of the innermost declaration around each name token outside `use` items,
-/// or `IMPORT_USE_MODULE`. Name matching is syntactic, so a shadowing local
-/// only adds uses. Scopes whose code runs without a by-name caller (trait and
-/// inherent `impl` blocks, traits, macro definitions, `#[test]`/`#[cfg(test)]`
-/// or bench items) count as module-level. A name with no use at all is left
-/// out, because a trait brought into scope for its methods is never named;
-/// consumers treat the missing entry as used. `None` when the deadline cut
-/// the walk short.
-fn rust_import_uses(
-    root: Node<'_>,
-    content: &str,
-    acc: &GraphAccumulator,
-    deadline: std::time::Instant,
-) -> Option<std::collections::HashMap<String, Vec<String>>> {
-    let names = acc
-        .private_use_imports
-        .iter()
-        .filter_map(|index| acc.imports.get(*index)?.local_name.as_deref())
-        .filter(|name| *name != "_")
-        .collect::<std::collections::HashSet<_>>();
-    let mut uses: std::collections::HashMap<String, Vec<String>> = Default::default();
-    if names.is_empty() {
-        return Some(uses);
-    }
-    let innermost = |at: usize| {
-        acc.declaration_spans
-            .iter()
-            .zip(&acc.declarations)
-            .filter(|((start, end), _)| *start <= at && at < *end)
-            .min_by_key(|((start, end), _)| end - start)
-            .map_or(crate::graph::IMPORT_USE_MODULE, |(_, declaration)| {
-                declaration.id.as_str()
-            })
-    };
-    let mut record = |name: &str, at: usize, module_level: bool| {
-        if names.contains(name) {
-            let user = if module_level {
-                crate::graph::IMPORT_USE_MODULE
-            } else {
-                innermost(at)
-            };
-            let users = uses.entry(name.to_owned()).or_default();
-            if !users.iter().any(|known| known == user) {
-                users.push(user.to_owned());
-            }
-        }
-    };
-    // (node, inside a module-level scope, parent is a macro token tree)
-    let mut pending = vec![(root, false, false)];
-    let mut cursor = root.walk();
-    let mut steps = 0_u32;
-    while let Some((node, module_level, in_tokens)) = pending.pop() {
-        if polls_deadline(&mut steps) && std::time::Instant::now() >= deadline {
-            return None;
-        }
-        let kind = node.kind();
-        if kind == "use_declaration" {
-            continue;
-        }
-        if is_name_leaf(node) {
-            if let Some(text) = node_text(node, content) {
-                record(text, node.start_byte(), module_level);
-            }
-            continue;
-        }
-        if in_tokens && kind == "string_literal" {
-            for name in node_text(node, content)
-                .map(inline_format_captures)
-                .unwrap_or_default()
-            {
-                record(name, node.start_byte(), module_level);
-            }
-            continue;
-        }
-        let scope = module_level || matches!(kind, "impl_item" | "trait_item" | "macro_definition");
-        // Outer attributes are siblings before their item.
-        let mut test_item = false;
-        for child in node.named_children(&mut cursor) {
-            match child.kind() {
-                "attribute_item" => {
-                    let text = node_text(child, content).unwrap_or_default();
-                    test_item |= text.contains("test") || text.contains("bench");
-                    pending.push((child, scope, false));
-                }
-                "line_comment" | "block_comment" => {}
-                _ => {
-                    pending.push((child, scope || test_item, kind == "token_tree"));
-                    test_item = false;
-                }
-            }
-        }
-    }
-    Some(uses)
 }
 
 /// Per-name counts of identifier-kind tokens that reference a declared name,
@@ -686,13 +542,13 @@ fn is_item_level(node: Node<'_>) -> bool {
 type MacroBody = (tree_sitter::Range, Vec<String>, Option<(String, String)>);
 
 fn push_macro_gap(acc: &mut GraphAccumulator) {
-    let message = RUST_MACRO_EXPANSION_NOTE;
     if !acc
         .diagnostics
         .iter()
-        .any(|diagnostic| diagnostic == message)
+        .any(|diagnostic| diagnostic.code == GraphFactCode::RustMacroExpansion)
     {
-        acc.diagnostics.push(message.to_owned());
+        acc.diagnostics
+            .push(note(GraphFactCode::RustMacroExpansion));
     }
 }
 
@@ -1019,7 +875,6 @@ fn collect_node_facts(
             local_range: None,
             resolution_hint: None,
             module_scope: None,
-            used_in: None,
         });
     }
 
@@ -1158,7 +1013,7 @@ fn push_declaration(
     (id, name)
 }
 
-/// Rust `use` imports; a private `use` also marks them as private.
+/// Rust `use` imports.
 fn collect_rust_use(
     node: Node<'_>,
     content: &str,
@@ -1168,7 +1023,6 @@ fn collect_rust_use(
     deadline: std::time::Instant,
 ) {
     if let Some(argument) = node.child_by_field_name("argument") {
-        let first = acc.imports.len();
         collect_rust_imports(
             argument,
             rust.module_scope,
@@ -1178,15 +1032,6 @@ fn collect_rust_use(
             rust.context.unsupported,
             deadline,
         );
-        // A `pub use` re-exports: its binding is used by whoever imports
-        // this module, which no local reference shows.
-        let mut cursor = node.walk();
-        if !node
-            .named_children(&mut cursor)
-            .any(|child| child.kind() == "visibility_modifier")
-        {
-            acc.private_use_imports.extend(first..acc.imports.len());
-        }
     }
 }
 
@@ -1209,8 +1054,10 @@ fn collect_rust_module(
         let scope = rust.module_scope.to_vec();
         let inline = node.child_by_field_name("body").is_some();
         if unsupported {
-            acc.diagnostics
-                .push(format!("{RUST_MODULE_ATTRIBUTES_NOTE} at line {line}"));
+            acc.diagnostics.push(GraphFactDiagnostic {
+                line: Some(line),
+                ..note(GraphFactCode::RustModuleAttributes)
+            });
         }
         acc.modules.push(GraphFactRustModule {
             name: name.clone(),
@@ -1232,7 +1079,6 @@ fn collect_rust_module(
                 local_range: None,
                 resolution_hint: unsupported.then(|| "unsupported".to_owned()),
                 module_scope: Some(scope),
-                used_in: None,
             });
         }
     }
@@ -1367,7 +1213,6 @@ fn collect_csharp_using(
         local_range: alias.map(|alias| line_index.range(alias)),
         resolution_hint: None,
         module_scope: None,
-        used_in: None,
     });
 }
 
@@ -1392,7 +1237,6 @@ fn push_language_import<'a>(
         local_range: None,
         resolution_hint: Some(hint.to_owned()),
         module_scope: None,
-        used_in: None,
     });
     &mut acc.imports[index]
 }

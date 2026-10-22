@@ -9,13 +9,13 @@ use super::matching::{
     CandidatePlan, CaptureEnv, ExecutionError, Found, children, named_children, node_text,
     parse_tree, parse_tree_with_deadline, raw_range, visit_named,
 };
-use super::recovery::Recovery;
-use crate::structural::kinds::named_kind_id;
-use crate::structural::language::{AgLanguage, Expando, WRAP_MARKER};
-use crate::structural::metavars::{
+use super::metavars::{
     MetaVar, ambiguous_function_body_captures, key_value_pair_capture, meta_from_node,
     minimum_candidate_nodes, tag_name_capture,
 };
+use super::recovery::Recovery;
+use crate::structural::kinds::named_kind_id;
+use crate::structural::language::{AgLanguage, Expando, WRAP_MARKER};
 use crate::text::utf8_offsets::LineIndex;
 
 /// Native recursion guard for pattern matching; AST traversal is iterative.
@@ -245,9 +245,11 @@ impl CompiledPattern {
         let PatternText { source } = text;
         let root = effective_pattern_root(tree.root_node(), &source);
         if root.is_error() {
-            return Err(CompileError::grammar(
-                "invalid structural pattern: pattern parsed with syntax errors",
-            ));
+            return Err(CompileError::grammar(unparsed_pattern_message(
+                root,
+                &source,
+                lang.expando(),
+            )));
         }
         // Several top-level nodes (`a(); b()`) have no single node to match;
         // compiled as a whole file they would silently match only a file
@@ -863,4 +865,21 @@ fn is_pattern_wrapper(kind: &str) -> bool {
             | "config_file"
             | "body"
     )
+}
+
+/// The rejection for a pattern whose root did not parse. It names the last
+/// token the parser could not place (`$$$BODY` in `fn $N() $$$BODY`, where a
+/// function needs its body), so the caller sees what to complete.
+fn unparsed_pattern_message(root: Node<'_>, source: &str, expando: Expando) -> String {
+    const BASE: &str = "invalid structural pattern: pattern parsed with syntax errors";
+    let near = children(root)
+        .into_iter()
+        .rev()
+        .find(|node| !node.is_extra())
+        .map(|node| expando.restore(node_text(node, source).trim()))
+        .filter(|text| !text.is_empty());
+    match near {
+        Some(text) => format!("{BASE} near `{text}`"),
+        None => BASE.to_owned(),
+    }
 }

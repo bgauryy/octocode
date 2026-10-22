@@ -212,6 +212,20 @@ mod tests {
         assert_eq!(out, "fn main() {\nlet s = \"a\n    b\";\ncall(s);\n}");
     }
 
+    // ── general core ──────────────────────────────────────────────────────────
+
+    /// Halving indentation keeps nesting only when every line is halved: a
+    /// line holding a quoted value is halved like its siblings, and only a
+    /// line that opens inside a literal stays byte-exact.
+    #[test]
+    fn general_core_halves_indent_of_lines_with_literals_too() {
+        let src = "pkg@1:\n  version \"1.0\"\n  dependencies:\n    dep \"^2\"\n    other ok\nx \"a\n    b\"\n";
+        assert_eq!(
+            minify_general_core(src),
+            "pkg@1:\n version \"1.0\"\n dependencies:\n  dep \"^2\"\n  other ok\nx \"a\n    b\"\n"
+        );
+    }
+
     // ── code core ─────────────────────────────────────────────────────────────
     #[test]
     fn code_core_collapses_blank_runs_to_one() {

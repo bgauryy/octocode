@@ -11,17 +11,13 @@ fn checked_streamed_page(query: &LocalFetchQuery, paths: &Paths) -> LocalFetchRe
     let result = fetch(&admitted, paths);
     let mut row =
         serde_json::json!({"index":0,"data":serde_json::to_value(&result).expect("output")});
-    if matches!(result.status.as_str(), "empty" | "error") {
-        row["status"] = serde_json::json!(result.status);
+    if let Some(status) = result.status.row_status() {
+        row["status"] = serde_json::json!(status);
     }
-    crate::response::extras::prune_row(&mut row, crate::tools::id::ToolId::LocalFetch, &query_json);
-    crate::response::rows::minimize_row(
-        &mut row,
-        crate::tools::id::ToolId::LocalFetch,
-        &query_json,
-    );
+    crate::response::extras::prune_row(&mut row, crate::id::ToolId::LocalFetch, &query_json);
+    crate::response::rows::minimize_row(&mut row, crate::id::ToolId::LocalFetch, &query_json);
     let mut envelope = serde_json::json!({"results":[row]});
-    crate::tools::numbered::number_read_rows(crate::tools::id::ToolId::LocalFetch, &mut envelope);
+    crate::response::numbered::number_read_rows(crate::id::ToolId::LocalFetch, &mut envelope);
     crate::contracts::validate_output("localFetch", &envelope).expect("canonical output contract");
     result
 }
@@ -35,7 +31,7 @@ fn streamed_oversized_line_pages_its_bytes_and_later_selected_lines() {
     let selected_tail = "selected tail\n";
     // Streamed sources are those over the in-memory ceiling: the lines
     // after the oversized one only take the file just past it.
-    let outside = (super::super::executor::MAX_SOURCE_BYTES as usize).saturating_sub(longest.len())
+    let outside = (super::super::acquire::MAX_SOURCE_BYTES as usize).saturating_sub(longest.len())
         / "outside\n".len()
         + 1_000;
     fixture.write(
@@ -55,7 +51,7 @@ fn streamed_oversized_line_pages_its_bytes_and_later_selected_lines() {
     let mut pages = 0usize;
     loop {
         let result = checked_streamed_page(&query, &paths);
-        assert_eq!(result.status, "success", "{result:?}");
+        assert_eq!(result.status, ReadStatus::Success, "{result:?}");
         let content = result.content.as_deref().expect("page content");
         let page = result.pagination.as_ref().expect("pagination");
         if page.unit == WindowUnit::Bytes {
@@ -105,7 +101,7 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
         ),
         &paths,
     );
-    assert_eq!(first.status, "success", "{first:?}");
+    assert_eq!(first.status, ReadStatus::Success, "{first:?}");
     assert_eq!(first.is_partial, Some(true), "{first:?}");
     let mut seen = std::collections::BTreeMap::<usize, usize>::new();
     let mut count = |content: &str| {
@@ -139,7 +135,7 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
             serde_json::json!(["150000-157500"])
         );
         let result = checked_streamed_page(&query, &paths);
-        assert_eq!(result.status, "success", "{result:?}");
+        assert_eq!(result.status, ReadStatus::Success, "{result:?}");
         count(result.content.as_deref().expect("page content"));
         page = result.next.and_then(|next| next.continue_window);
         pages += 1;
@@ -147,7 +143,7 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
     }
     assert!(pages > 1);
     let rest = checked_streamed_page(&others, &paths);
-    assert_eq!(rest.status, "success", "{rest:?}");
+    assert_eq!(rest.status, ReadStatus::Success, "{rest:?}");
     assert!(rest.next.is_none(), "{rest:?}");
     count(rest.content.as_deref().expect("content"));
     let requested = (100..=150)
@@ -174,9 +170,9 @@ fn streamed_byte_pages_reject_source_changes_and_whole_source_byte_reads() {
         .continue_window
         .expect("byte page");
     assert_eq!(next.query.unit, Some(WindowUnit::Bytes));
-    assert_eq!(next.query.offset(), Some(16_384));
+    assert_eq!(local_fetch_query::offset(&next.query), Some(16_384));
     let second = checked_streamed_page(&next.query, &paths);
-    assert_eq!(second.status, "success", "{:?}", second.error);
+    assert_eq!(second.status, ReadStatus::Success, "{:?}", second.error);
     assert_eq!(second.content.as_deref(), Some(&line[16_384..]));
     fixture.write("large.log", source.replacen('x', "y", 1));
     let stale = checked_streamed_page(&next.query, &paths);
@@ -204,7 +200,7 @@ fn a_streamed_clipped_private_key_body_stays_redacted_across_windows() {
     let mut collected = String::new();
     for _ in 0..4 {
         let result = checked_streamed_page(&query, &paths);
-        assert_eq!(result.status, "success", "{:?}", result.error);
+        assert_eq!(result.status, ReadStatus::Success, "{:?}", result.error);
         assert_eq!(result.terminal_limit, None);
         collected.push_str(result.content.as_deref().expect("content"));
         if let Some(next) = result.next.and_then(|next| next.continue_window) {
@@ -254,7 +250,7 @@ fn an_oversized_block_continues_through_the_declaration_end() {
         "{rest:?}"
     );
     assert!(
-        !rest.query.block(),
+        !local_fetch_query::block(&rest.query),
         "a block re-read would widen back: {rest:?}"
     );
     let r = fetch(&rest.query, &paths);
@@ -290,7 +286,7 @@ fn an_oversized_block_continues_through_the_declaration_end() {
         .map(|range| range.as_str())
         .collect();
     assert_eq!(ranges, ["1-200", "204-452"], "{whole:?}");
-    assert!(whole.query.match_string.is_none() && !whole.query.block());
+    assert!(whole.query.match_string.is_none() && !local_fetch_query::block(&whole.query));
 }
 
 #[test]
@@ -369,9 +365,13 @@ fn rust_regex_refuses_backreferences_and_lookaround_and_repairs_to_pcre2() {
             .clone();
         assert_eq!(
             repaired.regex,
-            Some(crate::contracts::tool_types::ReadRegex::Pcre2)
+            Some(octocode_contract_types::ReadRegex::Pcre2)
         );
-        assert_eq!(repaired.match_strings(), vec![pattern], "kept as written");
+        assert_eq!(
+            local_fetch_query::match_strings(&repaired),
+            vec![pattern],
+            "kept as written"
+        );
         let fixed = fetch(&repaired, &paths);
         assert_eq!(fixed.error_code, None, "{pattern}: {fixed:?}");
         assert!(fixed.content.is_some_and(|c| !c.is_empty()), "{pattern}");
@@ -434,15 +434,7 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
     query.minify = Some(MinifyMode::Standard);
     let mut pages = Vec::new();
     loop {
-        let page = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            &LocalFetchRegex,
-            Some(20_000),
-            None,
-        );
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(20_000), None);
         assert_eq!(page.error_code, None, "{page:?}");
         let next = page.next.clone().and_then(|next| next.continue_window);
         pages.push(page);
@@ -499,7 +491,7 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
 fn directory_path_is_not_a_file_with_tree_lead() {
     let t = Fixture::new();
     fs::create_dir_all(t.0.join("src")).expect("dir");
-    let mut req = LocalFetchQuery::test_default();
+    let mut req = test_local_fetch_query();
     req.path = "src".parse().expect("path");
     for result in [
         fetch(&req, &workspace_policy(&t.0)),
@@ -528,7 +520,7 @@ fn a_policy_refusal_keeps_the_shared_code() {
         ("kv.json\u{0}", "invalidInput"),
         (".env", crate::policy::PATH_POLICY_DENIED),
     ] {
-        let mut req = LocalFetchQuery::test_default();
+        let mut req = test_local_fetch_query();
         req.path = path.parse().expect("path");
         let result = fetch(&req, &workspace_policy(&t.0));
         assert_eq!(result.error_code.as_deref(), Some(code), "{result:?}");
@@ -544,7 +536,7 @@ fn missing_file_leads_to_files_by_stem() {
     fs::create_dir_all(t.0.join("src/a")).expect("dirs");
     fs::create_dir_all(t.0.join("pkg/docs")).expect("dirs");
     fs::write(t.0.join("pkg/docs/blok.ts"), "x\n").expect("moved");
-    let mut req = LocalFetchQuery::test_default();
+    let mut req = test_local_fetch_query();
     req.path = "src/a/blok.rs".parse().expect("path");
     let result = fetch(&req, &workspace_policy(&t.0));
     assert_eq!(
@@ -563,7 +555,7 @@ fn missing_file_leads_to_files_by_stem() {
         &serde_json::from_value(listing.clone()).expect("structureSearch row"),
         &paths,
         &security,
-        &crate::tools::cancel::NeverCancel,
+        &crate::execution::cancel::NeverCancel,
         None,
     )
     .expect("listing");
@@ -591,7 +583,7 @@ fn missing_file_lead_never_widens_to_names_containing_the_stem() {
     for name in ["x.txt", "box.md", "index.md"] {
         fs::write(t.0.join("docs").join(name), "x\n").expect("fixture");
     }
-    let mut req = LocalFetchQuery::test_default();
+    let mut req = test_local_fetch_query();
     req.path = "docs/x.md".parse().expect("path");
     let result = fetch(&req, &workspace_policy(&t.0));
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
@@ -829,7 +821,7 @@ fn minified_default_window_is_byte_bounded() {
     assert!(content.len() <= 2600, "{} bytes", content.len());
     assert!(content.contains("var v126=HIT;"), "{content}");
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let window = crate::tools::id::DEFAULT_READ_CONTEXT_LINES;
+    let window = crate::id::DEFAULT_READ_CONTEXT_LINES;
     assert_eq!(
         next["expandContext"]["query"]["queries"][0]["contextLines"], window,
         "{next}"
@@ -922,8 +914,8 @@ fn line_walk_over_an_oversized_line_covers_every_byte_once() {
 fn selected_line_walk_keeps_byte_fallback_and_every_source_byte() {
     use crate::tools::selection::{Decision, JudgeCall, SelectionJudge};
     use serde_json::Value;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
+
+    use std::time::Duration;
 
     struct SourceOrderJudge;
     impl SelectionJudge for SourceOrderJudge {
@@ -949,42 +941,22 @@ fn selected_line_walk_keeps_byte_fallback_and_every_source_byte() {
     source.push_str("last line without newline");
     fs::write(&file, &source).expect("fixture");
     let executor = tokio::runtime::Runtime::new().expect("runtime");
-    let selection = crate::tools::selection::Runtime {
-        limits: crate::runtime::SelectionLimits {
-            max_candidates: 64,
-            max_chars: 131_072,
-            timeout: Duration::from_secs(10),
-        },
-        available: true,
-        judge: Arc::new(SourceOrderJudge),
-        handle: executor.handle().clone(),
-        context: crate::runtime::ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: Instant::now() + Duration::from_secs(10),
-            walk_threads: None,
-            response_window: None,
-            github_credential: None,
-        },
-    };
+    let selection = crate::tools::test_support::selection_fake::runtime(
+        SourceOrderJudge,
+        executor.handle().clone(),
+        Duration::from_secs(10),
+    );
     let mut query = qj(&file, serde_json::json!({"unit":"lines","length":400}));
     query.clasify_context = Some(
         serde_json::from_value(serde_json::json!({"classifiers":["find CSS"]})).expect("context"),
     );
     let (mut text, mut units, mut pages) = (String::new(), Vec::new(), 0);
     loop {
-        let page = execute_local_fetch(
-            &query,
-            &paths,
-            &Safe,
-            &NeverCancel,
-            &LocalFetchRegex,
-            None,
-            Some(&selection),
-        );
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, Some(&selection));
         assert_eq!(page.error_code, None, "{page:?}");
         assert_eq!(
             page.selection.as_ref().map(|receipt| receipt.status),
-            Some(crate::contracts::tool_types::SelectionStatus::Complete)
+            Some(octocode_contract_types::SelectionStatus::Complete)
         );
         pages += 1;
         assert!(pages < 40, "runaway paging");
@@ -1015,14 +987,16 @@ fn selected_line_walk_keeps_byte_fallback_and_every_source_byte() {
 /// selects every matching line (never a silent prefix of them).
 #[test]
 fn regex_read_selects_every_match_past_ten_thousand() {
-    use crate::contracts::tool_types::ReadRegex;
+    use octocode_contract_types::ReadRegex;
     let t = Fixture::new();
     let p = t.0.join("many.txt");
     let source: String = (1..=12_000).map(|i| format!("hit {i}\n")).collect();
     fs::write(&p, &source).expect("fixture");
     for engine in [ReadRegex::Rust, ReadRegex::Pcre2] {
         let mut request = q(&p);
-        request.match_string = Some("hit [0-9]+".parse().expect("match string"));
+        request.match_string = Some(MatchString::String(
+            "hit [0-9]+".parse().expect("match string"),
+        ));
         request.regex = Some(engine);
         request.context_lines = Some(0);
         let result = fetch(&request, &Paths(t.0.clone()));
@@ -1041,7 +1015,7 @@ fn regex_read_selects_every_match_past_ten_thousand() {
 /// every match of the same pattern in the same file.
 #[test]
 fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
-    use crate::contracts::tool_types::ReadRegex;
+    use octocode_contract_types::ReadRegex;
     let t = Fixture::new();
     let p = t.0.join("dense.txt");
     let mut source = String::new();
@@ -1052,7 +1026,7 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
     fs::write(&p, &source).expect("fixture");
     for engine in [ReadRegex::Rust, ReadRegex::Pcre2] {
         let mut request = q(&p);
-        request.match_string = Some("x".parse().expect("match string"));
+        request.match_string = Some(MatchString::String("x".parse().expect("match string")));
         request.regex = Some(engine);
         request.context_lines = Some(0);
         let result = fetch(&request, &Paths(t.0.clone()));
@@ -1084,7 +1058,7 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
 /// page continuation (the response moves it to `hints.findText`).
 #[test]
 fn paged_regex_read_past_the_match_limit_keeps_its_search_lead() {
-    use crate::contracts::tool_types::ReadRegex;
+    use octocode_contract_types::ReadRegex;
     let t = Fixture::new();
     let p = t.0.join("hits.txt");
     let source: String = (1..=extraction::MAX_REGEX_MATCHES + 5)
@@ -1092,14 +1066,13 @@ fn paged_regex_read_past_the_match_limit_keeps_its_search_lead() {
         .collect();
     fs::write(&p, &source).expect("fixture");
     let mut request = q(&p);
-    request.match_string = Some("hit".parse().expect("match string"));
+    request.match_string = Some(MatchString::String("hit".parse().expect("match string")));
     request.regex = Some(ReadRegex::Rust);
     let result = execute_local_fetch(
         &request,
         &Paths(t.0.clone()),
         &Safe,
         &NeverCancel,
-        &LocalFetchRegex,
         None,
         None,
     );
@@ -1208,7 +1181,7 @@ fn invalid_regex_items_are_named_by_index() {
         let repair = &list.next.as_ref().expect("repair lead").repair;
         let repaired = repair.as_ref().expect("repair").query.clone();
         assert_eq!(
-            repaired.match_strings(),
+            local_fetch_query::match_strings(&repaired),
             vec!["pass", "def post\\("],
             "{engine}"
         );
@@ -1233,10 +1206,10 @@ fn invalid_regex_items_are_named_by_index() {
         );
     }
     assert_eq!(
-        crate::tools::id::ToolId::LocalFetch
+        crate::id::ToolId::LocalFetch
             .output()
             .error_hint("invalidPattern"),
-        Some(crate::tools::output::NO_HINT)
+        Some(crate::response::output::NO_HINT)
     );
 }
 
@@ -1259,7 +1232,7 @@ fn ranges_with_match_string_grep_inside_the_ranges_only() {
     fs::write(&p, text).expect("fixture");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some("hit".parse().expect("match string"));
+    req.match_string = Some(MatchString::String("hit".parse().expect("match string")));
     req.context_lines = Some(3);
     req.ranges = vec!["10-20".parse().expect("range")];
     let r = fetch(&req, &paths);
@@ -1300,7 +1273,7 @@ fn ranges_past_the_file_end_lead_to_the_last_window() {
         .and_then(|next| next.repair.as_ref())
         .expect("repair lead");
     assert_eq!(
-        repair.query.line_ranges(),
+        local_fetch_query::line_ranges(&repair.query),
         vec![LineRange { start: 1, end: 5 }],
         "{past:?}"
     );
@@ -1318,7 +1291,7 @@ fn ranges_past_the_file_end_lead_to_the_last_window() {
             .next
             .as_ref()
             .and_then(|next| next.repair.as_ref())
-            .map(|repair| repair.query.line_ranges()),
+            .map(|repair| local_fetch_query::line_ranges(&repair.query)),
         Some(vec![LineRange { start: 4, end: 5 }]),
         "{narrow:?}"
     );
@@ -1547,7 +1520,7 @@ fn the_row_path_is_the_normal_form_of_the_requested_one() {
             .join("sub")
             .join("a.rs");
     let result = fetch(&qj(&dotted, serde_json::json!({})), &Paths(t.0.clone()));
-    assert_eq!(result.status, "success", "{result:?}");
+    assert_eq!(result.status, ReadStatus::Success, "{result:?}");
     assert_eq!(result.path, "sub/a.rs", "{result:?}");
 }
 
@@ -1587,7 +1560,7 @@ fn reads_through_a_symlink_keep_the_requested_path() {
     fs::write(root.join("other").join("a.rs"), "fn a() {}\n").expect("fixture");
     // Past the whole-file guard, the source is served from streamed windows.
     let line = format!("{}\n", "x".repeat(99));
-    let lines = usize::try_from(executor::MAX_SOURCE_BYTES).expect("size") / line.len() + 10;
+    let lines = usize::try_from(acquire::MAX_SOURCE_BYTES).expect("size") / line.len() + 10;
     fs::write(root.join("other").join("big.txt"), line.repeat(lines)).expect("fixture");
     std::os::unix::fs::symlink(root.join("other"), root.join("link")).expect("symlink");
     std::os::unix::fs::symlink(root.join("other").join("a.rs"), root.join("file-link.rs"))
@@ -1599,10 +1572,15 @@ fn reads_through_a_symlink_keep_the_requested_path() {
         ("file-link.rs", Some("other/a.rs"), false),
         ("other/./a.rs", None, false),
     ] {
-        let mut req = LocalFetchQuery::test_default();
+        let mut req = test_local_fetch_query();
         req.path = requested.parse().expect("path");
         let result = fetch(&req, &policy);
-        assert_eq!(result.status, "success", "{requested}: {:?}", result.error);
+        assert_eq!(
+            result.status,
+            ReadStatus::Success,
+            "{requested}: {:?}",
+            result.error
+        );
         assert_eq!(
             result
                 .warnings
@@ -1667,10 +1645,10 @@ fn a_case_only_difference_is_not_a_symlink() {
         return; // case-sensitive: the other spelling names no file
     }
     let policy = workspace_policy(&root);
-    let mut req = LocalFetchQuery::test_default();
+    let mut req = test_local_fetch_query();
     req.path = "SRC/README.MD".parse().expect("path");
     let result = fetch(&req, &policy);
-    assert_eq!(result.status, "success", "{:?}", result.error);
+    assert_eq!(result.status, ReadStatus::Success, "{:?}", result.error);
     assert!(
         !result.warnings.iter().any(|w| w.contains("symlink")),
         "{:?}",
@@ -1712,7 +1690,7 @@ fn a_missing_file_leads_to_its_parents_tree() {
         t.0.join("src/executor.rs").to_string_lossy(),
         "{next}"
     );
-    assert_eq!(fetch(read, &policy).status, "success");
+    assert_eq!(fetch(read, &policy).status, ReadStatus::Success);
 }
 
 /// A mistyped name close to a file the path policy withholds names no

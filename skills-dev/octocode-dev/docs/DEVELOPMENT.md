@@ -54,7 +54,7 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 | Dependency graph | `crates/engine/src/graph/`, `crates/runtime/src/tools/ast_graph/` |
 | GitHub client, rate-limit breaker, cache | `crates/github/src/` (`budget.rs`), `crates/runtime/src/runtime/github.rs`, `github_cache.rs` |
 | `clasify` and context selection | `crates/runtime/src/tools/clasify/`, `tools/judgment/` (evaluator, cache, transport), `tools/selection.rs`, `providers/classification/` |
-| Internal limits (timeouts, retries, page size, caches) | `crates/runtime/src/runtime/limits.rs` |
+| Internal limits (timeouts, retries, page size, caches) | `crates/runtime/src/execution/limits.rs` |
 | End-to-end harness | `packages/octocode-benchmark/local/e2e/harness/` |
 
 ## Contract pipeline
@@ -70,7 +70,7 @@ flowchart TD
   F -- no --> H[build.rs fails: regenerate and rebuild]
 ```
 
-Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. Until native is rebuilt, the MCP server refuses to start and CLI `schema` refuses to describe tools. `OCTOCODE_ALLOW_CONTRACT_DRIFT=1` downgrades that to a warning outside production. Release order: [RELEASE.md](RELEASE.md).
+Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_types.rs` holds only the generated types native source names and what they reach: after a native edit that starts or stops naming one, regenerate (`check:tool-contract` fails until then). Until native is rebuilt, the MCP server refuses to start and CLI `schema` refuses to describe tools. `OCTOCODE_ALLOW_CONTRACT_DRIFT=1` downgrades that to a warning outside production. Release order: [RELEASE.md](RELEASE.md).
 
 ### Adding a tool field
 
@@ -104,7 +104,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 `$DEV test:tools` (`packages/octocode-benchmark/local/e2e/harness/tool-health.mjs`) is the quick end-to-end alarm for every tool in the contract. It first runs the driver's self-test (`harness/tool-health/driver.test.mjs`), then runs each tool through the built CLI (`--json`) and the MCP stdio server and checks:
 
 - **happy**: the primary operation exits 0, returns rows with the key fields, and validates against the contract `outputSchema`;
-- **continuation**: walking the `next.*` page lead to its end gives non-empty pages, every row exactly once, and exactly the unpaged rows; `walks` cover a tool's other page channels (PR patch windows, astTopology deadCode pages);
+- **continuation**: walking the `next.*` page lead to its end gives non-empty pages, every row exactly once, and exactly the unpaged rows; `walks` cover a tool's other page channels (PR patch windows);
 - **explore**: every seed is explored by `harness/tool-health/driver.mjs`. Every `next.*` and `hints.*` lead runs once, and every response must validate against its tool's `outputSchema`. A lead must be accepted and satisfy its key family's predicates (`harness/lead-predicates.mjs`, shared with `lead-replay`). A lead that cycles back to a query on its own path, or repeats another lead of the same response, fails;
 - **facts**: hint and warning sentences of 30+ characters must not repeat tool descriptions or server instructions, and must not repeat in every call of a tool across different query shapes;
 - **empty**: exit 1 with a hint or lead on both surfaces;

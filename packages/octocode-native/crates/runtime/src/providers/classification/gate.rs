@@ -23,7 +23,7 @@
 //! before any retry backoff sleep. The gate is transport-neutral: it reports
 //! admission failures as [`GateDenied`] and the transport maps them to public
 //! error codes.
-use octocode_github::RequestBudget;
+use octocode_io::budget::RequestBudget;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};

@@ -4,7 +4,7 @@
 //! causes that held matches and runs to the match. When nothing sits behind
 //! the skipped paths there is no lead.
 use super::Cause;
-use crate::tools::cancel::NeverCancel;
+use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::{Value, json};
 use std::path::Path;

@@ -3,8 +3,8 @@
 //! empty or whole-looking page.
 use super::super::{StructureSearchQuery, execute_structure_within};
 use super::run;
-use crate::tools::cancel::{CancellationCheck, NeverCancel};
-use crate::tools::id::ToolId;
+use crate::execution::cancel::{CancellationCheck, NeverCancel};
+use crate::id::ToolId;
 use crate::tools::test_support::{Fixture, assert_row_contract, simple_policy};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -32,21 +32,21 @@ fn within_checked(
     execute_structure_within(&query, &paths, &security, cancel, None, budget).expect("listing")
 }
 
-/// The time `Slow` takes at one entry; the small budgets below are fractions
-/// of whole steps, so they cut a fixture walk after a few entries.
+/// The walk time `Slow` spends at one entry; the small budgets below are
+/// fractions of whole steps, so they cut a fixture walk after a few entries.
 const STEP: Duration = Duration::from_millis(3);
 
 /// A budget no fixture walk spends: its windows are cut by `maxEntries` alone.
 const UNSPENT: Duration = Duration::from_secs(3600);
 
-/// Takes its time at every entry the walk reaches, so a small budget cuts a
-/// fixture walk after a few entries. A late sleep only cuts a window earlier,
-/// which every property under test holds for whatever the timing.
+/// Spends [`STEP`] of the walk clock at every entry the walk reaches, so a
+/// small budget cuts a fixture walk after a few entries, at the same entry
+/// on every run; the schedules vary where the cuts fall.
 struct Slow;
 
 impl CancellationCheck for Slow {
     fn check(&self) -> Result<(), String> {
-        std::thread::sleep(STEP);
+        octocode_engine::scan_budget::advance_walk_clock(STEP);
         Ok(())
     }
 }
@@ -83,7 +83,7 @@ fn a_listing_out_of_time_is_partial_names_where_it_stopped_and_leads_narrower() 
         let narrow = &out["next"]["narrowScope"]["query"]["queries"][0];
         assert_eq!(narrow["operation"], "tree", "{out}");
         assert_eq!(narrow["maxDepth"], 1, "{out}");
-        assert!(out["next"].get("expandScan").is_none(), "{out}");
+        assert!(out["next"].get("continueWalk").is_none(), "{out}");
     }
 }
 
@@ -205,28 +205,31 @@ fn the_ignored_retry_of_a_resumed_window_lists_from_the_start() {
     }
 }
 
-/// Runs a listing through every window its continuations offer (`continueWalk`
-/// after a time cut, `expandScan` after a `maxEntries` cut), each under the
-/// next budget of `budgets` (the last repeats): timing that cuts one window
-/// early and another late. Returns the rows each window listed, and how many
-/// windows the time budget cut (`continueWalk`).
+/// Runs a listing through every window its `continueWalk` offers (resuming
+/// after a time cut, widening after a `maxEntries` cut), each under the next
+/// budget of `budgets` (the last repeats): timing that cuts one window early
+/// and another late. Returns the rows each window listed, and how many
+/// windows the time budget cut.
 fn follow_windows(
     root: &std::path::Path,
     start: Value,
     budgets: &[Duration],
 ) -> (Vec<Vec<String>>, usize) {
-    let (outs, time_cuts) = follow_outputs(root, start, budgets);
+    let (outs, resumed) = follow_outputs(root, start, budgets);
+    let time_cuts = resumed.iter().filter(|resumed| **resumed).count();
     (outs.iter().map(listed_entries).collect(), time_cuts)
 }
 
-/// [`follow_windows`], keeping each window's whole response.
+/// [`follow_windows`], keeping each window's whole response, and for each
+/// window whether its `continueWalk` resumes a time cut: a resume moves
+/// `walkOffset`, a widened `maxEntries` keeps the window's own.
 fn follow_outputs(
     root: &std::path::Path,
     start: Value,
     budgets: &[Duration],
-) -> (Vec<Value>, usize) {
+) -> (Vec<Value>, Vec<bool>) {
     let mut windows = Vec::new();
-    let mut time_cuts = 0;
+    let mut resumed = Vec::new();
     let mut query = start;
     loop {
         let budget = budgets[windows.len().min(budgets.len() - 1)];
@@ -243,16 +246,18 @@ fn follow_outputs(
             out["next"].get("nextPage").is_none(),
             "a fixture window is one page: {out}"
         );
-        time_cuts += usize::from(out["next"].get("continueWalk").is_some());
         let next = out["next"]
             .get("continueWalk")
-            .or_else(|| out["next"].get("expandScan"))
             .map(|next| next["query"]["queries"][0].clone());
+        resumed.push(
+            next.as_ref()
+                .is_some_and(|next| next.get("walkOffset") != query.get("walkOffset")),
+        );
         let terminal = out.get("terminalLimit").is_some();
         windows.push(out);
         let Some(next) = next else {
             assert!(!terminal, "the chain ended on a terminal limit");
-            return (windows, time_cuts);
+            return (windows, resumed);
         };
         query = next;
     }
@@ -335,8 +340,9 @@ fn a_sorted_listing_cut_by_time_resumes_exactly() {
     }
 }
 
-/// `expandScan` skips the rows an earlier window listed. A walk it cut by
-/// time that never reached them lists nothing; its `continueWalk` skips the
+/// A widening `continueWalk` skips the rows an earlier window listed. A walk
+/// it cut by time that never reached them lists nothing; its resuming
+/// `continueWalk` skips the
 /// rows still owed, so the rows between its cut and the earlier window's end
 /// are not listed twice.
 #[test]
@@ -349,7 +355,7 @@ fn a_walk_cut_before_the_rows_an_earlier_window_listed_skips_the_rest_after_it()
         let first = within(&root.0, start, Duration::from_secs(3600));
         let mut chained = listed_entries(&first);
         assert_eq!(chained.len(), 4, "{operation}: {first}");
-        let widen = first["next"]["expandScan"]["query"]["queries"][0].clone();
+        let widen = first["next"]["continueWalk"]["query"]["queries"][0].clone();
         assert_eq!(widen["scanOffset"], 4, "{operation}: {first}");
         // The widened walk is cut after two or three entries, before the four
         // rows the first window listed.
@@ -447,9 +453,9 @@ fn left_out(out: &Value) -> (u64, u64, u64) {
 
 /// A walk's windows count what the walk left out once between them: a window
 /// that ends at its `maxEntries`-th row leaves the entries after it to the
-/// window that resumes there, and neither counts them twice. (A window
-/// widened by `expandScan` walks the same walk again, so it is no resume:
-/// only chains of `continueWalk` windows add up.)
+/// window that resumes there, and neither counts them twice. (A widening
+/// `continueWalk` walks the same walk again, so it is no resume: only chains
+/// of resuming windows, whose query carries `walkOffset`, add up.)
 #[test]
 fn windows_count_what_the_walk_left_out_once_whatever_the_timing() {
     let big = UNSPENT;
@@ -487,11 +493,9 @@ fn windows_count_what_the_walk_left_out_once_whatever_the_timing() {
             for budgets in schedules {
                 let mut start = start.clone();
                 start["maxEntries"] = json!(max_entries);
-                let (outs, cuts) = follow_outputs(&root.0, start, budgets);
-                time_cuts += cuts;
-                let resumes = outs[..outs.len() - 1]
-                    .iter()
-                    .all(|out| out["next"].get("continueWalk").is_some());
+                let (outs, resumed) = follow_outputs(&root.0, start, budgets);
+                time_cuts += resumed.iter().filter(|resumed| **resumed).count();
+                let resumes = resumed[..resumed.len() - 1].iter().all(|resumed| *resumed);
                 if !resumes {
                     continue;
                 }

@@ -41,7 +41,6 @@ fn search() -> (Workspace, &'static str) {
 fn piped_json_is_one_compact_line() {
     let (workspace, query) = search();
     for args in [
-        vec!["localSearch", query],
         vec!["localSearch", query, "--json"],
         vec!["schema"],
         vec!["schema", "localSearch", "--view", "query", "--json"],
@@ -58,6 +57,63 @@ fn piped_json_is_one_compact_line() {
         );
         compact_line(stdout(&output));
     }
+}
+
+/// A tool prints text on a pipe, as rg and gh do: hits as `path:line:text`
+/// on stdout, counts and leads as `# ` notes on stderr. Flags and the JSON
+/// query print the same lines.
+#[test]
+fn tools_print_rg_style_lines_on_a_pipe() {
+    let workspace = Workspace::new();
+    workspace.write("notes.txt", "alpha\nneedle here\nomega\n");
+    let flags = workspace
+        .cli()
+        .args(["localSearch", "needle", ".", "-C", "1"])
+        .output()
+        .expect("flags");
+    assert_eq!(flags.status.code(), Some(0), "{}", stderr(&flags));
+    assert_eq!(
+        stdout(&flags),
+        "notes.txt-1-alpha\nnotes.txt:2:needle here\nnotes.txt-3-omega\n"
+    );
+    assert!(
+        stderr(&flags).contains("# matchCount: 1"),
+        "{}",
+        stderr(&flags)
+    );
+    let json = workspace
+        .cli()
+        .args([
+            "localSearch",
+            r#"{"path":".","matchString":"needle","contextLines":1}"#,
+        ])
+        .output()
+        .expect("json query");
+    assert_eq!(stdout(&json), stdout(&flags));
+    let files = workspace
+        .cli()
+        .args(["localSearch", "needle", "-l"])
+        .output()
+        .expect("files");
+    assert_eq!(stdout(&files), "notes.txt\n");
+}
+
+/// `--bool false` with a space is refused in the real parser, not read as
+/// a path.
+#[test]
+fn a_spaced_boolean_value_is_refused() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["localSearch", "foo", "--wholeWord", "false"])
+        .output()
+        .expect("run");
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("--wholeWord=false"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 /// `skill --json` answers a pipe like every other JSON command.
@@ -112,7 +168,7 @@ fn json_argument_errors_keep_the_whole_clap_message() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["graph", "query", "notAnOp"])
+        .args(["graph", "query", "notAnOp", "--json"])
         .output()
         .expect("graph query");
     assert_eq!(output.status.code(), Some(2));
@@ -139,7 +195,7 @@ fn json_argument_errors_keep_the_whole_clap_message() {
 
     let mistyped = workspace
         .cli()
-        .arg("localSerch")
+        .args(["localSerch", "--json"])
         .output()
         .expect("mistyped tool");
     let envelope = compact_line(stdout(&mistyped));
@@ -266,22 +322,9 @@ mod terminal {
     #[test]
     fn pipe_implied_json_errors_are_also_told_to_a_terminal_stderr() {
         let (workspace, _) = search();
-        for (args, told) in [
-            // A command-level error (`emit_error`).
-            (vec!["localSearch", r#"{"queries":["#], "Invalid JSON query"),
-            // A rejected call, printed through the runtime's projection.
-            (
-                vec![
-                    "localSearch",
-                    r#"{"queries":[{"path":"notes.txt","matchstring":"x"}]}"#,
-                ],
-                "Input validation error:",
-            ),
-            // An argument error: clap's own text.
-            (vec!["graph", "query", "notAnOp"], "[possible values: "),
-            // A schema error.
-            (vec!["schema", "noSuchTool"], "Unknown tool: noSuchTool"),
-        ] {
+        // Only `schema` answers a pipe in JSON; tools print text there.
+        {
+            let (args, told) = (vec!["schema", "noSuchTool"], "Unknown tool: noSuchTool");
             let piped = workspace.cli().args(&args).output().expect("piped");
             let mut command = workspace.cli();
             command.args(&args);
