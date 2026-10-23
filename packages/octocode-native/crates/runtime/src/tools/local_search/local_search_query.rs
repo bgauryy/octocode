@@ -6,7 +6,6 @@
 use crate::id::ToolId;
 use crate::id::local_search_policy as policy;
 use crate::num::{u32_of, u32_of_signed};
-use crate::policy::prune::DefaultsFlag;
 use octocode_contract_types::ErrorCode;
 use octocode_contract_types::{
     LocalSearchQuery, LocalSearchQueryCaseMode, LocalSearchQueryRegex, LocalSearchQueryResultView,
@@ -111,9 +110,7 @@ pub(crate) fn normalized(
     };
     let dialect = match regex_mode(query) {
         LocalSearchQueryRegex::Pcre2 => LocalSearchQueryRegex::Pcre2,
-        LocalSearchQueryRegex::Literal | LocalSearchQueryRegex::Rust => {
-            LocalSearchQueryRegex::Rust
-        }
+        LocalSearchQueryRegex::Literal | LocalSearchQueryRegex::Rust => LocalSearchQueryRegex::Rust,
     };
     let alternation = crate::tools::match_list::alternation(
         list.iter().map(|entry| {
@@ -162,15 +159,11 @@ pub(crate) fn canonical(query: &LocalSearchQuery) -> LocalSearchQuery {
     }
     let context = context(&query);
     let symmetric = context.before == context.after;
-    query.context_lines =
-        (symmetric && context.before > 0).then_some(i64::from(context.before));
-    query.context_before =
-        (!symmetric && context.before > 0).then_some(i64::from(context.before));
+    query.context_lines = (symmetric && context.before > 0).then_some(i64::from(context.before));
+    query.context_before = (!symmetric && context.before > 0).then_some(i64::from(context.before));
     query.context_after = (!symmetric && context.after > 0).then_some(i64::from(context.after));
     let length = query.match_content_length.take();
-    if length.map(|n| u32_of(n.get()))
-        != Some(effective_match_content_length(&query))
-    {
+    if length.map(|n| u32_of(n.get())) != Some(effective_match_content_length(&query)) {
         query.match_content_length = length;
     }
     query
@@ -215,9 +208,7 @@ pub(super) fn effective_match_content_length(q: &LocalSearchQuery) -> u32 {
     match_content_length(q).unwrap_or_else(|| {
         let view = q.result_view;
         let context = if uses_context(view) {
-            context(q)
-                .before
-                .saturating_add(context(q).after)
+            context(q).before.saturating_add(context(q).after)
         } else {
             0
         };
@@ -274,9 +265,7 @@ pub(super) fn normalized_query(q: &LocalSearchQuery, streamed: bool) -> Value {
 
 /// Default layouts use the response budget when neither page axis is sized.
 pub(super) fn streamed_layout(q: &LocalSearchQuery) -> bool {
-    page_size(q).is_none()
-        && match_page_size(q).is_none()
-        && match_page(q) <= 1
+    page_size(q).is_none() && match_page_size(q).is_none() && match_page(q) <= 1
 }
 
 /// The response path of a span row's `column`.

@@ -4,8 +4,8 @@
 //! is selected and shows only those hits; the counts describe the kept hits,
 //! and the receipt counts groups. Unknown groups stay reachable through a
 //! lead to exactly the files holding them.
-use super::local_search_query;
 use super::cursor::stale_snapshot;
+use super::local_search_query;
 use super::local_search_query::normalized_query;
 use super::local_search_query::streamed_layout;
 use super::types::SearchContext;

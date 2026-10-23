@@ -302,10 +302,7 @@ async fn reference_next_page_keeps_page_one_budget() {
         "references",
         "referencesProvider",
         found,
-        crate::response::page_windows::page_budget(
-            Some(window),
-            &lsp_search_query::to_row(&query),
-        ),
+        crate::response::page_windows::page_budget(Some(window), &lsp_search_query::to_row(&query)),
         Some(window),
     )
     .await;

@@ -1,12 +1,10 @@
-use crate::num::{u32_of, u32_of_signed};
-use octocode_contract_types::ErrorCode;
 pub(super) use octocode_engine::types::SearchContext;
 use serde::Serialize;
 use std::path::PathBuf;
 
 pub use octocode_contract_types::{
     LocalSearchQuery, LocalSearchQueryCaseMode, LocalSearchQueryMultiline, LocalSearchQueryRegex,
-    LocalSearchQueryResultView, LocalSearchQuerySort, LocalSearchQueryUnique, MatchString,
+    LocalSearchQueryResultView, LocalSearchQuerySort, LocalSearchQueryUnique,
 };
 
 /// Characters that give a text a regex reading besides its literal one.

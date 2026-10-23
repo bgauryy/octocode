@@ -242,8 +242,9 @@ pub(super) fn visit_values(
                 text,
                 line,
                 hit.column,
-                crate::tools::local_search::local_search_query::effective_match_content_length(scope.query)
-                    as usize,
+                crate::tools::local_search::local_search_query::effective_match_content_length(
+                    scope.query,
+                ) as usize,
             )
             .value;
             visit(index, hit)?;

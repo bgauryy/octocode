@@ -1,9 +1,13 @@
 //! Page layout: how a scan is cut into pages (grid or streamed), what a
 //! page costs, and the reads that expand clipped values.
 
-use super::local_search_query::{self, RESPONSE_VALUE_CHAR_BUDGET, MIN_MATCH_VALUE_CHARS, DEFAULT_MAX_MATCHES_PER_FILE, effective_match_content_length, default_page_size, normalized_query, streamed_layout, SPAN_COLUMN_PATH, shows_span_columns};
+use super::local_search_query::{
+    self, DEFAULT_MAX_MATCHES_PER_FILE, MIN_MATCH_VALUE_CHARS, RESPONSE_VALUE_CHAR_BUDGET,
+    default_page_size, effective_match_content_length, normalized_query, shows_span_columns,
+    streamed_layout,
+};
 use super::types::*;
-use super::{cursor::*, enclosing::*, handoff::*, rows::*};
+use super::{enclosing::*, handoff::*, rows::*};
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use crate::id::ToolId;
 use crate::num::u32_of_usize;
@@ -1186,6 +1190,7 @@ pub(super) const MAX_MORE_LINES: usize = 24;
 
 #[cfg(test)]
 mod tests {
+    use super::super::local_search_query::SPAN_COLUMN_PATH;
     use super::*;
     use octocode_engine::types::{TextSearchFile, TextSearchMatch};
 

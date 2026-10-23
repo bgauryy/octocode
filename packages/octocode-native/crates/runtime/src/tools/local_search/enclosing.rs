@@ -12,8 +12,7 @@
 //! declaration is among the hits also yields a ready lspSearch references
 //! lead.
 
-use super::handoff::*;
-use super::types::*;
+use super::{handoff::*, types::*};
 use crate::security::ContentSecurity;
 use sha2::{Digest, Sha256};
 

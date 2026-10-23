@@ -135,7 +135,13 @@ async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_either_spelling() 
     let workspace = Workspace::new();
     let deep = deep(&workspace);
     let runtime = workspace.runtime(&[]);
-    let first = walk(&runtime, false, first_row("syntaxTree", &deep.big.0), node_ids).await;
+    let first = walk(
+        &runtime,
+        false,
+        first_row("syntaxTree", &deep.big.0),
+        node_ids,
+    )
+    .await;
     let total = first.totals.iter().copied().max().expect("totalItems");
     let total = usize::try_from(total).expect("node count");
     let walked = walks_alike(&runtime, "syntaxTree", &deep.big, node_ids, total).await;
@@ -149,12 +155,15 @@ async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_either_spelling() 
 /// A `responseLength` below a page splits it into row parts; a walk that
 /// reads each page through its parts before `next.nextPage` (which only the
 /// last part carries) still reaches every row once, from either spelling.
+/// The row ids of one page of a walk.
+type RowIds = fn(&Value) -> Vec<String>;
+
 #[tokio::test]
 async fn split_pages_read_through_their_row_parts_reach_every_row_once() {
     let workspace = Workspace::new();
     let deep = deep(&workspace);
     let runtime = workspace.runtime(&[]);
-    let cases: [(&str, &(String, String), fn(&Value) -> Vec<String>); 3] = [
+    let cases: [(&str, &(String, String), RowIds); 3] = [
         ("symbols", &deep.dir, symbol_rows),
         ("match", &deep.dir, match_rows),
         ("syntaxTree", &deep.big, node_ids),

@@ -1,8 +1,10 @@
 //! Continuations and snapshot identity: the next-page calls a result
 //! names and the fingerprint that proves a cursor still answers its query.
 
-use super::local_search_query::{self, effective_match_content_length, normalized_query, streamed_layout};
 use super::layout::*;
+use super::local_search_query::{
+    self, effective_match_content_length, normalized_query, streamed_layout,
+};
 use super::types::*;
 use crate::id::ToolId;
 use crate::num::u32_of_usize;

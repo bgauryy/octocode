@@ -2,8 +2,8 @@
 //! listings), ranked; what the page could not cover is in `coverage`, the
 //! empty page's probes in `probes`.
 
-use super::local_search_query;
 use super::layout::*;
+use super::local_search_query;
 use super::types::*;
 use super::{binaries::*, handoff::*, probes::*};
 use crate::execution::cancel::CancellationCheck;

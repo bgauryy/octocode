@@ -151,6 +151,9 @@ fn listed_files(data: &Value) -> Vec<String> {
 /// writes: pages sized by the printed path fit the window (the response
 /// pager never splits them) and still fill it, and a walk reaches every row
 /// once.
+/// The row ids of one page of a walk.
+type RowIds = fn(&Value) -> Vec<String>;
+
 #[test]
 fn deep_scope_pages_measure_row_paths_as_delivered() {
     const FILES: usize = 300;
@@ -158,7 +161,7 @@ fn deep_scope_pages_measure_row_paths_as_delivered() {
     let dir = deep_dir("deep", 5);
     sources(&root, &format!("{dir}/src"), FILES, 1);
     let scope = root.0.join(format!("{dir}/src"));
-    let walks: [(Value, fn(&Value) -> Vec<String>); 3] = [
+    let walks: [(Value, RowIds); 3] = [
         (json!({"operation":"symbols","path":scope}), symbol_rows),
         (
             json!({"operation":"match","pattern":PATTERN,"language":"typescript","path":scope}),

@@ -41,9 +41,9 @@ pub(super) fn relative_continuation_path(value: &Value) -> bool {
             .flatten()
             .any(|row| {
                 RESPELLED_FIELDS.iter().any(|field| {
-                    row.get(field).and_then(Value::as_str).is_some_and(|path| {
-                        !Path::new(path).is_absolute() && !path.contains("://")
-                    })
+                    row.get(field)
+                        .and_then(Value::as_str)
+                        .is_some_and(|path| !Path::new(path).is_absolute() && !path.contains("://"))
                 })
             });
     });

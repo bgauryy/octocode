@@ -62,8 +62,11 @@ fn is_plain_phrase(key: &str, secret: &str) -> bool {
     let mut pieces = 0;
     let plain = secret.split_whitespace().all(|piece| {
         pieces += 1;
-        let piece = piece.strip_suffix(['.', ',', ';', ':', '!', '?']).unwrap_or(piece);
-        if !piece.is_empty() && piece.len() <= 4 && piece.bytes().all(|byte| byte.is_ascii_digit()) {
+        let piece = piece
+            .strip_suffix(['.', ',', ';', ':', '!', '?'])
+            .unwrap_or(piece);
+        if !piece.is_empty() && piece.len() <= 4 && piece.bytes().all(|byte| byte.is_ascii_digit())
+        {
             return true;
         }
         words += 1;

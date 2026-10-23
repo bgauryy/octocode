@@ -113,8 +113,8 @@ fn files_past_the_collection_cap_are_disclosed() {
         &scanned,
         local_search_query::MAX_COLLECTED_FILES,
     );
-    let warning =
-        coverage::uncollected_warning(&stats, local_search_query::MAX_COLLECTED_FILES).expect("disclosed");
+    let warning = coverage::uncollected_warning(&stats, local_search_query::MAX_COLLECTED_FILES)
+        .expect("disclosed");
     assert!(warning.contains("851 of 10851"), "{warning}");
     let uncapped = executor::search_stats(
         LocalSearchQueryResultView::Paginated,

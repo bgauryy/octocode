@@ -1,9 +1,8 @@
 //! Stored scans and continuation pages: a later page is cut from the
 //! scan its first page stored, equals the page a rescan cuts, and restarts
 //! when the walk, a shown file or the snapshot no longer holds.
-use super::super::local_search_query;
-use super::*;
-use octocode_contract_types::ErrorCode;
+use super::{super::local_search_query, *};
+use octocode_contract_types::{ErrorCode, MatchString};
 
 /// Swap `path` for a symlink to a copy outside the allowed root with the
 /// same bytes and modification time: size, time and digest all match the

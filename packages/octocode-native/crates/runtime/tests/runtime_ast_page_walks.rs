@@ -140,7 +140,10 @@ async fn walk_input(
             rows.extend(page_rows(data));
             if let Some(next) = data["next"].get("nextPage") {
                 if let Some(part) = row.get("rowPart") {
-                    assert_eq!(part["part"], part["of"], "mcp={mcp}: nextPage on part {part}");
+                    assert_eq!(
+                        part["part"], part["of"],
+                        "mcp={mcp}: nextPage on part {part}"
+                    );
                 }
                 next_page = Some(next.clone());
             }
@@ -167,7 +170,10 @@ async fn walk_input(
             break;
         }
     }
-    assert!(walk.pages.len() > 1, "mcp={mcp}: the fixture spans several pages");
+    assert!(
+        walk.pages.len() > 1,
+        "mcp={mcp}: the fixture spans several pages"
+    );
     walk
 }
 
@@ -194,7 +200,11 @@ async fn a_directory_outline_states_its_remaining_pages_and_walks_every_symbol_o
         let expected = FILES * DECLARATIONS_PER_FILE;
         assert_each_once(&walked.rows(), expected, &format!("symbols mcp={mcp}"));
         // Every page states the whole outline's size, the same on each.
-        assert_eq!(walked.totals, BTreeSet::from([expected as u64]), "mcp={mcp}");
+        assert_eq!(
+            walked.totals,
+            BTreeSet::from([expected as u64]),
+            "mcp={mcp}"
+        );
     }
     runtime.close().await;
 }
@@ -225,7 +235,11 @@ async fn a_directory_match_walk_from_an_absolute_path_reaches_every_match_once()
         let walked = walk(&runtime, mcp, first, |data| rows(data, "matches", "line")).await;
         assert_each_once(&walked.rows(), SMALL_FILES, &format!("match mcp={mcp}"));
         // Match pages count files.
-        assert_eq!(walked.totals, BTreeSet::from([SMALL_FILES as u64]), "mcp={mcp}");
+        assert_eq!(
+            walked.totals,
+            BTreeSet::from([SMALL_FILES as u64]),
+            "mcp={mcp}"
+        );
     }
     runtime.close().await;
 }

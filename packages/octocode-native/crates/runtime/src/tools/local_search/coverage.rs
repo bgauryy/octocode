@@ -1,10 +1,10 @@
 //! What a page's scan could not cover (binary, default-excluded, hidden,
 //! policy-withheld, unreadable), and how the row says so.
 
-use super::local_search_query;
 use super::binaries::*;
-use super::local_search_query::MAX_COLLECTED_FILES;
 use super::layout::*;
+use super::local_search_query;
+use super::local_search_query::MAX_COLLECTED_FILES;
 use super::types::*;
 use octocode_engine::types::CapReason;
 

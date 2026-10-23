@@ -46,9 +46,9 @@ fn failure_hint(code: ErrorCode, query: &Value) -> &'static str {
         ErrorCode::MissingConfiguration => {
             "Configure the server's project (clangd: compile_commands.json, compile_flags.txt or .clangd); the next call reloads it."
         }
-        ErrorCode::NotAFile | ErrorCode::BinaryFileUnsupported | ErrorCode::PathValidationFailed => {
-            LIST_FILES_HINT
-        }
+        ErrorCode::NotAFile
+        | ErrorCode::BinaryFileUnsupported
+        | ErrorCode::PathValidationFailed => LIST_FILES_HINT,
         ErrorCode::ServerUnavailable if operation == "workspaceSymbol" && !has_path => {
             "Provide path for a representative workspace source file so Octocode can select its language server."
         }

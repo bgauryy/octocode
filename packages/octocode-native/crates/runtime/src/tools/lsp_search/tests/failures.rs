@@ -116,8 +116,7 @@ fn path_policy_denials_are_file_access_failures_not_missing_servers() {
         crate::policy::PolicyErrorCode::BinaryContent,
         crate::policy::PolicyErrorCode::Io,
     ] {
-        let refused =
-            LspFailure::path_denied(crate::policy::PolicyError::new(code, "refused"));
+        let refused = LspFailure::path_denied(crate::policy::PolicyError::new(code, "refused"));
         let text = tip(&refused, &serde_json::Value::Null);
         assert!(
             text.contains("structureSearch") && text.contains("retry the exact path"),
@@ -307,7 +306,10 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
         );
     }
     for failure in failures.iter().filter(|failure| {
-        matches!(failure.code, ErrorCode::RequestFailed | ErrorCode::ServerCrashed)
+        matches!(
+            failure.code,
+            ErrorCode::RequestFailed | ErrorCode::ServerCrashed
+        )
     }) {
         let text = tip(failure, &serde_json::Value::Null);
         for word in ["Retry once if retryable", "astSearch", "localFetch"] {
@@ -342,7 +344,10 @@ fn a_memory_exhausted_server_is_final_and_leaves_an_unverified_text_lead() {
         "snapshot": "caller-snapshot", "workspaceRoot": "/repo", "orderHint": 1
     }));
     let bare = failure.row(&query, "file:///repo/src/lib.rs");
-    assert!(bare.get("hints").is_none(), "the tip is the stage's: {bare}");
+    assert!(
+        bare.get("hints").is_none(),
+        "the tip is the stage's: {bare}"
+    );
     let row = with_stage_hints(&query, &bare);
     assert_eq!(row["errorCode"], "serverCrashed", "{row}");
     assert_eq!(

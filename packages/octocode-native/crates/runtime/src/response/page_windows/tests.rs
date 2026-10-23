@@ -259,7 +259,11 @@ fn every_respelled_field_costs_the_same_in_any_spelling() {
         "/work/日本語/パッケージ/源代码/😀/src".to_owned(),
         "日本語/パッケージ/源代码/😀/src".repeat(12),
     ];
-    assert!(spellings.iter().any(|path| path.len() > RESPELLED_CHARS * 2));
+    assert!(
+        spellings
+            .iter()
+            .any(|path| path.len() > RESPELLED_CHARS * 2)
+    );
     for field in RESPELLED_FIELDS {
         let spelled = |path: &str| {
             let mut query = serde_json::json!({"matchString": "x"});
@@ -275,7 +279,10 @@ fn every_respelled_field_costs_the_same_in_any_spelling() {
             // window cannot hide a difference.
             assert_eq!(reserve_chars(&query, 2), reserve, "{field}: {path}");
             assert_eq!(page_budget(Some(20_000), &query), budget, "{field}: {path}");
-            assert_eq!(page_budget(Some(4_000), &query), page_budget(Some(4_000), &absolute));
+            assert_eq!(
+                page_budget(Some(4_000), &query),
+                page_budget(Some(4_000), &absolute)
+            );
         }
         // A respelled field still has room reserved: it is copied into
         // each continuation.

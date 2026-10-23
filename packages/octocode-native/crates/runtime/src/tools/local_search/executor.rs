@@ -1,11 +1,12 @@
-use super::local_search_query::{self, MAX_COLLECTED_FILES, effective_match_content_length, normalized_query, streamed_layout};
+use super::local_search_query::{
+    self, MAX_COLLECTED_FILES, effective_match_content_length, normalized_query, streamed_layout,
+};
 use super::types::*;
 use super::{
     coverage::*, cursor::*, enclosing::*, handoff::*, layout::*, leads::*, regex_repair::*,
     rows::*, verify::*,
 };
 use crate::execution::cancel::CancellationCheck;
-use crate::id::local_search_policy as policy;
 use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
