@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FileGuard, registerFileTool } from '../src/files/tool.js';
+import { FileGuard } from '../src/files/guard.js';
+import { registerFileTool } from '../src/files/tool.js';
 import { askReview, describeChange } from '../src/files/review.js';
 import { fakeCtx, fakePermission, fakePi } from './fake-pi.js';
 import { tmp } from './helpers.js';

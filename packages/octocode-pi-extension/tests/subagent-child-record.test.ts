@@ -5,7 +5,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { transcriptNote } from '../src/compaction/summary.js';
 import { archiveFolder, archiveSearch, LIBRARY_FILE } from '../src/shared/archive.js';
 import { MAX_SUBAGENTS_ENV } from '../src/subagents/claim.js';
-import { buildAgentArgs, childSession, childSessionFile, runSubagent } from '../src/subagents/process.js';
+import { buildAgentArgs, runSubagent } from '../src/subagents/process.js';
+import { childSession, childSessionFile } from '../src/subagents/launch.js';
 import { registerAgentTool } from '../src/subagents/tool.js';
 import { Subcommands } from '../src/shared/commands.js';
 import { Team } from '../src/team/session.js';

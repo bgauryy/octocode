@@ -21,7 +21,7 @@ fn scan(q: &AstSearchQuerySymbols, root: &std::path::Path) -> Outline {
 }
 
 fn rows(outline: &Outline) -> usize {
-    outline.files.iter().map(|file| file.1.len()).sum()
+    outline.files.iter().map(|file| file.rows.len()).sum()
 }
 
 fn files(root: &std::path::Path, count: usize) {
@@ -81,6 +81,31 @@ fn a_kind_search_retains_only_the_asked_kinds() {
     assert_eq!(held.scanned, 30);
 }
 
+/// With a name, a declaration of another kind is held only when its name
+/// equals an entry (it keeps that entry exact); one that merely contains the
+/// text is dropped like any other kind.
+#[test]
+fn a_kind_and_name_search_holds_only_equal_names_of_other_kinds() {
+    let root = Fixture::new();
+    files(&root.0, 30);
+    let off_kind =
+        |outline: &Outline| -> usize { outline.files.iter().map(|file| file.off_kind.len()).sum() };
+    let exact = scan(
+        &query(
+            &root.0,
+            json!({"kinds":["function"],"symbolName":"Disposable"}),
+        ),
+        &root.0,
+    );
+    assert_eq!((rows(&exact), off_kind(&exact)), (0, 1));
+    let substring = scan(
+        &query(&root.0, json!({"kinds":["function"],"symbolName":"Dispos"})),
+        &root.0,
+    );
+    assert_eq!((rows(&substring), off_kind(&substring)), (0, 0));
+    assert!(substring.files.is_empty(), "no file contributes");
+}
+
 fn empty_outline(root: &std::path::Path, extra: serde_json::Value) -> serde_json::Value {
     let (paths, security) = simple_policy(root);
     let query: octocode_contract_types::AstSearchQuery = {
@@ -117,8 +142,25 @@ fn an_empty_name_search_counts_only_the_hidden_files() {
     let out = empty_outline(&root.0, json!({"symbolName":"zzNeedle"}));
     assert_eq!(out["status"], "empty", "{out}");
     let hints = out["hints"].to_string();
-    assert!(hints.contains("1 file(s)"), "{hints}");
+    assert!(hints.contains("1 outlinable file"), "{hints}");
     assert!(hints.contains("hidden .cfg/"), "{hints}");
+}
+
+/// A trait's required method (no body) is a declaration a name search
+/// finds, not a false "0 declarations".
+#[test]
+fn a_name_search_finds_a_body_less_trait_method() {
+    let root = Fixture::new();
+    root.write(
+        "judge.rs",
+        "pub trait Judge {\n    fn identity(&self) -> u8;\n    fn project(&self) {}\n}\n",
+    );
+    let out = empty_outline(&root.0, json!({"symbolName":"identity"}));
+    assert_ne!(out["status"], "empty", "{out}");
+    assert!(
+        out.to_string().contains("\"symbolName\":\"identity\""),
+        "{out}"
+    );
 }
 
 /// The astSearch row of a result's `includeSkipped` lead: the same scope
@@ -173,9 +215,11 @@ fn the_hidden_lead_keeps_the_exclude_anchored_to_the_scan_root() {
     );
     assert_eq!(out["status"], "empty", "{out}");
     assert!(
-        out["hints"].as_array().is_some_and(|hints| hints
-            .iter()
-            .any(|hint| hint.as_str().is_some_and(|h| h.contains("1 file(s)")))),
+        out["hints"]
+            .as_array()
+            .is_some_and(|hints| hints.iter().any(|hint| hint
+                .as_str()
+                .is_some_and(|h| h.contains("1 outlinable file")))),
         "{out}"
     );
     let lead = skipped_lead(&out);
@@ -289,7 +333,7 @@ fn an_ignored_symbol_leads_to_its_own_scope_with_the_ignore_flags_lifted() {
     assert_eq!(out["status"], "empty", "{out}");
     assert!(out["next"].get("narrowScope").is_none(), "{out}");
     let hints = out["hints"].to_string();
-    assert!(hints.contains("1 file(s)"), "{hints}");
+    assert!(hints.contains("1 outlinable file"), "{hints}");
     checks::assert_absent(&out["hints"], ".hidden");
     let lead = skipped_lead(&out);
     assert_eq!(lead["path"], json!(root.0.to_string_lossy()), "{out}");

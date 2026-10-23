@@ -13,6 +13,9 @@ pub(super) struct ExactMiss {
     pub(super) count: usize,
     pub(super) files: usize,
     pub(super) query: Value,
+    /// The syntax tree of the first missed declaration, where the pattern's
+    /// shape is compared with the source.
+    pub(super) tree: Option<Value>,
 }
 
 /// The parser extension a scope's files are read with: a single file's own
@@ -44,7 +47,6 @@ pub(super) fn exact_miss(
     q: MatchQuery<'_>,
     scope: &Scope,
     paths: &PathPolicy,
-    security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> Option<ExactMiss> {
     let MatchQuery::Pattern(_) = q else {
@@ -72,7 +74,7 @@ pub(super) fn exact_miss(
     let rule_query = MatchQuery::Rule(&rule_query);
     let rule_scope = resolve_scope(rule_query, paths, cancel).ok()?;
     let scan = if rule_scope.is_file {
-        scan_file(rule_query, &rule_scope, security)
+        scan_file(rule_query, &rule_scope)
     } else {
         scan_directory(rule_query, &rule_scope, paths, cancel)
     }
@@ -87,11 +89,38 @@ pub(super) fn exact_miss(
         .iter()
         .filter(|file| !file.matches.is_empty())
         .count();
+    let tree = scan
+        .files
+        .iter()
+        .find(|file| !file.matches.is_empty())
+        .and_then(|file| {
+            let path = row_file(scope, &json!({"path": file.path}))?;
+            // A directory scan keeps only row prices: the file is matched
+            // once more for the declaration's line.
+            let first_line = |matches: &[StructuralDetailedMatch]| {
+                matches.first().map(|found| u64::from(found.start_line))
+            };
+            let line = first_line(file.matches.held()).or_else(|| {
+                let bytes = super::super::read_parse_source(&path).ok()??;
+                let source = super::super::parse_text(&path, &bytes).ok()?;
+                let parser = Some(file.parser.as_str()).filter(|parser| !parser.is_empty());
+                let found = octocode_engine::structural::search_detailed(
+                    &source,
+                    &path.to_string_lossy(),
+                    parser,
+                    None,
+                    rule_query.rule().as_ref(),
+                );
+                first_line(&found.matches)
+            });
+            Some(tree_lead(q, scope, &path, line))
+        });
     (count > 0).then_some(ExactMiss {
         kind: declaration.kind,
         count,
         files,
         query,
+        tree,
     })
 }
 
@@ -104,6 +133,7 @@ impl ExactMiss {
             count,
             files,
             query,
+            tree,
         } = self;
         let diagnostic = json!({
             "code": "structural.pattern.exact",
@@ -117,6 +147,9 @@ impl ExactMiss {
         match out["diagnostics"].as_array_mut() {
             Some(diagnostics) => diagnostics.push(diagnostic),
             None => out["diagnostics"] = json!([diagnostic]),
+        }
+        if let Some(tree) = tree {
+            out["next"]["viewSyntax"] = tree;
         }
         out["next"]["broadenSearch"] =
             crate::response::result::Continuation::new(ToolId::AstSearch, query)
@@ -150,7 +183,7 @@ pub(super) fn compile_in_grammars(
     count_grammars(scan.census.clone())
         .into_iter()
         .map(|(label, extensions, files)| GrammarCompile {
-            outcome: compile_check(&extensions, pattern.as_deref(), rule.as_deref()),
+            outcome: compile_check(&extensions, pattern.as_deref(), rule.as_ref()),
             label,
             extensions,
             files,
@@ -303,7 +336,7 @@ pub(super) fn resolve_scope(
     if meta.is_dir()
         && let Some(extensions) = &extensions
     {
-        compile_check(extensions, q.pattern().as_deref(), q.rule().as_deref())
+        compile_check(extensions, q.pattern().as_deref(), q.rule().as_ref())
             .map_err(|error| ToolError::new(error.code, error.message))?;
     }
     let language = q.language();

@@ -9,16 +9,22 @@ use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
 use crate::tools::empty_walk::{Cause, Globs, Hits, Tagged, Verdict, Walk, diagnose};
-use octocode_contract_types::ErrorCode;
-use octocode_contract_types::{
-    LocalSearchSkippedPath, LocalSearchSkippedPathCause, LocalSearchSkippedPaths,
-};
+use crate::tools::leads::skipped::{SkippedEntry, skipped_cause, skipped_paths};
+use octocode_contract_types::SkippedPaths;
 use octocode_engine::search::text_search::search_cancellable;
 use octocode_engine::types::{
     CaseRule, PatternSyntax, SearchOutput, SpanValues, TextSearchOptions,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
+
+/// What the re-run of an empty search over its skipped paths found: the
+/// files, each tagged with the causes that hid it, and what the path policy
+/// withheld from that walk (symlinks it does not follow, credential files).
+pub(super) struct Lifted {
+    tagged: Tagged,
+    withheld: crate::policy::discovery::Withheld,
+}
 
 /// Re-run an empty search over what the defaults leave out (ignored and
 /// hidden entries, the default-excluded directories), each file found
@@ -28,7 +34,7 @@ pub(super) fn probe_unsearched(
     paths: &PathPolicy,
     search_options: &TextSearchOptions,
     cancel: &impl CancellationCheck,
-) -> Result<Tagged, ()> {
+) -> Result<Lifted, ()> {
     let walk = query_walk(query);
     probe_lifted(
         search_options,
@@ -56,150 +62,178 @@ fn query_walk(query: &LocalSearchQuery) -> Walk {
 pub(super) fn disclose_unsearched(
     query: &LocalSearchQuery,
     search_options: &TextSearchOptions,
-    tagged: Result<Tagged, ()>,
-    excluded: Option<String>,
-    hidden: usize,
+    lifted: Result<Lifted, ()>,
+    skipped: Skipped<'_>,
     next: &mut Option<Value>,
     hints: &mut Vec<String>,
-) -> Result<(bool, Option<LocalSearchSkippedPaths>), ToolError> {
+    warnings: &mut Vec<String>,
+) -> Result<Unsearched, ToolError> {
     let walk = query_walk(query);
     let root = std::path::PathBuf::from(&search_options.path);
     let verdict = diagnose(&root, walk, |relaxed| {
-        Ok::<_, std::convert::Infallible>(tagged.as_ref().map_or_else(
+        Ok::<_, std::convert::Infallible>(lifted.as_ref().map_or_else(
             |()| Hits {
                 cut: true,
                 ..Hits::default()
             },
-            |tagged| tagged.find(relaxed, None),
+            |lifted| lifted.tagged.find(relaxed, None),
         ))
     });
-    let (found, causes, may_hold_matches, entries) = match verdict {
-        Ok(Verdict::Skipped(diagnosis)) => {
-            let at_least = if diagnosis.found().cut {
-                "at least "
-            } else {
-                ""
-            };
-            let listed = if query.result_view == LocalSearchQueryResultView::FilesWithout {
-                "lack a match"
-            } else {
-                "match"
-            };
-            (
-                vec![format!(
-                    "{at_least}{} file(s) {listed} in skipped paths ({}).",
-                    diagnosis.found().count,
-                    diagnosis.labels()
-                )],
-                diagnosis.causes().to_vec(),
-                true,
-                observed_paths(diagnosis.skips())?,
+    let Ok(verdict) = verdict;
+    if let Verdict::Absent = verdict {
+        if let Ok(lifted) = &lifted {
+            absent(query, &skipped, &lifted.withheld, hints, warnings);
+        }
+        return Ok(Unsearched::default());
+    }
+    let subject = if query.result_view == LocalSearchQueryResultView::FilesWithout {
+        ["file that lacks a match", "files that lack a match"]
+    } else {
+        ["file that matches", "files that match"]
+    };
+    let named = skipped.walk.counts();
+    let Some(disclosure) = crate::tools::leads::skipped::disclose(
+        &verdict,
+        subject,
+        crate::tools::leads::skipped::Unchecked {
+            causes: &skipped.causes,
+            named: &named,
+        },
+    ) else {
+        return Ok(Unsearched::default());
+    };
+    insert_lead(
+        next,
+        crate::tools::leads::skipped::lead(
+            crate::id::ToolId::LocalSearch,
+            query,
+            &disclosure.causes,
+        ),
+    );
+    // A check that ran out of time names the ignored directories a fresh
+    // bounded walk finds, with their rules; a finished one names the rules
+    // behind the files it found.
+    let (named, unchecked) = match &verdict {
+        Verdict::Skipped(diagnosis) => (diagnosis.skips().to_vec(), false),
+        _ => (unsearched_ignored(search_options, walk), true),
+    };
+    if unchecked {
+        warnings.push(disclosure.text);
+    } else {
+        hints.insert(0, disclosure.text);
+    }
+    Ok(Unsearched {
+        may_hold_matches: true,
+        unchecked,
+        observed: observed_paths(query, &named)?,
+    })
+}
+
+/// The check of the skipped paths searched them and found nothing, so no
+/// lead lifts them: the hint says so, and what the path policy withheld
+/// from that walk (a skipped directory of symlinks) is counted in a warning,
+/// since absence there is unproven.
+fn absent(
+    query: &LocalSearchQuery,
+    skipped: &Skipped<'_>,
+    withheld: &crate::policy::discovery::Withheld,
+    hints: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let counts = skipped.walk.counts();
+    if counts.is_empty() {
+        return;
+    }
+    let what = if query.result_view == LocalSearchQueryResultView::FilesWithout {
+        "file lacking a match"
+    } else {
+        "match"
+    };
+    let hint = match withheld.notice() {
+        Some(notice) => {
+            warnings.push(format!("Skipped paths: {notice}"));
+            format!(
+                "Skipped paths ({counts}) hold no {what} outside what their check withheld (warnings)."
             )
         }
-        Ok(Verdict::Unproven) => {
-            let ignored = unsearched_ignored(&root, walk);
-            let mut found = vec![];
-            let mut causes = vec![];
-            let hidden = if walk.hidden { 0 } else { hidden };
-            let may_hold_matches = !ignored.is_empty() || hidden > 0;
-            if !ignored.is_empty() {
-                found.push(format!(
-                    "{} ignored directory(s) were not searched; the check of them timed out.",
-                    ignored.len()
-                ));
-                causes.push(Cause::Ignored);
-            }
-            if hidden > 0 {
-                found.push(format!(
-                    "{hidden} hidden path(s) were not searched; the check of them timed out."
-                ));
-                causes.push(Cause::Hidden);
-            }
-            if let Some(counts) = excluded.filter(|_| walk.default_excludes) {
-                found.push(format!(
-                    "Default-excluded paths were not searched ({counts})."
-                ));
-                causes.push(Cause::DefaultExcluded);
-            }
-            if causes.is_empty() {
-                return Ok((false, None));
-            }
-            (found, causes, may_hold_matches, observed_paths(&ignored)?)
-        }
-        _ => return Ok((false, None)),
+        None => format!("Skipped paths ({counts}) hold no {what} either; the check searched them."),
     };
-    for hint in found.into_iter().rev() {
-        hints.insert(0, hint);
-    }
+    hints.insert(0, hint);
+}
+
+/// What a page's walk skipped, by cause, for the empty page's check of it.
+pub(super) struct Skipped<'a> {
+    pub(super) walk: &'a crate::policy::discovery::WalkSkips,
+    /// The causes it skipped paths by: what a lead over them lifts.
+    pub(super) causes: Vec<Cause>,
+}
+
+/// What the empty page's check of the skipped paths found.
+#[derive(Default)]
+pub(super) struct Unsearched {
+    /// Skipped paths hold a match, or may: the check did not finish.
+    pub(super) may_hold_matches: bool,
+    /// The check did not finish: the skipped paths are unsearched scope
+    /// ([`crate::tools::leads::skipped::SKIPPED_UNCHECKED`]).
+    pub(super) unchecked: bool,
+    /// The skipped paths the check named, each with its rule.
+    pub(super) observed: Option<SkippedPaths>,
+}
+
+fn insert_lead(next: &mut Option<Value>, lead: Value) {
     if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
-        map.insert("includeSkipped".into(), lifting_lead(query, &causes));
-    }
-    let observed = (!entries.is_empty()).then_some(LocalSearchSkippedPaths {
-        entries,
-        sampled: true,
-    });
-    Ok((may_hold_matches, observed))
-}
-
-/// A skip cause as `skippedPaths` names it.
-pub(super) fn skipped_cause(cause: Cause) -> LocalSearchSkippedPathCause {
-    match cause {
-        Cause::Ignored => LocalSearchSkippedPathCause::Ignored,
-        Cause::Hidden => LocalSearchSkippedPathCause::Hidden,
-        Cause::DefaultExcluded => LocalSearchSkippedPathCause::DefaultExcluded,
+        map.insert("includeSkipped".into(), lead);
     }
 }
 
+/// The skipped paths a check named, one entry per cause and rule (its first
+/// path, with `count` when the rule hides more), or every path with
+/// `extras:["details"]`; the `includeSkipped` lead lifts them all either way.
+/// A check's findings are samples (`sampled`).
 fn observed_paths(
+    query: &LocalSearchQuery,
     skipped: &[crate::tools::empty_walk::Skip],
-) -> Result<Vec<LocalSearchSkippedPath>, ToolError> {
-    skipped
-        .iter()
-        .map(|skip| {
-            Ok(LocalSearchSkippedPath {
-                path: octocode_engine::text::slash_path(&skip.entry)
-                    .try_into()
-                    .map_err(skipped_path_error)?,
-                cause: skipped_cause(skip.cause),
-                reason: Some(skip.reason.clone()),
-            })
-        })
-        .collect()
-}
-
-pub(super) fn skipped_path_error(error: impl std::fmt::Display) -> ToolError {
-    ToolError::new(
-        ErrorCode::OutputContractViolation,
-        format!("Invalid skipped-path evidence: {error}"),
+) -> Result<Option<SkippedPaths>, ToolError> {
+    skipped_paths(
+        skipped.iter().map(|skip| {
+            SkippedEntry::path(
+                octocode_engine::text::slash_path(&skip.entry),
+                skipped_cause(skip.cause),
+            )
+            .because(skip.reason.clone())
+        }),
+        lists_every_skipped_path(query),
+        true,
     )
 }
 
-/// The ignored directories a walk skipped, named, within a fresh
+/// The ignored directories a walk skipped that could hold a path the
+/// search's include globs match, named, within a fresh
 /// [`PROBE_BUDGET`](crate::tools::empty_walk::PROBE_BUDGET) of their own
 /// (the probe that ran out of time left none of the diagnosis' budget): the
 /// rules the lead lifts.
-fn unsearched_ignored(root: &std::path::Path, walk: Walk) -> Vec<crate::tools::empty_walk::Skip> {
+fn unsearched_ignored(
+    options: &TextSearchOptions,
+    walk: Walk,
+) -> Vec<crate::tools::empty_walk::Skip> {
+    let root = std::path::Path::new(&options.path);
+    let scope = octocode_engine::search::glob::IncludeScope::new(
+        root,
+        options.include.as_deref().unwrap_or_default(),
+    );
     let started = std::time::Instant::now();
     let allowance = crate::tools::empty_walk::PROBE_BUDGET;
-    crate::tools::empty_walk::ignored_directories(root, walk, &|| started.elapsed() > allowance)
-}
-
-/// Counts of the paths the original walk observed but default exclusions skipped.
-pub(super) fn excluded_counts(skipped: &crate::policy::discovery::WalkSkips) -> Option<String> {
-    let dirs = skipped.pruned.len();
-    let files = skipped.generated.len();
-    let mut parts = Vec::new();
-    if dirs > 0 {
-        parts.push(crate::response::pages::counted(dirs as u64, "dir", "dirs"));
-    }
-    if files > 0 {
-        parts.push(crate::response::pages::counted(
-            files as u64,
-            "file",
-            "files",
-        ));
-    }
-    (!parts.is_empty()).then(|| parts.join(" and "))
+    let mut skips = crate::tools::empty_walk::ignored_directories(root, walk, &|| {
+        started.elapsed() > allowance
+    });
+    skips.retain(|skip| {
+        scope.reaches(
+            &skip.entry,
+            skip.entry.strip_prefix(root).unwrap_or(&skip.entry),
+            true,
+        )
+    });
+    skips
 }
 
 /// Words of a compound identifier (`parseConfig`, `parse_config`,
@@ -343,7 +377,21 @@ pub(super) fn probe_search(
     defaults: bool,
     cancel: &impl CancellationCheck,
 ) -> Option<(octocode_engine::types::TextSearchResult, bool)> {
-    let walk = Arc::new(crate::policy::discovery::SearchWalk::new(
+    probe_walked(options, paths, defaults, cancel).map(|(found, cut, _)| (found, cut))
+}
+
+/// [`probe_search`] with what the path policy withheld from its walk.
+fn probe_walked(
+    options: TextSearchOptions,
+    paths: &PathPolicy,
+    defaults: bool,
+    cancel: &impl CancellationCheck,
+) -> Option<(
+    octocode_engine::types::TextSearchResult,
+    bool,
+    crate::policy::discovery::Withheld,
+)> {
+    let walk = Arc::new(crate::policy::discovery::WalkAdmission::search(
         paths.clone(),
         std::path::PathBuf::from(&options.path),
         defaults,
@@ -353,7 +401,7 @@ pub(super) fn probe_search(
     let deadline = crate::tools::empty_walk::probe_budget();
     let cut = std::sync::atomic::AtomicBool::new(false);
     let found = crate::tools::leads::best_effort(|| {
-        search_cancellable(options, walk, &|| {
+        search_cancellable(options, walk.clone(), &|| {
             let late = started.elapsed() > deadline;
             if late {
                 cut.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -362,13 +410,18 @@ pub(super) fn probe_search(
         })
     })?
     .ok()?;
-    Some((found, cut.load(std::sync::atomic::Ordering::Relaxed)))
+    Some((
+        found,
+        cut.load(std::sync::atomic::Ordering::Relaxed),
+        walk.skipped().withheld,
+    ))
 }
 
 /// One bounded walk over the query's own scope and walk (its default
 /// excludes included, as the `findSimilar` lead runs it) for `folded` (the
 /// searched text) in any case, `variants` anywhere in a line and `near`
-/// spellings as whole words, naming which occur in which files.
+/// spellings as whole words, naming which occur in which files. The row's
+/// own `wholeWord` and `multiline` apply, as the leads keep them.
 fn probe_spellings(
     options: &TextSearchOptions,
     folded: Option<&str>,
@@ -398,9 +451,7 @@ fn probe_spellings(
     // Each file's distinct spans name what it holds.
     options.syntax = PatternSyntax::Regex;
     options.case = CaseRule::Sensitive;
-    options.whole_word = Some(false);
     options.invert_match = Some(false);
-    options.multiline = Some(false);
     options.max_snippet_chars = variants
         .iter()
         .chain(near)
@@ -492,34 +543,64 @@ pub(super) fn probe_variants(
     // A case style one edit away (`parse_config` → `parse-config`) is
     // named as a variant.
     near.retain(|spelling| variants.binary_search(spelling).is_err());
-    if folded.is_none() && variants.is_empty() && near.is_empty() {
+    let whole_word = query.whole_word == Some(true);
+    let spellings = folded.is_some() || !variants.is_empty() || !near.is_empty();
+    if !spellings && !whole_word {
         return None;
     }
-    let found = probe_spellings(
-        options,
-        folded,
-        &variants,
-        &near,
-        paths,
-        query.default_excludes.defaults(),
-        cancel,
-    );
-    Some(Variants { variants, found })
+    let defaults = query.default_excludes.defaults();
+    let found = if spellings {
+        probe_spellings(options, folded, &variants, &near, paths, defaults, cancel)
+    } else {
+        Spellings::default()
+    };
+    // No whole word in any case: the text may occur inside longer words.
+    let word_parts = (whole_word && found.folded_files == 0)
+        .then(|| probe_word_parts(options, paths, defaults, cancel));
+    Some(Variants {
+        variants,
+        found,
+        word_parts,
+    })
+}
+
+/// The files holding the row's text inside a longer word: its own search
+/// with `wholeWord` off, and whether the deadline cut that count.
+fn probe_word_parts(
+    options: &TextSearchOptions,
+    paths: &PathPolicy,
+    defaults: bool,
+    cancel: &impl CancellationCheck,
+) -> (usize, bool) {
+    let mut options = options.probe(SearchOutput::FilesWithMatch);
+    options.whole_word = Some(false);
+    options.invert_match = Some(false);
+    probe_search(options, paths, defaults, cancel)
+        .map(|(found, cut)| (found.files.len(), cut))
+        .unwrap_or_default()
 }
 
 /// The other spellings [`probe_variants`] tried, and where they occur.
 pub(super) struct Variants {
     variants: Vec<String>,
     found: Spellings,
+    /// A whole-word row's text inside longer words: files, and whether the
+    /// deadline cut the count.
+    word_parts: Option<(usize, bool)>,
 }
 
-/// Say when an empty literal search's text matches ignoring case, else when
-/// an identifier's other case styles match, else its spellings one edit away,
-/// so a spelling miss does not read as absence: the first that matches leads
-/// (`ignoreCase`, else `findSimilar`).
+/// Say when an empty literal search's text matches ignoring case, else
+/// (a `wholeWord` row) inside longer words, else when an identifier's other
+/// case styles match, else its spellings one edit away, so a spelling or
+/// option miss does not read as absence: the first that matches leads
+/// (`ignoreCase`, `broadenSearch` without `wholeWord`, else `findSimilar`).
 pub(super) fn disclose_variants(
     query: &LocalSearchQuery,
-    Variants { variants, found }: Variants,
+    Variants {
+        variants,
+        found,
+        word_parts,
+    }: Variants,
     next: &mut Option<Value>,
     hints: &mut Vec<String>,
 ) {
@@ -533,6 +614,18 @@ pub(super) fn disclose_variants(
                 found.folded_files
             ),
             ignore_case_lead(query),
+        )
+    } else if let Some((files, cut)) = word_parts.filter(|(files, _)| *files > 0) {
+        (
+            "broadenSearch",
+            format!(
+                "No match for {} as a whole word; it matches inside longer words in {}{files} file(s); wholeWord excludes them.",
+                local_search_query::pattern(query),
+                if cut { "at least " } else { "" },
+            ),
+            restart_lead(query, |fields| {
+                fields.remove("wholeWord");
+            }),
         )
     } else if found.variant_files > 0 {
         (
@@ -561,7 +654,7 @@ pub(super) fn disclose_variants(
     };
     hints.insert(0, hint);
     if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
-        map.insert(name.into(), lead);
+        map.entry(name).or_insert(lead);
     }
 }
 
@@ -581,7 +674,7 @@ fn probe_lifted(
     walk: Walk,
     paths: &PathPolicy,
     cancel: &impl CancellationCheck,
-) -> Result<Tagged, ()> {
+) -> Result<Lifted, ()> {
     // The files the row's view lists: those without a match for a
     // `filesWithout` row, else those with one.
     let mut lifted = options.probe(if options.output == SearchOutput::FilesWithoutMatch {
@@ -598,13 +691,15 @@ fn probe_lifted(
         include: options.include.as_deref().unwrap_or_default(),
         exclude: options.exclude.as_deref().unwrap_or_default(),
     };
-    let (searched, _) = probe_search(lifted, paths, walk.default_excludes, cancel).ok_or(())?;
+    let (searched, _, withheld) =
+        probe_walked(lifted, paths, walk.default_excludes, cancel).ok_or(())?;
     let cut = !searched.stats.cap_reasons.is_empty();
-    Tagged::found(
+    let tagged = Tagged::found(
         &root,
         globs,
         searched.files.iter().map(|file| root.join(&file.path)),
         cut,
     )
-    .map_err(|_| ())
+    .map_err(|_| ())?;
+    Ok(Lifted { tagged, withheld })
 }

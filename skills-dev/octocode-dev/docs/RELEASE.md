@@ -9,7 +9,7 @@ One release line ships in lockstep at one version `<v>` (rows 2–5). Core keeps
 | # | Artifact | What it is | Channel | Build | Publish (from that directory) | Check after |
 |---|---|---|---|---|---|---|
 | 1 | `@octocodeai/octocode-core` | Tool contracts (Zod), descriptions, instructions | npm | in `octocode-mcp-host` | `npm publish` in `octocode-mcp-host/packages/octocode-core`, at the version pinned in `packages/octocode-config/package.json` | `npm view @octocodeai/octocode-core@<core> version` |
-| 2 | `@octocodeai/octocode-native-<p>` ×6 | **The native binary**: `octocode` CLI, `octocode-native.<p>.node` addon | npm | `yarn build:native:all` (repo root) | `packages/octocode-native/npm/<p>`: `npm publish` | `npm view @octocodeai/octocode-native-<p>@<v> version` |
+| 2 | `@octocodeai/octocode-native-<p>` ×7 | **The native binary**: `octocode` CLI, `octocode-native.<p>.node` addon | npm | `yarn workspace @octocodeai/octocode-native build:all` | `packages/octocode-native/npm/<p>`: `npm publish` | `npm view @octocodeai/octocode-native-<p>@<v> version` |
 | 3 | `@octocodeai/octocode-native` | Platform selector (`optionalDependencies` pin each platform package exactly), Node runtime loader, `octocode-native` bin | npm | none (JS) | `packages/octocode-native`: `npm publish` | `npx -y @octocodeai/octocode-native@<v> --version` → `octocode <v>` |
 | 4 | `octocode-mcp` | stdio MCP server (bundles `@octocodeai/config`; depends on core + native) | npm | `yarn workspace octocode-mcp build` | `packages/octocode-mcp`: `npm publish` | `npm view octocode-mcp dist-tags.latest` → `<v>` (`octocode install` writes `octocode-mcp@latest`) |
 | 5 | `octocode` | Node CLI launcher (bundles the config development guard; forwards every command to native; ships the same skills) | npm | `yarn workspace octocode build` | `packages/octocode`: `npm publish` | `npx -y octocode@<v> --version` → `octocode <v>` |
@@ -44,9 +44,9 @@ Row 8 has not shipped yet: the tap still serves the old Node-based 2.0.0 formula
 
 ### Before row 2
 
-1. **Version:** every lockstep package, the platform pins in `packages/octocode-native/package.json`, the `@octocodeai/octocode-native` pins in rows 4–5, `workspace.package.version` in `packages/octocode-native/Cargo.toml`, `packages/octocode-mcp/manifest.json` and `server.json`. Then `yarn install`.
+1. **Version:** every lockstep package, the platform pins in `packages/octocode-native/package.json` and `packages/octocode/package.json`, the `@octocodeai/octocode-native` dependency in `packages/octocode-mcp/package.json`, `workspace.package.version` in `packages/octocode-native/Cargo.toml`, `packages/octocode-mcp/manifest.json` and `server.json`. Then `yarn install`.
 2. **Registry, not local resolutions:** `node skills-dev/octocode-dev/scripts/prepublish.mjs --fix`, `yarn install`, then `yarn workspace @octocodeai/config check:core-contract-sync:published`.
-3. **Build after the bump:** `yarn build:native:all`. Each staged `packages/octocode-native/npm/<p>/octocode --version` must print `<v>`; a binary built before the bump reports the old version, and npm never lets you replace a published version.
+3. **Build after the bump:** `yarn workspace @octocodeai/octocode-native build:all`. Each staged `packages/octocode-native/npm/<p>/octocode --version` must print `<v>`; a binary built before the bump reports the old version, and npm never lets you replace a published version.
 4. **Commit**, so the published `gitHead` names a real commit.
 
 Then smoke-test from a clean temp dir (`npx -y octocode-mcp@<v>`, `npx -y octocode@<v> schema`), and as a project dependency, which is what exposes a bin collision or a binary that cannot describe itself:
@@ -67,7 +67,7 @@ npm view octocode-mcp dist-tags.latest                      # → <v>
 Run `node skills-dev/octocode-dev/scripts/dev.mjs setup` to restore the dev resolutions.
 
 - **No `prepublishOnly` gates.** Run the gates below yourself before `npm publish`; nothing blocks a publish automatically.
-- **Config is never published.** `@octocodeai/config` is a private workspace package: mcp and the launcher bundle it at build time and declare `@octocodeai/octocode-core` themselves (mcp keeps core external; the launcher bundles it too, because esbuild code splitting cannot link names through config's `export *` from an external core).
+- **Config is never published.** `@octocodeai/config` is a private workspace package bundled by MCP and the launcher. MCP declares `@octocodeai/octocode-core` as an external runtime dependency. The launcher bundles only config's development-override guard and the shared native launch scripts; it does not import core or tool contracts.
 
 ## Gates (all must be green)
 

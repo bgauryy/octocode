@@ -4,10 +4,9 @@ use super::GhGetFileContentQuery;
 use crate::id::ToolId;
 use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
-use crate::response::rows::GITHUB_AUTH_RECOVERY_HINT;
 use crate::tools::gh_shared::{
-    GhFailure, PathRecovery, RepoPath, parent_dir, provider_message, repository_not_found,
-    repository_search, tree_recovery, validation_message, with_ref_recovery,
+    GhFailure, PathRecovery, RepoPath, parent_dir, provider_hint, provider_message,
+    repository_not_found, repository_search, tree_recovery, validation_message, with_ref_recovery,
 };
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 use serde_json::{Value, json};
@@ -55,9 +54,7 @@ pub(crate) fn failure(
                 "Repository {owner}/{repo} not found, or private and not accessible to this token"
             )
         }
-        ProviderErrorKind::NotFound if found.is_some() => {
-            format!("Path not found in {owner}/{repo}: {requested}")
-        }
+        ProviderErrorKind::NotFound if found.is_some() => path_not_found(&at, at.reference),
         // Provider-local validation (no HTTP status) carries a specific,
         // actionable message (directory/symlink/submodule path, bad name).
         ProviderErrorKind::Validation if error.status.is_none() => error.message.to_string(),
@@ -94,10 +91,8 @@ pub(crate) fn failure(
         )
     } else if error.kind == ProviderErrorKind::NotFound {
         path_recovery(query, &at, found)
-    } else if error.kind == ProviderErrorKind::Authentication {
-        (Some(GITHUB_AUTH_RECOVERY_HINT), None)
     } else {
-        (None, None)
+        (provider_hint(&error), None)
     };
     let mut failure = GhFailure::new(error, message);
     if let Some(hint) = hint {
@@ -105,6 +100,23 @@ pub(crate) fn failure(
     }
     failure.next = next.map(Box::new);
     identity(failure)
+}
+
+/// The missing-path message, naming the ref the caller asked for and,
+/// when that named a branch or tag, the commit it resolved to (`at`'s
+/// ref, which the recovery leads pin).
+pub(super) fn path_not_found(at: &RepoPath<'_>, asked: Option<&str>) -> String {
+    let (owner, repo, path) = (at.owner, at.repo, at.path);
+    let Some(asked) = asked.filter(|value| !value.is_empty()) else {
+        return format!("Path not found in {owner}/{repo}: {path}");
+    };
+    match at.reference.filter(|commit| *commit != asked) {
+        Some(commit) => {
+            let short = commit.get(..7).unwrap_or(commit);
+            format!("Path not found in {owner}/{repo} at {asked} ({short}): {path}")
+        }
+        None => format!("Path not found in {owner}/{repo} at {asked}: {path}"),
+    }
 }
 
 /// A path that did not resolve: the case-corrected file, the nearest

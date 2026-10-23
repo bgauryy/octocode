@@ -55,7 +55,7 @@ process environment / MCP client env block
 A setting is something a user chooses: a credential, an endpoint, a feature switch, a tool list, a scope, a storage mode, a model or a presentation format. Internal limits (timeouts, retries, waits, page sizes, cache sizes and TTLs, concurrency, spend caps, memory caps) are code constants, never settings: no `.env` or `.octocoderc` can change them. The contract has no number field type. A limit lives in one of two places:
 
 - **`RuntimeLimits::DEFAULT`** (`packages/octocode-native/crates/runtime/src/execution/limits.rs`) when several surfaces share it or tests vary it through `ToolRuntime::with_limits`.
-- **A named constant next to its single use** otherwise (for example `PREPARED_MIN_BYTES` in `crates/runtime/src/tools/local_fetch/executor.rs`, `IDLE_EXIT` in `crates/cli/src/cli/serve.rs`). Its doc comment gives the rationale. When it bounds evidence, the response discloses the cut (a warning, a `*Clipped` flag or a continuation), never a silent gap.
+- **A named constant next to its single use** otherwise (for example `PREPARED_MIN_BYTES` in `crates/runtime/src/tools/source_view/prepare.rs`, `IDLE_EXIT` in `crates/cli/src/cli/serve.rs`). Its doc comment gives the rationale. When it bounds evidence, the response discloses the cut (a warning, a `*Clipped` flag or a continuation), never a silent gap.
 
 Docs link to the constant instead of copying its value.
 
@@ -223,7 +223,7 @@ Settings are read in native code from the resolved config:
 
 ```rust
 let graphql = config.resolved.github.graphql_enabled;
-let format = &config.resolved.output.format;
+let prewarm = &config.resolved.lsp.prewarm;
 let classification_key = config.env_value("OCTOCODE_CLASSIFICATION_API");
 ```
 

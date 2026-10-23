@@ -132,8 +132,8 @@ pub(super) fn disclose_limits(
         });
     }
     if !traversal.omitted.is_empty() && page.current == 1 {
-        // Symlinks and submodules have no listable content: name each with
-        // its count instead of silently dropping them, once per listing.
+        // Symlinks and submodules have no listable content: name each
+        // instead of silently dropping it, once per listing.
         value["omitted"] = json!(traversal.omitted);
     }
     if traversal.failed_subtrees > 0 {
@@ -224,18 +224,13 @@ fn bare_words<'a>(include: impl IntoIterator<Item = &'a str>) -> Vec<String> {
 /// the repository root, which leads. Each listed entry carries its facts in
 /// the structureSearch entry form, `"<name> (<fields>)"` (the last `" ("`
 /// opens them): a file its size in bytes, then the day of its last commit
-/// (`dates`, keyed by repo-relative path); a folder that day. Names sort
-/// within each row.
+/// (`dates`, keyed by repo-relative path); a folder, named `"<name>/"`, that
+/// day. Names sort within each row.
 pub(super) fn build_structure(
     entries: &[TreeEntry],
     dates: &std::collections::HashMap<String, String>,
 ) -> Vec<Value> {
-    #[derive(Default)]
-    struct Row<'a> {
-        files: Vec<(&'a str, String)>,
-        folders: Vec<(&'a str, String)>,
-    }
-    let mut dirs = std::collections::BTreeMap::<&str, Row<'_>>::new();
+    let mut dirs = std::collections::BTreeMap::<&str, Vec<(&str, String)>>::new();
     for entry in entries {
         let path = entry.path.as_str();
         let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
@@ -247,17 +242,13 @@ pub(super) fn build_structure(
             .into_iter()
             .chain(dates.get(path).cloned())
             .collect::<Vec<_>>();
+        let slash = if file { "" } else { "/" };
         let text = if fields.is_empty() {
-            name.to_owned()
+            format!("{name}{slash}")
         } else {
-            format!("{name} ({})", fields.join(", "))
+            format!("{name}{slash} ({})", fields.join(", "))
         };
-        let row = dirs.entry(parent).or_default();
-        if file {
-            row.files.push((name, text));
-        } else {
-            row.folders.push((name, text));
-        }
+        dirs.entry(parent).or_default().push((name, text));
     }
     let listed = |mut names: Vec<(&str, String)>| {
         names.sort_by(|left, right| left.0.cmp(right.0));
@@ -274,16 +265,7 @@ pub(super) fn build_structure(
         (*left != ".").cmp(&(*right != ".")).then(left.cmp(right))
     });
     rows.into_iter()
-        .map(|(dir, row)| {
-            let mut value = json!({"dir": dir});
-            if !row.files.is_empty() {
-                value["files"] = listed(row.files);
-            }
-            if !row.folders.is_empty() {
-                value["folders"] = listed(row.folders);
-            }
-            value
-        })
+        .map(|(dir, row)| json!({"dir": dir, "files": listed(row)}))
         .collect()
 }
 
@@ -361,69 +343,4 @@ pub(super) fn structure_is_empty(value: &Value) -> bool {
 }
 
 #[cfg(test)]
-mod read_lead_tests {
-    use super::*;
-
-    fn lead(paths: &[&str], include: &[&str]) -> Option<String> {
-        let query: GhStructureQueryTree = serde_json::from_value(json!({
-            "owner": "o", "repo": "r", "include": include
-        }))
-        .expect("query");
-        let entries = paths
-            .iter()
-            .map(|path| TreeEntry {
-                path: (*path).to_owned(),
-                kind: EntryKind::File,
-                size: Some(1),
-            })
-            .collect::<Vec<_>>();
-        entry_read(&query, &entries, "s").map(|read| {
-            read["query"]["queries"][0]["path"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned()
-        })
-    }
-
-    /// The read lead lands on source: the file a bare-word `include`
-    /// names over its test, and a code entry over README and other files.
-    #[test]
-    fn the_read_lead_prefers_source_over_tests_and_docs() {
-        assert_eq!(
-            lead(
-                &["__tests__/X-test.js", "client/X.js", "client/XFB.js"],
-                &["X"]
-            )
-            .as_deref(),
-            Some("client/X.js")
-        );
-        assert_eq!(
-            lead(&["README.md", "benches/b.rs", "src/lib.rs"], &[]).as_deref(),
-            Some("src/lib.rs")
-        );
-        // Without source, a manifest before a README.
-        assert_eq!(
-            lead(&["README.md", "Cargo.toml"], &[]).as_deref(),
-            Some("Cargo.toml")
-        );
-        // A root with loose scripts reads its manifest, not a script (zod's
-        // `mm.mjs`); a nested README does not outrank source.
-        assert_eq!(
-            lead(&["README.md", "AGENTS.md", "mm.mjs", "package.json"], &[]).as_deref(),
-            Some("package.json")
-        );
-        assert_eq!(
-            lead(&["README.md", "download-latest.sh"], &[]).as_deref(),
-            Some("README.md")
-        );
-        assert_eq!(
-            lead(&["examples/a/README.md", "src/util.ts"], &[]).as_deref(),
-            Some("src/util.ts")
-        );
-        // A large listing never leads to a file no tier names.
-        let data = (0..8).map(|n| format!("data/{n}.csv")).collect::<Vec<_>>();
-        let data = data.iter().map(String::as_str).collect::<Vec<_>>();
-        assert_eq!(lead(&data, &[]), None);
-        assert_eq!(lead(&data[..2], &[]).as_deref(), Some("data/0.csv"));
-    }
-}
+mod read_lead_tests;

@@ -30,6 +30,7 @@ pub(crate) use util::{github_repo_dir, github_repository, github_slug, release_r
 
 use http::RegistryClient;
 use octocode_io::budget::RequestBudget;
+use versions::is_range;
 
 pub struct ArtifactProviderContext<'a> {
     pub http: &'a dyn ArtifactHttp,
@@ -73,6 +74,21 @@ pub async fn execute_artifact(
                 artifact_type::as_str(artifact_search_query::artifact_type(query))
             ),
         ));
+    }
+    // An ecosystem that takes exact versions has no range to resolve: a
+    // range is refused as such, never looked up as a version.
+    if let Some(version) = artifact_search_query::version(query)
+        && is_range(version)
+    {
+        let ecosystem = artifact_type::as_str(artifact_search_query::artifact_type(query));
+        if version_support(ecosystem) == "exact" {
+            return Err(ArtifactError::new(
+                ErrorCode::CapabilityUnavailable,
+                format!(
+                    "{ecosystem} takes exact versions only, not the range \"{version}\"; omit version for the latest release."
+                ),
+            ));
+        }
     }
     match artifact_search_query::artifact_type(query) {
         ArtifactType::Npm => {
@@ -190,6 +206,7 @@ fn reach(artifact_type: ArtifactType) -> Reach {
         ArtifactType::Crates => Reach::ending_at(crates::CRATES_RELEVANCE_LIMIT),
         ArtifactType::Maven => Reach::ending_at(maven::REACHABLE_END),
         ArtifactType::Nuget => Reach::ending_at(nuget::REACHABLE_END),
+        ArtifactType::Go => Reach::ending_at(go::GO_SEARCH_CAP),
         _ => Reach::starting_at_most(MAX_CURSOR_OFFSET),
     }
 }
@@ -293,203 +310,10 @@ fn version_support_summary() -> String {
 }
 
 #[cfg(test)]
-mod cursor_state_tests {
-    use super::*;
-
-    #[test]
-    fn constructed_or_stale_cursor_state_is_rejected() {
-        for state in [
-            ArtifactProviderState {
-                offset: Some(MAX_CURSOR_OFFSET + 1),
-                ..Default::default()
-            },
-            ArtifactProviderState {
-                page: Some(MAX_CURSOR_PAGE + 1),
-                ..Default::default()
-            },
-            ArtifactProviderState {
-                page: Some(0),
-                ..Default::default()
-            },
-        ] {
-            let error =
-                validate_cursor_state(ArtifactType::Nuget, &state, 50).expect_err("out of range");
-            assert_eq!(error.code, ErrorCode::InvalidInput);
-        }
-        for state in [
-            ArtifactProviderState::default(),
-            ArtifactProviderState {
-                offset: Some(30),
-                page: Some(2),
-                token: Some("issued".into()),
-            },
-        ] {
-            assert!(validate_cursor_state(ArtifactType::Nuget, &state, 50).is_ok());
-        }
-    }
-
-    /// A page-addressed registry's page is bounded by the result position
-    /// it starts at, like an offset: crates.io serves results below 1,000,
-    /// so 100-row pages end at page 10 and 30-row pages at page 34.
-    #[test]
-    fn a_page_addressed_registry_is_bounded_by_its_page_start() {
-        let at = |page: u64| ArtifactProviderState {
-            page: Some(page),
-            ..Default::default()
-        };
-        for (page, page_size, admitted) in [
-            (10, 100, true),
-            (11, 100, false),
-            (34, 30, true),
-            (35, 30, false),
-        ] {
-            assert_eq!(
-                validate_cursor_state(ArtifactType::Crates, &at(page), page_size).is_ok(),
-                admitted,
-                "page {page} of {page_size}"
-            );
-        }
-    }
-
-    /// The query's cursor reaches the provider as the page's token, for
-    /// every paging style; a query without one carries none.
-    #[test]
-    fn the_query_cursor_is_the_provider_page_token() {
-        for (ecosystem, page) in [("go", Some(3)), ("nuget", None)] {
-            let query = types::artifact_query(
-                serde_json::json!({"ecosystem": ecosystem, "keywords": ["http"],
-                    "page": 3, "pageSize": 10, "cursor": "issued"}),
-                None,
-            );
-            let state = page_state(&query);
-            assert_eq!(state.token.as_deref(), Some("issued"), "{ecosystem}");
-            assert_eq!(state.page, page, "{ecosystem}");
-        }
-        let plain = types::artifact_query(
-            serde_json::json!({"ecosystem": "go", "keywords": ["http"]}),
-            None,
-        );
-        assert_eq!(page_state(&plain).token, None);
-    }
-
-    /// The gate reads the contract's capability table, so a new
-    /// ecosystem level changes one core table, not a native `matches!`.
-    #[test]
-    fn version_gate_reads_the_contract_capability_table() {
-        assert_eq!(version_support("npm"), "range");
-        assert_eq!(version_support("maven"), "exact");
-        assert_eq!(version_support("go"), "exact");
-        assert_eq!(version_support("packagist"), "none");
-        assert_eq!(version_support("unknown"), "none");
-        let summary = version_support_summary();
-        assert!(
-            summary.contains("ranges for crates, npm, pypi"),
-            "{summary}"
-        );
-        assert!(
-            summary.contains("exact versions for go, maven, nuget"),
-            "{summary}"
-        );
-    }
-}
+mod cursor_state_tests;
 
 #[cfg(test)]
-mod exact_lookup_tests {
-    use super::http::RegistryClient;
-    use super::test_http::RouteHttp;
-    use super::types::{exact_query, test_budget};
-    use super::*;
-    use serde_json::json;
+mod version_gate_tests;
 
-    /// An exact lookup on each registry parses one row with its name,
-    /// version and registry page.
-    #[tokio::test]
-    async fn exact_lookups_parse_one_row_per_registry() {
-        let cases = [
-            (
-                ArtifactType::Pypi,
-                "requests",
-                json!({
-                    "info": {
-                        "name": "requests",
-                        "version": "2.31.0",
-                        "summary": "Python HTTP for Humans.",
-                        "license": "Apache-2.0",
-                        "home_page": "https://requests.readthedocs.io",
-                        "project_urls": {"Source": "https://github.com/psf/requests"}
-                    }
-                }),
-                "2.31.0",
-                "https://pypi.org/project/requests/",
-            ),
-            (
-                ArtifactType::Crates,
-                "serde",
-                json!({
-                    "crate": {
-                        "id": "serde",
-                        "name": "serde",
-                        "max_stable_version": "1.0.200",
-                        "description": "A generic serialization/deserialization framework",
-                        "license": "MIT OR Apache-2.0",
-                        "repository": "https://github.com/serde-rs/serde"
-                    }
-                }),
-                "1.0.200",
-                "https://crates.io/crates/serde",
-            ),
-            (
-                ArtifactType::Packagist,
-                "laravel/framework",
-                // p2/{name}.json response with entries for the tagged URL
-                json!({
-                    "packages": {
-                        "laravel/framework": [
-                            {
-                                "name": "laravel/framework",
-                                "version": "10.0.0",
-                                "description": "The Laravel Framework.",
-                                "license": ["MIT"]
-                            }
-                        ]
-                    }
-                }),
-                "10.0.0",
-                "https://packagist.org/packages/laravel/framework",
-            ),
-            (
-                ArtifactType::Rubygems,
-                "rails",
-                json!({
-                    "name": "rails",
-                    "version": "7.0.6",
-                    "info": "Full-stack web application framework.",
-                    "homepage_uri": "https://rubyonrails.org",
-                    "source_code_uri": "https://github.com/rails/rails"
-                }),
-                "7.0.6",
-                "https://rubygems.org/gems/rails",
-            ),
-        ];
-        for (ecosystem, name, body, version, registry_url) in cases {
-            let http = RouteHttp::always(body);
-            let b = test_budget();
-            let client = RegistryClient::uncached(&http, &b);
-            let q = exact_query(ecosystem, name);
-            let state = ArtifactProviderState::default();
-            let page = match ecosystem {
-                ArtifactType::Pypi => pypi::pypi(&q, &client).await,
-                ArtifactType::Crates => crates::crates(&q, &state, &client).await,
-                ArtifactType::Packagist => packagist::packagist(&q, &state, &client).await,
-                ArtifactType::Rubygems => rubygems::rubygems(&q, &state, &client).await,
-                other => unreachable!("no exact-lookup case for {other:?}"),
-            }
-            .unwrap_or_else(|error| panic!("{name}: {error:?}"));
-            assert_eq!(page.artifacts.len(), 1, "{name}");
-            let item = &page.artifacts[0];
-            assert_eq!(item.name, name);
-            assert_eq!(item.version.as_deref(), Some(version), "{name}");
-            assert_eq!(item.registry_url, registry_url, "{name}");
-        }
-    }
-}
+#[cfg(test)]
+mod exact_lookup_tests;

@@ -121,6 +121,12 @@ export function asksIn(mode: PermissionMode): ActionClass[] {
   return ACTION_CLASSES.filter((action) => decide(mode, action) === 'ask');
 }
 
+/** What a mode means, in one sentence: the model note and `/octocode permission` say it. */
+export function modeSummary(mode: PermissionMode): string {
+  if (mode === 'full') return 'nothing asks: destructive commands (rm -rf ~), private web fetches, browser control and a hook\'s ask all run without a prompt. Safeguards: the ⚠ counter, warning-colored activity lines and the audit log (/octocode permission log); a run with no UI has only the log. Invariants and hook denies still refuse.';
+  return `it asks before ${asksIn(mode).join(', ')}; hook asks, provenance hits and profile permissions also ask.`;
+}
+
 /**
  * The mode a session starts in: `full` (no routine asks), unless the user exported `OCTOCODE_PERMISSION`. An invalid
  * value starts in `manual` with a warning (stricter, never looser).

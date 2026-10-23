@@ -20,7 +20,7 @@ mod selector;
 pub(super) use error::CompileError;
 pub(super) use matching::{ExecutionError, named_children, node_text, parse_tree_with_deadline};
 pub use rule::{EXAMPLE_RULE, validate_rule_shape};
-pub(super) use rule::{RawPattern, RawRule, parse_rule};
+pub(super) use rule::{RawPattern, RawRule, decode_rule};
 
 #[cfg(test)]
 pub(super) use matching::INTERRUPT_NEXT_COMPILE_PARSE;
@@ -42,7 +42,7 @@ use rule::{CompiledRule, Document};
 #[cfg(test)]
 use matching::{SECONDARY_CAPTURE, parse_tree, visit_named};
 #[cfg(test)]
-use rule::RULE_PARSE_COUNT;
+use rule::RULE_DECODE_COUNT;
 
 #[cfg(test)]
 use super::types::StructuralMatch;
@@ -229,8 +229,4 @@ fn is_document_probe(pattern: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "mod_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-mod rule_features_tests;

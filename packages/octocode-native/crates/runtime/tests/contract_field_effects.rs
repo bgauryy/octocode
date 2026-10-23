@@ -127,6 +127,18 @@ fn discriminator_paths(schema: &Value) -> BTreeSet<String> {
         .collect()
 }
 
+/// Whether `source` declares an executable test: an attribute whose path is
+/// `test` or ends in `::test`, with or without arguments (`#[test]`,
+/// `#[tokio::test]`, `#[tokio::test(flavor = "current_thread")]`).
+fn has_tests(source: &str) -> bool {
+    source.lines().any(|line| {
+        line.trim_start()
+            .strip_prefix("#[")
+            .map(|attribute| attribute.split(['(', ']']).next().unwrap_or("").trim())
+            .is_some_and(|path| path == "test" || path.ends_with("::test"))
+    })
+}
+
 fn string_set(values: &Value) -> BTreeSet<String> {
     values
         .as_array()
@@ -179,7 +191,7 @@ fn every_public_field_and_discriminator_has_declared_engine_effect_coverage() {
             let source = std::fs::read_to_string(&path)
                 .unwrap_or_else(|error| panic!("{name}: cannot read {}: {error}", path.display()));
             assert!(
-                source.contains("#[test]") || source.contains("#[tokio::test]"),
+                has_tests(&source),
                 "{name}: evidence {} must contain executable tests",
                 path.display()
             );
@@ -297,7 +309,7 @@ fn every_tool_envelope_has_shared_engine_effect_coverage() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(relative.as_str().expect("evidence path"));
         let source = std::fs::read_to_string(path).expect("envelope evidence exists");
-        assert!(source.contains("#[test]") || source.contains("#[tokio::test]"));
+        assert!(has_tests(&source));
     }
     for tool in contract["tools"].as_array().expect("tools") {
         let mut all_fields = BTreeSet::new();

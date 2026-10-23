@@ -1,5 +1,6 @@
 import type { Snapshot } from './snapshot.js';
-import { PAGE_CSS, PAGE_JS } from './html-template.js';
+import { PAGE_JS } from './html-script.js';
+import { PAGE_CSS } from './html-style.js';
 
 /** Offline and inert: only this page's own inline style and script may run; nothing loads, submits or connects. */
 const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";

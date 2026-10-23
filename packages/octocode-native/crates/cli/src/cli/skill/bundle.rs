@@ -19,6 +19,8 @@ pub(super) struct EmbeddedFile {
 pub(super) struct EmbeddedSkill {
     pub name: &'static str,
     pub instructions: &'static str,
+    /// Decoded from the one-line JSON string in the frontmatter when the bundle is generated.
+    pub description: &'static str,
     pub files: &'static [EmbeddedFile],
 }
 
@@ -27,10 +29,6 @@ include!(concat!(env!("OUT_DIR"), "/skills.rs"));
 impl EmbeddedSkill {
     pub fn text(&self) -> &'static str {
         self.instructions
-    }
-
-    pub fn description(&self) -> Result<String, String> {
-        metadata(self.text()).map(|(_, description)| description)
     }
 
     pub fn matches(&self, destination: &Path) -> bool {
@@ -145,34 +143,44 @@ pub(super) fn valid_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-pub(super) fn metadata(text: &str) -> Result<(String, String), String> {
+/// The frontmatter `name`, read from its single `name:` line without a YAML parser.
+///
+/// The Agent Skills spec limits names to a plain token, so the value is either bare or in double
+/// quotes. Any other form (block scalar, single quotes, trailing comment) asks for a name override.
+pub(super) fn declared_name(text: &str) -> Result<String, String> {
     let mut lines = text.lines();
     if lines.next() != Some("---") {
-        return Err("SKILL.md must begin with YAML frontmatter".into());
+        return Err("SKILL.md must begin with a --- frontmatter block".into());
     }
-    let mut header = Vec::new();
+    let mut names = Vec::new();
     let mut closed = false;
     for line in lines {
         if line == "---" {
             closed = true;
             break;
         }
-        header.push(line);
+        if let Some(value) = line.strip_prefix("name:") {
+            names.push(value.trim());
+        }
     }
     if !closed {
         return Err("SKILL.md frontmatter is not closed".into());
     }
-    let value = octocode_engine::text::yaml_utils::yaml_to_json(&header.join("\n"))?;
-    let name = value["name"]
-        .as_str()
-        .filter(|name| valid_name(name))
-        .ok_or("SKILL.md needs a valid name")?;
-    let description = value["description"]
-        .as_str()
-        .filter(|text| !text.trim().is_empty())
-        .ok_or("SKILL.md needs a description")?;
-    Ok((name.into(), description.into()))
+    let [value] = names.as_slice() else {
+        return Err(NAME_FORM.into());
+    };
+    let name = value
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(value);
+    if valid_name(name) {
+        Ok(name.into())
+    } else {
+        Err(NAME_FORM.into())
+    }
 }
+
+const NAME_FORM: &str = "SKILL.md needs one `name: token` line (bare or double-quoted letters, digits, `.`, `_`, `-`); provide a name override to install it";
 
 #[cfg(test)]
 mod tests {
@@ -182,14 +190,50 @@ mod tests {
     fn every_embedded_skill_is_valid_and_round_trips() {
         assert!(!SKILLS.is_empty());
         for skill in SKILLS {
-            let (name, _) = metadata(skill.text()).expect(skill.name);
-            assert_eq!(name, skill.name);
+            assert_eq!(declared_name(skill.text()).expect(skill.name), skill.name);
+            assert!(!skill.description.trim().is_empty(), "{}", skill.name);
+            assert!(
+                skill.text().lines().any(|line| {
+                    line.strip_prefix("description:")
+                        .and_then(|value| serde_json::from_str::<String>(value.trim()).ok())
+                        .is_some_and(|decoded| decoded == skill.description)
+                }),
+                "{} embeds a description its frontmatter does not hold",
+                skill.name
+            );
             let directory = tempfile::tempdir().expect("tempdir");
             skill.write(directory.path()).expect("extract");
             assert!(skill.matches(directory.path()), "{}", skill.name);
             fs::write(directory.path().join("unexpected.txt"), "user file").expect("write");
             assert!(!skill.matches(directory.path()));
         }
+    }
+
+    #[test]
+    fn declared_name_reads_one_plain_or_double_quoted_line() {
+        let read = |header: &str| declared_name(&format!("---\n{header}\n---\nbody"));
+        assert_eq!(
+            read("name: demo-skill\ndescription: \"x\""),
+            Ok("demo-skill".into())
+        );
+        assert_eq!(
+            read("description: \"x\"\nname:   \"demo-2\"  "),
+            Ok("demo-2".into())
+        );
+        for header in [
+            "description: \"x\"",
+            "name: |-\n  demo",
+            "name: 'demo'",
+            "name: demo # note",
+            "name: \"demo",
+            "name: \"de\\u006do\"",
+            "name: demo\nname: other",
+            "name:",
+        ] {
+            assert_eq!(read(header), Err(NAME_FORM.into()), "{header}");
+        }
+        assert!(declared_name("name: demo").is_err());
+        assert!(declared_name("---\nname: demo\n").is_err());
     }
 
     #[test]

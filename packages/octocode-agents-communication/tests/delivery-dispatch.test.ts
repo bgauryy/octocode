@@ -8,7 +8,7 @@ import type { JsonRecord } from './json-record.ts';
 import { only } from './helpers.ts';
 import { fixture, runtime } from './store-support.ts';
 
-const { dispatch, hostHooks } = runtime;
+const { dispatch, dispatchOutcomes, hostHooks } = runtime;
 
 async function pair(t: TestContext, vendor = 'generic') {
   const f = fixture(t);
@@ -34,7 +34,7 @@ test('stage never replays a staged or uncertain offer; ready rows are offered ag
   assert.equal(f.store.retryDelivery(f.receiver, { message: sent.id, reason: 'operator retry' }).ready, true);
   const again = f.store.stage(f.receiver, 'raw');
   assert.equal(again.length, 1);
-  f.store.releaseDispatch(f.receiver, again, dispatch.BUDGET_DEFERRAL);
+  f.store.releaseDispatch(f.receiver, again, dispatchOutcomes.BUDGET_DEFERRAL);
   assert.equal(rows(f, 'SELECT state FROM dispatches')[0].state, 'ready');
   const third = f.store.stage(f.receiver, 'raw');
   f.store.finishDispatch(f.receiver, third);
@@ -229,8 +229,8 @@ test('host context budgets: oversized bodies become fetch references; released r
   assert.match(small, /"bodyOmitted":true/);
   assert.equal(small.includes('xxxxxxxxxx'), false);
   assert.equal(hostHooks.hostContext('identity', [], 10), 'identity');
-  f.store.releaseDispatch(f.receiver, items, dispatch.BUDGET_DEFERRAL);
-  assert.equal(rows(f, 'SELECT state,error FROM dispatches')[0].error, dispatch.BUDGET_DEFERRAL);
+  f.store.releaseDispatch(f.receiver, items, dispatchOutcomes.BUDGET_DEFERRAL);
+  assert.equal(rows(f, 'SELECT state,error FROM dispatches')[0].error, dispatchOutcomes.BUDGET_DEFERRAL);
 });
 
 test('host hook config: quoting, event sets and handler options per vendor', t => {

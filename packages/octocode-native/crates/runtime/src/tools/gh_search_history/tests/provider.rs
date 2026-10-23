@@ -1,6 +1,47 @@
 //! Searches and listings against a mock GitHub API.
 use super::*;
 
+/// GitHub's incomplete-results flag on the last page is no terminal limit:
+/// the same page again may complete, so the page offers `next.retry`.
+#[tokio::test]
+async fn an_incomplete_last_page_offers_a_retry_not_a_terminal_limit() {
+    use wiremock::MockServer;
+
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/issues",
+        200,
+        json!({
+            "total_count": 1, "incomplete_results": true,
+            "items": [{"number": 3, "title": "Fix", "state": "open", "user": {"login": "dev"},
+                "repository_url": "https://api.github.com/repos/acme/widget"}]
+        }),
+    )
+    .await;
+    let provider = one_shot_provider(&server);
+    let query = serde_json::from_value(json!({"operation":"pullRequest","keywords":["fix"]}))
+        .expect("query");
+    let data = execute(&provider, &query, &default_context(), &Passthrough)
+        .await
+        .expect("history search");
+    assert_eq!(data["isPartial"], true, "{data}");
+    assert_eq!(
+        data["partialReasons"],
+        json!(["providerIncompleteResults"]),
+        "{data}"
+    );
+    assert!(data.get("terminalLimit").is_none(), "{data}");
+    let retry = &data["next"]["retry"];
+    assert_eq!(retry["tool"], "ghSearchHistory", "{data}");
+    assert_eq!(retry["query"]["queries"][0]["page"], 1, "{data}");
+    assert_eq!(
+        retry["query"]["queries"][0]["keywords"],
+        json!(["fix"]),
+        "{data}"
+    );
+}
+
 #[tokio::test]
 async fn cap_is_terminal_only_after_the_last_reachable_page() {
     use wiremock::MockServer;
@@ -35,11 +76,13 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
             "{data}"
         );
         assert_eq!(data["next"]["nextPage"].is_object(), page < 1000, "{data}");
-        // A capped page states GitHub's full match count.
-        assert!(
+        // The first page states GitHub's full match count, once per search
+        // (the shared provider-limit rule of every GitHub search).
+        assert_eq!(
             data["warnings"].as_array().is_some_and(|warnings| warnings
                 .iter()
                 .any(|warning| warning.as_str().is_some_and(|w| w.contains("1001")))),
+            page == 1,
             "{data}"
         );
         // A search beyond one repository names each row's owner and repo
@@ -1459,4 +1502,152 @@ async fn a_boolean_operator_in_keywords_is_refused() {
             .is_empty(),
         "refused before any request"
     );
+}
+
+/// The last page of a multi-page issue search keeps the page block every
+/// earlier page carried, with `hasMore:false`: only a lone first page
+/// states nothing.
+#[tokio::test]
+async fn the_last_page_of_an_issue_search_keeps_its_pagination() {
+    use wiremock::MockServer;
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/issues",
+        200,
+        json!({"total_count": 61, "incomplete_results": false,
+            "items": [{"number": 7, "title": "t", "state": "open"}]}),
+    )
+    .await;
+    let query = serde_json::from_value(json!({"operation":"issue","owner":"o","repo":"r",
+        "keywords":["mmap"],"pageSize":20,"page":4}))
+    .expect("query");
+    let data = execute(
+        &one_shot_provider(&server),
+        &query,
+        &default_context(),
+        &Passthrough,
+    )
+    .await
+    .expect("issue search");
+    let pagination = &data["pagination"];
+    assert_eq!(pagination["currentPage"], 4, "{data}");
+    assert_eq!(pagination["totalPages"], 4, "{data}");
+    assert_eq!(pagination["totalItems"], 61, "{data}");
+    assert_eq!(pagination["hasMore"], false, "{data}");
+}
+
+/// A commit page whose headlines name no `(#N)` offers the PR search by
+/// the first row's SHA (`findPullRequest`); a named PR is read instead.
+#[tokio::test]
+async fn commit_rows_without_a_named_pull_request_find_it_by_sha() {
+    use wiremock::MockServer;
+    let server = MockServer::builder().start().await;
+    let commit = |sha: &str, message: &str| {
+        json!({"sha": sha, "commit": {"message": message,
+            "author": {"name": "Dev", "date": "2026-01-01T00:00:00Z"}}})
+    };
+    mount_json(
+        &server,
+        "/api/v3/search/commits",
+        200,
+        json!({"total_count": 2, "incomplete_results": false,
+            "items": [commit("aaa", "Fix cache"), commit("bbb", "Bump deps")]}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/commits",
+        200,
+        json!([commit("ccc", "Fix cache (#9)")]),
+    )
+    .await;
+    let provider = one_shot_provider(&server);
+    let query = serde_json::from_value(
+        json!({"operation":"commit","owner":"o","repo":"r","keywords":["cache"]}),
+    )
+    .expect("query");
+    let data = execute(&provider, &query, &default_context(), &Passthrough)
+        .await
+        .expect("commit search");
+    let find = &data["next"]["findPullRequest"];
+    assert_eq!(find["tool"], "ghSearchHistory", "{data}");
+    assert_eq!(
+        find["query"]["queries"][0],
+        json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["aaa"]}),
+        "{data}"
+    );
+    let query = serde_json::from_value(json!({"operation":"commit","owner":"o","repo":"r"}))
+        .expect("query");
+    let data = execute(&provider, &query, &default_context(), &Passthrough)
+        .await
+        .expect("commit listing");
+    assert!(data["next"].get("findPullRequest").is_none(), "{data}");
+    assert_eq!(
+        data["next"]["readPullRequest"]["query"]["queries"][0]["number"], 9,
+        "{data}"
+    );
+}
+
+/// An empty commit listing scoped to a path broadens by dropping each
+/// narrowing filter, the path among them, and leads to the listing that
+/// checks the path: its parent directory at the listed ref. An empty
+/// pull-request search narrowed by `state` drops it too.
+#[tokio::test]
+async fn an_empty_path_scoped_listing_broadens_past_the_path_and_checks_it() {
+    let server = wiremock::MockServer::builder().start().await;
+    octocode_github::mock_http::mount_json(&server, "/api/v3/repos/o/r/commits", 200, json!([]))
+        .await;
+    octocode_github::mock_http::mount_json(
+        &server,
+        "/api/v3/search/issues",
+        200,
+        json!({"total_count": 0, "incomplete_results": false, "items": []}),
+    )
+    .await;
+    let provider = one_shot_provider(&server);
+    let run = |row: Value| {
+        let provider = &provider;
+        async move {
+            let query = serde_json::from_value(row).expect("query");
+            execute(provider, &query, &default_context(), &Passthrough)
+                .await
+                .expect("listing")
+        }
+    };
+    let data = run(json!({"operation":"commit","owner":"o","repo":"r",
+        "path":"crates/nonexistent","since":"2024-01-01","ref":"v2"}))
+    .await;
+    assert_eq!(data["status"], "empty", "{data}");
+    let rows = data["next"]["broadenSearch"]["query"]["queries"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        rows.iter()
+            .any(|row| row.get("since").is_none() && row["path"] == "crates/nonexistent"),
+        "{data}"
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.get("path").is_none() && row["since"].is_string()),
+        "{data}"
+    );
+    assert_eq!(
+        data["next"]["viewTree"]["query"]["queries"][0],
+        json!({"owner":"o","repo":"r","path":"crates","ref":"v2"}),
+        "{data}"
+    );
+    assert_eq!(data["next"]["viewTree"]["tool"], "ghStructure");
+
+    let data = run(json!({"operation":"pullRequest","owner":"o","repo":"r",
+        "keywords":["fix"],"state":"merged"}))
+    .await;
+    let rows = &data["next"]["broadenSearch"]["query"]["queries"];
+    assert!(
+        rows.as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row.get("state").is_none())),
+        "{data}"
+    );
+    assert!(data["next"].get("viewTree").is_none(), "{data}");
 }

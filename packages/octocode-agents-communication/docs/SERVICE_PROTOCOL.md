@@ -24,7 +24,7 @@ The DB is the durable outbox and inbox for every vendor. Native APIs only carry 
 
 ## Unified adapter protocol
 
-`src/runtime/transport.ts` sits between service policy and vendor wire formats. It is not a network standard or another mailbox: agents keep the same CLI/MCP/SQLite contract. One dispatcher runs prepare → stage → offer → receipt for Claude, Codex, Grok and OpenCode; Pi and raw hooks use a stage-confirm bridge.
+`src/runtime/transport.ts` (with `transport-codex.ts` and `native-io.ts`) sits between service policy and vendor wire formats. It is not a network standard or another mailbox: agents keep the same CLI/MCP/SQLite contract. One dispatcher runs prepare → stage → offer → receipt for Claude, Codex, Grok and OpenCode; Pi and raw hooks use a stage-confirm bridge.
 
 | Operation | Shared contract | Vendor-specific work |
 | --- | --- | --- |

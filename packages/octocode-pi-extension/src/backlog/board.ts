@@ -2,7 +2,7 @@ import { sanitizeTerminalText } from '../shared/sanitize.js';
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Key, matchesKey, truncateToWidth } from '@earendil-works/pi-tui';
 import { refText } from './row.js';
-import { priorityName, type Item as BacklogItem, type State as BacklogState } from './store.js';
+import { priorityName, type Item as BacklogItem, type State as BacklogState } from './item.js';
 import { BOARD_ORDER as ORDER, STATE_TITLE as HEADINGS } from './format.js';
 
 /** What the user picked on the board; the command runs it and reopens the board unless it handed work to the agent. */

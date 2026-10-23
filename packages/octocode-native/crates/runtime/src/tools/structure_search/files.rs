@@ -33,7 +33,6 @@ fn permission_bits(query: &StructureSearchQueryFiles) -> Option<String> {
 super::listing::listing_fields!(StructureSearchQueryFiles {
     /// Rows grouped by directory.
     const LAYOUT: &'static str = "workspaceRelativeDirGroups";
-    const ALWAYS_PAGINATED: bool = true;
     fn sort(&self) -> StructureSearchQueryFilesSort {
         self.sort
     }

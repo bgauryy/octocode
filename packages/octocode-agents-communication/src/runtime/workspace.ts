@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, sep } from 'node:path';
 import { execute, type Database } from './database.js';
 import { ValidationError } from './errors.js';
 import { realpath } from './paths.js';
-import { decodeUtf8 } from './wire.js';
+import { decodeUtf8 } from './json-text.js';
 
 const METADATA_LIMIT = 4096;
 

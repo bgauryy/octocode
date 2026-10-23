@@ -136,15 +136,15 @@ for (const [signal, code] of interruptions) {
 }
 
 test('the signal guard defers to a loop only while the loop runs', () => {
-  const { dispatch } = runtime;
-  assert.equal(dispatch.loopActive(), false);
-  const outer = dispatch.stopEvent(), inner = dispatch.stopEvent();
-  assert.equal(dispatch.loopActive(), true);
+  const { loopControl } = runtime;
+  assert.equal(loopControl.loopActive(), false);
+  const outer = loopControl.stopEvent(), inner = loopControl.stopEvent();
+  assert.equal(loopControl.loopActive(), true);
   outer.dispose();
-  assert.equal(dispatch.loopActive(), true, 'one loop still runs');
+  assert.equal(loopControl.loopActive(), true, 'one loop still runs');
   inner.dispose();
   inner.dispose();
-  assert.equal(dispatch.loopActive(), false, 'disposing twice is harmless and the last disposal re-arms the guard');
+  assert.equal(loopControl.loopActive(), false, 'disposing twice is harmless and the last disposal re-arms the guard');
   assert.equal(process.listenerCount('SIGINT'), 0);
   assert.equal(process.listenerCount('SIGTERM'), 0);
 });

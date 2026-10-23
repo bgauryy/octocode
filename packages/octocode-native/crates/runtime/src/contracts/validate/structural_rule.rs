@@ -66,13 +66,12 @@ mod tests {
     }
 
     #[test]
-    fn structural_rule_admission_leaves_yaml_and_grammar_checks_to_execution() {
+    fn structural_rule_admission_leaves_grammar_checks_to_execution() {
         let rules = json!([{"phase":"validate","opcode":"structural_rule"}]);
         for rule in [
             json!({"pattern":{"context":"class C { $K = $V; }","selector":"public_field_definition"}}),
             json!({"kind":"function_declaration","has":{"kind":"identifier","field":"name"}}),
             json!({"kind":"identifier","inside":{"kind":"absent_grammar_kind","stopBy":"end"}}),
-            json!("kind: absent_grammar_kind"),
         ] {
             super::super::apply_validation_rules(&rules, &json!({"queries":[{"rule":rule}]}))
                 .expect("grammar validation is the compiler's job");

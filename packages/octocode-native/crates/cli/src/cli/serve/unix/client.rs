@@ -99,6 +99,7 @@ pub(in crate::cli) async fn call(
                 }),
                 json_out,
                 &serde_json::Value::Null,
+                None,
             ),
             Vec::new(),
         ),

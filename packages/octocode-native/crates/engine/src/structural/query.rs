@@ -1,5 +1,6 @@
 use super::octo::CompileError;
 use super::types::{StructuralDiagnostic, StructuralQueryExplanation};
+use serde_json::Value;
 use std::sync::OnceLock;
 
 /// Describes how the text pre-filter is applied before AST parsing.
@@ -16,19 +17,16 @@ pub(super) enum Prefilter {
 
 pub(super) struct StructuralQuery<'a> {
     pattern: Option<&'a str>,
-    rule: Option<&'a str>,
-    /// Share one language-independent YAML parse (including errors) for this request.
+    rule: Option<&'a Value>,
+    /// Share one language-independent rule decode (including errors) for this request.
     parsed_rule: OnceLock<Result<super::octo::RawRule, CompileError>>,
 }
 
 impl<'a> StructuralQuery<'a> {
-    pub(super) fn new(pattern: Option<&'a str>, rule: Option<&'a str>) -> Result<Self, String> {
+    pub(super) fn new(pattern: Option<&'a str>, rule: Option<&'a Value>) -> Result<Self, String> {
         match (pattern, rule) {
             (Some(pattern), None) if pattern.trim().is_empty() => {
                 Err("pattern must not be empty".to_string())
-            }
-            (None, Some(rule)) if rule.trim().is_empty() => {
-                Err("rule must not be empty".to_string())
             }
             (Some(_), None) | (None, Some(_)) => Ok(Self {
                 pattern,
@@ -40,7 +38,7 @@ impl<'a> StructuralQuery<'a> {
         }
     }
 
-    pub(super) fn parts(&self) -> (Option<&'a str>, Option<&'a str>) {
+    pub(super) fn parts(&self) -> (Option<&'a str>, Option<&'a Value>) {
         (self.pattern, self.rule)
     }
 
@@ -107,7 +105,7 @@ impl<'a> StructuralQuery<'a> {
 
         StructuralQueryExplanation {
             kind: if self.is_rule() { "rule" } else { "pattern" }.to_owned(),
-            source: self.source().unwrap_or_default().to_owned(),
+            source: self.source(),
             literal_anchor,
             pre_filter,
             unsafe_reason,
@@ -124,25 +122,32 @@ impl<'a> StructuralQuery<'a> {
                     clippy::expect_used,
                     reason = "only rule queries reach this compile path"
                 )]
-                super::octo::parse_rule(self.rule.expect("only rule queries compile a rule"))
+                super::octo::decode_rule(self.rule.expect("only rule queries compile a rule"))
             })
             .as_ref()
             .map_err(Clone::clone)
     }
 
-    fn source(&self) -> Option<&'a str> {
-        self.pattern.or(self.rule)
+    fn source(&self) -> String {
+        source_text(self.pattern, self.rule)
     }
+}
+
+/// The query text an explanation quotes: the pattern, or the rule as JSON.
+fn source_text(pattern: Option<&str>, rule: Option<&Value>) -> String {
+    pattern
+        .map(str::to_owned)
+        .unwrap_or_else(|| rule.map(Value::to_string).unwrap_or_default())
 }
 
 pub(super) fn invalid_query_explanation(
     pattern: Option<&str>,
-    rule: Option<&str>,
+    rule: Option<&Value>,
     message: &str,
 ) -> StructuralQueryExplanation {
     StructuralQueryExplanation {
         kind: "invalid".to_owned(),
-        source: pattern.or(rule).unwrap_or_default().to_owned(),
+        source: source_text(pattern, rule),
         literal_anchor: None,
         pre_filter: "unavailable".to_owned(),
         unsafe_reason: None,
@@ -157,7 +162,7 @@ pub const QUERY_INVALID: &str = "structural.query.invalid";
 /// reports.
 pub(super) fn invalid_query_diagnostic(message: String) -> StructuralDiagnostic {
     StructuralDiagnostic::new(QUERY_INVALID, "error", "match", message)
-        .with_recovery("Provide exactly one non-empty structural pattern or YAML rule.")
+        .with_recovery("Provide exactly one non-empty structural pattern or rule object.")
 }
 
 /// What the literals of a query are read for.
@@ -308,153 +313,4 @@ fn rule_anchors(rule: &super::octo::RawRule, anchor_use: AnchorUse) -> Option<Ve
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn derive_rule_prefilter(rule: &str) -> Prefilter {
-        StructuralQuery::new(None, Some(rule)).unwrap().prefilter()
-    }
-
-    /// An all-upper-case macro cannot select files to parse, yet it still
-    /// says where a match sits in a parsed file.
-    #[test]
-    fn an_upper_case_macro_anchors_recovery_but_not_the_prefilter() {
-        let pattern = StructuralQuery::new(Some("JSON_ASSERT($$$A)"), None).unwrap();
-        assert_eq!(pattern.prefilter(), Prefilter::None);
-        assert_eq!(
-            pattern.recovery_anchors(),
-            Some(vec!["JSON_ASSERT".to_owned()])
-        );
-        let rule = StructuralQuery::new(
-            None,
-            Some("any: [{pattern: JSON_ASSERT($A)}, {pattern: foo($A)}]"),
-        )
-        .unwrap();
-        assert_eq!(rule.prefilter(), Prefilter::None);
-        assert_eq!(
-            rule.recovery_anchors(),
-            Some(vec!["JSON_ASSERT".to_owned(), "foo".to_owned()])
-        );
-        let anchorless = StructuralQuery::new(Some("$F($$$A)"), None).unwrap();
-        assert_eq!(anchorless.recovery_anchors(), None);
-    }
-
-    #[test]
-    fn new_rejects_both_or_neither_query_sources() {
-        assert!(StructuralQuery::new(Some("a"), Some("b")).is_err());
-        assert!(StructuralQuery::new(None, None).is_err());
-    }
-
-    #[test]
-    fn new_rejects_empty_query_text() {
-        assert!(StructuralQuery::new(Some("   "), None).is_err());
-        assert!(StructuralQuery::new(None, Some("   ")).is_err());
-    }
-
-    #[test]
-    fn parsed_yaml_literals_and_composition_keep_required_anchors() {
-        for rule in [
-            "pattern: |\n  foo($X)\n",
-            "pattern: \"\\u0066oo($X)\"",
-            "all: [{any: [{pattern: foo($X)}, {kind: call_expression}]}, {pattern: foo($Y)}]",
-            "has: {pattern: foo($X), stopBy: end}",
-        ] {
-            assert_eq!(
-                derive_rule_prefilter(rule),
-                Prefilter::Single("foo".to_owned()),
-                "{rule}"
-            );
-        }
-        for rule in [
-            "not: {pattern: foo($X)}",
-            "any: [{pattern: foo($X)}, {pattern: $X}]",
-            "any: [{pattern: foo($X)}, {not: {pattern: bar($X)}}]",
-            "unknown: {pattern: foo($X)}",
-        ] {
-            assert_eq!(derive_rule_prefilter(rule), Prefilter::None, "{rule}");
-        }
-    }
-
-    /// The query prefilter keeps only literals every match must contain.
-    #[test]
-    fn rule_prefilter_keeps_only_required_anchors() {
-        let single = |anchor: &str| Prefilter::Single(anchor.to_owned());
-        let cases = [
-            (
-                "simple rule pattern",
-                "rule:\n  pattern: await $C\n",
-                single("await"),
-            ),
-            // `not:` alone is safe — the top-level positive `pattern:` implies the
-            // file must contain the literal; `not:` only filters what's found.
-            // Only the parsed positive pattern supplies the required anchor.
-            (
-                "positive anchor when not is present without any",
-                "rule:\n  pattern: await $C\n  not:\n    pattern: bar\n",
-                single("await"),
-            ),
-            (
-                "any with a single anchor uses single",
-                "rule:\n  any:\n    - pattern: foo($X)\n",
-                single("foo"),
-            ),
-            (
-                "any with multiple anchors uses union",
-                "rule:\n  any:\n    - pattern: foo($X)\n    - pattern: bar($X)\n",
-                Prefilter::Union(vec!["bar".to_owned(), "foo".to_owned()]),
-            ),
-            (
-                "not does not hide the required any anchor",
-                "rule:\n  not:\n    pattern: bar\n  any:\n    - pattern: foo($X)\n",
-                single("foo"),
-            ),
-            // Patterns with only metavars produce no safe literal anchor.
-            (
-                "any without extractable anchors is none",
-                "rule:\n  any:\n    - pattern: $X\n    - pattern: $Y\n",
-                Prefilter::None,
-            ),
-        ];
-        for (case, rule, expected) in cases {
-            let query = StructuralQuery::new(None, Some(rule)).expect(case);
-            assert_eq!(query.prefilter(), expected, "{case}");
-        }
-    }
-
-    #[test]
-    fn literal_anchor_never_uses_operator_runs_whose_spacing_the_ast_ignores() {
-        // `$A&&!$B` must still match `a && !b`; operator text is not a
-        // necessary file literal, so only identifier-like tokens anchor.
-        for pattern in ["$A && $A()", "$A&&!$B", "$A=-1", "$A>>$B", "$A::$B"] {
-            assert_eq!(
-                StructuralQuery::new(Some(pattern), None)
-                    .expect("valid query")
-                    .prefilter(),
-                Prefilter::None,
-                "{pattern}"
-            );
-        }
-        assert_eq!(
-            StructuralQuery::new(Some("$A&&!foo($B)"), None)
-                .expect("valid query")
-                .prefilter(),
-            Prefilter::Single("foo".to_owned())
-        );
-    }
-
-    #[test]
-    fn literal_anchor_skips_metavars_and_prefers_identifier_literals() {
-        assert_eq!(
-            StructuralQuery::new(Some("console.log($$$ARGS)"), None)
-                .expect("valid query")
-                .prefilter(),
-            Prefilter::Single("console".to_owned())
-        );
-        assert_eq!(
-            StructuralQuery::new(Some("foo($X)"), None)
-                .expect("valid query")
-                .prefilter(),
-            Prefilter::Single("foo".to_owned())
-        );
-    }
-}
+mod tests;

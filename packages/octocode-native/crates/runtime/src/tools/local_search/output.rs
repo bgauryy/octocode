@@ -1,6 +1,6 @@
 //! What the shared response stages ask about localSearch output.
 
-use crate::response::output::{PathAnchor, TextShape, ToolOutput};
+use crate::response::output::{PathAnchor, ToolOutput};
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
@@ -22,9 +22,6 @@ impl ToolOutput for Output {
     }
     fn reads_worktree(&self) -> bool {
         true
-    }
-    fn text_shape(&self) -> TextShape {
-        TextShape::SearchHits
     }
 }
 

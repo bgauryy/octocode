@@ -1,6 +1,7 @@
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { Component } from '@earendil-works/pi-tui';
-import { clip, timingOf, resultBlock, resultText, spillPath, toolHeader, type RenderContext } from '../shared/render.js';
+import { clip, resultBlock, resultText, spillPath, toolHeader } from '../shared/render.js';
+import { timingOf, type RenderContext } from '../shared/tool-timing.js';
 import { redactSecrets } from '../shared/sanitize.js';
 import { clipText } from '../shared/util.js';
 import { snapshotFileOf } from './snapshot.js';

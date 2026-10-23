@@ -79,10 +79,14 @@ pub(crate) fn require_node() -> bool {
 pub(crate) fn published(tool: ToolId, query: &Value, row: &Value) -> Value {
     use crate::response::continuations::{Scope, Sources, finalize};
     let status = row["status"].as_str();
-    let shaped = crate::response::rows::result_row(tool, 0, query, row.clone(), status);
+    let mut shaped = crate::response::rows::result_row(tool, 0, query, row.clone(), status);
+    crate::response::rows::apply_hint_policy(&mut shaped, tool, query);
+    crate::response::extras::prune_row(&mut shaped, tool, query);
+    crate::response::rows::minimize_row(&mut shaped, tool, query);
     let mut public = serde_json::json!({ "results": [shaped] });
     finalize(&mut public, tool, &Sources::Rows(&[]), &Scope::everything())
         .expect("valid continuations");
+    crate::response::notices::place(&mut public, tool.output().rows_key());
     crate::response::channels::publish_hints(&mut public, tool);
     public
 }
@@ -203,4 +207,46 @@ mod production_text_tests {
         let whole = "#![cfg(test)]\nfn a() {}\n";
         assert_eq!(production_text(whole).trim(), "");
     }
+}
+
+/// The `skippedPaths` entries of `cause` in a tool result `out`.
+fn skipped_of<'a>(out: &'a Value, cause: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
+    out["skippedPaths"]["entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(move |entry| entry["cause"] == cause)
+}
+
+/// How many paths `out`'s `skippedPaths` skipped by `cause`: each entry's
+/// `count`, else one.
+pub(crate) fn skipped_count(out: &Value, cause: &str) -> u64 {
+    skipped_of(out, cause)
+        .map(|entry| entry["count"].as_u64().unwrap_or(1))
+        .sum()
+}
+
+/// The final names of `out`'s `skippedPaths` entries of `cause`, in order.
+pub(crate) fn skipped_names(out: &Value, cause: &str) -> Vec<String> {
+    skipped_of(out, cause)
+        .filter_map(|entry| {
+            entry["path"]
+                .as_str()?
+                .rsplit('/')
+                .next()
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+/// `out`'s `skippedPaths` entries of `cause` as (reason, count).
+pub(crate) fn skipped_reasons(out: &Value, cause: &str) -> Vec<(String, u64)> {
+    skipped_of(out, cause)
+        .map(|entry| {
+            (
+                entry["reason"].as_str().unwrap_or_default().to_owned(),
+                entry["count"].as_u64().unwrap_or(1),
+            )
+        })
+        .collect()
 }

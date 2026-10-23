@@ -4,7 +4,7 @@
 //! changes its directory, and an existing file that gains a match changes
 //! its own stamp. With ignore rules on, each walked directory's ignore files,
 //! the rules outside the walk and the repository markers are watched too.
-use crate::policy::discovery::SearchWalk;
+use crate::policy::discovery::WalkAdmission;
 use crate::policy::path::PathPolicy;
 use octocode_engine::search::text_search::TextSearchPathFilter;
 use std::{
@@ -80,10 +80,10 @@ fn path_weight(path: &Path) -> usize {
     std::mem::size_of::<PathBuf>() + path.as_os_str().len()
 }
 
-/// The walk's path filter: [`SearchWalk`]'s verdicts, recording each
+/// The walk's path filter: [`WalkAdmission`]'s verdicts, recording each
 /// admitted entry.
 pub(super) struct Recorder {
-    walk: Arc<SearchWalk>,
+    walk: Arc<WalkAdmission<'static>>,
     policy: PathPolicy,
     root: PathBuf,
     ignore_rules: bool,
@@ -124,7 +124,7 @@ impl Recorder {
     /// A recorder of `walk` over `root`; `ignore_rules` when the walk
     /// applies ignore files. It keeps at most `max_weight` bytes of entries.
     pub(super) fn new(
-        walk: Arc<SearchWalk>,
+        walk: Arc<WalkAdmission<'static>>,
         policy: PathPolicy,
         root: PathBuf,
         ignore_rules: bool,
@@ -194,9 +194,9 @@ impl Recorder {
     }
 }
 
-impl TextSearchPathFilter for Recorder {
-    fn allows(&self, path: &Path, is_dir: bool) -> bool {
-        let allowed = self.walk.allows(path, is_dir);
+impl Recorder {
+    /// Record `path` when the walk admitted it.
+    fn admitted(&self, path: &Path, is_dir: bool, allowed: bool) -> bool {
         if allowed {
             let mut seen = self.seen.lock().unwrap_or_else(|error| error.into_inner());
             seen.record(path.to_path_buf(), self.max_weight);
@@ -205,6 +205,17 @@ impl TextSearchPathFilter for Recorder {
             }
         }
         allowed
+    }
+}
+
+impl TextSearchPathFilter for Recorder {
+    fn allows(&self, path: &Path, is_dir: bool) -> bool {
+        self.admitted(path, is_dir, self.walk.allows(path, is_dir))
+    }
+
+    fn allows_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
+        let is_dir = file_type.is_some_and(|kind| kind.is_dir());
+        self.admitted(path, is_dir, self.walk.allows_entry(path, file_type))
     }
 
     fn skipped_hidden(&self, path: &Path, is_dir: bool) {
@@ -227,7 +238,7 @@ mod tests {
     /// A recorder of a walk of `root` whose entries may weigh `max_weight`.
     fn recorder(root: &Path, max_weight: usize) -> Recorder {
         let policy = crate::tools::test_support::workspace_policy(root);
-        let walk = Arc::new(SearchWalk::new(
+        let walk = Arc::new(WalkAdmission::search(
             policy.clone(),
             root.to_path_buf(),
             true,

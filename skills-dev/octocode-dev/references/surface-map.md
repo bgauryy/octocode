@@ -24,7 +24,7 @@ Paths beginning `crates/` are relative to `packages/octocode-native/`; other pat
 | Output shaping | `crates/runtime/src/response/{pager,rows,stage,render,continuations,channels,pages,result}.rs` | Rows, evidence, `next.*` pages vs `hints` leads, compact CLI |
 | Security | `crates/runtime/src/security/{content,walk,scan}.rs`, `crates/runtime/src/policy/` | Redaction, path sandbox |
 | MCP registration | `packages/octocode-mcp/src/native/index.ts` (instructions), `packages/octocode-mcp/src/public.ts` | Thin forward, no logic |
-| CLI | `packages/octocode/src/cli/{native-delegate,parser,options}.ts`; native CLI `crates/cli/src/cli/`, schema in `crates/cli/src/cli/schema.rs` | Delegation, rendering, flags |
+| CLI | `packages/octocode/src/cli/{index,native-delegate}.ts` delegates unchanged arguments; native CLI `crates/cli/src/cli/` owns parsing and rendering, with schema in `crates/cli/src/cli/schema.rs` | Delegation, rendering, flags |
 | Config | `packages/octocode-config/config-contract.json` → `packages/octocode-config/scripts/generate-config-contract.ts` → `packages/octocode-config/src/config/contract.generated.ts`, `<repo>/docs/generated/CONFIG_SETTINGS.md`; native struct from `crates/runtime/build.rs`; runtime `crates/runtime/src/config/` | One declared knob, one resolver |
 | Docs | `<repo>/docs/OCTOCODE_TOOLS.md`, `<repo>/docs/TOOL_DATA_CONTRACT.md`, `skills-dev/octocode-dev/docs/TOOL_QUALITY.md`, `<repo>/docs/CONFIGURATION.md`, `<repo>/docs/OCTOCODE_MCP.md`, `<repo>/docs/OCTOCODE_CLI.md` | Match live behavior |
 

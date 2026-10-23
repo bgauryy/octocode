@@ -81,24 +81,9 @@ pub(crate) mod artifact_search_query {
     }
 
     fn split_coordinate(query: &ArtifactSearchQuery) -> (&str, Option<&str>) {
-        let Some(name) = package_name(query) else {
-            return ("", None);
-        };
-        match artifact_type(query) {
-            ArtifactType::Npm => crate::providers::artifact::npm::split_npm_coordinate(name),
-            ArtifactType::Pypi => match name.split_once("==") {
-                Some((bare, version)) if !bare.trim().is_empty() && !version.trim().is_empty() => {
-                    (bare.trim(), Some(version.trim()))
-                }
-                _ => (name, None),
-            },
-            ArtifactType::Crates => match name.split_once('@') {
-                Some((bare, version)) if !bare.is_empty() && !version.is_empty() => {
-                    (bare, Some(version))
-                }
-                _ => (name, None),
-            },
-            _ => (name, None),
+        match package_name(query) {
+            Some(name) => crate::contracts::split_coordinate(artifact_type(query), name),
+            None => ("", None),
         }
     }
 

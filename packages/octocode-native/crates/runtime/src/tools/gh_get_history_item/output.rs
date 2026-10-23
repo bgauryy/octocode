@@ -1,5 +1,5 @@
 //! What the shared response stages ask ghGetHistoryItem about its output.
-use crate::response::output::{TextShape, ToolOutput};
+use crate::response::output::ToolOutput;
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
@@ -16,8 +16,5 @@ impl ToolOutput for Output {
     }
     fn evidence_kind(&self, _query: &Value, _data: &Value) -> &'static str {
         "provider"
-    }
-    fn text_shape(&self) -> TextShape {
-        TextShape::Diff
     }
 }

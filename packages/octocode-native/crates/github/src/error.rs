@@ -50,6 +50,24 @@ impl ProviderErrorKind {
         Self::HttpStatus,
     ];
 
+    /// The kind of a non-2xx HTTP answer: the one status table GitHub and
+    /// the package registries share. A provider's own reading of a status
+    /// (GitHub's typed missing ref, a registry 404 read as an empty answer)
+    /// stays at its call site.
+    #[must_use]
+    pub const fn from_status(status: u16) -> Self {
+        match status {
+            401 => Self::Authentication,
+            403 => Self::Permission,
+            404 | 410 => Self::NotFound,
+            400 | 422 => Self::Validation,
+            429 => Self::RateLimited,
+            451 => Self::Unavailable,
+            500..=599 => Self::Server,
+            _ => Self::HttpStatus,
+        }
+    }
+
     /// The declared `errorCode` this failure reports.
     #[must_use]
     pub const fn code(self) -> ErrorCode {
@@ -242,5 +260,28 @@ mod tests {
             );
         }
         assert!(serde_json::from_value::<ProviderErrorKind>("pathNotFound".into()).is_err());
+    }
+
+    #[test]
+    fn statuses_map_to_one_kind_each() {
+        use ProviderErrorKind as K;
+        for (status, kind) in [
+            (401, K::Authentication),
+            (403, K::Permission),
+            (404, K::NotFound),
+            (410, K::NotFound),
+            (400, K::Validation),
+            (422, K::Validation),
+            (429, K::RateLimited),
+            (451, K::Unavailable),
+            (500, K::Server),
+            (503, K::Server),
+            (599, K::Server),
+            (405, K::HttpStatus),
+            (408, K::HttpStatus),
+            (304, K::HttpStatus),
+        ] {
+            assert_eq!(K::from_status(status), kind, "HTTP {status}");
+        }
     }
 }

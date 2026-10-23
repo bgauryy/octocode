@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { archiveFolder, ownArchives, RECORD_FILE, setSessionLineage, writeSegment, writeSessionRecord, type Segment, type SessionRecord } from '../src/shared/archive.js';
+import { archiveFolder, ownArchives, RECORD_FILE, setSessionLineage, writeSegment, type Segment } from '../src/shared/archive.js';
+import { writeSessionRecord, type SessionRecord } from '../src/shared/session-record.js';
 import { PARENT_SESSION_ENV } from '../src/shared/env.js';
 import { historyFiles, historyScope, listHistory, PAGE_CHARS, READ_LINES, readableHistory, readableSessionFolder, readHistory, searchHistory } from '../src/shared/history.js';
 import { sessionFolder, setCurrentSession } from '../src/shared/home.js';

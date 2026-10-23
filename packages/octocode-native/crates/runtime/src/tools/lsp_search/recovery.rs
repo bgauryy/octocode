@@ -18,6 +18,9 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 use std::time::Duration;
 
+mod aliases;
+pub(super) use aliases::*;
+
 const DEFINITION_ALIAS_SETTLE_MS: u64 = 50;
 /// Definition hops followed past the first answer.
 const MAX_DEFINITION_HOPS: usize = 4;
@@ -37,15 +40,27 @@ pub(super) async fn get_locations(
     line: u32,
     character: u32,
 ) -> Result<Vec<LspCodeSnippet>, LspFailure> {
-    settled_locations(
+    get_counted_locations(
         client,
         snippet_policy,
         cancel,
         request,
         (path, line, character),
-        None,
     )
     .await
+    .map(|(found, _)| found)
+}
+
+/// [`get_locations`], with how many locations the policy withheld (outside
+/// the allowed read roots): an answer of only those is not an absence.
+pub(super) async fn get_counted_locations(
+    client: &NativeLspClient,
+    snippet_policy: &SnippetReadPolicy,
+    cancel: &dyn CancellationCheck,
+    request: LocationRequest,
+    position: (&str, u32, u32),
+) -> Result<(Vec<LspCodeSnippet>, usize), LspFailure> {
+    settled_locations(client, snippet_policy, cancel, request, position, None).await
 }
 
 /// [`get_locations`] asked at least `settle` after the call (see the
@@ -57,7 +72,7 @@ async fn settled_locations(
     request: LocationRequest,
     (path, line, character): (&str, u32, u32),
     settle: Option<Duration>,
-) -> Result<Vec<LspCodeSnippet>, LspFailure> {
+) -> Result<(Vec<LspCodeSnippet>, usize), LspFailure> {
     let mut snippets = cancellable(
         cancel,
         client.get_locations(
@@ -70,8 +85,10 @@ async fn settled_locations(
         ),
     )
     .await??;
+    let answered = snippets.len();
     snippets.retain(|snippet| snippet.content != SNIPPET_CONTENT_WITHHELD);
-    Ok(one_spelling(snippets).0)
+    let withheld = answered - snippets.len();
+    Ok((one_spelling(snippets).0, withheld))
 }
 
 /// [`get_locations`], also saying whether the server spelled any location
@@ -153,7 +170,8 @@ pub(super) fn should_retry_definition_hop(
 
 /// Follow definition hops (visited set, hop cap, stop when no hop advances).
 /// Only authorized, bounded hop targets are read and synchronized; an
-/// unauthorized target is not followed.
+/// unauthorized target is not followed. Also counts the first answer's
+/// locations the policy withheld.
 pub(super) async fn resolve_definition_chain(
     client: &NativeLspClient,
     sources: &mut SourceCache<'_>,
@@ -162,7 +180,7 @@ pub(super) async fn resolve_definition_chain(
     path: &str,
     line: u32,
     character: u32,
-) -> Result<(Vec<LspCodeSnippet>, Vec<String>), LspFailure> {
+) -> Result<(Vec<LspCodeSnippet>, Vec<String>, usize), LspFailure> {
     let definition = |target: String, line: u32, character: u32| async move {
         get_locations(
             client,
@@ -175,7 +193,15 @@ pub(super) async fn resolve_definition_chain(
         )
         .await
     };
-    let mut current = definition(path.to_owned(), line, character).await?;
+    // The first answer's withheld count; a hop's only keeps its origin.
+    let (mut current, withheld) = get_counted_locations(
+        client,
+        snippet_policy,
+        cancel,
+        LocationRequest::Definition,
+        (path, line, character),
+    )
+    .await?;
     let mut visited = HashSet::new();
     let mut warnings = Vec::new();
     for depth in 0..MAX_DEFINITION_HOPS {
@@ -227,7 +253,8 @@ pub(super) async fn resolve_definition_chain(
                         (&target, hop_line, hop_character),
                         Some(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)),
                     )
-                    .await;
+                    .await
+                    .map(|(found, _)| found);
                 }
             }
             let nested = match nested {
@@ -257,7 +284,7 @@ pub(super) async fn resolve_definition_chain(
             break;
         }
     }
-    Ok((current, warnings))
+    Ok((current, warnings, withheld))
 }
 
 fn hop_failure_warning(snippet: &LspCodeSnippet, depth: usize, failure: &LspFailure) -> String {
@@ -270,247 +297,4 @@ fn hop_failure_warning(snippet: &LspCodeSnippet, depth: usize, failure: &LspFail
         failure.code,
         failure.message,
     )
-}
-
-/// The references request [`recover_aliases`] extends: the anchor's
-/// `symbol`, whether declarations count, and the references the server
-/// (`provider`) already reported.
-pub(super) struct AliasSearch<'a> {
-    pub(super) symbol: Option<&'a str>,
-    pub(super) include_declaration: bool,
-    pub(super) anchor: Position<'a>,
-    pub(super) provider: &'a [LspCodeSnippet],
-}
-
-/// References through aliasing imports (`import { x as y }`) the server did
-/// not report: for each file that already references the symbol, find
-/// imports that rename it, confirm by definition identity that the alias is
-/// the same symbol, and add the alias's references. Bounded by
-/// [`MAX_ALIAS_FILES_READ`] files read and [`MAX_ALIAS_IMPORTS`] verified
-/// imports per request; a cap that leaves files or imports unchecked sets
-/// [`AliasRecovery::capped`].
-pub(super) async fn recover_aliases(
-    client: &NativeLspClient,
-    sources: &mut SourceCache<'_>,
-    snippet_policy: &SnippetReadPolicy,
-    cancel: &dyn CancellationCheck,
-    search: AliasSearch<'_>,
-) -> Result<AliasRecovery, LspFailure> {
-    let AliasSearch {
-        symbol,
-        include_declaration,
-        anchor: Position {
-            path,
-            line,
-            character,
-        },
-        provider,
-    } = search;
-    let Some(symbol) = symbol else {
-        return Ok(AliasRecovery::default());
-    };
-    let definition_ids = match get_locations(
-        client,
-        snippet_policy,
-        cancel,
-        LocationRequest::Definition,
-        path,
-        line,
-        character,
-    )
-    .await
-    {
-        Ok(definitions) => definitions
-            .iter()
-            .map(snippet_identity)
-            .collect::<HashSet<_>>(),
-        Err(failure) => {
-            // Without the anchor's identity no alias can be verified: every
-            // candidate file goes unchecked.
-            let mut failures = RequestFailures::default();
-            failures.record(failure)?;
-            return Ok(AliasRecovery {
-                failures,
-                ..AliasRecovery::default()
-            });
-        }
-    };
-    if definition_ids.is_empty() {
-        return Ok(AliasRecovery::default());
-    }
-    let provider_ids = provider
-        .iter()
-        .map(snippet_identity)
-        .collect::<HashSet<_>>();
-    // BTreeSet: deduplicated and deterministic.
-    let files = provider
-        .iter()
-        .map(|snippet| uri_to_path(&snippet.uri))
-        .collect::<BTreeSet<_>>();
-    let mut recovered = Vec::new();
-    let mut failures = RequestFailures::default();
-    let mut capped = false;
-    let mut files_read = 0usize;
-    let mut imports_checked = 0usize;
-    for file in files {
-        if files_read >= MAX_ALIAS_FILES_READ || imports_checked >= MAX_ALIAS_IMPORTS {
-            capped = true;
-            break;
-        }
-        cancel.check().map_err(LspFailure::cancelled)?;
-        let reads_before = sources.reads();
-        let source = sources.get(&file).await;
-        files_read += sources.reads() - reads_before;
-        let Some(source) = source else {
-            continue;
-        };
-        for (local_line, local_character) in aliasing_imports(&source.content, &file, symbol) {
-            if imports_checked >= MAX_ALIAS_IMPORTS {
-                capped = true;
-                break;
-            }
-            imports_checked += 1;
-            let targets = match get_locations(
-                client,
-                snippet_policy,
-                cancel,
-                LocationRequest::Definition,
-                &file,
-                local_line,
-                local_character,
-            )
-            .await
-            {
-                Ok(targets) => targets,
-                Err(failure) => {
-                    failures.record(failure)?;
-                    continue;
-                }
-            };
-            if targets.iter().map(snippet_identity).collect::<HashSet<_>>() != definition_ids {
-                continue;
-            }
-            match get_locations(
-                client,
-                snippet_policy,
-                cancel,
-                LocationRequest::References {
-                    include_declaration,
-                },
-                &file,
-                local_line,
-                local_character,
-            )
-            .await
-            {
-                Ok(extra) => recovered.extend(
-                    extra
-                        .into_iter()
-                        .filter(|snippet| !provider_ids.contains(&snippet_identity(snippet))),
-                ),
-                Err(failure) => failures.record(failure)?,
-            }
-        }
-    }
-    Ok(AliasRecovery {
-        snippets: recovered,
-        capped,
-        failures,
-    })
-}
-
-/// What alias recovery found, whether a cap left candidates unchecked, and
-/// the server requests that failed (each one an alias left unchecked).
-#[derive(Debug, Default)]
-pub(super) struct AliasRecovery {
-    pub(super) snippets: Vec<LspCodeSnippet>,
-    pub(super) capped: bool,
-    pub(super) failures: RequestFailures,
-}
-
-/// Partial reason of a references row whose alias scan stopped at a cap.
-pub(super) const ALIAS_SCAN_CAPPED_REASON: &str = "aliasScanCapped";
-
-/// Disclose a capped alias scan: `coverage.aliasScan:"capped"`, a partial
-/// reason with a warning, and the lexical `findText` lead that reaches the
-/// aliases left unchecked.
-pub(super) fn disclose_alias_cap(
-    row: &mut Value,
-    query: &super::LspSearchQuery,
-    scope: &super::scope::Scope,
-) {
-    if let Some(coverage) = row.pointer_mut("/coverage") {
-        coverage["aliasScan"] = serde_json::json!("capped");
-    }
-    super::failure::flag_partial(
-        row,
-        query,
-        ALIAS_SCAN_CAPPED_REASON,
-        Some(&format!(
-            "Alias recovery checked at most {MAX_ALIAS_FILES_READ} files and {MAX_ALIAS_IMPORTS} renaming imports; references through the unchecked aliases may be missing. This cap is terminal: no page or retry re-checks them. Confirm with {} (the text-search lead: shown on the last page, or on any page with extras [\"hints\"]).",
-            super::failure::TEXT_CHECK
-        )),
-        scope,
-    );
-}
-
-/// Whether `source` spells a rename of `symbol`: the word followed by `as`
-/// (`import { f as g }`, `use a::f as g`) or by one `:` (`const { f: g }`).
-/// Files without one cannot hold an aliasing import, so they are not parsed.
-pub(super) fn may_rename(source: &str, symbol: &str) -> bool {
-    if symbol.is_empty() {
-        return false;
-    }
-    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-    let mut from = 0;
-    while let Some(offset) = source[from..].find(symbol) {
-        let start = from + offset;
-        let end = start + symbol.len();
-        from = end;
-        if source[..start].chars().next_back().is_some_and(is_word)
-            || source[end..].chars().next().is_some_and(is_word)
-        {
-            continue;
-        }
-        let rest = source[end..].trim_start();
-        let renamed = rest
-            .strip_prefix("as")
-            .is_some_and(|after| after.starts_with(char::is_whitespace))
-            || (rest.starts_with(':') && !rest.starts_with("::"));
-        if renamed {
-            return true;
-        }
-    }
-    false
-}
-
-/// Zero-based positions of the local names of imports in `source` that
-/// rename `symbol` (`imported == symbol`, `local != imported`).
-fn aliasing_imports(source: &str, file: &str, symbol: &str) -> Vec<(u32, u32)> {
-    if !may_rename(source, symbol) {
-        return Vec::new();
-    }
-    let Some(facts) = octocode_engine::signatures::extract_graph_facts(source, file) else {
-        return Vec::new();
-    };
-    let Ok(parsed) = serde_json::from_str::<Value>(&facts) else {
-        return Vec::new();
-    };
-    parsed
-        .get("imports")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|import| {
-            let imported = import.get("importedName").and_then(Value::as_str)?;
-            let local = import.get("localName").and_then(Value::as_str)?;
-            if imported != symbol || local == imported {
-                return None;
-            }
-            let start = import.get("localRange")?.get("start")?;
-            let line = u32::try_from(start.get("line")?.as_u64()?).ok()?;
-            let character = u32::try_from(start.get("character")?.as_u64()?).ok()?;
-            Some((line, character))
-        })
-        .collect()
 }

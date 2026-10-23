@@ -6,12 +6,15 @@ import { say, wordCompletions, type Subcommands } from '../shared/commands.js';
 import { SUBAGENT_ENV, envFlag } from '../shared/env.js';
 import { PRIVATE_FILE_MODE } from '../shared/home.js';
 import { formatDuration, shortPath } from '../shared/format.js';
-import { plural, statusColor, timedTool, toolHeader } from '../shared/render.js';
+import { plural, statusColor, toolHeader } from '../shared/render.js';
+import { timedTool } from '../shared/tool-timing.js';
 import { STATUS } from '../shared/status.js';
 import { moveFile } from '../shared/sweep.js';
 import { renderBashResult, renderJobMessage, RERUN_HINT, type BashDetails } from './render.js';
 import { contentText, errorMessage, firstLine, isRecord, wholeSeconds } from '../shared/util.js';
-import { BashJobs, JOB_TYPE, jobReport, reapOrphanJobs, shellEnv, shellSettings, type BashJob, type JobExit, type OrphanJob, type ShellSettings } from './bash-jobs.js';
+import { BashJobs, JOB_TYPE, shellEnv, shellSettings, type BashJob, type JobExit, type ShellSettings } from './bash-jobs.js';
+import { reapOrphanJobs, type OrphanJob } from './bash-orphans.js';
+import { jobReport } from './bash-report.js';
 import { foregroundOperations, strayNote } from './bash-run.js';
 
 /**

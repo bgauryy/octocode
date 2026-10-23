@@ -15,6 +15,8 @@ use octocode_engine::lsp::types::LspCodeSnippet;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
+mod edges;
+
 /// One window of implementation candidates, bound to the whole ordered set.
 pub(super) struct CandidateWindow {
     pub(super) items: Vec<LspCodeSnippet>,
@@ -49,10 +51,13 @@ impl CandidateWindow {
                 fields.remove(*field);
             }
         }
-        let identity = octocode_engine::digest::canonicalize_dropping_nulls(json!({
-            "query": scope,
-            "candidates": candidates,
-        }));
+        let identity = octocode_engine::digest::canonical_json(
+            json!({
+                "query": scope,
+                "candidates": candidates,
+            }),
+            octocode_engine::digest::Nulls::Drop,
+        );
         let digest = format!("lsp-candidates:{}", crate::digest::json_sha256(&identity));
         let page = crate::num::usize_of(lsp_search_query::candidate_page(query));
         let start = (page - 1).saturating_mul(MAX_HIERARCHY_NODES);
@@ -201,202 +206,6 @@ impl<'a, 'p> Fallback<'a, 'p> {
         }
     }
 
-    async fn definitions(
-        &self,
-        path: &str,
-        line: u32,
-        character: u32,
-    ) -> Result<Vec<Value>, LspFailure> {
-        let mut found = get_locations(
-            self.client,
-            self.snippet_policy,
-            self.cancel,
-            LocationRequest::Definition,
-            path,
-            line,
-            character,
-        )
-        .await?;
-        let mut nodes = Vec::new();
-        let mut unresolved = false;
-        for snippet in &found {
-            let target = uri_to_path(&snippet.uri);
-            match self
-                .node(
-                    &target,
-                    snippet.range.start.line,
-                    snippet.range.start.character,
-                )
-                .await
-            {
-                Ok(node) => nodes.push(node),
-                Err(failure) if failure.is_cancelled() => return Err(failure),
-                Err(_) => unresolved = true,
-            }
-        }
-        if !unresolved && !nodes.is_empty() {
-            return Ok(nodes);
-        }
-        if unresolved {
-            let (resolved, warnings) = {
-                let mut sources = self.sources.lock().await;
-                resolve_definition_chain(
-                    self.client,
-                    &mut sources,
-                    self.snippet_policy,
-                    self.cancel,
-                    path,
-                    line,
-                    character,
-                )
-                .await?
-            };
-            found = resolved;
-            for warning in warnings {
-                self.fail(warning).await;
-            }
-        }
-        if found.is_empty() {
-            self.fail(format!(
-                "No definition establishes the heritage relation at {path}:{}:{}",
-                line + 1,
-                character + 1
-            ))
-            .await;
-        }
-        nodes.clear();
-        for found in found {
-            self.cancel.check().map_err(LspFailure::cancelled)?;
-            let target = uri_to_path(&found.uri);
-            match self
-                .node(&target, found.range.start.line, found.range.start.character)
-                .await
-            {
-                Ok(node) => nodes.push(node),
-                Err(failure) if failure.is_cancelled() => return Err(failure),
-                Err(failure) => self.fail_from(failure).await,
-            }
-        }
-        Ok(nodes)
-    }
-
-    async fn bases(&self, node: &Value) -> Result<Vec<Value>, LspFailure> {
-        let key = self.keys.lock().await.key(node);
-        if let Some(bases) = self.bases.lock().await.get(&key).cloned() {
-            return Ok(bases);
-        }
-        let path = node_path(node)?;
-        let source = self.source(&path).await?;
-        let document = self.document(&path).await?;
-        let bases = heritage::direct_bases(&document, &source.content, &path, node)
-            .map_err(LspFailure::invalid_query)?;
-        let mut resolved = Vec::new();
-        for base in bases {
-            match self.definitions(&path, base.line, base.character).await {
-                Ok(nodes) => resolved.extend(nodes),
-                Err(failure) if failure.is_cancelled() => return Err(failure),
-                Err(failure) => self.fail_from(failure).await,
-            }
-        }
-        self.bases.lock().await.insert(key, resolved.clone());
-        Ok(resolved)
-    }
-
-    async fn subtypes(&self, parent: &Value) -> Result<Vec<Value>, LspFailure> {
-        // Nothing implements an impl block; asking the server at its self
-        // type would list that type's own impls.
-        if parent.get("kind").and_then(Value::as_str) == Some("impl") {
-            return Ok(Vec::new());
-        }
-        let path = node_path(parent)?;
-        let (line, character) = node_position(parent)?;
-        let parent_key = self.keys.lock().await.key(parent);
-        let seed = self.initial.lock().await.take();
-        let (candidates, anchor) = match seed {
-            Some((root, candidates)) if self.keys.lock().await.key(&root) == parent_key => {
-                (candidates, true)
-            }
-            _ => (
-                get_locations(
-                    self.client,
-                    self.snippet_policy,
-                    self.cancel,
-                    LocationRequest::Implementation,
-                    &path,
-                    line,
-                    character,
-                )
-                .await?,
-                false,
-            ),
-        };
-        // The anchor already owns a checked CandidateWindow. Deeper types
-        // still have a terminal per-node candidate limit.
-        if !anchor && candidates.len() > MAX_HIERARCHY_NODES {
-            self.candidate_limit
-                .store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-        let mut direct = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for candidate in candidates.into_iter().take(MAX_HIERARCHY_NODES) {
-            self.cancel.check().map_err(LspFailure::cancelled)?;
-            let path = uri_to_path(&candidate.uri);
-            let (line, character) = (candidate.range.start.line, candidate.range.start.character);
-            // A trait implementation is the subtype itself, not the type its
-            // self-type position resolves to (which declares no heritage).
-            let resolved = match self.impl_node(&path, line, character).await {
-                Ok(Some(node)) => Ok(vec![node]),
-                Err(failure) if failure.is_cancelled() => return Err(failure),
-                _ => self.resolved_nodes(&path, line, character).await,
-            };
-            let resolved = match resolved {
-                Ok(resolved) => resolved,
-                Err(failure) if failure.is_cancelled() => return Err(failure),
-                Err(failure) => {
-                    self.fail_from(failure).await;
-                    continue;
-                }
-            };
-            let mut distinct = {
-                let mut keys = self.keys.lock().await;
-                let mut identities = std::collections::HashSet::new();
-                resolved
-                    .into_iter()
-                    .filter(|node| identities.insert(keys.key(node)))
-                    .collect::<Vec<_>>()
-            };
-            if distinct.len() > 1 {
-                self.fail(format!(
-                    "Implementation candidate at {path}:{}:{} resolves to {} distinct type declarations; its immediate subtype identity is ambiguous",
-                    line + 1,
-                    character + 1,
-                    distinct.len()
-                )).await;
-                continue;
-            }
-            let Some(candidate) = distinct.pop() else {
-                continue;
-            };
-            let identity = self.keys.lock().await.key(&candidate);
-            if identity == parent_key || !seen.insert(identity) {
-                continue;
-            }
-            match self.bases(&candidate).await {
-                Ok(bases) => {
-                    let mut keys = self.keys.lock().await;
-                    if bases.iter().any(|base| keys.key(base) == parent_key) {
-                        direct.push(candidate);
-                    } else if bases.is_empty() {
-                        self.fail(format!("No resolved immediate heritage establishes the implementation candidate {}", candidate["name"])).await;
-                    }
-                }
-                Err(failure) if failure.is_cancelled() => return Err(failure),
-                Err(failure) => self.fail_from(failure).await,
-            }
-        }
-        Ok(direct)
-    }
-
     pub(super) async fn run(
         &self,
         anchor: Position<'_>,
@@ -459,110 +268,4 @@ fn node_position(node: &Value) -> Result<(u32, u32), LspFailure> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::{LspSearchQuery, locations};
-    use super::*;
-
-    fn candidates() -> Vec<LspCodeSnippet> {
-        (0..MAX_HIERARCHY_NODES + 3)
-            .map(|line| {
-                serde_json::from_value(json!({
-            "uri": "file:///workspace/types.ts",
-            "range": {"start":{"line":line,"character":13},"end":{"line":line,"character":21}},
-            "content": format!("export class Child{line} extends Base {{}}"),
-        })).expect("snippet")
-            })
-            .collect()
-    }
-
-    fn query() -> LspSearchQuery {
-        serde_json::from_value(json!({"operation":"subtypes","path":"/workspace/types.ts","line":1,"symbolName":"Base","pageSize":1})).expect("query")
-    }
-
-    #[test]
-    fn candidate_windows_reject_mutation_and_preserve_stable_order() {
-        let query = query();
-        let first = CandidateWindow::cut(&query, candidates()).expect("first window");
-        assert_eq!(first.items.len(), MAX_HIERARCHY_NODES);
-        assert!(first.has_more);
-        let mut next = lsp_search_query::to_row(&query);
-        next["candidatePage"] = json!(2);
-        next["snapshot"] = json!(first.digest);
-        let next: LspSearchQuery = serde_json::from_value(next).expect("next window");
-        let mut reordered = candidates();
-        reordered.reverse();
-        // Duplicate provider locations must not shift the candidate boundary.
-        reordered.push(reordered[0].clone());
-        let second = CandidateWindow::cut(&next, reordered).expect("same candidates");
-        assert_eq!(second.items.len(), 3);
-        assert_eq!(
-            second.items[0].range.start.line as usize,
-            MAX_HIERARCHY_NODES
-        );
-        assert!(!second.has_more);
-        let mut removed = candidates();
-        removed.remove(0);
-        assert!(CandidateWindow::cut(&next, removed).is_none());
-        let mut changed = candidates();
-        changed[0].content.push_str(" // changed");
-        assert!(CandidateWindow::cut(&next, changed).is_none());
-        let mut missing = lsp_search_query::to_row(&next);
-        missing
-            .as_object_mut()
-            .expect("query object")
-            .remove("snapshot");
-        assert!(
-            CandidateWindow::cut(
-                &serde_json::from_value(missing).expect("query"),
-                candidates()
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn candidate_mutation_stales_later_result_pages_even_when_rows_disappear() {
-        let query = query();
-        let window = CandidateWindow::cut(&query, candidates()).expect("window");
-        let items = json!([{"name":"first"},{"name":"second"}]);
-        let first = super::super::failure::with_next(
-            &query,
-            locations::salted_items_payload(
-                &query,
-                "subtypes",
-                items.clone(),
-                Some(&window.digest),
-                16000,
-                super::super::render::plain_sizes,
-            ),
-        );
-        let next: LspSearchQuery =
-            serde_json::from_value(first["next"]["nextPage"]["query"]["queries"][0].clone())
-                .expect("next result page");
-        let stable = locations::salted_items_payload(
-            &next,
-            "subtypes",
-            items.clone(),
-            Some(&window.digest),
-            16000,
-            super::super::render::plain_sizes,
-        );
-        assert!(stable.get("errorCode").is_none(), "{stable}");
-        let mut changed = candidates();
-        changed.remove(0);
-        let changed =
-            CandidateWindow::cut(&next, changed).expect("digest checked by result pagination");
-        for rows in [items, json!([])] {
-            let stale = locations::salted_items_payload(
-                &next,
-                "subtypes",
-                rows,
-                Some(&changed.digest),
-                16000,
-                super::super::render::plain_sizes,
-            );
-            assert_eq!(stale["errorCode"], "staleSnapshot", "{stale}");
-            assert!(stale.pointer("/next/restart").is_some(), "{stale}");
-        }
-    }
-}
+mod tests;

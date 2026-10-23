@@ -19,8 +19,9 @@ VS Code command / activation
 
 ## Ownership
 
-- `extension.ts` owns activation, command registration, GitHub sign-in through the VS Code authentication API, status presentation, and disposal.
-- `configPaths.ts` owns supported-client discovery; `mcpConfig.ts` owns configuration updates and token placement.
+- `extension.ts` owns activation, command registration, sign-in and sign-out, status presentation, and disposal.
+- `githubAuth.ts` owns the GitHub session lookup through the VS Code authentication API and the manual-token fallback.
+- `configPaths.ts` owns supported-client discovery; `mcpConfig.ts` owns configuration updates and token placement; `mcpInstaller.ts` applies them to the editor and every supported client and reports the outcome.
 - `mcpProcess.ts` owns the child process and stdio lifecycle.
 - `octocode-mcp` and `@octocodeai/octocode-native` own all research behavior.
 

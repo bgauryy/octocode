@@ -3,7 +3,7 @@ import { execute, query, rowText, transaction, type Row } from './database.js';
 import type { StoreHost } from './store-types.js';
 import { now } from './timing.js';
 import { asObjects, jsonEqual, parseObject, type JsonObject } from './validation.js';
-import { compact, dumps } from './wire.js';
+import { compact, dumps } from './json-text.js';
 
 /** The other live peers of the repository, bounded, and how many there are. */
 interface PeerSnapshot {

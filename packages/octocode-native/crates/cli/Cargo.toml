@@ -33,7 +33,6 @@ serde = { workspace = true }
 # Skill installs stage a replacement in a temporary directory beside it.
 tempfile = { workspace = true }
 toml = { workspace = true }
-serde-saphyr = { workspace = true }
 futures-util = { workspace = true }
 tokio-util = { workspace = true }
 url = { workspace = true }

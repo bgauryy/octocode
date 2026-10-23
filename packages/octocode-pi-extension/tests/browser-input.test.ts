@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { BrowserSession } from '../src/browser/cdp.js';
+import type { BrowserSession } from '../src/browser/session-state.js';
 import { click, drag, fillFields, hover, refForText, settle, typeInto, waitForText } from '../src/browser/input.js';
 
 type Page = BrowserSession['page'];

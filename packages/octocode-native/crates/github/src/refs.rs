@@ -21,6 +21,10 @@ impl RefKind {
     }
 }
 
+/// Tag-ref listing pages [`GitHubTransport::repository_tag_names`] follows
+/// at most (GitHub answers the whole listing at once).
+const MAX_TAG_REF_PAGES: usize = 20;
+
 /// What a name resolves to, as far as GitHub's refs say.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RefMatch {
@@ -105,6 +109,58 @@ impl GitHubTransport {
                 .collect(),
             has_more: response.next.is_some(),
         })
+    }
+
+    /// Every tag name of a repository, from its git refs (one listing,
+    /// following any next link): the whole set a caller orders itself,
+    /// which GitHub's tag pages (reverse-lexicographic) cannot give. A
+    /// repository with no commits has none.
+    pub async fn repository_tag_names(
+        &self,
+        owner: &str,
+        repo: &str,
+        context: &RequestContext,
+    ) -> Result<Vec<String>, ProviderError> {
+        #[derive(Deserialize)]
+        struct TagRef {
+            #[serde(rename = "ref")]
+            name: String,
+        }
+        let mut url =
+            Some(
+                self.endpoint()
+                    .rest(&["repos", owner, repo, "git", "matching-refs", "tags"])?,
+            );
+        let mut names = Vec::new();
+        for _ in 0..MAX_TAG_REF_PAGES {
+            let Some(at) = url.take() else {
+                return Ok(names);
+            };
+            let response = match self.execute(RequestSpec::get(at), context).await {
+                Ok(response) => response,
+                // GitHub answers an empty repository's refs with 409.
+                Err(error) if error.status == Some(409) => return Ok(names),
+                Err(error) => return Err(repository_missing(error)),
+            };
+            let rows: Vec<TagRef> = serde_json::from_slice(&response.body).map_err(|_| {
+                ProviderError::new(
+                    ProviderErrorKind::Decode,
+                    "invalid GitHub tag refs response",
+                )
+            })?;
+            names.extend(
+                rows.into_iter()
+                    .filter_map(|row| row.name.strip_prefix("refs/tags/").map(str::to_owned)),
+            );
+            url = response.next;
+        }
+        match url {
+            None => Ok(names),
+            Some(_) => Err(ProviderError::new(
+                ProviderErrorKind::Validation,
+                format!("the tag refs run past {MAX_TAG_REF_PAGES} pages"),
+            )),
+        }
     }
 
     /// Whether `reference` names a branch, a tag, or neither (a commit),

@@ -166,8 +166,12 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
         .iter()
         .filter(|(_, _, expect)| matches!(expect, Expect::WithheldByFilename))
         .count();
-    let notice =
-        format!("{withheld} entries withheld by path policy: {withheld} credential files.");
+    // Counted at the walked scope as credential files, never as policy
+    // directories, and never by the withheld names.
+    let notice = json!({"cause":"withheld","count":withheld,"path":".","reason":"credential file"});
+    let disclosed = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+        row_data(outcome)["skippedPaths"]["entries"] == json!([notice])
+    };
 
     let searched = call(
         &runtime,
@@ -185,8 +189,7 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
             "{relative}: {text}"
         );
     }
-    assert!(text.contains(&notice), "{text}");
-    assert!(!text.contains("security-policy dirs"), "{text}");
+    assert!(disclosed(&searched), "{text}");
 
     let listed = call(
         &runtime,
@@ -204,8 +207,7 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
             "{relative}: {text}"
         );
     }
-    assert!(text.contains(&notice), "{text}");
-    assert!(!text.contains("security-policy dirs"), "{text}");
+    assert!(disclosed(&listed), "{text}");
 
     let matched = call(
         &runtime,
@@ -217,7 +219,7 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
     let text = matched.structured_content.to_string();
     assert!(text.contains("src/private/util.ts"), "{text}");
     assert!(text.contains("src/secrets/store.ts"), "{text}");
-    assert!(!text.contains("security-policy dirs"), "{text}");
+    assert!(!text.contains("security-policy dir"), "{text}");
     runtime.close().await;
 }
 

@@ -4,7 +4,7 @@ Load when a task needs methods beyond a recipe, a new domain, or a different tar
 
 ## Discover before choosing
 
-Run `node "$CDP" protocol`, or call `await cdp.protocol()` in a custom flow. This saves the browser's full `/json/protocol` schema. Page it with `artifact-query.mjs --format json --pointer /domains`; inspect a selected domain, command, event, type, parameter, or return schema by JSON pointer. Follow `$ref` definitions in that same schema. Experimental and deprecated markers describe the schema. Verify method availability on the selected target.
+Run `octocode-chrome-devtools /raw protocol`, or call `await cdp.protocol()` in a custom flow. This saves the browser's full `/json/protocol` schema. Page it with `octocode-chrome-devtools /raw artifact --file <saved-schema-path> --format json --pointer /domains`; inspect a selected domain, command, event, type, parameter, or return schema by JSON pointer. Follow `$ref` definitions in that same schema. Experimental and deprecated markers describe the schema. Verify method availability on the selected target.
 
 `cdp.send(method, params, sessionId?)` has no domain or method allowlist. The browser decides support. A listed method may require a browser target, an enabled domain, launch flags, or a platform capability. Report protocol errors; change the target or parameters based on the error and schema. Never claim all methods were tested.
 
@@ -41,6 +41,6 @@ CDP has different source contracts: native cursors, numbered pages, event chunks
 
 Drain `IO.read` until `eof`, decode `base64Encoded` chunks, write them in order, and close with `IO.close` in `finally`. For `HeapProfiler.addHeapSnapshotChunk`, append every chunk until the command completes. For live streams, finish the capture before paging it; immutable continuations refuse changed files.
 
-Save whole results with `cdp.saveArtifact`. For large streams, append to a file under `cdp.outputDir`, then page it with `artifact-query.mjs`. Native JSON lists remain available through JSON pointers; text/JSONL uses text pages; PDF, images and arbitrary bytes use base64 pages. Decode each binary page from base64, then concatenate the bytes. Whole-file text/JSON/binary paging uses bounded memory and source-byte offsets. A selected JSON subtree is parsed in memory and uses UTF-16 offsets. Digest checks read the entire source on each page; use selected subtrees or native cursors for focused questions.
+Save whole results with `cdp.saveArtifact`. For large streams, append to a file under `cdp.outputDir`, then page it with `octocode-chrome-devtools /raw artifact --file <path>`. Native JSON lists remain available through JSON pointers; text/JSONL uses text pages; PDF, images and arbitrary bytes use base64 pages. Decode each binary page from base64, then concatenate the bytes. Whole-file text/JSON/binary paging uses bounded memory and source-byte offsets. A selected JSON subtree is parsed in memory and uses UTF-16 offsets. Digest checks read the entire source on each page; use selected subtrees or native cursors for focused questions.
 
 Next: task-specific code → `script-patterns.md`; protocol errors → `recovery.md`.

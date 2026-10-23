@@ -14,6 +14,7 @@ use crate::response::paging::{mark_partial, push_warnings};
 use crate::response::result::Confidence;
 use crate::response::result::{ToolData, remove_nulls};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_shared::dates::{utc_date, utc_value};
 use crate::tools::gh_shared::ensure_next;
 use octocode_contract_types::ExtraKind;
 use serde_json::{Map, Value, json};
@@ -189,11 +190,7 @@ fn lead_with_comment_reads(out: &mut Value, comment_reads: Vec<Value>) {
     ensure_next(out);
     if let Some(next) = out["next"].as_object_mut() {
         for (index, read) in comment_reads.into_iter().enumerate().rev() {
-            let name = match index {
-                0 => "readCommentCode".to_owned(),
-                n => format!("readCommentCode{}", n + 1),
-            };
-            next.shift_insert(0, name, read);
+            next.shift_insert(0, crate::id::numbered("readCommentCode", index), read);
         }
     }
 }
@@ -253,23 +250,19 @@ fn attach_context_reads(
     );
     ensure_next(out);
     for (index, (path, ranges)) in clipped.iter().enumerate() {
-        let name = if index == 0 {
-            "expandContext".to_owned()
-        } else {
-            format!("expandContext{}", index + 1)
-        };
-        out["next"][name] = crate::response::result::Continuation::new(
-            ToolId::GhGetFileContent,
-            json!({
-                "owner": gh_get_history_item_query::owner(query),
-                "repo": gh_get_history_item_query::repo(query),
-                "path": path,
-                "ref": sha,
-                "ranges": ranges,
-            }),
-        )
-        .confidence(Confidence::Exact)
-        .build();
+        out["next"][crate::id::numbered("expandContext", index)] =
+            crate::response::result::Continuation::new(
+                ToolId::GhGetFileContent,
+                json!({
+                    "owner": gh_get_history_item_query::owner(query),
+                    "repo": gh_get_history_item_query::repo(query),
+                    "path": path,
+                    "ref": sha,
+                    "ranges": ranges,
+                }),
+            )
+            .confidence(Confidence::Exact)
+            .build();
     }
 }
 
@@ -407,10 +400,10 @@ pub(super) fn pr_metadata(raw: &Value, query: &HistoryItemRequest) -> Value {
         // The target-branch tip GitHub recorded for the PR: not the diff's
         // old side (that is the merge base, which `readParent` reads).
         "baseSha": str_at(raw,"/base/sha").filter(|v|!v.is_empty()),
-        "createdAt": string(raw.get("created_at")),
-        "updatedAt": open.then(|| string(raw.get("updated_at"))).filter(|v| !v.is_empty()),
-        "closedAt": (!merged).then(|| raw.get("closed_at").filter(|v|!v.is_null())).flatten(),
-        "mergedAt": raw.get("merged_at").filter(|v|!v.is_null()),
+        "createdAt": utc_date(str_at(raw, "/created_at")),
+        "updatedAt": open.then(|| utc_date(str_at(raw, "/updated_at"))).filter(|v| !v.is_empty()),
+        "closedAt": (!merged).then(|| utc_value(raw.get("closed_at"))),
+        "mergedAt": utc_value(raw.get("merged_at")),
         // Only a merged PR has a real merge commit (open PRs expose GitHub's
         // test-merge SHA, which is not on the base branch).
         "mergeCommitSha": merged.then(|| str_at(raw,"/merge_commit_sha")).flatten().filter(|v|!v.is_empty()),
@@ -433,10 +426,10 @@ pub(super) fn pr_metadata(raw: &Value, query: &HistoryItemRequest) -> Value {
     if gh_get_history_item_query::wants(query, ExtraKind::Details) {
         // Details keep the provider's timestamps whole.
         if let Some(updated) = raw.get("updated_at").filter(|v| v.is_string()) {
-            row["updatedAt"] = updated.clone();
+            row["updatedAt"] = utc_value(Some(updated));
         }
         if let Some(closed) = raw.get("closed_at").filter(|v| !v.is_null()) {
-            row["closedAt"] = closed.clone();
+            row["closedAt"] = utc_value(Some(closed));
         }
     }
     remove_nulls(&mut row);

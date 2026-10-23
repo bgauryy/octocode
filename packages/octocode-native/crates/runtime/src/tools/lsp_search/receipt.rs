@@ -4,7 +4,7 @@
 use super::LspSearchQuery;
 use super::anchor::is_anchored;
 use crate::tools::lsp_search::lsp_search_query;
-use octocode_engine::digest::canonical_json_keep_nulls;
+use octocode_engine::digest::{Nulls, canonical_json};
 use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::lsp::types::LspLanguageServerConfig;
 use serde::{Deserialize, Serialize};
@@ -348,13 +348,16 @@ pub(super) fn resolved_server_receipt(
         .unwrap_or_else(|_| Path::new(&config.workspace_root).to_path_buf())
         .to_string_lossy()
         .into_owned();
-    let configuration = canonical_json_keep_nulls(json!([
-        config
-            .initialization_options
-            .clone()
-            .unwrap_or_else(|| json!({})),
-        config.env.clone().unwrap_or_default()
-    ]));
+    let configuration = canonical_json(
+        json!([
+            config
+                .initialization_options
+                .clone()
+                .unwrap_or_else(|| json!({})),
+            config.env.clone().unwrap_or_default()
+        ]),
+        Nulls::Keep,
+    );
     let mut receipt = json!({
         "command": config.command,
         "source": config.source.as_str(),
@@ -373,30 +376,4 @@ pub(super) fn resolved_server_receipt(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::settle_source;
-    use serde_json::{Value, json};
-
-    fn settled(lsp: Value, anchored: bool) -> Value {
-        let mut lsp = lsp.as_object().cloned().expect("an lsp object");
-        settle_source(&mut lsp, anchored);
-        Value::Object(lsp)
-    }
-
-    /// A native scan that answered for the server keeps its label on every
-    /// row, anchored or not; a server answer is implied on anchored rows.
-    #[test]
-    fn a_degraded_source_survives_the_receipt_stage() {
-        for anchored in [true, false] {
-            let row = settled(json!({"source": "native-graph-facts"}), anchored);
-            assert_eq!(row["source"], "native-graph-facts", "anchored={anchored}");
-        }
-        assert!(
-            settled(json!({"source": "lsp"}), true)
-                .get("source")
-                .is_none()
-        );
-        assert!(settled(json!({}), true).get("source").is_none());
-        assert_eq!(settled(json!({}), false)["source"], "lsp");
-    }
-}
+mod tests;

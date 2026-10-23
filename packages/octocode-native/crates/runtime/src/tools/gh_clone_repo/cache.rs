@@ -2,7 +2,7 @@ use super::{CloneContext, CloneError, check_control, hash};
 use crate::cache::evictions::log_eviction;
 use crate::civil_date::{iso8601_millis, rfc3339_millis, unix_millis};
 use octocode_contract_types::ErrorCode;
-use octocode_io::atomic::write_atomic;
+use octocode_io::lock::{LockedFile, TryLock};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
@@ -11,8 +11,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 pub(super) const META_FILE: &str = ".octocode-clone-meta.json";
-pub(super) const LOCK_META_FILE: &str = ".octocode-lock.json";
-const STALE_LOCK_AGE: Duration = Duration::from_secs(5 * 60);
 const STALE_ARTIFACT_AGE: Duration = Duration::from_secs(15 * 60);
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -117,13 +115,6 @@ fn repo_dir(home: &Path, owner: &str, repo: &str) -> PathBuf {
         .join(repo.to_ascii_lowercase())
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LockMeta {
-    pid: u32,
-    created_at: i64,
-}
-
 /// The cache entry of `commit` (a full SHA, keyed lowercase: one commit
 /// in any case is one checkout) with its sparse set and history depth.
 pub(super) fn clone_dir(
@@ -151,110 +142,65 @@ pub(super) fn clone_dir(
     ))
 }
 
-pub(super) fn lock_dir(home: &Path, clone_dir: &Path) -> PathBuf {
+/// The lock file of the checkout `clone_dir`. It is never removed: a writer
+/// waiting on it must not lock a file another writer recreated.
+pub(super) fn lock_path(home: &Path, clone_dir: &Path) -> PathBuf {
     home.join("tmp")
         .join("clone-locks")
-        .join(hash(&clone_dir.to_string_lossy(), 16))
+        .join(format!("{}.lock", hash(&clone_dir.to_string_lossy(), 16)))
 }
 
+/// A held checkout lock: the OS lock ghStructure's materialized snapshots
+/// use ([`octocode_io::lock`]), so it spans git subprocesses and other
+/// processes, and the kernel releases a crashed holder's lock.
 pub(super) struct CloneLock {
-    path: PathBuf,
+    _held: LockedFile,
 }
 
 impl CloneLock {
     pub fn acquire(clone_dir: &Path, context: &CloneContext<'_>) -> Result<Self, CloneError> {
-        let path = lock_dir(&context.config.cache_home, clone_dir);
-        let parent = path.parent().ok_or_else(|| {
-            CloneError::new(ErrorCode::CacheUnavailable, "Clone lock path has no parent")
-        })?;
-        fs::create_dir_all(parent).map_err(cache_io)?;
+        let path = lock_path(&context.config.cache_home, clone_dir);
         let started = std::time::Instant::now();
+        let mut file = open_lock(&path).map_err(cache_io)?;
         loop {
             check_control(context)?;
-            match fs::create_dir(&path) {
-                Ok(()) => {
-                    if let Err(error) = write_lock_meta(&path) {
-                        let _ = fs::remove_dir_all(&path);
-                        return Err(error);
-                    }
-                    return Ok(Self { path });
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    if recover_stale_lock(&path) {
-                        continue;
-                    }
-                    if started.elapsed() >= context.config.lock_wait {
-                        return Err(CloneError::new(
-                            ErrorCode::Timeout,
-                            format!(
-                                "Timed out waiting for clone cache lock '{}'.",
-                                path.display()
-                            ),
-                        ));
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                Err(error) => return Err(cache_io(error)),
+            match octocode_io::lock::try_lock(file).map_err(cache_io)? {
+                TryLock::Locked(lock) => return Ok(Self { _held: lock }),
+                TryLock::Busy(busy) => file = busy,
             }
+            if started.elapsed() >= context.config.lock_wait {
+                return Err(CloneError::new(
+                    ErrorCode::Timeout,
+                    format!(
+                        "Timed out waiting for clone cache lock '{}'.",
+                        path.display()
+                    ),
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    /// The lock when no one holds it; `None` when it is held or cannot be
+    /// taken (eviction then leaves the entry alone).
+    fn try_acquire(home: &Path, clone_dir: &Path) -> Option<Self> {
+        let file = open_lock(&lock_path(home, clone_dir)).ok()?;
+        match octocode_io::lock::try_lock(file).ok()? {
+            TryLock::Locked(lock) => Some(Self { _held: lock }),
+            TryLock::Busy(_) => None,
         }
     }
 }
 
-impl Drop for CloneLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+fn open_lock(path: &Path) -> io::Result<fs::File> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
     }
-}
-
-fn try_lock(path: &Path) -> Option<CloneLock> {
-    fs::create_dir_all(path.parent()?).ok()?;
-    match fs::create_dir(path) {
-        Ok(()) => {
-            if write_lock_meta(path).is_err() {
-                let _ = fs::remove_dir_all(path);
-                return None;
-            }
-            Some(CloneLock {
-                path: path.to_owned(),
-            })
-        }
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => None,
-        Err(_) => None,
-    }
-}
-
-fn write_lock_meta(path: &Path) -> Result<(), CloneError> {
-    let bytes = serde_json::to_vec(&LockMeta {
-        pid: std::process::id(),
-        created_at: unix_millis(),
-    })
-    .map_err(|error| CloneError::new(ErrorCode::CacheUnavailable, error.to_string()))?;
-    write_atomic(&path.join(LOCK_META_FILE), &bytes, false).map_err(cache_io)
-}
-
-fn recover_stale_lock(path: &Path) -> bool {
-    let recovery = path.with_extension("recovery");
-    let Some(_claim) = try_lock(&recovery) else {
-        return false;
-    };
-    let meta = fs::read(path.join(LOCK_META_FILE))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<LockMeta>(&bytes).ok());
-    let stale = if let Some(meta) = meta {
-        unix_millis().saturating_sub(meta.created_at) > STALE_LOCK_AGE.as_millis() as i64
-            && !crate::process_status::is_alive(meta.pid)
-    } else {
-        fs::metadata(path)
-            .and_then(|value| value.modified())
-            .ok()
-            .and_then(|value| SystemTime::now().duration_since(value).ok())
-            .is_some_and(|age| age > STALE_LOCK_AGE)
-    };
-    if !stale {
-        return false;
-    }
-    let tombstone = path.with_extension(format!("stale-{}", unix_millis()));
-    fs::rename(path, &tombstone).is_ok() && fs::remove_dir_all(tombstone).is_ok()
+    fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
 }
 
 pub(super) fn valid_clone(path: &Path, ttl: Duration) -> Option<CacheMeta> {
@@ -420,8 +366,7 @@ pub(super) fn evict(context: &CloneContext<'_>, protected: Option<&Path>) {
         let meta = if protected == Some(branch.as_path()) {
             valid_clone(&branch, ttl)
         } else {
-            let lock = lock_dir(home, &branch);
-            let Some(_guard) = try_lock(&lock) else {
+            let Some(_guard) = CloneLock::try_acquire(home, &branch) else {
                 continue;
             };
             let meta = valid_clone(&branch, ttl);
@@ -455,8 +400,7 @@ pub(super) fn evict(context: &CloneContext<'_>, protected: Option<&Path>) {
         if protected == Some(path.as_path()) {
             continue;
         }
-        let lock = lock_dir(home, &path);
-        let Some(_guard) = try_lock(&lock) else {
+        let Some(_guard) = CloneLock::try_acquire(home, &path) else {
             continue;
         };
         if !super::git::checkout_status(context, &path).is_ok_and(|status| status.safe_to_replace) {

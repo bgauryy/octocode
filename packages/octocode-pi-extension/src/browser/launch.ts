@@ -13,8 +13,25 @@ import { startFilteringProxy, type FilteringProxy, type FilteringProxyOptions } 
 /** The persistent profile visible mode uses: `<Octocode home>/pi-browser-profile`. */
 export const persistentProfileDir = (env: NodeJS.ProcessEnv): string => outputDir(HOME_NAMES.browserProfile, env);
 
-/** A Chrome this session launched; `proxy` is the filtering proxy it runs behind, stopped when Chrome is killed. */
-export type OwnChrome = LaunchedChrome & { proxy?: FilteringProxy };
+/**
+ * A Chrome this session launched; `proxy` is the filtering proxy it runs behind. `kill` stops Chrome, then resolves once
+ * what runs with it (the proxy, a fresh profile folder) is released.
+ */
+export type OwnChrome = Omit<LaunchedChrome, 'kill'> & { kill: () => Promise<void>; proxy?: FilteringProxy };
+
+/** `chrome` with an async `kill`: chrome-launcher's synchronous kill, then `release`, which runs even when the kill throws. */
+function owned(chrome: LaunchedChrome, release: () => Promise<void> = async () => undefined): OwnChrome {
+  const kill = chrome.kill.bind(chrome);
+  return Object.assign(chrome, {
+    kill: async (): Promise<void> => {
+      try {
+        kill();
+      } finally {
+        await release();
+      }
+    },
+  });
+}
 
 /** Chrome's flags to send every request through `proxy`, loopback included (`<-loopback>` removes Chrome's built-in loopback bypass). */
 export const proxyFlags = (proxy: FilteringProxy): string[] => [
@@ -61,13 +78,13 @@ export async function launchChrome(headless: boolean, profile?: string, proxyOpt
   const flags = [...(headless ? ['--headless=new', '--window-size=1366,900'] : []), '--no-first-run', '--no-default-browser-check'];
   if (profile) {
     restrictWebRtc(profile);
-    return launch({ startingUrl: 'about:blank', userDataDir: profile, chromeFlags: flags });
+    return owned(await launch({ startingUrl: 'about:blank', userDataDir: profile, chromeFlags: flags }));
   }
   const root = outputDir(HOME_NAMES.browser);
   sweepDeadOutputs(root, 0);
   const proxy = await startFilteringProxy(proxyOptions);
   const userDataDir = fs.mkdtempSync(path.join(root, `${process.pid}-`));
-  let chrome: OwnChrome;
+  let chrome: LaunchedChrome;
   try {
     restrictWebRtc(userDataDir);
     chrome = await launch({ startingUrl: 'about:blank', userDataDir, chromeFlags: [...flags, ...proxyFlags(proxy)] });
@@ -76,17 +93,12 @@ export async function launchChrome(headless: boolean, profile?: string, proxyOpt
     fs.rmSync(userDataDir, { recursive: true, force: true });
     throw error;
   }
-  chrome.proxy = proxy;
-  const kill = chrome.kill.bind(chrome);
-  chrome.kill = async () => {
-    try {
-      await kill();
-    } finally {
-      await proxy.close();
-      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5 });
-    }
-  };
-  return chrome;
+  const own = owned(chrome, async () => {
+    await proxy.close();
+    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5 });
+  });
+  own.proxy = proxy;
+  return own;
 }
 
 /**

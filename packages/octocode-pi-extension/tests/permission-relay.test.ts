@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { ALLOW_ONCE, DENY, DENY_NOTE, NEEDS_APPROVAL, Permission } from '../src/permission/ask.js';
+import { Permission } from '../src/permission/ask.js';
+import { ALLOW_ONCE, DENY, DENY_NOTE, NEEDS_APPROVAL } from '../src/permission/dialog.js';
 import { AUDIT_NOTIFY_PREFIX, childAuditEntry, childAuditMessage } from '../src/permission/audit.js';
 import { HEADER_PREFIX, permissionHeader, redactNonce, splitHeader, type PermissionHeader } from '../src/permission/header.js';
 import type { PermissionRequest } from '../src/permission/request.js';

@@ -1,9 +1,10 @@
 //! Build script: derives the secret detector's prescan gate from the pattern
 //! table, so no process parses about 300 pattern regexes at startup.
 //!
-//! For each pattern in `src/security/patterns.rs` it extracts a gate with
-//! regex-syntax: a finite set of literals (each at least 3 bytes, at most 64
-//! of them) one of which occurs in every match. The *required prefix
+//! For each pattern in `src/security/patterns.rs` (joined from its slices in
+//! `src/security/patterns/`) it extracts a gate with regex-syntax: a finite
+//! set of literals (each at least 3 bytes, at most 64 of them) one of which
+//! occurs in every match. The *required prefix
 //! literals* come first; a pattern without them gates on literals its
 //! structure requires inside the match. A pattern with neither goes to the
 //! fallback bucket, which is always a candidate. Patterns are parsed with
@@ -18,12 +19,17 @@ use std::error::Error;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-#[path = "src/security/patterns.rs"]
-#[expect(
-    dead_code,
-    reason = "the gate reads only each pattern's name and regex"
-)]
-mod patterns;
+// An inline module rooted at `src/security`, so `patterns.rs` finds its
+// child slices in `src/security/patterns/` as it does in the library.
+#[path = "src/security"]
+mod security {
+    #[expect(
+        dead_code,
+        reason = "the gate reads only each pattern's name and regex"
+    )]
+    pub(crate) mod patterns;
+}
+use security::patterns;
 
 /// The gate of `pattern`: its required prefix literals ([`prefix_literals`]),
 /// else literals one of which occurs inside every match
@@ -126,6 +132,7 @@ fn byte_string(bytes: &[u8]) -> String {
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/security/patterns.rs");
+    println!("cargo:rerun-if-changed=src/security/patterns");
     let mut gates = String::new();
     let mut fallback = Vec::new();
     for (index, pattern) in patterns::PATTERNS.iter().enumerate() {

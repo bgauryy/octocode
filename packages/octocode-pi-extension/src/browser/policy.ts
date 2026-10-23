@@ -1,4 +1,4 @@
-/** The page-request policy contract, shared by the policy (`network.ts`), its enforcement (`page-network.ts`) and the session (`cdp.ts`, `session.ts`). */
+/** The page-request policy contract, shared by the policy (`network.ts`), its enforcement (`page-network.ts`) and the session (`session-state.ts`, `session.ts`). */
 
 /** What the page's network traffic showed that the audit should record. */
 export type NetworkEvent =

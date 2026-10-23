@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { DeliveryRow, MessageRow } from '../src/live.ts';
-import { gradeCollaboration, gradeConcurrentWave, gradeHandoff, gradePagedRead, liveSoak, liveTrials, parseArgs, runLive, toolStats } from '../src/live.ts';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { DeliveryRow, MessageRow } from '../src/live/grading.ts';
+import { gradeCollaboration, gradeConcurrentWave, gradeHandoff, gradePagedRead } from '../src/live/grading.ts';
+import { parseArgs } from '../src/live/options.ts';
+import { harnessSha256, liveSoak, liveTrials, runLive, toolStats } from '../src/live.ts';
 
 // --- soak: concurrent waves ---
 const state = {
@@ -146,4 +152,38 @@ test('trial and scenario selection fail before any vendor starts', async () => {
   await assert.rejects(liveTrials({ live: true, timeout: 1 }), /--timeout/);
   await assert.rejects(runLive({ live: true, scenarios: 'qa,bogus' }), /Unknown scenario bogus/);
   await assert.rejects(runLive({ live: true, scenarios: 'qa,soak' }), /run it alone/);
+});
+
+test('the harness digest covers the entry and every module under its live/ directory', () => {
+  // The default digest is the real entry's: src/live.ts with src/live/**.
+  assert.equal(harnessSha256(), harnessSha256(fileURLToPath(new URL('../src/live.ts', import.meta.url))));
+  const dir = mkdtempSync(join(tmpdir(), 'live-harness-'));
+  try {
+    const entry = join(dir, 'live.ts');
+    writeFileSync(entry, 'entry');
+    mkdirSync(join(dir, 'live', 'nested'), { recursive: true });
+    writeFileSync(join(dir, 'live', 'grading.ts'), 'grading');
+    writeFileSync(join(dir, 'live', 'nested', 'options.ts'), 'options');
+    let previous = harnessSha256(entry);
+    assert.equal(harnessSha256(entry), previous, 'the digest is deterministic');
+    const changes: [string, () => void][] = [
+      ['entry edit', () => writeFileSync(entry, 'entry 2')],
+      ['module edit', () => writeFileSync(join(dir, 'live', 'grading.ts'), 'grading 2')],
+      ['nested module edit', () => writeFileSync(join(dir, 'live', 'nested', 'options.ts'), 'options 2')],
+      ['module added', () => writeFileSync(join(dir, 'live', 'mechanics.ts'), 'mechanics')],
+      ['module renamed', () => renameSync(join(dir, 'live', 'mechanics.ts'), join(dir, 'live', 'workers.ts'))],
+      ['module removed', () => rmSync(join(dir, 'live', 'workers.ts'))],
+    ];
+    const digests: string[] = [];
+    for (const [change, apply] of changes) {
+      apply();
+      const digest = harnessSha256(entry);
+      assert.notEqual(digest, previous, `${change} changes the digest`);
+      digests.push((previous = digest));
+    }
+    // Content-addressed: removing the added module restores the digest from before it.
+    assert.equal(digests.at(-1), digests[2]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

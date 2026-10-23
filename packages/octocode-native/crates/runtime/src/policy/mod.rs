@@ -46,16 +46,10 @@ impl PolicyError {
         self
     }
 
-    /// Public `errorCode` for a local tool's path-policy failure: the shared
-    /// flat code ([`Self::shared_code`]), otherwise the tool's own access code.
-    pub(crate) fn local_error_code(&self, access_code: ErrorCode) -> ErrorCode {
-        self.shared_code().unwrap_or(access_code)
-    }
-
-    /// The flat `errorCode` every local tool shares for this failure.
-    /// `None` for a tool-specific failure (the tool's own access code).
-    pub(crate) fn shared_code(&self) -> Option<ErrorCode> {
-        Some(match self.code {
+    /// The one flat `errorCode` of this failure, the same in every local
+    /// tool: the only mapping from a path-policy failure to a public code.
+    pub(crate) fn shared_code(&self) -> ErrorCode {
+        match self.code {
             PolicyErrorCode::OutsideAllowedRoots => ErrorCode::OutsideAllowedRoots,
             PolicyErrorCode::SymlinkEscape => ErrorCode::SymlinkEscape,
             PolicyErrorCode::PermissionDenied => ErrorCode::PermissionDenied,
@@ -68,8 +62,16 @@ impl PolicyError {
             // `.env` or `*.pem`): a denial no flag or config setting lifts,
             // never a missing or misspelled path.
             PolicyErrorCode::IgnoredPath => ErrorCode::PathPolicyDenied,
-            _ => return None,
-        })
+            // A path that names no regular file (a directory, a FIFO).
+            PolicyErrorCode::NotRegular => ErrorCode::NotAFile,
+            PolicyErrorCode::BinaryContent => ErrorCode::BinaryFileUnsupported,
+            // A path that cannot be resolved as written: empty, looping,
+            // over-long, or an unexpected filesystem error while resolving.
+            PolicyErrorCode::EmptyPath
+            | PolicyErrorCode::SymlinkLoop
+            | PolicyErrorCode::NameTooLong
+            | PolicyErrorCode::Io => ErrorCode::PathValidationFailed,
+        }
     }
 }
 
@@ -80,3 +82,34 @@ impl Display for PolicyError {
 }
 
 impl std::error::Error for PolicyError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One failure, one code: no tool supplies its own fallback.
+    #[test]
+    fn every_policy_failure_has_one_shared_code_whatever_the_tool() {
+        for (code, expected) in [
+            (
+                PolicyErrorCode::SymlinkLoop,
+                ErrorCode::PathValidationFailed,
+            ),
+            (
+                PolicyErrorCode::NameTooLong,
+                ErrorCode::PathValidationFailed,
+            ),
+            (PolicyErrorCode::EmptyPath, ErrorCode::PathValidationFailed),
+            (PolicyErrorCode::Io, ErrorCode::PathValidationFailed),
+            (PolicyErrorCode::NotRegular, ErrorCode::NotAFile),
+            (
+                PolicyErrorCode::BinaryContent,
+                ErrorCode::BinaryFileUnsupported,
+            ),
+            (PolicyErrorCode::NotFound, ErrorCode::PathNotFound),
+        ] {
+            let error = PolicyError::new(code, "x");
+            assert_eq!(error.shared_code(), expected, "{code:?}");
+        }
+    }
+}

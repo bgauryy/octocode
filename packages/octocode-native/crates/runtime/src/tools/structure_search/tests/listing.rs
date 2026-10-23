@@ -133,7 +133,7 @@ fn files_rows_group_by_directory_in_listing_order() {
     .expect("full");
     let entry = full["files"][0]["files"][0].as_str().expect("entry");
     assert!(
-        entry.starts_with("c (1).rs (4, totalLines=2, modifiedMs="),
+        entry.starts_with("c (1).rs (4, totalLines=2, modified="),
         "{full}"
     );
     let row = &listed(&full)[0];
@@ -148,6 +148,58 @@ fn files_rows_group_by_directory_in_listing_order() {
     )
     .expect("file root");
     assert_eq!(file["files"], json!([{"dir":".","files":["a.rs (10)"]}]));
+}
+
+/// A ranked page (any `sort` but `path`) keeps its rank order exactly: a
+/// run of adjacent entries of one directory shares a group, and a directory
+/// the ranking returns to opens a new one. Each entry keeps the key it is
+/// sorted by, so the keys give the rank. A modified time reads as an ISO
+/// 8601 UTC instant to the millisecond.
+#[test]
+fn a_ranked_page_groups_only_adjacent_entries_of_a_directory() {
+    let root = Fixture::new();
+    for dir in ["a", "b"] {
+        std::fs::create_dir(root.0.join(dir)).expect("dir");
+    }
+    let base = 1_792_744_218_732_u64;
+    for (file, bytes, at) in [
+        ("a/big.rs", 50, 3),
+        ("b/mid.rs", 30, 2),
+        ("a/small.rs", 10, 1),
+    ] {
+        let path = root.0.join(file);
+        std::fs::write(&path, "x".repeat(bytes)).expect("file");
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .and_then(|handle| {
+                handle.set_modified(
+                    std::time::UNIX_EPOCH + std::time::Duration::from_millis(base + at * 1_000),
+                )
+            })
+            .expect("mtime");
+    }
+    let files = |sort: &str| {
+        run(
+            &root.0,
+            json!({"operation":"files","path":root.0,"entryType":"f","sort":sort}),
+        )
+        .expect("files")["files"]
+            .clone()
+    };
+    assert_eq!(
+        files("size"),
+        json!([{"dir":"a","files":["big.rs (50)"]},{"dir":"b","files":["mid.rs (30)"]},{"dir":"a","files":["small.rs (10)"]}])
+    );
+    let iso = |at: u64| crate::civil_date::iso8601_millis((base + at * 1_000) as i64);
+    assert_eq!(
+        files("modified"),
+        json!([
+            {"dir":"a","files":[format!("big.rs (50, modified={})", iso(3))]},
+            {"dir":"b","files":[format!("mid.rs (30, modified={})", iso(2))]},
+            {"dir":"a","files":[format!("small.rs (10, modified={})", iso(1))]}
+        ])
+    );
 }
 
 /// A page that continues a directory group repeats its `dir`, so each page
@@ -219,7 +271,7 @@ fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
         "{out}"
     );
     // Every counted dot entry is reachable: the lead lifts includeHidden.
-    assert_eq!(out["summary"]["hidden"], 3, "{out}");
+    assert_eq!(skipped_count(&out, "hidden"), 3, "{out}");
     let lead = &out["next"]["includeSkipped"]["query"]["queries"][0];
     assert_eq!(lead["includeHidden"], true, "{out}");
     assert!(lead.get("defaultExcludes").is_none(), "{out}");
@@ -229,10 +281,7 @@ fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
     )
     .expect("filtered tree");
     // The lead is the fix: the summary keeps the count, not the flag.
-    assert!(
-        filtered["summary"]["hidden"].as_u64() > Some(0),
-        "{filtered}"
-    );
+    assert!(skipped_count(&filtered, "hidden") > 0, "{filtered}");
     let retry = &filtered["next"]["includeSkipped"];
     assert_eq!(retry["tool"], "structureSearch", "{out}");
     assert_eq!(retry["query"]["queries"][0]["includeHidden"], true, "{out}");
@@ -254,7 +303,7 @@ fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
         "{all}"
     );
     assert!(all["next"].get("includeSkipped").is_none(), "{all}");
-    assert!(all["summary"].get("hidden").is_none(), "{all}");
+    assert_eq!(skipped_count(&all, "hidden"), 0, "{all}");
 }
 
 /// A `files` result's first page leads to its first outline-able file: a
@@ -384,11 +433,10 @@ fn default_pruned_directories_are_named_and_an_empty_listing_walks_them() {
     std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
 
     let tree = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
-    assert_eq!(
-        tree["summary"]["pruned"],
-        json!(["build", "node_modules"]),
-        "{tree}"
-    );
+    // One entry for the cause, its first directory, counting both.
+    let names = skipped_names(&tree, "default-excluded");
+    assert_eq!(names, ["build"], "{tree}");
+    assert_eq!(skipped_count(&tree, "default-excluded"), 2, "{tree}");
     assert!(tree["next"].get("includeSkipped").is_none(), "{tree}");
 
     let files = run(
@@ -397,7 +445,7 @@ fn default_pruned_directories_are_named_and_an_empty_listing_walks_them() {
     )
     .expect("files");
     assert_eq!(files["status"], "empty", "{files}");
-    assert!(files["summary"]["pruned"].is_array(), "{files}");
+    assert!(skipped_count(&files, "default-excluded") > 0, "{files}");
     assert!(
         files["hints"][0]
             .as_str()
@@ -449,13 +497,8 @@ fn withheld_entries_follow_the_walks_glob_dialect() {
         paths.len() == 1 && paths[0].ends_with("cfg/app.production"),
         "{out}"
     );
-    assert!(
-        out["warnings"].as_array().is_some_and(|warnings| warnings
-            .iter()
-            .filter_map(Value::as_str)
-            .any(|warning| warning.starts_with("1 entry withheld by path policy"))),
-        "only cfg/.env.production is counted: {out}"
-    );
+    let count = skipped_count(&out, "withheld");
+    assert_eq!(count, 1, "only cfg/.env.production is counted: {out}");
 }
 
 /// A directory listed under its own group is never also listed bare under
@@ -755,6 +798,51 @@ fn a_ranked_listing_cut_at_the_walk_ceiling_states_a_lower_bound() {
     }
 }
 
+/// A ranked listing whose walk stopped at its ceiling ranks only the
+/// entries walked first, whatever `maxEntries` it asked for: a small page
+/// (`maxEntries:20`) says so too, as a terminal `walkLimit` (no widening
+/// walks past the ceiling), keeps the widening of the walked ranking, and
+/// leads into narrower scopes, which reach the entries past it.
+#[test]
+fn a_small_ranked_page_of_a_walk_cut_at_the_ceiling_says_the_ranking_is_partial() {
+    let ceiling = super::super::max_walk() as usize;
+    let cut = super::super::Cut {
+        page: 1,
+        total_pages: 1,
+        total: 20,
+        requested: 20,
+        available: ceiling,
+        limit_cut: true,
+        scan_cut: true,
+        time_cut: None,
+        time_window: super::super::TimeWindow::Whole,
+        walk_position: ceiling + 1,
+        walk_offset: 0,
+        early_exit: false,
+        total_discovered: ceiling + 1,
+        scan_offset: 0,
+        covered: 20,
+        ranked: true,
+        snapshot: "a".repeat(64),
+    };
+    let mut out = json!({});
+    let mut warnings = Vec::new();
+    cut.finish(
+        &mut out,
+        &json!({"operation":"files","path":".","sort":"size","maxEntries":20}),
+        &mut warnings,
+    );
+    let warning = warnings.join(" ");
+    assert!(
+        warning.contains("this sort ranks only the entries walked first"),
+        "{warning}"
+    );
+    assert_eq!(out["terminalLimit"], true, "{out}");
+    assert!(out["next"].get("narrowScope").is_some(), "{out}");
+    assert!(out["next"].get("continueWalk").is_some(), "{out}");
+    assert_eq!(out["atLeast"], ceiling + 1, "{out}");
+}
+
 /// `tree` and `files` lead to the same read over the same rows: one
 /// ranking ([`crate::tools::root_read::read_rank`]), filtered or not; an
 /// outline-able file no tier names still leads when nothing better is
@@ -998,7 +1086,7 @@ fn tree_summary_matches_paged_row_counts() {
     assert_eq!(strings as u64, total, "{out}");
 }
 
-/// An empty files listing names withheld entries once (warnings).
+/// An empty files listing names withheld entries once (`skippedPaths`).
 #[test]
 fn files_empty_withheld_not_duplicated() {
     let root = Fixture::new();
@@ -1011,9 +1099,10 @@ fn files_empty_withheld_not_duplicated() {
     )
     .expect("files");
     assert_eq!(out["status"], "empty", "{out}");
-    assert_eq!(
-        out.to_string().matches("withheld by path policy").count(),
-        1,
+    let reasons = skipped_reasons(&out, "withheld");
+    assert_eq!(reasons, [("security-policy dir .aws/".into(), 1)], "{out}");
+    assert!(
+        !out.to_string().contains("withheld by path policy"),
         "{out}"
     );
 }
@@ -1055,7 +1144,7 @@ fn walk_warnings_are_stated_on_the_first_page_only() {
         json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"includeHidden":true,"pageSize":2}),
     );
     assert!(pages.len() > 1, "{pages:?}");
-    let withheld = |page: &Value| page["warnings"].to_string().contains("withheld");
+    let withheld = |page: &Value| skipped_count(page, "withheld") > 0;
     assert!(withheld(&pages[0]), "{}", pages[0]);
     assert!(pages[1..].iter().all(|page| !withheld(page)), "{pages:?}");
 }
@@ -1109,7 +1198,7 @@ fn files_hide_dot_entries_unless_include_hidden() {
         .filter_map(|entry| entry["path"].as_str().map(str::to_owned))
         .collect::<Vec<_>>();
     assert!(paths.len() == 1 && paths[0].ends_with("b.ts"), "{default}");
-    assert_eq!(default["summary"]["hidden"], 1, "{default}");
+    assert_eq!(skipped_count(&default, "hidden"), 1, "{default}");
     assert_eq!(listed(&query(true)).len(), 2);
 }
 

@@ -2,7 +2,8 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { sharedAgentDb } from '../agentdb/db.js';
 import { PARENT_SESSION_ENV } from '../shared/env.js';
 import { repoKey } from '../shared/home.js';
-import { BacklogStore, type Actor } from './store.js';
+import type { Actor } from './item.js';
+import { BacklogStore } from './store.js';
 
 export interface BacklogOptions {
   isSubagent: boolean;

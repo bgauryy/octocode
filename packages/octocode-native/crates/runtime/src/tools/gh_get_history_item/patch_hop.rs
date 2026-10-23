@@ -32,21 +32,15 @@ pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemReq
     ensure_next(out);
     remove_key(&mut nq, "matchString");
     remove_key(&mut nq, "contextLines");
-    let name = "readFullPatches";
     // Each read names its files in the public `include` beside `patches`.
     for (index, files) in narrowed.chunks(selected_patch_files()).enumerate() {
         let read = super::util::merge(
             nq.clone(),
             json!({"include": files, "sections": ["patches"]}),
         );
-        let key = if index == 0 {
-            name.to_owned()
-        } else {
-            format!("{name}{}", index + 1)
-        };
         let mut lead = continuation(read);
         lead["confidence"] = json!("low");
-        out["next"][key] = lead;
+        out["next"][crate::id::numbered("readFullPatches", index)] = lead;
     }
 }
 
@@ -240,7 +234,12 @@ pub(super) fn attach_diff_continuations(
     };
     if let Some(page) = cursors.commit_page {
         let mut nq = base.clone();
-        nq["page"] = json!(page);
+        // The first commit page is the page a read without `page` lists.
+        if page > 1 {
+            nq["page"] = json!(page);
+        } else {
+            remove_key(&mut nq, "page");
+        }
         // A commit page carries commits only; patch cursors would be inert.
         nq["sections"] = json!(["commits"]);
         for key in ["offset", "length", "matchString", "contextLines"] {
@@ -283,8 +282,13 @@ pub(super) fn attach_diff_continuations(
         clamp_hop_length(&mut nq, q);
         next.insert("continuePatch".into(), continuation(nq));
     }
+    // The page's own continuations join the reads the page already offers
+    // (an unpatched file's search), never replace them.
     if !next.is_empty() {
-        out["next"] = Value::Object(next);
+        crate::tools::gh_shared::ensure_next(out);
+        if let Some(pages) = out["next"].as_object_mut() {
+            pages.extend(next);
+        }
     }
 }
 

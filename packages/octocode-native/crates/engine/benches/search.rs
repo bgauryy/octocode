@@ -2,7 +2,7 @@
 //! High-hit parallel search benchmark: many matched files across many
 //! directories, so per-file result collection (not regex evaluation) is a
 //! visible share of the runtime. Guards the worker-local collection path in
-//! `search/text_search.rs::collect`.
+//! `search/text_search/collect.rs::collect`.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::fs;

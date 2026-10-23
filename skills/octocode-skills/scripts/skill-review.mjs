@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Structural checks for Agent Skill folders. Trigger quality and prose require human review.
-import { existsSync, statSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
+import { existsSync, realpathSync, statSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 
@@ -51,6 +51,14 @@ function frontmatter(source) {
     return parts.join(' ').replace(/\s+#.*$/, '').trim();
   };
   return { name: field('name'), description: field('description') };
+}
+
+// Public skills are embedded in the native binary: `build` decodes `description` from one line.
+function jsonDescriptionProblem(source) {
+  const lines = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').match(/^---\s*\n([\s\S]*?)\n---(?:\n|$)/)?.[1].split('\n').filter((line) => line.startsWith('description:')) ?? [];
+  let value;
+  try { value = JSON.parse(lines[0]?.slice('description:'.length).trim()); } catch { /* reported below */ }
+  return lines.length === 1 && typeof value === 'string' ? null : 'Public skills need one `description: "<JSON string>"` line; the native build embeds it.';
 }
 
 function localPaths(text) {
@@ -121,6 +129,10 @@ function review(dir) {
     add('ERROR', 'name-format', 'Name must follow the Agent Skills identifier syntax.');
   }
   if (fm?.description !== null && !fm?.description) add('ERROR', 'description-missing', 'Description is required.');
+  if (fm && basename(dirname(realpathSync(dir))) === 'skills') {
+    const problem = jsonDescriptionProblem(skill);
+    if (problem) add('ERROR', 'description-json', problem);
+  }
   if (fm?.description?.length > 1024) add('ERROR', 'description-length', 'Description exceeds the Agent Skills limit of 1024 characters.');
   // A single-file skill (SKILL.md only, the Agent Skills minimum) owns its output inline.
   const singleFile = files.length === 1;
@@ -142,7 +154,7 @@ function review(dir) {
   if (resources && !/^\s*When\s*\|\s*Read[^|]*\|\s*Why\s*$/.test(resources[1])) add('WARN', 'resources-columns', 'SKILL.md Resources table should have the columns When | Read | Why.');
   // Every file a skill writes stays under <workspace>/.octocode/<skill-name>/ (scratch in its tmp/), never a shared .octocode/tmp/.
   const shared = /\.octocode\/tmp\/[A-Za-z0-9<{_-]|['"]\.octocode['"],\s*['"]tmp['"]/;
-  for (const path of files.filter((item) => /\.(md|mjs|js|cjs|sh|py)$/.test(item) && !['scripts/render-report.mjs', 'scripts/skill-review.mjs'].includes(item))) {  // these two hold the rule's own test fixtures
+  for (const path of files.filter((item) => /\.(md|mjs|js|cjs|sh|py)$/.test(item) && !['scripts/lib/report/self-test.mjs', 'scripts/skill-review.mjs'].includes(item))) {  // these two hold the rule's own test fixtures
     const source = texts.get(path) ?? readFileSync(join(dir, path), 'utf8');
     if (shared.test(source)) add('WARN', 'output-outside-skill-folder', `${path} writes or points to <workspace>/.octocode/tmp/; use <workspace>/.octocode/${name}/tmp/ so every output stays in the skill's own folder.`);
   }
@@ -199,6 +211,21 @@ function selfTest() {
     if (!review(skill).findings.some((item) => item.code === 'output-location-missing')) throw new Error('missing output location was not found');
     writeFileSync(join(skill, 'output.md'), '# Output\n\nAn answer. Save requested files under `<workspace>/.octocode/example-skill/`.\n');
     if (review(skill).findings.length) throw new Error('valid skill failed');
+    const publicRoot = join(dir, 'public', 'skills');
+    mkdirSync(publicRoot, { recursive: true });
+    const publicSkill = join(publicRoot, 'example-skill');
+    mkdirSync(publicSkill);
+    for (const file of ['README.md', 'output.md']) writeFileSync(join(publicSkill, file), readFileSync(join(skill, file)));
+    const publicSource = readFileSync(join(skill, 'SKILL.md'), 'utf8');
+    writeFileSync(join(publicSkill, 'SKILL.md'), publicSource);
+    if (review(publicSkill).findings.length) throw new Error('a public skill with a JSON description failed');
+    for (const bad of ['description: |-\n  Use when an example needs review.', 'description: Use when an example needs review.', "description: 'Use when an example needs review.'"]) {
+      writeFileSync(join(publicSkill, 'SKILL.md'), publicSource.replace('description: "Use when an example needs review."', bad));
+      if (!review(publicSkill).findings.some((item) => item.code === 'description-json')) throw new Error(`a public description outside one JSON line passed: ${bad}`);
+      writeFileSync(join(skill, 'SKILL.md'), publicSource.replace('description: "Use when an example needs review."', bad));
+      if (review(skill).findings.some((item) => item.code === 'description-json')) throw new Error('a non-public skill was held to the JSON description rule');
+    }
+    writeFileSync(join(skill, 'SKILL.md'), publicSource);
     mkdirSync(join(skill, 'scripts'));
     writeFileSync(join(skill, 'scripts/render-report.mjs'), '// viewer\n');
     if (!review(skill).findings.some((item) => item.code === 'saved-report-missing')) throw new Error('missing saved-report section was not found');

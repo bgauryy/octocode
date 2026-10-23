@@ -1,20 +1,22 @@
 pub(crate) mod errors;
 mod leads;
+mod local_query;
+mod shape;
+mod timestamp;
 
-use crate::tools::local_fetch::types::local_fetch_query;
 use octocode_contract_types::ErrorCode;
-use std::path::Path;
 use std::sync::Arc;
 
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::response::result::ToolData;
 use crate::security::scan::{ContentScan, MemoizedScan};
 use crate::tools::gh_shared::{GhFailure, locate_path, missing_path};
-use crate::tools::local_fetch::{LocalFetchQuery, ReadStatus, process_fetched_content};
-use leads::{empty_match_lead, last_window_repair, rewrite_continuations};
+use local_query::decode_display;
 use octocode_github::{ContentRequest, GitHubProvider, ProviderError, RequestContext};
+use shape::{Fetched, shape};
+use timestamp::file_timestamp;
 
 pub use octocode_contract_types::GhGetFileContentQuery;
 
@@ -31,7 +33,7 @@ pub struct GhGetFileContentResult {
 #[serde(rename_all = "camelCase")]
 pub struct GhGetFileContentFile {
     #[serde(flatten)]
-    pub content: crate::tools::local_fetch::LocalFetchResult,
+    pub content: crate::tools::source_view::LocalFetchResult,
     /// Commit the read was pinned to (a branch or default-branch ref resolves
     /// to its current SHA; continuations reuse it).
     pub commit_sha: String,
@@ -110,6 +112,7 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
         request_context,
     )
     .await;
+    let asked = query.ref_.clone();
     let pinned = scope.commit.and_then(|sha| {
         Some(GhGetFileContentQuery {
             ref_: Some(sha.parse().ok()?),
@@ -126,7 +129,15 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     } else {
         None
     };
-    let failure = errors::failure(error, query, found);
+    let named = found.is_some();
+    let mut failure = errors::failure(error, query, found);
+    // The message names the ref as asked; the leads pin its commit.
+    if named {
+        failure.message = errors::path_not_found(
+            &errors::repo_path(query),
+            asked.as_ref().map(|r| r.as_str()),
+        );
+    }
     Err(crate::tools::gh_shared::with_default_branch(
         provider,
         failure,
@@ -219,8 +230,10 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
         force_refresh: query.force_refresh.unwrap_or(false),
     };
     let acquired = provider
-        .get_file_content(&content_request, request_context)
+        .get_file_bytes(&content_request, request_context)
         .await?;
+    // The one text rule localFetch reads by: binary is refused here, once.
+    crate::tools::gh_shared::text::admit_read(&acquired)?;
     // A renamed repository: later requests and every lead use the canonical
     // name (a redirect-free read of a never-redirected name costs nothing).
     let (renamed_warning, canonical) = crate::tools::gh_shared::canonical_query(
@@ -280,372 +293,6 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     Ok(result)
 }
 
-/// What the fetch side of a read hands its shaping: the response window
-/// and the rename warning.
-struct Fetched {
-    window: Option<usize>,
-    renamed_warning: Option<String>,
-}
-
-/// One fetched body as the read's row: the shared extraction, a missed
-/// match's facts, the status, and the read's pages and leads.
-fn shape(
-    query: &GhGetFileContentQuery,
-    acquired: octocode_github::ContentResponse,
-    fetched: Fetched,
-    security: &impl ContentScan,
-    cancel: &crate::execution::ExecutionContext,
-    selection: Option<&crate::tools::selection::Runtime>,
-) -> Result<GhGetFileContentResult, ProviderError> {
-    let Fetched {
-        window,
-        renamed_warning,
-    } = fetched;
-    let local = local_query(query)?;
-    // Selected and whole-file views use the configured response budget;
-    // bare reads retain the shared source-head preview policy. The shared
-    // read fits the row's window less what this row adds around it.
-    let facts = crate::tools::local_fetch::SourceFacts {
-        modified: None,
-        window,
-        beside: row_envelope_chars(query, &acquired.resolved_ref),
-        interior: false,
-        byte_origin: None,
-    };
-    let mut content = if local.clasify_context.is_none() && local.selection.is_none() {
-        process_fetched_content(
-            &local,
-            &acquired.bytes,
-            Path::new(query.path.as_str()),
-            &facts,
-            security,
-            cancel,
-        )
-    } else {
-        let rank_path = format!(
-            "{}/{}/{}/{}",
-            query.owner, query.repo, acquired.resolved_ref, query.path
-        );
-        crate::tools::local_fetch::process_fetched_content_selected(
-            &local,
-            &acquired.bytes,
-            Path::new(&rank_path),
-            query.path.as_str(),
-            &facts,
-            security,
-            cancel,
-            selection,
-        )
-    };
-    let match_not_found = settle_status(&mut content, query, &acquired.bytes)?;
-    if let Some(warning) = renamed_warning {
-        content.warnings.insert(0, warning);
-    }
-    let next = read_leads(&mut content, query, &local, match_not_found, &acquired);
-    Ok(GhGetFileContentResult {
-        owner: query.owner.to_string(),
-        repo: query.repo.to_string(),
-        file: GhGetFileContentFile {
-            content,
-            commit_sha: acquired.resolved_ref,
-            file_type: file_type(&query.path),
-            match_not_found: match_not_found.then_some(true),
-            from_cache: acquired.from_cache,
-            next,
-            last_modified: None,
-            last_modified_by: None,
-        },
-    })
-}
-
-/// Continuations a page's row may carry that the read rewrites with the
-/// repository coordinates (its next window, the unfiltered view and the
-/// next candidate page of a ranked read).
-const REWRITTEN_CONTINUATIONS: usize = 3;
-/// The quoted keys and separators of `"owner":"…","repo":"…","ref":"…"`,
-/// the longer tool name and `forceRefresh` on one rewritten continuation.
-const COORDINATE_KEYS_CHARS: usize = 64;
-/// `commitSha` and `fileType` beside the row's content.
-const ROW_FIELDS_CHARS: usize = 48;
-
-/// Response chars a GitHub file row adds around the shared read's row: the
-/// repository and resolved commit beside the content and on each
-/// continuation the read rewrites. The shared read is cut to the row's
-/// window less this, so the whole row fits that window.
-fn row_envelope_chars(query: &GhGetFileContentQuery, sha: &str) -> usize {
-    let coordinates =
-        query.owner.as_str().len() + query.repo.as_str().len() + sha.len() + COORDINATE_KEYS_CHARS;
-    coordinates * (1 + REWRITTEN_CONTINUATIONS) + ROW_FIELDS_CHARS
-}
-
-/// The read's status: a missed selection is an empty read that says why
-/// ([`no_match`]), a read with text (or of a 0-byte file) a success,
-/// anything else empty. Returns
-/// whether the selection missed; an offset inside a code point fails.
-fn settle_status(
-    content: &mut crate::tools::local_fetch::LocalFetchResult,
-    query: &GhGetFileContentQuery,
-    bytes: &[u8],
-) -> Result<bool, ProviderError> {
-    if content.error_code == Some(ErrorCode::InvalidPagination) {
-        return Err(ProviderError::new(
-            octocode_github::ProviderErrorKind::Decode,
-            "offset must be on a UTF-8 code point boundary",
-        ));
-    }
-    let match_not_found = content.selected_match_count == Some(0);
-    if match_not_found {
-        no_match(content, query, bytes);
-    }
-    if content.returned_bytes == Some(0) {
-        content.source_line_ranges.clear();
-    }
-    if content.error.is_none() {
-        content.status = if match_not_found {
-            // Same as localFetch: no selected line is an empty read, which
-            // keeps the recovery hint visible under the hint policy.
-            ReadStatus::Empty
-        } else if content.content.as_ref().is_some_and(|s| !s.is_empty()) || bytes.is_empty() {
-            // A 0-byte file read whole is its whole content, not a miss.
-            ReadStatus::Success
-        } else {
-            ReadStatus::Empty
-        };
-    }
-    // Shared local read errors omit their path; the remote file envelope
-    // requires the repository-relative identity even when processing fails.
-    if content.path.is_empty() {
-        content.path = query.path.to_string();
-    }
-    Ok(match_not_found)
-}
-
-/// The read's leads: its own pages as GitHub reads at the read commit, a
-/// missed match's search of the repository (unless the file itself can
-/// still answer), and the last-window repair of ranges past the file end.
-fn read_leads(
-    content: &mut crate::tools::local_fetch::LocalFetchResult,
-    query: &GhGetFileContentQuery,
-    local: &LocalFetchQuery,
-    match_not_found: bool,
-    acquired: &octocode_github::ContentResponse,
-) -> Option<Value> {
-    let mut next = rewrite_continuations(
-        content,
-        query,
-        local_fetch_query::minify_mode(local),
-        &acquired.resolved_ref,
-    );
-    // A miss this file can still answer (hits outside the ranges, or
-    // ignoring case) leads to that read, not back to a repository search.
-    let answered_here = next
-        .as_ref()
-        .is_some_and(|calls| calls.get("read").is_some() || calls.get("ignoreCase").is_some());
-    if match_not_found
-        && !answered_here
-        && let Some((name, lead)) = empty_match_lead(query, local)
-        && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
-    {
-        calls.insert(name.into(), lead);
-    }
-    if content.error.is_some()
-        && let Some(lead) = last_window_repair(
-            query,
-            local,
-            String::from_utf8_lossy(&acquired.bytes).lines().count(),
-            &acquired.resolved_ref,
-        )
-        && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
-    {
-        calls.insert("repair".into(), lead);
-    }
-    next
-}
-
-/// A selection with no hit in the file is an empty read that says why: the
-/// shared read's facts (redaction, a literal `|`, the lines a
-/// case-insensitive read or a read without `ranges` would select) and the
-/// file's size, with the contract's empty `content` (as in localFetch) and
-/// no zero counters.
-fn no_match(
-    content: &mut crate::tools::local_fetch::LocalFetchResult,
-    query: &GhGetFileContentQuery,
-    bytes: &[u8],
-) {
-    content.path = query.path.to_string();
-    content.content = Some(String::new());
-    content.content_view = None;
-    content.total_lines = Some(String::from_utf8_lossy(bytes).lines().count());
-    content.source_chars = None;
-    content.source_bytes = None;
-    content.returned_chars = None;
-    content.returned_bytes = None;
-    content.returned_lines = None;
-    content.pagination = None;
-    content.source_line_ranges.clear();
-}
-
-/// The kind of file a read returned (`fileType`).
-fn file_type(path: &str) -> Option<&'static str> {
-    match crate::content::classify_file_type(path)? {
-        crate::content::FileType::Config => Some("config"),
-        crate::content::FileType::Lock => Some("lock"),
-        crate::content::FileType::Doc => Some("doc"),
-        crate::content::FileType::Code => Some("code"),
-    }
-}
-
-/// Last commit touching `path` at `reference` (a resolved SHA), from the one
-/// source of that fact ([`octocode_github::GitHubTransport::path_last_commit`],
-/// which ghStructure's dated listings share). History below a commit is
-/// immutable, so the answer is cached per (owner, repo, SHA, path) and
-/// repeated offset-0 reads skip the round trip.
-async fn file_timestamp(
-    provider: &GitHubProvider,
-    query: &GhGetFileContentQuery,
-    reference: &str,
-    context: &RequestContext,
-) -> (Option<String>, Option<String>) {
-    let partition = provider.transport.cache_partition(context, None).ok();
-    let key = {
-        use sha2::{Digest, Sha256};
-        let mut digest = Sha256::new();
-        for value in [
-            query.owner.to_ascii_lowercase().as_str(),
-            query.repo.to_ascii_lowercase().as_str(),
-            reference,
-            query.path.as_str(),
-        ] {
-            digest.update(value.as_bytes());
-            digest.update([0]);
-        }
-        // v2: the author is the login when GitHub links one.
-        format!(
-            "github-file-timestamp:v2-{}",
-            hex::encode(digest.finalize())
-        )
-    };
-    if let Some(partition) = &partition
-        && let Some(cached) = provider.transport.cache.get(partition, &key).await
-        && let Ok((date, author)) =
-            serde_json::from_slice::<(Option<String>, Option<String>)>(&cached.bytes)
-    {
-        return (date, author);
-    }
-    let Ok(stamp) = provider
-        .transport
-        .path_last_commit(
-            query.owner.as_str(),
-            query.repo.as_str(),
-            reference,
-            query.path.as_str(),
-            context,
-        )
-        .await
-    else {
-        return (None, None);
-    };
-    if let Some(partition) = &partition
-        && let Ok(bytes) = serde_json::to_vec(&stamp)
-    {
-        provider
-            .transport
-            .cache
-            .put(
-                partition,
-                key,
-                octocode_github::CachedContent {
-                    etag: None,
-                    bytes: bytes.into(),
-                    resolved_ref: reference.to_owned(),
-                    has_more: false,
-                },
-                octocode_github::Retention::Pinned,
-            )
-            .await;
-    }
-    stamp
-}
-
-/// The GitHub file query is the localFetch extraction query plus repository
-/// coordinates (`owner`, `repo`, `ref`, `forceRefresh`): the extraction
-/// fields map one to one onto the localFetch wire type, so both tools share
-/// one extraction request. Paged reads get the default page size.
-fn local_query(query: &GhGetFileContentQuery) -> Result<LocalFetchQuery, ProviderError> {
-    let GhGetFileContentQuery {
-        block,
-        case_mode,
-        context_lines,
-        extras,
-        force_refresh: _,
-        full_content,
-        length,
-        main_goal,
-        match_string,
-        minify,
-        offset,
-        owner: _,
-        path,
-        ranges,
-        reasoning,
-        clasify_context,
-        selection,
-        ref_: _,
-        regex,
-        repo: _,
-        unit,
-        whole_word,
-    } = query;
-    Ok(LocalFetchQuery {
-        block: *block,
-        case_mode: *case_mode,
-        whole_word: *whole_word,
-        context_lines: *context_lines,
-        extras: extras.clone(),
-        full_content: *full_content,
-        length: *length,
-        main_goal: main_goal
-            .as_ref()
-            .map(|goal| goal.as_str().parse())
-            .transpose()
-            .map_err(decode_display)?,
-        match_string: match_string.clone(),
-        minify: *minify,
-        offset: *offset,
-        path: path.as_str().parse().map_err(decode_display)?,
-        ranges: ranges
-            .iter()
-            .map(|range| range.as_str().parse())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(decode_display)?,
-        reasoning: reasoning
-            .as_ref()
-            .map(|reasoning| reasoning.as_str().parse())
-            .transpose()
-            .map_err(decode_display)?,
-        regex: *regex,
-        snapshot: None,
-        clasify_context: clasify_context
-            .as_ref()
-            .map(|context| serde_json::to_value(context).and_then(serde_json::from_value))
-            .transpose()
-            .map_err(decode_display)?,
-        selection: selection
-            .as_ref()
-            .map(|plan| plan.as_str().parse())
-            .transpose()
-            .map_err(decode_display)?,
-        unit: *unit,
-    })
-}
-
-fn decode_display(error: impl std::fmt::Display) -> ProviderError {
-    ProviderError::new(
-        octocode_github::ProviderErrorKind::Decode,
-        error.to_string(),
-    )
-}
-
 /// This tool's output facts for the shared response stages.
 pub(crate) struct Output;
 impl crate::response::output::ToolOutput for Output {
@@ -663,8 +310,8 @@ impl crate::response::output::ToolOutput for Output {
     fn evidence_kind(&self, _query: &serde_json::Value, _data: &serde_json::Value) -> &'static str {
         "provider"
     }
-    fn text_shape(&self) -> crate::response::output::TextShape {
-        crate::response::output::TextShape::FileText
+    fn reads_source(&self) -> bool {
+        true
     }
 }
 

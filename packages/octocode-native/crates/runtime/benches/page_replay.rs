@@ -23,6 +23,7 @@
 
 #[expect(
     dead_code,
+    unused_imports,
     reason = "shared integration-test fixture; the benchmark uses part of it"
 )]
 #[path = "../tests/support/mod.rs"]
@@ -74,11 +75,8 @@ fn row(fields: Value) -> Value {
 
 fn workloads(root: &str, wide: &str) -> Vec<Workload> {
     vec![
-        Workload {
-            name: "localFetch 1 row",
-            tool: "localFetch",
-            queries: vec![row(json!({"path": wide, "fullContent": true}))],
-        },
+        // A single read fits its share of the page (its own
+        // `continueWindow` pages the file), so a read never pages alone.
         Workload {
             name: "localFetch 5 rows",
             tool: "localFetch",
@@ -103,10 +101,10 @@ async fn call(runtime: &ToolRuntime, tool: &str, envelope: Value) -> (Value, Dur
     let started = Instant::now();
     let admission = runtime.admit("bench".into()).expect("admitted");
     let outcome = runtime
-        .execute(admission, tool.into(), envelope, Channel::Structured)
+        .execute(admission, tool.into(), envelope, Channel::Cli)
         .await
         .expect("tool call");
-    (outcome.structured_content, started.elapsed())
+    (outcome.structured_content.into_value(), started.elapsed())
 }
 
 /// Eight distinct paged calls: each stores a replay entry, so together they
@@ -116,8 +114,10 @@ async fn evict(runtime: &ToolRuntime, filler: &str) {
         let (structured, _) = call(
             runtime,
             "localFetch",
-            json!({"queries": [row(json!({"path": filler, "matchString": format!("line {i}")}))],
-                "responseLength": 50}),
+            json!({"queries": [
+                    row(json!({"path": filler, "matchString": format!("line {i}")})),
+                    row(json!({"path": filler, "matchString": format!("filler {i}")})),
+                ], "responseLength": 50}),
         )
         .await;
         assert_eq!(
@@ -155,7 +155,8 @@ async fn measure(runtime: &ToolRuntime, workload: &Workload, filler: &str) -> Me
         let (re_executed, elapsed) = call(runtime, workload.tool, next).await;
         assert_ne!(re_executed["responsePagination"]["restart"], true);
         assert_eq!(
-            re_executed["responsePagination"]["snapshot"], pagination["snapshot"],
+            response_of(&re_executed["responsePagination"]),
+            response_of(pagination),
             "re-execution reproduces the same response"
         );
         measured.re_executed.push(elapsed);
@@ -292,4 +293,24 @@ fn main() {
         }
         println!();
     }
+}
+
+/// The saved response a page's cursor names (key, content, scope, page
+/// length: every byte but the offset): `next` carries the cursor while more
+/// is left; the last page names its own in the block.
+fn response_of(pagination: &Value) -> Vec<u8> {
+    use base64::Engine as _;
+    let cursor = match &pagination["next"]["query"]["responseSnapshot"] {
+        Value::Null => &pagination["snapshot"],
+        cursor => cursor,
+    };
+    let encoded = cursor
+        .as_str()
+        .and_then(|cursor| cursor.strip_prefix("saved-v2:"))
+        .expect("a cursor");
+    let mut bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded)
+        .expect("base64url cursor");
+    bytes.truncate(73);
+    bytes
 }

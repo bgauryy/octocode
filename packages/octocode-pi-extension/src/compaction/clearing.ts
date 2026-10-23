@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { CLEARED_RESULTS_TYPE, contextMessages, contextReads, plainText, sessionCleared, toolCallArguments, type MessageRef } from '../files/reads.js';
-import type { FileGuard } from '../files/tool.js';
+import type { FileGuard } from '../files/guard.js';
 import { readOnlyCommand } from '../permission/shell.js';
 import { shortPath } from '../shared/format.js';
 import { canonicalPath, readPaths } from '../shared/home.js';

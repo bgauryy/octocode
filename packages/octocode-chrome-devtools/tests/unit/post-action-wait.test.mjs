@@ -50,7 +50,7 @@ for (const [name, connected, rootText, documentText, expected] of [
     writeFileSync(
       resources,
       JSON.stringify({
-        resources: { 'page-snapshot': { artifactPath: snapshot } },
+        resources: { 'page-snapshot:page': { artifactPath: snapshot } },
       })
     );
     const root = {

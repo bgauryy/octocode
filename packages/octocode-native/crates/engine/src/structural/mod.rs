@@ -32,7 +32,7 @@ use types::StructuralMatch;
 pub use types::{
     FileMatches, StructuralDemand, StructuralDetailedMatch, StructuralDiagnostic,
     StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
-    StructuralSearchFilesOptions,
+    StructuralSearchFilesOptions, WalkErrors,
 };
 
 use crate::signatures::languages;
@@ -41,6 +41,7 @@ use language::AgLanguage;
 use octo::all_matches;
 use octo::{compile_matcher, matches_with_recovery};
 use query::{StructuralQuery, invalid_query_explanation};
+use serde_json::Value;
 
 /// Defense-in-depth cap on content handed to the single-content structural
 /// entry points (`search`, `search_detailed`). The file walker already bounds
@@ -54,13 +55,13 @@ const MAX_STRUCTURAL_CONTENT_BYTES: usize = crate::signatures::MAX_PARSE_SIZE;
 /// `rule` must be `Some`. Production runs [`search_detailed`].
 ///
 /// Returns `Err` for: an unsupported extension, an invalid pattern, invalid
-/// rule YAML, or both/neither query supplied.
+/// rule object, or both/neither query supplied.
 #[cfg(test)]
 pub(crate) fn search(
     content: &str,
     ext: &str,
     pattern: Option<&str>,
-    rule: Option<&str>,
+    rule: Option<&Value>,
 ) -> Result<Vec<StructuralMatch>, String> {
     if content.len() > MAX_STRUCTURAL_CONTENT_BYTES {
         return Err(format!(
@@ -92,6 +93,15 @@ pub fn pattern_declaration(pattern: &str, ext: &str) -> Option<PatternDeclaratio
     octo::pattern_declaration(&AgLanguage::new(entry), pattern)
 }
 
+/// The literals every match of `pattern` (or `rule`) spells, any one of
+/// which a reader can look for a match by; `None` when no literal is
+/// required or the query is malformed.
+pub fn query_anchors(pattern: Option<&str>, rule: Option<&Value>) -> Option<Vec<String>> {
+    query::StructuralQuery::new(pattern, rule)
+        .ok()?
+        .recovery_anchors()
+}
+
 /// A single-content result that ends before any match: `status` with one
 /// `diagnostic` saying why.
 fn no_matches(
@@ -118,7 +128,7 @@ pub fn search_detailed(
     file_path: &str,
     extension: Option<&str>,
     pattern: Option<&str>,
-    rule: Option<&str>,
+    rule: Option<&Value>,
 ) -> StructuralSearchDetailedResult {
     let extension = extension.map_or_else(
         || crate::text::file_extension::extension_of(file_path, true, "txt"),
@@ -132,7 +142,7 @@ pub(crate) fn evaluate_source(
     file_path: &str,
     ext: &str,
     pattern: Option<&str>,
-    rule: Option<&str>,
+    rule: Option<&Value>,
 ) -> StructuralSearchDetailedResult {
     if content.len() > MAX_STRUCTURAL_CONTENT_BYTES {
         let diagnostic = StructuralDiagnostic::new(
@@ -232,5 +242,4 @@ pub(crate) fn evaluate_source(
 }
 
 #[cfg(test)]
-#[path = "mod_tests.rs"]
 mod tests;

@@ -1,13 +1,31 @@
 #!/usr/bin/env node
 
-import { spawn, execSync, execFileSync } from 'child_process';
+import { spawn } from 'child_process';
 import { platform } from 'os';
-import { existsSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'fs';
-import { join, resolve } from 'path';
-import { getOctocodeHome, propagateOctocodeEnv } from './octocode-config.mjs';
+import { existsSync, writeFileSync, rmSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { browserMajorVersion, planRealProfile } from './real-profile.mjs';
 import { flagArgs } from './cli-flags.mjs';
-import { cdpHttp } from './engine-io.mjs';
+import {
+  findChrome,
+  removeDirWithRetry,
+  waitForExit,
+} from './browser-process.mjs';
+import {
+  STATE_SUBPATH,
+  checkRunning,
+  discoverListenerSession,
+  processMatchesTrackedSession,
+  profileDirIn,
+  readSession,
+  sessionFileIn,
+} from './browser-session.mjs';
+import {
+  chromeLaunchArgs,
+  effectiveProxy,
+  loadProxyConfig,
+} from './browser-launch-config.mjs';
 
 const argv = process.argv.slice(2);
 const { getArg, hasFlag } = flagArgs(argv);
@@ -67,214 +85,10 @@ propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 // Every isolated profile and session file lives at
 // <workspace>/.octocode/octocode-chrome-devtools/tmp/browser-state/, keyed by port.
-const STATE_SUBPATH = [
-  '.octocode',
-  'octocode-chrome-devtools',
-  'tmp',
-  'browser-state',
-];
-const sessionFileIn = stateDir => join(stateDir, `cdp-session-${PORT}.json`);
-const profileDirIn = stateDir => join(stateDir, `cdp-chrome-profile-${PORT}`);
-
 const WORKSPACE = process.cwd();
 const CHROME_STATE_DIR = join(WORKSPACE, ...STATE_SUBPATH);
-const SESSION_FILE = sessionFileIn(CHROME_STATE_DIR);
-const HEADLESS_PROFILE_DIR = profileDirIn(CHROME_STATE_DIR);
-
-function readJsonFile(filePath, { strict = false } = {}) {
-  if (!filePath || !existsSync(filePath)) return null;
-  try {
-    return JSON.parse(readFileSync(filePath, 'utf8'));
-  } catch (jsonErr) {
-    if (strict)
-      err(`Invalid JSON in config file: ${filePath} (${jsonErr.message})`);
-    console.error(
-      `[BROWSER] Warning: ignoring invalid JSON config ${filePath}: ${jsonErr.message}`
-    );
-    return null;
-  }
-}
-
-function normalizeProxyConfig(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const enabled = raw.enabled;
-  const server = typeof raw.server === 'string' ? raw.server.trim() : '';
-  const bypassList =
-    typeof raw.bypassList === 'string' ? raw.bypassList.trim() : '';
-  const pacUrl = typeof raw.pacUrl === 'string' ? raw.pacUrl.trim() : '';
-  return {
-    enabled: enabled === undefined ? true : Boolean(enabled),
-    server,
-    bypassList,
-    pacUrl,
-  };
-}
-
-function loadProxyConfig() {
-  const cwdConfig = join(process.cwd(), '.octocode', 'chrome-devtools.json');
-  const homeConfig = join(getOctocodeHome(), 'config.json');
-  if (CONFIG_PATH && !existsSync(CONFIG_PATH))
-    err(`Config file not found: ${CONFIG_PATH}`);
-  const candidateFiles = CONFIG_PATH ? [CONFIG_PATH] : [cwdConfig, homeConfig];
-
-  for (const configFile of candidateFiles) {
-    const json = readJsonFile(configFile, { strict: Boolean(CONFIG_PATH) });
-    if (!json || typeof json !== 'object') continue;
-
-    const candidates = [
-      json?.proxy,
-      json?.chromeDevtools?.proxy,
-      json?.skills?.['octocode-chrome-devtools']?.proxy,
-    ];
-    for (const candidate of candidates) {
-      const normalized = normalizeProxyConfig(candidate);
-      if (normalized) return normalized;
-    }
-  }
-  return null;
-}
-
-function findChrome() {
-  if (platform() === 'darwin') {
-    const candidates = [
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-      '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-    ];
-    return candidates.find(p => existsSync(p)) ?? null;
-  }
-  if (platform() === 'linux') {
-    for (const bin of [
-      'google-chrome',
-      'google-chrome-stable',
-      'chromium-browser',
-      'chromium',
-    ]) {
-      try {
-        execSync(`which ${bin}`, { stdio: 'ignore' });
-        return bin;
-      } catch {}
-    }
-  }
-  if (platform() === 'win32') {
-    const candidates = [
-      `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env.PROGRAMFILES}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env['PROGRAMFILES(X86)']}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env.LOCALAPPDATA}\\Chromium\\Application\\chrome.exe`,
-    ];
-    return candidates.find(p => p && existsSync(p)) ?? null;
-  }
-  return null;
-}
-
-async function checkRunning() {
-  try {
-    return await cdpHttp(PORT, '/json/version', { timeoutMs: 2000 });
-  } catch {
-    return null;
-  }
-}
-
-function readSession(sessionFile = SESSION_FILE) {
-  try {
-    return JSON.parse(readFileSync(sessionFile, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-// The OS pid of the browser process serving this CDP endpoint.
-async function browserPid(wsUrl, timeoutMs = 3000): Promise<number | null> {
-  if (typeof wsUrl !== 'string' || !wsUrl) return null;
-  return new Promise<number | null>(resolvePid => {
-    let socket;
-    const done = pid => {
-      clearTimeout(timer);
-      try {
-        socket?.close();
-      } catch {}
-      resolvePid(pid);
-    };
-    const timer = setTimeout(() => done(null), timeoutMs);
-    try {
-      socket = new WebSocket(wsUrl);
-    } catch {
-      return done(null);
-    }
-    socket.onopen = () =>
-      socket.send(
-        JSON.stringify({ id: 1, method: 'SystemInfo.getProcessInfo' })
-      );
-    socket.onerror = () => done(null);
-    socket.onclose = () => done(null);
-    socket.onmessage = event => {
-      try {
-        const message = JSON.parse(String(event.data));
-        if (message.id !== 1) return;
-        const browser = message.result?.processInfo?.find(
-          info => info.type === 'browser'
-        );
-        done(Number.isSafeInteger(browser?.id) ? browser.id : null);
-      } catch {
-        done(null);
-      }
-    };
-  });
-}
-
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// The isolated profile this package created for PORT, read from a Chrome
-// command line: <workspace>/.octocode/octocode-chrome-devtools/tmp/browser-state/cdp-chrome-profile-<PORT>.
-function packageProfileFromCommand(command) {
-  const sep = '[\\\\/]';
-  const suffix = [...STATE_SUBPATH, `cdp-chrome-profile-${PORT}`]
-    .map(escapeRegExp)
-    .join(sep);
-  const match = command.match(
-    new RegExp(`--user-data-dir=(.+?)${sep}${suffix}(?=["\\s]|$)`)
-  );
-  // A lazy match must not span into another flag's value.
-  if (!match || /\s--/.test(match[1])) return null;
-  const workspace = match[1].replace(/^"/, '');
-  const stateDir = join(workspace, ...STATE_SUBPATH);
-  return { workspace, stateDir, profileDir: profileDirIn(stateDir) };
-}
-
-// Finds the workspace that launched the Chrome listening on PORT, when it is an
-// isolated profile this package created. Returns its session for the normal
-// verified cleanup; never trusts the listener alone.
-async function discoverListenerSession(info): Promise<{
-  reason?: string;
-  listenerPid?: number;
-  workspace?: string;
-  sessionFile?: string;
-  session?: any;
-}> {
-  const running = info ?? (await checkRunning());
-  if (!running) return { reason: 'NO_LISTENER' };
-  const pid = await browserPid(running.webSocketDebuggerUrl);
-  if (!pid) return { reason: 'LISTENER_PID_UNKNOWN' };
-  const owner = packageProfileFromCommand(getProcessCommand(pid));
-  if (!owner) return { listenerPid: pid, reason: 'NOT_PACKAGE_PROFILE' };
-  const sessionFile = sessionFileIn(owner.stateDir);
-  const session = readSession(sessionFile);
-  if (
-    !session ||
-    String(session.port) !== String(PORT) ||
-    resolve(String(session.profileDir ?? '')) !== resolve(owner.profileDir)
-  )
-    return {
-      listenerPid: pid,
-      workspace: owner.workspace,
-      reason: 'NO_SESSION_FILE',
-    };
-  return { listenerPid: pid, workspace: owner.workspace, sessionFile, session };
-}
+const SESSION_FILE = sessionFileIn(CHROME_STATE_DIR, PORT);
+const HEADLESS_PROFILE_DIR = profileDirIn(CHROME_STATE_DIR, PORT);
 
 function writeSession(pid) {
   writeFileSync(
@@ -292,77 +106,12 @@ function writeSession(pid) {
   );
 }
 
-function getProcessCommand(pid) {
-  const pidText = String(pid);
-  if (!/^\d+$/.test(pidText)) return '';
-  try {
-    if (platform() === 'darwin' || platform() === 'linux') {
-      return execFileSync('ps', ['-p', pidText, '-o', 'command='], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-    }
-    if (platform() === 'win32') {
-      return execFileSync(
-        'powershell.exe',
-        [
-          '-NoProfile',
-          '-Command',
-          `(Get-CimInstance Win32_Process -Filter "ProcessId=${pidText}").CommandLine`,
-        ],
-        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
-      ).trim();
-    }
-  } catch {}
-  return '';
-}
-
-function processMatchesTrackedSession(session) {
-  // Cleanup only kills Chrome instances launched with this exact CDP port and
-  // isolated profile path; never trust a stale pid file alone.
-  const command = getProcessCommand(session.pid);
-  if (!command) return false;
-
-  const isChrome =
-    /Chrome|Chromium|Brave Browser|chrome|chromium|chrome\.exe/i.test(command);
-  const hasPort = command.includes(`--remote-debugging-port=${session.port}`);
-  const hasProfile = session.profileDir && command.includes(session.profileDir);
-
-  return isChrome && hasPort && hasProfile;
-}
-
-async function waitForExit(pid, timeoutMs = 3000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      process.kill(pid, 0);
-      await new Promise(r => setTimeout(r, 100));
-    } catch {
-      return true;
-    }
-  }
-  return false;
-}
-
-async function removeDirWithRetry(dir) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-      if (!existsSync(dir)) return true;
-    } catch (e) {
-      if (attempt === 4) throw e;
-    }
-    await new Promise(r => setTimeout(r, 200));
-  }
-  return !existsSync(dir);
-}
-
 async function cleanupSession() {
-  let session = readSession();
+  let session = readSession(SESSION_FILE);
   let sessionFile = SESSION_FILE;
   let owner: Record<string, unknown> = { workspace: WORKSPACE, sessionFile };
   if (!session) {
-    const found = await discoverListenerSession(null);
+    const found = await discoverListenerSession(null, PORT);
     if (!found.session) {
       console.error(
         `[BROWSER] No tracked session found for port ${PORT} (${found.reason})`
@@ -468,19 +217,23 @@ if (REAL_PROFILE && HEADLESS)
     '--profile drives the real profile in a visible window; drop --headless, or drop --profile for an isolated headless session.'
   );
 
-const proxyConfig = loadProxyConfig();
-const effectiveProxyServer =
-  PROXY_SERVER || (proxyConfig?.enabled ? proxyConfig.server : '');
-const effectiveProxyBypassList =
-  PROXY_BYPASS_LIST || (proxyConfig?.enabled ? proxyConfig.bypassList : '');
-const effectiveProxyPacUrl =
-  PROXY_PAC_URL || (proxyConfig?.enabled ? proxyConfig.pacUrl : '');
-const proxyRequested = Boolean(effectiveProxyServer || effectiveProxyPacUrl);
+const proxy = effectiveProxy(
+  {
+    server: PROXY_SERVER,
+    bypassList: PROXY_BYPASS_LIST,
+    pacUrl: PROXY_PAC_URL,
+  },
+  loadProxyConfig(CONFIG_PATH, {
+    fail: err,
+    warn: line => console.error(line),
+  })
+);
+const proxyRequested = Boolean(proxy.server || proxy.pacUrl);
 
-const existing = await checkRunning();
+const existing = await checkRunning(PORT);
 if (existing) {
   // Report which workspace's isolated session owns the reused browser, if any.
-  const owner = await discoverListenerSession(existing);
+  const owner = await discoverListenerSession(existing, PORT);
   const notApplied = [
     proxyRequested && 'proxy settings',
     ENABLE_FEATURES && '--enableFeatures',
@@ -553,32 +306,19 @@ if (REAL_PROFILE) {
     );
 }
 
-const chromeArgs = [
-  `--remote-debugging-port=${PORT}`,
-  `--user-data-dir=${userDataDir}`,
-  '--no-first-run',
-  '--no-default-browser-check',
-  '--disable-background-mode',
-];
-
-if (!usingIsolatedProfile)
-  chromeArgs.push(`--profile-directory=${PROFILE}`, '--restore-last-session');
-if (HEADLESS) chromeArgs.push('--headless=new', '--disable-dev-shm-usage');
-if (HEADLESS && platform() === 'linux') chromeArgs.push('--disable-gpu');
-if (HEADLESS && platform() === 'linux')
-  chromeArgs.push('--no-sandbox', '--disable-setuid-sandbox');
-if (USER_AGENT) chromeArgs.push(`--user-agent=${USER_AGENT}`);
-if (WINDOW_SIZE) {
-  chromeArgs.push(`--window-size=${WINDOW_SIZE.replace('x', ',')}`);
-}
-if (ENABLE_FEATURES) chromeArgs.push(`--enable-features=${ENABLE_FEATURES}`);
-if (effectiveProxyServer)
-  chromeArgs.push(`--proxy-server=${effectiveProxyServer}`);
-if (effectiveProxyBypassList)
-  chromeArgs.push(`--proxy-bypass-list=${effectiveProxyBypassList}`);
-if (effectiveProxyPacUrl && !effectiveProxyServer)
-  chromeArgs.push(`--proxy-pac-url=${effectiveProxyPacUrl}`);
-if (URL_ARG) chromeArgs.push(URL_ARG);
+const chromeArgs = chromeLaunchArgs({
+  port: PORT,
+  userDataDir,
+  isolated: usingIsolatedProfile,
+  profile: PROFILE,
+  headless: HEADLESS,
+  os: platform(),
+  userAgent: USER_AGENT,
+  windowSize: WINDOW_SIZE,
+  enableFeatures: ENABLE_FEATURES,
+  proxy,
+  url: URL_ARG,
+});
 
 const profileLabel = HEADLESS
   ? 'headless'
@@ -600,7 +340,7 @@ if (usingIsolatedProfile) writeSession(child.pid);
 let attempts = 0;
 while (attempts < 40) {
   await new Promise(r => setTimeout(r, 500));
-  const info = await checkRunning();
+  const info = await checkRunning(PORT);
   if (info) {
     ok({
       status: 'BROWSER_READY',

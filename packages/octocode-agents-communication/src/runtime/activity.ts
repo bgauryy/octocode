@@ -19,7 +19,7 @@ import { realpath } from './paths.js';
 import { isWithin, relativePath } from './store-types.js';
 import { codePointLength, compareCodePoints, truncateCodePoints } from './text.js';
 import { monotonic, now } from './timing.js';
-import { decodeUtf8, encode } from './wire.js';
+import { decodeUtf8, encode } from './json-text.js';
 
 type Item = CommandResults['activity']['items'][number];
 type FileItem = Extract<Item, { indexState: string }>;

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { contract, expand, golden, runtime } from './golden-support.ts';
 import type { JsonRecord } from './json-record.ts';
 
-const { catalog, paths, timing, unicode16, validation, wire, workspace, VERSION, ValidationError } = runtime;
+const { catalog, jsonText, paths, timing, unicode16, validation, workspace, VERSION, ValidationError } = runtime;
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 
 const scratch = (t: TestContext) => {
@@ -57,7 +57,7 @@ test('lease keys, ancestors and overlap equal the recorded reference output', ()
 });
 
 test("the Pi extension's generated fold table is the same data and folds the same keys", () => {
-  const source = readFileSync(join(repository, 'packages/octocode-pi-extension/src/team/casefold-table.ts'), 'utf8');
+  const source = readFileSync(join(repository, 'packages/octocode-pi-extension/src/team/casefold-table.generated.ts'), 'utf8');
   const table = source.match(/CASE_FOLDING = `([^`]*)`/);
   assert.ok(table, 'the Pi fold table declares CASE_FOLDING');
   const piTable = new Map(table[1].trim().split('\n').map(line => {
@@ -221,7 +221,7 @@ test('every catalog pattern compiles as a JavaScript RegExp with the u flag', ()
 
 // ---- catalog ---------------------------------------------------------------------------------------------------
 
-const same = (actual: unknown, expected: unknown) => assert.equal(wire.dumps(actual, { sortKeys: true }), wire.dumps(expected, { sortKeys: true }));
+const same = (actual: unknown, expected: unknown) => assert.equal(jsonText.dumps(actual, { sortKeys: true }), jsonText.dumps(expected, { sortKeys: true }));
 
 test('the catalog, tool selection, help and skill text equal the recorded reference output', () => {
   const expected = golden.catalog;

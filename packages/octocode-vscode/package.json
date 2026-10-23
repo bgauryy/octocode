@@ -80,8 +80,7 @@
     "@types/vscode": "1.107.0",
     "@vitest/coverage-v8": "^5.0.4",
     "esbuild": "^0.28.2",
-    "eslint": "^10.12.0",
-    "typescript": "^6.0.3",
+    "prettier": "^3.9.10",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"
   },
@@ -131,12 +130,12 @@
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "format": "eslint src --fix",
-    "lint": "eslint src",
+    "format": "prettier --write src",
+    "lint": "prettier --check src && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
     "package": "npx -y @vscode/vsce@3.9.2 package --allow-missing-repository --no-dependencies",
     "publish": "npx -y @vscode/vsce@3.9.2 publish",
     "test": "vitest run --coverage",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "yarn run -T tsgo --noEmit",
     "verify": "yarn lint && yarn typecheck && yarn test && yarn build",
     "vscode:prepublish": "yarn build"
   }

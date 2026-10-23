@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { archiveFolder, ownArchives, readRecordHeader, readSegments, RECORD_FILE, segmentFiles, sessionLineage, type RecordHeader, type Segment } from './archive.js';
+import { archiveFolder, ownArchives, readSegments, RECORD_FILE, segmentFiles, sessionLineage, type Segment } from './archive.js';
+import { readRecordHeader, type RecordHeader } from './session-record.js';
 import { PARENT_SESSION_ENV } from './env.js';
 import { canonicalPath, isWithin, repoKey, sessionsRoot } from './home.js';
 

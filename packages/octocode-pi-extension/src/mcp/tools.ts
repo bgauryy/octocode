@@ -1,7 +1,8 @@
 import type { AgentToolResult, ToolAnnotations as PiToolAnnotations, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { toLlmContent, type CallToolResult, type Tool } from '@earendil-works/pi-mcp';
 import type { TSchema } from 'typebox';
-import { clip, queryTarget, resultBlock, resultText, timedTool, timingOf, toolHeader } from '../shared/render.js';
+import { clip, queryTarget, resultBlock, resultText, toolHeader } from '../shared/render.js';
+import { timedTool, timingOf } from '../shared/tool-timing.js';
 import { visibleControls } from '../shared/sanitize.js';
 import { boundImagePart, capOutputToFile } from '../shared/spill.js';
 import { isRecord } from '../shared/util.js';

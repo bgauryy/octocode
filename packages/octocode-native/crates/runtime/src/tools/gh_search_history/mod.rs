@@ -2,7 +2,6 @@
 //!
 //! The transport revalidates mutable REST listings and caches complete indexed
 //! search pages within its volatile TTL. Incomplete search pages are not cached.
-mod errors;
 mod filters;
 mod leads;
 mod query;
@@ -16,7 +15,6 @@ use crate::num::usize_of;
 use crate::response::paging::clamp_page_size;
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::field_names;
-pub(crate) use errors::history_failure;
 use filters::Filters;
 pub use octocode_contract_types::GhSearchHistoryQuery;
 use octocode_github::{

@@ -26,14 +26,10 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
         !missing["isPartial"].as_bool().unwrap_or(false),
         "{missing}"
     );
-    // The per-call fact only; the node shape is the viewTree lead.
+    // The coverage is stated by fields; the node shape is the viewSyntax lead.
+    assert!(missing.get("hints").is_none(), "{missing}");
     assert_eq!(
-        missing["hints"],
-        json!(["0 matches in 1 typescript file."]),
-        "{missing}"
-    );
-    assert_eq!(
-        missing["next"]["viewTree"]["query"]["queries"][0]["operation"], "syntaxTree",
+        missing["next"]["viewSyntax"]["query"]["queries"][0]["operation"], "syntaxTree",
         "{missing}"
     );
 
@@ -324,7 +320,8 @@ fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
     assert!(none["next"].get("broadenSearch").is_none(), "{none}");
 }
 
-/// A rule that does not parse as a rule (an unknown key, malformed YAML) is
+/// A rule object that does not decode as a rule (a bad regex, a relation
+/// key without a matcher) is
 /// `invalidPattern` with no lead: the message names the key, and no syntax
 /// tree shows a rule's keys. A rule naming a kind this grammar lacks, or a
 /// pattern that does not compile, still leads to the file's syntax tree,
@@ -334,7 +331,10 @@ fn rule_parse_errors_carry_no_tree_lead() {
     let root = Fixture::new();
     let source = root.0.join("lib.rs");
     std::fs::write(&source, "fn a() {}\n").expect("source");
-    for rule in ["rule:\n  kindx: function_item\n", "pattern: [\nnot: yaml"] {
+    for (rule, message) in [
+        (json!({"regex":"("}), "invalid rule regex"),
+        (json!({"has":{"field":"name"}}), "at least one matcher"),
+    ] {
         for path in [&source, &root.0] {
             let error = run(
                 &root.0,
@@ -343,7 +343,7 @@ fn rule_parse_errors_carry_no_tree_lead() {
             )
             .expect_err("invalid rule");
             assert_eq!(error.code, ErrorCode::InvalidPattern, "{rule}: {error:?}");
-            assert!(error.message.contains("invalid rule YAML"), "{error:?}");
+            assert!(error.message.contains(message), "{error:?}");
             assert!(!error.message.starts_with('['), "{error:?}");
             assert!(error.hints.is_empty(), "{error:?}");
             assert!(error.next.is_none(), "{rule}: {error:?}");
@@ -355,14 +355,14 @@ fn rule_parse_errors_carry_no_tree_lead() {
     let error = run(
         &root.0,
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,
-            "rule":"kindx: function_item"}),
+            "rule":{"regex":"("}}),
     )
     .expect_err("invalid rule");
     assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
-    assert!(error.message.contains("unknown field `kindx`"), "{error:?}");
+    assert!(error.message.contains("invalid rule regex"), "{error:?}");
     assert!(error.next.is_none(), "{error:?}");
     for query in [
-        json!({"rule":"kind: not_a_real_kind"}),
+        json!({"rule":{"kind":"not_a_real_kind"}}),
         json!({"pattern":"fn ???"}),
     ] {
         let mut row =
@@ -372,9 +372,9 @@ fn rule_parse_errors_carry_no_tree_lead() {
             .extend(query.as_object().expect("object").clone());
         let error = run(&root.0, row).expect_err("does not compile");
         assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
-        let next = error.next.as_ref().expect("viewTree");
+        let next = error.next.as_ref().expect("viewSyntax");
         assert_eq!(
-            next["viewTree"]["query"]["queries"][0]["path"],
+            next["viewSyntax"]["query"]["queries"][0]["path"],
             json!(source.canonicalize().expect("source").to_string_lossy()),
             "{next}"
         );
@@ -436,22 +436,15 @@ fn macro_rules_template_bodies_are_listed() {
     assert_eq!(lines, [3, 7], "{out}");
 }
 
-/// Every spelling of one rule selects the nodes the bare rule object does:
-/// its YAML text, the rule-file YAML (`rule:` wrapper), the rule-file object
-/// `{rule: …}`, and the JSON text of that object (valid YAML).
+/// A rule is the object alone: the object runs, and neither its text nor a
+/// rule-file wrapper (`{rule: …}`) is a rule.
 #[test]
-fn every_rule_spelling_matches_like_the_bare_rule() {
+fn a_rule_is_the_object_alone() {
     let root = Fixture::new();
     root.write("lib.rs", "fn a() { unsafe { Pin::new_unchecked(&mut x); } }\nfn b() { Pin::new_unchecked(&mut y); }\n");
     let bare = json!({"pattern":"Pin::new_unchecked($A)","not":{"inside":{"kind":"unsafe_block","stopBy":"end"}}});
-    let run_rule = |rule: serde_json::Value| {
-        run(
-            &root.0,
-            json!({"operation":"match","path":root.0,"language":"rust","rule":rule}),
-        )
-        .expect("the rule runs")
-    };
-    let expected = run_rule(bare.clone());
+    let row = |rule: serde_json::Value| json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"rust","rule":rule});
+    let expected = run(&root.0, row(bare.clone())).expect("the rule runs");
     assert_eq!(
         expected["files"][0]["matches"].as_array().map(Vec::len),
         Some(1),
@@ -462,49 +455,35 @@ fn every_rule_spelling_matches_like_the_bare_rule() {
         2,
         "{expected}"
     );
+    crate::contracts::validate_query("astSearch", row(bare.clone()))
+        .expect("the rule object is in contract");
     for (spelling, rule) in [
-        (
-            "YAML text",
-            json!(
-                "pattern: Pin::new_unchecked($A)\nnot:\n  inside:\n    kind: unsafe_block\n    stopBy: end"
-            ),
-        ),
-        (
-            "rule-file YAML",
-            json!(
-                "id: pin\nlanguage: rust\nrule:\n  pattern: Pin::new_unchecked($A)\n  not:\n    inside:\n      kind: unsafe_block\n      stopBy: end"
-            ),
-        ),
+        ("rule text", json!(bare.to_string())),
         ("rule-file object", json!({ "rule": bare })),
-        (
-            "rule-file JSON text",
-            json!(json!({ "rule": bare }).to_string()),
-        ),
+        ("rule-file text", json!(json!({ "rule": bare }).to_string())),
     ] {
-        let out = run_rule(rule);
-        assert_eq!(out["files"], expected["files"], "{spelling}: {out}");
+        assert!(
+            crate::contracts::validate_query("astSearch", row(rule)).is_err(),
+            "{spelling} is not a rule"
+        );
     }
 }
 
-/// An empty match counts the files it parsed and leads to the syntax
-/// tree of the first, where the pattern's node shape can be compared.
+/// An empty match counts the files it parsed and leads to one bounded page
+/// of the first one's syntax tree, at the line that spells the pattern's
+/// anchor, where the pattern's node shape can be compared.
 #[test]
-fn empty_match_hint_leads_to_syntax_tree() {
+fn empty_match_leads_to_syntax_tree() {
     let root = Fixture::new();
-    root.write("a.rs", "fn alpha() { beta(1); }\n");
+    root.write("a.rs", "fn gamma() {}\n\nfn alpha() {\n    beta(1);\n}\n");
     let out = run(
         &root.0,
         json!({"operation":"match","path":root.0,"language":"rust","pattern":"beta($A, $B)"}),
     )
     .expect("match");
     assert_eq!(out["status"], "empty", "{out}");
-    assert!(
-        out["hints"][0]
-            .as_str()
-            .is_some_and(|text| text.starts_with("0 matches in 1 rust file.")),
-        "{out}"
-    );
-    let lead = &out["next"]["viewTree"];
+    assert_eq!(out["filesScanned"], 1, "{out}");
+    let lead = &out["next"]["viewSyntax"];
     assert_eq!(lead["tool"], "astSearch", "{out}");
     let row = &lead["query"]["queries"][0];
     assert_eq!(row["operation"], "syntaxTree", "{out}");
@@ -514,7 +493,16 @@ fn empty_match_hint_leads_to_syntax_tree() {
             .is_some_and(|path| path.ends_with("a.rs")),
         "{out}"
     );
+    assert_eq!(row["line"], 4, "{out}");
+    assert_eq!(row["pageSize"], 40, "{out}");
     crate::contracts::validate_query("astSearch", row.clone()).expect("a valid syntaxTree row");
+    let tree = run(&root.0, row.clone()).expect("syntax tree");
+    assert!(
+        tree["nodes"][0]
+            .as_str()
+            .is_some_and(|node| node.contains("expression_statement 4:")),
+        "{tree}"
+    );
 }
 
 /// Repairable failures carry their one lead and no advice text: a rule
@@ -528,14 +516,14 @@ fn repairable_failures_carry_one_lead() {
     std::fs::write(&file, "fn a() {}\n").expect("a");
     let error = run(
         &root.0,
-        json!({"operation":"match","path":file,"rule":"kind: not_a_real_kind"}),
+        json!({"operation":"match","path":file,"rule":{"kind":"not_a_real_kind"}}),
     )
     .expect_err("unknown kind");
     assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     assert!(error.hints.is_empty(), "{error:?}");
     let next = error.next.as_ref().expect("lead");
     assert_eq!(
-        next["viewTree"]["query"]["queries"][0]["operation"], "syntaxTree",
+        next["viewSyntax"]["query"]["queries"][0]["operation"], "syntaxTree",
         "{next}"
     );
 
@@ -568,7 +556,7 @@ fn a_recovered_syntax_tree_names_its_terminal_cut() {
 }
 
 #[test]
-fn owned_core_context_and_field_rules_run_as_objects_and_text() {
+fn owned_core_context_and_field_rules_run_as_objects() {
     let root = Fixture::new();
     let file = root.write(
         "fields.ts",
@@ -578,14 +566,12 @@ fn owned_core_context_and_field_rules_run_as_objects_and_text() {
     let field = json!({"kind":"function_declaration","has":{"kind":"identifier","regex":"^name$","field":"name"}});
     for (rule, expected) in [(contextual, 2), (field, 1)] {
         for path in [&file, &root.0] {
-            for spelling in [rule.clone(), json!({"rule":rule}), json!(rule.to_string())] {
-                let out = run(
-                    &root.0,
-                    json!({"path":path,"operation":"match","rule":spelling,"captureText":true}),
-                )
-                .expect("owned rule");
-                assert_eq!(out["matchCount"], expected, "{out}");
-            }
+            let out = run(
+                &root.0,
+                json!({"path":path,"operation":"match","rule":rule,"captureText":true}),
+            )
+            .expect("owned rule");
+            assert_eq!(out["matchCount"], expected, "{out}");
         }
     }
 }

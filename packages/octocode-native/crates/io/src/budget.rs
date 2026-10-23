@@ -76,25 +76,121 @@ impl RequestBudget {
 
     /// Cancellation first, then the deadline.
     pub fn check(&self) -> Result<(), BudgetStop> {
-        if self.cancellation.is_cancelled() {
-            return Err(BudgetStop::Cancelled);
-        }
-        if Instant::now() >= self.effective_deadline() {
-            return Err(BudgetStop::Deadline);
-        }
-        Ok(())
+        check_until(self.effective_deadline(), &self.cancellation)
     }
 
     /// `future`'s output, unless the budget is cancelled or its deadline
     /// passes first.
     pub async fn wait<T>(&self, future: impl Future<Output = T>) -> Result<T, BudgetStop> {
-        self.check()?;
-        let remaining = self
-            .effective_deadline()
-            .saturating_duration_since(Instant::now());
-        tokio::select! {
-            _ = self.cancellation.cancelled() => Err(BudgetStop::Cancelled),
-            value = tokio::time::timeout(remaining, future) => value.map_err(|_| BudgetStop::Deadline),
-        }
+        wait_until(self.effective_deadline(), &self.cancellation, future).await
+    }
+}
+
+fn check_until(deadline: Instant, cancellation: &CancellationToken) -> Result<(), BudgetStop> {
+    if cancellation.is_cancelled() {
+        return Err(BudgetStop::Cancelled);
+    }
+    if Instant::now() >= deadline {
+        return Err(BudgetStop::Deadline);
+    }
+    Ok(())
+}
+
+/// `future`'s output, unless `cancellation` fires or `deadline` passes first.
+/// The one wait every budgeted await runs through.
+pub async fn wait_until<T>(
+    deadline: Instant,
+    cancellation: &CancellationToken,
+    future: impl Future<Output = T>,
+) -> Result<T, BudgetStop> {
+    check_until(deadline, cancellation)?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(BudgetStop::Cancelled),
+        value = tokio::time::timeout(remaining, future) => value.map_err(|_| BudgetStop::Deadline),
+    }
+}
+
+/// Sleep `delay`, unless `cancellation` fires first. Fails fast with
+/// [`BudgetStop::Deadline`] instead of sleeping when the sleep would end at
+/// or past `deadline`: unlike [`wait_until`], it never starts a wait it
+/// cannot finish.
+pub async fn pause(
+    delay: Duration,
+    deadline: Instant,
+    cancellation: &CancellationToken,
+) -> Result<(), BudgetStop> {
+    if cancellation.is_cancelled() {
+        return Err(BudgetStop::Cancelled);
+    }
+    if Instant::now() + delay >= deadline {
+        return Err(BudgetStop::Deadline);
+    }
+    if delay.is_zero() {
+        return Ok(());
+    }
+    wait_until(deadline, cancellation, tokio::time::sleep(delay)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_pause_that_would_pass_the_deadline_fails_without_sleeping() {
+        let token = CancellationToken::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let started = Instant::now();
+        assert_eq!(
+            pause(Duration::from_secs(60), deadline, &token).await,
+            Err(BudgetStop::Deadline)
+        );
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn a_pause_inside_the_deadline_sleeps_the_delay() {
+        let token = CancellationToken::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let started = Instant::now();
+        assert_eq!(
+            pause(Duration::from_millis(40), deadline, &token).await,
+            Ok(())
+        );
+        assert!(started.elapsed() >= Duration::from_millis(40));
+        assert_eq!(pause(Duration::ZERO, deadline, &token).await, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_token_stops_a_pause_before_and_during_the_sleep() {
+        let token = CancellationToken::new();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let sleeping = pause(Duration::from_secs(30), deadline, &token);
+        let cancel = async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            token.cancel();
+        };
+        let (stopped, ()) = tokio::join!(sleeping, cancel);
+        assert_eq!(stopped, Err(BudgetStop::Cancelled));
+        assert_eq!(
+            pause(Duration::ZERO, deadline, &token).await,
+            Err(BudgetStop::Cancelled)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_budget_wait_ends_at_its_deadline_or_cancellation() {
+        let budget = RequestBudget::with_timeout(Duration::from_millis(30), 0);
+        assert_eq!(
+            budget.wait(std::future::pending::<()>()).await,
+            Err(BudgetStop::Deadline)
+        );
+        assert_eq!(budget.check(), Err(BudgetStop::Deadline));
+        let cancelled = RequestBudget::with_timeout(Duration::from_secs(30), 0);
+        cancelled.cancellation.cancel();
+        assert_eq!(
+            cancelled.wait(async { 1 }).await,
+            Err(BudgetStop::Cancelled)
+        );
     }
 }

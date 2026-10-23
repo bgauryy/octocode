@@ -9,8 +9,12 @@ include!("../src/tools/test_support/production_source.rs");
 
 /// Production files allowed a non-recovering lock, each with its reason.
 const ALLOWED: &[&str] = &[
-    // The walk marks itself abandoned and quits: an explicit failure, not a skip.
+    // `lsp_search/scope.rs` and its split children, allowed as one file before
+    // the split. The walk marks itself abandoned and quits: an explicit
+    // failure, not a skip.
     "runtime/src/tools/lsp_search/scope.rs",
+    "runtime/src/tools/lsp_search/scope/scan.rs",
+    "runtime/src/tools/lsp_search/scope/text.rs",
 ];
 
 /// A guard taken from `lock()`, `read()` or `write()` whose `Err` (a

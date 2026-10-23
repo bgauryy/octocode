@@ -45,7 +45,7 @@ impl PartialResultStore {
         let Some(buffer) = buffers.get_mut(token) else {
             return;
         };
-        let bytes = crate::json_size::bytes(&value).unwrap_or(MAX_PARTIAL_RESULT_BYTES + 1);
+        let bytes = crate::json_size::bytes_or(&value, usize::MAX);
         if buffer.bytes.saturating_add(bytes) > MAX_PARTIAL_RESULT_BYTES {
             buffer.overflowed = true;
             return;

@@ -278,7 +278,8 @@ async function readBytesCapped(response: Response): Promise<{ bytes: Buffer; tru
  */
 export function decodeBody(bytes: Uint8Array, contentType: string, cut = false): string {
   const label = bomCharset(bytes) ?? charsetParameter(contentType) ?? (contentType.includes('html') ? metaCharset(bytes) : undefined);
-  let decoder: TextDecoder;
+  // Node's global TextDecoder is a value; its instance type is the decoder.
+  let decoder: InstanceType<typeof TextDecoder>;
   try {
     decoder = new TextDecoder(label ?? 'utf-8');
   } catch {

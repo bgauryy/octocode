@@ -376,18 +376,14 @@ export async function verifyStealth(cdp) {
     ],
   ];
 
-  let passed = 0,
-    failed = 0;
   const failures = [];
-  for (const [name, ok, msg] of checks) {
-    if (ok) {
-      passed++;
-    } else {
+  for (const [name, ok, msg] of checks)
+    if (!ok) {
       console.log(`[FINDING] STEALTH_FAIL: ${name} - ${msg}`);
       failures.push(name);
-      failed++;
     }
-  }
+  const failed = failures.length,
+    passed = checks.length - failed;
   // A software renderer is a real tell, but faking a GPU would contradict every other
   // WebGL value; report it without failing the run.
   if (/SwiftShader|llvmpipe/i.test(v.webglRenderer ?? ''))

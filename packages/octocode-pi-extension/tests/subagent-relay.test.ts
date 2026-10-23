@@ -1,14 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { ALLOW_ONCE, DENY, DENY_NOTE, NOTE_TITLE, sessionOption } from '../src/permission/ask.js';
+import { ALLOW_ONCE, DENY, DENY_NOTE, NOTE_TITLE, sessionOption } from '../src/permission/dialog.js';
 import { AUDIT_NOTIFY_PREFIX, CHILD_AUDIT_CAP } from '../src/permission/audit.js';
 import { permissionHeader } from '../src/permission/header.js';
 import type { PermissionMode } from '../src/permission/mode.js';
 import { PERMISSION_NONCE_FILE_ENV, PERMISSION_RELAY_ENV } from '../src/shared/env.js';
 import { sessionOutputDir } from '../src/shared/home.js';
 import type { ChildProgress } from '../src/subagents/events.js';
-import { runSubagent, subagentProcessEnv, type Identity } from '../src/subagents/process.js';
+import { runSubagent, subagentProcessEnv } from '../src/subagents/process.js';
+import type { Identity } from '../src/subagents/launch.js';
 import { RELAY_LIMIT_NOTE, type RelayHost } from '../src/subagents/relay.js';
 import { fakePermission, fakePi } from './fake-pi.js';
 import { tmp } from './helpers.js';

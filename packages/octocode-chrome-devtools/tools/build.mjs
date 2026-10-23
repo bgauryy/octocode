@@ -82,6 +82,12 @@ files.set(
   )
 );
 files.set(join(dist, 'engine/octocode-config.mjs'), readFileSync(config));
+const skill = join(root, '../../skills/octocode-chrome-devtools');
+for (const file of walk(skill))
+  files.set(
+    join(dist, 'skills/octocode-chrome-devtools', relative(skill, file)),
+    readFileSync(file)
+  );
 for (const name of ['cli', 'mcp'])
   files.set(
     join(dist, name + '.js'),

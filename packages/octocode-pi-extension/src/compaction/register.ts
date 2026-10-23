@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, SessionBeforeCompactEvent, SessionCompactEvent } from '@earendil-works/pi-coding-agent';
 import { contextReads, seenFiles, sessionCleared, type WorkedFile } from '../files/reads.js';
-import type { FileGuard } from '../files/tool.js';
+import type { FileGuard } from '../files/guard.js';
 import { chooseSessionCacheRetention } from '../shared/env.js';
 import { interactive } from '../shared/interactive.js';
 import { isRecord } from '../shared/util.js';
@@ -16,7 +16,8 @@ import { THRASH_MESSAGE, ThrashBreaker, contextTokens, needsDownshiftCompaction,
 import type { Api, Model } from '@earendil-works/pi-ai';
 import { carryFileLists, splitSummary, summaryMethodOf, windowBudget, writeSummary } from './summary.js';
 import { ArchiveCapture, deliverArchivePointer, forkLineage, sessionRecordOf, summaryLabel } from './archive.js';
-import { sessionLineage, setSessionLineage, writeSessionRecord } from '../shared/archive.js';
+import { sessionLineage, setSessionLineage } from '../shared/archive.js';
+import { writeSessionRecord } from '../shared/session-record.js';
 import { notify } from '../shared/commands.js';
 import { errorMessage } from '../shared/util.js';
 

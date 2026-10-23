@@ -10,7 +10,7 @@ vi.mock('chrome-launcher', () => ({ launch }));
 vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] })); // public: no network
 
 const { BrowserTool, registerBrowserTool } = await import('../src/browser/tool.js');
-const { ORIGINS_MAX, noteOrigin } = await import('../src/browser/cdp.js');
+const { ORIGINS_MAX, noteOrigin } = await import('../src/browser/session-state.js');
 
 type Result = { content: Array<{ type: string; text?: string; data?: string }> };
 type Tool = { execute: (id: string, params: Record<string, unknown>, signal: AbortSignal | undefined, onUpdate: undefined, ctx: ExtensionContext) => Promise<Result> };

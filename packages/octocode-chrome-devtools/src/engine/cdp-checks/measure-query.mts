@@ -11,9 +11,14 @@
  *   measure-query.mjs --dir <cdp-run> --har --filter failures [--min-ms 1000]
  *   measure-query.mjs --latest [--under .octocode/octocode-chrome-devtools/tmp]
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
 import { flagArgs, validateFlags } from '../cli-flags.mjs';
+import {
+  filterHar,
+  harRows,
+  measurePaths,
+  nextPageArgs,
+  readMeasure,
+} from './measure-artifacts.mjs';
 
 const argv = process.argv.slice(2);
 const { getArg, hasFlag, getLowerArg } = flagArgs(argv);
@@ -34,6 +39,7 @@ Filters:
   --min-health / --max-health <0-100>
   --limit <n>               rows per page (default 25)
   --page <n>                page number (default 1)
+  --latest                  newest run containing a measure; missing types stay absent
   --har                     also page/filter HAR in the same dir
   --filter <all|failures|slow|domain:<host>>   HAR filter when --har
 
@@ -91,110 +97,15 @@ const harFilter = getArg('--filter', 'all');
 const urlRe = urlRegexStr ? new RegExp(urlRegexStr, 'i') : null;
 const nameRe = nameRegexStr ? new RegExp(nameRegexStr, 'i') : null;
 
-function readJson(path) {
-  if (!path) return null;
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch (error) {
-    throw new Error(
-      `Cannot read measurement artifact ${path}: ${error.message}`,
-      { cause: error }
-    );
-  }
-}
-
-function findLatestRuns(
-  under,
-  need = [
-    'performance-measure.json',
-    'network-measure.json',
-    'storage-measure.json',
-  ]
-) {
-  const root = resolve(under);
-  if (!existsSync(root)) return { dirs: [], files: {} };
-  const dirs = readdirSync(root)
-    .map(name => join(root, name))
-    .filter(p => {
-      try {
-        return statSync(p).isDirectory();
-      } catch {
-        return false;
-      }
-    })
-    .sort((a, b) => {
-      try {
-        return statSync(b).mtimeMs - statSync(a).mtimeMs;
-      } catch {
-        return 0;
-      }
-    });
-
-  const files = {};
-  for (const name of need) {
-    for (const dir of dirs) {
-      const p = join(dir, name);
-      if (existsSync(p) && !files[name]) {
-        files[name] = p;
-        break;
-      }
-    }
-  }
-  return { dirs, files };
-}
-
-function discoverInDir(dir) {
-  const d = resolve(dir);
-  const pick = name => {
-    const p = join(d, name);
-    return existsSync(p) ? p : null;
-  };
-  let har = null;
-  if (existsSync(d)) {
-    const names = readdirSync(d).filter(n => /\.har$/i.test(n));
-    har = names.length ? join(d, names.sort()[0]) : null;
-  }
-  return {
-    dir: d,
-    perf: pick('performance-measure.json'),
-    net: pick('network-measure.json'),
-    storage: pick('storage-measure.json'),
-    har,
-  };
-}
-
-let paths;
-if (hasFlag('--latest')) {
-  const under = getArg('--under', '.octocode/octocode-chrome-devtools/tmp');
-  const { files } = findLatestRuns(under);
-  paths = {
-    dir: under,
-    perf: files['performance-measure.json'] || null,
-    net: files['network-measure.json'] || null,
-    storage: files['storage-measure.json'] || null,
-    har: null,
-  };
-  // HAR from same dirs as measures when possible
-  for (const key of ['network-measure.json', 'performance-measure.json']) {
-    if (files[key]) {
-      const sibling = discoverInDir(dirname(files[key]));
-      if (sibling.har) {
-        paths.har = sibling.har;
-        break;
-      }
-    }
-  }
-} else if (getArg('--dir', null)) {
-  paths = discoverInDir(getArg('--dir'));
-} else {
-  paths = {
-    dir: null,
-    perf: getArg('--perf', null) ? resolve(getArg('--perf')) : null,
-    net: getArg('--net', null) ? resolve(getArg('--net')) : null,
-    storage: getArg('--storage', null) ? resolve(getArg('--storage')) : null,
-    har: getArg('--har-file', null) ? resolve(getArg('--har-file')) : null,
-  };
-}
+const paths = measurePaths({
+  latest: hasFlag('--latest'),
+  under: getArg('--under', '.octocode/octocode-chrome-devtools/tmp'),
+  dir: getArg('--dir', null),
+  perf: getArg('--perf', null),
+  net: getArg('--net', null),
+  storage: getArg('--storage', null),
+  har: getArg('--har-file', null),
+});
 
 if (!paths.perf && !paths.net && !paths.storage && !(includeHar && paths.har)) {
   console.log(
@@ -208,9 +119,9 @@ if (!paths.perf && !paths.net && !paths.storage && !(includeHar && paths.har)) {
   process.exit(1);
 }
 
-const perf = readJson(paths.perf);
-const net = readJson(paths.net);
-const storage = readJson(paths.storage);
+const perf = readMeasure(paths.perf);
+const net = readMeasure(paths.net);
+const storage = readMeasure(paths.storage);
 
 function healthOf(kind) {
   if (kind === 'perf') return perf?.score?.health ?? null;
@@ -249,23 +160,14 @@ function matchKind(row) {
 
 function collectFindings() {
   const out = [];
-  if (perf?.score?.findings && healthPass(healthOf('perf'))) {
-    for (const f of perf.score.findings) {
-      if (codeFilter && f.code !== codeFilter) continue;
-      out.push({ source: 'performance', ...f });
-    }
-  }
-  if (net?.findings && healthPass(healthOf('net'))) {
-    for (const f of net.findings) {
-      if (codeFilter && f.code !== codeFilter) continue;
-      out.push({ source: 'network', ...f });
-    }
-  }
-  if (storage?.score?.findings && healthPass(healthOf('storage'))) {
-    for (const f of storage.score.findings) {
-      if (codeFilter && f.code !== codeFilter) continue;
-      out.push({ source: 'storage', ...f });
-    }
+  for (const [source, findings, kind] of [
+    ['performance', perf?.score?.findings, 'perf'],
+    ['network', net?.findings, 'net'],
+    ['storage', storage?.score?.findings, 'storage'],
+  ]) {
+    if (!findings || !healthPass(healthOf(kind))) continue;
+    for (const f of findings)
+      if (!codeFilter || f.code === codeFilter) out.push({ source, ...f });
   }
   return out;
 }
@@ -427,38 +329,8 @@ if (want('keys') || view === 'all') {
 
 if (includeHar && paths.har) {
   try {
-    const har = JSON.parse(readFileSync(paths.har, 'utf8'));
-    const entries = Array.isArray(har.log?.entries) ? har.log.entries : [];
-    const compact = entries.map((entry, index) => {
-      const request = entry.request ?? {};
-      const response = entry.response ?? {};
-      let host = '';
-      try {
-        host = new URL(request.url).hostname;
-      } catch {
-        host = '';
-      }
-      return {
-        index,
-        method: request.method,
-        url: request.url,
-        host,
-        status: response.status,
-        ms: Math.round(entry.time ?? 0),
-        type: entry._resourceType ?? '',
-        failed: Boolean(
-          entry._failed || response.status >= 400 || response.status === 0
-        ),
-      };
-    });
-    let rows = compact;
-    if (harFilter === 'failures') rows = rows.filter(r => r.failed);
-    else if (harFilter === 'slow') rows = rows.filter(r => r.ms >= minMs);
-    else if (harFilter.startsWith('domain:')) {
-      const host = harFilter.slice('domain:'.length).toLowerCase();
-      rows = rows.filter(r => r.host.toLowerCase().includes(host));
-    }
-    rows = rows.filter(
+    const compact = harRows(paths.har);
+    const rows = filterHar(compact, harFilter, minMs).filter(
       r =>
         matchUrl(r.url) &&
         (!kindFilter || String(r.type).toLowerCase().includes(kindFilter))
@@ -507,38 +379,10 @@ result.next = {};
 if (
   Object.values(pagination).some((list: { hasMore: boolean }) => list.hasMore)
 ) {
-  const args = [
-    process.argv[1],
-    '--view',
-    view,
-    '--limit',
-    String(limit),
-    '--page',
-    String(page + 1),
-  ];
-  for (const [flag, file] of [
-    ['--perf', paths.perf],
-    ['--net', paths.net],
-    ['--storage', paths.storage],
-    ['--har-file', paths.har],
-  ]) {
-    if (file) args.push(flag, resolve(file));
-  }
-  for (const flag of [
-    '--code',
-    '--kind',
-    '--domain',
-    '--url-regex',
-    '--name-regex',
-    '--min-ms',
-    '--min-health',
-    '--max-health',
-    '--filter',
-  ]) {
-    const value = getArg(flag, null);
-    if (value !== null) args.push(flag, value);
-  }
-  if (includeHar) args.push('--har');
+  const args = nextPageArgs(
+    { script: process.argv[1], view, limit, page, paths, includeHar },
+    getArg
+  );
   result.next.continue = { command: process.execPath, args };
 }
 console.log(JSON.stringify(result, null, 2));

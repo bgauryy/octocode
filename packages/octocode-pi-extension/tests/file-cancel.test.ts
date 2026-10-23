@@ -3,7 +3,8 @@ import path from 'node:path';
 import { withFileMutationQueue } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it, vi } from 'vitest';
 import { Checkpoints } from '../src/files/checkpoint.js';
-import { FileGuard, registerFileTool } from '../src/files/tool.js';
+import { FileGuard } from '../src/files/guard.js';
+import { registerFileTool } from '../src/files/tool.js';
 import { fakeCtx, fakePermission, fakePi } from './fake-pi.js';
 import { tmp } from './helpers.js';
 

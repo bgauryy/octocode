@@ -56,7 +56,7 @@ async fn replay(
         .run("replay".into(), tool.into(), input.clone())
         .await
         .unwrap_or_else(|error| panic!("{tool} {input}: {error:?}"));
-    checked(tool, &input, outcome.structured_content)
+    checked(tool, &input, outcome.structured_content.into_value())
 }
 
 fn checked(tool: &str, query: &Value, structured: Value) -> Value {
@@ -156,10 +156,10 @@ async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
             "localFetch",
             json!({"path": lib, "ranges": ["5-6"], "block": true}),
         ),
-        // Text window paging (responseScope:"text"): responsePagination.next.
+        // Envelope window paging (responseScope:"structured"): responsePagination.next.
         (
             "localFetch",
-            json!({"path": lib, "fullContent": true, "responseLength": 400, "responseScope": "text"}),
+            json!({"path": lib, "fullContent": true, "responseLength": 400, "responseScope": "structured"}),
         ),
     ];
     let mut edges = Vec::new();
@@ -170,15 +170,13 @@ async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
             support::run(&runtime, tool, query.clone(), &support::ALL_EXTRAS)
                 .await
                 .outcome
-                .structured_content,
+                .structured_content
+                .into_value(),
         );
         collect(tool, &output, &mut edges);
         if let Some(next) = output.pointer("/responsePagination/next") {
             let query = next["query"].clone();
-            assert!(query.get("responseOffset").is_some(), "{next}");
-            for field in ["responseCharOffset", "responseCharLength"] {
-                assert!(query.get(field).is_none(), "{next}");
-            }
+            support::assert_cursor_only(&query);
             let replay = runtime
                 .run("replay".into(), tool.into(), query)
                 .await

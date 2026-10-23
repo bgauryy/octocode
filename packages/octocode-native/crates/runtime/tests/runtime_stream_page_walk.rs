@@ -67,6 +67,7 @@ async fn call(runtime: &ToolRuntime, mcp: bool, id: usize, tool: &str, input: Va
             .await
             .expect("cli call")
             .structured_content
+            .into_value()
     }
 }
 

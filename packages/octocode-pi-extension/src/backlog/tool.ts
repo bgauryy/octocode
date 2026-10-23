@@ -1,12 +1,13 @@
 import { StringEnum } from '@earendil-works/pi-ai';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { clip, timingOf, plural, resultBlock, timedTool, toolHeader } from '../shared/render.js';
+import { clip, plural, resultBlock, toolHeader } from '../shared/render.js';
+import { timingOf, timedTool } from '../shared/tool-timing.js';
 import { storedText, visibleControls } from '../shared/sanitize.js';
 import { contentText, textResult } from '../shared/util.js';
 import { openBacklog, type Backlog, type BacklogOptions } from './context.js';
 import { itemDetail, itemLine } from './format.js';
-import { PRIORITIES, refuseSecrets, STATES, type Item, type State } from './store.js';
+import { PRIORITIES, refuseSecrets, STATES, type Item, type State } from './item.js';
 
 const DEFAULT_LIST_LIMIT = 20;
 const DEFAULT_LIST_STATES: State[] = ['ongoing', 'todo'];

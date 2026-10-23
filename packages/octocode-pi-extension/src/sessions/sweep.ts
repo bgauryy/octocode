@@ -3,7 +3,7 @@ import path from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { runningPid } from '../agentdb/liveness.js';
 import { readMeta, writeMeta } from '../agentdb/meta.js';
-import { liveJobFiles } from '../files/bash-jobs.js';
+import { liveJobFiles } from '../files/bash-orphans.js';
 import { CLEANUP_DAYS_ENV, envInt } from '../shared/env.js';
 import { PID_SESSION_PREFIX, sessionDirName, sessionsRoot } from '../shared/home.js';
 import { sweepStaleOutputs } from '../shared/sweep.js';

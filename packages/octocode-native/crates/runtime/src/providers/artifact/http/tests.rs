@@ -8,7 +8,7 @@ use crate::tools::test_support::Fixture;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-fn classify(status: u16) -> Result<Option<Vec<u8>>, ArtifactError> {
+fn classify_with(status: u16, not_found_is_empty: bool) -> Result<Option<Vec<u8>>, ArtifactError> {
     let budget = super::super::types::test_budget();
     let client = RegistryClient::uncached(&NoHttp, &budget);
     client.status(
@@ -17,15 +17,17 @@ fn classify(status: u16) -> Result<Option<Vec<u8>>, ArtifactError> {
             status,
             body: vec![],
         },
-        true,
+        not_found_is_empty,
     )
 }
 
+fn classify(status: u16) -> Result<Option<Vec<u8>>, ArtifactError> {
+    classify_with(status, true)
+}
+
 #[test]
-fn deterministic_4xx_is_invalid_query_with_status() {
-    // npm answers exact lookups for malformed names (e.g. non-ASCII
-    // coordinates) with 405, not 404; it must not read as retryable.
-    for status in [400u16, 405, 422] {
+fn malformed_requests_are_invalid_input_with_status() {
+    for status in [400u16, 422] {
         let error = classify(status).expect_err("4xx is an error");
         assert_eq!(error.code, ErrorCode::InvalidInput);
         assert_eq!(error.status, Some(status));
@@ -35,6 +37,52 @@ fn deterministic_4xx_is_invalid_query_with_status() {
             error.message
         );
     }
+}
+
+/// A registry answer reports the errorCode a GitHub answer of the same
+/// status does: one status table for every provider.
+#[test]
+fn registry_statuses_map_to_the_codes_github_reports() {
+    for (status, code) in [
+        (401u16, ErrorCode::Authentication),
+        (403, ErrorCode::Permission),
+        (410, ErrorCode::NotFound),
+        (400, ErrorCode::InvalidInput),
+        (422, ErrorCode::InvalidInput),
+        (429, ErrorCode::RateLimited),
+        (451, ErrorCode::Unavailable),
+        (500, ErrorCode::Server),
+        (502, ErrorCode::Server),
+        (503, ErrorCode::Server),
+        // npm answers exact lookups for malformed names (e.g. non-ASCII
+        // coordinates) with 405: an unmapped status, never retryable.
+        (405, ErrorCode::HttpStatus),
+        (408, ErrorCode::HttpStatus),
+    ] {
+        let error = classify(status).expect_err("non-2xx is an error");
+        assert_eq!(error.code, code, "HTTP {status}");
+        assert_eq!(
+            error.code,
+            octocode_github::ProviderErrorKind::from_status(status).code(),
+            "HTTP {status}"
+        );
+        assert_eq!(error.status, Some(status));
+        assert!(
+            error.message.contains(&format!("HTTP {status}")),
+            "{}",
+            error.message
+        );
+    }
+}
+
+/// A missing resource is an empty answer only where the caller asks for
+/// that (`not_found_is_empty`); elsewhere it is `notFound`, as on GitHub.
+#[test]
+fn not_found_is_empty_only_where_asked() {
+    assert_eq!(classify(404).expect("404 maps to empty"), None);
+    let missing = classify_with(404, false).expect_err("404 is an error");
+    assert_eq!(missing.code, ErrorCode::NotFound);
+    assert_eq!(missing.status, Some(404));
 }
 
 /// A rejected request states the registry's own reason (a per-call
@@ -65,34 +113,17 @@ fn a_rejected_request_states_the_registrys_reason() {
 }
 
 #[test]
-fn server_errors_and_408_stay_retryable_provider_error() {
-    for status in [408u16, 500, 502, 503] {
+fn server_errors_say_retry_later() {
+    for status in [500u16, 502, 503] {
         let error = classify(status).expect_err("5xx is an error");
-        assert_eq!(error.code, ErrorCode::ProviderError);
-        assert_eq!(error.status, Some(status));
-        assert!(
-            error.message.contains(&format!("HTTP {status}"))
-                && error.message.contains("Retry later"),
-            "{}",
-            error.message
-        );
+        assert!(error.message.contains("Retry later"), "{}", error.message);
     }
-}
-
-#[test]
-fn auth_rate_limit_and_not_found_keep_dedicated_mappings() {
-    assert_eq!(classify(404).expect("404 maps to empty"), None);
-    assert_eq!(
-        classify(401).expect_err("401").code,
-        ErrorCode::Authentication
-    );
-    assert_eq!(
-        classify(403).expect_err("403").code,
-        ErrorCode::Authentication
-    );
     let limited = classify(429).expect_err("429");
-    assert_eq!(limited.code, ErrorCode::RateLimited);
-    assert_eq!(limited.status, Some(429));
+    assert!(
+        limited.message.contains("rate limit"),
+        "{}",
+        limited.message
+    );
 }
 
 /// No cache must bypass the in-process cache on both reads

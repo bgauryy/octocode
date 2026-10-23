@@ -175,7 +175,7 @@ fn skipped_hint_respects_the_query_include() {
         json!({"operation":"match","path":root.0,"include":[".github/**"],"language":"python",
                "pattern":"class $N(Exception): $$$B"}),
     );
-    let hint = out["hints"][0].as_str().expect("hint");
+    let hint = out["hints"].to_string();
     assert!(hint.contains("hidden .github/"), "{hint}");
     assert!(!hint.contains(".spin"), "{hint}");
     assert!(out["next"].get("repair").is_none(), "{out}");
@@ -202,13 +202,13 @@ fn skipped_files_outside_the_include_are_not_named() {
     assert!(out["next"].get("includeSkipped").is_none(), "{out}");
 }
 
-/// An empty match names what it searched: the files parsed and the grammar,
-/// as `filesScanned` and in the hint, for a pattern and for a rule alike.
-/// The hint is only that fact (why a compiled query can match nothing is
-/// the tool description's); the shape is one `viewTree` lead away, even
-/// when the anchor prefilter skipped every file unparsed.
+/// An empty match states what it searched as `filesScanned`, for a pattern
+/// and for a rule alike, with no hint repeating it (why a compiled query
+/// can match nothing is the tool description's); the shape is one
+/// `viewSyntax` lead away, even when the anchor prefilter skipped every file
+/// unparsed.
 #[test]
-fn an_empty_match_reports_the_files_it_parsed_and_the_grammar() {
+fn an_empty_match_reports_the_files_it_parsed() {
     let root = Fixture::new();
     for name in ["a.ts", "b.ts", "c.ts"] {
         std::fs::write(root.0.join(name), "export const a = 1;\n").expect("source");
@@ -224,12 +224,8 @@ fn an_empty_match_reports_the_files_it_parsed_and_the_grammar() {
         let out = run(&root.0, row);
         assert_eq!(out["status"], "empty", "{out}");
         assert_eq!(out["filesScanned"], json!(3), "{out}");
-        assert_eq!(
-            out["hints"],
-            json!(["0 matches in 3 typescript files."]),
-            "{out}"
-        );
-        let tree = &out["next"]["viewTree"]["query"]["queries"][0];
+        assert!(out.get("hints").is_none(), "{out}");
+        let tree = &out["next"]["viewSyntax"]["query"]["queries"][0];
         assert_eq!(tree["operation"], "syntaxTree", "{out}");
         assert!(
             tree["path"]
@@ -238,6 +234,29 @@ fn an_empty_match_reports_the_files_it_parsed_and_the_grammar() {
             "{out}"
         );
     }
+}
+
+/// An empty declaration pattern's syntax-tree lead opens a file holding a
+/// declaration of the pattern's kind, at that declaration's line, not the
+/// first file the scan read.
+#[test]
+fn an_empty_declaration_match_leads_to_a_tree_of_that_kind() {
+    let root = Fixture::new();
+    root.write("a.rs", "const A: u8 = 1;\n");
+    root.write("b.rs", "// one\nfn helper() -> u8 { 1 }\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"pattern":"fn $N() -> u128 { $$$ }"}),
+    );
+    assert_eq!(out["status"], "empty", "{out}");
+    let tree = &out["next"]["viewSyntax"]["query"]["queries"][0];
+    assert!(
+        tree["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("b.rs")),
+        "{out}"
+    );
+    assert_eq!(tree["line"], 2, "{out}");
 }
 
 /// A match that found something still names the walks the defaults skipped
@@ -252,12 +271,11 @@ fn a_match_with_hits_names_the_skipped_walks_and_leads_to_them() {
         json!({"operation":"match","path":root.0,"language":"typescript","pattern":"hit($A)"});
     let out = run(&root.0, request);
     assert_eq!(out["matchCount"], json!(1), "{out}");
-    let warnings = out["warnings"].to_string();
+    let hints = out["hints"].to_string();
     assert!(
-        warnings.contains("typescript files were skipped as default-excluded"),
-        "{warnings}"
+        hints.contains("1 typescript file behind skipped paths (dist/)"),
+        "{hints}"
     );
-    assert!(warnings.contains("dist/"), "{warnings}");
     let lead = &out["next"]["includeSkipped"];
     assert_eq!(lead["tool"], "astSearch", "{out}");
     let retry = &lead["query"]["queries"][0];

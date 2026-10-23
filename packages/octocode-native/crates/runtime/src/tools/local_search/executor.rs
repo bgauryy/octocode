@@ -8,7 +8,7 @@ use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, OutputPaginationVariant0Unit};
 use octocode_engine::search::text_search::search_cancellable;
 use octocode_engine::types::{
     CaseRule, PatternSyntax, SearchOutput, SearchSort, SourceValues, SpanValues, TextSearchOptions,
@@ -179,8 +179,10 @@ pub(super) fn page_of(
         {
             result.warnings.extend(selected.disclosure());
         }
+        // Hits were judged and none kept: an empty row whose unfiltered
+        // lead is its recovery (zero kept is not absence).
         if selected.receipt().total_items > 0 && result.files.is_empty() {
-            result.status = SearchStatus::Success;
+            result.status = SearchStatus::Empty;
         }
     }
     result.source_snapshot = Some(scan.identity);
@@ -248,7 +250,7 @@ fn settle_row(
     let mut hints = coverage.empty_hints(empty);
     // Leads go in after the status is settled: they are optional follow-ups
     // and never stand in for a page.
-    let (skipped_match, skipped_paths) = Found {
+    let disclosed = Found {
         query,
         paths,
         root: page.root,
@@ -270,7 +272,7 @@ fn settle_row(
         page.search_options,
         cancel,
     )?;
-    if skipped_match {
+    if disclosed.skipped_match {
         coverage.skipped_paths_hold_matches(&mut hints);
     }
     // A zero-match search cut by a binary file proved nothing about the cut
@@ -293,12 +295,12 @@ fn settle_row(
         pagination: file_paging(query, layout, total_files, page.leftover_matches),
         hints,
         next,
-        is_partial: coverage.gap() || capped || ceilings.terminal,
+        is_partial: coverage.gap() || capped || ceilings.terminal || disclosed.unchecked,
         // A retry over the skipped paths reaches the match, so no limit ends
         // this answer.
-        terminal_limit: (settled_terminal || ceilings.terminal) && !skipped_match,
+        terminal_limit: (settled_terminal || ceilings.terminal) && !disclosed.skipped_match,
         warnings,
-        skipped_paths,
+        skipped_paths: disclosed.skipped_paths,
         source_snapshot: None,
         source_root: output_root.to_path_buf(),
         selection: None,
@@ -463,8 +465,15 @@ pub(super) fn file_paging(
     let page = local_search_query::page(query).max(1);
     let match_page = local_search_query::match_page(query).max(1);
     let has_more = page < layout.total_pages || leftover_matches;
+    let unit = if layout.list || !layout.streamed {
+        Some(OutputPaginationVariant0Unit::Files)
+    } else {
+        (query.result_view != LocalSearchQueryResultView::MatchOnly)
+            .then_some(OutputPaginationVariant0Unit::Lines)
+    };
     (total_files > 0 && (has_more || layout.total_pages > 1 || layout.out_of_range)).then_some(
         FilePagination {
+            unit,
             current_page: page,
             match_page: (match_page > 1).then_some(match_page),
             total_pages: layout.total_pages,
@@ -678,14 +687,9 @@ pub(super) fn search_root(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
 ) -> Result<crate::policy::path::ValidatedPath, ToolError> {
-    paths.validate(query.path.as_str()).map_err(|error| {
-        ToolError::root_policy(
-            error,
-            query.path.as_str(),
-            paths,
-            ErrorCode::FileAccessFailed,
-        )
-    })
+    paths
+        .validate(query.path.as_str())
+        .map_err(|error| ToolError::root_policy(error, query.path.as_str(), paths))
 }
 
 /// The engine walk the query asks for.
@@ -741,7 +745,7 @@ pub(super) fn search_options(
         // (both counted), by the walk's path filter, not by globs here.
         exclude: Some(query.exclude.clone().into_iter().collect()),
         // The default-excluded directories are pruned by the walk's path
-        // filter too (`SearchWalk`), which keeps the ones git tracks.
+        // filter too (`WalkAdmission`), which keeps the ones git tracks.
         exclude_dir: None,
         // Each flag lifts its own cause, as in every local walk; the dot
         // entries left out are recorded by the walk's path filter.
@@ -841,7 +845,7 @@ pub(super) fn scan(
             None,
         )
     } else {
-        let walk = Arc::new(crate::policy::discovery::SearchWalk::new(
+        let walk = Arc::new(crate::policy::discovery::WalkAdmission::search(
             paths.clone(),
             std::path::PathBuf::from(&options.path),
             query.default_excludes.defaults(),
@@ -1042,13 +1046,14 @@ pub(super) fn project_files(
                 }
                 None => shown,
             };
+            let span = (start, end, shown.len());
             SearchFile {
                 matches: (!layout.list).then_some(shown),
                 total_occurrences: (query.result_view == LocalSearchQueryResultView::CountMatches)
                     .then_some(f.match_count),
                 total_matched_lines: (query.result_view == LocalSearchQueryResultView::CountLines)
                     .then_some(f.match_count),
-                pagination: file_pagination(layout, total, start, end, &later, match_page),
+                pagination: file_pagination(layout, total, span, &later, match_page),
                 path: f.path,
                 match_keys: Vec::new(),
             }

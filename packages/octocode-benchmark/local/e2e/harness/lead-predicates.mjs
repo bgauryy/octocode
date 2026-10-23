@@ -39,7 +39,7 @@ const SKIP_CAUSES = [
   { cause: 'default-excluded', lifted: q => q.defaultExcludes === false, named: /default|exclud|prune/i },
 ];
 // Leads that promise evidence the source row is known to hold. find* leads may legitimately answer empty (the source found nothing either).
-const NOT_EMPTY_KEYS = /^(read(Block|Files|Commit|Issue|PullRequest|AtCommit|AtMerge|MergeCommit|Parent|Patches|SelectedPatches|FullPatches)?|include(Skipped|Hidden|Archived)|narrowScope|view(Tree|Repo|Refs|ReleaseSource)|repair|ignoreCase)$/;
+const NOT_EMPTY_KEYS = /^(read(Block|Files|Commit|Issue|PullRequest|AtCommit|AtMerge|MergeCommit|Parent|Patches|SelectedPatches|FullPatches)?|include(Skipped|Hidden|Archived)|narrowScope|view(Tree|Syntax|Repo|Refs|ReleaseSource)|repair|ignoreCase)$/;
 const SAME_TOOL_PAGE_KEYS = /^(next[A-Za-z]*Page|continue[A-Za-z]*|expandScan|restart)$/;
 // Fields a same-tool lead may change (besides CONTINUATION_FIELDS), per key family.
 const MUTABLE = [
@@ -65,7 +65,8 @@ const KEY_TOOLS = [
   [/^readPullRequest$/, { tools: ['ghGetHistoryItem'], operation: 'pullRequest' }],
   [/^readIssue$/, { tools: ['ghGetHistoryItem'], operation: 'issue' }],
   [/^readCommit$/, { tools: ['ghGetHistoryItem', 'ghGetFileContent'] }],
-  [/^viewTree$/, { tools: ['ghStructure', 'structureSearch', 'astSearch'], operations: { astSearch: 'syntaxTree' } }],
+  [/^viewTree$/, { tools: ['ghStructure', 'structureSearch'] }],
+  [/^viewSyntax$/, { tools: ['astSearch'], operations: { astSearch: 'syntaxTree' } }],
   [/^view(Refs|ReleaseSource)$/, { tools: ['ghStructure', 'structureSearch'] }],
   [/^viewRepo$/, { tools: ['ghStructure', 'ghSearchRepo'] }],
   [/^readDiagnostics$/, { tools: ['lspSearch'] }],

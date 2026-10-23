@@ -1,4 +1,4 @@
-import { type Api, type Model, type SimpleStreamOptions } from '@earendil-works/pi-ai';
+import type { Api, Model, SimpleStreamOptions } from '@earendil-works/pi-ai';
 import { convertToLlm, type CompactionResult, type ExtensionAPI, type ExtensionContext, type SessionBeforeCompactEvent } from '@earendil-works/pi-coding-agent';
 import { sessionCleared } from '../files/reads.js';
 import { CHARS_PER_TOKEN } from '../shared/tokens.js';

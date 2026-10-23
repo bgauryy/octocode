@@ -1,6 +1,8 @@
 [workspace]
 members = ["crates/engine", "crates/github", "crates/io", "crates/contract-types", "crates/runtime", "crates/cli", "crates/runtime-napi"]
 default-members = ["crates/cli"]
+# libFuzzer targets: their own workspace and lockfile (fuzz/Cargo.toml).
+exclude = ["fuzz"]
 resolver = "3"
 
 # Shared metadata keeps internal crates on the native npm release version.
@@ -31,7 +33,6 @@ napi-derive = { version = "3" }
 napi-build = { version = "2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-serde-saphyr = { version = "2", default-features = false, features = ["serialize", "deserialize"] }
 regex = "1"
 url = "2"
 sha2 = "0.11"

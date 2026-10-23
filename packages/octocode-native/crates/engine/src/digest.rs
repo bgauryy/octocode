@@ -31,55 +31,46 @@ pub fn copy_hashed(
     Ok((len, hex::encode(hasher.finalize())))
 }
 
-/// Keys sorted recursively, explicit nulls kept. For configuration a server
-/// reads, where `null` is a value.
-#[must_use]
-pub fn canonical_json_keep_nulls(value: Value) -> Value {
-    match value {
-        Value::Array(items) => {
-            Value::Array(items.into_iter().map(canonical_json_keep_nulls).collect())
-        }
-        Value::Object(map) => {
-            let sorted = map
-                .into_iter()
-                .map(|(key, value)| (key, canonical_json_keep_nulls(value)))
-                .collect::<std::collections::BTreeMap<_, _>>();
-            let mut canonical = serde_json::Map::new();
-            canonical.extend(sorted);
-            Value::Object(canonical)
-        }
-        scalar => scalar,
-    }
+/// What canonical JSON does with `null` object members.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Nulls {
+    /// Keep them: for configuration a server reads, where `null` is a value.
+    Keep,
+    /// Drop them, so equal identities serialize to equal bytes.
+    Drop,
 }
 
-/// Keys sorted recursively and null object members dropped, so equal
-/// identities serialize to equal bytes.
+/// Keys sorted recursively, with `null` object members handled by `nulls`
+/// (array items stay as they are). The one canonical form of a JSON value.
 #[must_use]
-pub fn canonicalize_dropping_nulls(value: Value) -> Value {
+pub fn canonical_json(value: Value, nulls: Nulls) -> Value {
     match value {
         Value::Object(map) => {
             let mut entries = map
                 .into_iter()
-                .filter(|(_, v)| !v.is_null())
+                .filter(|(_, v)| nulls == Nulls::Keep || !v.is_null())
                 .collect::<Vec<_>>();
             entries.sort_by(|a, b| a.0.cmp(&b.0));
             Value::Object(
                 entries
                     .into_iter()
-                    .map(|(key, value)| (key, canonicalize_dropping_nulls(value)))
+                    .map(|(key, value)| (key, canonical_json(value, nulls)))
                     .collect(),
             )
         }
-        Value::Array(items) => {
-            Value::Array(items.into_iter().map(canonicalize_dropping_nulls).collect())
-        }
-        value => value,
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|item| canonical_json(item, nulls))
+                .collect(),
+        ),
+        scalar => scalar,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{canonical_json_keep_nulls, canonicalize_dropping_nulls, sha256};
+    use super::{Nulls, canonical_json, sha256};
     use serde_json::json;
 
     #[test]
@@ -94,7 +85,7 @@ mod tests {
 
     #[test]
     fn keep_nulls_sorts_keys_and_keeps_explicit_nulls() {
-        let value = canonical_json_keep_nulls(json!({"b": null, "a": {"y": 1, "x": [null]}}));
+        let value = canonical_json(json!({"b": null, "a": {"y": 1, "x": [null]}}), Nulls::Keep);
         assert_eq!(
             serde_json::to_string(&value).unwrap(),
             r#"{"a":{"x":[null],"y":1},"b":null}"#
@@ -103,10 +94,14 @@ mod tests {
 
     #[test]
     fn dropping_nulls_makes_equal_identities_serialize_equally() {
-        let a =
-            canonicalize_dropping_nulls(json!({"b": 1, "a": {"y": [{"q": 1, "p": null}], "x": 2}}));
-        let b =
-            canonicalize_dropping_nulls(json!({"a": {"x": 2, "y": [{"q": 1}]}, "b": 1, "c": null}));
+        let a = canonical_json(
+            json!({"b": 1, "a": {"y": [{"q": 1, "p": null}], "x": 2}}),
+            Nulls::Drop,
+        );
+        let b = canonical_json(
+            json!({"a": {"x": 2, "y": [{"q": 1}]}, "b": 1, "c": null}),
+            Nulls::Drop,
+        );
         assert_eq!(
             serde_json::to_vec(&a).unwrap(),
             serde_json::to_vec(&b).unwrap()

@@ -322,7 +322,7 @@ fn a_listing_with_ignored_entries_leads_to_include_ignored() {
     std::fs::write(root.0.join("main.rs"), "x\n").expect("file");
     for operation in ["tree", "files"] {
         let out = run(&root.0, json!({"operation":operation,"path":root.0})).expect("listing");
-        assert_eq!(out["summary"]["ignored"], 1, "{operation}: {out}");
+        assert_eq!(skipped_count(&out, "ignored"), 1, "{operation}: {out}");
         let lead = &out["next"]["includeSkipped"]["query"]["queries"][0];
         assert_eq!(lead["includeIgnored"], true, "{operation}: {out}");
         assert_eq!(lead["operation"], operation, "{out}");
@@ -385,8 +385,10 @@ fn a_tree_names_a_symlink_that_leaves_the_allowed_roots() {
     std::os::unix::fs::symlink(&outside.0, root.0.join("outside")).expect("link");
     for operation in ["tree", "files"] {
         let out = run(&root.0, json!({"operation":operation,"path":root.0})).expect("listing");
+        let reasons = skipped_reasons(&out, "withheld");
         assert_eq!(
-            out["warnings"][0], "1 entry withheld by path policy: 1 symlink not followed.",
+            reasons,
+            [("symlink not followed".into(), 1)],
             "{operation}: {out}"
         );
     }
@@ -412,11 +414,13 @@ fn a_filtered_listing_names_the_links_it_does_not_follow() {
             json!({"operation":operation,"path":links,"extensions":["md"]}),
         )
         .expect("filtered listing");
+        let reasons = skipped_reasons(&out, "withheld");
         assert_eq!(
-            out["warnings"],
-            json!(["1 entry withheld by path policy: 1 symlink not followed."]),
+            reasons,
+            [("symlink not followed".into(), 1)],
             "{operation}: {out}"
         );
+        assert!(out.get("warnings").is_none(), "{operation}: {out}");
         let plain = run(&root.0, json!({"operation":operation,"path":links})).expect("listing");
         assert!(plain.get("warnings").is_none(), "{operation}: {plain}");
         // The link row names its own length (the target path's), then `symlink`.
@@ -452,9 +456,7 @@ fn an_empty_listings_probe_stops_at_its_entry_cap() {
         let hint = out["hints"][0].as_str().expect("hint");
         assert_eq!(
             hint,
-            format!(
-                "At least {cap} entries sit behind skipped paths (build/); the lead lists them."
-            ),
+            format!("At least {cap} entries behind skipped paths (build/)."),
             "{out}"
         );
         let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
@@ -490,8 +492,7 @@ fn an_empty_listing_diagnoses_every_skip_cause_from_one_probe_walk() {
         assert_eq!(out["status"], "empty", "{out}");
         assert_eq!(walks, 2, "the listing and one probe walk: {out}");
         assert_eq!(
-            out["hints"][0],
-            "2 entries sit behind skipped paths (hidden .notes/, build/); the lead lists them.",
+            out["hints"][0], "2 entries behind skipped paths (hidden .notes/, build/).",
             "{operation}: {out}"
         );
         let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
@@ -520,8 +521,7 @@ fn skip_reasons_name_ignore_files_workspace_relative() {
         .expect("listing");
         assert_eq!(out["status"], "empty", "{out}");
         assert_eq!(
-            out["hints"][0],
-            "1 entry sits behind skipped paths (.gitignore:1 '*.gen.ts'); the lead lists them.",
+            out["hints"][0], "1 entry behind skipped paths (.gitignore:1 '*.gen.ts').",
             "{operation}: {out}"
         );
     }
@@ -540,7 +540,7 @@ fn excluded_entries_are_not_counted_as_withheld_or_hidden() {
         )
         .expect("listing");
         assert!(
-            plain["warnings"].to_string().contains("withheld"),
+            skipped_count(&plain, "withheld") > 0,
             "{operation}: {plain}"
         );
         let excluded = run(
@@ -548,19 +548,14 @@ fn excluded_entries_are_not_counted_as_withheld_or_hidden() {
             json!({"operation":operation,"path":root.0,"includeHidden":true,"exclude":["terraform.tfstate",".aws"]}),
         )
         .expect("excluded listing");
-        assert!(
-            excluded.get("warnings").is_none(),
-            "{operation}: {excluded}"
-        );
+        let count = skipped_count(&excluded, "withheld");
+        assert_eq!(count, 0, "{operation}: {excluded}");
         let hidden = run(
             &root.0,
             json!({"operation":operation,"path":root.0,"exclude":[".aws"]}),
         )
         .expect("listing without hidden");
-        assert!(
-            !hidden.to_string().contains("\"hidden\""),
-            "{operation}: {hidden}"
-        );
+        assert_eq!(skipped_count(&hidden, "hidden"), 0, "{operation}: {hidden}");
     }
 }
 

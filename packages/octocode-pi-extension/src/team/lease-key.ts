@@ -1,4 +1,4 @@
-import { CASE_FOLDING } from './casefold-table.js';
+import { CASE_FOLDING } from './casefold-table.generated.js';
 
 /**
  * The reservation key rules, shared with the octocode-agents-communication package and pinned by the vectors in
@@ -7,7 +7,7 @@ import { CASE_FOLDING } from './casefold-table.js';
  *     `Straße.ts` and `STRASSE.ts`, or `ﬁle` and `FILE`, name one file on every filesystem;
  *   - the key is `/` plus the folded components joined by `/` (the root is `''`);
  *   - a tree reservation covers its key and everything below it, on component boundaries; a file covers only its key.
- * The folding table is the package's frozen Unicode 16 one (`casefold-table.ts`, generated from it), so keys do not
+ * The folding table is the package's frozen Unicode 16 one (`casefold-table.generated.ts`, generated from it), so keys do not
  * depend on the Node or ICU version; only NFD uses the runtime's normalizer, and a normalization never changes for an
  * assigned character.
  */

@@ -180,7 +180,7 @@ mod tests {
             .json(&search(6), gem_rows(150, 12));
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
-        let query = discovery(ArtifactType::Rubygems, json!({"page": 3}));
+        let query = discovery(ArtifactType::Rubygems, json!({"page": 3, "pageSize": 50}));
         let state = super::super::ArtifactProviderState {
             offset: Some(100),
             ..Default::default()

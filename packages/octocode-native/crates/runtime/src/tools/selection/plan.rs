@@ -1,11 +1,7 @@
-//! The selection plan and the selection that fills it. A plan records
-//! disjoint selected/excluded partitions, the eligible ordinals the
-//! candidate budget left unjudged, and the pool its candidate page judges
-//! from; sealed and compressed, it is the replay token.
-use super::{
-    Candidate, Decision, Failure, JudgeCall, JudgeFailure, Outcome, ProviderFailure, Runtime,
-    admission,
-};
+//! The selection plan: disjoint selected/related/excluded partitions, the
+//! eligible ordinals the candidate budget left unjudged, and the pool its
+//! candidate page judges from; sealed and compressed, it is the replay token.
+use super::{Candidate, Outcome};
 use crate::execution::SelectionLimits;
 use crate::num::u32_of_usize;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -13,13 +9,12 @@ use octocode_contract_types::{
     Selection, SelectionFailure, SelectionScope, SelectionStatus, SelectionUnit,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::HashSet;
 use std::io::Read;
-use std::time::{Duration, Instant};
 
-/// Version 8 preserves operational failures across selection replay.
-pub(super) const VERSION: u8 = 8;
+/// Version 9 records related (near-miss) ordinals apart from unknown ones.
+pub(super) const VERSION: u8 = 9;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Plan {
@@ -29,6 +24,9 @@ pub(super) struct Plan {
     pub(super) scope: SelectionScope,
     pub(super) unit: SelectionUnit,
     pub(super) selected: Vec<u32>,
+    /// Judged related but not direct evidence: hidden, yet decided.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) related: Vec<u32>,
     pub(super) excluded: Vec<u32>,
     pub(super) total: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,34 +120,6 @@ pub(super) fn decode(token: &str) -> Option<Plan> {
     serde_json::from_slice(&bytes).ok()
 }
 
-fn skip_reason(
-    runtime: Option<&Runtime>,
-    unsupported: Option<&'static str>,
-    total: usize,
-) -> Option<&'static str> {
-    unsupported.or_else(|| {
-        if !runtime.is_some_and(|runtime| runtime.available) {
-            Some("classificationUnavailable")
-        } else if total == 0 {
-            Some("noCandidates")
-        } else {
-            None
-        }
-    })
-}
-
-/// Saved plans need cardinality and source binding, not candidate bodies;
-/// a token opening a candidate page judges, so it needs them.
-pub(crate) fn needs_candidate_states(
-    runtime: Option<&Runtime>,
-    prior: Option<&str>,
-    unsupported: Option<&'static str>,
-    total: usize,
-) -> bool {
-    prior.is_none_or(|token| decode(token).is_some_and(|plan| plan.opens))
-        && skip_reason(runtime, unsupported, total).is_none()
-}
-
 impl Plan {
     pub(super) fn new(
         binding: String,
@@ -166,6 +136,7 @@ impl Plan {
             scope,
             unit,
             selected: Vec::new(),
+            related: Vec::new(),
             excluded: Vec::new(),
             total: u32_of_usize(total),
             reason: reason.map(str::to_owned),
@@ -196,7 +167,7 @@ impl Plan {
         crate::digest::json_sha256(&json!({
             "version":self.version, "binding":self.binding, "status":self.status,
             "scope":self.scope, "unit":self.unit, "selected":self.selected,
-            "excluded":self.excluded, "total":self.total, "reason":self.reason,
+            "related":self.related, "excluded":self.excluded, "total":self.total, "reason":self.reason,
             "unjudged":self.unjudged, "pool":self.pool, "opens":self.opens,
             "failures":self.failures,
         }))
@@ -247,7 +218,7 @@ impl Plan {
             || self.scope != scope
             || self.unit != unit
             || usize::try_from(self.total).ok() != Some(total)
-            || self.selected.len().saturating_add(self.excluded.len()) > total
+            || self.judged() > total
             || self.checksum != self.digest()
         {
             return false;
@@ -260,10 +231,11 @@ impl Plan {
         {
             return false;
         }
-        let mut seen = HashSet::with_capacity(self.selected.len() + self.excluded.len());
+        let mut seen = HashSet::with_capacity(self.judged());
         if !self
             .selected
             .iter()
+            .chain(&self.related)
             .chain(&self.excluded)
             .copied()
             .chain(self.unjudged_ordinals())
@@ -282,7 +254,7 @@ impl Plan {
                 return false;
             }
         }
-        let judged = self.selected.len() + self.excluded.len();
+        let judged = self.judged();
         if self.opens {
             return !self.pool.is_empty()
                 && seen.is_empty()
@@ -296,11 +268,37 @@ impl Plan {
         }
     }
 
+    /// The ordinals decided: selected, related or excluded.
+    fn judged(&self) -> usize {
+        self.selected.len() + self.related.len() + self.excluded.len()
+    }
+
+    /// Completes the plan once every pooled ordinal is decided; otherwise
+    /// names why the rest stay unknown: the candidate budget left some of
+    /// the pool unadmitted (`omitted`), else the first failure.
+    pub(super) fn settle(&mut self, admitted: usize, omitted: &str) {
+        let size = self.pool_size();
+        if self.judged() == size {
+            self.status = SelectionStatus::Complete;
+        } else {
+            self.reason = Some(if admitted < size {
+                omitted.into()
+            } else {
+                self.failures.first().map_or_else(
+                    || "classificationUnknown".to_owned(),
+                    |failure| failure.error_code.to_string(),
+                )
+            });
+        }
+    }
+
     pub(super) fn finish(mut self) -> Outcome {
         self.selected.sort_unstable();
+        self.related.sort_unstable();
         self.excluded.sort_unstable();
         self.seal();
         let selected = self.selected.iter().map(|&i| i as usize).collect();
+        let related = self.related.iter().map(|&i| i as usize).collect();
         let excluded = self.excluded.iter().map(|&i| i as usize).collect();
         let unjudged = self.unjudged_ordinals().map(|i| i as usize).collect();
         let size = i64::try_from(self.pool_size()).unwrap_or(i64::MAX);
@@ -310,7 +308,8 @@ impl Plan {
             unit: self.unit,
             selected_items: self.selected.len() as i64,
             excluded_items: self.excluded.len() as i64,
-            unknown_items: size - self.selected.len() as i64 - self.excluded.len() as i64,
+            related_items: std::num::NonZeroU64::new(self.related.len() as u64),
+            unknown_items: size - self.judged() as i64,
             total_items: size,
             reason: self.reason.clone(),
             failures: self.failures.clone(),
@@ -342,6 +341,7 @@ impl Plan {
         });
         Outcome {
             selected,
+            related,
             excluded,
             unjudged,
             receipt,
@@ -350,289 +350,4 @@ impl Plan {
             next_candidates,
         }
     }
-}
-
-/// Bind assessment semantics, including optional research context. Pagination
-/// cursors are excluded; canonical source identity owns path spelling.
-pub(super) fn binding(
-    query: &Value,
-    source: &str,
-    limits: SelectionLimits,
-    runtime: Option<&Runtime>,
-) -> String {
-    let mut selected = query.clone();
-    if let Some(map) = selected.as_object_mut() {
-        for field in [
-            "snapshot",
-            "selection",
-            "page",
-            "matchPage",
-            "pageSize",
-            "matchPageSize",
-            "offset",
-            "length",
-            "unit",
-            "fullContent",
-            "extras",
-            "path",
-        ] {
-            map.remove(field);
-        }
-    }
-    crate::digest::json_sha256(&octocode_engine::digest::canonicalize_dropping_nulls(
-        json!({
-            "version":VERSION, "source":source, "query":selected,
-            "settings":{
-                "available":runtime.is_some_and(|runtime| runtime.available),
-                "maxCandidates":limits.max_candidates, "maxChars":limits.max_chars,
-                "timeoutMs":limits.timeout.as_millis(),
-            },
-            "provider":runtime.map(|runtime| runtime.judge.identity()),
-        }),
-    ))
-}
-
-pub(crate) fn select(
-    runtime: Option<&Runtime>,
-    query: &Value,
-    source: &str,
-    prior: Option<&str>,
-    candidates: &[Candidate],
-    unsupported: Option<&'static str>,
-    unit: SelectionUnit,
-) -> Result<Outcome, Failure> {
-    select_scoped(
-        runtime,
-        query,
-        source,
-        prior,
-        candidates,
-        unsupported,
-        SelectionScope::SelectedView,
-        unit,
-    )
-}
-
-pub(super) fn select_scoped(
-    runtime: Option<&Runtime>,
-    query: &Value,
-    source: &str,
-    prior: Option<&str>,
-    candidates: &[Candidate],
-    unsupported: Option<&'static str>,
-    scope: SelectionScope,
-    unit: SelectionUnit,
-) -> Result<Outcome, Failure> {
-    let finish = |plan: Plan, usage: &crate::tools::judgment::stats::ClassificationUsage| {
-        let mut outcome = plan.finish();
-        if query["extras"]
-            .as_array()
-            .is_some_and(|extras| extras.iter().any(|extra| extra == "stats"))
-        {
-            outcome.receipt.usage = Some(usage.output());
-        }
-        outcome
-    };
-    let mut usage = crate::tools::judgment::stats::ClassificationUsage::default();
-    let limits = runtime.map_or(
-        SelectionLimits {
-            max_candidates: 0,
-            max_chars: 0,
-            timeout: Duration::ZERO,
-        },
-        |r| r.limits,
-    );
-    let bound = binding(query, source, limits, runtime);
-    // A saved plan replays; a token opening a candidate page judges its pool.
-    let mut pool = Vec::new();
-    if let Some(token) = prior {
-        let plan = decode(token)
-            .filter(|plan| plan.valid(&bound, candidates.len(), scope, unit))
-            .ok_or(Failure::Stale)?;
-        if !plan.opens {
-            return Ok(finish(plan, &usage));
-        }
-        pool = plan.pool;
-    }
-    let mut plan = Plan::new(
-        bound,
-        candidates.len(),
-        SelectionStatus::Partial,
-        scope,
-        unit,
-        None,
-    );
-    plan.pool = pool;
-    let pool_size = plan.pool_size();
-    if let Some(reason) = skip_reason(runtime, unsupported, candidates.len()) {
-        plan.status = if candidates.is_empty() && reason == "noCandidates" {
-            SelectionStatus::Complete
-        } else {
-            SelectionStatus::Unavailable
-        };
-        plan.reason = Some(reason.into());
-        return Ok(finish(plan, &usage));
-    }
-    let mut admitted = Vec::new();
-    let mut chars = 0usize;
-    for ordinal in admission::order(candidates, query, unit)
-        .into_iter()
-        .filter(|&ordinal| plan.in_pool(ordinal))
-    {
-        let candidate = &candidates[ordinal];
-        if admitted.len() == limits.max_candidates {
-            break;
-        }
-        if candidate.fits_budget(limits)
-            && candidate.evidence_chars <= limits.max_chars.saturating_sub(chars)
-        {
-            chars += candidate.evidence_chars;
-            admitted.push(ordinal);
-        }
-    }
-    let eligible = candidates
-        .iter()
-        .enumerate()
-        .filter(|(ordinal, candidate)| candidate.state.is_some() && plan.in_pool(*ordinal))
-        .count();
-    let oversized = candidates.iter().enumerate().any(|(ordinal, candidate)| {
-        plan.in_pool(ordinal)
-            && candidate.state.is_some()
-            && candidate.evidence_chars > limits.max_chars
-    });
-    let omitted_reason = if oversized {
-        "candidateStateTooLarge"
-    } else {
-        match (eligible < pool_size, admitted.len() < eligible) {
-            (true, true) => "candidateEligibilityAndBudget",
-            (true, false) => "candidateIneligible",
-            _ => "candidateBudget",
-        }
-    };
-    plan.mark_unjudged(candidates, &admitted, limits);
-    if admitted.is_empty() {
-        plan.reason = Some(omitted_reason.into());
-        return Ok(finish(plan, &usage));
-    }
-    let Some(runtime) = runtime else {
-        return Ok(finish(plan, &usage));
-    };
-    let context = &query["clasifyContext"];
-    let classifiers = context["classifiers"]
-        .as_array()
-        .filter(|v| !v.is_empty())
-        .ok_or(Failure::Stale)?
-        .iter()
-        .map(|classifier| classifier.as_str().map(str::to_owned))
-        .collect::<Option<Vec<_>>>()
-        .ok_or(Failure::Stale)?;
-    let mut failures = Vec::new();
-    let outcomes = runtime.judge.select(JudgeCall {
-        failures: &mut failures,
-        usage: &mut usage,
-        candidates,
-        admitted: &admitted,
-        classifiers: &classifiers,
-        main_goal: query["mainGoal"].as_str(),
-        reasoning: query["reasoning"].as_str(),
-        long_context: context["longContext"].as_bool().unwrap_or(false),
-        limits: runtime.limits,
-        handle: &runtime.handle,
-        context: &runtime.context,
-    });
-    if runtime.context.cancellation.is_cancelled() || Instant::now() >= runtime.context.deadline {
-        return Err(Failure::Cancelled);
-    }
-    match outcomes {
-        Ok(outcomes) => {
-            let admitted_set = admitted.iter().copied().collect::<HashSet<_>>();
-            let mut seen = HashSet::new();
-            let mut decisions = vec![Decision::Unknown; candidates.len()];
-            for (ordinal, decision) in outcomes {
-                if !admitted_set.contains(&ordinal) {
-                    continue;
-                }
-                if !seen.insert(ordinal) {
-                    decisions[ordinal] = Decision::Unknown;
-                    continue;
-                }
-                decisions[ordinal] = decision;
-            }
-            for (ordinal, decision) in decisions.iter().enumerate() {
-                match decision {
-                    Decision::Selected => plan.selected.push(ordinal as u32),
-                    Decision::Excluded => plan.excluded.push(ordinal as u32),
-                    Decision::Unknown => {}
-                }
-            }
-            plan.failures = failures
-                .into_iter()
-                .filter(|failure| {
-                    usize::try_from(failure.candidate).is_ok_and(|ordinal| {
-                        admitted_set.contains(&ordinal) && decisions[ordinal] == Decision::Unknown
-                    })
-                })
-                .map(|mut failure| {
-                    // The replay token is opaque to output sanitization, so
-                    // sanitize operational messages before encoding it.
-                    let security = crate::security::ContentSecurity;
-                    #[expect(
-                        clippy::expect_used,
-                        reason = "sanitization preserves nonempty text or substitutes a nonempty redaction marker"
-                    )]
-                    let error = security
-                        .sanitize_text(&failure.error, None)
-                        .content
-                        .try_into()
-                        .expect("sanitized nonempty error");
-                    failure.error = error;
-                    if let Some(hints) = &mut failure.hints {
-                        for hint in &mut hints.0 {
-                            #[expect(
-                                clippy::expect_used,
-                                reason = "sanitization preserves nonempty text or substitutes a nonempty redaction marker"
-                            )]
-                            let sanitized = security
-                                .sanitize_text(hint, None)
-                                .content
-                                .try_into()
-                                .expect("sanitized nonempty hint");
-                            *hint = sanitized;
-                        }
-                    }
-                    failure
-                })
-                .collect();
-            plan.failures.sort_by_key(|failure| failure.candidate);
-            plan.failures.dedup_by_key(|failure| failure.candidate);
-            let known = plan.selected.len() + plan.excluded.len();
-            if known == pool_size {
-                plan.status = SelectionStatus::Complete;
-            } else {
-                plan.reason = Some(if admitted.len() < pool_size {
-                    omitted_reason.into()
-                } else {
-                    plan.failures.first().map_or_else(
-                        || "classificationUnknown".to_owned(),
-                        |failure| failure.error_code.to_string(),
-                    )
-                });
-            }
-        }
-        Err(JudgeFailure::Unavailable(reason)) => {
-            plan.status = SelectionStatus::Unavailable;
-            plan.reason = Some(reason);
-            plan.unjudged.clear();
-        }
-        Err(JudgeFailure::Provider(error)) => {
-            plan.status = SelectionStatus::Unavailable;
-            plan.unjudged.clear();
-            plan.reason = Some(error.code.to_string());
-            return Err(Failure::Provider(Box::new(ProviderFailure {
-                error,
-                outcome: finish(plan, &usage),
-            })));
-        }
-    }
-    Ok(finish(plan, &usage))
 }

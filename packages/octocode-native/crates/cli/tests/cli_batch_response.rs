@@ -63,3 +63,66 @@ fn cli_exit_is_zero_while_response_pages_remain() {
     assert_eq!(value["responsePagination"]["hasMore"], true, "{value}");
     assert_eq!(output.status.code(), Some(0));
 }
+
+/// Every response page is reached across CLI processes by sending only the
+/// previous page's cursor (`{"responseSnapshot": …}`), each file exactly
+/// once, under one `totalPages`.
+#[test]
+fn cli_pages_follow_only_the_cursor_across_processes() {
+    let workspace = Workspace::new();
+    let mut file = None;
+    for index in 0..30 {
+        file = Some(workspace.write(
+            &format!("src/p{index:02}.txt"),
+            "needle ".repeat(400) + "\n",
+        ));
+    }
+    let root = file
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let query = search(&root, json!({"pageSize":30,"matchContentLength":2000}));
+    let mut input = json!({"queries":[query]});
+    let mut files = Vec::new();
+    let mut total = None;
+    for page in 1.. {
+        assert!(page < 100, "the walk terminates");
+        let output = workspace
+            .cli()
+            .env("OCTOCODE_STORAGE_MODE", "persistent")
+            .args(["localSearch", &input.to_string(), "--json"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        for row in value["results"].as_array().unwrap() {
+            for file in row["data"]["files"].as_array().into_iter().flatten() {
+                files.push(file["path"].as_str().unwrap().to_owned());
+            }
+        }
+        let pagination = &value["responsePagination"];
+        assert_eq!(pagination["currentPage"], page, "{pagination}");
+        let pages = pagination["totalPages"].clone();
+        assert_eq!(*total.get_or_insert(pages.clone()), pages, "{pagination}");
+        if pagination["hasMore"] != true {
+            break;
+        }
+        let next = &pagination["next"]["query"];
+        assert_eq!(next.as_object().unwrap().len(), 1, "{next}");
+        input = json!({"responseSnapshot": next["responseSnapshot"].clone()});
+    }
+    files.sort();
+    let expected: Vec<String> = (0..30).map(|index| format!("p{index:02}.txt")).collect();
+    let names: Vec<String> = files
+        .iter()
+        .map(|path| path.rsplit('/').next().unwrap().to_owned())
+        .collect();
+    assert_eq!(names, expected);
+}

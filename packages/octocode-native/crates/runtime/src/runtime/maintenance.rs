@@ -38,12 +38,11 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
     sweep_dir(&tmp.join("tree-staging"), INTERVAL);
     // Materialized checkouts: each snapshot ages by its last write and is
     // removed only under its own lock, so a materialize in progress keeps
-    // it. `v2` is a retired layout no writer uses: it ages out whole.
+    // it.
     sweep_materialized(
         &crate::tools::gh_structure::materialize::materialize_root(home),
         INTERVAL,
     );
-    sweep_dir(&tmp.join("materialize").join("v2"), INTERVAL);
     // Rate-limit mirrors only hold facts that expire within ~1h.
     sweep_dir(&tmp.join("ratelimit"), INTERVAL);
     // URL captures are content-addressed directories, rewritten on every

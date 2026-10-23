@@ -7,7 +7,6 @@ use crate::execution::cancel::CancellationCheck;
 use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
-use octocode_contract_types::ErrorCode;
 use octocode_engine::signatures::MAX_PARSE_SIZE;
 use sha2::{Digest, Sha256};
 
@@ -379,7 +378,7 @@ pub(super) fn validate_matched(
 ) -> Result<(), ToolError> {
     paths.validate_read(source).map(drop).map_err(|error| {
         ToolError::new(
-            error.local_error_code(ErrorCode::FileAccessFailed),
+            error.shared_code(),
             "Search encountered a path denied by the active path policy",
         )
     })
@@ -612,12 +611,7 @@ pub(super) fn outline_for_cut(
 /// Outlines a page cut parsed, by file index (see [`outline_for_cut`]).
 pub(super) type CutOutlines = std::collections::HashMap<usize, Option<super::enclosing::Outline>>;
 
-/// Remove `…` window markers and `...` truncation suffixes from a value line.
-pub(super) fn strip_clip_markers(line: &str) -> &str {
-    let line = line.strip_prefix('…').unwrap_or(line);
-    let line = line.strip_suffix("...").unwrap_or(line);
-    line.strip_suffix('…').unwrap_or(line)
-}
+pub(super) use crate::security::cut::strip_clip_markers;
 
 /// Security: the engine clips values (matchOnly spans, matchContentLength,
 /// long-line windows) *before* sanitization, so a clipped
@@ -645,7 +639,7 @@ pub(super) fn guard_clipped_secrets(
     guard_read(
         file,
         source,
-        || std::fs::File::open(source),
+        || octocode_engine::text::open_regular(source).map(|(file, _)| file),
         expected,
         shown,
         check,
@@ -755,11 +749,7 @@ pub(super) fn guard_read<R: std::io::Read>(
         if !sanitized.has_secrets {
             continue;
         }
-        let exposed = matched.value.lines().any(|value_line| {
-            let core = strip_clip_markers(value_line);
-            !core.is_empty() && !sanitized.content.contains(core)
-        });
-        if exposed {
+        if crate::security::cut::exposes(&matched.value, &sanitized.content) {
             matched.value = if match_only {
                 "[REDACTED]".to_owned()
             } else {

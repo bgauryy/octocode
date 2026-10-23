@@ -5,7 +5,7 @@ import { RESTORE_FILE_CHARS, RESTORE_MAX_FILES, RESTORE_MAX_SKIPPED, RESTORE_MIN
 import { CHARS_PER_TOKEN } from '../src/shared/tokens.js';
 import { windowBudget } from '../src/compaction/summary.js';
 import { RESTORED_FILES_TYPE, seenFiles } from '../src/files/reads.js';
-import { FileGuard } from '../src/files/tool.js';
+import { FileGuard } from '../src/files/guard.js';
 import { canonicalPath } from '../src/shared/home.js';
 import { tmp } from './helpers.js';
 

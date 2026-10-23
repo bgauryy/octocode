@@ -30,19 +30,15 @@ pub(crate) fn acquisition_key(
                 "Use an authorized text reader.",
             )
         })?;
-    let mut query = super::prepare_source(tool, &source["query"], dispatcher)?;
-    if tool == ToolId::LocalFetch {
-        let path = query["path"].as_str().unwrap_or_default();
-        let validated = dispatcher
-            .paths()
-            .validate_read(std::path::Path::new(path))
-            .map_err(|_| {
-                failure(
-                    ErrorCode::ClassificationContextUnavailable,
-                    "The local source path is not authorized.",
-                    "Use an allowed source path.",
-                )
-            })?;
+    let mut query = super::prepare_source(tool, &source["query"], dispatcher)?.into_value();
+    // A path the policy resolves is keyed by its file; one it cannot (missing,
+    // refused) keeps the requested path, and the capture reports the reader's
+    // own failure for it.
+    if tool == ToolId::LocalFetch
+        && let Ok(validated) = dispatcher.paths().validate_read(std::path::Path::new(
+            query["path"].as_str().unwrap_or_default(),
+        ))
+    {
         query["path"] = json!(validated.canonical);
     }
     if let Some(query) = query.as_object_mut() {
@@ -106,7 +102,9 @@ pub(crate) fn capture(
     let query = super::prepare_source(tool, &source["query"], dispatcher)?;
     let (text, path, snapshot, local_check) = match tool {
         ToolId::LocalFetch => {
-            let (text, canonical, snapshot) = dispatcher.capture_local_text(&query, context)?;
+            let (text, canonical, snapshot) = dispatcher
+                .capture_local_text(&query, context)
+                .map_err(|error| local_recovery(error, &query, dispatcher))?;
             let check = json!({"tool":"localFetch","query":{"path":query["path"],"snapshot":snapshot,"fullContent":true},"canonical":canonical});
             (text, canonical, snapshot, Some(check))
         }
@@ -116,23 +114,26 @@ pub(crate) fn capture(
                 context,
                 dispatcher.text_capture_limit(),
             )?;
-            if captured.bytes.contains(&0)
-                || octocode_engine::text::sniff(&captured.bytes)
-                    == octocode_engine::text::BinaryVerdict::Binary
-            {
-                return Err(failure(
-                    ErrorCode::ClassificationContextUnavailable,
-                    "Section assessment requires text; this resource is binary.",
-                    "Use an explicit image asset for image questions.",
-                ));
-            }
-            let text = String::from_utf8(captured.bytes.to_vec()).map_err(|_| {
-                failure(
-                    ErrorCode::ClassificationContextUnavailable,
-                    "The source is not valid UTF-8 text; no sections were inferred.",
-                    "Use a text representation with known encoding.",
-                )
-            })?;
+            let text = match octocode_engine::text::admit(
+                &captured.bytes,
+                octocode_engine::text::Decoding::Unicode,
+            ) {
+                Ok(decoded) => decoded.text.into_owned(),
+                Err(octocode_engine::text::Refusal::Binary) => {
+                    return Err(failure(
+                        ErrorCode::ClassificationContextUnavailable,
+                        "Section assessment requires text; this resource is binary.",
+                        "Use an explicit image asset for image questions.",
+                    ));
+                }
+                Err(octocode_engine::text::Refusal::NotUnicode) => {
+                    return Err(failure(
+                        ErrorCode::ClassificationContextUnavailable,
+                        "The source is not valid UTF-8 text (or BOM-marked UTF-16); no sections were inferred.",
+                        "Use a text representation with known encoding.",
+                    ));
+                }
+            };
             (
                 text,
                 PathBuf::from(query["path"].as_str().unwrap_or_default()),
@@ -155,6 +156,32 @@ pub(crate) fn capture(
         metadata: json!({"status":"ready","source":source,"snapshot":snapshot,"coordinateSpace":"source","read":read}),
         local_check,
     })
+}
+
+/// A local capture failure with the recovery a direct read gives: a missing
+/// path leads to its nearest existing directory's tree, and a failure that
+/// brings no recovery of its own carries its code's shared hint.
+fn local_recovery(
+    mut error: ClassificationError,
+    query: &Value,
+    dispatcher: &dyn SourceReader,
+) -> ClassificationError {
+    if error.leads.is_empty()
+        && error.code == ErrorCode::PathNotFound
+        && let Some(Value::Object(leads)) = crate::response::result::missing_path_lead(
+            dispatcher.paths(),
+            query["path"].as_str().unwrap_or_default(),
+        )
+    {
+        error.leads.extend(leads);
+    }
+    if error.hints.is_empty()
+        && error.leads.is_empty()
+        && let Some(hint) = crate::response::rows::error_code_hint(ToolId::LocalFetch, error.code)
+    {
+        error.hints.push(hint.to_owned());
+    }
+    error
 }
 
 pub(crate) fn validate_local(

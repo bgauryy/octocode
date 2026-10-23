@@ -238,13 +238,8 @@ impl Unwalked {
             let call = (named < MAX_LEADS).then(|| lead(reach)).flatten();
             match call {
                 Some(call) => {
+                    out["next"][crate::id::numbered("narrowScope", named)] = call;
                     named += 1;
-                    let key = if named == 1 {
-                        "narrowScope".to_owned()
-                    } else {
-                        format!("narrowScope{named}")
-                    };
-                    out["next"][key] = call;
                 }
                 None => unled.push(reach),
             }
@@ -266,15 +261,14 @@ impl Unwalked {
             "{hidden} more unread scopes have no narrowScope hint (at most {MAX_LEADS} are offered)"
         );
         if let Some(dir) = listed_in {
-            let key = format!("narrowScope{}", named + 1);
-            out["next"][key] = crate::response::result::Continuation::new(
+            let key = crate::id::numbered("narrowScope", named);
+            out["next"][&key] = crate::response::result::Continuation::new(
                 ToolId::StructureSearch,
                 json!({"operation":"tree","path":dir.to_string_lossy(),"maxDepth":1}),
             )
             .build();
             warning.push_str(&format!(
-                "; narrowScope{} lists the directories under {}",
-                named + 1,
+                "; {key} lists the directories under {}",
                 dir.display()
             ));
         }
@@ -354,4 +348,39 @@ pub(super) fn narrowed(query: &Value, reach: &Reach) -> Option<Value> {
             .confidence(Confidence::Exact)
             .build(),
     )
+}
+
+#[cfg(test)]
+mod numbering_tests {
+    use super::{Reach, Unwalked};
+    use serde_json::json;
+
+    /// With no scope led, the listing lead is the first `narrowScope`, and
+    /// the warning names it as published.
+    #[test]
+    fn a_listing_with_no_scope_led_is_the_first_narrow_scope() {
+        let unwalked = Unwalked {
+            scopes: vec![Reach {
+                dir: "/r/a".into(),
+                depth: 1,
+                files_only: false,
+                skip: 0,
+            }],
+            ..Unwalked::default()
+        };
+        let mut out = json!({});
+        unwalked.attach(&mut out, |_| None);
+        let names = out["next"]
+            .as_object()
+            .expect("next")
+            .keys()
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["narrowScope"], "{out}");
+        assert!(
+            out["warnings"]
+                .to_string()
+                .contains("; narrowScope lists the directories under /r"),
+            "{out}"
+        );
+    }
 }

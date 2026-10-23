@@ -4,15 +4,11 @@
 //! mutate process environment or race under `cargo test`.
 #![allow(clippy::panic, reason = "test assertions fail by panicking")]
 
-use octocode_native::config::{ConfigInput, FileInput, RuntimeSurface};
 use octocode_native::execution::RuntimeLimits;
 use octocode_native::response::outcome::ToolOutcome;
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use wiremock::MockServer;
+use std::path::Path;
 
 // The contract, lead and page-walk checks the unit tests use: one copy, by path.
 use octocode_native::contracts::{parsed_contract, validate, validate_output};
@@ -20,12 +16,13 @@ use octocode_native::contracts::{parsed_contract, validate, validate_output};
 #[expect(dead_code, reason = "the unit tests use the rest of the shared checks")]
 pub mod checks;
 
-/// Per-fixture token suffix. The GitHub rate-limit budget is process-wide and
-/// keyed by API host + token digest; wiremock pools its servers, so a later
-/// test can reuse an earlier test's `127.0.0.1:<port>`. A distinct token per
-/// workspace keeps one test's simulated limits, cooldowns, pacing, and circuit
-/// state from leaking into another.
-static FIXTURE_SEQ: AtomicU64 = AtomicU64::new(0);
+mod cursor;
+mod providers;
+mod workspace;
+
+pub use cursor::{assert_cursor_only, cursor_at_offset, cursor_offset, cursor_response};
+pub use providers::{PROVIDER_LIMITS, capture_allowed, clasify_runtime, github_api, provider_env};
+pub use workspace::Workspace;
 
 /// The internal limits fixtures run under: no retries, a 5 s network
 /// timeout so a test that reaches an endpoint it did not mock fails fast,
@@ -55,137 +52,6 @@ pub const UNMOCKED_GITHUB_API_URL: &str = "http://127.0.0.1:1/api/v3";
 // carry one test's answers or pacing into another test that reuses a pooled
 // server's address.
 
-pub struct Workspace {
-    _root: tempfile::TempDir,
-    pub workspace: PathBuf,
-    pub home: PathBuf,
-    pub token: String,
-}
-
-impl Workspace {
-    pub fn new() -> Self {
-        let root = tempfile::TempDir::new().expect("temporary workspace");
-        let root_path = root
-            .path()
-            .canonicalize()
-            .expect("canonical temporary root");
-        let workspace = root_path.join("work");
-        let home = root_path.join("home");
-        std::fs::create_dir_all(&workspace).expect("workspace directory");
-        std::fs::create_dir_all(&home).expect("home directory");
-        let token = format!(
-            "fixture-token-{}",
-            FIXTURE_SEQ.fetch_add(1, Ordering::Relaxed)
-        );
-        Self {
-            _root: root,
-            workspace,
-            home,
-            token,
-        }
-    }
-
-    pub fn write(&self, relative: &str, contents: impl AsRef<[u8]>) -> PathBuf {
-        let path = self.workspace.join(relative);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("fixture parents");
-        }
-        std::fs::write(&path, contents).expect("fixture write");
-        path
-    }
-
-    /// `PATH` whose `gh` answers only `gh auth token --hostname 127.0.0.1`
-    /// (with no token env set) and logs each call to `$OCTOCODE_HOME/gh-calls`.
-    #[cfg(unix)]
-    pub fn fake_gh_path(&self) -> String {
-        use std::os::unix::fs::PermissionsExt;
-        let script = self.write("bin/gh", "#!/bin/sh\n[ \"$1 $2 $3 $4\" = 'auth token --hostname 127.0.0.1' ] || exit 2\n[ -z \"$GH_TOKEN$GITHUB_TOKEN\" ] || exit 3\nprintf x >> \"$OCTOCODE_HOME/gh-calls\"\nprintf synthetic-gh-credential\n");
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
-            .expect("fake gh permissions");
-        format!(
-            "{}:/usr/bin:/bin",
-            script.parent().expect("fake gh dir").display()
-        )
-    }
-
-    pub fn write_outside_allowed_roots(
-        &self,
-        relative: &str,
-        contents: impl AsRef<[u8]>,
-    ) -> PathBuf {
-        let path = self._root.path().join("outside").join(relative);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("outside fixture parents");
-        }
-        std::fs::write(&path, contents).expect("outside fixture write");
-        path
-    }
-
-    pub fn config(&self, extra: &[(&str, String)]) -> ConfigInput {
-        let mut env = BTreeMap::from([
-            ("OCTOCODE_ENABLE_LOCAL".into(), "true".into()),
-            (
-                "ALLOWED_PATHS".into(),
-                self.workspace.to_string_lossy().into_owned(),
-            ),
-            (
-                "WORKSPACE_ROOT".into(),
-                self.workspace.to_string_lossy().into_owned(),
-            ),
-            (
-                "OCTOCODE_HOME".into(),
-                self.home.to_string_lossy().into_owned(),
-            ),
-            // The OS home (`os_home` below) as child processes see it: without
-            // it, a spawned `gh` or `git` resolves an empty home and writes its
-            // state relative to the test's working directory.
-            ("HOME".into(), self.home.to_string_lossy().into_owned()),
-            ("GITHUB_TOKEN".into(), self.token.clone()),
-            ("GITHUB_API_URL".into(), UNMOCKED_GITHUB_API_URL.into()),
-            ("OCTOCODE_ENABLE_STATS".into(), "false".into()),
-            // Fixture workspaces trust their own language-server definitions.
-            (
-                octocode_native::config::field::LSP_TRUST_PROJECT_CONFIG
-                    .env_name()
-                    .expect("lsp.trustProjectConfig is bound")
-                    .into(),
-                "true".into(),
-            ),
-        ]);
-        for (key, value) in extra {
-            env.insert((*key).into(), value.clone());
-        }
-        ConfigInput {
-            env,
-            cwd: self.workspace.clone(),
-            os_home: self.home.clone(),
-            global_env: FileInput::Missing {
-                path: self.home.join(".env"),
-            },
-            project_env: FileInput::Missing {
-                path: self.workspace.join(".octocode/.env"),
-            },
-            config_file: FileInput::Missing {
-                path: self.home.join(".octocoderc"),
-            },
-            project_config_file: FileInput::Missing {
-                path: self.workspace.join(".octocode/.octocoderc"),
-            },
-            runtime_surface: RuntimeSurface::Cli,
-        }
-    }
-
-    pub fn runtime(&self, extra: &[(&str, String)]) -> ToolRuntime {
-        self.runtime_with(extra, FIXTURE_LIMITS)
-    }
-
-    /// [`Self::runtime`] under the internal `limits` (the typed test seam;
-    /// limits are code constants, never configuration).
-    pub fn runtime_with(&self, extra: &[(&str, String)], limits: RuntimeLimits) -> ToolRuntime {
-        ToolRuntime::with_limits(self.config(extra), limits).expect("native runtime")
-    }
-}
-
 /// One call admitted under `request_id`, as the CLI (`run`: structured JSON)
 /// or the N-API adapter (`run_mcp`: the MCP `CallToolResult`) makes it.
 pub trait Run {
@@ -211,8 +77,7 @@ impl Run for ToolRuntime {
         input: Value,
     ) -> Result<ToolOutcome, RuntimeError> {
         let admission = self.admit(request_id)?;
-        self.execute(admission, tool, input, Channel::Structured)
-            .await
+        self.execute(admission, tool, input, Channel::Cli).await
     }
 
     async fn run_mcp(
@@ -335,56 +200,6 @@ pub fn query_path(path: &Path, extra: Value) -> Value {
     query
 }
 
-/// The environment pointing clasify at the mock classification provider
-/// `server`, plus `extra`.
-pub fn provider_env<'a>(
-    server: &MockServer,
-    extra: &[(&'a str, String)],
-) -> Vec<(&'a str, String)> {
-    let mut env = vec![
-        ("OCTOCODE_BETA", "true".to_owned()),
-        ("OCTOCODE_CLASSIFICATION_API", "secret".to_owned()),
-        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
-    ];
-    env.extend(extra.iter().cloned());
-    env
-}
-
-/// Runtime whose classification provider is the mock `server`, plus `extra`,
-/// at the production network timeout: the fixture's 5 s is too narrow during
-/// a cold native build with several mock servers active.
-pub fn clasify_runtime(
-    workspace: &Workspace,
-    server: &MockServer,
-    extra: &[(&str, String)],
-) -> ToolRuntime {
-    workspace.runtime_with(&provider_env(server, extra), PROVIDER_LIMITS)
-}
-
-/// The workspace plus the URL capture directory, as `ALLOWED_PATHS` grants.
-pub fn capture_allowed(workspace: &Workspace) -> (&'static str, String) {
-    (
-        "ALLOWED_PATHS",
-        format!(
-            "{},{}",
-            workspace.workspace.display(),
-            workspace.home.join("tmp/capture/url").display()
-        ),
-    )
-}
-
-/// The `GITHUB_API_URL` setting that points GitHub tools at the mock `server`.
-pub fn github_api(server: &MockServer) -> [(&'static str, String); 1] {
-    [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]
-}
-
-/// [`FIXTURE_LIMITS`] at the production network timeout, for HTTP-backed
-/// provider fixtures.
-pub const PROVIDER_LIMITS: RuntimeLimits = RuntimeLimits {
-    network_timeout: RuntimeLimits::DEFAULT.network_timeout,
-    ..FIXTURE_LIMITS
-};
-
 /// One executed row as an agent sees it: the whole outcome (`Row` derefs to
 /// it), and its first result row's `status` and `data`.
 pub struct Row {
@@ -442,7 +257,7 @@ pub async fn walk(
             .run("walk".into(), tool.into(), query.clone())
             .await
             .unwrap_or_else(|error| panic!("{tool} {query}: {error:?}"));
-        let output = outcome.structured_content;
+        let output = outcome.structured_content.into_value();
         walker.accept(checks::Page {
             rows: rows(&output),
             output,

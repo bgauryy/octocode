@@ -5,7 +5,7 @@ use super::super::{StructureSearchQuery, execute_structure_within};
 use super::run;
 use crate::execution::cancel::{CancellationCheck, NeverCancel};
 use crate::id::ToolId;
-use crate::tools::test_support::{Fixture, assert_row_contract, simple_policy};
+use crate::tools::test_support::{Fixture, assert_row_contract, simple_policy, skipped_count};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -406,8 +406,8 @@ fn a_resumed_window_does_not_count_the_withheld_and_hidden_entries_it_replays() 
         let withheld = |query: &Value| {
             let out = within(&root.0, query.clone(), Duration::from_secs(3600));
             (
-                out["warnings"].to_string().contains("withheld"),
-                out["summary"].get("hidden").is_some(),
+                skipped_count(&out, "withheld") > 0,
+                skipped_count(&out, "hidden") > 0,
             )
         };
         let mut query = rows(operation, &root.0);
@@ -425,30 +425,20 @@ fn a_resumed_window_does_not_count_the_withheld_and_hidden_entries_it_replays() 
     // withheld ones are no hidden entries).
     let mut query = rows("tree", &root.0);
     let whole = within(&root.0, query.clone(), Duration::from_secs(3600));
-    assert_eq!(whole["summary"]["hidden"], 1, "{whole}");
+    assert_eq!(skipped_count(&whole, "hidden"), 1, "{whole}");
     query["walkOffset"] = json!(4);
     let resumed = within(&root.0, query, Duration::from_secs(3600));
-    assert!(resumed["summary"].get("hidden").is_none(), "{resumed}");
+    assert_eq!(skipped_count(&resumed, "hidden"), 0, "{resumed}");
 }
 
 /// What a window's page says its walk left out: entries `.gitignore` hid, dot
 /// entries skipped, and entries the path policy withheld.
 fn left_out(out: &Value) -> (u64, u64, u64) {
-    let count = |key| out["summary"][key].as_u64().unwrap_or(0);
-    let withheld = out["warnings"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter(|warning| warning.contains("withheld"))
-        .map(|warning| {
-            warning
-                .split(|c: char| !c.is_ascii_digit())
-                .find_map(|digits| digits.parse::<u64>().ok())
-                .expect("the notice counts the entries")
-        })
-        .sum();
-    (count("ignored"), count("hidden"), withheld)
+    (
+        skipped_count(out, "ignored"),
+        skipped_count(out, "hidden"),
+        skipped_count(out, "withheld"),
+    )
 }
 
 /// A walk's windows count what the walk left out once between them: a window

@@ -1,7 +1,8 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CdpConnection, type PageTarget } from '../src/browser/cdp.js';
+import { CdpConnection } from '../src/browser/cdp.js';
+import type { PageTarget } from '../src/browser/devtools.js';
 import { NO_REPLY, startCdpStub, type CdpStub, type CdpStubOptions } from './fixtures/cdp-stub.js';
 
 const stubs: CdpStub[] = [];

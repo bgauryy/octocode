@@ -1,6 +1,8 @@
 import { BROWSER_VISIBLE_ENV, envFlag } from '../shared/env.js';
 import { throwIfAborted, unlessAborted } from './abort.js';
-import { CdpConnection, checkDevtoolsUrl, logConsole, noteTabOrigin, openTab, pageTargets, pruneClosed, trackDownload, type BrowserSession, type CdpPage, type Download, type PageTarget } from './cdp.js';
+import { CdpConnection, type CdpPage } from './cdp.js';
+import { checkDevtoolsUrl, openTab, pageTargets, type PageTarget } from './devtools.js';
+import { logConsole, noteTabOrigin, pruneClosed, trackDownload, type BrowserSession, type Download } from './session-state.js';
 import { applyDownloads } from './emulation.js';
 import { closeTarget, launchChrome, persistentProfileDir, profileLocked, profilePort, recordProfilePort, type OwnChrome } from './launch.js';
 import { applyPolicy, guardTargets, watchNetwork } from './page-network.js';
@@ -59,7 +61,7 @@ export async function openBrowser(env: NodeJS.ProcessEnv = process.env, options:
     const { policy, onBlocked } = options;
     const launching = launchChrome(headless, profile, { ...(onBlocked ? { onBlocked } : {}), ...(policy ? { approved: (host, port) => policy.approves(host, port) } : {}) });
     // A Chrome that finishes starting after an abort has no owner; failing to kill it adds nothing to the abort.
-    chrome = await unlessAborted(launching, signal, (late) => Promise.resolve(late.kill()).catch(() => undefined));
+    chrome = await unlessAborted(launching, signal, (late) => late.kill().catch(() => undefined));
     onProfile = profile !== undefined;
     try {
       throwIfAborted(signal);

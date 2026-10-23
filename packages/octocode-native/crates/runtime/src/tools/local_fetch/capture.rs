@@ -1,5 +1,6 @@
-use super::{LocalFetchQuery, LocalFetchResult, MAX_SOURCE_BYTES, PathAccess, acquire, executor};
+use super::{MAX_SOURCE_BYTES, acquire};
 use crate::execution::cancel::CancellationCheck;
+use crate::tools::source_view::{LocalFetchQuery, LocalFetchResult, PathAccess, stale_snapshot};
 use octocode_contract_types::ErrorCode;
 use std::path::PathBuf;
 
@@ -51,24 +52,24 @@ pub(crate) fn capture_text(
         }
     };
     check()?;
-    if octocode_engine::text::sniff_complete(&bytes) == octocode_engine::text::BinaryVerdict::Binary
-    {
+    let snapshot = octocode_engine::digest::sha256(&bytes);
+    let admitted = octocode_engine::text::admit(&bytes, octocode_engine::text::Decoding::Unicode);
+    if admitted.as_ref().err() == Some(&octocode_engine::text::Refusal::Binary) {
         return Err(Box::new(acquire::refuse_binary(query, &validated.display)));
     }
-    let snapshot = octocode_engine::digest::sha256(&bytes);
     if let Some(expected) = query.snapshot.as_deref()
         && **expected != snapshot
     {
-        return Err(Box::new(executor::stale_snapshot(query)));
+        return Err(Box::new(stale_snapshot(query)));
     }
-    let text = octocode_engine::text::decode_unicode(&bytes).ok_or_else(|| {
+    let text = admitted.map_err(|_| {
         failure(
             ErrorCode::ClassificationContextUnavailable,
             "The source is not valid UTF-8 or BOM-marked UTF-16 text; no sections were assessed. Use a text representation with known encoding.".into(),
         )
     })?;
     Ok(CapturedText {
-        text: text.into_owned(),
+        text: text.text.into_owned(),
         canonical: validated.canonical,
         snapshot,
     })

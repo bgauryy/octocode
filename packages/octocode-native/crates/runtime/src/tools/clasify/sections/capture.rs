@@ -98,9 +98,12 @@ pub(super) fn create(
                 }
                 Err(error) => {
                     let mut metadata = json!({"status":if matches!(error.code, ErrorCode::FileTooLarge | ErrorCode::ClassificationContextTooLarge | ErrorCode::CapabilityUnavailable) {"unsupported"} else {"error"},"source":source,"error":error_value(&error),"coverage":{"totalSections":null,"completedSections":0,"remainingSections":null,"answered":0,"error":0,"unsupported":0,"unassessed":null}});
+                    // The requested read is offered only when repeating it
+                    // can succeed (not for a missing path or a refusal).
                     if let Some(tool) = source["tool"]
                         .as_str()
                         .and_then(crate::id::ToolId::from_name)
+                        .filter(|_| super::super::recovery::rereadable(&metadata["error"]))
                     {
                         metadata["read"] =
                             crate::tools::source_capture::read_lead(tool, &source["query"], None);

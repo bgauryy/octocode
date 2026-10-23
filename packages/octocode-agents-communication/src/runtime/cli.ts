@@ -8,9 +8,12 @@ import * as activity from './activity.js';
 import * as catalog from './catalog.js';
 import { databasePath } from './config.js';
 import * as database from './database.js';
+import { exportDatabase } from './database-export.js';
+import type { DeliveryRuntime } from './delivery-types.js';
 import * as dispatch from './dispatch.js';
 import { ValidationError, describe } from './errors.js';
 import * as hostHooks from './host-hooks.js';
+import { loopActive } from './loop-control.js';
 import * as mcp from './mcp.js';
 import * as proxy from './proxy.js';
 import * as retention from './retention.js';
@@ -21,7 +24,8 @@ import { monotonic } from './timing.js';
 import { wellFormed, type Json } from './validation.js';
 import { VERSION } from './version.js';
 import * as view from './view.js';
-import { compact, MAX_FRAME, decodeUtf8 } from './wire.js';
+import { MAX_FRAME } from './wire.js';
+import { compact, decodeUtf8 } from './json-text.js';
 
 /** What a command run needs from its process: standard streams and the path of the runnable entry script. */
 export interface Context {
@@ -169,7 +173,7 @@ function arity(values: readonly unknown[], minimum: number, maximum: number): vo
   if (values.length < minimum || values.length > maximum) throw new ValidationError('Unexpected positional arguments; use --help or schema');
 }
 
-function delivery(context: Context): dispatch.DeliveryRuntime {
+function delivery(context: Context): DeliveryRuntime {
   return {
     output: value => output(context, value),
     print: text => context.write(text + '\n'),
@@ -243,7 +247,7 @@ async function run(argv: readonly string[], context: Context): Promise<void> {
     if (action === 'export') arity(rest, 2, 2);
     if (action === 'export') {
       const { input } = commandInput(context, 'db export', rest[1]);
-      return output(context, await database.exportDatabase(databasePath(args.database), catalog.text(input, 'path')));
+      return output(context, await exportDatabase(databasePath(args.database), catalog.text(input, 'path')));
     }
     if (action === 'retention') {
       const { input } = commandInput(context, 'db retention', rest[1]);
@@ -286,14 +290,14 @@ async function run(argv: readonly string[], context: Context): Promise<void> {
 }
 
 /**
- * Ends the process with 130 (SIGINT) or 143 (SIGTERM) unless a loop registered through `dispatch.stopEvent` has taken over
+ * Ends the process with 130 (SIGINT) or 143 (SIGTERM) unless a loop registered through `stopEvent` (loop-control.ts) has taken over
  * the signal and will stop cleanly. Returns the function that removes the handlers.
  */
 function exitOnSignal(): () => void {
   const handlers = new Map<NodeJS.Signals, () => void>();
   for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) {
     const handler = (): void => {
-      if (!dispatch.loopActive()) process.exit(code);
+      if (!loopActive()) process.exit(code);
     };
     handlers.set(signal, handler);
     process.on(signal, handler);

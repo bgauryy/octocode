@@ -3,14 +3,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import * as catalog from './catalog.js';
 import { databasePath } from './config.js';
-import { Presence, sleep, stopEvent } from './dispatch.js';
+import { Presence, sleep, stopEvent } from './loop-control.js';
 import { ValidationError, describe } from './errors.js';
 import { claimDeliveryOwner } from './owner-lock.js';
 import { Store } from './store.js';
 import { isBlank } from './text.js';
 import { isObject, wellFormed, type JsonObject } from './validation.js';
 import { VERSION } from './version.js';
-import { MAX_FRAME, compact, compactAscii, parseJsonBytes } from './wire.js';
+import { MAX_FRAME } from './wire.js';
+import { compact, compactAscii, parseJsonBytes } from './json-text.js';
 
 /** The flags `mcp` consumes, as parsed by the CLI. */
 interface McpArgs {

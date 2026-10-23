@@ -19,6 +19,7 @@ pub(crate) mod policy;
 mod private_file;
 #[cfg(test)]
 mod process_fixture;
+#[cfg(test)]
 mod process_status;
 pub mod providers;
 mod regex_repair;

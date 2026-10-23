@@ -39,14 +39,14 @@ The working, contract and change rules live in `<repo>/AGENTS.md`; its two flows
 
 ## Task runner
 
-Root `package.json` keeps only `build:native:all` and `contracts:regen`. Run every other repo task with `$DEV`. Extra arguments pass through; `$DEV --help` lists all tasks.
+Root `package.json` keeps only `contracts:regen`. Run every other repo task with `$DEV`. Extra arguments pass through; `$DEV --help` lists all tasks.
 
 | Need | Command |
 |---|---|
 | Fast local build (default) | `$DEV build:dev` |
 | Release build (slow) | `$DEV build` |
 | Tests / lint / typecheck | `$DEV test` · `$DEV lint` · `$DEV typecheck` (`:ci` variants skip benchmark) |
-| Fix formatting that lint checks | `$DEV format` (each workspace `format`: eslint `--fix` or prettier `--write`) |
+| Fix formatting that lint checks | `$DEV format` (each workspace `format`: prettier `--write`) |
 | Every tool end to end (CLI + MCP, hermetic, after `build:dev`) | `$DEV test:tools [tool,...]` |
 | Full repo contract before handoff | `$DEV verify` |
 | Docs links, catalog, config keys | `$DEV docs:verify` |
@@ -55,6 +55,7 @@ Root `package.json` keeps only `build:native:all` and `contracts:regen`. Run eve
 | One range per external dependency | `$DEV deps:dedupe` (`--fix` rewrites) |
 | Local dev resolutions | `$DEV setup` then `yarn install` |
 | Publish guard | `$DEV prepublish` (`--fix`, `--dry-run`); CI build: `$DEV build:ci` |
+| Opt-in Rust quality tools (pinned in `packages/octocode-native/dev-tools.json`; never CI) | `$DEV rust:tools` · `$DEV fuzz:smoke` · `$DEV fuzz` · `$DEV miri` · `$DEV llvm-lines` ([DEVELOPMENT.md](docs/DEVELOPMENT.md#rust-dev-tools)) |
 | One package | `yarn workspace <pkg> <script>` |
 
 When a script flag or path rule is unclear, read [the script guide](scripts/README.md). Scripts:
@@ -67,7 +68,8 @@ When a script flag or path rule is unclear, read [the script guide](scripts/READ
 | Dedupe flags beyond `deps:dedupe` | `scripts/dedupe-deps.mjs` |
 | Local resolutions on (`setup`) / off before publish | `scripts/dev-setup.mjs` / `scripts/prepublish.mjs` |
 | Starting a tool audit | `scripts/tool-inventory.mjs [tool] [--json]` |
-| Library for the `octocode-mcp` build; not run by hand | `scripts/esbuild-package.mjs` |
+| A file over 400 lines, or a stale or missing file-length baseline entry (`$DEV lint`, `verify`, CI) | `scripts/check-file-length.mjs [--write]` |
+| An oxlint violation, or a stale or missing oxlint baseline entry (`$DEV lint`, `verify`, CI) | `scripts/oxlint-baseline.mjs [--write]` |
 
 ## Audit a tool end to end
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Permission, type Answer } from '../src/permission/ask.js';
+import { Permission } from '../src/permission/ask.js';
+import type { Answer } from '../src/permission/dialog.js';
 import type { PermissionRequest } from '../src/permission/request.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
 import { tmp } from './helpers.js';

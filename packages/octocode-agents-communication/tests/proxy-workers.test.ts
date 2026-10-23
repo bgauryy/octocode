@@ -6,7 +6,7 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { only } from './helpers.ts';
 import { fixture, runtime } from './store-support.ts';
-import type { LoopWorker } from '../src/runtime/proxy.ts';
+import type { LoopWorker } from '../src/runtime/vendor-workers.ts';
 import type { JsonRecord } from './json-record.ts';
 
 const { proxy, timing, wire } = runtime;

@@ -8,7 +8,7 @@ import { ValidationError } from './errors.js';
 import { WHITESPACE_CLASS } from './text.js';
 import { now } from './timing.js';
 import { jsonEqual, parseObject } from './validation.js';
-import { compact } from './wire.js';
+import { compact } from './json-text.js';
 
 /** A search word or a quoted phrase; words end at the catalog's whitespace. */
 const WORDS = new RegExp(`"([^"]+)"|([^${WHITESPACE_CLASS}]+)`, 'g');

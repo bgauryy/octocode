@@ -215,7 +215,7 @@ Native owns the interactive `install` picker, skill commands, and `config view`.
 ```sh
 yarn workspace @octocodeai/octocode-native test:rust   # every crate with cargo-nextest, including the N-API adapter
 yarn workspace @octocodeai/octocode-native test        # script checks, Node tests, then test:rust
-yarn workspace @octocodeai/octocode-native verify      # fmt, clippy, cargo deny, cargo shear, tsc, tests, contract freshness
+yarn workspace @octocodeai/octocode-native verify      # fmt, oxlint + clippy, cargo deny, cargo shear, tsgo typecheck, tests, contract freshness
 cargo dev-test -- <filter>                             # the test:rust selection under libtest, reusing its build
 ```
 

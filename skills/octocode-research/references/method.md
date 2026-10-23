@@ -51,7 +51,7 @@ Report per [output](../output.md#response).
 
 ## Read the smallest span
 
-`localFetch` and `ghGetFileContent` share selectors and pagination (GitHub adds `owner`, `repo`, `ref`). Output is `<line>\t<text>`, with `... [lines A-B not requested] ...` between windows; cite by line number.
+`localFetch` and `ghGetFileContent` share selectors and pagination (GitHub adds `owner`, `repo`, `ref`). Output is `<line>\t<text>`; non-adjacent windows are separated by one unnumbered `--` line; cite by line number.
 
 - Quote or edit only verbatim text: reads without `minify` (raw, the default) or `matchString` reads; `minify:"standard"` drops comments and indentation. History text and patches are always exact.
 - Known literal: `matchString` (a list is a grep map); `contextLines` default 3 (max 100); wider: `ranges`.
@@ -59,7 +59,7 @@ Report per [output](../output.md#response).
 - Whole declaration: `block:true` on a match or range; check the span closes it, else use `astSearch symbols` `line`/`endLine`. Never guess an end.
 - `minify:"symbols"`: doc headings with lines (read a heading to the next equal-or-higher one) or code signatures (read exact source before explaining behavior). Underlined headings or `minifyFallback`: exact search; a missing entry is not absence.
 - Broad unread source where only some passages matter: [context selection](clasify.md#select-inside-search-and-fetch) returns selected raw windows; omit minify. A known deciding span is usually an ordinary exact read.
-- Unanchored reads page by byte budget: copy `next.continueWindow`. `fullContent:true` is for small files; past its limit it returns page one with `partialReasons:["response-share"]`.
+- Unanchored reads page by byte budget: copy `next.continueWindow`. `fullContent:true` is for small files; past its limit it returns page one with `pagination.hasMore` and `next.continueWindow`.
 
 ## Campaigns
 

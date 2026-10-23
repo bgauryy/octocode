@@ -14,7 +14,7 @@ To skip the browser login, set `GITHUB_TOKEN`; a token env var always beats a st
 
 ## Where everything lives
 
-The **Octocode home** is one folder shared by the CLI, the MCP server, the VS Code extension, and installed skills: `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. `XDG_CONFIG_HOME` and `APPDATA` are not used. To move it, set `OCTOCODE_HOME=/custom/path` for every product. Deleting `tmp/` is always safe. Deleting `credentials.json` and `.key` signs you out.
+The **Octocode home** is one folder shared by the CLI, the MCP server, the VS Code extension, and installed skills: `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. `XDG_CONFIG_HOME` and `APPDATA` are not used. To move it, set `OCTOCODE_HOME=/custom/path` for every product. Deleting `tmp/` removes caches, saved continuations and cloned working trees; preserve any local clone edits and finish active reads first. Deleting `credentials.json` and `.key` signs you out.
 
 | Path in the home | Owner | What it holds |
 |---|---|---|
@@ -76,7 +76,7 @@ EXA_API_KEY=...           # neural/category search — https://dashboard.exa.ai/
 - Credential aliases resolve by source first, then by [alias priority](AUTHENTICATION.md#token-environment-variables). Metadata shows names and source files, never values. Keep credential files out of version control.
 - `npx octocode config get KEY` prints one value. A secret (a GitHub token, a credential setting's variable, or a name with a credential word such as `KEY`, `TOKEN`, `SECRET`, or `PASSWORD`) is masked as `[REDACTED-KEY]`, followed by where it lives: `(home: ~/.octocode/.env)`, `(workspace: …)`, or `(process environment)`. `--json` reports `value`, `source` (`env`, `home`, or `workspace`), and `path`.
 
-Skills query every web-search engine whose key is set and valid, then fuse results (Serper, Tavily, and Exa are not interchangeable). With no key, skills fall back to keyless DuckDuckGo.
+Web-search behavior belongs to each skill. The brainstorming search script queries configured Tavily, Exa and Serper providers and merges their results; it fails with `missingKey` when no provider key is set. Do not assume a keyless fallback.
 
 ### `.octocoderc` — Octocode settings
 
@@ -112,7 +112,7 @@ Built-in defaults                           ← lowest
 
 Precedence is per field: the first source with a valid value wins. Env vars always beat file config. At each tier, workspace beats home, except that a workspace cannot set a home-only key (it may narrow the switches listed above). Missing, blank, `null`, or invalid values fall back to the next source. GitHub and classification credentials use the same order; token discovery and OAuth refresh stay in native.
 
-### Misconfiguration never blocks startup
+### Invalid settings fall back with warnings
 
 A bad value is skipped and reported once per process on **stderr** (stdout carries CLI results and MCP JSON-RPC), with the file or variable and the reason:
 
@@ -129,6 +129,8 @@ octocode: config warning: /Users/me/.octocode/.env: REQUEST_TIMEOUT was removed 
 | Invalid field (type, relative path, non-http URL, unknown enum) | That field falls back to the next layer or the default. |
 | A section that is not an object (`"network": 5`) | That section is dropped. |
 | Unknown key | Warning only. |
+
+A valid configuration can still disable every tool. MCP then fails startup with `No native tools are available`; inspect `TOOLS_TO_RUN`, `DISABLE_TOOLS` and feature gates.
 | Invalid nonblank env value (including `OCTOCODE_CLASSIFICATION_API_HOST`) | Skipped, without printing the value; the next layer applies. |
 | Unknown tool name in a tool list | Warning (`unknown_tool_name`), with the nearest tool name. |
 | Removed setting or variable (in any `.env`, `.octocoderc`, or the MCP `env` block) | One warning per name (`removed_setting`); the value is ignored and never reaches the runtime. |
@@ -141,7 +143,7 @@ Warnings print on tool calls and `npx octocode config`, not on `npx octocode sch
 
 **Save to** picks the scope. **Home** writes `~/.octocode/.octocoderc` and `.env` for every project. **Workspace** writes `<project>/.octocode/.octocoderc` and `.env`, where `<project>` is the directory where you ran the command; it overrides home. Each save writes immediately and reloads the page data.
 
-- **Settings:** search by key (`output.format`). Booleans are checkboxes, choices are lists, lists are JSON string arrays (`["localSearch","localFetch"]`, or `null` to inherit), text and paths are plain text. **Save** writes the scope; **Use inherited value** removes it from that scope only. **Effective value** and **Effective source** show what applies and from which file. If a home save does not change the effective value, look for a workspace or env override. Home-only settings (`local.allowedPaths`, `local.beta`, `github.apiUrl`, `lsp.configPath`) are disabled in Workspace scope, and `storage.mode` accepts only `memory` there.
+- **Settings:** search by key (`lsp.prewarm`). Booleans are checkboxes, choices are lists, lists are JSON string arrays (`["localSearch","localFetch"]`, or `null` to inherit), text and paths are plain text. **Save** writes the scope; **Use inherited value** removes it from that scope only. **Effective value** and **Effective source** show what applies and from which file. If a home save does not change the effective value, look for a workspace or env override. Home-only settings (`local.allowedPaths`, `local.beta`, `github.apiUrl`, `lsp.configPath`) are disabled in Workspace scope, and `storage.mode` accepts only `memory` there.
 - **Keys:** enter a **Key name** (letters, digits, `_`; not starting with a digit) and a one-line **New value**, then **Save key**. The key shows as **Set**; the value is never shown again. **Replace** and **Remove** edit it. Workspace scope refuses home-only keys (`ALLOWED_PATHS`, `WORKSPACE_ROOT`, `GITHUB_API_URL`, `OCTOCODE_BETA`, `OCTOCODE_LSP_CONFIG`, …) but accepts GitHub tokens and `OCTOCODE_CLASSIFICATION_API`. A credential stored in `.octocoderc` (`classification.api`) shows **Stored setting**.
 - **Agents:** one card per MCP client file, for example Cursor `~/.cursor/mcp.json` or Claude Code `~/.claude.json`, with scope `home`, `workspace`, or `local`. **Install** (with **Launch with** `npx`, `bunx`, or `pnpm`) adds the entry; **Save agent key** / **Remove key** edit its env; clearing **Enabled** and **Save / update** turns it off; **Remove Octocode** deletes only the Octocode entry. Restart the agent after an edit; client env values can override the shared Octocode files.
 

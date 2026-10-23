@@ -38,10 +38,10 @@ For many ambiguous saved records or images, load `clasify-screen`: exact fields 
 - **cookie bridge**, preferred source order: same visible port (no transfer) → `--from-storage-state <jar>` → `--from-port <cdp>` → `--from-profile` (browser fully quit, approved; not Google Chrome 136+; `--chromePath` picks the browser). Values are never printed. The transfer keeps domain/host-only scope, path, expiry, flags and partition keys, reads the target back, and exits nonzero with `COOKIE_REJECTED` / `COOKIE_NOT_STORED` names when a cookie did not land. `--urls` keeps cookies that domain-match those hosts. Exports use the Playwright storage-state shape (mode 0600).
 
 ```bash
-node "$CDP" cookies --i-understand-secrets --from-port 9333 --to-port 9222 --urls "https://app.example.com"
-node "$CDP" cookies --i-understand-secrets --from-port 9333 --export-storage-state .octocode/octocode-chrome-devtools/tmp/auth.json --dry-run
+octocode-chrome-devtools /raw cookies --i-understand-secrets --from-port 9333 --to-port 9222 --urls "https://app.example.com"
+octocode-chrome-devtools /raw cookies --i-understand-secrets --from-port 9333 --export-storage-state .octocode/octocode-chrome-devtools/tmp/auth.json --dry-run
 ```
-This skill cannot attach to an ordinary open Chrome without relaunching it. After injecting, run the smallest check on `--to-port` with `--keep-tab`.
+Attachment requires a Chrome instance already exposing a remote-debugging endpoint. An ordinary Chrome session must be relaunched with remote debugging before attachment. After injecting, run the smallest check on `--to-port` with `--keep-tab`.
 
 ## Environment
 

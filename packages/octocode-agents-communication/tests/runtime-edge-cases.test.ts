@@ -116,11 +116,11 @@ test('a byte order mark in JSON read from standard input is invalid JSON, as the
 });
 
 test('UTF-8 text decoding keeps U+FEFF and still refuses invalid bytes', () => {
-  assert.equal(runtime.wire.decodeUtf8(Buffer.from('\uFEFFx')), '\uFEFFx');
-  assert.throws(() => runtime.wire.decodeUtf8(Buffer.from([0xff])), TypeError);
-  assert.deepEqual(runtime.wire.parseJsonBytes(Buffer.from('\uFEFF{"a":1}')), { a: 1 }, 'json.loads(bytes) reads one leading mark');
-  assert.throws(() => runtime.wire.parseJsonBytes(Buffer.from('\uFEFF\uFEFF{}')), SyntaxError);
-  assert.throws(() => runtime.wire.parseJsonBytes(Buffer.from([0x22, 0xff, 0x22])), TypeError, 'invalid UTF-8 is an error, not U+FFFD');
+  assert.equal(runtime.jsonText.decodeUtf8(Buffer.from('\uFEFFx')), '\uFEFFx');
+  assert.throws(() => runtime.jsonText.decodeUtf8(Buffer.from([0xff])), TypeError);
+  assert.deepEqual(runtime.jsonText.parseJsonBytes(Buffer.from('\uFEFF{"a":1}')), { a: 1 }, 'json.loads(bytes) reads one leading mark');
+  assert.throws(() => runtime.jsonText.parseJsonBytes(Buffer.from('\uFEFF\uFEFF{}')), SyntaxError);
+  assert.throws(() => runtime.jsonText.parseJsonBytes(Buffer.from([0x22, 0xff, 0x22])), TypeError, 'invalid UTF-8 is an error, not U+FFFD');
 });
 
 // --- Backslash in file names ---------------------------------------------------------------------------------------

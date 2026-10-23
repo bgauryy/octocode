@@ -5,7 +5,7 @@ import { shortPath } from '../src/shared/format.js';
 import { CLEAR_AT_LEAST_TOKENS, KEEP_RECENT_RESULTS } from '../src/compaction/clearing.js';
 import { registerCompaction } from '../src/compaction/register.js';
 import { contextReads, CLEARED_RESULTS_TYPE } from '../src/files/reads.js';
-import type { FileGuard } from '../src/files/tool.js';
+import type { FileGuard } from '../src/files/guard.js';
 import { CACHE_RETENTION_ENV } from '../src/shared/env.js';
 import { CHARS_PER_TOKEN } from '../src/shared/tokens.js';
 import { fakeCtx, fakePi } from './fake-pi.js';

@@ -1,7 +1,9 @@
 //! One lazy selection flow for tool requests and read-only auth inspection.
+mod backend;
 use super::super::login;
 use super::{StoredCredentials, configured_credential_host, normalize_host};
 use crate::config::ConfigOutput;
+use backend::{AuthBackend, SystemBackend};
 use octocode_github::{CredentialSource, ProviderError, ProviderErrorKind, ResolvedCredential};
 use octocode_io::budget::{BudgetStop, RequestBudget};
 use secrecy::ExposeSecret;
@@ -342,64 +344,6 @@ impl Resolved {
     }
 }
 
-trait AuthBackend {
-    async fn load(
-        &self,
-        host: &str,
-    ) -> Result<Option<(StoredCredentials, CredentialSource)>, ProviderError>;
-    async fn refresh(
-        &self,
-        host: &str,
-        client_id: &str,
-        source: CredentialSource,
-    ) -> Result<Option<StoredCredentials>, ProviderError>;
-    async fn gh(
-        &self,
-        host: &str,
-        budget: &RequestBudget,
-    ) -> Result<Option<secrecy::SecretString>, ProviderError>;
-}
-struct SystemBackend<'a> {
-    config: &'a ConfigOutput,
-}
-impl AuthBackend for SystemBackend<'_> {
-    async fn load(
-        &self,
-        host: &str,
-    ) -> Result<Option<(StoredCredentials, CredentialSource)>, ProviderError> {
-        let host = host.to_owned();
-        let store = super::CredentialStore::new(&self.config.home);
-        tokio::task::spawn_blocking(move || store.load(&host))
-            .await
-            .map_err(|_| {
-                ProviderError::new(
-                    ProviderErrorKind::CredentialStoreUnavailable,
-                    "credential resolution worker failed",
-                )
-            })?
-    }
-    async fn refresh(
-        &self,
-        host: &str,
-        client_id: &str,
-        source: CredentialSource,
-    ) -> Result<Option<StoredCredentials>, ProviderError> {
-        login::refresh_stored_in_store(
-            host,
-            client_id,
-            &super::CredentialStore::new(&self.config.home),
-            source,
-        )
-        .await
-    }
-    async fn gh(
-        &self,
-        host: &str,
-        budget: &RequestBudget,
-    ) -> Result<Option<secrecy::SecretString>, ProviderError> {
-        super::discovery::gh_token(host, self.config.effective_env(), budget).await
-    }
-}
 /// A budget stop met while resolving a credential.
 pub(super) fn resolution_stopped(stop: BudgetStop) -> ProviderError {
     match stop {

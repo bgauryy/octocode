@@ -19,7 +19,7 @@ import { relativePath, type StoreHost } from './store-types.js';
 import { codePointLength, isBlank, truncateCodePoints, truncateUtf8 } from './text.js';
 import { LEASE_TTL_MAX_MS, now } from './timing.js';
 import { asObject, isObject, parseObject } from './validation.js';
-import { dumps } from './wire.js';
+import { dumps } from './json-text.js';
 
 export const MAX_RETRIES = 3;
 /** An outcome that abandons the work needs no check-back; every other outcome of a check-back task does. */

@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { atomicWriteFile, sha256, sha256File } from '../src/shared/atomic.js';
-import { FileGuard, registerFileTool } from '../src/files/tool.js';
+import { FileGuard } from '../src/files/guard.js';
+import { registerFileTool } from '../src/files/tool.js';
 import { tmp } from './helpers.js';
 import { fakePermission } from './fake-pi.js';
 

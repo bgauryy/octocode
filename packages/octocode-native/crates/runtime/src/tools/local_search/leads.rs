@@ -12,12 +12,20 @@ use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::Confidence;
 use crate::response::result::{CURSOR_FIELDS, Continuation, ToolError, query_row};
-use crate::tools::empty_walk::{Cause, lift};
-use octocode_contract_types::{
-    LocalSearchSkippedPath, LocalSearchSkippedPathCause, LocalSearchSkippedPaths,
-};
+use crate::tools::empty_walk::Cause;
+use crate::tools::leads::skipped::under;
+use octocode_contract_types::{SkippedPathCause, SkippedPaths};
 use octocode_engine::types::{PatternSyntax, SearchOutput, TextSearchOptions};
 use serde_json::{Value, json};
+
+/// What a page's leads disclosed of the paths its walk skipped.
+pub(super) struct Disclosed {
+    /// Skipped paths hold a match, or may: a retry over them reaches it.
+    pub(super) skipped_match: bool,
+    /// The empty page's check of them did not finish: the row is partial.
+    pub(super) unchecked: bool,
+    pub(super) skipped_paths: Option<SkippedPaths>,
+}
 
 /// A page's result, for its leads.
 pub(super) struct Found<'a> {
@@ -43,8 +51,8 @@ pub(super) struct Found<'a> {
 impl Found<'_> {
     /// Leads in the tool's own rank: a read of the top hit, the symbol's
     /// lspSearch lead, then reads of clipped values, the skipped binaries
-    /// and the literal search. Returns whether skipped paths hold a match
-    /// and the first page's observed skipped-path disclosure.
+    /// and the literal search. Returns what it disclosed of the skipped
+    /// paths.
     pub(super) fn add_leads(
         &self,
         stats: &mut SearchStats,
@@ -53,7 +61,7 @@ impl Found<'_> {
         warnings: &mut Vec<String>,
         search_options: &TextSearchOptions,
         cancel: &impl CancellationCheck,
-    ) -> Result<(bool, Option<LocalSearchSkippedPaths>), ToolError> {
+    ) -> Result<Disclosed, ToolError> {
         let query = self.query;
         let first_disclosure =
             self.first_page() && local_search_query::match_page(query).max(1) == 1;
@@ -102,16 +110,18 @@ impl Found<'_> {
             ));
             add("expandDepth".into(), unlimited_depth_lead(query));
         }
-        // What the walk left out is disclosed once, on the first page: the
-        // security policy's withheld entries (nothing lifts them), and the
-        // default-excluded and hidden paths (`skippedPaths`) with the same
-        // search over them. An empty page proves which of them hold a match
-        // below, in `disclose_unsearched`.
+        // What the walk left out is disclosed once, on the first page, in
+        // `skippedPaths` (the security policy's withheld entries, which
+        // nothing lifts, among them), with the same search over the paths a
+        // flag lifts. An empty page proves which of them hold a match below,
+        // in `disclose_unsearched`.
         if first_disclosure {
-            warnings.extend(self.skipped.withheld.notice());
             let causes = self.skipped_causes();
             if !self.empty && !causes.is_empty() {
-                add("includeSkipped".into(), lifting_lead(query, &causes));
+                add(
+                    "includeSkipped".into(),
+                    crate::tools::leads::skipped::lead(ToolId::LocalSearch, query, &causes),
+                );
             }
         }
         // Thousands of hits page for dozens of calls: one count call ranks
@@ -179,24 +189,36 @@ impl Found<'_> {
         if let Some(variants) = variants {
             disclose_variants(query, variants, next, hints);
         }
-        let (skipped_match, observed) = match tagged {
+        let unsearched = match tagged {
             Some(tagged) => disclose_unsearched(
                 query,
                 search_options,
                 tagged,
-                excluded_counts(self.skipped),
-                self.skipped.hidden.len(),
+                Skipped {
+                    walk: self.skipped,
+                    causes: self.skipped_causes(),
+                },
                 next,
                 hints,
+                warnings,
             )?,
-            None => (false, None),
+            None => Unsearched::default(),
         };
+        if unsearched.unchecked {
+            stats
+                .partial_reasons
+                .push(crate::tools::leads::skipped::SKIPPED_UNCHECKED.to_owned());
+        }
         let skipped_paths = if first_disclosure {
-            self.skipped_paths(observed)?
+            self.skipped_paths(unsearched.observed)?
         } else {
             None
         };
-        Ok((skipped_match, skipped_paths))
+        Ok(Disclosed {
+            skipped_match: unsearched.may_hold_matches,
+            unchecked: unsearched.unchecked,
+            skipped_paths,
+        })
     }
 
     /// The causes the walk skipped paths by, so the lead over them lifts
@@ -224,77 +246,44 @@ impl Found<'_> {
 
     /// What the walk left out, on the first page: every ignored,
     /// default-excluded and hidden path with `extras:["details"]`; otherwise
-    /// one entry per cause, its first path, with `reason` counting the paths
-    /// behind it (`first of 145`), and `sampled` then. The cost is one entry
-    /// per cause, not per path or name. An empty page's `observed` entries
-    /// (the skipped paths a re-run found matches in, each with its rule)
-    /// replace the walk's for their causes.
+    /// one entry per cause, its first path with `count`, and `sampled` then;
+    /// and what the path policy withheld, by reason, at the walked scope.
+    /// An empty page's `observed` entries (the skipped paths a re-run found
+    /// matches in, each with its rule) replace the walk's for their causes.
     fn skipped_paths(
         &self,
-        observed: Option<LocalSearchSkippedPaths>,
-    ) -> Result<Option<LocalSearchSkippedPaths>, ToolError> {
-        let named = |cause: LocalSearchSkippedPathCause| {
+        observed: Option<SkippedPaths>,
+    ) -> Result<Option<SkippedPaths>, ToolError> {
+        let named = |cause: SkippedPathCause| {
             observed
                 .as_ref()
                 .is_some_and(|observed| observed.entries.iter().any(|entry| entry.cause == cause))
         };
-        let entry_path = |entry: &str| entry.strip_suffix('/').unwrap_or(entry).to_owned();
-        let skipped = self.skipped;
-        let walked = skipped
-            .ignored
-            .iter()
-            .map(|entry| (entry_path(entry), Cause::Ignored))
-            .chain(
-                skipped
-                    .pruned
-                    .iter()
-                    .chain(&skipped.generated)
-                    .map(|path| (path.clone(), Cause::DefaultExcluded)),
-            )
-            .chain(
-                skipped
-                    .hidden
-                    .iter()
-                    .map(|entry| (entry_path(entry), Cause::Hidden)),
-            );
-        let every_path = self
-            .query
-            .extras
-            .contains(&octocode_contract_types::ExtraKind::Details);
-        // (first path, cause, paths behind the entry), first seen first.
-        let mut groups: Vec<(String, Cause, usize)> = Vec::new();
-        for (path, cause) in walked.filter(|(_, cause)| !named(skipped_cause(*cause))) {
-            match groups.iter_mut().find(|group| group.1 == cause) {
-                Some(group) if !every_path => group.2 += 1,
-                _ => groups.push((path, cause, 1)),
+        use octocode_contract_types::SkippedPathCause::{DefaultExcluded, Hidden, Ignored};
+        let (root, skipped) = (self.root, self.skipped);
+        let walked = under(root, Ignored, &skipped.ignored)
+            .chain(under(root, DefaultExcluded, &skipped.pruned))
+            .chain(under(root, DefaultExcluded, &skipped.generated))
+            .chain(under(root, Hidden, &skipped.hidden))
+            .filter(|skip| !named(skip.cause))
+            .chain(crate::tools::leads::skipped::unlifted(
+                &self.root.to_string_lossy(),
+                &skipped.withheld,
+                Default::default(),
+            ));
+        let disclosure = crate::tools::leads::skipped::skipped_paths(
+            walked,
+            lists_every_skipped_path(self.query),
+            !self.walk_complete,
+        )?;
+        Ok(match (disclosure, observed) {
+            (Some(mut disclosure), Some(observed)) => {
+                disclosure.entries.extend(observed.entries);
+                disclosure.sampled |= observed.sampled;
+                Some(disclosure)
             }
-        }
-        let collapsed = groups.iter().any(|group| group.2 > 1);
-        let entries = groups
-            .into_iter()
-            .map(|(path, cause, count)| {
-                Ok(LocalSearchSkippedPath {
-                    path: self
-                        .root
-                        .join(path)
-                        .to_string_lossy()
-                        .into_owned()
-                        .try_into()
-                        .map_err(skipped_path_error)?,
-                    cause: skipped_cause(cause),
-                    reason: (count > 1).then(|| format!("first of {count}")),
-                })
-            })
-            .collect::<Result<Vec<_>, ToolError>>()?;
-        let mut disclosure = LocalSearchSkippedPaths {
-            entries,
-            sampled: collapsed || !self.walk_complete,
-        };
-        if let Some(observed) = observed {
-            disclosure.entries.extend(observed.entries);
-            disclosure.sampled |= observed.sampled;
-        }
-        Ok((!disclosure.entries.is_empty()).then_some(disclosure))
+            (disclosure, observed) => disclosure.or(observed),
+        })
     }
 
     /// The calls that read every clipped value on the page whole
@@ -411,7 +400,7 @@ impl Found<'_> {
         match declared {
             Some((file, definition))
                 if (definition.end + 1).saturating_sub(definition.start) as usize
-                    <= crate::tools::local_fetch::BLOCK_MAX_LINES =>
+                    <= crate::tools::source_view::BLOCK_MAX_LINES =>
             {
                 Some(declaration_read(
                     query,
@@ -549,6 +538,14 @@ fn regex_lead(query: &LocalSearchQuery, engine: &str) -> Value {
     })
 }
 
+/// Whether the row lists every skipped path (`extras:["details"]`) instead
+/// of one entry per cause and rule.
+pub(super) fn lists_every_skipped_path(query: &LocalSearchQuery) -> bool {
+    query
+        .extras
+        .contains(&octocode_contract_types::ExtraKind::Details)
+}
+
 /// Matches at which a line view leads to its per-file counts.
 pub(super) const LARGE_RESULT_MATCHES: u32 = 1_000;
 
@@ -570,13 +567,6 @@ pub(super) fn count_lead(query: &LocalSearchQuery) -> Value {
             fields.remove(field);
         }
     })
-}
-
-/// The same search from page 1 with the walk's `causes` lifted.
-pub(super) fn lifting_lead(query: &LocalSearchQuery, causes: &[Cause]) -> Value {
-    let mut lead = query_row(query, &CURSOR_FIELDS);
-    lift(&mut lead, causes);
-    Continuation::new(ToolId::LocalSearch, lead).build()
 }
 
 /// The query as a fresh page-1 search (no [`CURSOR_FIELDS`]) with `edit`
@@ -671,10 +661,7 @@ fn numbered_calls(name: &str, reads: &[Value]) -> Vec<(String, Value)> {
             .cloned()
             .collect::<Vec<_>>();
         for chunk in rows.chunks(crate::response::result::rows_per_call(tool)) {
-            let key = match calls.len() {
-                0 => name.to_owned(),
-                index => format!("{name}{}", index + 1),
-            };
+            let key = crate::id::numbered(name, calls.len());
             let call = Continuation::input(tool, json!({ "queries": chunk }))
                 .confidence(Confidence::Exact)
                 .build();

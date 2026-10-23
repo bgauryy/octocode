@@ -11,7 +11,8 @@ use crate::id::ToolId;
 use crate::response::result::Confidence;
 use crate::response::result::remove_nulls;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
-use crate::tools::gh_shared::commit::utc_date;
+use crate::tools::gh_shared::commit;
+use crate::tools::gh_shared::dates::utc_value;
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
@@ -19,15 +20,6 @@ use serde_json::{Map, Value, json};
 
 /// Commit-detail requests in flight at once for `commits.includeFiles`.
 const COMMIT_DETAIL_CONCURRENCY: usize = 4;
-
-/// A commit's person as one string: the GitHub login, else the git name
-/// (the same rule as search rows).
-pub(super) fn commit_person(item: &Value) -> Value {
-    match crate::tools::gh_shared::commit::person(item, "author") {
-        Value::Null => Value::from("unknown"),
-        person => person,
-    }
-}
 
 /// Lines a review-comment read shows on each side of its anchor.
 const COMMENT_CODE_PAD: u64 = 3;
@@ -224,7 +216,7 @@ pub(super) fn shape_pr_reviews(
             "state": string(review.get("state")),
             "body": (!body.is_empty()).then_some(body),
             "bodyPagination": (!raw_body.is_empty() && (gh_get_history_item_query::char_offset(query).unwrap_or(0)>0 || body_page["hasMore"]==true)).then_some(body_page),
-            "submittedAt": review.get("submitted_at"), "commitSha": review.get("commit_id")
+            "submittedAt": utc_value(review.get("submitted_at")), "commitSha": review.get("commit_id")
         });
         remove_nulls(&mut item);
         shaped.push(item);
@@ -260,12 +252,12 @@ pub(super) async fn shape_pr_commits(
     let shaped: Vec<(Value, Option<Value>)> = futures_util::stream::iter(slice)
         .map(|item| async move {
             let sha = string(item.get("sha"));
-            let mut commit = json!({
-                "commitSha":sha,
-                "message":str_at(&item,"/commit/message").unwrap_or(""),
-                "author":commit_person(&item),
-                "date":utc_date(str_at(&item,"/commit/author/date"))
-            });
+            // The shared commit row; a pull request's commit list keeps
+            // each message whole: the body follows its headline.
+            let mut commit = commit::row(&item);
+            if let Some(body) = commit::message_body(&item) {
+                commit["messageBody"] = json!(body);
+            }
             let mut more_files = None;
             if include_files {
                 // One provider batch of paths per commit.
@@ -307,10 +299,7 @@ pub(super) async fn shape_pr_commits(
     for (commit, more_files) in shaped {
         commits.push(commit);
         if let Some(read) = more_files {
-            let name = match continuations.len() {
-                0 => "continueCommitFiles".to_owned(),
-                index => format!("continueCommitFiles{}", index + 1),
-            };
+            let name = crate::id::numbered("continueCommitFiles", continuations.len());
             continuations.push((name, read));
         }
     }
@@ -554,16 +543,6 @@ mod tests {
             Some("5 more comment body chars"),
             "{pagination:?}"
         );
-    }
-
-    /// A commit names its GitHub account first, else its git name.
-    #[test]
-    fn commit_person_is_login_first() {
-        let login = json!({"author":{"login":"rickhanlonii"},"commit":{"author":{"name":"Ricky"}}});
-        assert_eq!(commit_person(&login), "rickhanlonii");
-        let unlinked = json!({"author":null,"commit":{"author":{"name":"Ricky"}}});
-        assert_eq!(commit_person(&unlinked), "Ricky");
-        assert_eq!(commit_person(&json!({})), "unknown");
     }
 
     /// A single-line comment omits startLine; a reply keeps its thread link

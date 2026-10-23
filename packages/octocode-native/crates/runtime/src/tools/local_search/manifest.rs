@@ -150,9 +150,9 @@ pub struct Stored {
 /// Stored scans, weighed by their kept bytes.
 static STORE: PageMemo<Scan> = PageMemo::new(TTL, MAX_ENTRIES, MAX_TOTAL_BYTES);
 
-/// Streamed SHA-256 of `path` ([`octocode_engine::digest::copy_hashed`]).
+/// Streamed SHA-256 of the regular file at `path` (a FIFO or link fails).
 pub fn digest_file(path: &std::path::Path) -> std::io::Result<Digest> {
-    let file = std::fs::File::open(path)?;
+    let (file, _) = octocode_engine::text::open_regular(path)?;
     let (_, hex) = octocode_engine::digest::copy_hashed(file, std::io::sink())?;
     let mut digest = [0; 32];
     hex::decode_to_slice(hex, &mut digest).map_err(std::io::Error::other)?;

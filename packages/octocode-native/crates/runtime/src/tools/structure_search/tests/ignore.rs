@@ -31,10 +31,8 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
     assert_eq!(names(&out), [".gitignore", "main.rs"], "{out}");
     // `.env.production`, `.npmrc`: named by policy, not by path. The
     // repository's own `.git`, withheld from every walk, is not news.
-    assert_eq!(
-        out["warnings"][0], "2 entries withheld by path policy: 2 credential files.",
-        "{out}"
-    );
+    let reasons = skipped_reasons(&out, "withheld");
+    assert_eq!(reasons, [("credential file".into(), 2)], "{out}");
     let files = run(&root.0, json!({"operation":"files","path":root.0})).expect("files");
     crate::tools::test_support::checks::assert_absent(&files, ".git/");
     let all = run(
@@ -156,7 +154,7 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
     .expect("files");
     assert_eq!(files["status"], "empty", "{files}");
     assert_eq!(files["hints"].as_array().map(Vec::len), Some(1), "{files}");
-    assert!(files["summary"]["ignored"].as_u64() > Some(0), "{files}");
+    assert!(skipped_count(&files, "ignored") > 0, "{files}");
     let retry = &files["next"]["includeSkipped"];
     assert_eq!(
         retry["query"]["queries"][0]["includeIgnored"], true,
@@ -203,14 +201,14 @@ fn tree_summary_counts_gitignored_entries_it_left_out() {
     )
     .expect("tree");
     assert_eq!(out["files"].as_array().map(Vec::len), Some(1), "{out}");
-    assert_eq!(out["summary"]["ignored"], 2, "{out}");
+    assert_eq!(skipped_count(&out, "ignored"), 2, "{out}");
     assert!(out.get("hints").is_none(), "{out}");
     let all = run(
         &root.0,
         json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0.join("repos"),"includeIgnored":true}),
     )
     .expect("tree");
-    assert!(all["summary"].get("ignored").is_none(), "{all}");
+    assert_eq!(skipped_count(&all, "ignored"), 0, "{all}");
 }
 
 /// An unfiltered listing that left out ignored entries leads past every
@@ -233,14 +231,14 @@ fn an_unfiltered_listing_lead_lifts_every_counted_cause() {
             json!({"operation":operation,"path":root.0,"maxDepth":1}),
         )
         .expect("listing");
-        assert!(out["summary"]["ignored"].as_u64() > Some(0), "{out}");
-        assert!(out["summary"]["hidden"].as_u64() > Some(0), "{out}");
+        assert!(skipped_count(&out, "ignored") > 0, "{out}");
+        assert!(skipped_count(&out, "hidden") > 0, "{out}");
         let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
         assert_eq!(lead["includeIgnored"], true, "{out}");
         assert_eq!(lead["includeHidden"], true, "{out}");
         let all = run(&root.0, lead).expect("lead");
-        assert!(all["summary"].get("ignored").is_none(), "{all}");
-        assert!(all["summary"].get("hidden").is_none(), "{all}");
+        assert_eq!(skipped_count(&all, "ignored"), 0, "{all}");
+        assert_eq!(skipped_count(&all, "hidden"), 0, "{all}");
     }
 }
 
@@ -276,8 +274,8 @@ fn include_hidden_alone_lists_hidden_directories_and_leads_to_the_ignored_ones()
             );
         }
         assert!(!listing.contains("scratch.md"), "{operation}: {out}");
-        assert_eq!(out["summary"]["ignored"], 1, "{operation}: {out}");
-        assert!(out["summary"].get("hidden").is_none(), "{operation}: {out}");
+        assert_eq!(skipped_count(&out, "ignored"), 1, "{operation}: {out}");
+        assert_eq!(skipped_count(&out, "hidden"), 0, "{operation}: {out}");
         let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
         assert_eq!(lead["includeIgnored"], true, "{operation}: {out}");
         assert!(lead.get("defaultExcludes").is_none(), "{operation}: {out}");
@@ -376,4 +374,51 @@ fn tree_filters_names_and_files_lists_ignored_entries_on_request() {
         files(json!({"includeIgnored":true})),
         ["a_test.rs", "gen.rs", "lib.rs"]
     );
+}
+
+/// In a git work tree the default prune skips only directories git ignores,
+/// so an ignored `target/` is behind both rules: the summary names it among
+/// the pruned directories, and one lead lifts both causes. Following it
+/// reaches the files there and leaves no second widening (no loop).
+#[test]
+fn an_ignored_default_pruned_directory_is_named_and_reached_in_one_step() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), "target/\n").expect("gitignore");
+    std::fs::create_dir_all(root.0.join("target/debug")).expect("target");
+    std::fs::write(root.0.join("target/debug/gen.rs"), "x\n").expect("built");
+    std::fs::create_dir_all(root.0.join("src")).expect("src");
+    std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
+    for extensions in [json!(["rs"]), json!(["rlib"])] {
+        if extensions == json!(["rlib"]) {
+            std::fs::write(root.0.join("target/debug/a.rlib"), "x\n").expect("rlib");
+        }
+        let out = run(
+            &root.0,
+            json!({"operation":"files","path":root.0,"extensions":extensions}),
+        )
+        .expect("listing");
+        assert_eq!(skipped_names(&out, "default-excluded"), ["target"], "{out}");
+        let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
+        assert_eq!(lead["includeIgnored"], true, "{out}");
+        assert_eq!(lead["defaultExcludes"], false, "{out}");
+        let all = run(&root.0, lead.clone()).expect("lead");
+        assert!(
+            listed(&all).iter().any(|row| row["path"]
+                .as_str()
+                .is_some_and(|p| p.contains("target/debug"))),
+            "{all}"
+        );
+        assert_eq!(skipped_count(&all, "default-excluded"), 0, "{all}");
+        assert_eq!(skipped_count(&all, "ignored"), 0, "{all}");
+        // What is left is a cause the first step did not lift (the hidden
+        // `.gitignore`), never the same widening again.
+        if let Some(again) = all["next"]["includeSkipped"]["query"]["queries"][0].as_object() {
+            let mut again = again.clone();
+            assert_eq!(again.remove("includeHidden"), Some(json!(true)), "{all}");
+            let mut first = lead.as_object().cloned().expect("lead");
+            first.remove("includeHidden");
+            assert_eq!(again, first, "{all}");
+        }
+    }
 }

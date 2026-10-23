@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type TranscriptContext } from '@earendil-works/pi-ai';
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory } from '@earendil-works/pi-coding-agent';
-import { NEEDS_APPROVAL } from '../src/permission/ask.js';
+import { NEEDS_APPROVAL } from '../src/permission/dialog.js';
 import { tmp } from './helpers.js';
 
 /**

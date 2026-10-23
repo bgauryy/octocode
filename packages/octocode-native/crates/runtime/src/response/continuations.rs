@@ -19,11 +19,13 @@
 //!    and states the drop (`partialReasons: ["leadInvalid"]` and a
 //!    warning), and its issues are returned, never passed on silently.
 
+mod compact;
+use compact::compact_call;
 use std::collections::HashMap;
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
-use crate::contracts::{ContractValidationError, ValidationIssue, validate_query};
+use crate::contracts::{ContractValidationError, ValidationIssue};
 use crate::id::ToolId;
 use crate::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
 use crate::response::result::is_call;
@@ -74,6 +76,39 @@ impl Sources<'_> {
                     // A one-row call's response query is that row itself.
                     None => Some(*input),
                 }
+            }
+        }
+    }
+}
+
+/// Keep the caller's explicit `responseLength` on `tool`'s own pages: a
+/// share it cut continues at the size the caller asked for, not the default
+/// window. Cross-tool leads and calls that set their own length are left as
+/// they are.
+pub(crate) fn carry_response_length(structured: &mut Value, tool: ToolId, length: usize) {
+    let rows_key = tool.output().rows_key();
+    for row in structured
+        .get_mut(rows_key)
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let Some(pages) = row
+            .pointer_mut(&format!("/data/{PAGES_KEY}"))
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        for call in pages.values_mut() {
+            if call.get("tool").and_then(Value::as_str) != Some(tool.as_str()) {
+                continue;
+            }
+            if let Some(query) = call.get_mut("query").and_then(Value::as_object_mut)
+                && query.contains_key("queries")
+            {
+                query
+                    .entry("responseLength")
+                    .or_insert_with(|| Value::from(length));
             }
         }
     }
@@ -194,14 +229,6 @@ fn drop_invalid_calls(row: &mut Value, issues: &[ValidationIssue]) {
         LEAD_INVALID,
         &["leadInvalid: a continuation failed its tool's input contract and was withheld; the shown evidence stands.".to_owned()],
     );
-}
-
-/// Compacts one admitted tool input: a flat query or a `{queries: [...]}`
-/// envelope. Admission already validated it, so a row that still fails the
-/// contract is left exactly as sent rather than failing the response.
-pub(crate) fn compact_input(tool: &str, input: &mut Value) {
-    let mut memo = Memo::new();
-    let _ = compact_rows(tool, input, &mut memo);
 }
 
 type Memo = HashMap<(String, String), Value>;
@@ -352,613 +379,8 @@ fn extras_of(query: &Value) -> Option<Value> {
         .cloned()
 }
 
-/// Compact one `next`/`hints` call against the tool it names.
-fn compact_call(call: &mut Value, ctx: &mut Visit<'_, '_>, path: &[String]) {
-    let target = call.get("tool").and_then(Value::as_str).map(str::to_owned);
-    let (within, issues) = match (target, call.get_mut("query")) {
-        (Some(tool), Some(query)) => (
-            Some("query"),
-            compact_rows(&tool, query, ctx.memo)
-                .err()
-                .map(|error| error.issues),
-        ),
-        _ => (None, None),
-    };
-    ctx.issues
-        .extend(issues.into_iter().flatten().map(|mut issue| {
-            let mut full = path.to_vec();
-            full.extend(within.map(str::to_owned));
-            full.append(&mut issue.path);
-            issue.path = full;
-            issue
-        }));
-}
-
-/// Every row of a `{queries}` input (or a flat row) compacted against `tool`.
-fn compact_rows(
-    tool: &str,
-    query: &mut Value,
-    memo: &mut Memo,
-) -> Result<(), ContractValidationError> {
-    let rows: Vec<&mut Value> = match query.get_mut("queries").and_then(Value::as_array_mut) {
-        Some(rows) => rows.iter_mut().collect(),
-        None => vec![query],
-    };
-    let mut issues = Vec::new();
-    for (index, row) in rows.into_iter().enumerate() {
-        let row_issues = match compact_query(tool, row, memo) {
-            Ok(()) => Vec::new(),
-            Err(error) => error.issues,
-        };
-        issues.extend(row_issues.into_iter().map(|mut issue| {
-            issue
-                .path
-                .splice(0..0, ["queries".to_owned(), index.to_string()]);
-            issue
-        }));
-    }
-    if issues.is_empty() {
-        Ok(())
-    } else {
-        Err(ContractValidationError { issues })
-    }
-}
-
-/// Drop each field whose removal validates to the identical query, so the
-/// compact call executes exactly like the full one. Only a field the
-/// contract can restore (a default) or that validation drops is tried; any
-/// other present field stays. An invalid query is an error and unchanged.
-///
-/// Fields restore independently in the common case: a candidate drops when
-/// validation dropped it or its value is the field's one declared default,
-/// and one validation proves the set. A field with several defaults (an
-/// operation's own) reads its restored value from one validation of the
-/// query without every candidate instead. Only a query whose fields
-/// interact falls back to trying each candidate in turn.
-fn compact_query(
-    tool: &str,
-    query: &mut Value,
-    memo: &mut Memo,
-) -> Result<(), ContractValidationError> {
-    let Some(object) = query.as_object() else {
-        return Ok(());
-    };
-    let key = (tool.to_owned(), query.to_string());
-    if let Some(compact) = memo.get(&key) {
-        *query = compact.clone();
-        return Ok(());
-    }
-    let full = validate_query(tool, query.clone())?;
-    let restorable = ToolId::from_name(tool).map(crate::contracts::restorable_fields);
-    let candidates: Vec<&String> = object
-        .keys()
-        .filter(|field| {
-            full.get(field.as_str()).is_none()
-                || restorable.is_none_or(|fields| fields.contains_key(field.as_str()))
-        })
-        .collect();
-    let mut compact = object.clone();
-    if !candidates.is_empty() {
-        // The restored value of each candidate: its one declared default,
-        // else what validation without every candidate restores.
-        let predicted = restorable.filter(|fields| {
-            candidates.iter().all(|field| {
-                full.get(field.as_str()).is_none()
-                    || fields.get(field.as_str()).is_some_and(Option::is_some)
-            })
-        });
-        let restored = match predicted {
-            Some(_) => None,
-            None => {
-                let mut stripped = object.clone();
-                for field in &candidates {
-                    stripped.remove(field.as_str());
-                }
-                validate_query(tool, Value::Object(stripped)).ok()
-            }
-        };
-        for field in &candidates {
-            let full_value = full.get(field.as_str());
-            let same = match predicted {
-                Some(fields) => {
-                    full_value.is_none()
-                        || fields.get(field.as_str()).copied().flatten() == full_value
-                }
-                None => restored
-                    .as_ref()
-                    .is_some_and(|restored| restored.get(field.as_str()) == full_value),
-            };
-            if same {
-                compact.remove(field.as_str());
-            }
-        }
-        let proven = compact.len() == object.len()
-            || validate_query(tool, Value::Object(compact.clone()))
-                .is_ok_and(|validated| validated == full);
-        if !proven {
-            compact = object.clone();
-            for field in &candidates {
-                let Some(removed) = compact.remove(field.as_str()) else {
-                    continue;
-                };
-                let restored = validate_query(tool, Value::Object(compact.clone()))
-                    .is_ok_and(|validated| validated == full);
-                if !restored {
-                    compact.insert((*field).clone(), removed);
-                }
-            }
-        }
-    }
-    // Keep the caller's field order for the fields that remain.
-    let ordered: Map<String, Value> = object
-        .iter()
-        .filter_map(|(field, _)| compact.get(field).map(|v| (field.clone(), v.clone())))
-        .collect();
-    *query = Value::Object(ordered);
-    memo.insert(key, query.clone());
-    Ok(())
-}
+#[cfg(test)]
+mod carry_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn call(tool: &str, row: Value) -> Value {
-        json!({"tool": tool, "query": {"queries": [row]}})
-    }
-
-    fn run(out: &mut Value, tool: ToolId, rows: &[Option<&Value>]) {
-        finalize(out, tool, &Sources::Rows(rows), &Scope::everything()).expect("valid calls");
-    }
-
-    #[test]
-    fn same_tool_calls_inherit_only_extras_cross_tool_calls_only_hints() {
-        let first = json!({"mainGoal":"Find a.","reasoning":"First.","extras":["hints","stats"]});
-        let second = json!({"mainGoal":"Find b.","extras":[]});
-        let mut out = json!({"results":[
-            {"index":0,"data":{"next":{
-                "nextPage":call("ghSearchCode", json!({"owner":"o","keywords":["a"],"page":2})),
-                "viewRepo":call("ghStructure", json!({"owner":"o","repo":"r"}))
-            }}},
-            {"index":1,"data":{"items":[{"next":{
-                "nextPage":call("ghSearchCode", json!({"owner":"o","keywords":["b"],"page":2})),
-                "read":call("localFetch", json!({"path":"/a","offset":10}))
-            }}]}}
-        ]});
-        run(
-            &mut out,
-            ToolId::GhSearchCode,
-            &[Some(&first), Some(&second)],
-        );
-        let page = &out["results"][0]["data"]["next"]["nextPage"]["query"]["queries"][0];
-        assert!(
-            page.get("mainGoal").is_none() && page.get("reasoning").is_none(),
-            "a page carries no brief: {page}"
-        );
-        assert_eq!(page["extras"], json!(["hints", "stats"]), "{page}");
-        let lead = &out["results"][0]["data"]["hints"]["viewRepo"]["query"]["queries"][0];
-        assert!(lead.get("mainGoal").is_none(), "{lead}");
-        assert_eq!(
-            lead["extras"],
-            json!(["hints"]),
-            "a cross-tool lead keeps only the lead opt-in"
-        );
-        let items = &out["results"][1]["data"]["items"][0];
-        let page = &items["next"]["nextPage"]["query"]["queries"][0];
-        assert_eq!(
-            page,
-            &json!({"owner":"o","keywords":["b"],"page":2}),
-            "an empty extras array is the default"
-        );
-        let read = &items["hints"]["read"]["query"]["queries"][0];
-        assert!(read.get("extras").is_none(), "{read}");
-    }
-
-    #[test]
-    fn selection_pages_keep_the_brief_but_unfiltered_recovery_drops_it() {
-        let source = json!({"owner":"o","keywords":["a"],"mainGoal":"Find capacity ownership.","reasoning":"Inspect the release path.","clasifyContext":{"classifiers":["Where is reserved capacity released?"]}});
-        let mut page = source.clone();
-        page["page"] = json!(2);
-        let mut recovery = source.clone();
-        recovery.as_object_mut().unwrap().remove("clasifyContext");
-        let mut out = json!({"results":[{"index":0,"data":{"next":{
-            "nextPage":call("ghSearchCode",page),
-            "unfiltered":call("ghSearchCode",recovery)
-        }}}]});
-        run(&mut out, ToolId::GhSearchCode, &[Some(&source)]);
-        let next = &out["results"][0]["data"]["next"];
-        let page = &next["nextPage"]["query"]["queries"][0];
-        assert_eq!(page["mainGoal"], source["mainGoal"]);
-        assert_eq!(page["reasoning"], source["reasoning"]);
-        let recovery = &next["unfiltered"]["query"]["queries"][0];
-        assert!(recovery.get("mainGoal").is_none());
-        assert!(recovery.get("reasoning").is_none());
-        assert!(recovery.get("clasifyContext").is_none());
-    }
-
-    /// A tool that builds its page by cloning the row query copies the brief
-    /// with it; the one continuation stage drops it there too, on pages and
-    /// leads alike, so no tool has to remember to.
-    #[test]
-    fn a_brief_a_tool_copied_into_its_continuation_is_dropped() {
-        let source = json!({"mainGoal":"Find a.","reasoning":"First."});
-        let copied = |page: u32| json!({"matchString":"a","path":"/r","mainGoal":"Find a.","reasoning":"First.","page":page});
-        let mut out = json!({"results":[{"index":0,"data":{
-            "next":{"nextPage":call("localSearch", copied(2))},
-            "hints":{
-                "readFile":call("localFetch", json!({"path":"/r/a","mainGoal":"Find a.","reasoning":"First."}))
-            }
-        }}]});
-        run(&mut out, ToolId::LocalSearch, &[Some(&source)]);
-        let data = &out["results"][0]["data"];
-        for (name, row) in [
-            ("nextPage", &data["next"]["nextPage"]["query"]["queries"][0]),
-            (
-                "readFile",
-                &data["hints"]["readFile"]["query"]["queries"][0],
-            ),
-        ] {
-            assert!(
-                row.get("mainGoal").is_none() && row.get("reasoning").is_none(),
-                "{name} carries no brief: {row}"
-            );
-        }
-    }
-
-    /// The brief is request-level: copied into every row of a page it was
-    /// the largest token sink of a walk. Measured on this five-row page with
-    /// an 87-char `mainGoal` and a 97-char `reasoning` (serde_json bytes of
-    /// the page's `query`): 1343 with the brief on every row, 298 without it
-    /// (-1045 bytes, 78%); the inherited `extras` is 19 of those bytes per
-    /// row, and a 500-char brief would have cost ~5 KB per five-row page.
-    #[test]
-    fn a_five_row_page_carries_no_brief() {
-        let source = json!({
-            "mainGoal":"Find where the response stage inherits the brief into continuation rows across tools.",
-            "reasoning":"The walk pages a wide search; every page repeated the brief in each of its rows, so measure it.",
-            "extras":["stats"]
-        });
-        let rows: Vec<Value> = (1..=5)
-            .map(|index| json!({"path":format!("src/f{index}.rs"),"ranges":["1-9"]}))
-            .collect();
-        let mut out = json!({"results":[{"index":0,"data":{"next":{
-            "readHits":{"tool":"localFetch","query":{"queries":rows.clone()}}
-        }}}]});
-        run(&mut out, ToolId::LocalFetch, &[Some(&source)]);
-        let page = &out["results"][0]["data"]["next"]["readHits"]["query"];
-        let without = serde_json::to_vec(page).expect("json").len();
-        let mut briefed = page.clone();
-        for row in briefed["queries"].as_array_mut().expect("rows") {
-            row["mainGoal"] = source["mainGoal"].clone();
-            row["reasoning"] = source["reasoning"].clone();
-        }
-        let with = serde_json::to_vec(&briefed).expect("json").len();
-        for row in page["queries"].as_array().expect("rows") {
-            assert_eq!(row["extras"], json!(["stats"]), "{page}");
-            assert!(row.get("mainGoal").is_none(), "{page}");
-        }
-        assert!(
-            with > without * 4,
-            "brief on every row: {with} bytes, extras only: {without} bytes"
-        );
-    }
-
-    /// A successful row offers only the contract's default leads unless its
-    /// `extras` names `hints`; empty and error rows keep every lead, and an
-    /// item's leads (inside a row's array) always stay.
-    #[test]
-    fn row_level_leads_of_a_successful_row_are_opt_in() {
-        let next = || {
-            json!({
-                "nextPage":call("ghSearchCode", json!({"owner":"o","keywords":["a"],"page":2})),
-                "viewRepo":call("ghStructure", json!({"owner":"o","repo":"r"})),
-                "includeArchived":call("ghSearchCode", json!({"owner":"o","keywords":["a"]}))
-            })
-        };
-        let plain = json!({"mainGoal":"Find a."});
-        let hinted = json!({"mainGoal":"Find a.","extras":["hints"]});
-        let mut out = json!({"results":[
-            {"index":0,"data":{"next":next()}},
-            {"index":1,"data":{"next":next()}},
-            {"index":2,"status":"empty","data":{"next":next()}},
-            {"index":3,"data":{"items":[{"next":next()}]}}
-        ]});
-        run(
-            &mut out,
-            ToolId::GhSearchCode,
-            &[Some(&plain), Some(&hinted), Some(&plain), Some(&plain)],
-        );
-        let default = &out["results"][0]["data"];
-        assert!(
-            default["next"]["nextPage"].is_object(),
-            "pages stay: {default}"
-        );
-        assert!(
-            default["hints"].get("viewRepo").is_none(),
-            "a row-level lead is opt-in: {default}"
-        );
-        assert!(
-            default["hints"]["includeArchived"].is_object(),
-            "a contract default lead stays: {default}"
-        );
-        assert!(
-            out["results"][1]["data"]["hints"]["viewRepo"].is_object(),
-            "extras:[hints] keeps the lead: {}",
-            out["results"][1]
-        );
-        assert!(
-            out["results"][2]["data"]["hints"]["viewRepo"].is_object(),
-            "an empty row keeps its leads: {}",
-            out["results"][2]
-        );
-        assert!(
-            out["results"][3]["data"]["items"][0]["hints"]["viewRepo"].is_object(),
-            "an item's leads stay: {}",
-            out["results"][3]
-        );
-    }
-
-    #[test]
-    fn a_clasify_read_lead_is_its_result_and_always_shows() {
-        let input = json!({"queries":[{"id":"m1","mainGoal":"G1"},{"id":"m2","mainGoal":"G2"}]});
-        let mut out = json!({"queries":[{"id":"m2","answers":{},
-            "hints":{"read":call("localFetch", json!({"path":"/a","ranges":["1-2"]}))}}]});
-        finalize(
-            &mut out,
-            ToolId::Clasify,
-            &Sources::Matrices(&input),
-            &Scope::everything(),
-        )
-        .expect("valid");
-        let read = &out["queries"][0]["hints"]["read"];
-        assert_eq!(
-            read["query"]["queries"][0]["path"], "/a",
-            "shown without extras hints: {read}"
-        );
-        assert!(
-            read["query"]["queries"][0].get("mainGoal").is_none(),
-            "{read}"
-        );
-    }
-
-    #[test]
-    fn compaction_drops_only_fields_validation_restores() {
-        let row = json!({"matchString":"foo","path":"/tmp","mainGoal":"Find foo.","reasoning":"r","extras":["stats"],
-            "caseMode":"smart","matchContentLength":200,"page":2,"contextLines":0});
-        let mut out =
-            json!({"results":[{"index":0,"data":{"next":{"nextPage":call("localSearch", row)}}}]});
-        run(&mut out, ToolId::LocalSearch, &[None]);
-        let query = &out["results"][0]["data"]["next"]["nextPage"]["query"]["queries"][0];
-        // matchContentLength has no schema default (it scales with
-        // contextLines), so validation cannot restore it and it is kept. The
-        // brief is request-level: no continuation carries it.
-        assert_eq!(
-            query,
-            &json!({"matchString":"foo","path":"/tmp","extras":["stats"],"matchContentLength":200,"page":2,"contextLines":0})
-        );
-    }
-
-    #[test]
-    fn an_invalid_call_is_dropped_and_its_row_kept() {
-        let read = call("localFetch", json!({"path":"/a"}));
-        let mut out = json!({"results":[{"index":0,"data":{"files":["a.rs"],
-            "next":{"nextPage":call("localSearch", json!({"bogus":true}))},
-            "hints":{"read":read}}},
-            {"index":1,"data":{"files":["b.rs"],"next":{"nextPage":call("localSearch", json!({"bogus":true}))}}}]});
-        finalize(
-            &mut out,
-            ToolId::LocalSearch,
-            &Sources::Rows(&[None, None]),
-            &Scope::everything(),
-        )
-        .expect_err("invalid call");
-        for row in out["results"].as_array().expect("rows") {
-            let data = &row["data"];
-            assert!(data["files"].is_array(), "the evidence stays: {row}");
-            assert!(
-                data.get("next").is_none(),
-                "the invalid lead is gone: {row}"
-            );
-            assert_eq!(data["partialReasons"], json!([LEAD_INVALID]), "{row}");
-            assert_eq!(data["isPartial"], true, "{row}");
-            let warning = data["warnings"][0].as_str().expect("warning");
-            assert!(warning.len() <= 120, "{warning}");
-        }
-    }
-
-    #[test]
-    fn an_invalid_call_is_an_error_with_its_path() {
-        let mut out = json!({"results":[{"index":0,"data":{"next":{"nextPage":call("localSearch", json!({"bogus":true}))}}}]});
-        let error = finalize(
-            &mut out,
-            ToolId::LocalSearch,
-            &Sources::Rows(&[None]),
-            &Scope::everything(),
-        )
-        .expect_err("invalid call");
-        let path = &error.issues[0].path;
-        assert_eq!(
-            &path[..6],
-            ["results", "0", "data", "next", "nextPage", "query"]
-        );
-    }
-
-    #[test]
-    fn compact_input_leaves_an_invalid_row_as_sent() {
-        let row = json!({"bogus":true,"extras":[]});
-        let mut input = json!({"queries":[row.clone()]});
-        compact_input("localSearch", &mut input);
-        assert_eq!(input["queries"][0], row);
-    }
-
-    /// Trying only restorable or dropped fields compacts exactly like trying
-    /// every field.
-    /// A restart restates no contract default (`pageSize` of an issue read).
-    #[test]
-    fn a_restart_drops_the_default_page_size() {
-        let query = json!({"operation":"issue","owner":"o","repo":"r","number":7,
-            "sections":["comments"],"page":40});
-        let full = validate_query("ghGetHistoryItem", query).expect("valid");
-        let mut out = json!({"results":[{"index":0,"data":{"next":{
-            "restart": crate::response::result::restart_query(ToolId::GhGetHistoryItem, &full)
-        }}}]});
-        run(&mut out, ToolId::GhGetHistoryItem, &[Some(&full)]);
-        let row = &out["results"][0]["data"]["next"]["restart"]["query"]["queries"][0];
-        assert!(row.get("pageSize").is_none(), "{row}");
-    }
-
-    #[test]
-    fn restorable_fields_compact_like_trying_every_field() {
-        fn every_field(tool: &str, query: &Value) -> Value {
-            let full = validate_query(tool, query.clone()).expect("valid");
-            let mut compact = query.as_object().cloned().unwrap_or_default();
-            for field in query
-                .as_object()
-                .into_iter()
-                .flatten()
-                .map(|(field, _)| field)
-            {
-                let Some(removed) = compact.remove(field) else {
-                    continue;
-                };
-                if validate_query(tool, Value::Object(compact.clone())).ok() != Some(full.clone()) {
-                    compact.insert(field.clone(), removed);
-                }
-            }
-            query
-                .as_object()
-                .into_iter()
-                .flatten()
-                .filter_map(|(field, _)| compact.get(field).map(|v| (field.clone(), v.clone())))
-                .collect::<Map<_, _>>()
-                .into()
-        }
-        for (tool, query) in [
-            (
-                "localSearch",
-                json!({"matchString":"foo","path":"/tmp","mainGoal":"g","extras":["stats"],
-                "caseMode":"smart","page":1,"matchContentLength":200,"contextLines":0,"sort":"relevance"}),
-            ),
-            (
-                "localFetch",
-                json!({"path":"/a","matchString":"x","reasoning":" ","caseMode":"smart"}),
-            ),
-            (
-                "ghSearchCode",
-                json!({"owner":"o","repo":"r","keywords":["a"],"page":1,"extras":["stats"]}),
-            ),
-            (
-                "structureSearch",
-                json!({"operation":"tree","path":"/a","extras":["receipts","echo"]}),
-            ),
-        ] {
-            let mut compact = query.clone();
-            compact_query(tool, &mut compact, &mut Memo::new()).expect("valid");
-            assert_eq!(compact, every_field(tool, &query), "{tool}");
-        }
-    }
-
-    #[test]
-    fn compacts_each_row_of_an_input_and_keeps_window_fields() {
-        let mut input = json!({"queries":[{"matchString":"a","path":"/tmp","mainGoal":"Find a.","reasoning":"r","caseMode":"smart"}],
-            "responseOffset":10});
-        compact_input("localSearch", &mut input);
-        assert_eq!(
-            input["queries"][0],
-            json!({"matchString":"a","path":"/tmp","mainGoal":"Find a.","reasoning":"r"})
-        );
-        assert_eq!(input["responseOffset"], 10);
-    }
-
-    #[test]
-    fn unavailable_cross_tool_calls_drop_silently_and_own_pages_stay() {
-        let mut out = json!({"results":[
-            {"index":0,"data":{"next":{
-                "nextPage":call("ghStructure", json!({"owner":"o","repo":"r","page":2})),
-                "materialized":call("localSearch", json!({"path":"/x","matchString":"a"}))
-            },"warnings":["tool warning"]}},
-            {"index":1,"data":{"next":{"read":call("localFetch", json!({"path":"/a"}))}}}
-        ]});
-        let scope = Scope {
-            is_available: &|_| false,
-        };
-        finalize(
-            &mut out,
-            ToolId::GhStructure,
-            &Sources::Rows(&[None, None]),
-            &scope,
-        )
-        .expect("valid");
-        let first = &out["results"][0]["data"];
-        assert!(
-            first["next"]["nextPage"].is_object(),
-            "own pages stay: {first}"
-        );
-        assert!(first.get("hints").is_none(), "{first}");
-        assert_eq!(first["warnings"], json!(["tool warning"]));
-        assert!(
-            out["results"][1]["data"].get("warnings").is_none(),
-            "{}",
-            out["results"][1]
-        );
-    }
-
-    #[test]
-    fn an_empty_row_that_loses_its_only_lead_to_the_surface_keeps_a_recovery_hint() {
-        let query = json!({"owner":"o","repo":"r","keywords":["zzz"]});
-        let mut out = json!({"results":[{"index":0,"status":"empty","data":{"next":{
-            "cloneRepo":call("ghCloneRepo", json!({"owner":"o","repo":"r"}))
-        }}}]});
-        let scope = Scope {
-            is_available: &|_| false,
-        };
-        finalize(
-            &mut out,
-            ToolId::GhSearchCode,
-            &Sources::Rows(&[Some(&query)]),
-            &scope,
-        )
-        .expect("valid");
-        let data = &out["results"][0]["data"];
-        assert!(data.get("next").is_none(), "{data}");
-        assert_eq!(
-            data["hints"],
-            json!({(crate::id::continuation_channels::HINT_TEXT_KEY): [ToolId::GhSearchCode.output().fallback_hint(&query)]}),
-            "{data}"
-        );
-    }
-
-    #[test]
-    /// A recovery lead stays only on an empty or failed row. A lead carries
-    /// no prose: the tool description states what each lead kind is for.
-    fn recovery_leads_stay_only_on_empty_or_failed_rows() {
-        let tree = call("ghStructure", json!({"owner":"o","repo":"r","path":"src"}));
-        let read = call(
-            "ghGetFileContent",
-            json!({"owner":"o","repo":"r","path":"a"}),
-        );
-        let row = |status: &str| json!({"index":0,"status":status,"data":{"next":{"viewTree":tree.clone(),"read":read.clone()}}});
-        let mut ok = json!({"results":[row("ok")]});
-        run(&mut ok, ToolId::GhSearchCode, &[None]);
-        let data = &ok["results"][0]["data"];
-        assert!(
-            data.get("hints")
-                .and_then(|hints| hints.get("viewTree"))
-                .is_none(),
-            "{data}"
-        );
-        let mut empty = json!({"results":[row("empty")]});
-        run(&mut empty, ToolId::GhSearchCode, &[None]);
-        let hints = &empty["results"][0]["data"]["hints"];
-        for name in ["viewTree", "read"] {
-            assert_eq!(
-                hints[name]
-                    .as_object()
-                    .map(|call| call.keys().cloned().collect::<Vec<_>>()),
-                Some(vec!["tool".to_owned(), "query".to_owned()]),
-                "{name}: {hints}"
-            );
-        }
-    }
-}
+mod tests;

@@ -6,7 +6,7 @@ How a Pi session with the Octocode extension frees context. Tokens and money: [C
 |---|---|---|
 | Threshold, overflow recovery, `/compact`, cut point, the `compaction` entry, branch summaries | Pi | [Pi's compaction reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/compaction.md) |
 | Summary, files read back, thrash guard, downshift | Octocode | `summary.ts`, `shared-summary.ts`, `saved-results.ts`, `restore.ts`, `pacing.ts`, `register.ts` |
-| Archive, `/octocode archive` | Octocode | `archive.ts`, `archive-command.ts`; format in `src/shared/archive.ts` |
+| Archive, `/octocode archive` | Octocode | `archive.ts`, `archive-command.ts`; format in `src/shared/archive.ts`, session record in `src/shared/session-record.ts` |
 | Cold-cache clearing, stale thinking, 413 recovery, session notes | Octocode | `clearing.ts`, `thinking.ts`, `recovery.ts`, `images.ts`, `record.ts` |
 
 `registerCompaction` (`register.ts`) runs after the hooks, so a `PreCompact` hook runs first. Subagents run the same code.
@@ -166,11 +166,12 @@ an `archive-failed` note, a UI warning, no pointer.
   number, so two processes never file the same one and none is reused. The number the summary promises (`nextSegment`) counts
   claims too, so it is the one the segment is filed under.
 - `LIBRARY.md`: one row per segment, rewritten from the segment headers after each write, rebuilt whole if lost.
-- `SESSION.md`: the session's record, rewritten after each run (`agent_end`, `sessionRecordOf`), also before any
-  compaction: `Session`, `Repository` (`repoKey`: the git common dir, so worktrees share it), `Workspace`, `Forked from`,
-  `Parent session`, `Name`, `Started`, `Last active`, `Transcript`, then the goal (the first user message, whole) and the
-  ending (the last user message and the assistant text after it, whole; tool calls only counted). A session that is not
-  saved (`--no-session`) or has no user message writes none. A failed write warns once and never fails the run.
+- `SESSION.md`: the session's record (`src/shared/session-record.ts`), rewritten after each run (`agent_end`,
+  `sessionRecordOf`), also before any compaction: `Session`, `Repository` (`repoKey`: the git common dir, so worktrees
+  share it), `Workspace`, `Forked from`, `Parent session`, `Name`, `Started`, `Last active`, `Transcript`, then the goal
+  (the first user message, whole) and the ending (the last user message and the assistant text after it, whole; tool
+  calls only counted). A session that is not saved (`--no-session`) or has no user message writes none. A failed write
+  warns once and never fails the run.
 
 A segment is a header (`Segment`, `Compaction entry`, `Branch leaf` to tell `/tree` branches apart, `Time range`, `Tokens
 before`, `Summary method`: `cache-shared`, `standalone`, `pi-default` or `extension`; `TL;DR`, `Topics`: 3 to 8
@@ -342,7 +343,7 @@ A subagent is a `pi --mode rpc` process running this extension, so everything ab
 
 - **Settings and cache:** same `compaction` settings (it reads Pi's settings files). Retention is `short`: cold-cache
   clearing starts after 5 idle minutes; its cache is never warmed.
-- **Saved conversation** in `<scratch>/session` (`childSession`, `src/subagents/process.ts`), so Recovery names a real
+- **Saved conversation** in `<scratch>/session` (`childSession`, `src/subagents/launch.ts`), so Recovery names a real
   transcript. `details.session` names its session and, once it compacted, its archive folder (`details.session.archive`);
   the report names that folder too.
 - **Notices:** a child has no screen, so its warning and error notices (fallback summary, summary failure, thrash stop) are

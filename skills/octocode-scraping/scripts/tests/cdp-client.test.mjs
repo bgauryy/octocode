@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, readdirSync, realpathSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -9,7 +9,7 @@ const scripts = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 function fixture(failedChecks) {
   // Spaces and quotes catch unsafe interpolation into the generated module.
-  const root = mkdtempSync(join(tmpdir(), "octocode-cdp 'runner "));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "octocode-cdp 'runner ")));
   const lib = join(root, 'skills/octocode-scraping/scripts/lib');
   const bin = join(root, 'packages/octocode-chrome-devtools/bin');
   mkdirSync(lib, { recursive: true });
@@ -21,18 +21,21 @@ function fixture(failedChecks) {
   // package's `/raw open|script|cleanup` contract, including the --stealth gate.
   mkdirSync(join(root, '.octocode/octocode-chrome-devtools/tmp/helpers'), { recursive: true });
   writeFileSync(join(root, '.octocode/octocode-chrome-devtools/tmp/helpers/dom-actionability.mjs'), 'export async function waitForPageReady() { return true; }\n');
+  const workspace = join(root, 'caller-workspace');
+  mkdirSync(workspace);
   const tracePath = join(root, 'trace.json');
   const commandsPath = join(root, 'commands.json');
   writeFileSync(join(bin, 'octocode-chrome-devtools.mjs'), `
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 const [, , mode, command, ...args] = process.argv;
+if (process.cwd() !== ${JSON.stringify(workspace)}) throw new Error('Chrome escaped the caller workspace');
 const log = ${JSON.stringify(commandsPath)};
 writeFileSync(log, JSON.stringify([...(existsSync(log) ? JSON.parse(readFileSync(log, 'utf8')) : []), [mode, command, ...args]]));
 if (command === 'open') { console.log(JSON.stringify({ status: 'BROWSER_READY', reused: false })); process.exit(0); }
 if (command === 'cleanup') { console.log(JSON.stringify({ status: 'CLEANED_UP' })); process.exit(0); }
 // The real sandbox points TMPDIR at .octocode/octocode-chrome-devtools/tmp/tmp, the only place the runner may write.
-process.env.TMPDIR = ${JSON.stringify(join(root, '.octocode/octocode-chrome-devtools/tmp/tmp'))};
+process.env.TMPDIR = ${JSON.stringify(join(workspace, '.octocode/octocode-chrome-devtools/tmp/tmp'))};
 mkdirSync(process.env.TMPDIR, { recursive: true });
 const { run } = await import(pathToFileURL(args[0]));
 const listeners = new Map();
@@ -60,12 +63,15 @@ try {
 } catch (error) { console.error('[CDP_RUNNER] ' + error.message); process.exitCode = 1; }
 finally { writeFileSync(${JSON.stringify(tracePath)}, JSON.stringify(calls)); }
 `);
-  return { root, lib, tracePath, commandsPath };
+  mkdirSync(join(workspace, '.octocode/octocode-chrome-devtools/tmp/helpers'), { recursive: true });
+  copyFileSync(join(root, '.octocode/octocode-chrome-devtools/tmp/helpers/dom-actionability.mjs'), join(workspace, '.octocode/octocode-chrome-devtools/tmp/helpers/dom-actionability.mjs'));
+  return { root, workspace, lib, tracePath, commandsPath };
 }
 
 test('explicit CDP provider executes the generated runner through navigation and body capture', async () => {
-  const f = fixture(0);
+  const f = fixture(0), cwd = process.cwd();
   try {
+    process.chdir(f.workspace);
     const { resolveProvider } = await import(pathToFileURL(join(f.lib, 'providers.mjs')));
     const provider = resolveProvider('cdp');
     assert.equal(provider.name, 'cdp');
@@ -81,14 +87,14 @@ test('explicit CDP provider executes the generated runner through navigation and
     const commands = JSON.parse(readFileSync(f.commandsPath, 'utf8'));
     assert.deepEqual(commands.map(([mode, command]) => [mode, command]), [['/raw', 'open'], ['/raw', 'script'], ['/raw', 'cleanup']]);
     assert(!commands[1].includes('--stealth'));
-    assert.equal(existsSync(join(f.root, '.octocode/octocode-scraping/tmp/cdp-provider/success-runner.mjs')), false);
-    assert.equal(existsSync(join(f.root, '.octocode/octocode-scraping/tmp/cdp-provider/success-body.html')), false);
-  } finally { rmSync(f.root, { recursive: true, force: true }); }
+    assert.deepEqual(readdirSync(join(f.workspace, '.octocode/octocode-scraping/tmp/cdp-provider')), []);
+  } finally { process.chdir(cwd); rmSync(f.root, { recursive: true, force: true }); }
 });
 
 test('explicit stealth failure prevents navigation and never returns a successful body', async () => {
-  const f = fixture(1);
+  const f = fixture(1), cwd = process.cwd();
   try {
+    process.chdir(f.workspace);
     const { fetchCdp } = await import(pathToFileURL(join(f.lib, 'client.mjs')));
     const result = await fetchCdp({ url: 'https://fixture.invalid/', pageId: 'blocked', config: { cdpWaitMs: 100, cdpStealth: true } });
     assert.match(result.fetchError, /\[STEALTH_GATE\] 1\/12 stealth checks failed/);
@@ -100,5 +106,5 @@ test('explicit stealth failure prevents navigation and never returns a successfu
     assert(JSON.parse(readFileSync(f.commandsPath, 'utf8'))[1].includes('--stealth'));
     assert.equal(existsSync(join(f.root, '.octocode/octocode-scraping/tmp/cdp-provider/blocked-runner.mjs')), false);
     assert.equal(existsSync(join(f.root, '.octocode/octocode-scraping/tmp/cdp-provider/blocked-body.html')), false);
-  } finally { rmSync(f.root, { recursive: true, force: true }); }
+  } finally { process.chdir(cwd); rmSync(f.root, { recursive: true, force: true }); }
 });

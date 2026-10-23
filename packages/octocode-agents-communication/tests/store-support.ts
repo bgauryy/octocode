@@ -41,3 +41,17 @@ export const refuses = (promise: Promise<unknown>, pattern: RegExp, message?: st
   assert.match(error.message, pattern, message);
   return true;
 });
+
+/** A store fixture with three joined peers (alice, bob, carol) and inbox readers keyed by session. */
+export async function trio(t: TestContext, options?: Parameters<typeof fixture>[1]) {
+  const f = fixture(t, options);
+  const [alice, bob, carol] = [await f.join('alice'), await f.join('bob'), await f.join('carol')];
+  const inbox = async (session: string): Promise<JsonRecord[]> => (await f.call(session, 'inbox')).items;
+  const find = async (session: string, id: number): Promise<JsonRecord> => {
+    const item = (await inbox(session)).find(candidate => candidate.id === id);
+    assert.ok(item, `Inbox of ${session} has no message ${id}`);
+    return item;
+  };
+  const body = async (session: string, id: number) => (await find(session, id)).body;
+  return { ...f, alice, bob, carol, inbox, find, body };
+}

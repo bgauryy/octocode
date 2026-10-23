@@ -6,6 +6,7 @@ import {
   readFileSync,
   rmSync,
   writeFileSync,
+  utimesSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -67,6 +68,26 @@ function cdp(outputDir, navigate) {
 }
 const originalLog = console.log;
 try {
+  // Latest is one run, even when another tab has a newer measurement of a different type.
+  const latestRoot = join(root, 'latest-runs');
+  const older = join(latestRoot, 'older'),
+    newer = join(latestRoot, 'newer');
+  mkdirSync(older, { recursive: true });
+  mkdirSync(newer);
+  json(join(older, 'network-measure.json'), {
+    url: 'https://older.test/',
+    counts: { requests: 99 },
+  });
+  json(join(newer, 'performance-measure.json'), {
+    url: 'https://newer.test/',
+    score: { health: 95 },
+  });
+  utimesSync(older, 1000, 1000);
+  utimesSync(newer, 2000, 2000);
+  const latest = cli('measure-query.mjs', ['--latest', '--under', latestRoot]);
+  assert.equal(latest.paths.dir, newer);
+  assert.equal(latest.paths.network, null);
+  assert.equal(latest.health.performance, 95);
   const snapshotFile = join(root, 'page snapshot.json');
   const expectedRefs = Array.from({ length: count }, (_, i) => 'e' + (i + 1));
   json(snapshotFile, {
@@ -252,6 +273,38 @@ try {
   // Request IDs belong to sessions: iframe and page IDs can collide.
   process.env.MONITOR_MS = '10';
   const monitor = await import(join(checks, 'live-har-monitor.mjs'));
+  const interruptedDir = join(root, 'monitor-failure');
+  mkdirSync(interruptedDir);
+  const interrupted = cdp(interruptedDir, () => {});
+  const sendBeforeFailure = interrupted.send;
+  let failSnapshot = false;
+  interrupted.send = async (method, params) => {
+    if (failSnapshot && method === 'Runtime.evaluate')
+      throw new Error('Lost connection during final snapshot');
+    return sendBeforeFailure(method, params);
+  };
+  await assert.rejects(
+    monitor.run(interrupted, {
+      monitorMs: 0,
+      onReady() {
+        interrupted.emit('Runtime.consoleAPICalled', {
+          type: 'error',
+          args: [{ value: 'retained before completion' }],
+        });
+        const rows = readFileSync(join(interruptedDir, 'events.ndjson'), 'utf8')
+          .trim()
+          .split('\n')
+          .map(JSON.parse);
+        assert.equal(rows[0].message, 'retained before completion');
+        failSnapshot = true;
+      },
+    }),
+    /Lost connection/
+  );
+  assert.match(
+    readFileSync(join(interruptedDir, 'events.ndjson'), 'utf8'),
+    /retained before completion/
+  );
   for (const [name, module, artifact] of [
     ['session-network', network, 'network-measure.json'],
     ['session-bodies', bodies, 'network-body.har'],
@@ -304,7 +357,7 @@ console.log(
   JSON.stringify({
     ok: true,
     suite: 'chrome-devtools-artifacts',
-    checks: 8,
+    checks: 10,
     rows: count,
   })
 );

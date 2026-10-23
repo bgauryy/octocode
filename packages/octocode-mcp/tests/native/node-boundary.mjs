@@ -44,7 +44,7 @@ const instance = await createNativeMcp({
 const client = new Client({ name: 'native-boundary', version: '1' });
 const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
 await Promise.all([
-  instance.server.connect(serverTransport),
+  instance.createServer().connect(serverTransport),
   client.connect(clientTransport),
 ]);
 

@@ -159,8 +159,8 @@ fn ranked_paths(files: &[(&str, &str)], fields: serde_json::Value) -> Vec<String
 }
 
 /// Follow every `nextPage`/`nextMatchPage` of every page (breadth-first),
-/// asserting that no executable query is offered twice anywhere in the
-/// chain and no row is shown twice.
+/// asserting that only the `nextPage` a group-ending match page re-offers
+/// repeats an executable query, and no row is shown twice.
 fn walk_every_page_route(
     request: &LocalSearchQuery,
     policy: &PathPolicy,
@@ -210,11 +210,14 @@ fn walk_every_page_route(
             };
             names.push(name.to_owned());
             let query = route["query"]["queries"][0].clone();
-            assert!(
-                offered.insert(query.to_string()),
-                "duplicate page route {name} at page {} matchPage {match_page}: {query}",
-                local_search_query::page(&request)
-            );
+            if !offered.insert(crate::tools::test_support::checks::canonical(&query)) {
+                assert!(
+                    name == "nextPage" && match_page > 1 && next.get("nextMatchPage").is_none(),
+                    "duplicate page route {name} at page {} matchPage {match_page}: {query}",
+                    local_search_query::page(&request)
+                );
+                continue;
+            }
             queue.push_back(serde_json::from_value(query).expect("continuation query"));
         }
         walk.routes.push(names);
@@ -420,10 +423,10 @@ fn two_axis_pages_form_one_exact_once_continuation_chain() {
     assert_eq!(walk.rows.len(), 7);
 }
 
-/// Breadth-first access without duplicate routes: `nextPage` rides beside
-/// `nextMatchPage` only on the page that opens a file group (matchPage 1),
-/// so following every offered route runs each executable query once and
-/// shows each row once.
+/// Breadth-first and depth-first access: `nextPage` rides beside
+/// `nextMatchPage` on the page that opens a file group (matchPage 1) and
+/// returns on the page that ends it, so no page with later files is a dead
+/// end; following every distinct offered route shows each row once.
 #[test]
 fn every_offered_page_route_is_one_executable_query_and_rows_show_once() {
     let root = tempfile::tempdir().expect("fixture");
@@ -450,15 +453,16 @@ fn every_offered_page_route_is_one_executable_query_and_rows_show_once() {
     assert_eq!(walk.rows.len(), total, "every row once");
     // File pages {a,b} {c,d} {e}: three match pages, then two, then one.
     assert_eq!(walk.pages, 6, "{:?}", walk.routes);
-    // A later match page of a file group never re-offers the next file page.
+    // A middle match page never re-offers the next file page; the match
+    // page that ends a file group does (a repeat the walk does not rerun).
     assert_eq!(
         walk.routes,
         [
             vec!["nextMatchPage", "nextPage"],
             vec!["nextMatchPage"],
             vec!["nextMatchPage", "nextPage"],
-            vec![],
-            vec![],
+            vec!["nextPage"],
+            vec!["nextPage"],
             vec![],
         ]
     );
@@ -795,8 +799,15 @@ fn default_paginated_view_is_lean_and_detailed_keeps_context() {
         .iter()
         .find(|file| file["path"] == "z.txt")
         .expect("hot file");
-    assert_eq!(hot["pagination"]["totalItems"], 1200, "{body}");
-    assert!(hot["matches"].as_array().expect("rows").len() < 1200);
+    // The file's total is its shown rows plus the later lines named and
+    // counted: derivable, so not stated again.
+    let pagination = &hot["pagination"];
+    assert!(pagination.get("totalItems").is_none(), "{pagination}");
+    let shown = hot["matches"].as_array().expect("rows").len();
+    let listed = pagination["moreLines"].as_array().expect("moreLines").len();
+    let unlisted = pagination["moreLinesUnlisted"].as_u64().unwrap_or(0) as usize;
+    assert_eq!(shown + listed + unlisted, 1200, "{pagination}");
+    assert!(shown < 1200);
     let detailed = search_fixture(
         &[("a.txt", &numbered(30, &[20]))],
         ls_query(

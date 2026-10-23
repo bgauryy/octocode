@@ -5,7 +5,7 @@ import { ValidationError } from './errors.js';
 import { realpath } from './paths.js';
 import type { AttachmentHost } from './store-types.js';
 import { now } from './timing.js';
-import { compactAscii } from './wire.js';
+import { compactAscii } from './json-text.js';
 
 export function completionCheck(host: AttachmentHost, session: string, input: CompletionCheckInput): CommandResults['completion-check'] {
   if (input.hook_event_name !== 'Stop' || input.stop_hook_active === true) return {};

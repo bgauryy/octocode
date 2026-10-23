@@ -28,6 +28,8 @@ jobs:
       - run: yarn install --immutable --mode=skip-build
       - name: Lint
         run: node skills-dev/octocode-dev/scripts/dev.mjs lint:ci
+      - name: Typecheck
+        run: node skills-dev/octocode-dev/scripts/dev.mjs typecheck:ci
       - name: Test
         run: node skills-dev/octocode-dev/scripts/dev.mjs test:ci
 
@@ -44,9 +46,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/octocode-native
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-deny,cargo-nextest,cargo-shear
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
@@ -54,6 +53,17 @@ jobs:
       - run: corepack enable
       - run: yarn install --immutable --mode=skip-build
         working-directory: .
+      # Every Rust dev tool installs at its dev-tools.json pin (the one pin manifest).
+      - name: Pinned Rust dev tools
+        id: pins
+        run: |
+          gates=$(node ../../skills-dev/octocode-dev/scripts/rust-quality.mjs pins cargo-deny cargo-nextest cargo-shear)
+          typify=$(node ../../skills-dev/octocode-dev/scripts/rust-quality.mjs pins cargo-typify)
+          echo "gates=$gates" >> "$GITHUB_OUTPUT"
+          echo "typify=$typify" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: ${{ steps.pins.outputs.gates }}
       # The native package scripts, unchanged: the same commands run locally.
       - name: Format
         run: yarn fmt:rust:check
@@ -73,10 +83,10 @@ jobs:
         id: typify
         with:
           path: ~/.cargo/bin/cargo-typify
-          key: cargo-typify-0.8.0-${{ runner.os }}
+          key: ${{ steps.pins.outputs.typify }}-${{ runner.os }}
       - name: Install cargo-typify
         if: steps.typify.outputs.cache-hit != 'true'
-        run: cargo install cargo-typify --version 0.8.0 --locked
+        run: cargo install --locked ${{ steps.pins.outputs.typify }}
       - name: Tool contract freshness
         run: yarn workspace @octocodeai/config check:tool-contract
         working-directory: .
@@ -124,9 +134,15 @@ jobs:
         with:
           version: 0.16.0
       - if: runner.os == 'Linux'
+        name: Pinned Rust dev tools
+        id: pins
+        run: |
+          cross=$(node ../../skills-dev/octocode-dev/scripts/rust-quality.mjs pins cargo-zigbuild cargo-xwin)
+          echo "cross=$cross" >> "$GITHUB_OUTPUT"
+      - if: runner.os == 'Linux'
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-zigbuild,cargo-xwin
+          tool: ${{ steps.pins.outputs.cross }}
       # A libc-only cross (musl on the glibc runner) uses the host toolchain.
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
@@ -160,25 +176,30 @@ jobs:
         with:
           workspaces: packages/octocode-native
           key: windows-containment
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
       # The LSP memory-cap test runs a node fake language server.
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
           package-manager-cache: false
+      - name: Pinned Rust dev tools
+        id: pins
+        run: |
+          nextest=$(node ../../skills-dev/octocode-dev/scripts/rust-quality.mjs pins cargo-nextest)
+          echo "nextest=$nextest" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: ${{ steps.pins.outputs.nextest }}
       - name: Job object and LSP memory cap (engine)
         run: >-
           cargo nextest run --locked -p octocode-engine
-          -E 'test(/process::job_tests::/) | test(a_server_over_its_memory_cap_and_its_child_do_not_outlive_stop)'
+          -E 'test(/process::tests::job::/) | test(a_server_over_its_memory_cap_and_its_child_do_not_outlive_stop)'
       - name: Bounded run and token lookup containment (runtime)
         run: >-
           cargo nextest run --locked -p octocode-native --lib
-          -E 'test(/bounded_process::(held_pipe|gated)_tests::/) | test(/discovery::containment_tests::/)'
+          -E 'test(/bounded_process::(held_pipe_tests|gated::tests)::/) | test(/discovery::containment_tests::/)'
 
-  # The native package's script tests (platform map, build/publication,
-  # lint floor, audit-native): plain Node, no Rust build.
+  # The native package's TypeScript check and script tests (platform map,
+  # build/publication, lint floor, audit-native): plain Node, no Rust build.
   native-scripts:
     name: Native scripts (Node)
     runs-on: ubuntu-latest
@@ -190,6 +211,8 @@ jobs:
           package-manager-cache: false
       - run: corepack enable
       - run: yarn install --immutable --mode=skip-build
+      - name: Typecheck (JS loader typings and tests)
+        run: yarn workspace @octocodeai/octocode-native typecheck
       - name: Script tests
         run: yarn workspace @octocodeai/octocode-native test:scripts
       - name: audit-native tests

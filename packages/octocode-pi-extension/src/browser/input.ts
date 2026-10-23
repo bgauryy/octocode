@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { errorMessage, wholeSeconds, withTimeout } from '../shared/util.js';
 import { abortError } from './abort.js';
-import type { BrowserSession } from './cdp.js';
+import type { BrowserSession } from './session-state.js';
 
 type Page = BrowserSession['page'];
 

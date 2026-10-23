@@ -301,7 +301,7 @@ async fn qualifiers_reach_the_search_query() {
         .and(path("/api/v3/search/repositories"))
         .and(query_param(
             "q",
-            "user:o archived:false forks:>50 good-first-issues:>2",
+            "user:o fork:true archived:false forks:>50 good-first-issues:>2",
         ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "total_count":1,"incomplete_results":false,"items":[repo_item("r", false)]

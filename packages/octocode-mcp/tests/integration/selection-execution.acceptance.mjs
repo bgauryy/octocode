@@ -2,12 +2,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { hermeticEnv } from '../../../../test-utils/hermetic-env.ts';
+import { startSelectionScorer } from './selection-scorer.mjs';
 
 const root = process.cwd();
 const cliPath = path.join(root, 'packages/octocode/out/octocode.js');
@@ -45,77 +45,24 @@ lines[599] = `${unknownMarker} The relationship to cancellation is unclear.`;
 lines[999] = `${excludedMarker} Routine bookkeeping does not cancel work.`;
 await fs.writeFile(fetchPath, `${lines.join('\n')}\n`);
 
-let failure = false;
-const requests = [];
-const provider = http.createServer(async (request, response) => {
-  const chunks = [];
-  for await (const chunk of request) chunks.push(chunk);
-  const body = JSON.parse(Buffer.concat(chunks).toString());
-  requests.push(body);
-  if (failure) {
-    response.writeHead(401, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ error: 'synthetic refusal' }));
-    return;
-  }
-  const state = JSON.stringify(body.state);
-  const direct = state.includes(selectedMarker);
-  const unknown = state.includes(unknownMarker);
-  const answers = Object.fromEntries(
-    Object.entries(body.questions).map(([id, question]) => {
-      assert.equal(question.type, 'score');
-      assert.equal(question.criteria.length, 3);
-      const probabilities = direct
-        ? { 0: 0, 1: 0, 2: 1 }
-        : unknown
-          ? { 0: 0.2, 1: 0.8, 2: 0 }
-          : { 0: 1, 1: 0, 2: 0 };
-      const score = Object.entries(probabilities).reduce(
-        (sum, [level, probability]) =>
-          sum + Number(level) * Number(probability),
-        0
-      );
-      return [
-        id,
-        {
-          type: 'score',
-          score,
-          confidence: 1,
-          probabilities,
-          legend: Object.fromEntries(
-            question.criteria.map((level, index) => [String(index), level])
-          ),
-        },
-      ];
-    })
-  );
-  response.writeHead(200, { 'content-type': 'application/json' });
-  response.end(
-    JSON.stringify({
-      model: body.model,
-      answers,
-      usage: { input_tokens: 10, output_tokens: 2 },
-    })
-  );
-});
+let scorer;
 try {
-  await new Promise((resolve, reject) => {
-    provider.once('error', reject);
-    provider.listen(0, '127.0.0.1', () => {
-      provider.off('error', reject);
-      resolve();
-    });
+  scorer = await startSelectionScorer({
+    selected: selectedMarker,
+    unknown: unknownMarker,
   });
 } catch (error) {
   await fs.rm(fixture, { recursive: true, force: true });
   throw error;
 }
+const { requests } = scorer;
 
 const isolated = hermeticEnv(process.env, 'selection-execution');
 const baseEnv = {
   ...isolated,
   HOME: isolated.OCTOCODE_HOME,
   OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-  OCTOCODE_CLASSIFICATION_API_HOST: `http://127.0.0.1:${provider.address().port}`,
+  OCTOCODE_CLASSIFICATION_API_HOST: `http://127.0.0.1:${scorer.port}`,
   OCTOCODE_STORAGE_MODE: 'memory',
   OCTOCODE_LSP_PREWARM: 'off',
   DISABLE_TOOLS: '',
@@ -124,7 +71,7 @@ const baseEnv = {
   ALLOWED_PATHS: fixture,
 };
 
-async function cli(tool, query, env = baseEnv) {
+async function cli(tool, query, { env = baseEnv, status = 0 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -147,7 +94,7 @@ async function cli(tool, query, env = baseEnv) {
     child.on('close', code => {
       clearTimeout(timer);
       try {
-        assert.equal(code, 0, `${tool}: ${stderr.slice(0, 400)}`);
+        assert.equal(code, status, `${tool}: ${stderr.slice(0, 400)}`);
         resolve(JSON.parse(stdout));
       } catch (error) {
         reject(new Error(`${error.message}; stdout: ${stdout.slice(0, 400)}`));
@@ -175,28 +122,48 @@ async function mcp(env = baseEnv) {
   }
 }
 
+// A refused provider credential fails the row: the CLI exits 5 (execution
+// error, docs/OCTOCODE_CLI.md "Exit codes") and MCP marks the call isError.
 const callCli = (tool, query) => cli(tool, query);
-const callMcp = client => async (tool, query) => {
+const refusedCli = (tool, query) => cli(tool, query, { status: 5 });
+const mcpCall = isError => client => async (tool, query) => {
   const response = await client.callTool({
     name: tool,
     arguments: { queries: [query] },
   });
-  assert.equal(response.isError, false, JSON.stringify(response));
+  assert.equal(response.isError, isError, JSON.stringify(response));
   return response.structuredContent;
 };
+const callMcp = mcpCall(false);
+const refusedMcp = mcpCall(true);
 function data(result) {
   assert.ok(result?.results?.[0], JSON.stringify(result));
   assert.notEqual(result.results[0].status, 'error', JSON.stringify(result));
   return result.results[0].data;
 }
-function evidence(tool, row) {
+// A localSearch hit with context (contextLines > 0, the clasify default its
+// unfiltered lead keeps) numbers its window; its hit line is `<line>\t<text>`.
+function hitText(match) {
+  const value = String(match.value ?? '');
+  const numbered = value
+    .split('\n')
+    .find(line => line.startsWith(`${match.line}\t`));
+  return numbered === undefined
+    ? value
+    : numbered.slice(numbered.indexOf('\t') + 1);
+}
+// Evidence as shown (`hits: false`: whole windows, so hidden markers cannot
+// leak through context) or as source hits (`hits: true`: the hit line, the
+// same in a bare and a context view).
+function evidence(tool, row, { hits = false } = {}) {
   return tool === 'localFetch'
     ? String(row.content ?? '')
         .split('\n')
         .filter(line => /^\d+\t/.test(line))
     : (row.files ?? []).flatMap(file =>
         (file.matches ?? []).map(
-          match => `${file.path}:${match.line}:${match.value ?? ''}`
+          match =>
+            `${file.path}:${match.line}:${hits ? hitText(match) : (match.value ?? '')}`
         )
       );
 }
@@ -205,9 +172,16 @@ function receipt(tool, row) {
   assert.ok(value, `${tool}: selection receipt`);
   assert.ok(['complete', 'partial', 'unavailable'].includes(value.status));
   assert.equal(value.scope, 'selectedView');
-  assert.equal(value.unit, tool === 'localFetch' ? 'chunks' : 'files');
+  // Both local readers judge chunks: localFetch line windows, localSearch
+  // each hit row (not its file).
+  assert.equal(value.unit, 'chunks');
+  // Hidden near-misses (relatedItems, omitted when none) are a decided
+  // part of the partition, apart from unknownItems.
   assert.equal(
-    value.selectedItems + value.excludedItems + value.unknownItems,
+    value.selectedItems +
+      value.excludedItems +
+      (value.relatedItems ?? 0) +
+      value.unknownItems,
     value.totalItems
   );
   return value;
@@ -218,6 +192,7 @@ async function walk(call, tool, query, { selected = false } = {}) {
   const pending = [query];
   const seen = new Set();
   const rows = [];
+  const hits = [];
   const responses = [];
   let providerCallsAfterFirst;
   while (pending.length) {
@@ -229,6 +204,7 @@ async function walk(call, tool, query, { selected = false } = {}) {
     const row = data(await call(tool, current));
     responses.push(row);
     rows.push(...evidence(tool, row));
+    hits.push(...evidence(tool, row, { hits: true }));
     if (selected) {
       receipt(tool, row);
       providerCallsAfterFirst ??= requests.length;
@@ -262,7 +238,7 @@ async function walk(call, tool, query, { selected = false } = {}) {
       pending.push(...lead.query.queries);
     }
   }
-  return { first: responses[0], responses, rows, pages: seen.size };
+  return { first: responses[0], responses, rows, hits, pages: seen.size };
 }
 
 async function recover(call, tool, selectedRun) {
@@ -280,7 +256,7 @@ async function recover(call, tool, selectedRun) {
     `${tool}: recovery performs no JEV work`
   );
   return {
-    rows: runs.flatMap(run => run.rows),
+    hits: runs.flatMap(run => run.hits),
     pages: runs.reduce((total, run) => total + run.pages, 0),
   };
 }
@@ -355,8 +331,8 @@ try {
 
         const recovered = await recover(call, tool, selectedRun);
         assert.deepEqual(
-          [...recovered.rows].sort(),
-          [...ordinary.rows].sort(),
+          [...recovered.hits].sort(),
+          [...ordinary.hits].sort(),
           `${surface} ${tool}: lossless unfiltered recovery`
         );
         reports.push({
@@ -368,48 +344,54 @@ try {
       }
     }
 
-    failure = true;
-    for (const [surface, call] of [
-      ['CLI', callCli],
-      ['MCP', callMcp(client)],
+    // A refused credential is not transient: it stays the row's error (with
+    // its receipt and next.unfiltered lead) instead of a page, so the caller
+    // fixes it; nothing judged or unjudged is shown.
+    scorer.failure = true;
+    for (const [surface, call, refused] of [
+      ['CLI', callCli, refusedCli],
+      ['MCP', callMcp(client), refusedMcp(client)],
     ]) {
       for (const [tool, ordinaryQuery] of cases) {
         const before = requests.length;
-        const failed = await walk(
-          call,
-          tool,
-          { ...ordinaryQuery, ...context('UNJUDGED_FAILURE_PROBE') },
-          { selected: true }
-        );
+        const result = await refused(tool, {
+          ...ordinaryQuery,
+          ...context('UNJUDGED_FAILURE_PROBE'),
+        });
+        assert.equal(result.results?.length, 1, JSON.stringify(result));
+        const [failedRow] = result.results;
+        assert.equal(failedRow.status, 'error');
+        assert.equal(failedRow.data.errorCode, 'classificationProviderError');
+        const failed = { first: failedRow.data };
         const failedReceipt = receipt(tool, failed.first);
         assert.ok(['partial', 'unavailable'].includes(failedReceipt.status));
         assert.ok(failedReceipt.unknownItems > 0);
-        assert.equal(
-          failed.rows.length,
-          0,
+        assert.deepEqual(
+          evidence(tool, failed.first),
+          [],
           `${surface} ${tool}: provider failure cannot fail open`
         );
         assert.ok(
           requests.length > before,
           `${surface} ${tool}: failed attempt is accounted`
         );
-        failure = false;
+        scorer.failure = false;
         const ordinary = await walk(call, tool, ordinaryQuery);
         const recovered = await recover(call, tool, failed);
         assert.deepEqual(
-          [...recovered.rows].sort(),
-          [...ordinary.rows].sort(),
+          [...recovered.hits].sort(),
+          [...ordinary.hits].sort(),
           `${surface} ${tool}: failure recovery is complete`
         );
-        failure = true;
+        scorer.failure = true;
       }
     }
-    failure = false;
+    scorer.failure = false;
   } finally {
     await client.close();
   }
 } finally {
-  await new Promise(resolve => provider.close(resolve));
+  await scorer.close();
   await fs.rm(fixture, { recursive: true, force: true });
   await fs.rm(isolated.OCTOCODE_HOME, { recursive: true, force: true });
 }

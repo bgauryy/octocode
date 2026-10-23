@@ -10,7 +10,7 @@ use octocode_contract_types::ErrorCode;
 use octocode_native::id::error_codes::{self, ErrorClass};
 use octocode_native::runtime::error::mcp_result;
 use octocode_native::runtime::{Channel, HostOptions, RuntimeError, ToolRuntime};
-use octocode_native::security::{scrub_error_payload, scrub_error_text};
+use octocode_native::security::{Sanitized, scrub_error_text};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -62,10 +62,7 @@ fn envelope(
     payload: Option<Value>,
 ) -> napi::Error {
     let message = scrub_error_text(message);
-    let payload = payload.map(|mut payload| {
-        scrub_error_payload(&mut payload);
-        payload
-    });
+    let payload = payload.map(|payload| Sanitized::scrubbed(payload).into_value());
     let reason = serde_json::to_string(&serde_json::json!({
         "kind": "octocode.nativeError",
         "code": code,

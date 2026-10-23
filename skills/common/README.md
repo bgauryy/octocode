@@ -19,6 +19,7 @@ Shared Markdown under `references/` is discovered automatically. Link a shared p
 | Source | Installed copy | Consumer |
 |---|---|---|
 | `scripts/render-report.mjs` | `scripts/render-report.mjs` | Markdown report viewer |
+| `scripts/lib/report/*.mjs` | Same paths | Report viewer modules (Markdown engine, page views, collection, checks), shipped with the viewer |
 | `references/report-output.md` | `references/report-output.md` | Shared report instructions |
 | `references/octocode-usage.md` | Same path | Research MCP/CLI selection, schema discovery, paging, errors |
 | `references/configuration.md` | Same path | Config lookup, credentials, ownership |

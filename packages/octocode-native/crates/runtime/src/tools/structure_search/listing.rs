@@ -17,8 +17,6 @@ use octocode_engine::types::{FileKind, FileSystemQueryOptions};
 pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned {
     /// Page layout tag folded into the snapshot.
     const LAYOUT: &'static str;
-    /// Every page states its pagination, not only a listing that pages.
-    const ALWAYS_PAGINATED: bool;
 
     fn path(&self) -> &str;
     /// Which paths the request's own walk takes.
@@ -111,13 +109,11 @@ macro_rules! listing_fields {
                 query
             }
             fn page_size(&self) -> Option<usize> {
-                self.page_size.map(|size| {
-                    crate::response::paging::clamp_page_size(
-                        crate::id::ToolId::StructureSearch,
-                        None,
-                        crate::num::usize_of(size.get()),
-                    )
-                })
+                crate::response::paging::page_size(
+                    crate::id::ToolId::StructureSearch,
+                    None,
+                    self.page_size.map(|size| size.get()),
+                )
             }
             fn page(&self) -> usize {
                 crate::num::usize_of(self.page.get()).max(1)
@@ -257,10 +253,10 @@ pub(super) fn walk_listing<Q: Listing>(
     // (sensitive names, and symlinks out of the allowed roots). Denied
     // entries the listing would otherwise show are counted and reported,
     // never silently dropped.
-    let left = WalkLeft::new(root, q.default_excludes());
+    let include = crate::policy::include::include_globs(q.globs().0);
+    let left = WalkLeft::new(paths, root, q.default_excludes(), &include);
     let policy = WalkPolicy {
         bound,
-        discovery: paths.discovery_walk(),
         probe: q.filter_probe(root)?,
         show_hidden: q.show_hidden(),
         filtered: q.filtered(),
@@ -389,15 +385,15 @@ fn listing_page<Q: Listing>(
         "files": files,
         "snapshot": snapshot,
     });
-    if Q::ALWAYS_PAGINATED || cut.total_pages > 1 || page > cut.total_pages {
-        let mut facts =
-            crate::response::pages::PageFacts::sized(page, cut.total_pages, total, cut.has_more())
-                .out_of_range(cut.out_of_range());
-        if let Some(size) = q.page_size() {
-            facts = facts.with_page_size(size);
-        }
-        out["pagination"] = facts.to_value();
+    // Every page states its block; the response stage keeps it where it
+    // routes (`response::rows::walks_on`).
+    let mut facts =
+        crate::response::pages::PageFacts::sized(page, cut.total_pages, total, cut.has_more())
+            .out_of_range(cut.out_of_range());
+    if let Some(size) = q.page_size() {
+        facts = facts.with_page_size(size);
     }
+    out["pagination"] = facts.to_value();
     // A walk cut by time proved nothing about what it did not scan, and a
     // resumed window past every entry of its filters is no empty listing.
     if total == 0 && walk.meta.time_cut.is_none() && q.walk_offset() == 0 {
@@ -405,10 +401,10 @@ fn listing_page<Q: Listing>(
     }
     let mut warnings = Vec::new();
     cut.finish(&mut out, q, &mut warnings);
-    // The walk's summary, its retries and its read describe the whole
-    // listing: page 1 states them once.
+    // The walk's summary, what it skipped, its retries and its read
+    // describe the whole listing: page 1 states them once.
     if page == 1 {
-        out["summary"] = walk.meta.summary();
+        walk.meta.disclose(&mut out, root, q.details())?;
         lead_to_skipped(&mut out, q, &walk.meta.uncovered, q.walk(), q.filtered());
         if let Some(read) = rows::read_lead(&walk.rows[shown], root) {
             out["next"]["read"] = read;
@@ -418,7 +414,7 @@ fn listing_page<Q: Listing>(
     let query_notes = crate::policy::include::parent_glob_warning(include, exclude)
         .into_iter()
         .collect();
-    walk.meta.warn(&mut out, query_notes, warnings, page);
+    walk.meta.warn(&mut out, query_notes, warnings);
     Ok(out)
 }
 

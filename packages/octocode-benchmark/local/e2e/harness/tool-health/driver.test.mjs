@@ -126,11 +126,11 @@ test('ambiguous schema branches do not invent a conflicting default', () => {
   assert.deepEqual(defaultsOf('t', {}), { pageSize: 10 });
 });
 
-test('viewTree permits AST syntax inspection and rejects other AST operations', async () => {
+test('viewSyntax permits AST syntax inspection and rejects other AST operations', async () => {
   for (const operation of ['syntaxTree', 'symbols', 'match']) {
     const script = (_tool, row) => row.operation
       ? ok({ items: ['node'] })
-      : empty({ hints: { viewTree: lead('astSearch', { path: '/source.ts', operation }) } });
+      : empty({ hints: { viewSyntax: lead('astSearch', { path: '/source.ts', operation }) } });
     const r = await driver().explore('astSearch', { path: '/source.ts' }, { surface: 'cli', call: surface(script).call, root: '/' });
     assert.equal(r.failures.some(f => f.check === 'lead.key-tool'), operation !== 'syntaxTree', JSON.stringify(r.failures));
   }

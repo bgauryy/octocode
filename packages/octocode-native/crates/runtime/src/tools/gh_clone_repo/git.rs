@@ -340,7 +340,7 @@ fn git_permit(
     repository_url: &str,
     token: Option<&str>,
 ) -> Result<tokio::sync::OwnedSemaphorePermit, CloneError> {
-    use octocode_github::{GitHubBudget, LimiterKey, ProviderErrorKind};
+    use octocode_github::{GitHubBudget, LimiterKey};
     let Ok(url) = url::Url::parse(repository_url) else {
         return Err(CloneError::new(
             ErrorCode::InvalidInput,
@@ -360,25 +360,24 @@ fn git_permit(
             context.deadline,
             &|| context.cancellation.check().is_err(),
         )
-        .map_err(|error| match error.kind {
-            ProviderErrorKind::Cancelled => {
-                CloneError::new(ErrorCode::Cancelled, error.message.to_string())
-            }
-            ProviderErrorKind::Timeout => {
-                CloneError::new(ErrorCode::Timeout, error.message.to_string())
-            }
-            _ => CloneError::new(
-                ErrorCode::RateLimited,
-                format!(
-                    "{} Retry after {}s.",
-                    error.message,
-                    error
-                        .rate_limit
-                        .and_then(|rate| rate.retry_after_seconds)
-                        .unwrap_or(60)
-                ),
-            ),
-        })
+        .map_err(admission_error)
+}
+
+/// Why the shared GitHub limiter refused a git transfer: the caller's own
+/// cancellation or deadline, else a secondary-limit cooldown or an open
+/// circuit, which the row states as the limiter's own provider failure
+/// (rate-limit facts, retryable, `next.retry`).
+fn admission_error(error: octocode_github::ProviderError) -> CloneError {
+    use octocode_github::ProviderErrorKind;
+    match error.kind {
+        ProviderErrorKind::Cancelled => {
+            CloneError::new(ErrorCode::Cancelled, error.message.to_string())
+        }
+        ProviderErrorKind::Timeout => {
+            CloneError::new(ErrorCode::Timeout, error.message.to_string())
+        }
+        _ => CloneError::provider(error),
+    }
 }
 
 fn run(
@@ -408,4 +407,63 @@ fn run(
         },
         &control(context),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::gh_clone_repo::CloneFailure;
+    use octocode_github::{ProviderError, ProviderErrorKind, RateLimit};
+
+    fn limited(kind: ProviderErrorKind) -> ProviderError {
+        let mut error = ProviderError::new(kind, "GitHub secondary rate limit; request not sent.");
+        error.rate_limit = Some(Box::new(RateLimit {
+            remaining: None,
+            reset_epoch_seconds: None,
+            retry_after_seconds: Some(42),
+            resource: None,
+        }));
+        error.retryable = true;
+        error
+    }
+
+    /// A limiter cooldown is the limiter's provider failure, not clone text:
+    /// the row keeps its rate-limit block, retryability and retry delay.
+    #[test]
+    fn a_limiter_rate_limit_is_the_rows_provider_failure() {
+        match CloneFailure::from(admission_error(limited(ProviderErrorKind::RateLimited))) {
+            CloneFailure::Provider(error) => {
+                assert_eq!(error.kind, ProviderErrorKind::RateLimited);
+                assert!(error.retryable);
+                assert_eq!(
+                    error.rate_limit.and_then(|rate| rate.retry_after_seconds),
+                    Some(42)
+                );
+            }
+            CloneFailure::Clone(error) => panic!("rate limit flattened to text: {error:?}"),
+        }
+    }
+
+    /// An open circuit names its real cause (an outage), not a rate limit.
+    #[test]
+    fn an_open_circuit_keeps_its_cause() {
+        match CloneFailure::from(admission_error(limited(ProviderErrorKind::Transport))) {
+            CloneFailure::Provider(error) => assert_eq!(error.kind, ProviderErrorKind::Transport),
+            CloneFailure::Clone(error) => panic!("circuit flattened to text: {error:?}"),
+        }
+    }
+
+    /// The caller's own cancellation or deadline stays the clone's error.
+    #[test]
+    fn the_callers_own_stop_stays_a_clone_error() {
+        for (kind, code) in [
+            (ProviderErrorKind::Cancelled, ErrorCode::Cancelled),
+            (ProviderErrorKind::Timeout, ErrorCode::Timeout),
+        ] {
+            match CloneFailure::from(admission_error(ProviderError::new(kind, "stopped"))) {
+                CloneFailure::Clone(error) => assert_eq!(error.code, code),
+                CloneFailure::Provider(error) => panic!("caller stop became provider: {error:?}"),
+            }
+        }
+    }
 }

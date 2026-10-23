@@ -191,3 +191,90 @@ async fn repeated_repository_and_history_searches_are_cache_hits() {
     );
     runtime.close().await;
 }
+
+/// A branch resolves once per session: a file read and a later commit read
+/// of several file batches on the same branch share the memoized single-flight
+/// resolution, so `commits/{branch}` is requested once.
+#[tokio::test]
+async fn a_file_read_and_a_multi_batch_commit_read_resolve_one_branch_once() {
+    const SHA: &str = "2222222222222222222222222222222222222222";
+    let server = MockServer::builder().start().await;
+    let base_url = server.uri();
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex("^/api/v3/repos/a/b/commits/"))
+        .respond_with(move |request: &Request| {
+            if request
+                .headers
+                .get("accept")
+                .is_some_and(|accept| accept == "application/vnd.github.sha")
+            {
+                return ResponseTemplate::new(200).set_body_string(SHA);
+            }
+            let first = request.url.query_pairs().all(|(key, value)| key != "page" || value == "1");
+            let file = |name: String| {
+                json!({"filename":name,"status":"modified","additions":1,"deletions":1,
+                    "patch":"@@ -1 +1 @@\n-old\n+new"})
+            };
+            let files: Vec<_> = if first {
+                (0..100).map(|i| file(format!("f-{i:03}.rs"))).collect()
+            } else {
+                vec![file("last.rs".to_owned())]
+            };
+            let mut response = ResponseTemplate::new(200).set_body_json(json!({
+                "sha": SHA, "files": files,
+                "commit": {"message": "change",
+                    "author": {"name":"Ada","email":"a@x","date":"2024-01-01T00:00:00Z"}}
+            }));
+            if first {
+                response = response.insert_header(
+                    "Link",
+                    format!("<{base_url}/api/v3/repos/a/b/commits/{SHA}?page=2&per_page=100>; rel=\"next\""),
+                );
+            }
+            response
+        })
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/source.rs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file", "encoding":"base64", "content":STANDARD.encode("source body\n")
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let file = json!({"owner":"a", "repo":"b", "path":"source.rs", "ref":"main"});
+    let outcome = call(&runtime, "ghGetFileContent", file).await.unwrap();
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let commit = json!({"operation":"commit", "owner":"a", "repo":"b", "ref":"main",
+        "sections":["files"], "include":["last.rs"]});
+    let outcome = call(&runtime, "ghGetHistoryItem", commit).await.unwrap();
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    assert_eq!(row_data(&outcome)["commitSha"], SHA);
+    let requests = server.received_requests().await.unwrap();
+    let resolutions = requests
+        .iter()
+        .filter(|request| request.url.path() == "/api/v3/repos/a/b/commits/main")
+        .count();
+    assert_eq!(resolutions, 1, "one branch resolution per session");
+    assert!(
+        requests
+            .iter()
+            .filter(|request| request.url.path().contains("/commits/"))
+            .skip(1)
+            .all(|request| request.url.path().ends_with(SHA)),
+        "the commit batches read the pinned SHA"
+    );
+    runtime.close().await;
+}

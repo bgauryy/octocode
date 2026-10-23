@@ -22,10 +22,10 @@ Use `clasifyContext:{classifiers:["one self-contained evidence question"],longCo
 | Tool | Evidence JEV sees |
 |---|---|
 | `localSearch` | Sanitized hit lines and their supplied context, before output paging |
-| `ghSearchCode` | Experimental: available hit lines on this provider page; filename-only candidates stay unknown. Prefer ordinary discovery, then classify pinned file sources. |
+| `ghSearchCode` | Experimental: listed hit lines (up to 5 per file) on this provider page; filename-only candidates stay unknown. `next.judgeHits` judges the unlisted hits of hidden files. |
 | `localFetch`, `ghGetFileContent` | Source-addressed windows from the extracted ranges/matches or file, before output paging |
 
-Inline search does not read hidden whole-file bodies. For localSearch, apply cheap `include`/`exclude` and known `fileHas`/`fileLacks` terms first. Add `contextLines` when the deciding condition is beside a hit: zero surrounding lines is the default, and `responseLength` changes output page size, not the evidence JEV sees. To inspect content behind an unread path, use standalone `clasify` or a classified fetch. Keep lexical scope broad enough to retrieve the deciding evidence; classification cannot recover a file the search never found.
+Inline search does not read hidden whole-file bodies. For localSearch, apply cheap `include`/`exclude` and known `fileHas`/`fileLacks` terms first. With clasifyContext, each localSearch hit is judged with ±8 surrounding lines by default; set `contextLines` only to change that (larger for a distant deciding condition, 0 for bare hit lines). `responseLength` changes output page size, not the evidence JEV sees. To inspect content behind an unread path, use standalone `clasify` or a classified fetch. Keep lexical scope broad enough to retrieve the deciding evidence; classification cannot recover a file the search never found.
 
 ```json
 [
@@ -105,13 +105,14 @@ Noul needs nonblank instructions or usable true/false criteria. Read `probabilit
 
 ## Recover from unknown or error
 
-Unknown means unresolved; an error is not a negative answer. Inspect `selection`, row errors and returned `warnings`/`hints` before using a judgment. Recover when the missing evidence could change the answer or when the task requires complete coverage; otherwise state the gap and stop.
+Unknown means unresolved; `relatedItems` are decided near-misses (topical, not direct evidence), hidden but not unresolved; an error is not a negative answer. Inspect `selection`, row errors and returned `warnings`/`hints` before using a judgment. Recover when the missing evidence could change the answer or when the task requires complete coverage; otherwise state the gap and stop.
 
 | Result | Next action |
 |---|---|
 | More selected evidence is needed | Copy its selected-page continuation unchanged; saved selection replays without JEV. |
 | The candidate budget left evidence unjudged | Copy `next.nextCandidatePage` unchanged to classify the remaining candidates. This can make new provider requests. |
 | Unknown inline evidence could change the answer | Follow `next.unfilteredUnknown` and any `next.unfilteredUnknown2`, `next.unfilteredUnknown3`, … calls: they read only the unknown chunks or files. Without them, `next.unfiltered` restores the original view. |
+| A hidden `ghSearchCode` file has more hits than it lists | Follow `next.judgeHits` (`judgeHits2`, …): it judges every keyword window of those files through `ghGetFileContent` with the same classifiers. |
 | Complete original-view coverage is required | Follow `next.unfiltered`, including its pages. This also returns selected and excluded evidence. |
 | Selection is unavailable | Inspect its error and warnings. Unfiltered localSearch hits may already be returned; otherwise follow the provided recovery call if needed. |
 | `clasify` fails after text capture | Follow the read suggestion in `error.hints` if needed; preserve its snapshot/ref and ranges. Read the original error for a repairable cause. |
@@ -132,4 +133,4 @@ Unfiltered recovery and inspection calls do not require another JEV pass; candid
 ]
 ```
 
-Use model discovery when choosing a model, check its primitive/image support, then use `model` to pin it. A rejection is not a negative classification. Box can return coordinates for an absent object: check the independent presence answer before using them. Results report the answering model, usage and captured asset identities/inspection paths without image bytes. Inspect the saved image when a visual detail supports your claim. This capability does not imply audio/video support.
+List models with `operation:"models"` (name, description, release date; no capability flags), then pin one with `model`. A rejection is not a negative classification. Box can return coordinates for an absent object: check the independent presence answer before using them. Results report the answering model, usage and captured asset identities/inspection paths without image bytes. Inspect the saved image when a visual detail supports your claim. This capability does not imply audio/video support.

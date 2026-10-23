@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { INFERRED_CACHE_TTL_SECONDS, PromptCacheLifetimes, inferredPromptCache, promptCacheTtlMs, warmingDecision } from '../src/compaction/cache.js';
 import { contextChars } from '../src/compaction/images.js';
 import { registerCompaction } from '../src/compaction/register.js';
-import type { FileGuard } from '../src/files/tool.js';
+import type { FileGuard } from '../src/files/guard.js';
 import { CACHE_RETENTION_ENV, childCacheRetention, chooseSessionCacheRetention } from '../src/shared/env.js';
 import { subagentProcessEnv } from '../src/subagents/process.js';
 

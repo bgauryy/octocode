@@ -1,19 +1,13 @@
 {
+  "extends": "../../tsconfig.base.json",
+  // esbuild bundles src/extension.ts to CommonJS (package.json `build`), so the
+  // sources are checked as bundler-resolved ES modules.
   "compilerOptions": {
-    "module": "Node16",
-    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "lib": ["ES2022"],
-    "outDir": "out",
-    "rootDir": "src",
-    "sourceMap": true,
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": true,
-    "moduleResolution": "Node16",
-    "types": ["node"]
+    "noEmit": true,
+    "esModuleInterop": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "out"]

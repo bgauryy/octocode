@@ -17,7 +17,7 @@
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^5.0.4",
     "esbuild": "^0.28.2",
-    "eslint": "^10.12.0",
+    "prettier": "^3.9.10",
     "rollup": "^4.64.6",
     "rollup-plugin-dts": "^6.5.1",
     "typescript": "^6.0.3",
@@ -84,21 +84,20 @@
     "directory": "packages/octocode-mcp"
   },
   "scripts": {
-    "build": "yarn check:manifest && yarn clean && node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs && yarn build:types && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
-    "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs && yarn build:types && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
+    "build": "yarn check:manifest && yarn clean && node build.mjs && yarn build:types && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
+    "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && yarn build:types && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
     "build:types": "tsc --emitDeclarationOnly --outDir dist/.types -p tsconfig.build.json && node scripts/bundle-dts.mjs",
     "check:manifest": "node scripts/sync-manifest.mjs --check",
     "clean": "rm -rf dist/",
-    "format": "eslint src tests --fix",
-    "lint": "yarn check:manifest && eslint src tests",
+    "format": "prettier --write src tests",
+    "lint": "yarn check:manifest && prettier --check src tests && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
     "sync:manifest": "node scripts/sync-manifest.mjs",
     "test": "vitest run --coverage",
     "test:acceptance": "yarn test:boundary && cd ../.. && node packages/octocode-mcp/tests/integration/stdio.acceptance.mjs --cli-mcp-parity",
     "test:boundary": "node tests/native/node-boundary.mjs && node tests/native/addon-boundary.mjs && node tests/native/response-pagination.mjs dist/index.js dist/index.js",
     "test:contracts:classification": "cd ../.. && node packages/octocode-mcp/tests/integration/clasify-availability.acceptance.mjs && node packages/octocode-mcp/tests/integration/selection-execution.acceptance.mjs",
-    "typecheck": "tsc --noEmit --skipLibCheck -p tsconfig.package.json",
-    "typecheck:full": "tsc --noEmit --skipLibCheck",
-    "verify": "yarn lint && yarn typecheck:full && yarn test"
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
+    "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "type": "module",
   "types": "dist/public.d.ts"

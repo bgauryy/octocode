@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { clip, plural, timingOf, resultBlock, timedTool, toolHeader } from '../shared/render.js';
+import { clip, plural, resultBlock, toolHeader } from '../shared/render.js';
+import { timingOf, timedTool } from '../shared/tool-timing.js';
 import { Type } from 'typebox';
 import { withDialog } from '../shared/locks.js';
 import { sanitizeTerminalText } from '../shared/sanitize.js';

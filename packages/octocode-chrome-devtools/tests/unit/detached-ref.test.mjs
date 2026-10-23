@@ -20,7 +20,7 @@ async function fixture(mode, fn) {
   writeFileSync(
     resources,
     JSON.stringify({
-      resources: { 'page-snapshot': { artifactPath: snapshot } },
+      resources: { 'page-snapshot:page': { artifactPath: snapshot } },
     })
   );
   const cdp = {

@@ -1,9 +1,10 @@
 //! The response for one page: rows, pagination, leads, warnings and the
 //! partial state.
 use super::{HistoryOperation, HistorySearch, leads, rows};
+use crate::id::ToolId;
 use crate::response::result::remove_null_fields;
 use crate::tools::gh_search_history::gh_search_history_query;
-use crate::tools::gh_shared::{SearchWindow, pick_rows};
+use crate::tools::gh_shared::{SearchCompleteness, SearchWindow, apply_partial, pick_rows};
 use octocode_github::HistoryPage;
 use serde_json::{Value, json};
 
@@ -115,10 +116,16 @@ pub(super) fn shape(
     {
         value["next"]["readCommit"] = read;
     }
-    if let Some(rows) = value.get("commits").and_then(Value::as_array)
-        && let Some(read) = leads::read_commit_pull_request(query, rows)
-    {
-        value["next"]["readPullRequest"] = read;
+    if let Some(rows) = value.get("commits").and_then(Value::as_array) {
+        if let Some(read) = leads::read_commit_pull_request(query, rows) {
+            value["next"]["readPullRequest"] = read;
+        } else if let Some(sha) = value
+            .pointer("/commits/0/commitSha")
+            .and_then(Value::as_str)
+            && let Some(find) = leads::find_commit_pull_request(query, sha)
+        {
+            value["next"]["findPullRequest"] = find;
+        }
     }
     if !warnings.is_empty() {
         value["warnings"] = json!(warnings);
@@ -126,6 +133,7 @@ pub(super) fn shape(
     if gh_search_history_query::operation(query) == HistoryOperation::Issue
         && !paging.more
         && !paging.past_end
+        && paging.page <= 1
         && let Some(map) = value.as_object_mut()
     {
         map.remove("pagination");
@@ -133,7 +141,7 @@ pub(super) fn shape(
     let next_page = paging.more.then(|| {
         crate::response::paging::next_cursor(
             &mut value,
-            crate::id::ToolId::GhSearchHistory,
+            ToolId::GhSearchHistory,
             None,
             "page",
             paging.page + 1,
@@ -150,9 +158,22 @@ pub(super) fn shape(
         && !paging.past_end
         && let Some(lead) = leads::broaden_search(query)
     {
-        value["next"]["broadenSearch"] = lead;
+        crate::tools::leads::broaden::set_broadened(
+            &mut value,
+            &crate::response::result::query_row(&**query, &[]),
+            lead,
+        );
     }
-    disclose_provider_limits(&mut value, paging, narrow);
+    // A path scope that listed nothing may name no path at all: its
+    // parent's listing checks it.
+    if value["status"] == "empty"
+        && !paging.past_end
+        && let Some(check) =
+            crate::tools::gh_shared::path_check(&crate::response::result::query_row(&**query, &[]))
+    {
+        value["next"]["viewTree"] = check;
+    }
+    disclose_provider_limits(&mut value, query, paging, narrow);
     value
 }
 
@@ -286,31 +307,38 @@ pub(super) fn mark_empty(value: &mut Value, more: bool) {
     }
 }
 
-/// A capped or incomplete search is partial (the last reachable page ends
-/// at a terminal limit); the cap states GitHub's match count and gets its
-/// narrowing lead (`narrowScope`).
-fn disclose_provider_limits(value: &mut Value, paging: &Paging, narrow: Option<Value>) {
-    if !paging.incomplete && !paging.capped {
-        return;
-    }
-    let reason = if paging.capped {
-        "providerResultCap"
-    } else {
-        "providerIncompleteResults"
+/// Provider-side incompleteness, disclosed by the one rule every GitHub
+/// search shares ([`apply_partial`]); a capped search also gets its
+/// narrowing lead (`narrowScope`). A REST list has no window and no
+/// incomplete flag, so it states neither.
+fn disclose_provider_limits(
+    value: &mut Value,
+    query: &HistorySearch,
+    paging: &Paging,
+    narrow: Option<Value>,
+) {
+    let subject = match gh_search_history_query::operation(query) {
+        HistoryOperation::PullRequest => "pull request",
+        HistoryOperation::Issue => "issue",
+        HistoryOperation::Commit => "commit",
     };
-    // The reachable `totalItems` is not the match count: state GitHub's.
-    let count = paging.capped.then(|| {
-        format!(
-            "GitHub matched {} results; the first {} are reachable.",
-            paging.matched, paging.total
-        )
-    });
-    let warnings = Vec::from_iter(count);
-    if paging.more {
-        crate::response::paging::mark_partial(value, reason, &warnings);
-    } else {
-        crate::response::paging::terminal_limit(value, reason, &warnings);
-    }
+    apply_partial(
+        value,
+        &**query,
+        &SearchCompleteness {
+            tool: ToolId::GhSearchHistory,
+            matched: if paging.capped {
+                paging.matched
+            } else {
+                paging.total
+            },
+            reachable: paging.total,
+            incomplete: paging.incomplete,
+            page: paging.page,
+            has_more: paging.more,
+            subject,
+        },
+    );
     if paging.capped
         && let Some(lead) = narrow
     {

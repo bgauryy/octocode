@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Writes `src/team/casefold-table.ts`: the Unicode full case folding that reservation path keys use, taken from the
+ * Writes `src/team/casefold-table.generated.ts`: the Unicode full case folding that reservation path keys use, taken from the
  * table the octocode-agents-communication package freezes (`unicode16.json`, built from CaseFolding.txt statuses C and
  * F), so a path has the same key in Pi's team and in that package. Run it after the package's table changes:
  *   yarn casefold:generate
@@ -13,9 +13,9 @@ import { isMain } from './is-main.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const SOURCE = path.join(root, '..', 'octocode-agents-communication', 'assets', 'unicode16.json');
-export const TARGET = path.join(root, 'src', 'team', 'casefold-table.ts');
+export const TARGET = path.join(root, 'src', 'team', 'casefold-table.generated.ts');
 
-/** The text of `casefold-table.ts` for a parsed `unicode16.json`. */
+/** The text of `casefold-table.generated.ts` for a parsed `unicode16.json`. */
 export function renderCasefoldTable(table) {
   const hex = (value) => Number(value).toString(16).toUpperCase();
   const lines = Object.entries(table.casefold)

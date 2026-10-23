@@ -1,14 +1,14 @@
 //! What execution hands to response shaping: one domain row's result
 //! ([`DomainResult`]) and one finished call ([`ToolOutcome`]).
-use crate::response::pager::TextContent;
 use crate::response::result::{FailureKind, failure_kind};
+use crate::security::Sanitized;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 #[derive(Debug)]
 pub struct ToolOutcome {
-    pub structured_content: Value,
-    pub content: Vec<TextContent>,
+    /// The envelope every surface prints, sealed by the output gate.
+    pub structured_content: Sanitized,
     pub failure: Option<FailureKind>,
     pub all_failed: bool,
 }

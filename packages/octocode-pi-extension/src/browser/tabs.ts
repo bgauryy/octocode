@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { httpOrigin, openTab, pageTargets, type BrowserSession, type PageTarget } from './cdp.js';
+import { openTab, pageTargets, type PageTarget } from './devtools.js';
+import { httpOrigin, type BrowserSession } from './session-state.js';
 import { switchTo } from './session.js';
 
 /** What the agent opening a private page records for the tab that loads it (see `BrowserTool.open`); nothing for a public page. */

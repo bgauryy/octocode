@@ -250,7 +250,7 @@ try {
         row.clasify,
         `${row.name}: MCP clasify`
       );
-      const cliCatalog = schema(project, env, []);
+      const cliCatalog = schema(project, env, ['--view', 'full']);
       assert.equal(
         cliCatalog.tools.some(tool => tool.name === 'clasify'),
         row.clasify,

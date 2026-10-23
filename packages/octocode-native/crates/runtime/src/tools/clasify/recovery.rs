@@ -2,26 +2,34 @@ use super::{Captured, Input, Row, Target};
 use crate::id::ToolId;
 use crate::id::{error_class, error_codes::ErrorClass};
 use crate::tools::source_capture;
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 /// Recovery for a failed row. A captured source failed in classification:
 /// its exact read is the way back to the evidence. A source that was never
 /// captured failed in its reader: that error and its own hints say what
 /// happened, nothing was classified, and the requested read is offered only
-/// when repeating it can succeed (not for a missing path or a refusal).
+/// when repeating it can succeed (not for a missing path or a refusal). A
+/// selection too large to judge offers no read of itself: its hints say how
+/// to judge it.
 pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
     if matches!(row.input, Input::Models) {
         return;
     }
     let acquisition = captured.is_none() && matches!(row.input, Input::Judge(Target::Source(_)));
-    let read = captured.map(|capture| capture.read.clone()).or_else(|| {
-        let Input::Judge(Target::Source(source)) = &row.input else {
-            return None;
-        };
-        let tool = ToolId::from_name(source["tool"].as_str()?)?;
-        (matches!(tool, ToolId::LocalFetch | ToolId::GhGetFileContent) && rereadable(failure))
-            .then(|| source_capture::read_lead(tool, &source["query"], None))
-    });
+    let too_large =
+        crate::id::error_code_of(failure) == Some(ErrorCode::ClassificationContextTooLarge);
+    let read = captured
+        .map(|capture| capture.read.clone())
+        .or_else(|| {
+            let Input::Judge(Target::Source(source)) = &row.input else {
+                return None;
+            };
+            let tool = ToolId::from_name(source["tool"].as_str()?)?;
+            (matches!(tool, ToolId::LocalFetch | ToolId::GhGetFileContent) && rereadable(failure))
+                .then(|| source_capture::read_lead(tool, &source["query"], None))
+        })
+        .filter(|_| !too_large);
     if failure["hints"].is_null() {
         failure["hints"] = json!({});
     }
@@ -55,7 +63,7 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
 
 /// Whether the same read can answer differently when repeated: not after a
 /// not-found, permission or input refusal.
-fn rereadable(failure: &Value) -> bool {
+pub(super) fn rereadable(failure: &Value) -> bool {
     failure["errorCode"].as_str().is_none_or(|code| {
         !matches!(
             error_class(code),
@@ -155,6 +163,25 @@ mod tests {
             );
             assert_eq!(failure["hints"]["text"].as_array().map(Vec::len), Some(1));
         }
+    }
+
+    /// A selection too large to judge leads to judging it in parts, never
+    /// to a read of the whole selection.
+    #[test]
+    fn a_too_large_selection_offers_no_read_of_itself() {
+        let source = json!({"tool":"localFetch","query":{"path":"big.rs","fullContent":true}});
+        let row = row(Input::Judge(Target::Source(source)), None);
+        let mut failure = json!({"errorCode":"classificationContextTooLarge","error":"big"});
+        add(&row, None, &mut failure);
+        assert!(failure["hints"].get("read").is_none(), "{failure}");
+        let captured = Captured {
+            state: json!({}),
+            read: json!({"tool":"localFetch","query":{"queries":[{"path":"big.rs"}]}}),
+            source: None,
+        };
+        let mut failure = json!({"errorCode":"classificationContextTooLarge","error":"big"});
+        add(&row, Some(&captured), &mut failure);
+        assert!(failure["hints"].get("read").is_none(), "{failure}");
     }
 
     #[test]

@@ -31,9 +31,15 @@ jobs:
         with:
           workspaces: packages/octocode-native
           key: full-matrices
+      # The runner's preinstalled node reads the dev-tools.json pin.
+      - name: Pinned Rust dev tools
+        id: pins
+        run: |
+          nextest=$(node ../../skills-dev/octocode-dev/scripts/rust-quality.mjs pins cargo-nextest)
+          echo "nextest=$nextest" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-nextest
+          tool: ${{ steps.pins.outputs.nextest }}
       - name: Full matrices (nextest)
         run: cargo nextest run --locked -p octocode-native --run-ignored only -E 'test(/full_matrix/)'
         env:

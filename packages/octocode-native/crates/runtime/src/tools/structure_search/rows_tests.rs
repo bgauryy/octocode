@@ -67,3 +67,26 @@ fn line_count_can_be_cancelled_between_bounded_reads() {
     assert_eq!(error.code, ErrorCode::Cancelled);
     std::fs::remove_dir_all(root).expect("cleanup");
 }
+
+/// A FIFO counts as unreadable: the open neither blocks on it (no writer)
+/// nor reads it.
+#[cfg(unix)]
+#[test]
+fn a_fifo_line_count_is_unreadable_without_blocking() {
+    let root = tempfile::tempdir().expect("root");
+    let fifo = root.path().join("pipe.rs");
+    crate::tools::test_support::make_fifo(&fifo);
+    let paths = crate::tools::test_support::workspace_policy(root.path());
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sent.send(line_count(
+            &fifo,
+            &paths,
+            &crate::execution::cancel::NeverCancel,
+        ));
+    });
+    let counted = received
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the line count returned instead of blocking on the FIFO");
+    assert!(matches!(counted, Ok(Lines::Unreadable)), "{counted:?}");
+}

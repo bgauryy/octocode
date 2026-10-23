@@ -1,11 +1,20 @@
 //! Public-page windows over GitHub REST collections: provider batch loading
 //! derived from public page cursors, and the page objects reported back.
-use super::inventory::max_inventory_page;
-use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch};
-use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use super::fetch;
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
-use serde_json::{Value, json};
+use serde_json::Value;
+
+mod budget;
+mod pages;
+#[cfg(test)]
+mod tests;
+
+pub(super) use budget::{auto_page, clamp_warning, literal_patch_window, patch_window};
+use pages::mark_capped;
+pub(super) use pages::{
+    lift_page_limits, paginate_window, reconcile_collection_total, reconcile_file_totals,
+};
 
 // GitHub's collection caps, in one table: provider facts, not tuning.
 
@@ -13,6 +22,13 @@ use serde_json::{Value, json};
 pub(super) const COMPARE_FILE_LIMIT: usize = 300;
 /// PR and commit file lists stop at 3000 files (30 batches of 100).
 pub(super) const MAX_FILE_BATCHES: usize = 30;
+/// A commit's files page 300 at a time (GitHub's default and largest
+/// `per_page` there), so a commit of up to 300 files is one batch with an
+/// exact count.
+pub(super) const COMMIT_FILE_BATCH: usize = 300;
+/// Commit file batches up to the 3000-file stop.
+pub(super) const MAX_COMMIT_FILE_BATCHES: usize =
+    MAX_FILE_BATCHES * MAX_PER_PAGE / COMMIT_FILE_BATCH;
 /// Comments/reviews scanned for one page (3000 items).
 pub(super) const MAX_COLLECTION_BATCHES: usize = 30;
 /// GitHub lists at most 250 commits for a pull request.
@@ -104,8 +120,10 @@ const BATCH_CONCURRENCY: usize = 8;
 /// One provider batch response: the body and whether a next batch exists.
 pub(super) type Batch = (Value, bool);
 
-/// The public page a load must cover, read in `MAX_PER_PAGE`-sized batches.
+/// The public page a load must cover, read in `batch_size`-sized batches.
 pub(super) struct WindowSpec {
+    /// Provider items per batch (`per_page`).
+    pub(super) batch_size: usize,
     pub(super) max_batches: usize,
     pub(super) page: usize,
     pub(super) page_size: usize,
@@ -127,7 +145,7 @@ impl WindowSpec {
         if self.filtered {
             1
         } else {
-            (self.start() / MAX_PER_PAGE).min(self.max_batches.saturating_sub(1)) + 1
+            (self.start() / self.batch_size).min(self.max_batches.saturating_sub(1)) + 1
         }
     }
 
@@ -135,7 +153,7 @@ impl WindowSpec {
     /// filtered scan (its matches lie anywhere), or a page whose items cross
     /// a batch boundary.
     pub(super) fn spans_batches(&self) -> bool {
-        self.filtered || self.need().div_ceil(MAX_PER_PAGE) > self.first_batch()
+        self.filtered || self.need().div_ceil(self.batch_size) > self.first_batch()
     }
 
     fn start(&self) -> usize {
@@ -156,7 +174,7 @@ impl WindowSpec {
             } else {
                 self.need().min(total)
             };
-            span.div_ceil(MAX_PER_PAGE)
+            span.div_ceil(self.batch_size)
                 .clamp(next, self.max_batches.max(next))
         })
     }
@@ -210,7 +228,7 @@ pub(super) async fn load_window_with(
         let mut loaded = Loaded {
             items: Vec::new(),
             state: WindowState {
-                skipped: (first_batch - 1) * MAX_PER_PAGE,
+                skipped: (first_batch - 1) * spec.batch_size,
                 exhausted: false,
                 capped: false,
             },
@@ -221,7 +239,14 @@ pub(super) async fn load_window_with(
         'waves: loop {
             let last = spec.wave_end(next);
             let held = spec.prefetched.take_if(|(batch, _)| *batch == next);
-            let batches = fetch_batches(transport, segments, next..=last, held, context).await?;
+            let batches = fetch_batches(
+                transport,
+                segments,
+                (next..=last, spec.batch_size),
+                held,
+                context,
+            )
+            .await?;
             for (batch, (mut value, more)) in (next..=last).zip(batches) {
                 let items = extract(&mut value);
                 if batch == first_batch {
@@ -254,12 +279,13 @@ pub(super) async fn load_window_with(
     }
 }
 
-/// Provider batches `batches` in order, [`BATCH_CONCURRENCY`] in flight;
-/// a `held` batch (the first of the range) is used as is.
+/// Provider batches `batches` of `per_page` items in order,
+/// [`BATCH_CONCURRENCY`] in flight; a `held` batch (the first of the range)
+/// is used as is.
 async fn fetch_batches(
     transport: &GitHubTransport,
     segments: &[&str],
-    batches: std::ops::RangeInclusive<usize>,
+    (batches, per_page): (std::ops::RangeInclusive<usize>, usize),
     held: Option<(usize, Batch)>,
     context: &RequestContext,
 ) -> Result<Vec<Batch>, ProviderError> {
@@ -272,7 +298,7 @@ async fn fetch_batches(
                 transport,
                 segments,
                 &[
-                    ("per_page", MAX_PER_PAGE.to_string()),
+                    ("per_page", per_page.to_string()),
                     ("page", batch.to_string()),
                 ],
                 context,
@@ -283,340 +309,4 @@ async fn fetch_batches(
         .try_collect::<Vec<_>>()
         .await?;
     Ok(held.into_iter().chain(fetched).collect())
-}
-
-/// A provider list that ended before an authoritative item count is partial,
-/// even when its last (short) batch carries no next link.
-pub(super) fn reconcile_collection_total(
-    page: &mut Value,
-    state: WindowState,
-    listed: usize,
-    total: Option<usize>,
-    reason: &str,
-) -> bool {
-    let missing = state.exhausted && total.is_some_and(|total| listed < total);
-    if missing {
-        page["countScope"] = json!("partial");
-        page["terminalLimit"] = json!(true);
-        page["providerLimit"] = json!({"reason": reason});
-    }
-    missing
-}
-
-/// Reconcile a changed-file page with the PR's own `changed_files` count.
-/// GitHub lists at most 3000 files, and ends the list there without saying
-/// so: when the listing ran out before the reported count, the page is not
-/// complete. An unfiltered page that stopped early reports the provider
-/// total so the caller knows how many pages remain.
-pub(super) fn reconcile_file_totals(
-    page: &mut Value,
-    state: WindowState,
-    listed: usize,
-    changed_files: Option<usize>,
-    filtered: bool,
-) {
-    let Some(total) = changed_files else { return };
-    let listable = total.min(MAX_FILE_BATCHES * MAX_PER_PAGE);
-    if !state.exhausted && !filtered {
-        let per = page["pageSize"].as_u64().unwrap_or(1).max(1) as usize;
-        let current = page["currentPage"].as_u64().unwrap_or(1) as usize;
-        let more = page["hasMore"] == true;
-        // Rebuilt from the facts, so the block keeps the one key order.
-        let mut rebuilt = crate::response::pages::PageFacts::open(current, Some(per), more)
-            .with_total(listable)
-            .to_value();
-        if let (Some(rebuilt), Some(old)) = (rebuilt.as_object_mut(), page.as_object()) {
-            for (key, value) in old {
-                rebuilt.entry(key.clone()).or_insert_with(|| value.clone());
-            }
-        }
-        rebuilt["countScope"] = json!("complete");
-        *page = rebuilt;
-    }
-    let unlisted = if state.exhausted {
-        listed < total
-    } else {
-        total > listable
-    };
-    if unlisted && !state.capped {
-        page["countScope"] = json!("partial");
-        page["terminalLimit"] = json!(true);
-        page["providerLimit"] = json!({
-            "reason":"providerFileListLimit",
-            "listed": if state.exhausted { listed } else { listable },
-            "changedFilesCount": total
-        });
-    }
-}
-
-/// Page `values` (the filtered list, preceded by `skipped` items that were
-/// never loaded). An exhausted list reports exact totals and flags a page past its end;
-/// otherwise the counts cover only what was loaded.
-pub(super) fn paginate_window<T>(
-    values: Vec<T>,
-    skipped: usize,
-    exhausted: bool,
-    page: Option<usize>,
-    page_size: Option<usize>,
-) -> (Vec<T>, Value) {
-    let per = page_size
-        .unwrap_or(DEFAULT_PAGE_SIZE)
-        .clamp(1, max_inventory_page());
-    let loaded = skipped + values.len();
-    let pages = loaded.div_ceil(per).max(1);
-    let requested = page.unwrap_or(1).max(1);
-    // A page past an exhausted list is empty and flagged, never clamped to
-    // the last page, which would repeat rows the caller already has.
-    let current = requested;
-    let past_end = exhausted && current > pages;
-    let start = (current - 1) * per;
-    let more = if exhausted { current < pages } else { true };
-    let slice = values
-        .into_iter()
-        .skip(start.saturating_sub(skipped))
-        .take(per)
-        .collect();
-    let facts =
-        crate::response::pages::PageFacts::open(current, Some(per), more).out_of_range(past_end);
-    // Only an exhausted listing knows its page count.
-    let mut page = if exhausted {
-        facts.with_total(loaded)
-    } else {
-        facts.with_items(loaded)
-    }
-    .to_value();
-    if more {
-        page["nextPage"] = json!(current + 1);
-    }
-    page["countScope"] = json!(if exhausted { "complete" } else { "loaded" });
-    (slice, page)
-}
-
-/// A file page's counters are stats (dropped by default), so a limit that
-/// ends its coverage is restated on the row itself: `terminalLimit`, and
-/// the provider limit's reason in `partialReasons`. The page schema does not
-/// declare `terminalLimit`, so lifting moves it off the page.
-pub(super) fn lift_page_limits(row: &mut Value, page: &mut Value) {
-    if page
-        .as_object_mut()
-        .and_then(|page| page.remove("terminalLimit"))
-        != Some(Value::Bool(true))
-    {
-        return;
-    }
-    match page
-        .pointer("/providerLimit/reason")
-        .and_then(Value::as_str)
-    {
-        Some(reason) => crate::response::paging::terminal_limit(row, reason, &[]),
-        None => row["terminalLimit"] = json!(true),
-    }
-}
-
-pub(super) fn mark_capped(page: &mut Value, capped: bool) {
-    if capped {
-        // Totals cover only the batches read before the cap, not the item.
-        page["countScope"] = json!("partial");
-        page["terminalLimit"] = json!(true);
-        page["providerLimit"] = json!({"reason":"providerBatchLimit"});
-    }
-}
-
-/// Patch characters one call carries across a page's files by default,
-/// derived from the effective automatic response page (the runtime's
-/// `auto_page_chars`, or a call's `responseLength`). Rendered text prints
-/// patches verbatim (no escaping), so the default window takes 4/5 of the
-/// page less a fixed reserve for the row header and metadata, never below
-/// 2/5 of it: a default window plus row metadata fits one response page.
-/// An explicit `length` is honoured up to that one-row budget: a larger
-/// window would only be re-sliced into response `rowPart`s, more calls for
-/// the same patch text. A row that still outgrows its page is lossless:
-/// automatic paging splits it by whole rows, and the walk's
-/// `next.continuePatch`/`nextFilePage` rides the row's last part
-/// (`id::resumes_after_shown`), so following it never skips a part.
-/// A bigger window comes with a bigger response page (`responseLength`).
-pub(super) const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);
-
-pub(super) const PATCH_DEFAULT_RESERVE: usize = 5_000;
-
-/// The page a call carries: the runtime's, else (direct callers, tests) the
-/// constant automatic page.
-pub(super) fn auto_page(auto_page: Option<usize>) -> usize {
-    auto_page
-        .filter(|page| *page > 0)
-        .unwrap_or(crate::execution::RuntimeLimits::DEFAULT.auto_page_chars)
-}
-
-/// The default window of a `matchString` view: the page share without the
-/// fixed reserve.
-pub(super) fn literal_patch_window(auto_page_chars: Option<usize>) -> usize {
-    let page = auto_page(auto_page_chars);
-    let (num, den) = PATCH_DEFAULT_SHARE;
-    (page * num / den).max(1)
-}
-
-/// The warning of a patch read whose explicit `length` was clamped to
-/// one response page; `None` when it fit.
-pub(super) fn clamp_warning(query: &HistoryItemRequest) -> Option<String> {
-    let length = gh_get_history_item_query::char_length(query)?;
-    let window = patch_window(Some(length), query.auto_page_chars);
-    (window < length).then(|| {
-        format!("length {length} exceeds one response page; patch windows hold {window} chars.")
-    })
-}
-
-/// The patch window of one row: most of its response page. An explicit
-/// `length` is clamped to that budget, so one row's window always fits one
-/// response page.
-pub(super) fn patch_window(char_length: Option<usize>, auto_page_chars: Option<usize>) -> usize {
-    let page = auto_page(auto_page_chars);
-    let (num, den) = PATCH_DEFAULT_SHARE;
-    let budget = (page * num / den)
-        .min(page.saturating_sub(PATCH_DEFAULT_RESERVE))
-        .max(page * 2 / 5)
-        .max(1);
-    char_length.map_or(budget, |length| length.clamp(1, budget))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
-    use wiremock::matchers::{method, path, query_param};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    /// Mount provider batch `page` of `/files` (100 items each, `total` in
-    /// all), answering after `delay` and expecting `reads` requests.
-    async fn mount_batch(server: &MockServer, page: usize, total: usize, reads: u64) {
-        let items = ((page - 1) * MAX_PER_PAGE..(page * MAX_PER_PAGE).min(total))
-            .map(|n| json!({"filename": format!("f{n}")}))
-            .collect::<Vec<_>>();
-        let mut answer = ResponseTemplate::new(200)
-            .set_delay(std::time::Duration::from_millis(300))
-            .set_body_json(items);
-        if page * MAX_PER_PAGE < total {
-            answer = answer.insert_header(
-                "link",
-                format!(
-                    "<{}/api/v3/files?page={}>; rel=\"next\"",
-                    server.uri(),
-                    page + 1
-                ),
-            );
-        }
-        Mock::given(method("GET"))
-            .and(path("/api/v3/files"))
-            .and(query_param("page", page.to_string()))
-            .respond_with(answer)
-            .expect(reads)
-            .mount(server)
-            .await;
-    }
-
-    fn spec(page_size: usize, filtered: bool, total: Option<usize>) -> WindowSpec {
-        WindowSpec {
-            max_batches: MAX_FILE_BATCHES,
-            page: 1,
-            page_size,
-            filtered,
-            provider_total: total,
-            prefetched: None,
-        }
-    }
-
-    /// An unfiltered page whose files span several provider batches, with
-    /// the provider total known, reads those batches at once and in order:
-    /// three 300 ms batches take about one batch's time, not three.
-    #[tokio::test]
-    async fn a_page_spanning_batches_reads_them_at_once_in_order() {
-        let server = MockServer::builder().start().await;
-        for page in 1..=3 {
-            mount_batch(&server, page, 1000, 1).await;
-        }
-        let provider = one_shot_provider(&server);
-        let started = std::time::Instant::now();
-        let loaded = load_window(
-            &provider.transport,
-            &["files"],
-            spec(250, false, Some(1000)),
-            |_| true,
-            &default_context(),
-        )
-        .await
-        .expect("window");
-        assert!(
-            started.elapsed() < std::time::Duration::from_millis(800),
-            "{:?}",
-            started.elapsed()
-        );
-        assert_eq!(loaded.items.len(), 300);
-        let names = loaded
-            .items
-            .iter()
-            .map(|item| item["filename"].as_str().unwrap_or_default().to_owned())
-            .collect::<Vec<_>>();
-        assert_eq!(names, (0..300).map(|n| format!("f{n}")).collect::<Vec<_>>());
-        assert!(!loaded.state.exhausted);
-    }
-
-    /// A batch the read already holds (fetched beside the PR) is used as
-    /// is: a filtered scan of 250 files reads only batches 2 and 3, and
-    /// every file lands once, in provider order.
-    #[tokio::test]
-    async fn a_prefetched_batch_is_never_read_again() {
-        let server = MockServer::builder().start().await;
-        mount_batch(&server, 1, 250, 0).await;
-        mount_batch(&server, 2, 250, 1).await;
-        mount_batch(&server, 3, 250, 1).await;
-        let provider = one_shot_provider(&server);
-        let first = (0..100)
-            .map(|n| json!({"filename": format!("f{n}")}))
-            .collect::<Vec<_>>();
-        let loaded = load_window(
-            &provider.transport,
-            &["files"],
-            WindowSpec {
-                prefetched: Some((1, (json!(first), true))),
-                ..spec(100, true, Some(250))
-            },
-            |_| true,
-            &default_context(),
-        )
-        .await
-        .expect("window");
-        assert_eq!(loaded.items.len(), 250);
-        assert_eq!(loaded.items[0]["filename"], "f0");
-        assert_eq!(loaded.items[249]["filename"], "f249");
-        assert!(loaded.state.exhausted && !loaded.state.capped);
-    }
-
-    #[test]
-    fn window_pages_span_provider_batches_without_provider_cursors() {
-        // Page 5 × 30 = items 120..150: an unfiltered load starts at provider
-        // batch 2 (items 100..), so 100 items are skipped, never fetched.
-        let items = (100..140).map(|n| json!(n)).collect::<Vec<_>>();
-        let (slice, page) = paginate_window(items.clone(), 100, false, Some(5), Some(30));
-        assert_eq!(slice.first(), Some(&json!(120)));
-        assert_eq!(slice.len(), 20);
-        assert_eq!(page["hasMore"], true);
-        assert_eq!(page["nextPage"], 6);
-        assert_eq!(page["countScope"], "loaded");
-        let (slice, page) = paginate_window(items, 100, true, Some(5), Some(30));
-        assert_eq!(slice.len(), 20);
-        assert_eq!(page["hasMore"], false);
-        assert_eq!(page["totalItems"], 140);
-        assert_eq!(page["totalPages"], 5);
-        assert_eq!(page["countScope"], "complete");
-    }
-
-    #[test]
-    fn a_page_past_an_exhausted_window_is_empty_and_flagged_not_clamped() {
-        let items = (0..10).map(|n| json!(n)).collect::<Vec<_>>();
-        let (slice, page) = paginate_window(items, 0, true, Some(4), Some(5));
-        assert!(slice.is_empty(), "must not repeat the last page: {slice:?}");
-        assert_eq!(page["currentPage"], 4);
-        assert_eq!(page["totalPages"], 2);
-        assert_eq!(page["hasMore"], false);
-        assert_eq!(page["outOfRange"], true);
-    }
 }

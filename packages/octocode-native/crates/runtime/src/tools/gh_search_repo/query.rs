@@ -22,6 +22,11 @@ pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
         owner.as_deref().map(String::as_str),
         query.repo.as_deref().map(String::as_str),
     );
+    // Search leaves forks out unless asked; an owner's repositories include
+    // its forks, as its listing does, so every sort covers one set.
+    if owner.is_some() {
+        terms.push("fork:true");
+    }
     for topic in topics {
         terms.text("topic", Some(topic));
     }
@@ -92,6 +97,29 @@ mod tests {
         assert_eq!(q("is:archived"), "x archived:true");
         assert_eq!(q("is:not-archived"), "x archived:false");
         assert_eq!(q("is:public"), "x archived:false is:public");
+    }
+
+    /// An owner-scoped search covers the forks its listing shows; an
+    /// unscoped search keeps GitHub's fork exclusion.
+    #[test]
+    fn owner_scoped_search_includes_forks() {
+        let q = |row: serde_json::Value| repositories(&parse(row));
+        assert_eq!(
+            q(
+                serde_json::json!({"mainGoal": "test", "reasoning":"test","owner":"o","sort":"stars:desc"})
+            ),
+            "user:o fork:true archived:false"
+        );
+        assert_eq!(
+            q(
+                serde_json::json!({"mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","keywords":["x"]})
+            ),
+            "x repo:o/r fork:true archived:false"
+        );
+        assert!(
+            !q(serde_json::json!({"mainGoal": "test", "reasoning":"test","keywords":["x"]}))
+                .contains("fork:")
+        );
     }
 
     #[test]

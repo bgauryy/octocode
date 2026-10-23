@@ -9,6 +9,10 @@ use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::{Value, json};
 use std::path::Path;
 
+mod failures;
+mod scope;
+mod skipped_leads;
+
 const FLAGGED: [Cause; 3] = [Cause::Ignored, Cause::Hidden, Cause::DefaultExcluded];
 
 /// A directory the walk skips, holding `needle.ts` (or, in the empty
@@ -122,7 +126,9 @@ fn local_search() -> Tool {
         },
         found: |out| non_empty(out, "files"),
         lifts: by_flag,
-        prose_when_nothing_found: true,
+        // An empty row's recovery hint comes from the shared response stage
+        // (`ensure_recovery`), not the tool; `filesScanned` states the count.
+        prose_when_nothing_found: false,
     }
 }
 
@@ -208,7 +214,7 @@ fn tools() -> Vec<Tool> {
 }
 
 /// What a result says in prose (leads excluded): every hint, in order, and
-/// every warning.
+/// every warning and notice.
 fn prose(out: &Value) -> String {
     let mut text = Vec::new();
     let hints = match &out["hints"] {
@@ -218,8 +224,10 @@ fn prose(out: &Value) -> String {
     if let Some(Value::Array(items)) = hints {
         text.extend(items.iter().filter_map(Value::as_str));
     }
-    if let Value::Array(items) = &out["warnings"] {
-        text.extend(items.iter().filter_map(Value::as_str));
+    for channel in ["warnings", "notices"] {
+        if let Value::Array(items) = &out[channel] {
+            text.extend(items.iter().filter_map(Value::as_str));
+        }
     }
     text.join(" | ")
 }
@@ -249,106 +257,4 @@ fn repo(scenario: &Scenario, file: &str, text: &str) -> Fixture {
 
 fn describe(tool: &Tool, scenario: &Scenario) -> String {
     format!("{} / {}", tool.name, scenario.name)
-}
-
-#[test]
-fn a_match_behind_a_skipped_path_is_named_and_its_lead_lifts_only_that() {
-    for tool in tools() {
-        for scenario in SCENARIOS {
-            let label = describe(&tool, scenario);
-            let root = repo(scenario, "needle.ts", "function needle() {}\n");
-            let query = (tool.query)(&root.0);
-            let out = (tool.run)(&root.0, &query);
-            let effective = FLAGGED
-                .into_iter()
-                .filter(|cause| scenario.causes.contains(cause) && tool.skips.contains(cause))
-                .collect::<Vec<_>>();
-            if effective.is_empty() {
-                assert!((tool.found)(&out), "{label}: walked without a lead: {out}");
-                continue;
-            }
-            assert!(
-                !(tool.found)(&out),
-                "{label}: found without the lead: {out}"
-            );
-            let lead = lead_query(&out, (tool.channel)(scenario))
-                .unwrap_or_else(|| panic!("{label}: no lead: {out}"));
-            // Validates against the contract.
-            crate::contracts::validate(
-                if tool.name.starts_with("astSearch") {
-                    "astSearch"
-                } else if tool.name.starts_with("structure") {
-                    "structureSearch"
-                } else {
-                    tool.name
-                },
-                json!({"queries": [lead.clone()]}),
-            )
-            .unwrap_or_else(|error| panic!("{label}: lead invalid {lead}: {:?}", error.issues));
-            for cause in FLAGGED
-                .into_iter()
-                .filter(|cause| tool.skips.contains(cause))
-            {
-                assert_eq!(
-                    (tool.lifts)(&lead, cause, &root.0, scenario),
-                    effective.contains(&cause),
-                    "{label}: lead should lift exactly {effective:?}: {lead}"
-                );
-            }
-            // The hint names the deciding rule, entry or directory.
-            let first = effective[0];
-            let reason = scenario
-                .reasons
-                .iter()
-                .find(|(cause, _)| *cause == first)
-                .map(|(_, reason)| *reason)
-                .expect("scenario names the cause");
-            if tool.name == "localSearch" {
-                let entry_path = scenario.dir.split('/').next().expect("directory");
-                assert!(
-                    out["skippedPaths"]["entries"]
-                        .as_array()
-                        .expect("skipped entries")
-                        .iter()
-                        .any(|entry| entry["path"]
-                            == json!(
-                                root.0
-                                    .canonicalize()
-                                    .expect("canonical fixture")
-                                    .join(entry_path)
-                            )
-                            && entry["cause"] == first.label()
-                            && entry["reason"] == reason),
-                    "{label}: exact skipped path, cause and `{reason}` in {out}"
-                );
-            } else {
-                assert!(prose(&out).contains(reason), "{label}: `{reason}` in {out}");
-            }
-            // The lead runs and finds the match.
-            let found = (tool.run)(&root.0, &lead);
-            assert!((tool.found)(&found), "{label}: lead found nothing: {found}");
-        }
-    }
-}
-
-#[test]
-fn nothing_behind_the_skipped_paths_leads_nowhere() {
-    for tool in tools() {
-        for scenario in SCENARIOS {
-            let label = describe(&tool, scenario);
-            let root = repo(scenario, "other.md", "nothing to find\n");
-            let query = (tool.query)(&root.0);
-            let out = (tool.run)(&root.0, &query);
-            assert!(!(tool.found)(&out), "{label}: {out}");
-            for channel in ["includeSkipped", "narrowScope"] {
-                assert!(
-                    lead_query(&out, channel).is_none(),
-                    "{label}: lead to nothing: {out}"
-                );
-            }
-            if tool.prose_when_nothing_found {
-                assert!(!prose(&out).is_empty(), "{label}: no fallback hint: {out}");
-            }
-        }
-    }
 }

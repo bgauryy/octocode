@@ -63,7 +63,7 @@
     },
     {
       "name": "artifactSearch",
-      "description": "Find registry packages, versions, dependencies and source"
+      "description": "Resolve registry package releases, dependencies and source"
     },
     {
       "name": "localSearch",

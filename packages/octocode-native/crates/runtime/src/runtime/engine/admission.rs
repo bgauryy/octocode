@@ -7,7 +7,7 @@ use crate::contracts;
 use crate::id::ToolId;
 use crate::response::result::Confidence;
 use crate::response::{extras, rows};
-use crate::security::ValidationResult;
+use crate::security::{CheckedQuery, InputPolicy};
 use octocode_contract_types::ErrorCode;
 
 use serde_json::{Value, json};
@@ -72,8 +72,10 @@ struct RepairLead {
 
 impl RepairLead {
     /// The note a lossy or approximate lead needs: what it drops (a field
-    /// the contract does not own, or one another form of the row declares)
-    /// and which values it guesses. A row field reads `queries[N].field`, as
+    /// the contract does not own, a list value it does not list, or one
+    /// another form of the row declares) and which values it guesses. What
+    /// a dropped constraint changes depends on the field (a filter widens,
+    /// a section narrows), so the note names the paths only. A row field reads `queries[N].field`, as
     /// every repair message names a row; `row` renames the one-row repair
     /// call's `queries.0` to the caller's row.
     fn note(&self, row: Option<usize>) -> Option<String> {
@@ -89,10 +91,7 @@ impl RepairLead {
         };
         let mut notes = Vec::new();
         if !self.dropped.is_empty() {
-            notes.push(format!(
-                "The repair lead drops {}: without it (or with the field's default) the call may read more broadly than asked. Express that constraint with a supported field if it matters.",
-                rename(&self.dropped)
-            ));
+            notes.push(format!("The repair lead drops {}.", rename(&self.dropped)));
         }
         if !self.approximate.is_empty() {
             notes.push(format!(
@@ -171,68 +170,6 @@ pub(super) fn invalid_input_error(
         payload: Some(Box::new(payload)),
         validation_issues: Some(error.issues),
     }
-}
-
-/// Security-gate failures of one row as field issues, so they isolate and
-/// render like any other invalid field. Only clasify evidence may be
-/// redacted in place: any other rewritten value — including a clasify
-/// `source` — would silently change what a tool reads and leak
-/// the placeholder into continuations.
-fn security_issues(
-    checked: &ValidationResult,
-    prefix: &[String],
-    clasify: bool,
-) -> Vec<contracts::ValidationIssue> {
-    let issue = |rule_id: &str, field: Option<&str>, message: String| {
-        let mut path = prefix.to_vec();
-        path.extend(field.map(str::to_owned));
-        contracts::ValidationIssue {
-            rule_id: rule_id.into(),
-            path,
-            message,
-            schema: None,
-            received: None,
-        }
-    };
-    let mut issues = Vec::new();
-    if !checked.is_valid {
-        issues.extend(
-            checked
-                .warnings
-                .iter()
-                .filter(|warning| !warning.starts_with("Secrets detected"))
-                .map(|warning| {
-                    let hint = if warning.contains("exceeds maximum length") {
-                        "; send a shorter, distinctive fragment"
-                    } else {
-                        ""
-                    };
-                    issue("security.input", None, format!("{warning}{hint}"))
-                }),
-        );
-    }
-    let redactable = |field: &&String| {
-        clasify
-            && ["state", "questions"].iter().any(|root| {
-                field.as_str() == *root
-                    || field.starts_with(&format!("{root}."))
-                    || field.starts_with(&format!("{root}["))
-            })
-    };
-    issues.extend(
-        checked
-            .secret_fields
-            .iter()
-            .filter(|field| !redactable(field))
-            .map(|field| {
-            issue(
-                "security.credential",
-                Some(field),
-                "Value looks like a credential and was not run (its redacted form would match unrelated text); search a non-secret fragment instead, such as its prefix or the identifier that holds it".into(),
-            )
-        }),
-    );
-    issues
 }
 
 pub(super) fn output_contract_error(
@@ -324,26 +261,18 @@ impl ToolRuntime {
         let bulk = input.is_array() || input.get("queries").is_some();
         let mut queries = Vec::with_capacity(prepared.len());
         for (index, query) in prepared {
-            let checked = if id.is_clasify() {
-                self.security.validate_state_parameters(
-                    &query,
-                    crate::tools::clasify::max_state_chars(
-                        query["longContext"].as_bool() == Some(true),
-                    ),
-                )
-            } else {
-                self.security.validate_input_parameters(&query)
-            };
             let prefix = if bulk {
                 vec!["queries".to_owned(), index.to_string()]
             } else {
                 Vec::new()
             };
-            let mut issues = security_issues(&checked, &prefix, id.is_clasify());
+            // What the row asks of the runtime, read before the gate rewrites
+            // it in place.
+            let mut later = Vec::new();
             if query.get("clasifyContext").is_some() && !self.selection_available {
                 let mut path = prefix.clone();
                 path.push("clasifyContext".into());
-                issues.push(crate::contracts::ValidationIssue {
+                later.push(crate::contracts::ValidationIssue {
                     rule_id: "clasifyContext.available".into(),
                     schema: None,
                     received: None,
@@ -352,16 +281,34 @@ impl ToolRuntime {
                 });
             }
             if id.is_clasify() {
-                issues.extend(crate::tools::clasify::unavailable_source_issues(
+                later.extend(crate::tools::clasify::unavailable_source_issues(
                     &query,
                     &prefix,
                     &self.availability,
                 ));
             }
-            if issues.is_empty() {
-                queries.push(Value::Object(checked.sanitized_params));
+            let policy = if id.is_clasify() {
+                InputPolicy::ClasifyEvidence {
+                    state_limit: crate::tools::clasify::max_state_chars(
+                        query["longContext"].as_bool() == Some(true),
+                    ),
+                }
             } else {
-                invalid.push((index, contracts::ContractValidationError { issues }));
+                InputPolicy::Query
+            };
+            let (checked, mut issues) = match self.security.check_input(query, policy) {
+                Ok(checked) => (Some(checked), Vec::new()),
+                Err(mut issues) => {
+                    for issue in &mut issues {
+                        issue.path.splice(0..0, prefix.iter().cloned());
+                    }
+                    (None, issues)
+                }
+            };
+            issues.extend(later);
+            match checked {
+                Some(checked) if issues.is_empty() => queries.push(checked),
+                _ => invalid.push((index, contracts::ContractValidationError { issues })),
             }
         }
         invalid.sort_by_key(|(index, _)| *index);
@@ -397,7 +344,7 @@ impl ToolRuntime {
 /// A call's rows that passed admission, and the rejected ones as indexed
 /// error rows.
 pub(super) struct AdmittedRows {
-    pub(super) queries: Vec<Value>,
+    pub(super) queries: Vec<CheckedQuery>,
     pub(super) rejected: Vec<(usize, Value)>,
 }
 
@@ -427,44 +374,4 @@ fn prepare_queries(tool: &str, input: &Value) -> Result<PreparedRows, RuntimeErr
 }
 
 #[cfg(test)]
-mod security_issue_tests {
-    use super::*;
-
-    /// Clasify evidence may be redacted in place; a credential-looking value
-    /// in a resource read's `query` would run redacted, so it is rejected.
-    #[test]
-    fn a_secret_in_a_clasify_source_is_rejected_and_in_state_redacted() {
-        let token = format!("ghp_{}", "a".repeat(36));
-        let state = crate::security::ContentSecurity::new()
-            .validate_input_parameters(&json!({"state":{"held":token}}));
-        assert!(
-            security_issues(&state, &[], true).is_empty(),
-            "held state is redacted in place"
-        );
-        let checked = crate::security::ContentSecurity::new().validate_input_parameters(
-            &json!({"source":{"tool":"localFetch","query":{"path":token}}}),
-        );
-        let issues = security_issues(&checked, &[], true);
-        let paths = issues
-            .iter()
-            .map(|issue| issue.path.join("."))
-            .collect::<Vec<_>>();
-        assert_eq!(paths, ["source.query.path"], "{issues:?}");
-        assert!(
-            issues
-                .iter()
-                .all(|issue| issue.rule_id == "security.credential"),
-            "{issues:?}"
-        );
-        let asset = crate::security::ContentSecurity::new().validate_input_parameters(
-            &json!({"assets":{"image":{"type":"image","source":{"url":format!("https://example.com/{token}.png")}}}}),
-        );
-        let issues = security_issues(&asset, &[], true);
-        assert_eq!(
-            issues.len(),
-            1,
-            "an asset locator cannot be silently redacted"
-        );
-        assert_eq!(issues[0].path, ["assets.image.source.url"]);
-    }
-}
+mod security_issue_tests;

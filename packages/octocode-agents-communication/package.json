@@ -16,11 +16,10 @@
   "scripts": {
     "build": "node src/build.ts",
     "types": "node src/emit-types.ts",
-    "typecheck": "yarn types && tsc -p tsconfig.json && yarn typecheck:tests",
-    "typecheck:tests": "tsc -p tsconfig.tests.json",
-    "lint": "node src/emit-types.ts --check && yarn typecheck",
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
+    "lint": "node src/emit-types.ts --check && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
     "test": "yarn build && node --test --test-concurrency=4 tests/*.test.ts",
-    "verify": "yarn lint && yarn test && node src/release-smoke.ts",
+    "verify": "yarn lint && yarn typecheck && yarn test && node src/release-smoke.ts",
     "prepack": "yarn build"
   },
   "files": [

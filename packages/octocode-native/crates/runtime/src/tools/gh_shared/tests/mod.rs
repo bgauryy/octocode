@@ -2,7 +2,9 @@
 //! ghSearchRepo, ghStructure) against one mock server, plus the shared
 //! paging helpers.
 use super::*;
+use crate::id::ToolId;
 use octocode_contract_types::{GhSearchCodeQuery, GhSearchRepoQuery};
+use serde_json::json;
 
 #[test]
 fn owner_listing_page_ceiling_keeps_rows_and_discloses_remaining_results() {
@@ -88,59 +90,6 @@ fn incomplete_and_cap_are_losslessly_typed() {
 }
 
 mod provider_backed;
-
-/// The one broadening rule every search shares: paging, output and brief
-/// keys stay out; one variant per set filter group (its keys dropped
-/// together), then one per dropped keyword (a lone keyword drops whole);
-/// a variant the contract rejects is skipped, and `limit` caps the batch.
-#[test]
-fn broaden_drops_each_filter_group_then_each_keyword() {
-    let groups: &[&[&str]] = &[&["qualifiers"], &["since", "until"]];
-    let drop = Broaden {
-        strip: &["fields"],
-        groups,
-    };
-    let row = json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["a","b"],
-        "since":"2026-01-01","until":"2026-02-01","page":3,"pageSize":7,"fields":["number"],
-        "mainGoal":"g","reasoning":"r","extras":["stats"]});
-    let lead = broaden(ToolId::GhSearchHistory, &row, &drop, 10).expect("variants");
-    assert_eq!(lead["confidence"], "low", "{lead}");
-    let base = json!({"operation":"pullRequest","owner":"o","repo":"r"});
-    let with = |extra: Value| {
-        let mut variant = base.clone();
-        variant
-            .as_object_mut()
-            .expect("row")
-            .extend(extra.as_object().expect("extra").clone());
-        variant
-    };
-    assert_eq!(
-        lead["query"]["queries"],
-        json!([
-            with(json!({"keywords":["a","b"]})),
-            with(json!({"keywords":["a"],"since":"2026-01-01","until":"2026-02-01"})),
-            with(json!({"keywords":["b"],"since":"2026-01-01","until":"2026-02-01"})),
-        ]),
-        "{lead}"
-    );
-    // A lone keyword drops whole; the limit caps the batch.
-    let lone = json!({"owner":"o","repo":"r","keywords":["a"],"language":"rust"});
-    let filters: &[&[&str]] = &[&["language"]];
-    let drop = Broaden {
-        strip: &[],
-        groups: filters,
-    };
-    let lead = broaden(ToolId::GhSearchRepo, &lone, &drop, 5).expect("variants");
-    assert_eq!(
-        lead["query"]["queries"],
-        json!([{"owner":"o","repo":"r","keywords":["a"]},{"owner":"o","repo":"r","language":"rust"}])
-    );
-    let lead = broaden(ToolId::GhSearchRepo, &lone, &drop, 1).expect("variants");
-    assert_eq!(lead["query"]["queries"].as_array().map(Vec::len), Some(1));
-    // Nothing left to search by: the contract rejects the variant.
-    let bare = json!({"keywords":["a"]});
-    assert!(broaden(ToolId::GhSearchRepo, &bare, &drop, 5).is_none());
-}
 
 /// Recovery leads never repeat a traversal the caller sent: `.` and `..`
 /// resolve lexically and clamp at the repository root.

@@ -5,13 +5,13 @@ import * as activity from './activity.js';
 import * as catalog from './catalog.js';
 import { completionCheck } from './completion.js';
 import { execute, openDatabase, query, rowInteger, rowOptionalText, rowText, transaction, type Database, type Row, type SqlValue } from './database.js';
-import type { AttachInput, ClaudeInbound, CommandInputs, CommandResults, HostInboundData, CompleteInput, CompletionCheckInput, HeartbeatInput, JoinInput, RecordUsageInput, ResumeInput, RetryDeliveryInput, SendMessageInput, SetStatusInput, SubscribeInput } from './catalog-types.generated.js';
+import type { AttachInput, ClaudeInbound, CommandInputs, CommandResults, HostInboundData, CompleteInput, CompletionCheckInput, RecordUsageInput, RetryDeliveryInput, SendMessageInput } from './catalog-types.generated.js';
+import type { DeliveryApi, Dispatched, Staged } from './delivery-types.js';
 import * as delivery from './dispatch.js';
-import type { DeliveryApi, Dispatched, Staged } from './dispatch.js';
+import * as outcomes from './dispatch-outcomes.js';
 import { ValidationError } from './errors.js';
-import { RESERVED_KEY_PREFIXES, notifyExpired } from './expiry.js';
+import { RESERVED_KEY_PREFIXES } from './expiry.js';
 import { health } from './health.js';
-import { ownedHere } from './owner-lock.js';
 import * as leases from './leases.js';
 import { peerContext, peersChanged } from './peers.js';
 import { answerSlots, finishRequest, isRequest, messageSlots, wakesByDefault } from './protocols.js';
@@ -19,13 +19,14 @@ import { fetch, record } from './records.js';
 import { inboxItem, sessionRow, type Session } from './rows.js';
 import { Registration, register } from './registry.js';
 import { context, readDocument, shareDocument } from './documents.js';
+import * as sessions from './sessions.js';
 import type { AttachmentHost } from './store-types.js';
 import { stripNulls } from './store-types.js';
 import { truncateCodePoints } from './text.js';
-import { HOUR_MS, LEASE_TTL_MAX_MS, SESSION_TTL_MS, now } from './timing.js';
+import { HOUR_MS, now } from './timing.js';
 import { jsonEqual, parseObject, type JsonObject } from './validation.js';
-import { compact, dumps } from './wire.js';
-import { checkScope, coordinationScope, currentBranch, registerWorkspace, scopeWorkspaces, storedScope } from './workspace.js';
+import { compact, dumps } from './json-text.js';
+import { checkScope, coordinationScope, scopeWorkspaces, storedScope } from './workspace.js';
 import { realpath } from './paths.js';
 
 const INBOX_COLUMNS = 'm.id,m.sender,s.name AS senderName,m.kind,m.body,m.reasoning,m.topic,m.expiresAt,m.wake,m.conversationId,m.replyTo,m.replyRequired FROM deliveries d JOIN messages m ON m.id=d.message JOIN sessions s ON s.id=m.sender';
@@ -94,16 +95,12 @@ export class Store implements AttachmentHost, DeliveryApi {
     return scopeWorkspaces(this.db, this.coordinationScope, this.workspace);
   }
 
-  private liveNames(exclude = ''): Set<string> {
-    return new Set(query(this.db, 'SELECT name FROM sessions WHERE workspace IN (SELECT value FROM json_each(?)) AND expiresAt>? AND id<>?', [dumps(this.sharedWorkspaces()), now(), exclude]).map(row => rowText(row, 'name')));
-  }
-
   /**
    * Live peers in one repository scope have distinct names, so a name can address a peer.
    * A taken name gets the first free -2, -3 … suffix, as Claude Code does for sessions.
    */
   uniqueName(name: string, exclude = ''): string {
-    const taken = this.liveNames(exclude);
+    const taken = sessions.liveNames(this, exclude);
     let candidate = name;
     for (let number = 2; taken.has(candidate); number += 1) {
       const suffix = '-' + number;
@@ -138,7 +135,7 @@ export class Store implements AttachmentHost, DeliveryApi {
     },
     binding: session => {
       const identity = this.known(session, false);
-      return this.withCheckpoint(session, { ...identity, coordinationScope: this.coordinationScope, active: identity.expiresAt > now() });
+      return sessions.withCheckpoint(this, session, { ...identity, coordinationScope: this.coordinationScope, active: identity.expiresAt > now() });
     },
     health: (_session, input) => health(this, input),
     peers: (_session, input) => catalog.page(query(this.db, 'SELECT id,workspace,(SELECT coordinationScope FROM workspaces w WHERE w.workspace=sessions.workspace) AS coordinationScope,name,vendor,vendorSession,branch,task,status,expiresAt FROM sessions WHERE workspace IN (SELECT value FROM json_each(?)) AND expiresAt>? AND id>? ORDER BY id LIMIT 101', [dumps(this.sharedWorkspaces()), now(), input.after ?? '']).map(row => ({ ...sessionRow(row), coordinationScope: rowOptionalText(row, 'coordinationScope') })), true, 'peers', input),
@@ -147,13 +144,13 @@ export class Store implements AttachmentHost, DeliveryApi {
       this.known(session);
       return catalog.page(query(this.db, 'SELECT ' + INBOX_COLUMNS + ' WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id=?', [session, now(), input.message]).map(inboxItem), false, 'inbox', input);
     },
-    join: (_session, input) => this.join(input),
-    resume: (session, input) => this.resume(session, input),
-    heartbeat: (session, input) => this.heartbeat(session, input),
-    set_status: (session, input) => this.setStatus(session, input),
-    leave: session => this.leave(session),
-    subscribe: (session, input) => this.subscribe(session, input),
-    prune: () => this.prune(),
+    join: (_session, input) => sessions.join(this, input),
+    resume: (session, input) => sessions.resume(this, session, input),
+    heartbeat: (session, input) => sessions.heartbeat(this, session, input),
+    set_status: (session, input) => sessions.setStatus(this, session, input),
+    leave: session => sessions.leave(this, session),
+    subscribe: (session, input) => sessions.subscribe(this, session, input),
+    prune: () => sessions.prune(this),
     check_write: (session, input) => leases.checkWrite(this, session, input),
     check_paths: (session, input) => leases.checkPaths(this, session, input),
     share_document: (session, input) => shareDocument(this, session, input),
@@ -178,139 +175,6 @@ export class Store implements AttachmentHost, DeliveryApi {
     const handler = this.handlers[name];
     if (!handler) throw new ValidationError('Unknown operation: ' + name);
     return stripNulls(await handler(session, input));
-  }
-
-  private join(input: JoinInput): CommandResults['join'] {
-    const branch: string | null = input.branch !== undefined ? input.branch : currentBranch(this.workspace);
-    return transaction(this.db, () => {
-      registerWorkspace(this.db, this.workspace, this.coordinationScope);
-      const id = randomUUID();
-      const name = this.uniqueName(catalog.text(input, 'name'));
-      const vendor = catalog.text(input, 'vendor');
-      if ('vendorSession' in input) catalog.text(input, 'vendorSession');
-      const expires = now() + SESSION_TTL_MS;
-      execute(this.db, 'INSERT INTO sessions(id,workspace,name,vendor,vendorSession,branch,expiresAt,task,status) VALUES(?,?,?,?,?,?,?,?,?)', [id, this.workspace, name, vendor, input.vendorSession ?? null, branch, expires, input.task ?? '', input.status ?? 'unknown']);
-      return { id, name, vendor, vendorSession: input.vendorSession, expiresAt: expires };
-    });
-  }
-
-  private resume(session: string, input: ResumeInput): CommandResults['resume'] {
-    return transaction(this.db, () => {
-      const row = this.known(session, false);
-      if (row.vendor !== catalog.text(input, 'vendor') || row.expiresAt > now()) throw new ValidationError('Vendor mismatch or session still active');
-      this.revive(session, row);
-      return this.withCheckpoint(session, this.known(session));
-    });
-  }
-
-  /** Recovers an expired identity as a new presence: no leases, no claims, a free name. */
-  private revive(session: string, row: Session): void {
-    execute(this.db, 'DELETE FROM leases WHERE owner=?', [session]);
-    execute(this.db, 'DELETE FROM lease_waits WHERE owner=?', [session]);
-    execute(this.db, 'UPDATE deliveries SET claimUntil=0,claimedBy=NULL WHERE recipient=? AND acknowledgedAt IS NULL', [session]);
-    execute(this.db, 'UPDATE sessions SET expiresAt=?,name=? WHERE id=?', [now() + SESSION_TTL_MS, this.uniqueName(row.name, session), session]);
-    leases.grantWaits(this, now());
-  }
-
-  /**
-   * An expired row whose owner process holds the live delivery-owner lock was not crashed: the process slept or stalled past
-   * the presence TTL. Such a session renews itself and keeps its leases, except those another owner took meanwhile. If its
-   * name was taken by a newer join the identity is revived as `resume` would (no leases, a free name). Without the lock
-   * nothing changes: expiry still means the owner died. An explicit `leave` (the row's latest coordination event is
-   * `coordinate.out`) is an end the owner chose, not a stall: it is never undone.
-   */
-  private reclaim(session: string): void {
-    const rows = query(this.db, 'SELECT * FROM sessions WHERE id=? AND workspace=?', [session, this.workspace]);
-    const at = now();
-    if (!rows.length || rowInteger(rows[0]!, 'expiresAt') > at || !ownedHere(this.database, session)) return;
-    const last = query(this.db, "SELECT type FROM records WHERE \"from\"=? AND type IN ('coordinate.in','coordinate.update','coordinate.out') ORDER BY id DESC LIMIT 1", [session])[0];
-    if (last !== undefined && rowText(last, 'type') === 'coordinate.out') return;
-    const row = sessionRow(rows[0]!);
-    if (this.liveNames(session).has(row.name)) return this.revive(session, row);
-    leases.forgoTakenLeases(this, session, at);
-    execute(this.db, 'UPDATE sessions SET expiresAt=? WHERE id=?', [at + SESSION_TTL_MS, session]);
-  }
-
-  private heartbeat(session: string, input: HeartbeatInput): CommandResults['heartbeat'] {
-    return transaction(this.db, () => {
-      this.reclaim(session);
-      const identity = this.known(session);
-      if (input.vendorSession !== undefined) {
-        catalog.text(input, 'vendorSession');
-        this.validateVendorSessionUpdate(session, identity, input.vendorSession);
-      }
-      const at = now();
-      if (identity.expiresAt <= at) throw new ValidationError('Session expired before heartbeat; stop this worker');
-      const expires = at + catalog.ttl(input, SESSION_TTL_MS, LEASE_TTL_MAX_MS);
-      execute(this.db, 'UPDATE sessions SET expiresAt=?,vendorSession=coalesce(?,vendorSession),task=coalesce(?,task),status=coalesce(?,status) WHERE id=?', [expires, input.vendorSession ?? null, input.task ?? null, input.status ?? null, session]);
-      if (input.name !== undefined) {
-        if (this.liveNames(session).has(catalog.text(input, 'name'))) throw new ValidationError(`Name ${input.name} belongs to a live peer; choose another name`);
-        execute(this.db, 'UPDATE sessions SET name=? WHERE id=?', [input.name, session]);
-      }
-      if (input.branch !== undefined) execute(this.db, 'UPDATE sessions SET branch=? WHERE id=?', [input.branch, session]);
-      const renewedLeases = input.renewLeases ? execute(this.db, 'UPDATE leases SET expiresAt=?,refreshedAt=? WHERE owner=? AND workspace=? AND expiresAt>? AND expiresAt<?', [expires, at, session, this.workspace, at, expires]) : undefined;
-      // Periodic heartbeats hand silently expired leases to waiters and tell the sender of any request that expired unacknowledged.
-      leases.grantWaits(this, at);
-      notifyExpired(this, session, at);
-      return { alive: true, expiresAt: expires, renewedLeases };
-    });
-  }
-
-  private setStatus(session: string, input: SetStatusInput): CommandResults['set_status'] {
-    return transaction(this.db, () => {
-      this.known(session);
-      execute(this.db, 'UPDATE sessions SET task=coalesce(?,task),status=coalesce(?,status) WHERE id=?', [input.task ?? null, input.status ?? null, session]);
-      const row = this.known(session);
-      return { id: row.id, task: row.task, status: row.status };
-    });
-  }
-
-  private leave(session: string): CommandResults['leave'] {
-    return transaction(this.db, () => {
-      this.known(session, false);
-      execute(this.db, 'DELETE FROM leases WHERE owner=?', [session]);
-      execute(this.db, 'DELETE FROM lease_waits WHERE owner=?', [session]);
-      execute(this.db, 'DELETE FROM subscriptions WHERE session=?', [session]);
-      execute(this.db, 'UPDATE deliveries SET claimUntil=0,claimedBy=NULL WHERE recipient=? AND acknowledgedAt IS NULL', [session]);
-      // Never raises expiresAt, so the trigger's `NEW<OLD AND NEW<=now` arm always appends coordinate.out, which `reclaim` reads as the end.
-      execute(this.db, 'UPDATE sessions SET expiresAt=min(?,expiresAt-1) WHERE id=?', [now(), session]);
-      leases.grantWaits(this, now());
-      return { left: true };
-    });
-  }
-
-  private subscribe(session: string, input: SubscribeInput): CommandResults['subscribe'] {
-    return transaction(this.db, () => {
-      this.known(session);
-      const topics = input.topics;
-      for (const topic of topics) catalog.text({ topic }, 'topic');
-      execute(this.db, 'DELETE FROM subscriptions WHERE session=? AND topic NOT IN (SELECT value FROM json_each(?))', [session, dumps(topics)]);
-      for (const topic of topics) execute(this.db, 'INSERT OR IGNORE INTO subscriptions VALUES(?,?)', [session, topic]);
-      return { subscribed: true };
-    });
-  }
-
-  private prune(): CommandResults['prune'] {
-    return transaction(this.db, () => {
-      const at = now();
-      const removed = execute(this.db, 'DELETE FROM leases WHERE id IN (SELECT l.id FROM leases l JOIN sessions s ON s.id=l.owner WHERE l.workspace=? AND (l.expiresAt<=? OR s.expiresAt<=?) ORDER BY l.id LIMIT 100)', [this.workspace, at, at]);
-      leases.grantWaits(this, at);
-      return removed === 100 ? { removed, next: { command: 'prune', input: {} } } : { removed };
-    });
-  }
-
-  /** Checkpoint-resume: an identity read returns the agent's latest checkpoint record. */
-  private withCheckpoint(session: string, identity: Session & { coordinationScope?: string; active?: boolean }): CommandResults['binding'] {
-    const rows = query(this.db, "SELECT id,timestamp,data FROM records WHERE \"from\"=? AND type='checkpoint' ORDER BY id DESC LIMIT 1", [session]);
-    if (!rows.length) return identity;
-    return { ...identity, checkpoint: { recordId: rowInteger(rows[0]!, 'id'), timestamp: rowInteger(rows[0]!, 'timestamp'), data: parseObject(rowText(rows[0]!, 'data'), 'checkpoint data') } };
-  }
-
-  private validateVendorSessionUpdate(session: string, identity: Session, value: string): void {
-    if (identity.vendorSession !== value) {
-      this.ensureBindingChangeAllowed(session);
-      if (query(this.db, "SELECT 1 FROM attachments WHERE session=? AND transport<>'raw'", [session]).length) throw new ValidationError("Use attach to change a native receiver's vendorSession");
-    }
   }
 
   private complete(session: string, input: CompleteInput): CommandResults['complete'] {
@@ -436,10 +300,10 @@ export class Store implements AttachmentHost, DeliveryApi {
   stage(session: string, mode: string, actionOnly?: boolean | null): Staged { return delivery.stage(this, session, mode, actionOnly); }
   stageBound(session: string, mode: string, binding: CommandResults['attach'] | null = null, actionOnly: boolean | null = null): Staged { return delivery.stageBound(this, session, mode, binding, actionOnly); }
   hasDispatchable(session: string, actionOnly: boolean): boolean { return delivery.hasDispatchable(this, session, actionOnly); }
-  finishDispatch(session: string, items: readonly Dispatched[], error: string | null = null): void { delivery.finishDispatch(this, session, items, error); }
-  releaseDispatch(session: string, items: readonly Dispatched[], reason: string): void { delivery.releaseDispatch(this, session, items, reason); }
-  retryDelivery(session: string, input: RetryDeliveryInput): CommandResults['retry_delivery'] { return delivery.retryDelivery(this, session, input); }
-  recordUsage(session: string, input: RecordUsageInput): CommandResults['record_usage'] { return delivery.recordUsage(this, session, input); }
+  finishDispatch(session: string, items: readonly Dispatched[], error: string | null = null): void { outcomes.finishDispatch(this, session, items, error); }
+  releaseDispatch(session: string, items: readonly Dispatched[], reason: string): void { outcomes.releaseDispatch(this, session, items, reason); }
+  retryDelivery(session: string, input: RetryDeliveryInput): CommandResults['retry_delivery'] { return outcomes.retryDelivery(this, session, input); }
+  recordUsage(session: string, input: RecordUsageInput): CommandResults['record_usage'] { return outcomes.recordUsage(this, session, input); }
   ensureBindingChangeAllowed(session: string): void { delivery.ensureBindingChangeAllowed(this, session); }
   reconcileCompletedOrphan(session: string): void { delivery.reconcileCompletedOrphan(this, session); }
 }

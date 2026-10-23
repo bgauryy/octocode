@@ -1,7 +1,8 @@
 import { storedSecret } from '../shared/sanitize.js';
 import { DAY_MS } from '../shared/util.js';
 import { refText } from './row.js';
-import { BacklogError, priorityName, STATES, type BacklogStore, type Item, type Note, type State } from './store.js';
+import { BacklogError, priorityName, STATES, type Item, type Note, type State } from './item.js';
+import type { BacklogStore } from './store.js';
 
 /** An item idle for longer than this (and not done) is listed under Attention in the page. */
 const IDLE_MS = 7 * DAY_MS;

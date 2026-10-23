@@ -4,7 +4,7 @@ This page owns research-tool routing: which tool to call first, what its result 
 
 ## Research flow graph
 
-The MCP `initialize` instructions and CLI `schema --view full` share one prompt (core `instructions.ts`); the CLI adds the `<cli>` line. Each line is one `<section>…</section>`. The `<clasify>` line appears only when a classification credential enables `clasifyContext` or public `clasify` is available; the other lines are the same for every tool subset. A tool description ends with where its output goes, and an input field says which output fills it (`ref` ← a row's `commitSha`, `line` ← a hit's line). CLI `schema --view full` also serves the grammar inventory in its `grammars` field. Read `→` as "then" and `|` as "or"; the live `schema --view full` output is the exact current prompt.
+The MCP `initialize` instructions and CLI `schema --view full` share one prompt (core `instructions.ts`); the CLI adds the `<cli>` line. Each line is one `<section>…</section>`. The `<clasify>` line appears only when a classification credential enables `clasifyContext` or public `clasify` is available; tool-specific instruction parts are filtered to the enabled tools. A tool description ends with where its output goes, and an input field says which output fills it (`ref` ← a row's `commitSha`, `line` ← a hit's line). CLI `schema --view full` also serves the grammar inventory in its `grammars` field. Read `→` as "then" and `|` as "or"; the live `schema --view full` output is the exact current prompt.
 
 | Section | Responsibility | Graph edges below |
 |---|---|---|
@@ -72,7 +72,7 @@ A search result is a candidate. It does not prove identity, completeness, or beh
 |---|---|---|
 | Local layout, file names, or metadata | `structureSearch` (not `localSearch`) | Anything inside the files; it does not parse. |
 | Local text, errors, config keys | `localSearch` | Identity or usage; it shows lexical occurrence in the searched scope. |
-| Local declarations or code shape | `astSearch` | Server-resolved identity. Comments and strings never match. A zero-match pattern can be a grammar or pattern mismatch. |
+| Local declarations or code shape | `astSearch` | Server-resolved identity. Code patterns distinguish executable syntax from comments and strings; explicit node-kind rules can select comments or strings. A zero-match pattern can be a grammar or pattern mismatch. |
 | Callers, references, or which same-name symbol | `lspSearch` (after a line anchor) | Anything outside the server's project and capabilities. An empty result can be server scope; a syntactic fallback is not cross-file identity. |
 | A known local file | `localFetch` with `matchString` or a range, not a whole large file | Verbatim text when a transformed view is selected. |
 | File imports, cycles, reachability (CLI) | `octocode graph ingest`, then `graph query` | Safe deletion or runtime reachability. Unresolved imports, dynamic loading, and excluded files limit coverage. |

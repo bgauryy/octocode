@@ -190,11 +190,10 @@ for (const [label, query] of [
 // `responseLength` alone pages whole rows: each page is a complete JSON envelope
 // (its own metadata included), so pages never concatenate into the full text and
 // even the largest page (50,000) is one of several. Exact reassembly belongs to
-// `responseScope:"text"` (windows of the rendered text) and `"structured"`
-// (windows of the serialized envelope); rows deliver each symbol once, in order.
+// `responseScope:"structured"` (windows of the serialized envelope); rows deliver
+// each symbol once, in order.
 {
   const query = { operation: 'symbols', path: manyFns, pageSize: 1000 };
-  const strip = text => text.replace(/^# Response page[^\n]*\n/, '');
   async function pages(scope, length) {
     const out = [];
     let current = await raw('astSearch', { queries: [query], responseLength: length, responseScope: scope }, `response ${scope} ${length} page 1`);
@@ -210,21 +209,23 @@ for (const [label, query] of [
   const symbolsOf = ps => ps.flatMap(p => JSON.parse(p.text).results.flatMap(row => row.data?.symbols ?? []));
   const keyOf = symbol => `${symbol.symbolName}@${symbol.line}`;
 
-  for (const scope of ['text', 'structured']) {
-    const small = await pages(scope, 4000);
-    const large = await pages(scope, 50000);
-    const join = ps => ps.map(p => (scope === 'text' ? strip(p.text) : p.sc.responseWindow)).join('');
+  {
+    const small = await pages('structured', 4000);
+    const large = await pages('structured', 50000);
+    const join = ps => ps.map(p => p.sc.responseWindow).join('');
     const rebuilt = join(small);
     const whole = join(large);
     const total = small[0].sc?.responsePagination?.totalChars;
-    check(`response pagination (${scope}): ${small.length} pages of 4000 reassemble exactly what ${large.length} pages of 50000 do`,
-      clean(small) && clean(large) && small.length > large.length && rebuilt === whole && rebuilt.length === total,
-      `rebuilt=${rebuilt.length} whole=${whole.length} totalChars=${total}`);
-    if (scope === 'structured') {
-      let envelope;
-      try { envelope = JSON.parse(rebuilt); } catch { /* reported below */ }
-      check('response pagination (structured): the windows are the exact envelope JSON', envelope?.results?.[0]?.data?.symbols?.length === 1000, `parsed=${Boolean(envelope)}`);
-    }
+    const wholeTotal = large[0].sc?.responsePagination?.totalChars;
+    // Each envelope carries its caller's `responseLength` on its own pages
+    // (`next.*.query.responseLength`), so the two sizes differ only there.
+    const sameData = rebuilt.replace('"responseLength":4000', '"responseLength":50000') === whole;
+    check(`response pagination (structured): ${small.length} pages of 4000 and ${large.length} of 50000 each reassemble their exact envelope, the same but for the carried responseLength`,
+      clean(small) && clean(large) && small.length > large.length && rebuilt.length === total && whole.length === wholeTotal && sameData,
+      `rebuilt=${rebuilt.length}/${total} whole=${whole.length}/${wholeTotal} sameData=${sameData}`);
+    let envelope;
+    try { envelope = JSON.parse(rebuilt); } catch { /* reported below */ }
+    check('response pagination (structured): the windows are the exact envelope JSON', envelope?.results?.[0]?.data?.symbols?.length === 1000, `parsed=${Boolean(envelope)}`);
   }
 
   const small = await pages('rows', 4000);

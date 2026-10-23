@@ -134,3 +134,123 @@ describe('destructive commands resolved against the shell folder', () => {
     expect(catastrophicCommand('rm -rf ~')).toBeDefined();
   });
 });
+
+describe('bash safety', () => {
+  it('names catastrophic commands and lets ordinary ones through', () => {
+    for (const command of ['rm -rf /', 'sudo rm -fr /*', 'cd x && rm -r -f ~/', 'rm --recursive --force "$HOME"', 'rm -rf --no-preserve-root /', 'mkfs.ext4 /dev/sda1', 'echo ok; shutdown -h now', 'dd if=/dev/zero of=/dev/disk2', ':(){ :|:& };:', 'x=$(reboot)', 'echo "$(rm -rf /)"', 'echo "now `shutdown -h now`"', 'echo "a $(echo "$(mkfs.ext4 /dev/sda)")"']) {
+      expect(catastrophicCommand(command), command).toBeDefined();
+    }
+    for (const command of ['rm -rf dist', 'rm -rf ./build/', 'rm -rf /tmp/octocode-test', 'rm ~/notes.txt', 'echo "rm -rf /"', 'git commit -m "reboot the tests"', 'dd if=a of=/dev/null', 'yarn build']) {
+      expect(catastrophicCommand(command), command).toBeUndefined();
+    }
+  });
+
+  it('ignores quoted text and heredoc bodies, checks dd per command and sees past sudo options', () => {
+    for (const command of [
+      'rm -rf ./dist',
+      'rm -rf node_modules',
+      'dd if=x of=/dev/null',
+      'echo "rm -rf /"',
+      'grep shutdown src',
+      'git commit -m "fix: close the socket (shutdown path)"',
+      "git commit -m 'reboot; halt (later)'",
+      'cat > notes.md <<\'EOF\'\ngrep -rn "of=/dev/sda" docs\nrm -rf /\nEOF',
+      'cat <<-EOF > x.sh\n\tshutdown -h now\n\tEOF\necho done',
+      'grep -rn "of=/dev/sda" docs',
+      'echo ":(){ :|:& };:"',
+    ]) {
+      expect(catastrophicCommand(command), command).toBeUndefined();
+    }
+    for (const command of [
+      'rm -rf /',
+      'rm -rf ~',
+      'sudo rm -rf /',
+      'sudo -u root rm -rf /',
+      'doas -u root rm -rf /',
+      'x && rm -rf $HOME',
+      'rm -rf "/"',
+      'mkfs.ext4 /dev/sda',
+      'dd if=/dev/zero of=/dev/sda',
+      'sudo dd if=/dev/zero of="/dev/sda" bs=1M',
+      'cat <<EOF > x\nbody\nEOF\nrm -rf /',
+      'echo "a (b"; reboot',
+    ]) {
+      expect(catastrophicCommand(command), command).toBeDefined();
+    }
+  });
+});
+
+describe('bash safety', () => {
+  it('checks scripts a shell or eval runs, commands behind wrappers, normalized targets and disk erasers', () => {
+    for (const command of [
+      // A script handed to a shell or eval is a command too.
+      "bash -c 'rm -rf /'",
+      'sh -c "cd /tmp; rm -rf ~"',
+      "zsh -lc 'mkfs.ext4 /dev/sda'",
+      'dash -ec "reboot"',
+      "ksh -c 'echo hi && shutdown -h now'",
+      'eval "rm -rf /"',
+      'eval rm -rf "$HOME"',
+      "bash -c \"sh -c 'rm -rf /'\"",
+      // Heredoc and herestring bodies fed to a shell, directly or through a pipe.
+      'bash <<EOF\nrm -rf /\nEOF',
+      "sh <<'X'\necho start\nrm -rf ~\nX",
+      'cat <<EOF | bash\nrm -rf /\nEOF',
+      'bash <<< "rm -rf /"',
+      'echo "rm -rf /" | sh',
+      "printf 'reboot' | bash -s",
+      // Wrappers, their option values and leading operands.
+      'timeout 5 rm -rf /',
+      'timeout -s KILL 10 rm -rf /',
+      'nice -n 10 rm -rf ~',
+      'nice -5 rm -rf /',
+      'ionice -c 3 rm -rf /',
+      'stdbuf -o 0 rm -rf /',
+      'caffeinate -t 60 rm -rf /',
+      'chrt 10 rm -rf /',
+      'taskset 0x3 rm -rf /',
+      'xargs -I {} rm -rf /',
+      'xargs -n 1 rm -rf ~',
+      // Targets that land on /, home or a folder holding home.
+      'rm -rf ~/.',
+      'rm -rf ~/',
+      'rm -rf $HOME/..',
+      'rm -rf ${HOME}/../',
+      'rm -rf /usr/..',
+      'rm -rf /./',
+      'rm -rf //',
+      `rm -rf ${path.posix.dirname(os.homedir().split(path.sep).join('/'))}`,
+      // Disk erasers.
+      'diskutil eraseDisk APFS X disk2',
+      'diskutil eraseVolume APFS X disk2s1',
+      'diskutil zeroDisk disk2',
+      'newfs_apfs /dev/disk2',
+      'find / -name "*.log" -delete',
+      'find ~ -type f -delete',
+      'find -L / -exec rm {} +',
+    ]) {
+      expect(catastrophicCommand(command), command).toBeDefined();
+    }
+    for (const command of [
+      'rm -rf node_modules',
+      'rm -rf ~/projects/app/node_modules',
+      'rm -rf $HOME/.cache/yarn',
+      'find . -delete',
+      'find . -name "*.tmp" -delete',
+      'find / -name "*.log" -print',
+      "bash -c 'yarn build && rm -rf dist'",
+      'bash script.sh',
+      'bash -c "echo rm -rf /"',
+      'sh <<EOF\necho hello\nEOF',
+      'echo "rm -rf /" > notes.txt',
+      'echo "rm -rf /" | grep rm',
+      'timeout 5 yarn test',
+      'nice -n 10 make',
+      'xargs -I {} rm -rf {}',
+      'diskutil list',
+      'eval "$(ssh-agent -s)"',
+    ]) {
+      expect(catastrophicCommand(command), command).toBeUndefined();
+    }
+  });
+});

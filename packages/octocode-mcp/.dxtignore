@@ -6,10 +6,9 @@ tests/
 sanity_tests/
 scripts/
 coverage/
-buildConfig.mjs
+build.mjs
 tsconfig.json
 tsconfig.build.json
-tsconfig.package.json
 vitest.config.ts
 ARCHITECTURE.md
 *.dxt

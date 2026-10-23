@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { checkDevtoolsUrl } from '../src/browser/cdp.js';
+import { checkDevtoolsUrl, openTab, pageTargets } from '../src/browser/devtools.js';
 import { openBrowser } from '../src/browser/session.js';
+import { addressOf } from './doubles.js';
 
 describe('the DevTools attach check', () => {
   it.each(['ws://127.0.0.1:9222/devtools/page/ABC', 'ws://localhost:9222/devtools/browser/x', 'ws://[::1]:9222/devtools/page/1'])('accepts %s', (url) => {
@@ -38,6 +39,48 @@ describe('the DevTools attach check', () => {
       expect(upgraded).toBe(false);
     } finally {
       server.close();
+    }
+  });
+});
+
+/** A browser endpoint answering every request with `body`. */
+async function answering(body: unknown): Promise<{ port: number; close: () => void }> {
+  const server = http.createServer((_request, response) => response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body)));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { port: addressOf(server).port, close: () => server.close() };
+}
+
+describe('the DevTools target endpoints', () => {
+  it('lists only the page targets that carry an id and a DevTools URL, in order, as Chrome sent them', async () => {
+    const ws = 'ws://127.0.0.1:1/devtools/page/';
+    const page = { id: 'a', type: 'page', title: 'A', url: 'https://a.example/', webSocketDebuggerUrl: `${ws}a` };
+    const browser = await answering([page, { id: 'w', type: 'service_worker', webSocketDebuggerUrl: `${ws}w` }, { id: 'n', type: 'page' }, { type: 'page', webSocketDebuggerUrl: `${ws}x` }, null, 'tab', { id: 'b', type: 'page', webSocketDebuggerUrl: `${ws}b` }]);
+    try {
+      expect(await pageTargets(browser.port)).toEqual([page, { id: 'b', type: 'page', webSocketDebuggerUrl: `${ws}b` }]);
+    } finally {
+      browser.close();
+    }
+  });
+
+  it('refuses a target list that is not a list', async () => {
+    const browser = await answering({ id: 'a' });
+    try {
+      await expect(pageTargets(browser.port)).rejects.toThrow(/answered \/json\/list without a target list/);
+    } finally {
+      browser.close();
+    }
+  });
+
+  it('returns the opened tab, and refuses one without an id and DevTools URL', async () => {
+    const opened = { id: 't', type: 'page', webSocketDebuggerUrl: 'ws://127.0.0.1:1/devtools/page/t' };
+    const good = await answering(opened);
+    const bad = await answering({ id: 't' });
+    try {
+      expect(await openTab(good.port, 'about:blank')).toEqual(opened);
+      await expect(openTab(bad.port, 'about:blank')).rejects.toThrow(/opened a tab without an id and DevTools URL/);
+    } finally {
+      good.close();
+      bad.close();
     }
   });
 });

@@ -35,10 +35,9 @@ fn max_walk() -> u32 {
 const WALK_BUDGET: std::time::Duration = octocode_engine::scan_budget::SCAN_TIME_BUDGET;
 
 use crate::num::u32_of_usize;
-use crate::policy::prune;
 use crate::response::result::ToolError;
 use crate::tools::display_name;
-use crate::tools::empty_walk::{Cause, Hits, Tagged, Verdict, Walk, diagnose_shown, lift};
+use crate::tools::empty_walk::{Cause, Hits, Tagged, Walk, diagnose_shown};
 use serde_json::{Value, json};
 
 /// The policy error for `requested`; a missing path also leads to a tree of
@@ -51,9 +50,9 @@ fn validated_root(
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<crate::policy::path::ValidatedPath, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
-    paths.validate(requested).map_err(|error| {
-        ToolError::root_policy(error, requested, paths, ErrorCode::PathValidationFailed)
-    })
+    paths
+        .validate(requested)
+        .map_err(|error| ToolError::root_policy(error, requested, paths))
 }
 
 /// A file named as a tree root (`files` lists a file root as itself): say
@@ -356,7 +355,6 @@ struct WalkMeta {
     dirs: usize,
     bytes: u64,
     uncovered: Uncovered,
-    warnings: Vec<String>,
     /// The listing is ranked by something other than walk order (`files`
     /// sorted by size, lines, name or time): a walk cut at its ceiling ranks
     /// only the entries it walked first.
@@ -378,7 +376,7 @@ impl Walked {
         mut rows: Vec<Row>,
         requested: usize,
         scan_offset: usize,
-        left: WalkLeft,
+        left: WalkLeft<'_>,
         security: &crate::security::ContentSecurity,
     ) -> Self {
         let available = rows.len();
@@ -398,7 +396,6 @@ impl Walked {
                 }
             }
         }
-        let warnings = walk_warnings(native.skipped, native.permission_denied);
         let meta = WalkMeta {
             covered: offset + rows.len(),
             available,
@@ -412,8 +409,11 @@ impl Walked {
             files,
             dirs,
             bytes,
-            uncovered: left.into_uncovered(native.ignored as usize, native.walk_position),
-            warnings,
+            uncovered: left.into_uncovered(
+                native.ignored,
+                native.walk_position,
+                (native.skipped, native.permission_denied),
+            ),
             ranked: false,
         };
         Self {
@@ -471,70 +471,17 @@ impl Walked {
 }
 
 impl WalkMeta {
-    /// The walk's counts, plus how many entries `.gitignore` hid (the path
-    /// policy's withheld entries are a warning on every page), how many dot
-    /// entries were skipped without `includeHidden`, and which directories
-    /// the default prune skipped: their names stay out of the listing, but
-    /// their absence is not silent.
-    fn summary(&self) -> Value {
-        let uncovered = &self.uncovered;
-        let mut summary = json!({"files": self.files, "dirs": self.dirs, "bytes": self.bytes});
-        if uncovered.ignored > 0 {
-            summary["ignored"] = json!(uncovered.ignored);
-        }
-        if uncovered.hidden > 0 {
-            summary["hidden"] = json!(uncovered.hidden);
-        }
-        if let Some(pruned) = uncovered.pruned_names() {
-            summary["pruned"] = json!(pruned);
-        }
-        summary
-    }
-
-    /// The page's warnings: `cut`'s own (`warnings`), and on the walk's
-    /// first page its own (unreadable entries, the path policy's withheld
-    /// entries), stated once per walk like the summary: a resumed walk
-    /// (`walkOffset`) reports the entries it read. The query's notes read
-    /// the same for the whole result: they are notices, said once
+    /// The page's warnings: `cut`'s own (`warnings`). The query's notes
+    /// read the same for the whole result: they are notices, said once
     /// ([`crate::response::paging::push_notice`]).
-    fn warn(&self, out: &mut Value, query_notes: Vec<String>, cut: Vec<String>, page: usize) {
-        let mut warnings = Vec::new();
-        if page == 1 {
-            warnings.extend(self.warnings.iter().cloned());
-        }
-        warnings.extend(cut);
-        if page == 1 {
-            warnings.extend(self.uncovered.withheld.notice());
-        }
-        if !warnings.is_empty() {
-            out["warnings"] = json!(warnings);
+    fn warn(&self, out: &mut Value, query_notes: Vec<String>, cut: Vec<String>) {
+        if !cut.is_empty() {
+            out["warnings"] = json!(cut);
         }
         for note in query_notes {
             crate::response::paging::push_notice(out, note);
         }
     }
-}
-
-/// The walk's skipped-entry warning: how many entries it could not read,
-/// and how many of those for want of permission.
-fn walk_warnings(s: u32, d: u32) -> Vec<String> {
-    if s == 0 {
-        return vec![];
-    }
-    let o = s.saturating_sub(d);
-    vec![if d > 0 && o > 0 {
-        format!("{s} entries skipped ({d} permission denied, {o} other errors)")
-    } else if d > 0 {
-        format!(
-            "{d} {} skipped due to permission denied",
-            if d == 1 { "entry" } else { "entries" }
-        )
-    } else {
-        format!(
-            "{s} {} skipped due to access errors",
-            if s == 1 { "entry" } else { "entries" }
-        )
-    }]
 }
 
 /// Execute one typed row. The runtime parses the validated row with its

@@ -6,7 +6,7 @@ use crate::id::ToolId;
 use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::gh_search_history::gh_search_history_query;
-use crate::tools::gh_shared::{Broaden, broaden};
+use crate::tools::leads::broaden::{Broaden, broaden};
 use serde_json::{Value, json};
 
 /// The default PR read: body and the patch-free file inventory.
@@ -74,6 +74,20 @@ pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value])
         Continuation::new(ToolId::GhGetHistoryItem, read)
             .confidence(Confidence::High)
             .build(),
+    )
+}
+
+/// The PR holding a commit no headline names: issue search matches PRs
+/// by commit SHA (the first row's; any other row's SHA runs the same search).
+pub(super) fn find_commit_pull_request(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> {
+    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
+    Some(
+        Continuation::new(
+            ToolId::GhSearchHistory,
+            json!({"operation":"pullRequest","owner":owner,"repo":repo,"keywords":[sha]}),
+        )
+        .confidence(Confidence::High)
+        .build(),
     )
 }
 
@@ -179,21 +193,30 @@ pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize, page_size: usize)
         .build()
 }
 
-/// Broadened variants at most: one call's batch.
-const BROADEN_VARIANTS: usize = 5;
-
-/// An empty search, broadened ([`broaden`]): `qualifiers` and the
-/// `since`/`until` window drop whole, then the keywords one at a time.
+/// An empty search, broadened ([`broaden`]): `qualifiers`, the
+/// `since`/`until` window, a commit listing's `path` and a search's `state`
+/// drop whole, then the keywords one at a time. A
+/// variant keeps at least one keyword: without any it lists the scope, not
+/// the topic searched.
 pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
-    broaden(
+    let mut lead = broaden(
         ToolId::GhSearchHistory,
         &query_row(q, &[]),
         &Broaden {
             strip: &[],
-            groups: &[&["qualifiers"], &["since", "until"]],
+            groups: &[&["qualifiers"], &["since", "until"], &["path"], &["state"]],
+            split_lone_keyword: false,
         },
-        BROADEN_VARIANTS,
-    )
+        crate::response::result::rows_per_call(ToolId::GhSearchHistory),
+    )?;
+    if !gh_search_history_query::keywords(q).is_empty() {
+        let rows = lead.pointer_mut("/query/queries")?.as_array_mut()?;
+        rows.retain(|row| row.get("keywords").is_some());
+        if rows.is_empty() {
+            return None;
+        }
+    }
+    Some(lead)
 }
 
 /// A capped search's narrowing (`narrowScope`), one call. Rows in a date
@@ -214,7 +237,7 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
                 .iter()
                 .find_map(|pointer| item.pointer(pointer))
                 .and_then(Value::as_str)
-                .map(|date| crate::tools::gh_shared::commit::utc_date(Some(date)))
+                .map(|date| crate::tools::gh_shared::dates::utc_date(Some(date)))
         })
     };
     let mut row = same_query(q);

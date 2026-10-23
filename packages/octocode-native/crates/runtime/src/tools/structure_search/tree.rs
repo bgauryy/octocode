@@ -30,7 +30,6 @@ fn walk_depth(query: &StructureSearchQueryTree) -> u32 {
 super::listing::listing_fields!(StructureSearchQueryTree {
     /// Rows grouped by directory.
     const LAYOUT: &'static str = "workspaceRelativeTreeGroups";
-    const ALWAYS_PAGINATED: bool = false;
     /// An outline lists in walk order.
     fn sort(&self) -> StructureSearchQueryFilesSort {
         StructureSearchQueryFilesSort::Path

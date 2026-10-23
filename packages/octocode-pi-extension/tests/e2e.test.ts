@@ -1,132 +1,28 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createFauxCore, fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from '@earendil-works/pi-ai';
-import { createAgentSession, createMcpExtension, createToolSearchExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory } from '@earendil-works/pi-coding-agent';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { fauxAssistantMessage, fauxToolCall, type TranscriptContext } from '@earendil-works/pi-ai';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Mail } from '../src/team/mail.js';
+import { calls, OCTOCODE_OFF, say, startSession } from './e2e-harness.js';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ENTRY = path.join(HERE, '..', process.env['OCTOCODE_E2E_ENTRY'] === 'dist' ? 'dist/index.js' : 'src/index.ts');
-const octocode = (await import(ENTRY)).default as ExtensionFactory;
-
-// Hermetic: a run from inside a Pi subagent inherits its identity and settings, which change the prompt, tools and limits.
-for (const key of ['OCTOCODE_SUBAGENT', 'OCTOCODE_BROWSER_VISIBLE', 'OCTOCODE_PARENT_ID', 'OCTOCODE_AGENT_ID', 'OCTOCODE_AGENT_GOAL', 'OCTOCODE_AGENT_COLLABORATE', 'OCTOCODE_MAX_SUBAGENTS', 'OCTOCODE_HOME', 'OCTOCODE_AGENT_DB', 'OCTOCODE_MEMORY_AUTO', 'OCTOCODE_MCP']) {
-  delete process.env[key];
-}
-
-const FIXTURE = path.join(HERE, 'fixtures', 'echo-mcp.mjs');
-
-// The extension launches its `octocode-mcp` dependency as is: in this monorepo the pinned version resolves to the
-// workspace build (`packages/octocode-mcp`), so the e2e runs the server source and release share.
-
-interface Turn {
-  systemPrompt: string;
-  tools: string[];
-  toolContracts: ReturnType<typeof getCurrentTools>;
-  lastResults: Array<{ toolName: string; isError: boolean; text: string }>;
-}
-
-function snapshot(context: TranscriptContext): Turn {
-  const results: Turn['lastResults'] = [];
-  for (let index = context.messages.length - 1; index >= 0; index--) {
-    const message = context.messages[index] as { role: string; toolName?: string; isError?: boolean; content?: unknown };
-    if (message.role === 'system') continue; // tool/prompt deltas are recorded as system messages
-    if (message.role !== 'toolResult') break;
-    const text = Array.isArray(message.content) ? message.content.map((part: { text?: string }) => part.text ?? '').join('') : '';
-    results.unshift({ toolName: String(message.toolName), isError: message.isError === true, text });
-  }
-  const toolContracts = getCurrentTools(context.messages);
-  return { systemPrompt: getCurrentSystemPrompt(context.messages), tools: toolContracts.map((tool) => tool.name), toolContracts, lastResults: results };
-}
-
-type Reply = ReturnType<typeof fauxAssistantMessage>;
-
-/** A real Pi agent session running the Octocode extension against a scripted model. */
-async function startSession(mcpServers: Record<string, unknown>, options: { tools?: string[]; settings?: Record<string, unknown>; agentSettings?: Record<string, unknown>; models?: Array<{ id: string; inputCost: number; maxTokens: number }> } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-e2e-'));
-  const cwd = path.join(root, 'project');
-  const home = path.join(root, 'home');
-  fs.mkdirSync(cwd, { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
-  const agentDir = path.join(root, 'agent');
-  fs.mkdirSync(agentDir, { recursive: true });
-  if (options.agentSettings) fs.writeFileSync(path.join(agentDir, 'settings.json'), JSON.stringify(options.agentSettings));
-  // The user trusted this project with Pi's /trust.
-  fs.writeFileSync(path.join(agentDir, 'trust.json'), JSON.stringify({ [fs.realpathSync(root)]: true }));
-  const originalHome = process.env['HOME'];
-  const originalAgentDir = process.env['PI_CODING_AGENT_DIR'];
-  const originalPermission = process.env['OCTOCODE_PERMISSION'];
-  process.env['HOME'] = home; // keep the developer's own config out of the test
-  process.env['PI_CODING_AGENT_DIR'] = agentDir; // and their Pi settings
-  // Sessions start in manual, and a headless one denies every ask: this user exported workspace.
-  process.env['OCTOCODE_PERMISSION'] = 'workspace';
-  // Pi's built-in MCP reads the user-level mcp.json; an `octocode` entry there overrides Octocode's registration.
-  fs.writeFileSync(path.join(agentDir, 'mcp.json'), JSON.stringify({ mcpServers }));
-  const turns: Turn[] = [];
-  const models = options.models ?? [{ id: 'faux-1', inputCost: 0, maxTokens: 4_096 }];
-  const faux = createFauxCore({ provider: 'faux', models: models.map(({ id, maxTokens }) => ({ id, contextWindow: 200_000, maxTokens })) as never });
-  const provider: ExtensionFactory = (pi) => {
-    pi.registerProvider('faux', {
-      name: 'Faux',
-      api: faux.api,
-      baseUrl: 'http://127.0.0.1:0',
-      apiKey: 'test',
-      models: faux.models.map((model, index) => ({ ...model, cost: { input: models[index]!.inputCost, output: 0, cacheRead: 0, cacheWrite: 0 } })),
-      streamSimple: faux.streamSimple,
-    } as never);
-  };
-  const settingsManager = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false }, ...options.settings });
-  const resourceLoader = new DefaultResourceLoader({
-    cwd,
-    agentDir: path.join(root, 'agent'),
-    settingsManager,
-    extensionFactories: [
-      { name: 'faux-provider', factory: provider },
-      { name: 'octocode', factory: octocode },
-      // The CLI loads Pi's MCP as a built-in extension, after the user's; SDK sessions add it themselves.
-      { name: 'mcp', factory: createMcpExtension({ logPath: path.join(root, 'mcp.log') }) },
-      // Also built in on the CLI: it loads the tools of a user's deferred servers (Octocode declares all of its own).
-      { name: 'tool-search', factory: createToolSearchExtension() },
-    ],
-    noSkills: true,
-    noPromptTemplates: true,
-    noThemes: true,
-    noContextFiles: true,
+/**
+ * Asserts a localFetch result (MCP text is the JSON of its structured content) holds one row per path, in order, each
+ * with its first page and the continuation that reads the rest of it; the response fits one page, so it carries no
+ * whole-response continuation.
+ */
+function expectRowsWithOwnContinuations(text: string, paths: string[]): void {
+  const page: unknown = JSON.parse(text);
+  expect(page).not.toHaveProperty('responsePagination');
+  expect(page).toMatchObject({
+    results: paths.map((path) => ({
+      data: {
+        path,
+        pagination: { unit: 'lines', offset: 0, hasMore: true, nextOffset: expect.any(Number) },
+        next: { continueWindow: { tool: 'localFetch', query: { queries: [expect.objectContaining({ path, ranges: ['1-600'], offset: expect.any(Number) })] } } },
+      },
+    })),
   });
-  await resourceLoader.reload();
-  const { session } = await createAgentSession({ cwd, agentDir: path.join(root, 'agent'), resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(cwd), ...(options.tools ? { tools: options.tools } : {}) });
-  await session.bindExtensions({ mode: 'json', shutdownHandler: () => undefined } as never);
-  await session.setModel(session.modelRuntime.getModel('faux', 'faux-1')!);
-  const run = async (prompt: string, replies: Array<(turn: Turn) => Reply>) => {
-    faux.setResponses(
-      replies.map((reply) => (context: TranscriptContext) => {
-        const turn = snapshot(context);
-        turns.push(turn);
-        return reply(turn);
-      }),
-    );
-    await session.prompt(prompt);
-    return turns;
-  };
-  const dispose = async () => {
-    await session.dispose?.();
-    process.env['HOME'] = originalHome;
-    if (originalAgentDir === undefined) delete process.env['PI_CODING_AGENT_DIR'];
-    else process.env['PI_CODING_AGENT_DIR'] = originalAgentDir;
-    if (originalPermission === undefined) delete process.env['OCTOCODE_PERMISSION'];
-    else process.env['OCTOCODE_PERMISSION'] = originalPermission;
-    fs.rmSync(root, { recursive: true, force: true });
-  };
-  return { cwd, session, faux, run, dispose };
 }
-
-/** An mcp.json `octocode` entry that keeps the server off (a file entry wins over Octocode's registration). */
-const OCTOCODE_OFF = { octocode: { command: 'false', enabled: false } };
-
-const calls = (...toolCalls: ReturnType<typeof fauxToolCall>[]) => () => fauxAssistantMessage(toolCalls, { stopReason: 'toolUse' });
-const say = (text: string) => () => fauxAssistantMessage(text);
 
 describe('with Octocode MCP (default)', () => {
   let s: Awaited<ReturnType<typeof startSession>>;
@@ -143,9 +39,9 @@ describe('with Octocode MCP (default)', () => {
     // The separate prompt-size test guards only extension-owned prose/schemas, not this complete fixture prefix.
     const fixedChars = turn.systemPrompt.length + JSON.stringify(turn.toolContracts).length;
     console.log(`default Pi + Octocode prefix: ${fixedChars} chars (prompt ${turn.systemPrompt.length}, ${turn.tools.length} tools)`);
-    // Measured 45,699 after canonical schema projection retained operation-specific constraints and guidance.
-    // Keep a tight complete-prefix bound alongside the unchanged first-request and cross-turn stability checks.
-    expect(fixedChars, 'default runtime prompt and declarations grew beyond their headroom').toBeLessThan(46_000);
+    // 2026-10-23: 49,794 (was 45,699): the Octocode MCP published contract grew (structureSearch filters, localSearch caseMode/
+    // wholeWord, lspSearch contextLines/includeDeclaration, descriptions). Tight bound beside the stability checks below.
+    expect(fixedChars, 'default runtime prompt and declarations grew beyond their headroom').toBeLessThan(50_100);
     expect(turn.tools).toContain('file');
     expect(turn.tools).toContain('read');
     expect(turn.tools).toContain('mcp__octocode__localFetch');
@@ -250,108 +146,8 @@ describe('with Octocode MCP (default)', () => {
     expect(text).not.toMatch(/truncated|fullOutputPath|pi-mcp/i);
     // Both rows arrive whole: each one's first returned line and its own continuation.
     for (const name of ['one', 'two']) expect(text).toContain(`export const ${name}0 = `);
-    expect(text.match(/^next:$/gm)?.length).toBe(2);
+    expectRowsWithOwnContinuations(text, ['one.ts', 'two.ts']);
   }, 60_000);
-});
-
-describe('with the user\'s own octocode server in mcp.json', () => {
-  let s: Awaited<ReturnType<typeof startSession>>;
-  beforeAll(async () => {
-    // The user's entry owns `octocode`: Pi runs it, and the extension starts and registers nothing of its own.
-    s = await startSession({ octocode: { command: process.execPath, args: [FIXTURE], exposure: 'direct' } });
-  }, 60_000);
-  afterAll(() => s.dispose());
-
-  it('leaves the server to Pi, follows its tools in the prompt, and round-trips a call', async () => {
-    const turns = await s.run('use it', [calls(fauxToolCall('mcp__octocode__shout', { text: 'hi' })), say('done')]);
-    const first = turns.at(-2)!;
-    expect(first.tools).toContain('mcp__octocode__shout');
-    expect(first.tools).not.toContain('mcp__octocode__localSearch');
-    expect(first.systemPrompt).toContain('Use Octocode MCP');
-    expect(first.systemPrompt).not.toContain('# Octocode MCP server instructions');
-    expect(turns.at(-1)!.lastResults[0]).toEqual({ toolName: 'mcp__octocode__shout', isError: false, text: 'HI' });
-  });
-});
-
-describe('with another MCP server and Octocode disabled', () => {
-  let s: Awaited<ReturnType<typeof startSession>>;
-  beforeAll(async () => {
-    s = await startSession({ ...OCTOCODE_OFF, echo: { command: process.execPath, args: [FIXTURE], exposure: 'direct' } });
-  }, 60_000);
-  afterAll(() => s.dispose());
-
-  it('keeps Pi read, leaves MCP to Pi, and drops the Octocode research line', async () => {
-    const turn = (await s.run('hello', [say('ready')])).at(-1)!;
-    for (const name of ['read', 'file', 'bash', 'web', 'agent', 'askUser', 'coordinate', 'sendMessage', 'backlog', 'memory', 'mcp__echo__shout']) expect(turn.tools).toContain(name);
-    for (const name of ['edit', 'write', 'mcp']) expect(turn.tools).not.toContain(name);
-    expect(turn.tools.some((name) => name.startsWith('mcp__octocode__'))).toBe(false);
-    // The mcp.json entry replaces the registration, so no request is told to prefer Octocode.
-    expect(turn.systemPrompt).not.toContain('Use Octocode MCP');
-    const next = (await s.run('again', [say('ok')])).at(-1)!;
-    expect(next.systemPrompt).not.toContain('Use Octocode MCP');
-  });
-
-  it('calls another server\'s tools through Pi\'s MCP, surfacing remote errors', async () => {
-    const turns = await s.run('use echo', [calls(fauxToolCall('mcp__echo__shout', { text: 'hi' }), fauxToolCall('mcp__echo__fail', {})), say('done')]);
-    const [ok, failed] = turns.at(-1)!.lastResults;
-    expect(ok).toEqual({ toolName: 'mcp__echo__shout', isError: false, text: 'HI' });
-    expect(failed!.isError).toBe(true);
-    expect(failed!.text).toContain('boom');
-  });
-
-  it('writes new files, refuses an unread existing one, and a read then write works', async () => {
-    fs.writeFileSync(path.join(s.cwd, 'existing.txt'), 'original\n');
-    const turns = await s.run('write files', [
-      calls(fauxToolCall('file', { queries: [{ reasoning: 'new', type: 'write', path: 'new.txt', content: 'fresh' }, { reasoning: 'clobber', type: 'write', path: 'existing.txt', content: 'x' }] })),
-      calls(fauxToolCall('read', { path: 'existing.txt' })),
-      calls(fauxToolCall('file', { queries: [{ reasoning: 'replace', type: 'write', path: 'existing.txt', content: 'replaced' }] })),
-      say('done'),
-    ]);
-    const [writes, , rewrite] = turns.slice(-3);
-    expect(writes!.lastResults[0]!.text).toMatch(/1\. OK write new\.txt[\s\S]*2\. FAILED write existing\.txt: existing\.txt already exists and was not read/);
-    expect(rewrite!.lastResults[0]!.text).toMatch(/OK write existing\.txt/);
-    expect(fs.readFileSync(path.join(s.cwd, 'existing.txt'), 'utf8')).toBe('replaced');
-  });
-
-  it('answers a repeated read of an unchanged file with a note, and the file can still be rewritten after it', async () => {
-    fs.writeFileSync(path.join(s.cwd, 'twice.txt'), 'same line\n'.repeat(200));
-    const turns = await s.run('read twice', [
-      calls(fauxToolCall('read', { path: 'twice.txt' })),
-      calls(fauxToolCall('read', { path: 'twice.txt' })),
-      calls(fauxToolCall('file', { queries: [{ reasoning: 'replace', type: 'write', path: 'twice.txt', content: 'replaced' }] })),
-      say('done'),
-    ]);
-    const [first, second, rewrite] = turns.slice(-3);
-    expect(first!.lastResults[0]!.text).toContain('same line');
-    expect(second!.lastResults[0]!.text).toMatch(/^\[Unchanged since your earlier read of twice\.txt \(same range\)/);
-    expect(rewrite!.lastResults[0]!.text).toMatch(/OK write twice\.txt/);
-  });
-
-  it('clears old results at request time once the cache is cold inside a run, to saved files and without any context edit', async () => {
-    fs.writeFileSync(path.join(s.cwd, 'big.txt'), 'line of text\n'.repeat(1_000));
-    const reads = Array.from({ length: 22 }, () => fauxToolCall('read', { path: 'big.txt' }));
-    const realNow = Date.now.bind(Date);
-    // The tools ran longer than the prompt-cache lifetime: the next request would rewrite the cache anyway.
-    const later = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 60 * 60_000 + 1);
-    const cold = () => fauxAssistantMessage(reads, { stopReason: 'toolUse', timestamp: realNow() });
-    const results = await s.run('read a lot', [cold, say('done')]).finally(() => later.mockRestore()).then((turns) => turns.at(-1)!.lastResults);
-    expect(results).toHaveLength(22);
-    const cleared = results.filter((result) => result.text.startsWith('[Old tool result cleared'));
-    // The newest five stay whole; every older one is a placeholder that names the file holding its whole text.
-    expect(cleared).toHaveLength(17);
-    expect(results.slice(-5).every((result) => result.text.length > 10_000)).toBe(true);
-    for (const result of cleared) expect(result.text).toMatch(/Full output: \S+ \(sha256/);
-    const entries = s.session.sessionManager.getEntries();
-    expect(entries.filter((entry) => entry.type === 'context_edit')).toHaveLength(0);
-    expect(entries.filter((entry) => entry.type === 'custom' && entry.customType === 'octocode-cleared-results')).toHaveLength(1);
-  });
-
-  it('reports unavailable askUser without inventing an answer or approval', async () => {
-    const question = { question: 'Which?', header: 'Pick', options: [{ label: 'A (Recommended)', description: 'a' }, { label: 'B', description: 'b' }] };
-    const turns = await s.run('ask', [calls(fauxToolCall('askUser', { questions: [question] })), say('done')]);
-    expect(turns.at(-1)!.lastResults[0]!.text).toMatch(/No interactive user/);
-    expect(turns.at(-1)!.lastResults[0]!.text).toContain('No answer or approval was supplied.');
-  });
 });
 
 describe('compaction', () => {
@@ -449,103 +245,5 @@ describe('compaction', () => {
     expect(entry.fromHook).not.toBe(true);
     expect(entry.summary).toContain('Default summary');
     expect(entry.details!['modifiedFiles']).toEqual(expect.arrayContaining(['todo.txt']));
-  }, 60_000);
-});
-
-describe('request too large (HTTP 413)', () => {
-  let s: Awaited<ReturnType<typeof startSession>>;
-  beforeAll(async () => {
-    s = await startSession(OCTOCODE_OFF);
-    // A 1x1 PNG: Pi's `read` returns it as an image part.
-    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
-    for (const name of ['a.png', 'b.png', 'c.png']) fs.writeFileSync(path.join(s.cwd, name), png);
-  }, 60_000);
-  afterAll(() => s.dispose());
-
-  it('strips older images and retries on its own when a gateway rejects the request with a bodiless 413', async () => {
-    const images = (context: TranscriptContext) =>
-      context.messages.reduce((sum, message) => {
-        const content = (message as { content?: unknown }).content;
-        return sum + (Array.isArray(content) ? content.filter((part: { type?: string }) => part.type === 'image').length : 0);
-      }, 0);
-    const seen: number[] = [];
-    // The gateway accepts at most one image per request.
-    const gateway = (context: TranscriptContext, reply: Reply) => {
-      seen.push(images(context));
-      return images(context) > 1 ? fauxAssistantMessage([], { stopReason: 'error', errorMessage: '413 status code (no body)' }) : reply;
-    };
-    s.faux.setResponses([
-      (context) => gateway(context, fauxAssistantMessage([fauxToolCall('read', { path: 'a.png' }), fauxToolCall('read', { path: 'b.png' }), fauxToolCall('read', { path: 'c.png' })], { stopReason: 'toolUse' })),
-      (context) => gateway(context, fauxAssistantMessage('rejected')),
-      (context) => gateway(context, fauxAssistantMessage('looked at the newest image')),
-    ]);
-    await s.session.prompt('look at the screenshots');
-    // Request 2 carries three images and is rejected; the retry keeps only the newest and succeeds, without a new prompt.
-    expect(seen).toEqual([0, 3, 1]);
-    const last = s.session.messages.at(-1) as { role: string; content: Array<{ text?: string }> };
-    expect(last.role).toBe('assistant');
-    expect(last.content.map((part) => part.text).join('')).toBe('looked at the newest image');
-  }, 60_000);
-});
-
-describe('with a tool allowlist that leaves out file', () => {
-  let s: Awaited<ReturnType<typeof startSession>>;
-  beforeAll(async () => {
-    s = await startSession(OCTOCODE_OFF, { tools: ['read', 'bash', 'edit', 'write'] });
-  }, 60_000);
-  afterAll(() => s.dispose());
-
-  it('keeps Pi edit and write, so the agent can still change files', async () => {
-    const turn = (await s.run('hi', [say('ok')])).at(-1)!;
-    expect(turn.tools).toEqual(expect.arrayContaining(['read', 'bash', 'edit', 'write']));
-    expect(turn.tools).not.toContain('file');
-  });
-});
-
-describe('a subagent session with visible browser and MCP enabled', () => {
-  let s: Awaited<ReturnType<typeof startSession>>;
-  const previous = {
-    web: process.env['OCTOCODE_BROWSER_VISIBLE'],
-    sub: process.env['OCTOCODE_SUBAGENT'],
-  };
-
-  beforeAll(async () => {
-    process.env['OCTOCODE_BROWSER_VISIBLE'] = '1';
-    process.env['OCTOCODE_SUBAGENT'] = '1';
-    s = await startSession({});
-    fs.writeFileSync(path.join(s.cwd, 'app.ts'), 'export const answer = 41;\n');
-  }, 200_000);
-
-  afterAll(async () => {
-    await s?.dispose();
-    for (const [key, value] of [['OCTOCODE_BROWSER_VISIBLE', previous.web], ['OCTOCODE_SUBAGENT', previous.sub]] as const) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  });
-
-  it('has Octocode and browser tools and can call Octocode', async () => {
-    const turn = (await s.run('hello', [say('ready')])).at(-1)!;
-    expect(turn.tools).toContain('mcp__octocode__localFetch');
-    expect(turn.tools).toContain('browser');
-    expect(turn.tools.filter((name) => name.includes('cua'))).toEqual([]);
-    expect(turn.tools).not.toContain('agent');
-    expect(turn.tools).not.toContain('askUser');
-    expect(turn.toolContracts.find((tool) => tool.name === 'memory')?.parameters).toMatchObject({
-      properties: { op: { enum: ['search', 'get', 'list'] } },
-    });
-    expect(turn.toolContracts.find((tool) => tool.name === 'backlog')?.parameters).toMatchObject({
-      properties: { op: { enum: ['list', 'get', 'add', 'update'] } },
-    });
-    for (const name of ['coordinate', 'sendMessage', 'backlog', 'memory']) expect(turn.tools).toContain(name);
-    expect(turn.systemPrompt).toContain('You are a subagent');
-    expect(turn.systemPrompt).toContain('reserve files');
-    const appPath = path.join(s.cwd, 'app.ts');
-    const turns = await s.run('read', [
-      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ path: appPath, fullContent: true }] })),
-      say('done'),
-    ]);
-    const results = turns.at(-1)!.lastResults;
-    expect(results.find((result) => result.toolName === 'mcp__octocode__localFetch')?.text).toContain('answer = 41');
   }, 60_000);
 });

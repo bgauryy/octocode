@@ -84,7 +84,8 @@
       "classification.maxConcurrency": "Classification concurrency is fixed at 10 in-flight requests per endpoint; delete the key.",
       "classification.maxCandidates": "Context selection is fixed at 64 candidates per operation; delete the key.",
       "classification.maxChars": "Context selection is fixed at 131,072 characters per operation; delete the key.",
-      "classification.timeoutMs": "The context selection deadline is fixed at 10 s; delete the key."
+      "classification.timeoutMs": "The context selection deadline is fixed at 10 s; delete the key.",
+      "output.format": "MCP text content is always the serialized JSON of structuredContent, and the CLI prints JSON with --json; delete the key."
     },
     "environment": {
       "OCTOCODE_CLASSIFICATION_TYPE": "The classification provider is built in; unset the variable.",
@@ -99,7 +100,8 @@
       "OCTOCODE_CLASSIFICATION_CONCURRENCY": "Classification concurrency is fixed at 10 in-flight requests per endpoint; unset the variable.",
       "OCTOCODE_CLASSIFICATION_MAX_CANDIDATES": "Context selection is fixed at 64 candidates per operation; unset the variable.",
       "OCTOCODE_CLASSIFICATION_MAX_CHARS": "Context selection is fixed at 131,072 characters per operation; unset the variable.",
-      "OCTOCODE_CLASSIFICATION_TIMEOUT_MS": "The context selection deadline is fixed at 10 s; unset the variable."
+      "OCTOCODE_CLASSIFICATION_TIMEOUT_MS": "The context selection deadline is fixed at 10 s; unset the variable.",
+      "OCTOCODE_OUTPUT_FORMAT": "MCP text content is always the serialized JSON of structuredContent, and the CLI prints JSON with --json; unset the variable."
     }
   },
   "sections": {
@@ -306,19 +308,6 @@
       "file": true,
       "resolved": true,
       "fields": {
-        "format": {
-          "type": "enum",
-          "typeName": "OutputFormat",
-          "values": [
-            "yaml",
-            "json"
-          ],
-          "description": "Encoding of rendered text content (the MCP text channel): yaml or json. Structured content is always JSON. The CLI prints this text unless --json.",
-          "env": {
-            "name": "OCTOCODE_OUTPUT_FORMAT",
-            "normalize": "lower"
-          }
-        },
         "redactEmails": {
           "type": "boolean",
           "default": false,

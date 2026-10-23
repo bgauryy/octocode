@@ -84,8 +84,9 @@ enum Counted {
     /// An entry or directory that could not be read; `denied` for want of
     /// permission.
     Unreadable { denied: bool },
-    /// An entry the ignore rules left out.
-    Ignored,
+    /// An entry the ignore rules left out: its root-relative path, a
+    /// directory's with a trailing `/`.
+    Ignored(String),
     /// A directory the prune skipped, root-relative.
     Pruned(String),
 }
@@ -102,7 +103,7 @@ pub struct WalkTally {
 pub(crate) struct Totals {
     pub(crate) skipped: u32,
     pub(crate) permission_denied: u32,
-    pub(crate) ignored: u32,
+    pub(crate) ignored: Vec<String>,
     pub(crate) pruned_dirs: Vec<String>,
 }
 
@@ -111,8 +112,10 @@ impl WalkTally {
         self.events.push((position, Counted::Unreadable { denied }));
     }
 
-    pub(crate) fn ignored(&mut self, position: u32) {
-        self.events.push((position, Counted::Ignored));
+    /// `relative`: the ignored entry's root-relative path, a directory's
+    /// with a trailing `/`.
+    pub(crate) fn ignored(&mut self, position: u32, relative: String) {
+        self.events.push((position, Counted::Ignored(relative)));
     }
 
     pub(crate) fn pruned(&mut self, position: u32, relative: String) {
@@ -131,7 +134,7 @@ impl WalkTally {
                     totals.skipped += 1;
                     totals.permission_denied += u32::from(*denied);
                 }
-                Counted::Ignored => totals.ignored += 1,
+                Counted::Ignored(relative) => totals.ignored.push(relative.clone()),
                 Counted::Pruned(relative) => totals.pruned_dirs.push(relative.clone()),
             }
         }

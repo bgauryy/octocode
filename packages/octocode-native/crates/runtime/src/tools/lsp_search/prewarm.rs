@@ -195,7 +195,7 @@ pub(super) async fn warm(
         })
         .await
         .ok()??;
-        let content = String::from_utf8(bytes).ok()?;
+        let content = super::source::admitted_text(&bytes).ok()?;
         let readiness = client
             .open_document_and_wait(file, &content, None, Some(PREWARM_READY_TIMEOUT_MS))
             .await

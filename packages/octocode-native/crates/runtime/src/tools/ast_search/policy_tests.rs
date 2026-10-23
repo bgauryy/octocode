@@ -2,7 +2,9 @@
 //! grammar selection.
 use super::test_rows::*;
 use crate::execution::cancel::NeverCancel;
-use crate::tools::test_support::{AfterRoot, Fixture, checks, sensitive_fixture, simple_policy};
+use crate::tools::test_support::{
+    AfterRoot, Fixture, checks, sensitive_fixture, simple_policy, skipped_reasons,
+};
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
 
@@ -265,14 +267,8 @@ fn directory_scans_disclose_policy_withheld_entries() {
         "register(visible);\nexport function shown() {}\n",
     );
     let disclosed = |out: &serde_json::Value| {
-        out["warnings"].as_array().is_some_and(|warnings| {
-            warnings.iter().any(|w| {
-                w.as_str().is_some_and(|w| {
-                    w.contains("withheld by path policy: security-policy dirs .aws/")
-                        && !w.contains(".git")
-                })
-            })
-        })
+        let reasons = skipped_reasons(out, "withheld");
+        reasons.len() == 1 && reasons[0].0 == "security-policy dir .aws/"
     };
     let matches = run(
         &root.0,
@@ -281,7 +277,7 @@ fn directory_scans_disclose_policy_withheld_entries() {
     .expect("match");
     assert_eq!(matches["matchCount"], 1, "{matches}");
     assert!(disclosed(&matches), "{matches}");
-    assert!(matches.get("complete").is_none(), "{matches}");
+    assert!(matches.get("coverage").is_none(), "{matches}");
     let empty = run(
         &root.0,
         json!({"operation":"match","path":root.0,"language":"typescript","pattern":"register(secret)","includeHidden":true}),
@@ -314,32 +310,22 @@ fn directory_scans_disclose_in_workspace_links_they_do_not_follow() {
         root.0.join("links/run.ts"),
     )
     .expect("file link");
-    let notice = "2 entries withheld by path policy: 2 symlinks not followed.";
+    let notice = [("symlink not followed".into(), 2)];
     let scope = root.0.join("links");
     let matched = run(
         &root.0,
         json!({"operation":"match","path":scope,"pattern":"register($A)"}),
     )
     .expect("no languageRequired behind links");
-    assert_eq!(matched["warnings"], json!([notice]), "{matched}");
+    assert_eq!(skipped_reasons(&matched, "withheld"), notice, "{matched}");
     let typed = run(
         &root.0,
         json!({"operation":"match","path":scope,"language":"typescript","pattern":"register($A)"}),
     )
     .expect("typed match");
-    assert!(
-        typed["warnings"]
-            .as_array()
-            .is_some_and(|w| w.contains(&json!(notice))),
-        "{typed}"
-    );
+    assert_eq!(skipped_reasons(&typed, "withheld"), notice, "{typed}");
     let symbols = run(&root.0, json!({"operation":"symbols","path":scope})).expect("symbols");
-    assert!(
-        symbols["warnings"]
-            .as_array()
-            .is_some_and(|w| w.contains(&json!(notice))),
-        "{symbols}"
-    );
+    assert_eq!(skipped_reasons(&symbols, "withheld"), notice, "{symbols}");
     // A scope with no file at all names no grammar to set either.
     std::fs::create_dir_all(root.0.join("empty")).expect("empty dir");
     let empty = run(
@@ -496,21 +482,21 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let selected = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":header,"language":"cpp","rule":"kind: class_specifier"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":header,"language":"cpp","rule":{"kind":"class_specifier"}}),
     )
     .expect("explicit C++ match");
     assert_eq!(selected["matchCount"], 1, "{selected}");
 
     let selected_directory = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"cpp","include":["*.h"],"rule":"kind: class_specifier"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"cpp","include":["*.h"],"rule":{"kind":"class_specifier"}}),
     )
     .expect("explicit C++ directory match");
     assert_eq!(selected_directory["matchCount"], 1, "{selected_directory}");
 
     let selected_directory_default = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"cpp","rule":"kind: class_specifier"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"cpp","rule":{"kind":"class_specifier"}}),
     )
     .expect("C++ directory includes ambiguous headers");
     assert_eq!(
@@ -552,7 +538,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
     std::fs::write(&wrong_file, "int value;\n").expect("C file");
     let mismatch = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":wrong_file,"language":"cpp","rule":"kind: declaration"}),
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":wrong_file,"language":"cpp","rule":{"kind":"declaration"}}),
     )
     .expect_err("C source is not an ambiguous header");
     assert_eq!(mismatch.code, ErrorCode::LanguageMismatch);
@@ -733,7 +719,7 @@ fn an_empty_match_over_ignored_and_hidden_files_leads_to_them() {
             empty["hints"]
                 .to_string()
                 .contains(if flag == "includeIgnored" {
-                    "ignored"
+                    ".gitignore"
                 } else {
                     "hidden"
                 }),
@@ -788,10 +774,7 @@ fn an_empty_match_beside_parsed_files_names_the_ignored_ones() {
     assert_eq!(empty["status"], "empty", "{empty}");
     assert_eq!(empty["filesScanned"], json!(1), "{empty}");
     let hints = empty["hints"].to_string();
-    assert!(
-        hints.contains("ignored") && hints.contains("gen/"),
-        "{hints}"
-    );
+    assert!(hints.contains(".gitignore:1 'gen/'"), "{hints}");
     let retry = &empty["next"]["includeSkipped"]["query"]["queries"][0];
     assert_eq!(retry["includeIgnored"], true, "{empty}");
     let found = run(&root.0, retry.clone()).expect("lead runs");

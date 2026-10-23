@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CdpConnection, type AttachedTarget, type BrowserSession } from '../src/browser/cdp.js';
+import { CdpConnection, type AttachedTarget } from '../src/browser/cdp.js';
+import type { BrowserSession } from '../src/browser/session-state.js';
 import type { NetworkEvent } from '../src/browser/policy.js';
 import { openBrowser, switchTo } from '../src/browser/session.js';
 import { PagePolicy } from '../src/browser/network.js';

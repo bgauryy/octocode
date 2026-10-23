@@ -85,6 +85,7 @@ pub(crate) fn unavailable(
         total_items: total,
         selected_items: 0,
         excluded_items: 0,
+        related_items: None,
         unknown_items: total,
         reason: Some(reason.into()),
         failures: Vec::new(),

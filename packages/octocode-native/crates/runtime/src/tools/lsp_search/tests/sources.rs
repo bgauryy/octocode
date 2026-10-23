@@ -1,5 +1,5 @@
 //! Source access: bounded cached reads, line indexes, anchors on the
-//! synchronized text, and server context overlays.
+//! synchronized text and clipped rows.
 
 use super::*;
 
@@ -46,7 +46,8 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
     let large = root.join("large.ts");
     std::fs::write(&large, vec![b'a'; (MAX_LSP_DIDOPEN_BYTES + 1) as usize]).expect("large");
     let binary = root.join("binary.ts");
-    std::fs::write(&binary, [0xff_u8, 0xfe, 0x00, 0x80]).expect("binary");
+    // Invalid UTF-8 (`ff fe` would be a UTF-16 BOM, which is admitted).
+    std::fs::write(&binary, [0xc3_u8, 0x28]).expect("binary");
     let mut sources = SourceCache::new(&paths);
     for file in [&large, &binary] {
         let path = file.to_string_lossy().into_owned();
@@ -90,6 +91,55 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
         rows.iter().all(|row| row["content"] == unavailable),
         "the unavailable reason is kept as content: {result}"
     );
+}
+
+/// A definition the server places outside the allowed read roots is
+/// withheld, not absent: the row says how many were omitted, with no
+/// build-script or bad-anchor recovery.
+#[tokio::test(flavor = "current_thread")]
+async fn locations_outside_the_read_roots_are_reported_withheld() {
+    let (_dir, root, paths) = temp_workspace();
+    let outside = tempfile::tempdir().expect("outside");
+    let target = outside.path().join("walk.rs");
+    std::fs::write(&target, "pub struct WalkBuilder;\n").expect("target");
+    std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"p\"\n").expect("manifest");
+    std::fs::write(root.join("build.rs"), "fn main() {}\n").expect("build.rs");
+    std::fs::create_dir_all(root.join("src")).expect("src");
+    let anchor = root.join("src/lib.rs");
+    std::fs::write(
+        &anchor,
+        "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\nuse ignore::WalkBuilder;\n",
+    )
+    .expect("lib");
+    let q = query(serde_json::json!({
+        "operation": "definition", "mainGoal": "test", "reasoning": "test",
+        "path": anchor.to_string_lossy(), "symbolName": "WalkBuilder", "line": 2
+    }));
+    let snippets = vec![serde_json::json!({
+        "uri": octocode_engine::lsp::uri::path_to_uri(&target.to_string_lossy()).expect("uri"),
+        "range": {"start": {"line": 0, "character": 11}, "end": {"line": 0, "character": 22}},
+        "content": octocode_engine::lsp::client::SNIPPET_CONTENT_WITHHELD
+    })];
+    let row = locations(
+        &q,
+        &mut SourceCache::new(&paths),
+        "definition",
+        "definitionProvider",
+        snippets,
+        TEST_BUDGET,
+        None,
+    )
+    .await;
+    assert_eq!(row["status"], "empty", "{row}");
+    assert_eq!(row["category"], "locationsWithheld", "{row}");
+    assert!(
+        row["reason"].as_str().is_some_and(
+            |reason| reason.starts_with("1 location") && reason.contains("ALLOWED_PATHS")
+        ),
+        "{row}"
+    );
+    assert!(row.get("hints").is_none(), "{row}");
+    assert!(row["next"].get("includeBuildScripts").is_none(), "{row}");
 }
 
 #[cfg(unix)]
@@ -246,106 +296,6 @@ fn member_qualified_symbol_names_anchor_on_the_last_member() {
     assert_eq!(anchor_for("/repo/a.js", js, "this", 2), (1, 0));
 }
 
-#[test]
-fn rust_context_overlays_the_engine_headless_defaults() {
-    let mut config = octocode_engine::lsp::types::LspLanguageServerConfig {
-        command: "rust-analyzer".into(),
-        args: None,
-        workspace_root: "/repo".into(),
-        language_id: Some("rust".into()),
-        initialization_options: Some(
-            octocode_engine::lsp::config::rust_analyzer_headless_options(),
-        ),
-        env: None,
-        max_memory_mb: None,
-        source: Default::default(),
-    };
-    let q = query(serde_json::json!({
-        "operation": "definition", "mainGoal": "test", "reasoning": "test",
-        "path": "/repo/src/lib.rs",
-        "symbolName": "foo", "line": 1,
-        "rustContext": {"features": ["x"]}
-    }));
-    apply_rust_context(&mut config, &q).expect("rust context");
-    let options = config.initialization_options.expect("options");
-    assert_eq!(options["cargo"]["features"], serde_json::json!(["x"]));
-    assert_eq!(options["cargo"]["buildScripts"]["enable"], false);
-    assert_eq!(options["cargo"]["targetDir"], true);
-    assert_eq!(options["procMacro"]["enable"], false);
-    assert_eq!(options["checkOnSave"], false);
-    assert_eq!(
-        options["cachePriming"]["enable"], false,
-        "engine defaults the overlay does not set are kept"
-    );
-    assert!(
-        options.get("cfg").is_none(),
-        "cfg(test) code stays analyzed: the overlay never sets cfg.setTest"
-    );
-    assert!(options["cargo"].get("cfgs").is_none());
-    assert!(options["cargo"].get("noDefaultFeatures").is_none());
-}
-
-fn rust_server_config(
-    context: serde_json::Value,
-) -> octocode_engine::lsp::types::LspLanguageServerConfig {
-    let mut config = octocode_engine::lsp::types::LspLanguageServerConfig {
-        command: "rust-analyzer".into(),
-        args: None,
-        workspace_root: "/repo".into(),
-        language_id: Some("rust".into()),
-        initialization_options: Some(
-            octocode_engine::lsp::config::rust_analyzer_headless_options(),
-        ),
-        env: None,
-        max_memory_mb: None,
-        source: Default::default(),
-    };
-    let mut row = serde_json::json!({
-        "operation": "references", "path": "/repo/src/lib.rs", "symbolName": "foo", "line": 1
-    });
-    if !context.is_null() {
-        row["rustContext"] = context;
-    }
-    apply_rust_context(&mut config, &query(row)).expect("rust context");
-    config
-}
-
-/// A context that names only default values is the default analysis: the
-/// same configuration, so the same pooled server (one rust-analyzer, not
-/// one per spelling of the defaults). A context that changes one field
-/// changes only that field.
-#[test]
-fn a_default_equivalent_rust_context_shares_the_default_server() {
-    let key = |context| {
-        octocode_engine::lsp::pool::canonical_lsp_key(&rust_server_config(context)).expect("key")
-    };
-    let default = key(serde_json::Value::Null);
-    for explicit in [
-        serde_json::json!({}),
-        serde_json::json!({"buildScripts": false}),
-        serde_json::json!({"buildScripts": false, "procMacros": false}),
-        serde_json::json!({"features": [], "noDefaultFeatures": false}),
-        serde_json::json!({"cfgs": ["debug_assertions"]}),
-    ] {
-        assert_eq!(key(explicit.clone()), default, "{explicit}");
-    }
-    let scripts = rust_server_config(serde_json::json!({"buildScripts": true}))
-        .initialization_options
-        .expect("options");
-    assert_ne!(key(serde_json::json!({"buildScripts": true})), default);
-    let mut expected = octocode_engine::lsp::config::rust_analyzer_headless_options();
-    expected["cargo"]["buildScripts"]["enable"] = serde_json::json!(true);
-    assert_eq!(scripts, expected, "only the named field changes");
-    let cfgs = rust_server_config(serde_json::json!({"cfgs": ["tokio_unstable"]}))
-        .initialization_options
-        .expect("options");
-    assert_eq!(
-        cfgs["cargo"]["cfgs"],
-        serde_json::json!(["debug_assertions", "miri", "tokio_unstable"]),
-        "named cfgs add to rust-analyzer's defaults"
-    );
-}
-
 /// A definition whose body is clipped is partial with its reason, and the
 /// read of the omitted lines rides along.
 #[tokio::test(flavor = "current_thread")]
@@ -383,5 +333,28 @@ async fn clipped_definition_rows_name_their_partial_reason() {
     assert_eq!(
         row["next"]["readDeclaration"]["tool"], "localFetch",
         "{row}"
+    );
+}
+
+/// Every reader of source text for the server and the resolvers admits it
+/// by the engine's one rule: a UTF-8 BOM is not text, BOM-marked UTF-16
+/// decodes, and a NUL-bearing file is binary.
+#[test]
+fn source_text_is_admitted_by_the_one_engine_rule() {
+    assert_eq!(
+        admitted_text(b"\xef\xbb\xbffn a() {}\n").as_deref(),
+        Ok("fn a() {}\n")
+    );
+    assert_eq!(
+        admitted_text(&[0xff, 0xfe, b'a', 0, b'\n', 0]).as_deref(),
+        Ok("a\n")
+    );
+    assert_eq!(
+        admitted_text(b"ab\0cd"),
+        Err(octocode_engine::text::Refusal::Binary)
+    );
+    assert_eq!(
+        admitted_text(&[0xc3, 0x28]),
+        Err(octocode_engine::text::Refusal::NotUnicode)
     );
 }

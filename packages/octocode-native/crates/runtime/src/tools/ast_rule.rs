@@ -73,22 +73,13 @@ pub(crate) fn is_compile_failure(
 }
 
 /// Recovery for `invalidPattern`, in both tools: the code covers a
-/// pattern that parses as no node and a rule whose YAML does not parse.
-pub(crate) const INVALID_PATTERN_HINT: &str = "Make each pattern one complete, parseable node and a rule valid YAML; astSearch operation:\"syntaxTree\" shows the shape.";
+/// pattern that parses as no node and a rule object that does not decode.
+pub(crate) const INVALID_PATTERN_HINT: &str = "Make each pattern one parseable node and each rule a rule object; astSearch operation:\"syntaxTree\" shows the shape.";
 
 /// Why a pattern that parsed can still match nothing: astSearch's fallback
 /// hint for a pattern row without its own.
 pub(crate) const PATTERN_SHAPE_HINT: &str =
     "Patterns match whole nodes; astSearch operation:\"syntaxTree\" shows the shape.";
-
-/// What an empty structural answer covered, in both tools: the files read,
-/// in which grammar. Why a compiled query can match nothing is static and
-/// belongs to the tool description; the `viewTree` lead shows the shape.
-pub(crate) fn empty_match_hint(scanned: u32, language: Option<&str>) -> String {
-    let language = language.map_or_else(String::new, |language| format!("{language} "));
-    let plural = if scanned == 1 { "" } else { "s" };
-    format!("0 matches in {scanned} {language}file{plural}.")
-}
 
 /// Recovery of an engine structural diagnostic. The engine names no tool or
 /// contract field, so a diagnostic whose repair is another tool or a field
@@ -179,13 +170,13 @@ pub(crate) struct RuleError {
     pub message: String,
 }
 
-/// Compiles the pattern or YAML rule as a search for each extension of one
+/// Compiles the pattern or rule object as a search for each extension of one
 /// grammar; it passes when any of them parses it (`.tsx` accepts JSX that
 /// `.ts` rejects).
 pub(crate) fn compile_check(
     extensions: &BTreeSet<String>,
     pattern: Option<&str>,
-    rule: Option<&str>,
+    rule: Option<&serde_json::Value>,
 ) -> Result<(), RuleError> {
     let mut first_error = None;
     for extension in extensions {
@@ -394,35 +385,4 @@ pub(crate) fn has_extension_in(path: &std::path::Path, extensions: &BTreeSet<Str
 }
 
 #[cfg(test)]
-mod tests {
-    /// The hint is the per-call fact alone, within the guidance limit at its
-    /// widest: a five-digit count and the longest grammar name.
-    #[test]
-    fn the_empty_match_hint_states_only_what_was_scanned() {
-        let hint = super::empty_match_hint(99_999, Some("objective-cpp"));
-        assert_eq!(hint, "0 matches in 99999 objective-cpp files.");
-        assert!(hint.chars().count() <= crate::response::rows::MAX_GUIDANCE_CHARS);
-        assert_eq!(super::empty_match_hint(1, None), "0 matches in 1 file.");
-    }
-
-    /// `invalidPattern` is also a rule that does not parse: its recovery
-    /// names the rule, not only the pattern, within the guidance limit.
-    #[test]
-    fn the_invalid_pattern_hint_covers_rules() {
-        let hint = super::INVALID_PATTERN_HINT;
-        assert!(hint.contains("pattern") && hint.contains("rule"), "{hint}");
-        assert!(hint.chars().count() <= crate::response::rows::MAX_GUIDANCE_CHARS);
-    }
-
-    /// A syntax-tree budget stop is terminal: its recovery names no
-    /// continuation field (syntaxTree pages by `page`/`snapshot`, never an
-    /// offset) and leads to the tools that reach the unlisted nodes.
-    #[test]
-    fn a_tree_budget_recovery_names_no_offset_field() {
-        for code in ["syntaxTree.budget.deadline", "syntaxTree.budget.nodeLimit"] {
-            let text = super::diagnostic_recovery(code, None).expect("recovery");
-            assert!(!text.contains("nextOffset"), "{text}");
-            assert!(text.contains("localFetch"), "{text}");
-        }
-    }
-}
+mod tests;

@@ -5,11 +5,10 @@ use crate::response::result::ToolError;
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
+pub use octocode_contract_types::AstSearchQuerySyntaxTree;
 use octocode_contract_types::ErrorCode;
 use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::json;
-const MAX_SOURCE: usize = super::MAX_PARSE_SOURCE_BYTES;
-pub use octocode_contract_types::AstSearchQuerySyntaxTree;
 
 /// Engine-unit views over the generated `syntaxTree` query.
 pub(crate) mod ast_search_query_syntax_tree {
@@ -56,9 +55,10 @@ pub fn execute_syntax(
     let Some(bytes) = super::read_parse_source(&p.canonical)? else {
         return Ok(super::source_limit(&p.canonical.to_string_lossy(), None));
     };
-    let sanitized = security
-        .validate_text_bytes(&bytes, Some(&p.canonical), MAX_SOURCE)
-        .map_err(super::policy_error)?;
+    let sanitized = security.sanitize_text(
+        &super::parse_text(&p.canonical, &bytes)?,
+        Some(&p.canonical),
+    );
     let snapshot = crate::digest::json_sha256(&json!([
         // Node-row shape version (1-based columns).
         "rows-v2",
@@ -365,18 +365,16 @@ fn render_tree_page(
         out["diagnostics"] = json!(diagnostics);
     }
     if more {
-        let next_page = crate::response::paging::next_cursor(
+        if let Some(lead) = crate::response::paging::next_page_call(
             &mut out,
             ToolId::AstSearch,
             Some("syntaxTree"),
+            crate::response::result::query_row(q, &[]),
             "page",
             usize_of(page) + 1,
-        );
-        if let Some(next_page) = next_page {
-            let mut nq = crate::response::result::query_row(q, &[]);
-            nq["snapshot"] = json!(snapshot);
-            nq["page"] = json!(next_page);
-            out["next"] = json!({"nextPage":crate::response::result::Continuation::new(ToolId::AstSearch, nq).confidence(Confidence::Exact).build()})
+            &[("snapshot", json!(snapshot))],
+        ) {
+            out["next"] = json!({ "nextPage": lead });
         }
     } else if r.status == "partial" {
         for reason in walk_cuts(&codes) {
@@ -415,7 +413,7 @@ const NODE_CHUNK: u32 = 100_000;
 fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
     node_row(
         n.id,
-        &n.kind,
+        (n.field.as_deref(), &n.kind),
         n.named,
         [n.start_line, n.start_column, n.end_line, n.end_column],
         n.parent_id,
@@ -426,18 +424,30 @@ fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
 /// `returnedBytes` entry is a `stats` extra a default row drops, so a page
 /// asking for stats may run past the window by those entries.
 fn node_page_chars(n: &octocode_engine::structural::SyntaxTreeNode) -> usize {
-    crate::response::stream_page::json_text_chars(&node_page_row(n)) + 1
+    octocode_engine::json_size::string_body_units(&node_page_row(n)) + 1
 }
 
-/// One node as `"<id> <kind> <startLine>:<startColumn>-<endLine>:<endColumn>
-/// ^<parentId>"` (1-based lines and columns, end exclusive). An anonymous token's kind
-/// is quoted (`"("`), as tree-sitter prints it; the root has no parent.
-fn node_row(id: u32, kind: &str, named: bool, span: [u32; 4], parent: Option<u32>) -> String {
+/// One node as `"<id> [<field>:]<kind> <startLine>:<startColumn>-<endLine>:<endColumn>
+/// ^<parentId>"` (1-based lines and columns, end exclusive). The grammar field
+/// the node fills in its parent prefixes its kind (`name:identifier`), as
+/// tree-sitter prints `name: (identifier)`; an anonymous token's kind is
+/// quoted (`"("`); the root has no parent.
+fn node_row(
+    id: u32,
+    (field, kind): (Option<&str>, &str),
+    named: bool,
+    span: [u32; 4],
+    parent: Option<u32>,
+) -> String {
     let [start_line, start_column, end_line, end_column] = span;
     let kind = if named {
         kind.to_owned()
     } else {
         format!("\"{kind}\"")
+    };
+    let kind = match field {
+        Some(field) => format!("{field}:{kind}"),
+        None => kind,
     };
     // 1-based lines and columns; the end stays exclusive.
     let (start_column, end_column) = (

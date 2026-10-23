@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { registerCompaction } from '../src/compaction/register.js';
 import { bindsThinkingToPrefix, stripStaleThinking } from '../src/compaction/thinking.js';
-import type { FileGuard } from '../src/files/tool.js';
+import type { FileGuard } from '../src/files/guard.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
 import { tmp } from './helpers.js';
 

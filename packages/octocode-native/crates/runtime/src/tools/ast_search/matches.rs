@@ -6,11 +6,10 @@ use crate::tools::ast_rule::{
     GlobParsers, GrammarChoice, RuleError, choose_grammar, compile_check, count_grammars,
     has_extension_in, is_compile_failure, language_extensions, present_grammars,
 };
-use crate::tools::empty_walk::{FileProbe, Globs, Verdict, Walk, diagnose, lift};
+use crate::tools::empty_walk::{FileProbe, Globs, Walk, diagnose};
 use crate::{
     execution::cancel::CancellationCheck,
     policy::{path::PathPolicy, prune},
-    security::ContentSecurity,
 };
 pub use octocode_contract_types::{AstSearchQueryMatchPattern, AstSearchQueryMatchRule};
 use octocode_engine::structural::{
@@ -36,6 +35,12 @@ macro_rules! either_form {
     };
 }
 
+/// The wire rule as the JSON object the engine decodes. The typed rule holds
+/// only serializable data, so it always converts.
+fn to_rule_value(rule: &octocode_contract_types::AstSearchRule) -> Value {
+    serde_json::to_value(rule).unwrap_or(Value::Null)
+}
+
 fn non_empty(values: &[String]) -> Option<Vec<String>> {
     (!values.is_empty()).then(|| values.to_vec())
 }
@@ -54,19 +59,11 @@ impl<'a> MatchQuery<'a> {
             Self::Rule(_) => None,
         }
     }
-    pub fn rule(self) -> Option<String> {
+    /// The typed rule as the engine's JSON rule object.
+    pub fn rule(self) -> Option<Value> {
         match self {
             Self::Pattern(_) => None,
-            // An object rule serializes as JSON, which is valid YAML for the
-            // same rule.
-            Self::Rule(query) => Some(match serde_json::to_value(&query.rule) {
-                Ok(Value::String(text)) => text,
-                Ok(mut value) => {
-                    crate::response::result::remove_nulls(&mut value);
-                    value.to_string()
-                }
-                Err(_) => String::new(),
-            }),
+            Self::Rule(query) => Some(to_rule_value(&query.rule)),
         }
     }
     pub fn include(self) -> Option<Vec<String>> {
@@ -194,6 +191,9 @@ struct Scan {
     diagnostics: Vec<StructuralDiagnostic>,
     /// Unsupported, unreadable and over-large files skipped.
     skips: (u32, u32, u32),
+    /// Entries the walk could not read (an unreadable directory): absence
+    /// below them is unproven.
+    walk_errors: octocode_engine::structural::WalkErrors,
     skipped_by_prefilter: u32,
     /// Every file the scan evaluated (absolute), for the memo's stamps.
     sources: Vec<std::path::PathBuf>,
@@ -238,6 +238,14 @@ impl NamedFiles {
         self.examples.insert(path);
         if self.examples.len() > NAMED_EXAMPLES {
             self.examples.pop_last();
+        }
+    }
+
+    /// The same tally with each path respelled by `spell`.
+    fn respelled(&self, spell: impl Fn(&str) -> String) -> Self {
+        Self {
+            count: self.count,
+            examples: self.examples.iter().map(|path| spell(path)).collect(),
         }
     }
 
@@ -470,7 +478,6 @@ const SKIP_CODES: [&str; 3] = [
 pub fn execute_match(
     q: MatchQuery<'_>,
     paths: &PathPolicy,
-    security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
 ) -> super::AstResult {
@@ -511,7 +518,7 @@ pub fn execute_match(
                 None => {
                     let started = octocode_engine::stamp::settle_clock();
                     let mut scan = if scope.is_file {
-                        scan_file(q, &scope, security)?
+                        scan_file(q, &scope)?
                     } else {
                         scan_directory(q, &scope, paths, cancel)?
                     };
@@ -540,7 +547,7 @@ pub fn execute_match(
             if let Some(stale) = q.snapshot() {
                 SCANS.evict(&stale);
             }
-            return execute_match(q, paths, security, cancel, response_window);
+            return execute_match(q, paths, cancel, response_window);
         }
         if let Some(error) = interrupted_rescan(q, &scan) {
             return Err(error);
@@ -552,6 +559,11 @@ pub fn execute_match(
     let budget = crate::response::page_windows::page_budget(response_window, &q.to_value());
     let mut grouped = group_files(q, &scan.files, budget, &inapplicable);
     grouped.inapplicable_notice = inapplicable.notice();
+    // Group paths are rooted at the scope's parent; the notice names them as
+    // the response names rows.
+    grouped.recovered = grouped
+        .recovered
+        .respelled(|shown| super::response_path(paths, &scope.canonical, scope.is_file, shown));
     let shown = file_page(q, &grouped.groups, budget).window;
     if let Ok(incomplete) = rebuild_page(q, &scope, &scan.files, &mut grouped.groups[shown], budget)
     {
@@ -566,7 +578,7 @@ pub fn execute_match(
             if let Some(stale) = q.snapshot() {
                 SCANS.evict(&stale);
             }
-            return execute_match(q, paths, security, cancel, response_window);
+            return execute_match(q, paths, cancel, response_window);
         }
         return Ok(crate::response::result::stale_snapshot(
             crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),
@@ -594,7 +606,7 @@ pub fn execute_match(
         // A capped incompatible window must retain coverage and scan onward.
         return Err(error);
     }
-    let gaps = if scope.is_file {
+    let mut gaps = if scope.is_file {
         ScopeGaps::default()
     } else if grouped.total_matches == 0 && grouped.parsed_files == 0 && q.language().is_some() {
         ScopeGaps::of(q, &scope, paths, cancel)
@@ -605,12 +617,18 @@ pub fn execute_match(
         // grammar selected them.
         ScopeGaps::beside_parsed(q, &scope, paths, cancel)
     };
+    // The skipped-path probe walks within the scan's own file bound: a scan
+    // cut at that bound cuts the probe too, and the scan's cut (with its
+    // continuation) already says the result is partial.
+    if scan.truncated {
+        gaps.skipped = gaps.skipped.filter(|skipped| !skipped.disclosure.unchecked);
+    }
     let exact_miss_scope = grouped.total_matches == 0
         && grouped.scanned_files > 0
         && !scan.truncated
         && q.scan_offset() == 0;
-    let mut out = render_match_page(q, &scope, &scan, grouped, &snapshot, gaps, budget);
-    if exact_miss_scope && let Some(miss) = exact_miss(q, &scope, paths, security, cancel) {
+    let mut out = render_match_page(q, &scope, &scan, grouped, &snapshot, gaps, budget)?;
+    if exact_miss_scope && let Some(miss) = exact_miss(q, &scope, paths, cancel) {
         miss.attach(&mut out);
     }
     if fresh

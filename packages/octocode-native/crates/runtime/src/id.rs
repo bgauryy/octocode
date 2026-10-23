@@ -120,6 +120,15 @@ pub(crate) fn kind(name: &str) -> &str {
     if base.is_empty() { name } else { base }
 }
 
+/// The name of the `index`th (from 0) continuation of `kind` on one row:
+/// `kind` itself, then `kind2`, `kind3`, …; [`kind`] is its inverse.
+pub(crate) fn numbered(kind: &str, index: usize) -> String {
+    match index {
+        0 => kind.to_owned(),
+        index => format!("{kind}{}", index + 1),
+    }
+}
+
 /// A page that leaves more of this result to read (a restart page starts
 /// over, an enrichment page only deepens rows already complete): a row
 /// offering one is partial (a success: the CLI exits 0 and the page is the
@@ -175,6 +184,15 @@ mod tests {
         crate::contracts::parsed_contract().expect("contract")["tools"]
             .as_array()
             .expect("tools[]")
+    }
+
+    #[test]
+    fn numbered_names_repeat_their_kind() {
+        let names = (0..3)
+            .map(|index| numbered("readHits", index))
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["readHits", "readHits2", "readHits3"]);
+        assert!(names.iter().all(|name| kind(name) == "readHits"));
     }
 
     #[test]

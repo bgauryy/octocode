@@ -110,7 +110,10 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("source dir").flatten() {
         let path = entry.path();
         if path.is_dir() {
-            if path.file_name().is_some_and(|name| name != "tests") {
+            if path
+                .file_name()
+                .is_some_and(|name| name != "tests" && !name.to_string_lossy().ends_with("_tests"))
+            {
                 rust_sources(&path, out);
             }
         } else if path.extension().is_some_and(|ext| ext == "rs")

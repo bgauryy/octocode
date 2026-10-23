@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 pub(crate) fn apply_sanitized_rows(
     tool: ToolId,
     structured: &mut Value,
-    queries: &[Value],
+    queries: &[crate::security::CheckedQuery],
     row_indices: &[usize],
     response_query: &mut Value,
     runtime: &Runtime,
@@ -129,6 +129,16 @@ pub(crate) fn apply_sanitized_rows(
             }
         };
         let shown = outcome.shown(values.len());
+        // Judged, yet neither shown nor excluded: related or unknown rows.
+        let hidden = (0..values.len())
+            .filter(|ordinal| {
+                outcome.considers(*ordinal)
+                    && shown.binary_search(ordinal).is_err()
+                    && !outcome.excluded.contains(ordinal)
+                    && !outcome.unjudged.contains(ordinal)
+            })
+            .map(|ordinal| values[ordinal].clone())
+            .collect::<Vec<_>>();
         let mut values = values.into_iter().map(Some).collect::<Vec<_>>();
         data["files"] = Value::Array(
             shown
@@ -148,7 +158,7 @@ pub(crate) fn apply_sanitized_rows(
             data["next"]["unfiltered"] = provider_page_unfiltered(tool, query);
         }
         if let Some(token) = outcome.next_candidates(tool) {
-            let mut next_query = query.clone();
+            let mut next_query = (**query).clone();
             next_query["selection"] = json!(token);
             if !data["next"].is_object() {
                 data["next"] = json!({});
@@ -156,14 +166,12 @@ pub(crate) fn apply_sanitized_rows(
             data["next"]["nextCandidatePage"] =
                 crate::response::result::Continuation::new(tool, next_query).build();
         }
-        tool.output().finish_selection(data, query);
+        tool.output().finish_selection(data, query, &hidden);
         crate::response::paging::push_warnings(
             data,
             provider
                 .as_ref()
-                .map(|error| unclassified_warning(error, "this page", "its files are"))
-                .into_iter()
-                .chain(outcome.budget_warning(tool, "files")),
+                .map(|error| unclassified_warning(error, "this page", "its files are")),
         );
         let response_row = if queries.len() == 1 {
             Some(&mut *response_query)

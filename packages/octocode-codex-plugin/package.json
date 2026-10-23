@@ -25,9 +25,9 @@
   ],
   "scripts": {
     "build": "node scripts/build.ts",
-    "lint": "prettier --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
+    "lint": "prettier --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
     "format": "prettier --write package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "test": "node --test tests/package.test.ts",
     "test:smoke": "node scripts/smoke.ts",
     "verify": "yarn build && yarn lint && yarn typecheck && yarn test",
@@ -37,7 +37,6 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@types/node": "^24.19.2",
     "ajv": "^8.20.0",
-    "prettier": "^3.9.10",
-    "typescript": "^6.0.3"
+    "prettier": "^3.9.10"
   }
 }

@@ -133,12 +133,12 @@ Each record lives where its readers can reach it; none duplicates another.
 
 | Source | Answers |
 |---|---|
-| `agents` table (`team/store`) | Is this team member or lease owner running? Heartbeat every 5 s; silent for 60 s means *stale* (hidden, row and mail kept); retired only when `sameProcess` is false. |
+| `agents` table (`team/roster`) | Is this team member or lease owner running? Heartbeat every 5 s; silent for 60 s means *stale* (hidden, row and mail kept); retired only when `sameProcess` is false. |
 | `sessions.pid` (`agentdb/liveness`) | Is this Pi session open? Backlog claims, `/sessions` and the sweep ask; most sessions never join the team. |
-| `OCTOCODE_PARENT_PID` (`team/session`) | Should this subagent exit? Value `<pid> <start time>`, checked every second without the database, on the shared 1 s clock; a changed `process.ppid` also counts, and every 15th check compares the start time (a `ps`). |
+| `OCTOCODE_PARENT_PID` (`team/parent`) | Should this subagent exit? Value `<pid> <start time>`, checked every second without the database, on the shared 1 s clock; a changed `process.ppid` also counts, and every 15th check compares the start time (a `ps`). |
 | API instance files (`api/registry`) | Which APIs run here? Works without SQLite. |
 | Worktree owner files (`subagents/worktree`) | May this worktree be pruned? Works when the database is unusable. |
-| Bash job records (`files/bash-jobs`, `<id>-<ts>.job.json`) | Did a dead Pi leave this job running? Reaped at the next start. |
+| Bash job records (`files/bash-orphans`, `<id>-<ts>.job.json`) | Did a dead Pi leave this job running? Reaped at the next start. |
 | Claim names (`shared/claims`) | Did the claimer die? Markers `.claim-` (pending subagent reports), `.reaping-` (bash job records), `.pruning-` (worktrees). |
 | Scratch owner files (`subagents/handoff`) | May this handoff folder go? Its `agents` row is already gone. |
 | `_pid-<n>` session folders (`sessions/sweep`) | Is the session-less process gone? The folder name is its only record. |

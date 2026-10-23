@@ -1,4 +1,8 @@
-import { writeFileSync, readFileSync } from 'fs';
+import {
+  readTargetSnapshot,
+  recordTargetSnapshot,
+} from './snapshot-resource.mjs';
+import { writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -38,20 +42,9 @@ const SUMMARY = process.env.SNAPSHOT_STDOUT === 'summary';
 const MAX_CONTEXT = 110;
 const TEXT_CHARS = Math.max(0, Math.min(4000, int('SNAPSHOT_TEXT', 0) || 0));
 
-function previousSnapshot(cdp) {
-  try {
-    const map = JSON.parse(readFileSync(cdp.resourcesFile, 'utf8'));
-    return JSON.parse(
-      readFileSync(map.resources['page-snapshot'].artifactPath, 'utf8')
-    );
-  } catch {
-    return null;
-  }
-}
-
 async function rootBackendId(cdp) {
   if (/^[er]\d+$/.test(ROOT)) {
-    const prev = previousSnapshot(cdp);
+    const prev = readTargetSnapshot(cdp)?.data;
     const entry = ROOT.startsWith('e')
       ? prev?.refs?.[ROOT]
       : prev?.regions?.[ROOT];
@@ -237,7 +230,7 @@ export async function run(cdp) {
         view,
       ],
     });
-  cdp.upsertResourceMap?.('page-snapshot', {
+  recordTargetSnapshot(cdp, {
     type: 'page-snapshot',
     targetUrl: cdp.targetInfo.url,
     refCount: useful.length,

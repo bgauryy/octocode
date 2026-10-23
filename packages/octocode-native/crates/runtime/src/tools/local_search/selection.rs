@@ -40,6 +40,22 @@ pub(super) struct Selected {
     provider: Option<ProviderError>,
 }
 
+/// The query as the plan binds it and its leads carry it, with the clasify
+/// context default (`local_search_query::context`) stated: an unfiltered
+/// lead drops `clasifyContext` and must keep the windows the snapshot
+/// captured, and a candidate page that states the default binds the same
+/// plan as the call that implied it.
+fn stated_query(query: &LocalSearchQuery) -> Value {
+    let mut query_json = normalized_query(query, streamed_layout(query));
+    if query.context_lines.is_none()
+        && query.context_before.is_none()
+        && query.context_after.is_none()
+    {
+        query_json["contextLines"] = json!(local_search_query::CLASIFY_CONTEXT_LINES);
+    }
+    query_json
+}
+
 /// The snippet groups of one file: indices into its `matches`, each group
 /// in line order. Windows `[line - before, line + after]` that overlap or
 /// touch form one group.
@@ -126,7 +142,7 @@ pub(super) fn select_hits(
             candidates.push(Candidate::new(state));
         }
     }
-    let query_json = normalized_query(query, streamed_layout(query));
+    let query_json = stated_query(query);
     // The search succeeded: a provider that cannot answer now never
     // withholds its hits ([`crate::tools::selection::unless_transient`]).
     // A refused credential or request stays the row's error, with its
@@ -154,6 +170,9 @@ pub(super) fn select_hits(
     let mut decisions = vec![Decision::Unknown; total];
     for &ordinal in &outcome.selected {
         decisions[ordinal] = Decision::Selected;
+    }
+    for &ordinal in &outcome.related {
+        decisions[ordinal] = Decision::Related;
     }
     for &ordinal in &outcome.excluded {
         decisions[ordinal] = Decision::Excluded;
@@ -191,7 +210,7 @@ pub(super) fn select_hits(
                             group.iter().for_each(|&i| keep[i] = true);
                         }
                         Decision::Unknown => holds_unknown = true,
-                        Decision::Excluded => {}
+                        Decision::Related | Decision::Excluded => {}
                     }
                 }
             }
@@ -300,17 +319,7 @@ impl Selected {
         if !self.outcome.leaves_out() {
             return Vec::new();
         }
-        let mut query_json = normalized_query(query, streamed_layout(query));
-        // The clasify context default (`local_search_query::context`) stated:
-        // an unfiltered lead drops `clasifyContext` and must keep the windows
-        // the snapshot captured.
-        if query.context_lines.is_none()
-            && query.context_before.is_none()
-            && query.context_after.is_none()
-        {
-            query_json["contextLines"] =
-                json!(super::types::local_search_query::CLASIFY_CONTEXT_LINES);
-        }
+        let query_json = stated_query(query);
         let mut leads = self.unfiltered_leads(&query_json, snapshot, root_is_dir);
         if let Some(token) = self.outcome.next_candidates(ToolId::LocalSearch) {
             let mut row = query_json;
@@ -364,8 +373,9 @@ impl Selected {
         vec![("unfiltered", whole), ("unfilteredUnknown", unknown)]
     }
 
-    /// The provider's error when it failed this page, the pre-selection
-    /// totals when selection removed hits, and the groups the candidate
+    /// The provider's error when it failed this page, the hit rows the
+    /// selected chunks hold of the pre-selection totals when selection
+    /// removed hits, and the groups the candidate
     /// budget left unjudged. That counts describe kept hits is the tool
     /// description's, not repeated here.
     pub(super) fn disclosure(&self) -> Vec<String> {
@@ -379,14 +389,10 @@ impl Selected {
         }
         if self.rows_kept < self.rows_before {
             notes.push(format!(
-                "clasifyContext kept {} of {} hit rows ({} of {} files).",
+                "clasifyContext: the selected chunks hold {} of {} hit rows ({} of {} files).",
                 self.rows_kept, self.rows_before, self.files_kept, self.files_before,
             ));
         }
-        notes.extend(
-            self.outcome
-                .budget_warning(ToolId::LocalSearch, "hit groups"),
-        );
         notes
     }
 }
@@ -544,7 +550,7 @@ mod tests {
             result
                 .warnings
                 .iter()
-                .any(|note| note.contains("kept 0 of 30000 hit rows"))
+                .any(|note| note.contains("the selected chunks hold 0 of 30000 hit rows"))
         );
         assert!(
             result
@@ -580,10 +586,8 @@ mod tests {
         assert_eq!(result.stats.total_occurrences, Some(2));
         assert_eq!(result.stats.matched_lines, Some(2));
         assert!(
-            result
-                .warnings
-                .iter()
-                .any(|warning| warning.contains("kept 2 of 5 hit rows (1 of 3 files)")),
+            result.warnings.iter().any(|warning| warning
+                == "clasifyContext: the selected chunks hold 2 of 5 hit rows (1 of 3 files)."),
             "{:?}",
             result.warnings
         );
@@ -661,10 +665,10 @@ mod tests {
         let receipt = result.selection.as_ref().expect("receipt");
         assert_eq!(receipt.reason.as_deref(), Some("candidateBudget"));
         assert!(
-            result
+            !result
                 .warnings
                 .iter()
-                .any(|w| w.contains("judged 2 of 5 hit groups") && w.contains("3 were not judged")),
+                .any(|w| w.contains("were not judged")),
             "{:?}",
             result.warnings
         );
@@ -690,6 +694,42 @@ mod tests {
         assert_eq!(totals, [5, 3, 1], "each page counts the groups it judges");
         seen.sort();
         assert_eq!(seen, expected, "every kept hit once, none twice");
+    }
+
+    /// With no context field the clasify context default applies, and the
+    /// candidate page states it: replaying that page binds the same plan as
+    /// the first call, whose context was implied.
+    #[test]
+    fn a_candidate_page_chains_under_the_default_clasify_context() {
+        let root = tempfile::tempdir().expect("fixture");
+        let gap = "x\n".repeat(20);
+        std::fs::write(
+            root.path().join("a.rs"),
+            format!("needle keep one\n{gap}needle drop\n{gap}needle keep two\n"),
+        )
+        .expect("a");
+        std::fs::write(root.path().join("b.rs"), "needle keep\n").expect("b");
+        let unset = json!({"contextLines": null});
+        let mut result = search_with(root.path(), unset, None, 2).expect("first page");
+        let mut totals = Vec::new();
+        while let Some(page) = result
+            .next
+            .as_ref()
+            .and_then(|next| next.get("nextCandidatePage"))
+        {
+            totals.push(result.selection.as_ref().expect("receipt").total_items);
+            assert!(totals.len() < 4, "the chain ends");
+            let mut row = page["query"]["queries"][0].clone();
+            // The page as sent: without a stated context the helper's
+            // `contextLines: 0` must not fill it in.
+            row.as_object_mut()
+                .expect("row")
+                .entry("contextLines")
+                .or_insert(Value::Null);
+            result = search_with(root.path(), row, None, 2).expect("the candidate page replays");
+        }
+        totals.push(result.selection.as_ref().expect("receipt").total_items);
+        assert_eq!(totals, [4, 2], "each page judges the groups left");
     }
 
     /// A candidate names the declaration around each hit, so a predicate
@@ -749,6 +789,19 @@ mod tests {
     /// withholds a search that succeeded: every hit is shown under an `unavailable` receipt naming
     /// the provider's code, the warning states its error and hint, and the
     /// next page replays that plan without another provider call.
+    /// A filter that keeps no hit leaves an empty row, not a success: the
+    /// unfiltered lead is its recovery, since zero kept is not absence.
+    #[test]
+    fn a_filter_that_keeps_no_hit_is_an_empty_row_with_its_unfiltered_lead() {
+        let root = tempfile::tempdir().expect("fixture");
+        std::fs::write(root.path().join("a.rs"), "needle drop\nx\nneedle drop\n").expect("a");
+        let result = search(root.path(), json!({}), None).expect("search");
+        assert_eq!(result.selection.as_ref().expect("receipt").total_items, 2);
+        assert!(result.files.is_empty());
+        assert_eq!(result.status, SearchStatus::Empty);
+        assert!(result.next.as_ref().unwrap().get("unfiltered").is_some());
+    }
+
     #[test]
     fn a_provider_that_is_down_shows_the_unfiltered_page_as_unavailable() {
         let root = fixture();

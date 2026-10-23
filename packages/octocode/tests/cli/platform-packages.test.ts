@@ -25,7 +25,9 @@ describe('per-platform binary packages', () => {
     for (const name of readdirSync(resolve(__dirname, dir))) {
       const platform = read(`${dir}/${name}/package.json`);
       if (!platform.os?.includes('linux')) continue;
-      expect(platform.libc, name).toEqual([name.endsWith('-musl') ? 'musl' : 'glibc']);
+      expect(platform.libc, name).toEqual([
+        name.endsWith('-musl') ? 'musl' : 'glibc',
+      ]);
     }
   });
 });

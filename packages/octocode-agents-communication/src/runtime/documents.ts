@@ -13,7 +13,7 @@ import { isWithin, relativePath, type StoreHost } from './store-types.js';
 import { isBlank } from './text.js';
 import { DAY_MS, now } from './timing.js';
 import { asObject, jsonEqual, parseObject, type JsonObject } from './validation.js';
-import { compact, decodeUtf8, dumps } from './wire.js';
+import { compact, decodeUtf8, dumps } from './json-text.js';
 
 const MAX_BYTES = 1024 * 1024;
 const CONTEXT_SCAN = 200;

@@ -4,6 +4,7 @@ Load when a live browser step joins a scrape (auth, clicks, JS-only page, HAR, p
 
 - One sessionId and one CDP port (`--port` plus `--keep-tab`) keep evidence joinable; `octocode-chrome-devtools` owns live CDP, this skill owns the corpus.
 - CDP artifacts: `.octocode/octocode-chrome-devtools/tmp/<run>/`, passed to `har-ingest.mjs --from-cdp-dir`.
+- Run the CDP provider from the intended workspace. Browser state, temporary runners and captures belong to that cwd; the installed executable may live elsewhere. A port is a connection handle, not a durable research-session identity.
 
 ## Playbook
 

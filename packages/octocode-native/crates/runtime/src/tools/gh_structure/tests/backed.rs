@@ -43,13 +43,37 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
     let none = run(&server, find("**/nope.py")).await.expect("no match");
     assert_eq!(none.status, Some("empty"));
     // The empty status is the fact; the broader listing of the same commit
-    // without the globs shows what the tree holds.
-    assert!(none.data.get("hints").is_none(), "{}", none.data);
+    // without the globs shows what the tree holds. The tool's lead keeps the
+    // request brief: the response stage owns it (asserted below).
     assert_eq!(
-        none.data["next"]["broadenSearch"]["query"]["queries"],
-        json!([{"owner":"a","repo":"b","ref":TREE_SHA}]),
+        none.data["hints"],
+        json!(["broadenSearch rows: queries[0] drops include"]),
         "{}",
         none.data
+    );
+    assert_eq!(
+        none.data["next"]["broadenSearch"]["query"]["queries"],
+        json!([{"owner":"a","repo":"b","ref":TREE_SHA,"mainGoal":"test","reasoning":"test"}]),
+        "{}",
+        none.data
+    );
+    // The response stage drops the brief from every broadened row: the
+    // published lead carries none.
+    let mut row = none.data.clone();
+    row["status"] = json!("empty");
+    let published = crate::tools::test_support::published(
+        crate::id::ToolId::GhStructure,
+        &find("**/nope.py"),
+        &row,
+    );
+    let shown = published.to_string();
+    assert!(
+        shown.contains("broadenSearch: Approximate: ghStructure"),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains("mainGoal") && !shown.contains("reasoning"),
+        "{shown}"
     );
     // `include` matches relative to `path`: under `starlette` a glob that
     // repeats it names a `starlette/starlette/…` path.
@@ -57,6 +81,17 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
     under["path"] = json!("starlette");
     let under = run(&server, under).await.expect("path-anchored glob");
     assert_eq!(under.status, Some("empty"), "{}", under.data);
+    // The broader listing first rebases that glob onto `path`.
+    assert_eq!(
+        under.data["next"]["broadenSearch"]["query"]["queries"],
+        json!([
+            {"owner":"a","repo":"b","ref":TREE_SHA,"path":"starlette","include":["routing.py"],
+                "mainGoal":"test","reasoning":"test"},
+            {"owner":"a","repo":"b","ref":TREE_SHA,"path":"starlette","mainGoal":"test","reasoning":"test"}
+        ]),
+        "{}",
+        under.data
+    );
     let invalid = run(&server, find("src/[")).await.expect_err("bad glob");
     assert_eq!(invalid.kind, ProviderErrorKind::Validation);
 }
@@ -122,7 +157,7 @@ async fn deep_tree_is_fetched_once_at_the_resolved_commit() {
 #[tokio::test]
 async fn committed_build_output_names_are_listed_and_walked() {
     let expected = json!([
-        {"dir":".","files":["app.rs (3)"],"folders":["coverage","node_modules"]},
+        {"dir":".","files":["app.rs (3)","coverage/","node_modules/"]},
         {"dir":"coverage","files":["coverage.go (2)"]},
         {"dir":"node_modules","files":["kept.rs (4)"]}
     ]);
@@ -257,11 +292,11 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
     .expect("root level");
     assert_eq!(
         root.data["files"],
-        json!([{"dir":".","files":["README.md (5)"],"folders":["src"]}]),
+        json!([{"dir":".","files":["README.md (5)","src/"]}]),
         "{}",
         root.data
     );
-    assert_eq!(root.data["omitted"], json!({"CHANGELOG.md (symlink)":1}));
+    assert_eq!(root.data["omitted"], json!(["CHANGELOG.md (symlink)"]));
     let deep = run(
         &server,
         json!({"operation":"tree","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
@@ -269,7 +304,7 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
     )
     .await
     .expect("two levels");
-    assert_eq!(deep.data["omitted"], json!({"CHANGELOG.md (symlink)":1}));
+    assert_eq!(deep.data["omitted"], json!(["CHANGELOG.md (symlink)"]));
     let nested = run(
         &server,
         json!({"operation":"tree","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
@@ -283,7 +318,7 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
         "{}",
         nested.data
     );
-    assert_eq!(nested.data["omitted"], json!({"src/link.rs (symlink)":1}));
+    assert_eq!(nested.data["omitted"], json!(["src/link.rs (symlink)"]));
 }
 
 #[tokio::test]

@@ -24,6 +24,8 @@ const KEYWORDS: ReadonlySet<string> = new Set([
 const has = (object: object, key: string): boolean => Object.hasOwn(object, key);
 /** A JSON object: not null, not an array. */
 export const isObject = (value: unknown): value is JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value);
+/** `value` when it is a JSON object, else an empty one: a vendor reply field that may be absent. */
+export const objectOrEmpty = (value: unknown): JsonObject => (isObject(value) ? value : {});
 /** `value` as a JSON object, else a contract error naming `what`. */
 export function asObject(value: unknown, what: string): JsonObject {
   if (!isObject(value)) throw new ValidationError(`${what} must be a JSON object`);

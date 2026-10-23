@@ -1,4 +1,4 @@
-import type { BrowserSession } from './cdp.js';
+import type { BrowserSession } from './session-state.js';
 import { imageBudget, saveImageFile } from '../shared/spill.js';
 import type { ImageLimits } from '../shared/vision.js';
 

@@ -176,10 +176,20 @@ pub(super) const MATCH_LINE_SIDE: usize = 150;
 
 /// Clip a long diff line for a `matchString` view: keep the diff marker, the
 /// text around each hit, and its line ending; each cut becomes
-/// `[… N chars …]`. Lines up to [`MATCH_LINE_CHARS`] stay verbatim.
+/// `[… N chars …]`. Lines up to [`MATCH_LINE_CHARS`] stay verbatim. A long
+/// line is sanitized whole before it is cut: a cut of the raw line could
+/// split a secret past the redaction the row's text gets later.
 pub(super) fn clip_line<'a>(text: &'a str, needle: &str) -> std::borrow::Cow<'a, str> {
     if text.chars().count() <= MATCH_LINE_CHARS {
         return text.into();
+    }
+    crate::security::cut::scan_then_cut(text, |clean, _| cut_around_hits(clean, needle)).into()
+}
+
+/// [`clip_line`]'s cut of a (sanitized) line around each hit.
+fn cut_around_hits(text: &str, needle: &str) -> String {
+    if text.chars().count() <= MATCH_LINE_CHARS {
+        return text.to_owned();
     }
     let body_end = text.trim_end_matches(['\r', '\n']).len();
     let floor = |mut at: usize| {
@@ -234,7 +244,7 @@ pub(super) fn clip_line<'a>(text: &'a str, needle: &str) -> std::borrow::Cow<'a,
         ));
     }
     out.push_str(&text[body_end..]);
-    out.into()
+    out
 }
 
 /// One diff body line: its text (with its line ending), the old/new line

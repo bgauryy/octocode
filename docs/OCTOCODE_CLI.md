@@ -7,16 +7,21 @@ runtime as the MCP server. A tool command takes flags like rg and gh
 the same query. Output is plain text, on a terminal or a pipe; `--json` prints
 JSON.
 
-```text
-octocode <tool> [FLAGS] ARGS     ─┐
-octocode <tool> '<json>'          ├─► native Rust runtime ──► local files, GitHub, packages, LSP
-octocode-mcp (MCP tools/call)    ─┘    same tools, same fields
+```mermaid
+flowchart TD
+  N["npx octocode"] --> L[Node launcher]
+  L --> B[Platform executable]
+  D[Direct binary invocation] --> B
+  B --> R[Shared Rust runtime]
+  M["octocode-mcp: Node stdio"] --> A[N-API addon]
+  A --> R
+  B --> S[Embedded public skills]
 ```
 
 `npx octocode` and a global npm install run the same native binary. The
-`octocode` npm package holds only a small launcher. npm installs the one
+`octocode` npm package includes the small Node launcher, public skills and documentation. npm installs the
 per-platform package that matches the machine (`@octocodeai/octocode-native-<platform>`,
-selected by its `os` and `cpu`), and the launcher starts its `octocode`
+selected by its `os`, `cpu` and, on Linux, `libc`), and the launcher starts its `octocode`
 binary with every argument unchanged.
 
 This page owns the CLI: commands, flags, input, output, exit codes. Field
@@ -29,21 +34,21 @@ Which tool to call when: [workflows](OCTOCODE_WORKFLOWS.md). Settings:
 
 ```bash
 octocode --help                                         # commands, one example per tool, exit codes
-octocode localSearch --help                             # every flag, with examples
+octocode localSearch --help                             # primary flags, with examples
 octocode localSearch createServer src -w                # like rg -w createServer src
 octocode localFetch src/index.ts:1-40                   # like sed -n '1,40p'
 octocode ghSearchRepo ripgrep --sort stars:desc -L 3    # like gh search repos
 octocode localSearch '{"path":"src","matchString":"createServer"}'   # the same search as JSON
 ```
 
-GitHub tools need a token: `octocode auth status` shows the one in use
+Authenticated GitHub endpoints and private repositories need a token; some public requests work without one. `octocode auth status` shows the one in use
 ([`auth`](#auth--github-authentication)).
 
 ## Commands
 
 ### Tool commands
 
-`octocode <tool> --help` lists every flag. Positional arguments fill the
+`octocode <tool> --help` lists primary flags; `schema <tool> --view full` describes the complete JSON input. Positional arguments fill the
 required fields in the order shown. A tool with operations takes the operation
 first (`octocode lspSearch references …`); without it, the tool's default
 operation runs.
@@ -179,7 +184,7 @@ octocode schema <tool> --view full                     # every field, including 
 octocode schema ghSearchHistory --select operation=commit
 ```
 
-`schema` prints JSON Schema, so it prints JSON on a terminal and on a pipe. The
+`schema` prints JSON discovery data on a terminal and on a pipe; `schema <tool> --view full` includes the complete contract. The
 catalog lists only the tools that run here. `schema <tool>` also answers for a
 gated tool and reports `availability.enabled` with the `envVar` that turns it
 on. A bare `octocode` prints the command reference on a terminal and the
@@ -199,9 +204,9 @@ octocode localSearch --input query.json                                      # f
 echo '{"path":".","matchString":"TODO"}' | octocode localSearch --input -    # from stdin
 ```
 
-- Local paths resolve from the current directory.
+- Relative local paths resolve from the configured workspace root, which defaults to the current directory.
 - `mainGoal` and `reasoning` are optional notes for multi-step research, JSON
-  only. They never change results.
+  only. They provide intent context, including extra provider context for `clasifyContext`; they do not supply missing query fields.
 - A mistyped field fails with exit `2` and a suggestion
   (`did you mean 'wholeWord'?`). When the fix is certain (an enum's case, a
   string sent for a number, `owner:"a/b"`), the error carries the corrected call
@@ -230,9 +235,9 @@ crates/engine/src/search/text_search.rs
 26:use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
 27-use ignore::overrides::Override;
 --
-996-) -> Searcher {
-997:    let mut sb = SearcherBuilder::new();  [function build_searcher 992-1016]
-998-    sb.line_number(true)
+1007-) -> Searcher {
+1008:    let mut sb = SearcherBuilder::new();  [function build_searcher 1003-1027]
+1009-    sb.line_number(true)
 # matchCount: 2                     (stderr)
 # matchedLineCount: 2               (stderr)
 ```
@@ -246,7 +251,10 @@ crates/engine/src/search/text_search.rs
 | `-o` (matchOnly) | `path:N:value  [column 5]` |
 | `-U` with context | numbered like `rg -n -U -C`: every line of the match is `path:N:text` |
 | astSearch matches | `path:N:text` for every line of the match |
-| `lspSearch` sites (`references`, `callers`, …) | `path:N:text`, like hits |
+| `lspSearch` sites and locations (`references`, `definition`, `implementation`, …) | `path:N:text`, like hits; a declaration body or `contextLines` prints as `rg --heading` blocks |
+| `lspSearch callers`/`callees` | `path:N: kind name  [N-M sites L:C,…]`: the calling or called declaration and its call sites |
+| `lspSearch` with `groupByFile` | `path:N` per site |
+| `lspSearch workspaceSymbol` | `path:N: kind name  [column C]` |
 | `astSearch symbols PATH` (a directory) | `path:N: kind name  [N-M doc D]`; members indented under their parent |
 | `structureSearch files` | one path per line, a directory's ending in `/`, as fd prints them; `[size]` follows when the query sorts or filters by size; symlinks and line counts follow in `[ … ]` |
 
@@ -280,8 +288,8 @@ MSYS or Cygwin on Windows (`MSYSTEM` or `SHELL` set). Otherwise, on Windows they
 are quoted for PowerShell 7.3 or later, which passes the JSON's double quotes
 intact. In `cmd.exe`, save the JSON to a file and pass `--input FILE`.
 
-Pull request and comment bodies written with CRLF line ends print as lines in
-text output; `--json` keeps the exact bytes.
+Pull request and comment bodies and commit messages written with CRLF line
+ends print as lines in text output; `--json` keeps the exact bytes.
 
 ### Reading a JSON result
 
@@ -303,7 +311,7 @@ With `--json`, a tool prints the result envelope:
 | `results[i].data` | The answer. Its keys depend on the tool ([tools reference](OCTOCODE_TOOLS.md)) |
 | `data.pagination` | `currentPage`, `totalPages`, `totalItems`, `hasMore` |
 | `data.next.*` | Ready-made follow-up calls, such as `nextPage`. Each is `{"tool","query"}`. Pass `query` back unchanged: `octocode <tool> "$(jq -c '.results[0].data.next.nextPage.query' out.json)"` |
-| `data.hints` | Recovery notes on empty results. Suggested calls appear only with `--extras hints` |
+| `data.hints` | Notes and suggested calls (`label: [Approximate: ]tool JSON`). Empty and failed rows, and default leads (`viewFileCount`, `includeSkipped`, …), always show them; `--extras hints` adds the optional leads of successful rows |
 | `data.warnings`, `isPartial`, `partialReasons` | Coverage you did not get, and why |
 | `root` | The absolute directory local `path`s are relative to. Join them before you build a call by hand |
 | `shared` | Values every row has in common, lifted out once (`{"language":"Rust"}` means every repository listed is Rust) |
@@ -357,9 +365,9 @@ server share cache data under the Octocode home:
 
 | Bucket | Path | Contents |
 |---|---|---|
-| Clone | `tmp/clone/{owner}/{repo}/{branch}` | Reusable Git checkouts |
+| Clone | `tmp/clone/{owner}/{repo}/{commit-and-scope-key}` | Reusable Git checkouts |
 | Tree | `tmp/materialize/v3/{owner}/{repo}/{commitSha}` | Materialized trees; `{commitSha}.manifest.json` lists the files written |
-| Response | `tmp/response/` | Eligible GitHub and npm response payloads |
+| Response | `tmp/response/` | Eligible GitHub response payloads; registry responses use `tmp/artifact/` |
 
 Delete a bucket to drop it. `config home` prints the home
 ([cache storage](CONFIGURATION.md#cache-storage-and-lifecycle)).
@@ -445,11 +453,12 @@ percentile)).
   bind no name (`precision: "symbol"`). Barrel files pass changes through by
   symbol.
 - Depth defaults to 3 (`--depth` widens it). Rows carry `depth`, `risk`
-  (`direct`, `likely`, `transitive`), `packageDistance`, `confidence` and
-  `typesOnly`.
-- The summary lists `willBreak` (depth 1), `likely` (depth 2), `shouldTest`
-  (depth 3+), `affectedEntrypoints`, `testsToRun`, `components`, and
-  `testFunctions` (including Rust `mod tests` and pytest `test_*` functions).
+  (`direct` at depth 1, `likely` at 2, `transitive` at 3+), `packageDistance`,
+  `confidence` and `typesOnly`.
+- The summary (first page only) counts rows `byDepth` and lists
+  `affectedEntrypoints`, `testsToRun`, `components`, and `testFunctions`
+  (including Rust `mod tests` and pytest `test_*` functions). A list over 100
+  entries previews 100, and `nextLists` pages the rest from entry 100.
 - A manifest, lockfile, or tsconfig/pyproject/go.mod change affects everything
   below its directory; `allAffected` marks a root-level change.
 
@@ -479,7 +488,7 @@ octocode install --ide cursor --remove               # delete the entry (backup 
 ```
 
 Clients: Cursor, Claude Desktop, Claude Code, Windsurf, Trae, Antigravity, VS
-Code Cline/Roo/Continue, Zed, OpenCode, Gemini CLI, Kiro, Codex, Goose. Use an
+Code Cline/Roo/Continue, Zed, OpenCode, Gemini CLI, Kiro, Codex. Use an
 exact id; a partial id such as `claude` is rejected with the ids it could mean.
 
 `install --list [--scope …]` shows each client's entry: `installed`, `disabled`,
@@ -581,7 +590,7 @@ octocode skill remove octocode-research --platform pi
 |---|---|
 | `--platform pi,cursor,claude,codex,opencode,copilot,gemini,all` | Agent skill directories (`codex` is the shared `.agents/skills` location). `all` selects all seven. |
 | `--global` / `--project-dir <dir>` | Link scope; use exactly one with `--platform`. |
-| `--add <path>` | Install a local skill directory (or its `SKILL.md`). Not combinable with `--all`. |
+| `--add <path>` | Install a local skill directory (or its `SKILL.md`). Not combinable with `--all`. The skill name is the one `name: token` frontmatter line (bare or double-quoted) and must match the folder; no YAML parser runs, so any other form (block scalar, single quotes, trailing comment) needs a name override: `skill install --add <path> <name>`. |
 | `--path <dir>` | Use a custom store instead of `$OCTOCODE_HOME/skills`. Not combinable with `--platform`. |
 | `--mode symlink\|copy\|auto` | Install strategy; `symlink` is the default, `copy` a portability fallback. |
 | `--force` | install: replace differing content (kept by default). remove: also delete real directories. |

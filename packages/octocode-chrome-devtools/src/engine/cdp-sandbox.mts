@@ -159,9 +159,16 @@ const readPaths = [
     safePath(resolve(__dir, 'frame-events.mjs')),
     CONFIG_ENTRY,
     CONFIG_ENTRY_REAL,
-    ...['chrome-contract.mjs', 'cli-flags.mjs', 'engine-io.mjs'].flatMap(
-      name => [resolve(__dir, name), safePath(resolve(__dir, name))]
-    ),
+    ...[
+      'chrome-contract.mjs',
+      'cli-flags.mjs',
+      'engine-io.mjs',
+      // The runner's own modules, and the page-owner lookup it shares with browser plans.
+      'cdp-runner-guard.mjs',
+      'cdp-runner-session.mjs',
+      'cdp-runner-targets.mjs',
+      'target-owner.mjs',
+    ].flatMap(name => [resolve(__dir, name), safePath(resolve(__dir, name))]),
     OCTOCODE_OUTPUT_BASE,
     OCTOCODE_TREE_REAL,
     ...['dom-actionability.mjs', 'human-input.mjs', 'ax-snapshot.mjs'].flatMap(

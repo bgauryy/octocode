@@ -23,7 +23,7 @@ test('discovers consumers in every collection, checks without writing, and repai
   const root = fixture(t);
   const first = build({ root, check: true });
   assert.equal(first.skills, 3);
-  assert.equal(first.stale.length, 24);
+  assert.equal(first.stale.length, 57);
   const renderer = join(root, 'skills/example/scripts/render-report.mjs');
   assert.equal(existsSync(renderer), false);
   build({ root });

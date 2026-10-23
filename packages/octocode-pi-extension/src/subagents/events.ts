@@ -1,5 +1,5 @@
 import type { Usage } from '@earendil-works/pi-ai';
-import { NEEDS_APPROVAL } from '../permission/ask.js';
+import { NEEDS_APPROVAL } from '../permission/dialog.js';
 import { AUDIT_NOTIFY_PREFIX } from '../permission/audit.js';
 import { redactSecrets, visibleControls } from '../shared/sanitize.js';
 import { Thought, thoughtGist } from '../shared/thought.js';

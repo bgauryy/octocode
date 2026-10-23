@@ -1,6 +1,6 @@
 //! astSearch's answers to the shared response stages.
 
-use crate::response::output::{PathAnchor, TextShape, ToolOutput};
+use crate::response::output::{PathAnchor, ToolOutput};
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
@@ -46,9 +46,6 @@ impl ToolOutput for Output {
     }
     fn path_anchor(&self) -> PathAnchor {
         PathAnchor::QueryParent
-    }
-    fn text_shape(&self) -> TextShape {
-        TextShape::Outline
     }
 }
 

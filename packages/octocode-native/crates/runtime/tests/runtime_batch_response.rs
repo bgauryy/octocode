@@ -146,8 +146,8 @@ async fn oversized_cli_output_pages_by_whole_rows_with_an_executable_continuatio
     );
     assert_eq!(envelope["results"][0]["rowPart"]["part"], 1);
     let next = pagination["next"]["query"].clone();
-    assert_eq!(next["responseScope"], "rows");
-    assert_eq!(next["responseOffset"], 1);
+    support::assert_cursor_only(&next);
+    assert_eq!(support::cursor_offset(pagination), 1);
     let mut files_seen = files_on_first;
     let mut next = Some(next);
     let mut pages = 1;
@@ -222,9 +222,6 @@ async fn small_output_is_not_paginated_and_mcp_auto_pages_by_whole_rows() {
     assert!(!structured["results"].as_array().unwrap().is_empty());
     assert_eq!(structured["responsePagination"]["scope"], "rows");
     assert_eq!(structured["responsePagination"]["hasMore"], true);
-    assert_eq!(
-        structured["responsePagination"]["next"]["query"]["responseScope"],
-        "rows"
-    );
+    support::assert_cursor_only(&structured["responsePagination"]["next"]["query"]);
     runtime.close().await;
 }

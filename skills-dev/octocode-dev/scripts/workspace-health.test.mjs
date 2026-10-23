@@ -6,12 +6,15 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+const WORKSPACE_HEALTH_LIB = ['lib/workspaces.mjs', 'lib/workspace-checks.mjs', 'lib/workspace-run.mjs'];
+
 test('repo verify executes an additional workspace gate and propagates its failure', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-verify-gates-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const scripts = path.join(root, 'skills-dev/octocode-dev/scripts');
   fs.mkdirSync(scripts, { recursive: true });
-  for (const name of ['workspace-health.mjs', 'artifact-freshness.mjs']) {
+  fs.mkdirSync(path.join(scripts, 'lib'));
+  for (const name of ['workspace-health.mjs', 'artifact-freshness.mjs', ...WORKSPACE_HEALTH_LIB]) {
     fs.copyFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), path.join(scripts, name));
   }
   for (const name of ['dedupe-deps.mjs', 'docs-verify.mjs', 'check-research-guidance.mjs', 'workspace-health.test.mjs']) fs.writeFileSync(path.join(scripts, name), '');
@@ -46,8 +49,10 @@ test('check enforces the config/native layering and keeps mcp-cli standalone', t
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const scripts = path.join(root, 'skills-dev/octocode-dev/scripts');
   fs.mkdirSync(scripts, { recursive: true });
-  fs.copyFileSync(fileURLToPath(new URL('./workspace-health.mjs', import.meta.url)), path.join(scripts, 'workspace-health.mjs'));
-  fs.copyFileSync(fileURLToPath(new URL('./artifact-freshness.mjs', import.meta.url)), path.join(scripts, 'artifact-freshness.mjs'));
+  fs.mkdirSync(path.join(scripts, 'lib'));
+  for (const name of ['workspace-health.mjs', 'artifact-freshness.mjs', ...WORKSPACE_HEALTH_LIB]) {
+    fs.copyFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), path.join(scripts, name));
+  }
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
   const scriptSet = Object.fromEntries(['build', 'lint', 'test', 'typecheck', 'verify'].map(name => [name, name]));
   const write = (dir, pkg) => {

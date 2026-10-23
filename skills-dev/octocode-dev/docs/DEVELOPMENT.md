@@ -35,7 +35,7 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 
 | Concept | Where |
 |---|---|
-| Contracts, descriptions, instructions, budgets | core `src/toolContract/` (`instructions.ts`, `descriptions.ts`, `publishedSchema.ts`, `validation/`, `outputSchemas.ts`, `limits.ts`) → `packages/octocode-config/contract/` |
+| Contracts, descriptions, instructions, budgets | core `src/toolContract/` (`instructions.ts`, `descriptions.ts`, `published*.ts`, `validation/`, `output*.ts`, `limits.ts`) → `packages/octocode-config/contract/` |
 | MCP startup, fingerprint gate, registration | `packages/octocode-mcp/src/native/index.ts` |
 | CLI dispatch and exit codes | `crates/cli/src/cli/mod.rs` |
 | Validation and row isolation | `crates/runtime/src/contracts/` (`validate.rs`, `mod.rs`) |
@@ -85,19 +85,27 @@ A new configuration setting follows [ADDING_CONFIG.md](ADDING_CONFIG.md).
 
 Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-dev/scripts/dev.mjs <task>`; the task table is in [SKILL.md](../SKILL.md#task-runner).
 
-- `yarn workspace @octocodeai/octocode-native build:all`: release native binaries for all platforms (clears old binaries first). Root `yarn build:native:all` runs it.
+- `yarn workspace @octocodeai/octocode-native build:all`: release native binaries for all platforms (clears old binaries first). `$DEV build:publish` runs it.
 - `yarn workspace @octocodeai/octocode-native check:target <platform>`: type-check one other platform (cargo-zigbuild or cargo-xwin) without linking; the fast loop for `cfg(windows)`/`cfg(target_os)` code. Details: [PUBLISHING.md](../../../packages/octocode-native/docs/PUBLISHING.md#build).
 - `yarn contracts:regen`: regenerate the tool contract from core.
 
 | Package | Test | Lint / format |
 |---|---|---|
-| native | `test` (scripts + vitest + `test:rust`), `test:rust` alone (nextest), `coverage:rust`, `check:features` | `lint` (clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `deny`, `shear` |
-| config | `test`, `check:tool-contract`, `check:config-contract` | `lint` |
-| mcp, octocode, vscode | `test` | `lint` (eslint, prettier included), `format` (eslint `--fix`) |
-| chrome-devtools, claude-plugin, codex-plugin | `test` | `lint` (prettier `--check`), `format` (prettier `--write`) |
-| agents-communication, benchmark, mcp-cli, pi-extension | `test` | `lint` |
+| native | `test` (`test:scripts` + `test:node` + `test:rust`), `test:rust` alone (nextest), `coverage:rust`, `check:features` | `lint` (oxlint, then clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `deny`, `shear` |
+| config | `test`, `check:tool-contract`, `check:config-contract` | `lint` (oxlint + config contract check; `build` checks the tool contract) |
+| mcp, octocode, vscode, chrome-devtools, claude-plugin, codex-plugin | `test` | `lint` (prettier `--check` + oxlint), `format` (prettier `--write`) |
+| agents-communication, benchmark, mcp-cli, pi-extension | `test` | `lint` (oxlint) |
 
-`$DEV format` runs every workspace `format` script.
+`$DEV format` runs every workspace `format` script. Every workspace `typecheck` is `tsgo --noEmit` (`@typescript/native-preview`, pinned at the root); native's Rust types are checked by its clippy `lint`.
+
+### Lint, typecheck and file-length rules
+
+- **oxlint**: the root `.oxlintrc.json` is the only lint config. Each workspace `lint` runs `yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .`, so every rule is an error. Beyond the correctness and suspicious categories it sets `max-lines` 400 (physical lines), `max-lines-per-function` 80, `complexity` 15, `max-depth` 4, `max-params` 4, `typescript/no-explicit-any`, `typescript/consistent-type-imports`, `typescript/no-floating-promises`, `import/no-cycle` and `no-console` (off for tests, `bin/`, `scripts/`, `tools/` and build files). Generated files (`*.generated.*`) are ignored.
+- **oxlint baseline**: violations that predate a rule are recorded in `.oxlintrc.baseline.json` (the root config `extends` it): one override per file that switches a rule off or raises a size limit to the file's current value. The baseline only shrinks. `node skills-dev/octocode-dev/scripts/oxlint-baseline.mjs` fails on a stale entry (a file now cleaner than its entry) and on a violation without one; `--write` removes and lowers entries but never adds one. Fix new violations in the code. Core (`../octocode-mcp-host/packages/octocode-core`) lints with copies of both files; this repo's are canonical, and `$DEV verify` runs `core-lint-sync.mjs`, which fails when core's `scripts/oxlint-baseline.mjs` is not byte-identical or its `.oxlintrc.json` rules differ (its `$schema`, `ignorePatterns` and overrides scoped to `packages/...` are layout-specific), and skips without the sibling checkout.
+- **File length**: `node skills-dev/octocode-dev/scripts/check-file-length.mjs` allows 400 physical lines in every `.ts`/`.tsx`/`.mts`/`.cts`/`.js`/`.mjs`/`.cjs`/`.rs` file, tests included; generated files (`*.generated.*`, `tool_types.rs`) and fixtures are skipped. `file-length-baseline.json` beside the script records the files that were longer (path → lines): a new file over 400 fails, a baselined file that grows fails, and an entry for a file now at or under 400 (or deleted) is stale and fails. `--write` drops stale entries and lowers shrunk counts; it never adds one. Split long files by responsibility.
+- **TypeScript**: every project extends the root `tsconfig.base.json` (`strict`, `verbatimModuleSyntax`, `isolatedModules`). Typecheck with `tsgo --noEmit`; declarations are still emitted by `tsc` (TypeScript 6) in the packages that publish them.
+
+`$DEV lint`, `lint:ci` and `verify` run both baselines first; CI runs `lint:ci` and `typecheck:ci`.
 
 ### Tool health
 
@@ -131,7 +139,7 @@ Each tool prints one line, `PASS`/`FAIL`/`SKIP`, with its total and slowest-call
 
 ### Rust dev tools
 
-Install the prebuilt binaries once: `cargo binstall cargo-nextest cargo-deny cargo-shear cargo-llvm-cov cargo-hack cargo-mutants bacon` (or `brew install` the same names). rustup installs `llvm-tools` from `rust-toolchain.toml`. Scripts are in `packages/octocode-native`; run them with `yarn workspace @octocodeai/octocode-native <script>`.
+Every tool's version, and the dated nightly the opt-in tools use, is pinned in `packages/octocode-native/dev-tools.json`. `$DEV rust:tools` compares it with what is installed and prints `cargo install --locked <tool>@<version>` (or the `rustup` command) for anything missing or different; no task or build installs anything. CI installs the tools it gates on at these same pins: each workflow reads them with `rust-quality.mjs pins <tool...>`. Prebuilt binaries (`cargo binstall <tool>@<version>`, or `brew install`) are fine at the pinned version. rustup installs `llvm-tools` from `rust-toolchain.toml`. Scripts are in `packages/octocode-native`; run them with `yarn workspace @octocodeai/octocode-native <script>`.
 
 | Tool | Script or command | Config | When |
 |---|---|---|---|
@@ -142,8 +150,18 @@ Install the prebuilt binaries once: `cargo binstall cargo-nextest cargo-deny car
 | cargo-hack | `check:features`: every crate with each feature alone and with none (about 4 min warm) | | after changing `[features]` or `#[cfg(feature)]` code |
 | cargo-mutants | `cargo mutants --in-diff <diff>` or `-f <file>` | `.cargo/mutants.toml` | occasionally, on changed code |
 | bacon | `bacon`, `bacon clippy`, `bacon test`, `bacon test-engine` | `bacon.toml` | edit loop |
+| cargo-fuzz (nightly) | `$DEV fuzz:smoke` (60 s per target), `$DEV fuzz` (600 s); `[--seconds N] [--target-dir D] [target...]` | `fuzz/` workspace; bounds in `dev-tools.json` | after changing code a target covers; never CI |
+| Miri (nightly) | `$DEV miri`: the selected tests, deadline 1500 s | `miri` in `dev-tools.json` | after changing `unsafe`, offset or concurrency code they cover |
+| cargo-llvm-lines | `$DEV llvm-lines [package] [--timings]` | builds in `target/llvm-lines` (delete when done) | investigating compile time or binary size; not a gate |
 
 `scripts/test-rust-selections.cjs` reads the package and feature selections from `test:rust`; `coverage:rust` uses it, and a script test keeps the `bacon.toml` test jobs equal to them. Library crates set `doctest = false`: nextest runs no doctests, and `shear` fails if one appears.
+
+#### Fuzzing, Miri and IR size
+
+- **Fuzz workspace**: `packages/octocode-native/fuzz` has its own `[workspace]` and `Cargo.lock` (the main workspace `exclude`s it), `publish = false`, and the only `libfuzzer-sys` dependency. Builds go to `fuzz/target` (or `--target-dir`). `utf8_offsets` compiles the engine's `text/utf8_offsets.rs` by path and checks every conversion against a naive oracle under both line rules. Only `fuzz/seeds/<target>` is committed; libFuzzer grows `fuzz/corpus/` and writes crashes to `fuzz/artifacts/` (both gitignored). A crash becomes a deterministic test in the crate it exercises (for example `text/utf8_offsets/tests/fuzz_regressions.rs`), never a committed input.
+- **Miri**: interprets only the selections in `dev-tools.json`: the `KeyedFlight` thread tests (its `ManuallyDrop` release, eight scheduler seeds) and the `LineIndex` offset tests. Out of reach, recorded there under `unsupported`: the tokio IO driver (`kqueue` on macOS), FFI (libc, Windows, N-API), C libraries (tree-sitter, PCRE2), wall-clock assertions, and the proptests and naive-scan checkpoint test, too slow to interpret (the fuzz target covers them). A test whose loop only needs to be shorter shrinks it under `cfg!(miri)` instead of being skipped. A warm run takes about 30 s.
+- **cargo-llvm-lines**: `--timings` first records `cargo build --timings` for the same package and features. Baseline (engine lib, `--all-features`, 2026-10-23): 788,653 IR lines in 31,986 copies; 43% are `core`/`alloc`/`std` generics, 20% engine code, 10% `oxc_parser`; the largest engine items are serde `Deserialize` visitors of `RawRule`, instantiated once per deserializer. Look there before changing profiles.
+- **Evaluated, not adopted** (2026-10-23): Dylint `non_local_effect_before_unhandled_error` found its calibration positives and stayed quiet on the negatives, but on engine, github and io it reported one false positive (an error recorded and returned as `None`) and gave up on two functions at its work limit, so a separate `rustc-dev` nightly and `--ignore-rust-version` were not worth it. Shuttle schedules only its own primitives: `KeyedFlight` uses std and tokio locks and thread parking, so Shuttle missed a reintroduced drop-order race in 40,000 schedules; Miri caught it in the first wave and real threads within 5,000 waves. It would need a test-only facade over those primitives.
 
 ## Development environment variables
 

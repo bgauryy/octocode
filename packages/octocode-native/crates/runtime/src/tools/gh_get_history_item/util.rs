@@ -1,6 +1,7 @@
 //! JSON-value helpers shared across history-item shaping: typed accessors,
 //! the shallow merge, and the provider comment mapper.
 use crate::response::result::remove_nulls;
+use crate::tools::gh_shared::dates::utc_date;
 use serde_json::{Value, json};
 
 pub(super) fn array(value: Value) -> Vec<Value> {
@@ -25,10 +26,9 @@ pub(super) fn map_comments(values: Vec<Value>) -> Vec<Value> {
     values
         .into_iter()
         .map(|v| {
-            let created = string(v.get("created_at"));
-            let updated = v
-                .get("updated_at")
-                .and_then(Value::as_str)
+            let created = utc_date(str_at(&v, "/created_at"));
+            let updated = str_at(&v, "/updated_at")
+                .map(|at| utc_date(Some(at)))
                 .filter(|at| !at.is_empty() && *at != created);
             let mut out = json!({
                 "id": v["id"].to_string().trim_matches('"'),

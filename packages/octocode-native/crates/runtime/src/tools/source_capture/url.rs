@@ -13,28 +13,26 @@
 //! URL capture needs persistent storage, an available `localFetch`, and a
 //! capture directory the local path policy lets `localFetch` read; without
 //! them it fails before any network work.
+mod decode;
 mod extract;
 mod fetch;
+mod store;
 
 use super::{Captured, failure};
 use crate::execution::ExecutionContext;
-use crate::id::ToolId;
-use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
 use crate::tools::judgment::ClassificationError;
 use crate::tools::source_capture::SourceReader;
+use decode::{decode, decode_fragment, extraction_failure};
 use fetch::Fetch;
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+pub(super) use store::Store;
 use url::Url;
 
 /// Redirects one capture follows.
 const MAX_REDIRECTS: usize = 5;
-
-/// The capture file inside its content-addressed directory.
-const CAPTURE_FILE: &str = "source.txt";
 
 /// One HTTP response as the capture needs it.
 pub(super) struct Reply {
@@ -225,11 +223,9 @@ fn select(
     let text = extracted.map_err(|why| extraction_failure(why, fragment.as_deref(), check))?;
     let text = redaction.apply(&text);
     if text.chars().count() > max_chars {
-        return Err(failure(
-            ErrorCode::ClassificationContextTooLarge,
-            format!(
-                "The page text exceeds the {max_chars}-character state limit; nothing was judged."
-            ),
+        return Err(super::too_large(
+            max_chars,
+            "The page text",
             "Add a #fragment that selects one section, or supply a smaller part as state.",
         ));
     }
@@ -286,243 +282,6 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
         format!("The page redirected more than {MAX_REDIRECTS} times; nothing was judged."),
         "Pass the final URL directly.",
     ))
-}
-
-/// The reply's media type and UTF-8 body. Only HTML, plain text and
-/// Markdown are captured; anything else (binary documents, other charsets)
-/// is unsupported, never judged from a lossy decoding.
-fn decode(reply: &Reply) -> Result<(String, String), ClassificationError> {
-    let content_type = reply.content_type.as_deref().unwrap_or_default();
-    let mut parameters = content_type.split(';');
-    let media = parameters
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if !matches!(media.as_str(), "text/html" | "text/plain" | "text/markdown") {
-        return Err(unsupported(&format!(
-            "The page is {}, not HTML or text.",
-            if media.is_empty() {
-                "untyped"
-            } else {
-                media.as_str()
-            }
-        )));
-    }
-    let charset = parameters.find_map(|parameter| {
-        let (name, value) = parameter.split_once('=')?;
-        name.trim()
-            .eq_ignore_ascii_case("charset")
-            .then(|| value.trim().trim_matches('"').to_ascii_lowercase())
-    });
-    if let Some(charset) = charset
-        && !matches!(charset.as_str(), "utf-8" | "utf8" | "us-ascii")
-    {
-        return Err(unsupported(&format!(
-            "The page is encoded as {charset}; only UTF-8 pages are captured."
-        )));
-    }
-    if octocode_engine::text::sniff(&reply.body) == octocode_engine::text::BinaryVerdict::Binary {
-        return Err(unsupported("The page body is binary."));
-    }
-    // The engine's one leading-BOM rule: a mark starting the body is not text.
-    let body = &reply.body[octocode_engine::text::bom_len(&reply.body)..];
-    let body =
-        std::str::from_utf8(body).map_err(|_| unsupported("The page body is not valid UTF-8."))?;
-    Ok((media, body.to_owned()))
-}
-
-fn unsupported(message: &str) -> ClassificationError {
-    failure(
-        ErrorCode::ClassificationContextUnavailable,
-        message,
-        "Capture an HTML or text page, or supply the content as state.",
-    )
-}
-
-fn extraction_failure(
-    why: extract::Failure,
-    fragment: Option<&str>,
-    check: &dyn Fn() -> Result<(), ClassificationError>,
-) -> ClassificationError {
-    let fragment = fragment.unwrap_or_default();
-    match why {
-        // The check that stopped the parse says why.
-        extract::Failure::Stopped => check()
-            .err()
-            .unwrap_or_else(|| stopped(crate::execution::ExecutionError::Timeout)),
-        extract::Failure::Empty { scripted: true } => failure(
-            ErrorCode::ClassificationContextUnavailable,
-            "The page has no static text: it builds its content with scripts.",
-            "Read the rendered page in a browser and supply its text as state.",
-        ),
-        extract::Failure::Empty { scripted: false } => failure(
-            ErrorCode::ClassificationContextEmpty,
-            "The page has no text; nothing was judged.",
-            "Check the URL.",
-        ),
-        extract::Failure::MissingAnchor => failure(
-            ErrorCode::ClassificationContextEmpty,
-            format!("No element on the page is anchored #{fragment}; nothing was judged."),
-            "Use an anchor the page defines, or drop the fragment to capture the whole page.",
-        ),
-        extract::Failure::AmbiguousAnchor(count) => failure(
-            ErrorCode::ClassificationContextEmpty,
-            format!("{count} elements on the page are anchored #{fragment}; nothing was judged."),
-            "Use an anchor the page defines once, or drop the fragment.",
-        ),
-        extract::Failure::EmptySection => failure(
-            ErrorCode::ClassificationContextEmpty,
-            format!("The section anchored #{fragment} has no text; nothing was judged."),
-            "Use another anchor, or drop the fragment to capture the whole page.",
-        ),
-    }
-}
-
-/// A percent-decoded fragment; the raw fragment when it does not decode.
-fn decode_fragment(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        let hex = bytes
-            .get(index + 1..index + 3)
-            .and_then(|pair| std::str::from_utf8(pair).ok())
-            .and_then(|pair| u8::from_str_radix(pair, 16).ok());
-        match (bytes[index], hex) {
-            (b'%', Some(byte)) => {
-                decoded.push(byte);
-                index += 3;
-            }
-            (byte, _) => {
-                decoded.push(byte);
-                index += 1;
-            }
-        }
-    }
-    String::from_utf8(decoded).unwrap_or_else(|_| raw.to_owned())
-}
-
-/// The runtime's URL capture storage.
-pub(super) struct Store<'a> {
-    root: PathBuf,
-    ttl: Duration,
-    paths: &'a PathPolicy,
-}
-
-impl<'a> Store<'a> {
-    /// The storage, when a capture can be saved and read back here.
-    pub(super) fn open(dispatcher: &'a dyn SourceReader) -> Result<Self, ClassificationError> {
-        if !crate::config::is_persistent_storage_enabled(&dispatcher.config().resolved) {
-            return Err(failure(
-                ErrorCode::ClassificationContextUnavailable,
-                "Source captures need persistent storage to save the exact evidence; storage.mode is memory.",
-                "Use persistent storage for unread source captures.",
-            ));
-        }
-        let reader = ToolId::LocalFetch.as_str();
-        if !dispatcher.availability().is_available(reader) {
-            return Err(failure(
-                ErrorCode::ClassificationContextUnavailable,
-                format!(
-                    "Source capture storage requires {reader}, which is not available in this runtime."
-                ),
-                "Enable localFetch for source capture storage.",
-            ));
-        }
-        Self::at(
-            capture_root(dispatcher.home()),
-            // The clone cache retention: each capture publishes it as
-            // `expiresAt`; the daily cache sweep removes captures older.
-            dispatcher.limits().clone.ttl,
-            dispatcher.paths(),
-        )
-    }
-
-    fn at(
-        root: PathBuf,
-        ttl: Duration,
-        paths: &'a PathPolicy,
-    ) -> Result<Self, ClassificationError> {
-        // The policy judges the directory itself, so it must exist: an
-        // allowed root's missing parents are not inside that root.
-        let outside = |_| {
-            failure(
-                ErrorCode::ClassificationContextUnavailable,
-                "The capture directory is outside the local path policy.",
-                "Supply the page text as state.",
-            )
-        };
-        octocode_io::atomic::create_private_dir_all(&root).map_err(|_| {
-            failure(
-                ErrorCode::ClassificationContextUnavailable,
-                "The capture directory could not be created.",
-                "Check that the Octocode home is writable, or supply the text as state.",
-            )
-        })?;
-        paths.validate(&root).map_err(outside)?;
-        Ok(Self { root, ttl, paths })
-    }
-
-    /// Save the selection immutably and build its state, provenance and
-    /// read lead.
-    fn save(&self, selection: Selection) -> Result<Captured, ClassificationError> {
-        let bytes = selection.text.as_bytes();
-        let saved = self.save_bytes(bytes, CAPTURE_FILE)?;
-        let snapshot = saved["snapshot"].as_str().unwrap_or_default();
-        let file = saved["path"].as_str().unwrap_or_default();
-        let lines = selection.text.lines().count();
-        let url = selection.url.as_str();
-        let read = crate::response::result::Continuation::new(
-            ToolId::LocalFetch,
-            json!({
-                "path": file,
-                "snapshot": snapshot,
-                "ranges": [format!("1-{lines}")],
-            }),
-        )
-        .build();
-        Ok(Captured {
-            state: json!({
-                "source": { "url": url, "section": selection.section },
-                "text": selection.text,
-            }),
-            read,
-            source: Some(
-                json!({ "url": url, "snapshot": snapshot, "expiresAt": saved["expiresAt"] }),
-            ),
-        })
-    }
-
-    /// Save exact source bytes without interpreting them as text. Images
-    /// share the existing immutable capture storage, authorization and TTL.
-    pub(super) fn save_bytes(
-        &self,
-        bytes: &[u8],
-        name: &str,
-    ) -> Result<serde_json::Value, ClassificationError> {
-        let snapshot = octocode_engine::digest::sha256(bytes);
-        let directory = self.root.join(&snapshot);
-        let file = directory.join(name);
-        let unsaved = |_| {
-            failure(
-                ErrorCode::ClassificationContextUnavailable,
-                "The captured source could not be saved; nothing was judged.",
-                "Check that the Octocode home is writable.",
-            )
-        };
-        octocode_io::atomic::create_private_dir_all(&directory).map_err(unsaved)?;
-        octocode_io::atomic::write_atomic(&file, bytes, false).map_err(unsaved)?;
-        let readable = self.paths.validate_read(&file).map_err(|_| {
-            failure(
-                ErrorCode::ClassificationContextUnavailable,
-                "The saved capture is not readable under the local path policy.",
-                "Supply the page text as state.",
-            )
-        })?;
-        let expires_at = crate::civil_date::iso8601_millis_after(self.ttl);
-        Ok(json!({"path": readable.canonical, "snapshot": snapshot, "expiresAt": expires_at}))
-    }
 }
 
 #[cfg(test)]

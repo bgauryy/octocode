@@ -8,7 +8,7 @@ import { DAY_MS } from './timing.js';
 import * as validation from './validation.js';
 import type { Budget, CommandInputs, CommandResults, Continuation } from './catalog-types.generated.js';
 import { recordVariants } from './record-variants.js';
-import { compact } from './wire.js';
+import { compact } from './json-text.js';
 import { asObject, asObjects, isObject, type Json, type JsonObject, type Schema } from './validation.js';
 
 /** A catalog command that takes input, by name. */

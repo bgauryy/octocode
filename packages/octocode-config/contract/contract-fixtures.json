@@ -1,6 +1,6 @@
 [
   {
-    "id": "clasify.example-evaluate",
+    "id": "clasify.example-default",
     "tool": "clasify",
     "input": {
       "queries": [
@@ -31,7 +31,7 @@
     }
   },
   {
-    "id": "clasify.example-evaluate",
+    "id": "clasify.example-default",
     "tool": "clasify",
     "input": {
       "queries": [
@@ -577,7 +577,7 @@
             "schema",
             "validation"
           ],
-          "pageSize": 50
+          "pageSize": 20
         }
       ]
     }
@@ -624,7 +624,7 @@
           "keywords": [
             "serde"
           ],
-          "pageSize": 50
+          "pageSize": 20
         }
       ]
     }
@@ -771,7 +771,9 @@
           "operation": "match",
           "path": "src",
           "language": "typescript",
-          "rule": "pattern: console.log($VALUE)"
+          "rule": {
+            "kind": "class_declaration"
+          }
         }
       ]
     },
@@ -787,7 +789,9 @@
           "operation": "match",
           "sort": "path",
           "resultView": "content",
-          "rule": "pattern: console.log($VALUE)"
+          "rule": {
+            "kind": "class_declaration"
+          }
         }
       ]
     }
@@ -2402,6 +2406,42 @@
     "accepted": false
   },
   {
+    "id": "local-fetch.clasify-minify",
+    "tool": "localFetch",
+    "input": {
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "minify": "standard",
+          "clasifyContext": {
+            "classifiers": [
+              "Does it expire keys?"
+            ]
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "local-fetch.clasify-bytes",
+    "tool": "localFetch",
+    "input": {
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "unit": "bytes",
+          "clasifyContext": {
+            "classifiers": [
+              "Does it expire keys?"
+            ]
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
     "id": "local-fetch.unknown",
     "tool": "localFetch",
     "input": {
@@ -2468,7 +2508,7 @@
           "keywords": [
             "parser"
           ],
-          "pageSize": 50
+          "pageSize": 20
         }
       ]
     }
@@ -2615,6 +2655,20 @@
         }
       ]
     }
+  },
+  {
+    "id": "artifact.alias-version-conflict",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "ecosystem": "npm",
+          "packageName": "zod@3.22.4",
+          "version": "3.22.3"
+        }
+      ]
+    },
+    "accepted": false
   },
   {
     "id": "artifact.discovery-version",
@@ -3512,7 +3566,9 @@
           "path": "/r",
           "language": "ts",
           "pattern": "$A",
-          "rule": "kind: call"
+          "rule": {
+            "kind": "call"
+          }
         }
       ]
     },
@@ -3590,6 +3646,23 @@
           "symbolName": "x",
           "line": 1,
           "contextLines": 0
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "lsp.group-context",
+    "tool": "lspSearch",
+    "input": {
+      "queries": [
+        {
+          "path": "/r/a.ts",
+          "operation": "references",
+          "symbolName": "x",
+          "line": 1,
+          "groupByFile": true,
+          "contextLines": 2
         }
       ]
     },
@@ -4456,6 +4529,27 @@
     ]
   },
   {
+    "id": "clasify.box-without-image",
+    "tool": "clasify",
+    "input": {
+      "queries": [
+        {
+          "state": "a cat on a mat",
+          "questions": {
+            "where": {
+              "type": "box",
+              "instructions": "Where is the cat?"
+            }
+          }
+        }
+      ]
+    },
+    "accepted": false,
+    "messages": [
+      "box questions need an image in assets."
+    ]
+  },
+  {
     "id": "clasify.state-or-source-required",
     "tool": "clasify",
     "input": {
@@ -4472,7 +4566,7 @@
     },
     "accepted": false,
     "messages": [
-      "Missing required field: state"
+      "Missing required field: state; or send source instead"
     ]
   },
   {

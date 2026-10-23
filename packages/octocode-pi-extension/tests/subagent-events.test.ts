@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NEEDS_APPROVAL } from '../src/permission/ask.js';
+import { NEEDS_APPROVAL } from '../src/permission/dialog.js';
 import { newChildState, reduceEvent, type ChildEffect } from '../src/subagents/events.js';
 
 const LIMITS = { idleMs: 1_000, busyMs: 5_000 };

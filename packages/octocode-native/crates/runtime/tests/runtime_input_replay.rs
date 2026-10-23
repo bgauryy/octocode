@@ -39,7 +39,9 @@ async fn benchmark_range_spellings_are_rejected_with_the_canonical_repair() {
         );
         let text = output.to_string();
         assert!(
-            text.contains("start-end") || text.contains("send a JSON array"),
+            text.contains("start-end")
+                || text.contains("did you mean")
+                || text.contains("send a JSON array"),
             "row {index} names the canonical spelling: {output}"
         );
         let cli = runtime

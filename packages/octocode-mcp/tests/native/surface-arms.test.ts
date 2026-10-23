@@ -77,7 +77,7 @@ async function connect(
   const [serverTransport, clientTransport] =
     InMemoryTransport.createLinkedPair();
   await Promise.all([
-    instance.server.connect(serverTransport),
+    instance.createServer().connect(serverTransport),
     client.connect(clientTransport),
   ]);
   const listed = (await client.listTools()).tools;

@@ -141,10 +141,12 @@ impl Cut {
             self.page + 1,
         )
     }
-    /// The walk stopped at the largest `maxEntries`: entries past it are
-    /// on no page.
+    /// Entries past this walk are on no page through any widening: the
+    /// walk stopped at its entry ceiling (`scan_cut`; a wider `maxEntries`
+    /// lists more of what it walked, never past it), or at the largest
+    /// `maxEntries`.
     pub(super) fn walk_ceiling(&self) -> bool {
-        (self.limit_cut || self.scan_cut) && !self.can_expand()
+        self.scan_cut || (self.limit_cut && !self.can_expand())
     }
     pub(super) fn terminal(&self) -> bool {
         self.page_ceiling() || self.walk_ceiling() || self.time_terminal()
@@ -247,10 +249,10 @@ impl Cut {
             );
         } else if self.walk_ceiling() {
             // The walk's own cut reason is already listed above.
-            let reason = if self.limit_cut {
-                "maxEntries"
-            } else {
+            let reason = if self.scan_cut {
                 "walkLimit"
+            } else {
+                "maxEntries"
             };
             crate::response::paging::terminal_limit(out, reason, &[]);
         } else if self.time_terminal() {

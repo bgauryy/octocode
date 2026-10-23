@@ -21,14 +21,57 @@ pub(super) struct Coverage {
     pub(super) scope_miss: bool,
     /// Entries the security path policy withheld from the walk.
     pub(super) withheld: usize,
-    /// Files the scan searched: an empty row's one fact.
-    pub(super) files_searched: u32,
     /// The warning for an include/exclude glob with a `..` segment, which
     /// never matches: globs match paths under `path`.
     pub(super) parent_glob: Option<String>,
+    /// Warnings naming the fields the row's other fields leave without
+    /// effect ([`inert_fields`]).
+    pub(super) inert: Vec<String>,
     /// The walk stopped before it reached every path (a cap other than a
     /// binary cut, which only ends one file's content).
     pub(super) walk_cut: bool,
+}
+
+/// The fields set to a non-default value that the row's other fields leave
+/// without effect, one warning per reason: context lines in a view that
+/// lists no lines, and include/exclude globs when `path` is one file (it is
+/// searched whatever the globs).
+fn inert_fields(query: &LocalSearchQuery, root_is_file: bool) -> Vec<String> {
+    let set = |fields: &[(&'static str, bool)]| {
+        fields
+            .iter()
+            .filter(|(_, set)| *set)
+            .map(|(name, _)| *name)
+            .collect::<Vec<_>>()
+    };
+    let have = |fields: &[&str]| if fields.len() == 1 { "has" } else { "have" };
+    let mut warnings = Vec::new();
+    let canonical = local_search_query::canonical(query);
+    let context = set(&[
+        ("contextLines", canonical.context_lines.is_some()),
+        ("contextBefore", canonical.context_before.is_some()),
+        ("contextAfter", canonical.context_after.is_some()),
+    ]);
+    if list_view(query.result_view) && !context.is_empty() {
+        let view = serde_json::to_value(query.result_view).unwrap_or_default();
+        warnings.push(format!(
+            "{} {} no effect with resultView {view}: only line views show context.",
+            context.join(", "),
+            have(&context)
+        ));
+    }
+    let globs = set(&[
+        ("include", !query.include.is_empty()),
+        ("exclude", !query.exclude.is_empty()),
+    ]);
+    if root_is_file && !globs.is_empty() {
+        warnings.push(format!(
+            "{} {} no effect: path is one file, searched whatever the globs.",
+            globs.join(", "),
+            have(&globs)
+        ));
+    }
+    warnings
 }
 
 impl Coverage {
@@ -63,11 +106,11 @@ impl Coverage {
                 && (!query.include.is_empty() || !query.exclude.is_empty()),
             skip_hint,
             withheld: skipped.withheld.total(),
-            files_searched: stats.files_searched,
             parent_glob: crate::policy::include::parent_glob_warning(
                 &query.include,
                 &query.exclude,
             ),
+            inert: inert_fields(query, root.is_file()),
             walk_cut: stats.capped == Some(true)
                 && (stats.cap_reasons.is_empty()
                     || stats
@@ -93,6 +136,7 @@ impl Coverage {
     ) -> Vec<String> {
         let mut warnings = vec![];
         warnings.extend(self.parent_glob.clone());
+        warnings.extend(self.inert.iter().cloned());
         // A clipped value is flagged on its row (`originalChars`,
         // `returnedChars`) and read whole by its `expandValues` lead.
         if shown_redacted > 0 && !layout.list {
@@ -132,16 +176,15 @@ impl Coverage {
     }
 
     /// A scope miss stands only while no skipped path may hold a match: then
-    /// the skip, not include/exclude, is why nothing was searched, and the
-    /// skip's own hint replaces the generic count of searched files.
+    /// the skip, not include/exclude, is why nothing was searched.
     pub(super) fn skipped_paths_hold_matches(&mut self, hints: &mut Vec<String>) {
         self.scope_miss = false;
-        let counted = empty_hint(self.files_searched);
-        hints.retain(|hint| hint != SCOPE_MISS_HINT && *hint != counted);
+        hints.retain(|hint| hint != SCOPE_MISS_HINT);
     }
 
-    /// An empty row's one per-call fact; unreadable paths and a binary cut
-    /// are stated once, in `warnings`.
+    /// An empty row's one per-call fact beyond `status` and `filesScanned`;
+    /// unreadable paths and a binary cut are stated once, in `warnings`. A
+    /// plain miss has none: the status and the scanned count already say it.
     pub(super) fn empty_hints(&self, empty: bool) -> Vec<String> {
         if !empty {
             return vec![];
@@ -153,11 +196,11 @@ impl Coverage {
         } else if let Some(hint) = &self.skip_hint {
             vec![hint.clone()]
         } else if self.withheld > 0 {
-            // Not a spelling problem: the policy notice in `warnings` names
-            // what was withheld (once, there).
-            vec!["No matches where searched; the withheld entries named in warnings may hold it (unproven).".into()]
+            // Not a spelling problem: `skippedPaths` names what the policy
+            // withheld (once, there).
+            vec!["No matches where searched; the withheld entries in skippedPaths may hold it (unproven).".into()]
         } else {
-            vec![empty_hint(self.files_searched)]
+            vec![]
         }
     }
 }
@@ -215,28 +258,4 @@ pub(super) fn unreadable_hint(count: u32) -> String {
         "{} unreadable",
         crate::response::pages::counted(u64::from(count), "path", "paths")
     )
-}
-
-/// An empty search's fact: how many files it read.
-pub(super) fn empty_hint(files_searched: u32) -> String {
-    format!(
-        "No matches in {} searched.",
-        crate::response::pages::counted(u64::from(files_searched), "file", "files")
-    )
-}
-
-#[cfg(test)]
-mod empty_hint_tests {
-    use super::empty_hint;
-
-    /// An empty row states its count, never static search advice.
-    #[test]
-    fn empty_hint_is_the_scanned_count() {
-        assert_eq!(empty_hint(1), "No matches in 1 file searched.");
-        let many = empty_hint(12);
-        assert_eq!(many, "No matches in 12 files searched.");
-        for advice in ["Try", "caseMode", "regex", "shorter"] {
-            assert!(!many.contains(advice), "{many}");
-        }
-    }
 }

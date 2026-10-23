@@ -51,9 +51,9 @@ External to local is one flow: `artifactSearch` maps a package to its repository
 
 ### 3.1 One contract for every surface
 - Each tool's input schema, description, and output schema is authored once in `@octocodeai/octocode-core` (Zod). `@octocodeai/config` generates the JSON contract and the Rust and TypeScript types, and the native runtime embeds them.
-- MCP and the CLI run the same native code, so their output is the same.
+- MCP and the CLI share native tool execution and structured result data; their text presentation can differ.
 - If the core and native contract fingerprints differ, the MCP server refuses to start.
-- Zod is the only schema source and the only form passed around. Hosts resend every tool definition on every request, so `tools/list` shows a slim view derived in Zod from the same contract (`publishedQuerySchema`): merged operation variants, the primary fields, and no fields agents copy from `next.*` and `hints`. JSON Schema is emitted once at each edge (`z.toJSONSchema`: MCP `tools/list`, the CLI presentation, the native contract). The canonical schema still validates every call, and its errors list every valid field. `npx octocode schema` shows it.
+- Zod is the authoring source; generated JSON contracts and Rust/TypeScript types carry it to consumers. To keep discovery compact, `tools/list` shows a slim view derived in Zod from the same contract (`publishedQuerySchema`): merged operation variants, the primary fields, and no fields agents copy from `next.*` and `hints`. JSON Schema is emitted once at each edge (`z.toJSONSchema`: MCP `tools/list`, the CLI presentation, the native contract). The canonical schema still validates every call, and its errors list every valid field. `npx octocode schema` shows it.
 - Why: agents learn one shape per tool, and drift is caught before it reaches a user.
 
 ### 3.2 Optional brief for multi-call research
@@ -62,9 +62,9 @@ External to local is one flow: `artifactSearch` maps a package to its repository
 - Rules: [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md#briefs-maingoal-and-reasoning).
 
 ### 3.3 Context engineering: instructions, descriptions, schemas
-- **Instructions:** one prompt for MCP and CLI, one line per section, at most 2,000 characters because hosts truncate longer ones; the `<flow>` line states the whole research loop. Only the `<clasify>` line depends on what is enabled. The lines: [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md#research-flow-graph).
-- **Tool descriptions** follow one grammar: prose (what the tool does, when it is right), an optional `<empty>` (the repair when a result is empty or a literal misses), then one `<workflow>` (where its output goes next). A rule test enforces it; no tool name appears outside `<workflow>`.
-- **Field descriptions** are the one text of each field (its Zod `.describe()`): what the value is, and, for a value another tool's output fills, a `<workflow>` note naming that output (`ref`: a search row's `commitSha` or a PR `headSha`; `line`: a hit's line). Self-explanatory fields carry none. The tools connect through their inputs and outputs, so the flow is read where the value is typed.
+- **Instructions:** one prompt for MCP and CLI, one line per section, at most 2,000 characters as a project instruction-size budget; the `<flow>` line states the whole research loop. Tool-specific instruction parts follow the enabled tool set; `<clasify>` also follows classification availability. The lines: [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md#research-flow-graph).
+- **Tool descriptions** follow one grammar in plain text: prose (what the tool does, when it is right), an optional `If empty:` (the repair when a result is empty or a literal misses), then one `Next:` (where its output goes next). A rule test enforces it; no tool name appears outside `Next:`.
+- **Field descriptions** are the one text of each field (its Zod `.describe()`): what the value is, and, for a value another tool's output fills, the output that fills it (`ref`: a search row's `commitSha` or a PR `headSha`; `line`: a hit's line). Self-explanatory fields carry none. The tools connect through their inputs and outputs, so the flow is read where the value is typed.
 - A core test caps the bytes of the instructions plus every default tool definition, with a quota per tool.
 
 ### 3.4 Batching
@@ -95,7 +95,7 @@ External to local is one flow: `artifactSearch` maps a package to its repository
 - Channels and fields: [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md#executable-continuations).
 
 ### 3.9 Precision layers: AST and LSP
-- **AST (tree-sitter):** structural patterns (`$X.unwrap()`, `new Error($MSG)`) and YAML rules match code shape, never comments or strings. Symbols give exact declaration inventories. Languages: [language and feature reference](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md).
+- **AST (tree-sitter):** structural patterns (`$X.unwrap()`, `new Error($MSG)`) and rule objects match code shape, never comments or strings. Symbols give exact declaration inventories. Languages: [language and feature reference](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md).
 - **LSP:** real language servers (tsgo, typescript-language-server, rust-analyzer, pyright, clangd, …) resolve definitions, references, call hierarchy, hover, and diagnostics from 1-based positions taken from a real anchor. A missing server gives a `serverUnavailable` error and a `findText` lead (a `localSearch` of the name).
 - **Ranking:** hits in a file rank declaration > deciding statement (assignment, `if`, `return`, `throw`) > code > comment. For an exact identifier, the file that declares it ranks first.
 
@@ -115,7 +115,7 @@ External to local is one flow: `artifactSearch` maps a package to its repository
 - Rate limits are respected: a call waits out a short limit window and fails with `rateLimited` and the retry time when the wait would be longer. Cache: [cache storage](CONFIGURATION.md#cache-storage-and-lifecycle); waits: [fixed internal limits](CONFIGURATION.md#fixed-internal-limits).
 
 ### 3.13 The Rust layer: local efficiency
-- One native engine runs text search (an in-process regex walker), parsing and structural matching (tree-sitter), minification, redaction, the LSP client pool, the dependency graph, and the GitHub and registry clients. There is nothing extra to install.
+- One native engine runs text search (an in-process regex walker), parsing and structural matching (tree-sitter), minification, redaction, the LSP client pool, the dependency graph, and the GitHub and registry clients. Some LSP operations require an installed language server; see [language servers](OCTOCODE_TOOLS.md#language-servers).
 - MCP loads it in process through napi, so calls are warm. The CLI is a native binary.
 - Concurrent rows share one walk-thread budget, with parse size limits and scan deadlines.
 

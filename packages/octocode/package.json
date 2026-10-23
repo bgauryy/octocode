@@ -22,8 +22,7 @@
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^5.0.4",
     "esbuild": "^0.28.2",
-    "eslint": "^10.12.0",
-    "typescript": "^6.0.3",
+    "prettier": "^3.9.10",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"
   },
@@ -62,15 +61,15 @@
     "directory": "packages/octocode"
   },
   "scripts": {
-    "build": "yarn lint && node build.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs out",
+    "build": "node build.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs out",
     "build:dev": "node build.mjs",
     "clean": "rm -rf out/",
-    "format": "eslint src tests --fix",
-    "lint": "eslint src tests",
+    "format": "prettier --write src tests",
+    "lint": "prettier --check src tests && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
     "prepack": "node scripts/prepack.mjs",
     "start": "node ./out/octocode.js",
     "test": "vitest run --coverage",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "yarn run -T tsgo --noEmit",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "type": "module"

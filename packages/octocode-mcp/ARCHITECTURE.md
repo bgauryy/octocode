@@ -14,6 +14,8 @@ select, sanitize, or execute tools in TypeScript.
   `{error, errorCode}` tool error the CLI prints; the addon has already scrubbed
   it. Any other rejection stays a generic "failed to execute" error with the
   detail on stderr.
+- `src/native/schema.ts` builds each tool's registered schema: core's published
+  input view wrapped as a pass-through Standard Schema.
 - `src/public.ts` re-exports the adapter functions and types for embedding;
   the runtime types come from `@octocodeai/octocode-native/runtime`.
 - `@octocodeai/config` (private workspace package, bundled at build time)
@@ -91,7 +93,8 @@ boundary checks run against the built package:
 - `yarn test:boundary` (`tests/native/node-boundary.mjs`) for direct adapter
   registration, execution, filtering, and close behavior;
 - `yarn test:acceptance` (`tests/integration/stdio.acceptance.mjs`) for the
-  built stdio server and CLI;
+  built stdio server and CLI; the runner takes its shared client and receipt
+  from `stdio-harness.mjs` and its checks from the `stdio-*-checks.mjs` modules;
 - native Rust tests under `packages/octocode-native` for tool behavior and
   safety contracts.
 

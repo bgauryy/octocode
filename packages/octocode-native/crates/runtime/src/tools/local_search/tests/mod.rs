@@ -157,7 +157,7 @@ fn follow_expansions(result: &LocalSearchResult, policy: &PathPolicy) -> (usize,
             let mut query = query.clone();
             query["mainGoal"] = serde_json::json!("test");
             query["reasoning"] = serde_json::json!("test");
-            let query: crate::tools::local_fetch::LocalFetchQuery =
+            let query: crate::tools::source_view::LocalFetchQuery =
                 serde_json::from_value(query).expect("localFetch query");
             let fetched = crate::tools::local_fetch::execute_local_fetch(
                 &query,
@@ -235,6 +235,7 @@ mod match_list;
 mod pages;
 mod scope;
 mod secrets;
+mod special_files;
 mod stored;
 
 fn skipped_source_path(root: &std::path::Path, path: &str) -> serde_json::Value {

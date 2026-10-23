@@ -6,7 +6,7 @@
 // continuation fields the published row hides, one line each, and names the
 // other accepted fields it hides (per operation, or the whole row's) with
 // the `--select` or `--view full` call that shows their schemas.
-import { buildCliInstructions } from '@octocodeai/octocode-core/mcp';
+import { INSTRUCTION_SECTIONS } from '@octocodeai/octocode-core/mcp';
 import { cliExamples, cliOutput, cliSpec, schemaFieldNames } from './cli-flags.ts';
 import {
   CLASIFY_SOURCE_TOOL_NAMES,
@@ -285,15 +285,9 @@ export function buildCliPresentation(): Json {
   });
   return {
     fingerprint: getPublicToolCatalog().fingerprint,
-    instructions: {
-      ordinary: buildCliInstructions(),
-      selection: buildCliInstructions({ selection: true }),
-      clasify: buildCliInstructions({ availableTools }),
-      both: buildCliInstructions({
-        availableTools,
-        selection: true,
-      }),
-    },
+    // Rendered by the native CLI for its enabled tools, as core renders
+    // them for MCP.
+    instructionSections: INSTRUCTION_SECTIONS,
     clasifySourceTools: [...CLASIFY_SOURCE_TOOL_NAMES],
     tools: definitions.map(definition => {
       const { name } = definition;

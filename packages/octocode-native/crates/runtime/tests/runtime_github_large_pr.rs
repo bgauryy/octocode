@@ -1510,7 +1510,9 @@ async fn match_context_past_the_hunk_reads_the_head_text() {
     )
     .await;
     Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents/src/a.rs"))
+        // The shared file read names the path as one segment, as
+        // ghGetFileContent does.
+        .and(path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
         .and(query_param("ref", SHA))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "type":"file","encoding":"base64","path":"src/a.rs",
@@ -1538,6 +1540,55 @@ async fn match_context_past_the_hunk_reads_the_head_text() {
     );
 }
 
+/// A head file past the Contents API's 1 MB body (`encoding:"none"`, no
+/// content) is read through its blob, as ghGetFileContent reads it: the
+/// widened context is not silently lost to an empty body.
+#[tokio::test]
+async fn a_head_file_past_one_megabyte_is_read_through_its_blob() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 1).await;
+    let (patch, head) = hunk_at_53();
+    mount_file_batches(
+        &server,
+        vec![vec![rest_file("src/a.rs", Some(&patch), 1, 1)]],
+        Duration::ZERO,
+    )
+    .await;
+    let blob = "b".repeat(40);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file","encoding":"none","content":"","path":"src/a.rs",
+            "size": 2_000_000, "sha": blob
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/git/blobs/{blob}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/vnd.github.raw")
+                .set_body_string(head),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let data = run(
+        &server,
+        json!({"sections":["patches"], "matchString": "needle", "contextLines": 10, "extras": []}),
+    )
+    .await;
+    let file = &data["pullRequests"][0]["files"][0];
+    let text = file["patch"].as_str().expect("patch");
+    assert!(
+        text.starts_with("@@ -44,20 +44,20 @@ fn f\n44\t line 44\n"),
+        "{text}"
+    );
+    assert!(file.get("contextClipped").is_none(), "{data}");
+    server.verify().await;
+}
+
 /// A later file page widens its own hits: the head reads name the files
 /// this page shows, never the first page's again.
 #[tokio::test]
@@ -1557,7 +1608,7 @@ async fn a_later_match_page_reads_the_head_text_of_its_own_files() {
     .await;
     for (file, reads) in [("a", 0), ("b", 1)] {
         Mock::given(method("GET"))
-            .and(path(format!("/api/v3/repos/a/b/contents/src/{file}.rs")))
+            .and(path(format!("/api/v3/repos/a/b/contents/src%2F{file}.rs")))
             .and(query_param("ref", SHA))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "type":"file","encoding":"base64","path":format!("src/{file}.rs"),

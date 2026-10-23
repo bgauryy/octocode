@@ -17,6 +17,7 @@ Load when a scrape fails, blocks, times out, or overflows, or when legality, pri
 | Hosted `403` | Stop hosted calls; check sanitized status, credentials, credits, access policy. |
 | `refusedHost` (exit 2) or `refused <url>` | Drop and report. User-named local server: rerun with `--allow-private-host`. |
 | `sessionExists` (exit 2) | Add `--append`, or omit `--session` for a fresh one. |
+| `sessionIncomplete` (exit 1) | Preserve the session artifacts and start a fresh session; an unfinished page or unreadable checkpoint cannot be resumed safely. Completed checkpoints recover automatically with `--append`. |
 | `404` | Verify the URL; retry only with a reason. |
 | `422` | Print sanitized params; fix or remove the option. |
 | `423` anti-bot | Only an authorized route that respects its pacing or access rule. |

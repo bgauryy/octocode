@@ -2,7 +2,8 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { say, wordCompletions, type Subcommands } from '../shared/commands.js';
 import { PERMISSION_ENV } from '../shared/env.js';
 import { redactSecrets, sanitizeTerminalText } from '../shared/sanitize.js';
-import { modeSummary, type Permission } from './ask.js';
+import type { Permission } from './ask.js';
+import { modeSummary } from './mode.js';
 import type { AuditEntry } from './audit.js';
 import { ACTION_CLASSES, ASK_REASONS, decide, PERMISSION_CYCLE, PERMISSION_ID, PERMISSION_MODES, PERMISSION_SHORTCUT_LABEL, reasonAsks, type PermissionMode } from './mode.js';
 

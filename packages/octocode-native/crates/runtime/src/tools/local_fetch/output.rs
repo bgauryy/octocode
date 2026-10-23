@@ -1,6 +1,6 @@
 //! What the shared response stages ask about localFetch output.
 
-use crate::response::output::{PathAnchor, TextShape, ToolOutput};
+use crate::response::output::{PathAnchor, ToolOutput};
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
@@ -35,8 +35,8 @@ impl ToolOutput for Output {
     fn reads_worktree(&self) -> bool {
         true
     }
-    fn text_shape(&self) -> TextShape {
-        TextShape::FileText
+    fn reads_source(&self) -> bool {
+        true
     }
 }
 

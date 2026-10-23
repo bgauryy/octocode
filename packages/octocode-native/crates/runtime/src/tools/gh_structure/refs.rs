@@ -10,7 +10,8 @@ use octocode_github::{NamedRef, RefKind, RefMatch};
 const DEFAULT_REFS_PER_PAGE: usize = crate::id::gh_structure_policy::REFS_PAGE_SIZE;
 const _: () = assert!(DEFAULT_REFS_PER_PAGE <= MAX_PER_PAGE);
 
-/// The default branch and its head commit, and one page of tag names; with
+/// The default branch and its head commit, and one page of tag names,
+/// newest version first ([`super::tag_order`]); with
 /// `extras: ["details"]` also the same page of branches (`{name: sha}`),
 /// read only when asked. A page continues while a listed kind has more, so
 /// every listed tag (and branch) is named exactly once. A tag name is
@@ -94,13 +95,19 @@ pub(super) async fn refs(
         default_branch(provider, owner, repo, context),
         provider.resolve_reference(owner, repo, None, false, context),
         branches,
-        transport.repository_refs(owner, repo, RefKind::Tags, page, per_page, context),
+        tag_page(transport, owner, repo, page, per_page, context),
     )?;
     let mut value = json!({
         "defaultBranch": default_branch,
         "commitSha": head,
-        "tags": tags.refs.iter().map(|named| named.name.as_str()).collect::<Vec<_>>(),
+        "tags": tags.names,
     });
+    if tags.github_order {
+        push_warnings(
+            &mut value,
+            ["Tags are in GitHub's order (reverse-lexicographic, not newest first): the whole tag list could not be read to order it.".to_owned()],
+        );
+    }
     // The default-branch read named the canonical repository: leads use it.
     let (renamed_warning, canonical) = crate::tools::gh_shared::canonical_query(
         provider,
@@ -115,6 +122,9 @@ pub(super) async fn refs(
     if let Some(warning) = renamed_warning {
         push_warning_front(&mut value, warning);
     }
+    // The rows a lead or the next page copies: from page 1, and with the
+    // size GitHub reads, so a clamped `pageSize` warns on this call only.
+    let mut continued = query_row(query, &["page"]);
     if requested > per_page {
         push_warnings(
             &mut value,
@@ -122,11 +132,19 @@ pub(super) async fn refs(
                 "pageSize {requested} reads as {MAX_PER_PAGE}, GitHub's ref page."
             )],
         );
+        continued["pageSize"] = json!(per_page);
     }
-    if !with_branches {
-        // Branches are read only when asked: the lead adds the extra that
-        // asks for them to the caller's own.
-        let mut listed = query_row(query, &[]);
+    // A page past the last lists no ref of any listed kind: the shared
+    // response stage words it and restarts from page 1.
+    let past_end = page > 1
+        && tags.names.is_empty()
+        && branches
+            .as_ref()
+            .is_none_or(|branches| branches.refs.is_empty());
+    if !with_branches && !past_end {
+        // Branches are read only when asked, from their first page: the
+        // lead adds the extra that asks for them to the caller's own.
+        let mut listed = continued.clone();
         let mut extras = query.extras.clone();
         extras.push(ExtraKind::Details);
         listed["extras"] = json!(extras);
@@ -143,21 +161,11 @@ pub(super) async fn refs(
         );
     }
     let more = tags.has_more || branches.as_ref().is_some_and(|branches| branches.has_more);
-    // A page past the last lists no ref of any listed kind: the shared
-    // response stage words it and restarts from page 1.
-    let past_end = page > 1
-        && tags.refs.is_empty()
-        && branches
-            .as_ref()
-            .is_none_or(|branches| branches.refs.is_empty());
+    let pages = crate::response::pages::PageFacts::open(page, Some(per_page), more && !past_end);
     if past_end {
-        value["pagination"] = crate::response::pages::PageFacts::open(page, Some(per_page), false)
-            .out_of_range(true)
-            .to_value();
-    }
-    if more {
-        value["pagination"] =
-            crate::response::pages::PageFacts::open(page, Some(per_page), true).to_value();
+        value["pagination"] = pages.out_of_range(true).to_value();
+    } else if more {
+        value["pagination"] = pages.to_value();
         if let Some(next_page) = crate::response::paging::next_cursor(
             &mut value,
             crate::id::ToolId::GhStructure,
@@ -165,13 +173,61 @@ pub(super) async fn refs(
             "page",
             page + 1,
         ) {
-            let mut next = query_row(query, &[]);
             // `pageSize` rides along only when the caller set it.
-            next["page"] = json!(next_page);
-            value["next"]["nextPage"] = continuation(next);
+            continued["page"] = json!(next_page);
+            value["next"]["nextPage"] = continuation(continued);
         }
+    } else if page > 1 {
+        // The last page of a paged listing says it is the last.
+        value["pagination"] = pages.to_value();
     }
     Ok(ToolData::from(value))
+}
+
+/// One page of a repository's tag names.
+struct TagPage {
+    names: Vec<String>,
+    has_more: bool,
+    /// GitHub's own tag page (reverse-lexicographic), read when the whole
+    /// tag list could not be.
+    github_order: bool,
+}
+
+/// Page `page` of the repository's tags, newest version first: the whole
+/// tag list is read (one git-refs listing) and ordered, so every page
+/// continues one order. When that listing fails, GitHub's tag page in its
+/// own order stands in.
+async fn tag_page(
+    transport: &octocode_github::GitHubTransport,
+    owner: &str,
+    repo: &str,
+    page: usize,
+    per_page: usize,
+    context: &RequestContext,
+) -> Result<TagPage, ProviderError> {
+    match transport.repository_tag_names(owner, repo, context).await {
+        Ok(mut names) => {
+            super::tag_order::newest_first(&mut names);
+            let start = page.saturating_sub(1).saturating_mul(per_page);
+            let has_more = names.len() > start.saturating_add(per_page);
+            Ok(TagPage {
+                names: names.into_iter().skip(start).take(per_page).collect(),
+                has_more,
+                github_order: false,
+            })
+        }
+        Err(error) if error.is_cancelled_or_timed_out() => Err(error),
+        Err(_) => {
+            let tags = transport
+                .repository_refs(owner, repo, RefKind::Tags, page, per_page, context)
+                .await?;
+            Ok(TagPage {
+                names: tags.refs.into_iter().map(|named| named.name).collect(),
+                has_more: tags.has_more,
+                github_order: true,
+            })
+        }
+    }
 }
 
 /// Bytes of code per language on the default branch, largest first, with

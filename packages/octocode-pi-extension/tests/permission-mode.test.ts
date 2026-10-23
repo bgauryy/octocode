@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { modeSummary } from '../src/permission/ask.js';
-import { ACTION_CLASSES, actionWhy, ASK_REASONS, declaredPermissions, decide, kindOf, parseGrants, reasonAsks, SPAWN_GRANTABLE, startMode, UNGRANTABLE, type ActionClass, type AskReason, type PermissionMode } from '../src/permission/mode.js';
+import { ACTION_CLASSES, actionWhy, ASK_REASONS, declaredPermissions, decide, kindOf, modeSummary, parseGrants, reasonAsks, SPAWN_GRANTABLE, startMode, UNGRANTABLE, type ActionClass, type AskReason, type PermissionMode } from '../src/permission/mode.js';
 import { PERMISSION_ENV, PERMISSION_GRANTS_ENV } from '../src/shared/env.js';
 
 /** Plan §2.4, one row per action class: manual, workspace, full. */

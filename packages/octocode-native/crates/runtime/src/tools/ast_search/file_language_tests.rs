@@ -33,7 +33,7 @@ fn an_explicit_language_parses_a_file_whose_extension_selects_no_grammar() {
         assert_eq!(symbols["symbols"][0]["kind"], "function", "{symbols}");
         let matched = run(
             &root.0,
-            json!({"operation":"match","path":file,"language":"typescript","rule":"kind: function_declaration"}),
+            json!({"operation":"match","path":file,"language":"typescript","rule":{"kind":"function_declaration"}}),
         )
         .expect("match");
         assert_eq!(matched["matchCount"], 1, "{matched}");
@@ -117,7 +117,7 @@ fn match_parses_files_named_by_language_globs() {
     let globs = json!({"typescript":["noext","*.tmpl","*.typescript"]});
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"rule":"kind: function_declaration","languageGlobs":globs}),
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"languageGlobs":globs}),
     )
     .expect("match");
     assert_eq!(out["matchCount"], 4, "{out}");
@@ -133,7 +133,7 @@ fn match_parses_files_named_by_language_globs() {
 
     let error = run(
         &root.0,
-        json!({"operation":"match","path":root.0.join("noext"),"rule":"kind: function_declaration","languageGlobs":globs}),
+        json!({"operation":"match","path":root.0.join("noext"),"rule":{"kind":"function_declaration"},"languageGlobs":globs}),
     )
     .expect_err("a single file takes language");
     assert_eq!(
@@ -155,7 +155,7 @@ fn match_reports_files_skipped_without_a_grammar() {
     }
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"rule":"kind: function_declaration"}),
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}}),
     )
     .expect("match");
     assert_eq!(out["matchCount"], 1, "{out}");
@@ -184,7 +184,7 @@ fn match_with_language_does_not_report_files_outside_its_scope() {
     root.write("CMakeLists.txt", "project(x)\n");
     let query = |extra: Value| {
         let mut row =
-            json!({"operation":"match","path":root.0,"rule":"kind: function_declaration"});
+            json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}});
         row.as_object_mut()
             .expect("row")
             .extend(extra.as_object().expect("extra").clone());
@@ -258,6 +258,43 @@ fn symbols_of_a_file_without_a_grammar_are_unsupported_not_empty() {
     assert!(!hint.contains("Broaden"), "{hint}");
 }
 
+/// Symbols of a file whose grammar is known but has no declaration
+/// extractor (JSON) is `symbolsUnsupported` for that file type: setting
+/// `language` cannot help, so the row says so and leads to the localFetch
+/// outline of the file instead.
+#[test]
+fn symbols_of_a_grammar_without_an_extractor_lead_to_the_fetch_outline() {
+    let root = Fixture::new();
+    let file = root.0.join("package.json");
+    std::fs::write(
+        &file,
+        "{\n  \"name\": \"x\",\n  \"scripts\": {\"a\": \"b\"}\n}\n",
+    )
+    .expect("json");
+    let out = run(&root.0, json!({"operation":"symbols","path":file})).expect("row");
+    assert_eq!(out["status"], "error", "{out}");
+    assert_eq!(out["errorCode"], "symbolsUnsupported", "{out}");
+    let text = out.to_string();
+    assert!(!text.contains("Set language"), "{out}");
+    assert_eq!(
+        out["hints"],
+        json!([
+            "symbols does not outline .json files; the read lead outlines this one, or search it with localSearch."
+        ]),
+        "{out}"
+    );
+    let read = &out["next"]["read"];
+    assert_eq!(read["tool"], "localFetch", "{out}");
+    let row = read.pointer("/query/queries/0").unwrap_or(&read["query"]);
+    assert_eq!(row["minify"], "symbols", "{out}");
+    assert!(
+        row["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("package.json")),
+        "{out}"
+    );
+}
+
 /// A `.h` that parses with errors under C but cleanly under C++ says so: the
 /// outline under C is unreliable (a class reads as a function).
 #[test]
@@ -281,7 +318,7 @@ fn a_cpp_header_parsed_as_c_suggests_cpp() {
     assert!(suggests(&symbols), "{symbols}");
     let matched = run(
         &root.0,
-        json!({"operation":"match","path":header,"rule":"kind: identifier"}),
+        json!({"operation":"match","path":header,"rule":{"kind":"identifier"}}),
     )
     .expect("match");
     assert!(suggests(&matched), "{matched}");

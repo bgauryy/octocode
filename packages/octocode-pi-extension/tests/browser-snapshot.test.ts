@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { BrowserSession } from '../src/browser/cdp.js';
+import type { BrowserSession } from '../src/browser/session-state.js';
 import { formatChanges, formatSnapshot, snapshot } from '../src/browser/snapshot.js';
 
 const sessionOf = (data: unknown) => ({ page: { untilDialog: <T>(work: Promise<T>) => work, evaluate: async () => data } }) as unknown as BrowserSession;

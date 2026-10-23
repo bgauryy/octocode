@@ -54,7 +54,7 @@ Inline classification selects **evidence useful for answering**, including expli
 }]}
 ```
 
-Group resources as separate rows, within live limits. Each question must stand alone: sibling answers and the host conversation are unavailable. Send paths/URLs/assets, not previously read bodies copied into `state`. `state` holds literal data or image keys; a URL string inside it is not fetched. Standalone answers route inspection; The `read` suggestion in `hints`, when returned, covers the captured selection rather than answer-specific lines. Read a smaller observed anchor when sufficient.
+Group resources as separate rows, within live limits. Each question must stand alone: sibling answers and the host conversation are unavailable. Send paths/URLs/assets, not previously read bodies copied into `state`. `state` holds literal data or image keys; a URL string inside it is not fetched. Standalone answers route inspection; the `read` suggestion in `hints`, when returned, covers the captured selection rather than answer-specific lines. Read a smaller observed anchor when sufficient.
 
 ## Ask questions that change the next read
 

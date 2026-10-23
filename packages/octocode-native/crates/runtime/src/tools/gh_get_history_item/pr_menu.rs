@@ -10,21 +10,14 @@ use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use serde_json::{Map, Value, json};
 
 /// The caller's query as a working query for `operation`: the public
-/// fields, with the sections the read resolved (a pull request's patches
-/// list their files too); builders replace `sections` with
-/// [`Sections::set_on`].
+/// fields, with the sections the read resolved (`patches` alone already
+/// lists their files: it is not restated as `files`); builders replace
+/// `sections` with [`Sections::set_on`].
 pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation) -> Value {
     let mut v = q.public.clone();
     remove_nulls(&mut v);
     if matches!(operation, ItemOperation::PullRequest | ItemOperation::Issue) {
-        let sections = q.sections();
-        let sections =
-            if matches!(operation, ItemOperation::PullRequest) && sections.has(Section::Patches) {
-                sections.with(Section::Files)
-            } else {
-                sections
-            };
-        sections.set_on(&mut v);
+        q.sections().set_on(&mut v);
     }
     if let Some(m) = v.as_object_mut() {
         m.insert(

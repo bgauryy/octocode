@@ -1,44 +1,20 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Usage } from '@earendil-works/pi-ai';
 import { BROWSER_VISIBLE_ENV, CACHE_RETENTION_ENV, childCacheRetention, HOOKS_ENV, MCP_ENV, PARENT_SESSION_ENV, PERMISSION_ENV, PERMISSION_GRANTS_ENV, PERMISSION_NONCE_FILE_ENV, PERMISSION_RELAY_ENV, SUBAGENT_ENV, TRUST_ROOT_ENV } from '../shared/env.js';
-import type { ActionClass, PermissionMode } from '../permission/mode.js';
-import { atomicWriteFileSync, shortHash } from '../shared/atomic.js';
-import { formatDuration, tailNote } from '../shared/format.js';
-import { PRIVATE_FILE_MODE, privateDir, sessionOutputDir } from '../shared/home.js';
+import { formatDuration } from '../shared/format.js';
+import { sessionOutputDir } from '../shared/home.js';
 import { adoptTree, groupAlive, groupStartTimes, prepareTree, processStartTime, sameProcess, stopTree } from '../shared/process.js';
 import { visibleControls } from '../shared/sanitize.js';
-import { cutText, settleWithin } from '../shared/util.js';
+import { settleWithin } from '../shared/util.js';
 import { AGENT_COLLABORATE_ENV, AGENT_ID_ENV, AGENT_GOAL_ENV, AGENT_ROLE_ENV, AGENT_SCRATCH_ENV, PARENT_ID_ENV, PARENT_PID_ENV, TEAM_WORKSPACE_ENV } from '../team/store.js';
 import { profileExcludes, type AgentProfile } from './profiles.js';
-import { newChildState, noticeText, parseEvent, reduceEvent, type ChildEffect, type ChildNotices, type ChildProgress, type ChildState, type WatchdogLimits } from './events.js';
+import { newChildState, parseEvent, reduceEvent, type ChildEffect, type ChildProgress, type WatchdogLimits } from './events.js';
+import { piInvocation, promptFile, selfExtensionPath, writeNonceFile, type ChildSession, type Identity } from './launch.js';
 import { ReportTracker } from './report.js';
 import { ChildRelay, type RelayHost } from './relay.js';
-
-/** The child's place in the team: its name (id), its role (profile), its goal, and the agent that started it. */
-export interface Identity {
-  id: string;
-  role?: string;
-  parentId?: string;
-  goal?: string;
-  /** Works with its sibling subagents (messages them directly), not only for its parent. */
-  collaborate?: boolean;
-  /** The parent's team workspace, for a child whose cwd is an isolated worktree (a different git root). */
-  workspace?: string;
-  /** Set only when the parent's project config is trusted: the repository whose stored decision an isolated child follows. */
-  trustRoot?: string;
-  /** Its handoff folder: files it writes there are read by the parent on demand instead of riding in its report. */
-  scratch?: string;
-  /** The parent's Pi session id: the backlog claims the child may update. */
-  parentSession?: string;
-  /** The parent's permission mode now, and what its spawn ask granted: the child is never looser than its parent. */
-  permission?: { mode: PermissionMode; grants: readonly ActionClass[] };
-  /** The parent can ask a person: the child sends its approval dialogs to the parent (`OCTOCODE_PERMISSION_RELAY`) instead of denying them. */
-  relay?: boolean;
-}
+import { reportDir, savedNotices, StderrTail } from './run-output.js';
 
 /**
  * Child environment. `nonceFile` is the owner-only file holding the child's own secret (`PERMISSION_NONCE_FILE_ENV`; the secret itself never goes in an environment). A `visibleBrowser` profile (webLive) gets a visible Chrome on the persistent profile. The user's
@@ -78,80 +54,6 @@ export function subagentProcessEnv(profile: AgentProfile | undefined, base: Node
     ...(identity?.permission ? { [PERMISSION_ENV]: identity.permission.mode } : {}),
     ...(identity?.permission?.grants.length ? { [PERMISSION_GRANTS_ENV]: identity.permission.grants.join(',') } : {}),
   };
-}
-
-/** The Pi CLI that runs this process, else the installed Pi package's CLI, else `pi` on PATH. */
-function piInvocation(argv = process.argv): { command: string; prefix: string[] } {
-  const script = argv[1];
-  if (script && /(^|[\\/])(pi|cli\.js)$/.test(script) && fs.existsSync(script)) return { command: process.execPath, prefix: [script] };
-  try {
-    const main = fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'));
-    const cli = path.join(path.dirname(main), 'bundle', 'cli.js');
-    if (fs.existsSync(cli)) return { command: process.execPath, prefix: [cli] };
-  } catch {
-    // Fall through to PATH lookup.
-  }
-  return { command: 'pi', prefix: [] };
-}
-
-/** This extension's entry file, so children load the same Octocode tools the parent has. */
-function selfExtensionPath(): string | undefined {
-  // The entry (`index.js` in dist, `index.ts` in src) sits in the folder above this module's own.
-  const dir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-  return ['index.js', 'index.ts'].map((file) => path.join(dir, file)).find((file) => fs.existsSync(file));
-}
-
-/**
- * Writes a profile prompt to an owner-only file in `dir`, named by its content hash, and returns the path. Pi's
- * `--append-system-prompt` takes text or a path and reads an existing path as a file, so a prompt passed as text that
- * happens to name a file would be replaced by that file: a path it always reads is unambiguous.
- */
-function promptFile(prompt: string, dir: string): string {
-  const file = path.join(dir, `system-prompt-${shortHash(prompt)}.md`);
-  atomicWriteFileSync(file, prompt, { mode: 0o600 });
-  return file;
-}
-
-/**
- * Writes `nonce` to a new owner-only file in this session's private folder and returns its path, or undefined when it
- * cannot be written (the child then runs without a secret: its headers and audit entries are not accepted, and it logs that).
- * The child reads the file once and unlinks it (`takeNonce`); `runSubagent` removes it at the end of the run otherwise.
- */
-function writeNonceFile(nonce: string, id: string): string | undefined {
-  try {
-    const file = path.join(sessionOutputDir('output'), `nonce-${id.replace(/[^\w.-]/g, '_')}-${randomBytes(8).toString('hex')}`);
-    fs.writeFileSync(file, nonce, { flag: 'wx', mode: PRIVATE_FILE_MODE });
-    return file;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Where a child saves its conversation: Pi's session folder and the session id (the child's name, so its Octocode folder maps back to it). */
-export interface ChildSession {
-  dir: string;
-  id: string;
-}
-
-/**
- * Every child saves its conversation in its scratch folder (`<scratch>/session`, removed with the folder), under its
- * own name (no new child gets the name of an existing scratch folder, `scratchNames`, so none reopens another's): its compaction summary then names a transcript to read, and the parent can find it. Without a scratch
- * folder it goes to the run's private output folder. Whether the child stays reachable is `lingerSeconds`, not this.
- */
-export function childSession(identity: Pick<Identity, 'id' | 'scratch'>): ChildSession {
-  const root = identity.scratch ?? reportDir(identity.id);
-  if (!root) throw new Error(`Subagent ${identity.id} has nowhere to save its session: neither its scratch folder nor the output folder can be written.`);
-  return { dir: path.join(root, 'session'), id: identity.id };
-}
-
-/** The saved session file (`<timestamp>_<id>.jsonl`, named by Pi), once the child has written it. */
-export function childSessionFile(session: ChildSession): string | undefined {
-  try {
-    const name = fs.readdirSync(session.dir).find((entry) => entry.endsWith(`_${session.id}.jsonl`));
-    return name ? path.join(session.dir, name) : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -448,89 +350,4 @@ export async function runSubagent(
     // A child that never started its permission module (it failed first) leaves the file: it is removed with the run.
     if (nonceFile) fs.rmSync(nonceFile, { force: true });
   });
-}
-
-/** Characters of a child's stderr a failure shows (its end); a longer stderr is saved whole. */
-const STDERR_TAIL_CHARS = 4_000;
-const STDERR_FILE = 'stderr.txt';
-const NOTICES_FILE = 'notices.txt';
-
-/**
- * A child's stderr, bounded in memory: its last `STDERR_TAIL_CHARS` characters (control characters made visible), and,
- * once it outgrows that, all of it streamed to `stderr.txt` in `dir`, so a failure that shows only the end can name the whole.
- */
-class StderrTail {
-  private tail = '';
-  private total = 0;
-  private fd: number | undefined;
-  private file: string | undefined;
-  private failed = false;
-
-  constructor(private readonly dir: string | undefined) {}
-
-  write(chunk: string): void {
-    const text = visibleControls(chunk);
-    const before = this.tail;
-    this.total += text.length;
-    this.tail = cutText(before + text, STDERR_TAIL_CHARS, { chars: true, tail: true });
-    if (this.total <= STDERR_TAIL_CHARS || this.failed) return;
-    try {
-      if (this.fd === undefined) {
-        if (!this.dir) throw new Error('no folder');
-        const file = path.join(this.dir, STDERR_FILE);
-        this.fd = fs.openSync(file, 'w', PRIVATE_FILE_MODE);
-        this.file = file;
-        // Nothing was cut before the first overflow, so the tail is everything that came earlier.
-        fs.writeSync(this.fd, before);
-      }
-      fs.writeSync(this.fd, text);
-    } catch {
-      this.failed = true;
-      this.file = undefined;
-      this.close();
-    }
-  }
-
-  close(): void {
-    if (this.fd === undefined) return;
-    try {
-      fs.closeSync(this.fd);
-    } catch {
-      // Nothing to do: the file is a convenience copy.
-    }
-    this.fd = undefined;
-  }
-
-  /** What an error shows: the whole stderr when it fit, else a note on the cut and where the whole is, then the end. */
-  text(): string {
-    const shown = this.tail.trim() || 'no output';
-    return this.total > STDERR_TAIL_CHARS ? `${tailNote('stderr', this.tail.length, this.total, this.file)}\n${shown}` : shown;
-  }
-}
-
-/**
- * The run's notices as the parent gets them at the end. When some did not fit the inline page, every notice (whole, one
- * per line, repeats folded with their count) is saved to `notices.txt` in `dir` and the notices name it; when it cannot
- * be saved, every notice goes inline instead, so none is dropped. Undefined when the inline page already holds them all.
- */
-function savedNotices(state: ChildState, dir: string | undefined): ChildNotices | undefined {
-  if (state.notices.more === 0) return undefined;
-  const all = [...state.noticeLog.values()];
-  try {
-    if (!dir) throw new Error('no folder');
-    const file = path.join(dir, NOTICES_FILE);
-    fs.writeFileSync(file, `${all.map(noticeText).join('\n')}\n`, { mode: PRIVATE_FILE_MODE });
-    return { ...state.notices, file };
-  } catch {
-    return { ...state.notices, kept: all, more: 0 };
-  }
-}
-
-/** Where a child without a scratch folder (an unwritable workspace) spills a long report, so a cut report always has its whole copy. */
-function reportDir(id: string): string | undefined {
-  try {
-    return privateDir(path.join(sessionOutputDir('output'), `agent-${id.replace(/[^\w.-]/g, '_')}`));
-  } catch {
-    return undefined;
-  }
 }

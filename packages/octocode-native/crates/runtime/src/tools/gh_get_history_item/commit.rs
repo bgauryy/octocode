@@ -10,21 +10,23 @@ use super::inventory::file_page_size;
 use super::patch_hop::{attach_diff_continuations, commit_pull_request_lead, commit_query};
 use super::util::{str_at, string};
 use super::window::{
-    MAX_FILE_BATCHES, WindowSpec, WindowState, commit_file_items, load_window_with,
+    COMMIT_FILE_BATCH, MAX_COMMIT_FILE_BATCHES, WindowSpec, WindowState, commit_file_items,
+    load_window_with,
 };
 use super::{HistoryItemRequest, ItemOperation, validation};
 use crate::response::paging::push_warnings;
 use crate::response::result::{ToolData, remove_nulls};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
-use crate::tools::gh_shared::commit::utc_date;
-use octocode_github::{GitHubTransport, ProviderError, RequestContext};
+use crate::tools::gh_shared::dates::utc_date;
+use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
 pub(super) async fn commit(
-    transport: &GitHubTransport,
+    provider: &GitHubProvider,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
+    let transport = &provider.transport;
     let reference =
         gh_get_history_item_query::reference(query).ok_or_else(|| validation("ref is required"))?;
     let scope = FileScope::from_query(query).map_err(|message| validation(&message))?;
@@ -37,7 +39,8 @@ pub(super) async fn commit(
     // File batches are derived from page×pageSize; a scope or a literal
     // hides files, so a filtered read scans from the first batch.
     let spec = WindowSpec {
-        max_batches: MAX_FILE_BATCHES,
+        batch_size: COMMIT_FILE_BATCH,
+        max_batches: MAX_COMMIT_FILE_BATCHES,
         page: gh_get_history_item_query::page(query).unwrap_or(1),
         page_size: file_page_size(query, query.include_diff()),
         filtered: !filter.is_trivial(),
@@ -45,17 +48,19 @@ pub(super) async fn commit(
         prefetched: None,
     };
     // A movable ref is pinned before a read of several batches, so a branch
-    // that moves between them cannot mix two commits. A page one batch holds
-    // reads the commit by its name: the answer names the commit, which pins
-    // every continuation.
+    // that moves between them cannot mix two commits; the pin is the
+    // memoized single-flight resolution every GitHub read of the ref shares.
+    // A page one batch holds reads the commit by its name: the answer names
+    // the commit, which pins every continuation.
     let pinned = if octocode_github::is_full_sha(reference) || !spec.spans_batches() {
         reference.to_owned()
     } else {
-        transport
-            .commit_sha(
+        provider
+            .resolve_reference(
                 gh_get_history_item_query::owner(query),
                 gh_get_history_item_query::repo(query),
-                reference,
+                Some(reference),
+                false,
                 context,
             )
             .await?
@@ -80,7 +85,7 @@ pub(super) async fn commit(
     // lower bound, including for an include-filtered read.
     if loaded.state.exhausted
         && loaded.state.skipped.saturating_add(loaded.items.len())
-            >= MAX_FILE_BATCHES * octocode_github::MAX_PER_PAGE
+            >= MAX_COMMIT_FILE_BATCHES * COMMIT_FILE_BATCH
     {
         loaded.state.capped = true;
     }

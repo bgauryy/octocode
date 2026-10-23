@@ -200,3 +200,47 @@ async fn artifact_search_npm_userconfig_never_comes_from_the_workspace_env() {
         "a workspace .env steered npm credentials"
     );
 }
+
+/// A registry failure states GitHub's code for the same HTTP status, and a
+/// retryable one offers the same `next.retry` (the same row again) every
+/// GitHub failure does; a refused one gets the access hint and no retry.
+#[tokio::test]
+async fn registry_failures_share_githubs_codes_and_retry_lead() {
+    let server = MockServer::builder().start().await;
+    for (package, status) in [("down", 503), ("denied", 403)] {
+        Mock::given(method("GET"))
+            .and(path(format!("/{package}/latest")))
+            .respond_with(ResponseTemplate::new(status).set_body_json(json!({"error":"no"})))
+            .mount(&server)
+            .await;
+    }
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_string())]);
+    let read = |package: &str| json!({"ecosystem": "npm", "packageName": package, "registryUrl": server.uri()});
+    let outcome = call(&runtime, "artifactSearch", read("down"))
+        .await
+        .expect("row-level error");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "server", "{data}");
+    assert_eq!(data["retryable"], true, "{data}");
+    let retry = &data["next"]["retry"];
+    assert_eq!(retry["tool"], "artifactSearch", "{data}");
+    assert_eq!(
+        retry["query"]["queries"][0]["packageName"], "down",
+        "{data}"
+    );
+
+    let outcome = call(&runtime, "artifactSearch", read("denied"))
+        .await
+        .expect("row-level error");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "permission", "{data}");
+    assert!(data["next"].get("retry").is_none(), "{data}");
+    assert!(
+        crate::support::checks::hint(data, "text")[0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("credentials")),
+        "{data}"
+    );
+    runtime.close().await;
+}

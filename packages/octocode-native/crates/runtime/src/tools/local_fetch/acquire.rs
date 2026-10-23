@@ -1,11 +1,11 @@
 //! Opening a read: the path policy, the regular-file and size checks, the
 //! binary sniff and the streamed path for large sources.
 
-use super::executor::*;
-use super::types::*;
+use super::executor::system_time_iso;
 use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::security::scan::ContentScan;
+use crate::tools::source_view::*;
 use octocode_contract_types::ErrorCode;
 use std::fs;
 use std::io::Read;

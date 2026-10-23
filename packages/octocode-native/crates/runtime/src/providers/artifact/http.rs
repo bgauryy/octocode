@@ -3,6 +3,7 @@ use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
 use crate::providers::RuntimeClients;
 use crate::providers::artifact::types::artifact_type;
 use octocode_contract_types::ErrorCode;
+use octocode_github::ProviderErrorKind;
 use octocode_io::budget::{BudgetStop, RequestBudget};
 use octocode_io::retry::{Backoff, BodyError, StatusClass};
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue, USER_AGENT};
@@ -661,49 +662,49 @@ impl RegistryClient<'_> {
         match response.status {
             200..=299 => Ok(Some(response.body)),
             404 if not_found_is_empty => Ok(None),
-            401 | 403 => Err(ArtifactError::new(
-                ErrorCode::Authentication,
-                format!(
-                    "{} denied registry access.",
-                    artifact_type::as_str(artifact_type)
-                ),
-            )
-            .with_status(response.status)),
-            429 => Err(ArtifactError::new(
-                ErrorCode::RateLimited,
-                format!(
-                    "{} rate limit reached. Retry later.",
-                    artifact_type::as_str(artifact_type)
-                ),
-            )
-            .with_status(response.status)),
-            // Remaining 4xx (except 408) are deterministic request errors:
-            // retrying cannot help, so name the status and the registry's
-            // own reason when it gives one.
-            status @ 400..=499 if status != 408 => Err(ArtifactError::new(
-                ErrorCode::InvalidInput,
-                match rejection_detail(&response.body) {
-                    Some(detail) => format!(
-                        "{} registry rejected the request (HTTP {status}): {detail}",
-                        artifact_type::as_str(artifact_type)
-                    ),
-                    None => format!(
-                        "{} registry rejected the request (HTTP {status}).",
-                        artifact_type::as_str(artifact_type)
-                    ),
-                },
-            )
-            .with_status(status)),
-            status => Err(ArtifactError::new(
-                ErrorCode::ProviderError,
-                format!(
-                    "{} registry request failed (HTTP {status}). Retry later.",
-                    artifact_type::as_str(artifact_type)
-                ),
-            )
-            .with_status(status)),
+            status => Err(registry_error(artifact_type, status, &response.body)),
         }
     }
+}
+
+/// A registry's non-2xx answer under the status table GitHub answers share
+/// ([`ProviderErrorKind::from_status`]): the same status reports the same
+/// `errorCode` from every provider. The message names the registry, the
+/// status, and the registry's own reason when it gives one.
+fn registry_error(artifact_type: ArtifactType, status: u16, body: &[u8]) -> ArtifactError {
+    let kind = ProviderErrorKind::from_status(status);
+    let registry = artifact_type::as_str(artifact_type);
+    let (summary, advice) = match kind {
+        ProviderErrorKind::Authentication | ProviderErrorKind::Permission => (
+            format!("{registry} denied registry access (HTTP {status})"),
+            "",
+        ),
+        ProviderErrorKind::RateLimited => (
+            format!("{registry} rate limit reached (HTTP {status})"),
+            " Retry later.",
+        ),
+        ProviderErrorKind::NotFound => (
+            format!("{registry} registry has no such resource (HTTP {status})"),
+            "",
+        ),
+        ProviderErrorKind::Unavailable => (
+            format!("{registry} registry blocked the resource for legal reasons (HTTP {status})"),
+            "",
+        ),
+        ProviderErrorKind::Server => (
+            format!("{registry} registry request failed (HTTP {status})"),
+            " Retry later.",
+        ),
+        _ => (
+            format!("{registry} registry rejected the request (HTTP {status})"),
+            "",
+        ),
+    };
+    let message = match rejection_detail(body) {
+        Some(detail) => format!("{summary}: {detail}.{advice}"),
+        None => format!("{summary}.{advice}"),
+    };
+    ArtifactError::new(kind.code(), message).with_status(status)
 }
 
 /// The reason a JSON registry error body gives (`errors[0].detail`,

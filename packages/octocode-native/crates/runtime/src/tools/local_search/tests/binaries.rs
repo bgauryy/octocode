@@ -141,7 +141,7 @@ fn a_binary_cut_keeps_the_ignored_path_disclosure_and_is_not_terminal() {
         result
             .hints
             .iter()
-            .any(|hint| hint.contains("match in skipped paths")),
+            .any(|hint| hint.contains("that matches behind skipped paths")),
         "{:?}",
         result.hints
     );

@@ -8,7 +8,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const bundles = [
   {
     trigger: 'scripts/render-report.mjs',
-    files: ['scripts/render-report.mjs', 'scripts/lib/entrypoint.mjs', 'references/report-output.md'],
+    files: [
+      'scripts/render-report.mjs',
+      'scripts/lib/entrypoint.mjs',
+      // The renderer's modules: every file in scripts/lib/report/ ships with it.
+      ...readdirSync(join(here, 'scripts/lib/report')).filter(name => name.endsWith('.mjs')).sort().map(name => `scripts/lib/report/${name}`),
+      'references/report-output.md',
+    ],
   },
   {
     trigger: 'assets/template.html',

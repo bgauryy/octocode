@@ -17,6 +17,7 @@ pub(crate) const WALK_CAP: usize = 200;
 pub fn assert_output_contract(tool: &str, output: &Value) {
     validate_output(tool, output)
         .unwrap_or_else(|error| panic!("{tool} output contract: {error:?}\n{output}"));
+    assert_lead_names_declared(output);
 }
 
 /// One `{tool, query}` call an output offers: `channel` is `next` or `hints`
@@ -49,6 +50,10 @@ fn hint_call(text: &str) -> Option<(&str, Value)> {
 
 /// Decode a named suggestion from the public string list without accepting
 /// the internal object format. Every decoded call must validate unchanged.
+#[cfg_attr(
+    not(unix),
+    allow(dead_code, reason = "its in-crate caller is unix-only; integration tests use it on every platform")
+)]
 pub fn hint(data: &Value, name: &str) -> Value {
     let Some(items) = data.get("hints") else {
         return Value::Null;
@@ -143,9 +148,44 @@ pub fn leads(output: &Value) -> Vec<Lead> {
     out
 }
 
+/// The names the contract declares for continuations
+/// (`continuationChannels.kinds.pages` and `.leads`).
+fn declared_lead_kinds() -> BTreeSet<String> {
+    let kinds = &parsed_contract().expect("contract")["continuationChannels"]["kinds"];
+    ["pages", "leads"]
+        .into_iter()
+        .flat_map(|group| kinds[group].as_array().expect("declared kinds"))
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Every lead and page of `output` is named for a kind the contract declares,
+/// or for the tool it calls (an entry named after its tool resumes that
+/// tool's walk). A name is its kind plus an optional repeat number
+/// (`readHits2`).
+pub fn assert_lead_names_declared(output: &Value) {
+    let declared = declared_lead_kinds();
+    let undeclared = leads(output)
+        .into_iter()
+        .filter(|lead| lead.channel != "responsePagination")
+        .map(|lead| (lead.name, lead.tool))
+        .filter(|(name, tool)| {
+            let kind = name.trim_end_matches(|c: char| c.is_ascii_digit());
+            !declared.contains(kind) && kind != tool
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        undeclared.is_empty(),
+        "lead names the contract does not declare (name, tool): {undeclared:?}\n{output}"
+    );
+}
+
 /// Every lead of `output` is a complete call (`{queries:[row, ...]}`) that the
-/// strict input contract of the tool it names accepts unchanged.
+/// strict input contract of the tool it names accepts unchanged, and is named
+/// for a kind the contract declares.
 pub fn assert_leads_valid(output: &Value) {
+    assert_lead_names_declared(output);
     for lead in leads(output) {
         assert!(
             lead.query["queries"]
@@ -259,7 +299,9 @@ pub struct Walk {
 /// A page walk of `tool` from `start`: each call's output satisfies the output
 /// contract and offers only contract-valid leads; every page lead (`next.<k>`,
 /// `k` a contract page channel, naming `tool`) is followed breadth-first,
-/// verbatim. Fails on a call made twice, a row delivered twice, or more than
+/// verbatim. A branch's last page may re-offer the one call that continues
+/// past it (it is not rerun). Fails on any other repeated call, a row
+/// delivered twice, or more than
 /// [`WALK_CAP`] calls. Drive it with [`walk`], or call [`Walker::next_query`]
 /// and [`Walker::accept`] from an async test.
 pub struct Walker {
@@ -314,13 +356,28 @@ impl Walker {
             );
             self.walk.rows.push(row);
         }
-        for lead in leads(&page.output) {
-            if lead.channel == "next"
-                && lead.tool == self.tool
-                && self.channels.contains(&lead.name)
+        let page_leads = leads(&page.output)
+            .into_iter()
+            .filter(|lead| {
+                lead.channel == "next"
+                    && lead.tool == self.tool
+                    && self.channels.contains(&lead.name)
+            })
+            .collect::<Vec<_>>();
+        // A branch's last page may re-offer the one call that continues past
+        // it (a localSearch match page that ends its file group re-offers
+        // `nextPage`), so a linear reader never dead-ends; the walk does not
+        // rerun it. Any other repeated call still fails in `next_query`.
+        let branch_end = page_leads.len() == 1;
+        for lead in page_leads {
+            let key = canonical(&lead.query);
+            if branch_end
+                && (self.seen_queries.contains(&key)
+                    || self.queue.iter().any(|queued| canonical(queued) == key))
             {
-                self.queue.push_back(lead.query);
+                continue;
             }
+            self.queue.push_back(lead.query);
         }
     }
 

@@ -136,16 +136,10 @@ async fn capture(server: &MockServer, query: &Value, runtime: &Runtime) -> Value
     );
     crate::response::extras::prune_row(&mut row, ToolId::GhSearchCode, query);
     crate::response::rows::minimize_row(&mut row, ToolId::GhSearchCode, query);
-    let mut structured = json!({"results":[row]});
-    crate::response::rows::sanitize_output(
-        &mut structured,
-        ToolId::GhSearchCode,
-        &crate::security::ContentSecurity::new(),
-        &runtime.context,
-        false,
-    )
-    .expect("shared output sanitization");
-    structured
+    crate::security::ContentSecurity::new()
+        .seal_output(json!({"results":[row]}), false, || runtime.context.check())
+        .expect("shared output sanitization")
+        .into_value()
 }
 
 fn select(mut structured: Value, query: &Value, runtime: &Runtime) -> (Value, Value) {
@@ -153,7 +147,7 @@ fn select(mut structured: Value, query: &Value, runtime: &Runtime) -> (Value, Va
     apply_sanitized_rows(
         ToolId::GhSearchCode,
         &mut structured,
-        std::slice::from_ref(query),
+        &[crate::security::CheckedQuery::checked(query.clone())],
         &[0],
         &mut response_query,
         runtime,
@@ -264,16 +258,18 @@ async fn excluded_first_hit_and_capped_hit_reads_do_not_bypass_selection() {
     assert_eq!(data["selection"]["selectedItems"], 1);
     assert_eq!(data["selection"]["excludedItems"], 1);
     assert!(data["next"].get("read").is_none(), "top hit was excluded");
+    // The excluded file's read is gone; the surviving read is numbered
+    // from the first label, so no gap suggests missing leads.
     assert!(
-        data["next"].get("readHits").is_none(),
-        "excluded capped hits use explicit recovery"
+        data["next"].get("readHits2").is_none(),
+        "surviving reads are renumbered"
     );
-    assert_eq!(data["next"]["readHits2"], selected_remainder);
+    assert_eq!(data["next"]["readHits"], selected_remainder);
     assert_eq!(
-        data["next"]["readHits2"]["query"]["queries"][0]["ranges"],
+        data["next"]["readHits"]["query"]["queries"][0]["ranges"],
         json!(["6-8"])
     );
-    assert_eq!(data["next"]["readHits2"]["query"]["queries"][0]["ref"], SHA);
+    assert_eq!(data["next"]["readHits"]["query"]["queries"][0]["ref"], SHA);
 
     let provider_next = &data["next"]["nextPage"]["query"]["queries"][0];
     assert_eq!(provider_next["page"], 2);
@@ -323,11 +319,42 @@ fn selected_equivalent_paths_keep_their_reads_without_admitting_other_repositori
         "next":{"readHits":alias.clone(),"otherRepo":read("other", "src/copy.rs")},
         "hints":{"read":primary.clone(),"excluded":read("r", "src/excluded.rs")}
     });
-    super::finish_code_selection(&mut page, &json!({"owner":"o","fields":["path"]}));
+    super::finish_code_selection(&mut page, &json!({"owner":"o","fields":["path"]}), &[]);
     assert_eq!(page["next"]["readHits"], alias);
     assert_eq!(page["hints"]["read"], primary);
     assert!(page["next"].get("otherRepo").is_none());
     assert!(page["hints"].get("excluded").is_none());
     assert_eq!(page["files"][0]["alsoAt"], json!(["src/copy.rs"]));
     assert!(page["files"][0].get("lines").is_none());
+}
+
+#[test]
+fn a_hidden_file_with_unlisted_hits_gets_a_judged_read_and_an_excluded_one_none() {
+    let read = |path: &str| {
+        json!({"tool":"ghGetFileContent","query":{"queries":[{
+            "owner":"o","repo":"r","path":path,"ref":SHA,"ranges":["9-40"],
+            "contextLines":0,"matchString":"Detection"
+        }]}})
+    };
+    let context = json!({"classifiers":["Does this code quit on a NUL byte?"]});
+    let mut page = json!({
+        "owner":"o","repo":"r",
+        "files":[{"path":"src/shown.rs","lines":["1\tquit()"]}],
+        "next":{"readHits":read("src/hidden.rs"),"readHits2":read("src/excluded.rs")}
+    });
+    let hidden = [json!({"path":"src/hidden.rs","lines":["3\tDetection"],"matchCount":14})];
+    super::finish_code_selection(
+        &mut page,
+        &json!({"owner":"o","repo":"r","clasifyContext":context}),
+        &hidden,
+    );
+    // Neither capped read survives: only selected files keep plain reads.
+    assert!(page["next"].get("readHits").is_none());
+    assert!(page["next"].get("readHits2").is_none());
+    assert_eq!(
+        page["next"]["judgeHits"]["query"]["queries"],
+        json!([{"owner":"o","repo":"r","path":"src/hidden.rs","ref":SHA,
+            "matchString":"Detection","clasifyContext":context}])
+    );
+    assert_eq!(page["next"]["judgeHits"]["tool"], "ghGetFileContent");
 }

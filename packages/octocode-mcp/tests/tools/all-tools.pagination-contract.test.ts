@@ -20,13 +20,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
   ghSearchRepo: { controls: ['page', 'pageSize'] },
   ghSearchCode: { controls: ['page', 'pageSize'] },
   ghStructure: {
-    controls: [
-      'page',
-      'pageSize',
-      'materializeOffset',
-      'responseOffset',
-      'responseLength',
-    ],
+    controls: ['page', 'pageSize', 'materializeOffset', 'responseLength'],
   },
   ghGetFileContent: { controls: ['unit', 'offset', 'length'] },
   ghSearchHistory: { controls: ['page', 'pageSize'] },

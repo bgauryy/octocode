@@ -29,5 +29,4 @@ pub use workspace_root::{
 };
 
 #[cfg(test)]
-#[path = "config_tests.rs"]
 mod tests;

@@ -53,6 +53,25 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
                 "minify",
                 "minify:\"symbols\" cannot accompany matchString or ranges. Read the outline, then select source lines.",
             );
+            // A classified read judges raw text in line units; a match read
+            // stays verbatim whatever its minify, and a selection token's
+            // page keeps its unit.
+            let classified = query.get("clasifyContext").is_some();
+            for (field, transformed) in [
+                ("minify", query.get("minify").is_some() && !matched),
+                (
+                    "unit",
+                    query.get("unit").and_then(Value::as_str) == Some("bytes")
+                        && query.get("selection").is_none(),
+                ),
+            ] {
+                add(
+                    classified && transformed,
+                    "content.classified-view",
+                    field,
+                    "clasifyContext requires raw text in line units; omit minify, and omit unit or use unit:lines.",
+                );
+            }
             // Each window control conflicts with fullContent at its own path,
             // so the repair drops exactly the controls and keeps the read.
             for field in ["offset", "length", "unit"] {
@@ -74,5 +93,47 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
         Ok(())
     } else {
         Err(ContractValidationError { issues })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::contracts::validate::validate;
+    use serde_json::{Value, json};
+
+    /// A classified read judges raw text in line units: a transformed view or
+    /// a byte window is refused before any read, on both content readers.
+    #[test]
+    fn classified_reads_refuse_transformed_views_before_reading() {
+        let refusal = "clasifyContext requires raw text in line units; omit minify, and omit unit or use unit:lines.";
+        let clasify = json!({"classifiers":["Does it expire keys?"]});
+        for (tool, row) in [
+            ("localFetch", json!({"path":"a.ts"})),
+            (
+                "ghGetFileContent",
+                json!({"owner":"o","repo":"r","path":"a.ts"}),
+            ),
+        ] {
+            let with = |fields: Value| {
+                let mut query = row.clone();
+                query["clasifyContext"] = clasify.clone();
+                query
+                    .as_object_mut()
+                    .expect("row")
+                    .extend(fields.as_object().expect("fields").clone());
+                json!({"queries":[query]})
+            };
+            for (fields, field) in [
+                (json!({"minify":"standard"}), "minify"),
+                (json!({"unit":"bytes"}), "unit"),
+            ] {
+                let error = validate(tool, with(fields)).expect_err("refused before reading");
+                assert_eq!(error.issues[0].path, ["queries", "0", field], "{tool}");
+                assert_eq!(error.issues[0].message, refusal, "{tool}");
+            }
+            validate(tool, with(json!({"minify":"standard","matchString":"x"})))
+                .expect("a match read stays verbatim");
+            validate(tool, with(json!({"unit":"lines"}))).expect("line unit");
+        }
     }
 }

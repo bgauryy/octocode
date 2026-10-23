@@ -203,22 +203,9 @@ export const CHROME_DEVTOOLS_DIR = chromePackageRoot();
 let cdpBrowserLaunched = false; // this process has a ready browser on the port
 let cdpBrowserOwned = false;    // ...and launched it (reused sessions belong to the caller)
 
-// The CDP sandbox runs under the Node.js Permission Model with reads granted to the cwd
-// subtree; pin every spawn to the nearest ancestor holding node_modules so module
-// resolution stays inside the granted tree.
-function findNodeModulesRoot(from) {
-  let d = from;
-  while (true) {
-    if (existsSync(join(d, 'node_modules'))) return d;
-    const parent = dirname(d);
-    if (parent === d) return from;
-    d = parent;
-  }
-}
-const CDP_SPAWN_CWD = findNodeModulesRoot(__cdpDir);
-
+// Executables are resolved from their installation; state belongs to the caller's workspace.
 const chrome = (args, options = {}) =>
-  spawnSync(process.execPath, [resolve(CHROME_DEVTOOLS_DIR, CHROME_BIN), '/raw', ...args], { encoding: 'utf8', cwd: CDP_SPAWN_CWD, ...options });
+  spawnSync(process.execPath, [resolve(CHROME_DEVTOOLS_DIR, CHROME_BIN), '/raw', ...args], { encoding: 'utf8', cwd: process.cwd(), ...options });
 
 async function ensureCdpBrowser(port) {
   if (cdpBrowserLaunched) return { ok: true };
@@ -253,12 +240,12 @@ export async function fetchCdp({ url, pageId, config }) {
     return { pageId, url, status: 0, contentType: '', body: '', fetchError: `Chrome launch failed: ${launch.error}`, creditCost: null, fetchedAt };
   }
 
-  const runnerDir = resolve(CDP_SPAWN_CWD, '.octocode', 'octocode-scraping', 'tmp', 'cdp-provider');
+  const runnerDir = resolve(process.cwd(), '.octocode', 'octocode-scraping', 'tmp', 'cdp-provider');
   await mkdir(runnerDir, { recursive: true });
   const runnerPath = join(runnerDir, `${pageId}-${randomUUID()}-runner.mjs`);
   // The sandbox writes only below .octocode/octocode-chrome-devtools/tmp; its TMPDIR is there, so the body goes to TMPDIR.
   const bodyName = `${pageId}-${randomUUID()}-body.html`;
-  const sandboxTree = resolve(CDP_SPAWN_CWD, '.octocode', 'octocode-chrome-devtools', 'tmp');
+  const sandboxTree = resolve(process.cwd(), '.octocode', 'octocode-chrome-devtools', 'tmp');
   let bodyPath = null;
   const waitMs = config.cdpWaitMs ?? 8000;
   // The runner's sandbox reads only its own folder, so the guard is staged beside it.
@@ -314,7 +301,7 @@ export async function run(cdp) {
       bodyPath = reported;
       body = await readFile(bodyPath, 'utf8');
     } else if (/ERR_ACCESS_DENIED|Access to this API has been restricted/.test(run.stderr || '')) {
-      fetchError = 'CDP sandbox ERR_ACCESS_DENIED — the sandbox Permission Model blocked a path. CDP_SPAWN_CWD=' + CDP_SPAWN_CWD + '. This should resolve automatically; if it persists, ensure node_modules exists at or above that path.';
+      fetchError = 'CDP sandbox ERR_ACCESS_DENIED — the sandbox Permission Model blocked a path. workspace=' + process.cwd() + '. Check the installed Chrome package sandbox read grants.';
     } else {
       fetchError = (run.stderr || 'no result from CDP sandbox run').slice(0, 500);
     }

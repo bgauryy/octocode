@@ -20,68 +20,23 @@ import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromeOutputLimits } from './chrome-contract.mjs';
 import { validateFlags } from './cli-flags.mjs';
-import { compareNumeric } from './evidence-numeric.mjs';
+import {
+  matches,
+  parse,
+  pointer,
+  validatePredicates,
+  validateProjection,
+} from './evidence-predicates.mjs';
 
 const args = process.argv.slice(2),
   get = (flag: string, fallback?: string) =>
     args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
-const parse = text =>
-  JSON.parse(text, (_key, item, context) =>
-    typeof item === 'number' && context?.source
-      ? JSON.rawJSON(context.source)
-      : item
-  );
 const digest = value => createHash('sha256').update(value).digest('hex');
 async function sourceDigest(file) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest('hex');
 }
-function pointer(value, path) {
-  if (!path) return value;
-  if (!path.startsWith('/')) throw new Error('JSON pointer must start with /');
-  for (const part of path.slice(1).split('/')) {
-    if (/~(?![01])/u.test(part)) throw new Error('Invalid JSON pointer escape');
-    const key = part.replace(/~1/g, '/').replace(/~0/g, '~');
-    if (
-      value === null ||
-      typeof value !== 'object' ||
-      JSON.isRawJSON(value) ||
-      !Object.hasOwn(value, key)
-    )
-      return undefined;
-    value = value[key];
-  }
-  return value;
-}
-function matches(row, filters) {
-  return filters.every(filter => {
-    const actual = pointer(row, filter.path);
-    let expected = filter.value;
-    if (filter.op === 'exists') return (actual !== undefined) === expected;
-    if (filter.op === 'contains')
-      return typeof actual === 'string' && actual.includes(expected);
-    // Integer strings are the existing exact-large-integer query form.
-    if (
-      typeof expected === 'string' &&
-      /^-?\d+$/.test(expected) &&
-      (['gte', 'lte'].includes(filter.op) ||
-        (JSON.isRawJSON(actual) &&
-          /^-?\d+$/.test(actual.rawJSON) &&
-          (BigInt(actual.rawJSON) > BigInt(Number.MAX_SAFE_INTEGER) ||
-            BigInt(actual.rawJSON) < BigInt(Number.MIN_SAFE_INTEGER))))
-    )
-      expected = BigInt(expected);
-    const order = compareNumeric(actual, expected);
-    if (filter.op === 'eq')
-      return order === null ? actual === expected : order === 0;
-    if (order === null) return false;
-    if (filter.op === 'gte') return order >= 0;
-    if (filter.op === 'lte') return order <= 0;
-    return false;
-  });
-}
-
 if (args.includes('--help') || args.includes('-h')) {
   console.log(
     'Usage: evidence-query.mjs --file <JSON|JSONL> [--format json|jsonl] [--pointer /rows] [--where <JSON predicates>] [--select <JSON pointer array>] [--cursor 0] [--limit 50] [--sha256 <digest>]\nFilters before pagination; builds a reusable lossless offset index. Predicates: {path:"/status",op:"eq|contains|gte|lte|exists",value:...}. Select is opt-in projection with original source pointers. Oversized rows have executable full-value continuations.'
@@ -119,48 +74,8 @@ try {
     throw new Error('JSONL rows are the root; omit --pointer');
   const filters = parse(get('--where', '[]')),
     select = get('--select') ? JSON.parse(get('--select')) : null;
-  if (
-    !Array.isArray(filters) ||
-    filters.some(
-      f =>
-        !f ||
-        typeof f.path !== 'string' ||
-        !['eq', 'contains', 'gte', 'lte', 'exists'].includes(f.op) ||
-        !Object.hasOwn(f, 'value')
-    )
-  )
-    throw new Error('Invalid predicates');
-  for (const f of filters) {
-    if (Object.keys(f).some(key => !['path', 'op', 'value'].includes(key)))
-      throw new Error('Unknown predicate field');
-    if (
-      f.op === 'eq' &&
-      f.value !== null &&
-      !JSON.isRawJSON(f.value) &&
-      !['string', 'number', 'boolean'].includes(typeof f.value)
-    )
-      throw new Error('eq needs a scalar value');
-    pointer({}, f.path);
-    if (f.op === 'exists' && typeof f.value !== 'boolean')
-      throw new Error('exists needs a boolean');
-    if (f.op === 'contains' && typeof f.value !== 'string')
-      throw new Error('contains needs text');
-    if (
-      ['gte', 'lte'].includes(f.op) &&
-      typeof f.value !== 'number' &&
-      !JSON.isRawJSON(f.value) &&
-      !/^-?\d+$/.test(String(f.value))
-    )
-      throw new Error('Numeric predicate needs a number or integer string');
-  }
-  if (
-    select &&
-    (!Array.isArray(select) ||
-      !select.length ||
-      select.some(p => typeof p !== 'string'))
-  )
-    throw new Error('Invalid projection');
-  for (const p of select || []) pointer({}, p);
+  validatePredicates(filters);
+  validateProjection(select);
   const sha256 = await sourceDigest(file);
   if (get('--sha256') && get('--sha256') !== sha256)
     throw new Error('Capture changed; restart the query');

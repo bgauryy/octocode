@@ -1,23 +1,15 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "target": "ESNext",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": [
-      "ESNext",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "types": [
-      "node"
-    ],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    // Follow-up: strict costs about 800 errors here; tsconfig.boundaries.json
+    // holds the shared boundary files to strict until the rest is fixed.
     "strict": false,
     "noEmit": true,
-    "skipLibCheck": true,
     "noUnusedLocals": true
   },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.mts"
-  ]
+  "include": ["src/**/*.ts", "src/**/*.mts"]
 }

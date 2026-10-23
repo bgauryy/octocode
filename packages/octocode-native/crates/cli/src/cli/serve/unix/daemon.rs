@@ -335,14 +335,16 @@ pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: 
                 // What this call raises, and only that, goes in its reply.
                 let notices = octocode_io::notice::Scope::default();
                 let query = input.clone();
+                // The client's directory, which `served` read.
+                let cwd = request["cwd"].as_str().map(PathBuf::from);
                 let printed = match runtime.admit(id.clone()) {
-                    Err(error) => Printed::finish(&tool, Err(error), json_out, &query),
+                    Err(error) => Printed::finish(&tool, Err(error), json_out, &query, None),
                     Ok(admission) => {
                         let execution = notices.run(runtime.execute(
                             admission,
                             tool.clone(),
                             input,
-                            crate::cli::channel(json_out),
+                            octocode_native::runtime::Channel::Cli,
                         ));
                         let cancel = || {
                             runtime.requests.cancel(&id);
@@ -350,7 +352,7 @@ pub(super) async fn handle(daemon: &Daemon, stream: tokio::net::UnixStream, id: 
                         let Some(result) = unless_left(execution, &mut reader, cancel).await else {
                             return;
                         };
-                        Printed::finish(&tool, result, json_out, &query)
+                        Printed::finish(&tool, result, json_out, &query, cwd.as_deref())
                     }
                 };
                 let mut reply = printed.to_json();

@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { BrowserTool, checkBrowserUrl, checkUploadPaths, registerBrowserTool } from '../src/browser/tool.js';
+import { checkBrowserUrl, checkUploadPaths } from '../src/browser/access.js';
+import { BrowserTool, registerBrowserTool } from '../src/browser/tool.js';
 import { fakeCtx, fakePermission, fakePi } from './fake-pi.js';
 
 describe('browser reach', () => {
@@ -14,26 +15,26 @@ describe('browser reach', () => {
 
   it('opens http(s) only, and private or local hosts only once the user allows them', async () => {
     const allowed = fakePermission('workspace');
-    await expect(checkBrowserUrl('file:///etc/passwd', ui(true), allowed, 'call')).rejects.toThrow(/http\(s\) URLs only/);
-    await expect(checkBrowserUrl('javascript:alert(1)', ui(true), allowed, 'call')).rejects.toThrow(/http\(s\) URLs only/);
-    await expect(checkBrowserUrl('not a url', ui(true), allowed, 'call')).rejects.toThrow(/Not a URL/);
-    await expect(checkBrowserUrl('https://93.184.216.34/', { hasUI: false, ui: {} as never }, allowed, 'call')).resolves.toEqual({ host: { kind: 'public', addresses: ['93.184.216.34'] } });
-    await expect(checkBrowserUrl('http://169.254.169.254/latest/meta-data', { hasUI: false, ui: {} as never }, allowed, 'call')).rejects.toThrow(/Blocked private or local address/);
+    await expect(checkBrowserUrl('file:///etc/passwd', ui(true), allowed, { toolCallId: 'call' })).rejects.toThrow(/http\(s\) URLs only/);
+    await expect(checkBrowserUrl('javascript:alert(1)', ui(true), allowed, { toolCallId: 'call' })).rejects.toThrow(/http\(s\) URLs only/);
+    await expect(checkBrowserUrl('not a url', ui(true), allowed, { toolCallId: 'call' })).rejects.toThrow(/Not a URL/);
+    await expect(checkBrowserUrl('https://93.184.216.34/', { hasUI: false, ui: {} as never }, allowed, { toolCallId: 'call' })).resolves.toEqual({ host: { kind: 'public', addresses: ['93.184.216.34'] } });
+    await expect(checkBrowserUrl('http://169.254.169.254/latest/meta-data', { hasUI: false, ui: {} as never }, allowed, { toolCallId: 'call' })).rejects.toThrow(/Blocked private or local address/);
     const declined = ui(false);
-    await expect(checkBrowserUrl('http://127.0.0.1:3000/', declined, allowed, 'call')).rejects.toThrow(/Blocked private or local address: 127\.0\.0\.1:3000\. The user denied opening a private or local address.*Do not retry it/);
+    await expect(checkBrowserUrl('http://127.0.0.1:3000/', declined, allowed, { toolCallId: 'call' })).rejects.toThrow(/Blocked private or local address: 127\.0\.0\.1:3000\. The user denied opening a private or local address.*Do not retry it/);
     // The session grant is per host: the second load of that host opens no dialog.
     const confirmed = ui('Allow 127.0.0.1:3000 for this session');
-    await expect(checkBrowserUrl('http://127.0.0.1:3000/', confirmed, allowed, 'call')).resolves.toMatchObject({ privateGrant: 'session' });
-    await checkBrowserUrl('http://127.0.0.1:3000/next', confirmed, allowed, 'call');
+    await expect(checkBrowserUrl('http://127.0.0.1:3000/', confirmed, allowed, { toolCallId: 'call' })).resolves.toMatchObject({ privateGrant: 'session' });
+    await checkBrowserUrl('http://127.0.0.1:3000/next', confirmed, allowed, { toolCallId: 'call' });
     expect(confirmed.select).toHaveBeenCalledTimes(1);
     expect(allowed.grants()).toEqual(['net.private: 127.0.0.1:3000']);
     // full opens private hosts without asking; manual asks like workspace.
-    await expect(checkBrowserUrl('http://10.0.0.2/', { hasUI: false, ui: {} as never }, fakePermission('full'), 'call')).resolves.toEqual({ host: { kind: 'private' }, privateGrant: 'call' });
-    await expect(checkBrowserUrl('http://10.0.0.2/', { hasUI: false, ui: {} as never }, fakePermission('manual'), 'call')).rejects.toThrow(/no one can be asked here/);
+    await expect(checkBrowserUrl('http://10.0.0.2/', { hasUI: false, ui: {} as never }, fakePermission('full'), { toolCallId: 'call' })).resolves.toEqual({ host: { kind: 'private' }, privateGrant: 'call' });
+    await expect(checkBrowserUrl('http://10.0.0.2/', { hasUI: false, ui: {} as never }, fakePermission('manual'), { toolCallId: 'call' })).rejects.toThrow(/no one can be asked here/);
     // A name that does not resolve here may resolve to a private address in Chrome: it needs confirmation too.
-    await expect(checkBrowserUrl('https://octocode.invalid/', { hasUI: false, ui: {} as never }, allowed, 'call')).rejects.toThrow(/Blocked unresolved host: octocode\.invalid/);
+    await expect(checkBrowserUrl('https://octocode.invalid/', { hasUI: false, ui: {} as never }, allowed, { toolCallId: 'call' })).rejects.toThrow(/Blocked unresolved host: octocode\.invalid/);
     const unresolved = ui(true);
-    await expect(checkBrowserUrl('https://octocode.invalid/', unresolved, allowed, 'call')).resolves.toMatchObject({ host: { kind: 'unresolved' }, privateGrant: 'call' });
+    await expect(checkBrowserUrl('https://octocode.invalid/', unresolved, allowed, { toolCallId: 'call' })).resolves.toMatchObject({ host: { kind: 'unresolved' }, privateGrant: 'call' });
     expect(unresolved.select.mock.calls[0]?.[0]).toMatch(/^Open a private address\?\n {2}The browser wants to open octocode\.invalid, a name that does not resolve here and may reach a local or private address\./);
   });
 
@@ -42,7 +43,7 @@ describe('browser reach', () => {
     const flipping = vi.fn(async () => [{ address: answers++ === 0 ? '93.184.216.34' : '10.0.0.5' }]);
     const permission = fakePermission('workspace');
     const dialog = ui(true);
-    const checked = await checkBrowserUrl('http://rebind.example/', dialog, permission, 'call', flipping);
+    const checked = await checkBrowserUrl('http://rebind.example/', dialog, permission, { toolCallId: 'call', lookup: flipping });
     expect(checked).toEqual({ host: { kind: 'public', addresses: ['93.184.216.34'] } });
     expect(flipping).toHaveBeenCalledTimes(1);
     expect(dialog.select).not.toHaveBeenCalled();
@@ -51,7 +52,7 @@ describe('browser reach', () => {
 
   it('asks once, with both reasons, when the agent opens a private page in manual mode', async () => {
     const manual = ui(true);
-    await checkBrowserUrl('http://127.0.0.1:3000/', manual, fakePermission('manual'), 'call-1');
+    await checkBrowserUrl('http://127.0.0.1:3000/', manual, fakePermission('manual'), { toolCallId: 'call-1' });
     expect(manual.select).toHaveBeenCalledTimes(1);
     const shown = manual.select.mock.calls[0]![0];
     expect(shown.split('\n').filter((line) => line.includes('▸ why it asks:'))).toEqual([
@@ -60,11 +61,11 @@ describe('browser reach', () => {
     ]);
     // workspace allows the browser action itself: the private address is the only reason.
     const workspace = ui(true);
-    await checkBrowserUrl('http://127.0.0.1:3000/', workspace, fakePermission('workspace'), 'call-2');
+    await checkBrowserUrl('http://127.0.0.1:3000/', workspace, fakePermission('workspace'), { toolCallId: 'call-2' });
     expect(workspace.select.mock.calls[0]![0].split('\n').filter((line) => line.includes('▸ why it asks:'))).toHaveLength(1);
     // A public page opens unasked in workspace.
     const open = ui(true);
-    await checkBrowserUrl('https://93.184.216.34/', open, fakePermission('workspace'), 'call-3');
+    await checkBrowserUrl('https://93.184.216.34/', open, fakePermission('workspace'), { toolCallId: 'call-3' });
     expect(open.select).not.toHaveBeenCalled();
   });
 
@@ -121,7 +122,7 @@ describe('browser reach', () => {
     }
     expect(page.send).not.toHaveBeenCalled();
     expect(permission.grants()).toEqual([]);
-    await expect(checkBrowserUrl('http://127.0.0.1:3000/', ui(true), permission, 'call')).resolves.toMatchObject({ privateGrant: 'call' });
+    await expect(checkBrowserUrl('http://127.0.0.1:3000/', ui(true), permission, { toolCallId: 'call' })).resolves.toMatchObject({ privateGrant: 'call' });
   });
 
   it('uses the repository root as the upload workspace, and none at all in the home folder', async () => {

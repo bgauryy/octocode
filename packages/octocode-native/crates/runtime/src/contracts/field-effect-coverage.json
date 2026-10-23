@@ -10,8 +10,11 @@
   ],
   "envelope": {
     "evidence": [
-      "tests/runtime_page_replay.rs",
-      "tests/runtime_clasify.rs",
+      "tests/runtime_page_replay/saved_pages.rs",
+      "tests/runtime_page_replay/snapshots.rs",
+      "tests/runtime_page_replay/github.rs",
+      "tests/runtime_page_replay/windows.rs",
+      "tests/runtime_clasify/judgments.rs",
       "tests/runtime_batch_indices.rs"
     ],
     "fields": {
@@ -43,19 +46,27 @@
   "tools": {
     "clasify": {
       "evidence": [
-        "src/tools/clasify/mod.rs",
-        "src/tools/judgment/batch.rs",
+        "src/tools/clasify/tests.rs",
+        "src/tools/judgment/batch/tests.rs",
         "src/tools/judgment/cache.rs",
-        "src/providers/classification/transport.rs",
-        "tests/runtime_clasify.rs",
+        "src/providers/classification/transport/tests/retries.rs",
+        "src/providers/classification/transport/tests/failures.rs",
+        "src/providers/classification/transport/endpoint_policy_tests.rs",
+        "tests/runtime_clasify/gating.rs",
+        "tests/runtime_clasify/judgments.rs",
+        "tests/runtime_clasify/sources.rs",
+        "tests/runtime_clasify/failures.rs",
         "src/tools/source_capture/assets.rs",
-        "tests/runtime_clasify_media.rs",
-        "src/tools/clasify/sections.rs",
-        "src/tools/source_sections.rs",
-        "src/tools/source_capture/mod.rs"
+        "tests/runtime_clasify_media/local_images.rs",
+        "tests/runtime_clasify_media/github_and_models.rs",
+        "tests/runtime_clasify_media/bounds.rs",
+        "src/tools/clasify/sections/tests.rs",
+        "src/tools/source_sections/tests.rs",
+        "src/tools/source_capture/tests.rs",
+        "src/tools/source_capture/page/tests.rs"
       ],
       "variants": [
-        "evaluate",
+        "default",
         "models",
         "sections",
         "sectionsResume"
@@ -248,9 +259,11 @@
     },
     "ghSearchRepo": {
       "evidence": [
-        "src/tools/gh_search_repo/mod.rs",
+        "src/tools/gh_search_repo/tests.rs",
         "tests/runtime_github.rs",
-        "src/response/extras.rs"
+        "src/response/extras/tests.rs",
+        "src/response/extras/sorted_tests.rs",
+        "src/response/extras/picked_tests.rs"
       ],
       "variants": [
         "ghSearchRepo"
@@ -326,8 +339,14 @@
       "evidence": [
         "src/tools/gh_search_code/query.rs",
         "tests/runtime_github.rs",
-        "src/tools/selection/tests.rs",
-        "src/tools/judgment/select.rs"
+        "src/tools/selection/tests/plan_token.rs",
+        "src/tools/selection/tests/plan_binding.rs",
+        "src/tools/selection/tests/admission.rs",
+        "src/tools/selection/tests/candidate_pages.rs",
+        "src/tools/selection/tests/code_page.rs",
+        "src/tools/selection/tests/code_page_failures.rs",
+        "src/tools/judgment/select/question_tests.rs",
+        "src/tools/judgment/select/provider_tests.rs"
       ],
       "variants": [
         "ghSearchCode"
@@ -478,13 +497,37 @@
     },
     "ghGetFileContent": {
       "evidence": [
-        "src/tools/gh_get_file_content/tests.rs",
-        "src/tools/local_fetch/tests/matches.rs",
-        "src/tools/local_fetch/tests/blocks_and_paths.rs",
-        "src/tools/local_fetch/block.rs",
+        "src/tools/gh_get_file_content/tests/windows.rs",
+        "src/tools/gh_get_file_content/tests/continuations.rs",
+        "src/tools/gh_get_file_content/tests/misses.rs",
+        "src/tools/local_fetch/tests/classified.rs",
+        "src/tools/local_fetch/tests/classified/recovery.rs",
+        "src/tools/local_fetch/tests/declarations.rs",
+        "src/tools/local_fetch/tests/line_walks.rs",
+        "src/tools/local_fetch/tests/long_lines.rs",
+        "src/tools/local_fetch/tests/match_misses.rs",
+        "src/tools/local_fetch/tests/match_patterns.rs",
+        "src/tools/local_fetch/tests/match_ranges.rs",
+        "src/tools/local_fetch/tests/match_windows.rs",
+        "src/tools/local_fetch/tests/paging.rs",
+        "src/tools/local_fetch/tests/paths.rs",
+        "src/tools/local_fetch/tests/redaction.rs",
+        "src/tools/local_fetch/tests/regex_dialects.rs",
+        "src/tools/local_fetch/tests/source.rs",
+        "src/tools/local_fetch/tests/streamed.rs",
+        "src/tools/local_fetch/tests/symbols.rs",
+        "src/tools/local_fetch/tests/views.rs",
+        "src/tools/local_fetch/tests/wire.rs",
+        "src/tools/source_view/block/tests.rs",
         "tests/runtime_github.rs",
-        "src/tools/selection/tests.rs",
-        "src/tools/judgment/select.rs"
+        "src/tools/selection/tests/plan_token.rs",
+        "src/tools/selection/tests/plan_binding.rs",
+        "src/tools/selection/tests/admission.rs",
+        "src/tools/selection/tests/candidate_pages.rs",
+        "src/tools/selection/tests/code_page.rs",
+        "src/tools/selection/tests/code_page_failures.rs",
+        "src/tools/judgment/select/question_tests.rs",
+        "src/tools/judgment/select/provider_tests.rs"
       ],
       "variants": [
         "ghGetFileContent"
@@ -595,7 +638,9 @@
         "src/tools/gh_search_history/tests/terms.rs",
         "src/tools/gh_search_history/tests/provider.rs",
         "tests/runtime_github_history.rs",
-        "src/response/extras.rs"
+        "src/response/extras/tests.rs",
+        "src/response/extras/sorted_tests.rs",
+        "src/response/extras/picked_tests.rs"
       ],
       "variants": [
         "commit",
@@ -674,7 +719,7 @@
       "evidence": [
         "src/tools/gh_get_history_item/mod.rs",
         "tests/runtime_github_history.rs",
-        "tests/runtime_github_compare.rs"
+        "tests/runtime_github_compare/pages.rs"
       ],
       "variants": [
         "commit",
@@ -771,13 +816,16 @@
     },
     "artifactSearch": {
       "evidence": [
-        "src/providers/artifact/mod.rs",
-        "src/providers/artifact/crates.rs",
+        "src/providers/artifact/cursor_state_tests.rs",
+        "src/providers/artifact/exact_lookup_tests.rs",
+        "src/providers/artifact/version_gate_tests.rs",
+        "src/providers/artifact/crates/tests.rs",
         "src/providers/artifact/go.rs",
         "src/providers/artifact/packagist.rs",
-        "src/providers/artifact/pypi.rs",
+        "src/providers/artifact/pypi/tests.rs",
         "src/providers/artifact/rubygems.rs",
-        "src/tools/artifact_search/mod.rs",
+        "src/tools/artifact_search/anchor_tests.rs",
+        "src/tools/artifact_search/discovery_tests.rs",
         "tests/runtime_artifact_search.rs"
       ],
       "variants": [
@@ -887,9 +935,15 @@
         "src/tools/local_search/tests/secrets.rs",
         "src/tools/local_search/tests/binaries.rs",
         "src/tools/local_search/tests/scope.rs",
-        "src/tools/selection/tests.rs",
-        "tests/runtime_local.rs",
-        "src/tools/judgment/select.rs"
+        "src/tools/selection/tests/plan_token.rs",
+        "src/tools/selection/tests/plan_binding.rs",
+        "src/tools/selection/tests/admission.rs",
+        "src/tools/selection/tests/candidate_pages.rs",
+        "src/tools/selection/tests/code_page.rs",
+        "src/tools/selection/tests/code_page_failures.rs",
+        "tests/runtime_local/local_search.rs",
+        "src/tools/judgment/select/question_tests.rs",
+        "src/tools/judgment/select/provider_tests.rs"
       ],
       "variants": [
         "localSearch"
@@ -1041,7 +1095,7 @@
         "src/tools/structure_search/tests/ignore.rs",
         "src/tools/structure_search/tests/listing.rs",
         "src/tools/structure_search/tests/scans.rs",
-        "tests/runtime_local.rs"
+        "tests/runtime_local/walks.rs"
       ],
       "variants": [
         "files",
@@ -1171,11 +1225,12 @@
         "src/tools/ast_search/mod.rs",
         "src/tools/ast_search/policy_tests.rs",
         "src/tools/ast_search/file_language_tests.rs",
-        "tests/runtime_local.rs",
+        "tests/runtime_local/lsp_ast.rs",
         "src/tools/ast_search/rule_tests.rs",
-        "../engine/src/structural/octo/mod_tests.rs",
+        "../engine/src/structural/octo/tests/patterns.rs",
+        "../engine/src/structural/octo/tests/rules.rs",
         "src/tools/ast_search/region_tests.rs",
-        "../engine/src/structural/octo/rule_features_tests.rs"
+        "../engine/src/structural/octo/tests/rule_features.rs"
       ],
       "variants": [
         "match:pattern",
@@ -1282,9 +1337,6 @@
         "rule": [
           "consumed"
         ],
-        "rule.rule": [
-          "consumed"
-        ],
         "scanOffset": [
           "consumed",
           "output-control",
@@ -1310,14 +1362,42 @@
     },
     "localFetch": {
       "evidence": [
-        "src/tools/local_fetch/tests/matches.rs",
-        "src/tools/local_fetch/tests/blocks_and_paths.rs",
-        "src/tools/local_fetch/executor_tests.rs",
-        "src/tools/local_fetch/selection_tests.rs",
-        "src/tools/selection/tests.rs",
-        "src/response/numbered.rs",
-        "tests/runtime_local.rs",
-        "src/tools/judgment/select.rs"
+        "src/tools/local_fetch/tests/classified.rs",
+        "src/tools/local_fetch/tests/classified/recovery.rs",
+        "src/tools/local_fetch/tests/declarations.rs",
+        "src/tools/local_fetch/tests/line_walks.rs",
+        "src/tools/local_fetch/tests/long_lines.rs",
+        "src/tools/local_fetch/tests/match_misses.rs",
+        "src/tools/local_fetch/tests/match_patterns.rs",
+        "src/tools/local_fetch/tests/match_ranges.rs",
+        "src/tools/local_fetch/tests/match_windows.rs",
+        "src/tools/local_fetch/tests/paging.rs",
+        "src/tools/local_fetch/tests/paths.rs",
+        "src/tools/local_fetch/tests/redaction.rs",
+        "src/tools/local_fetch/tests/regex_dialects.rs",
+        "src/tools/local_fetch/tests/source.rs",
+        "src/tools/local_fetch/tests/streamed.rs",
+        "src/tools/local_fetch/tests/symbols.rs",
+        "src/tools/local_fetch/tests/views.rs",
+        "src/tools/local_fetch/tests/wire.rs",
+        "src/tools/local_fetch/executor/tests/size_limits.rs",
+        "src/tools/local_fetch/executor/tests/streamed.rs",
+        "src/tools/local_fetch/executor/tests/secrets.rs",
+        "src/tools/local_fetch/executor/tests/open.rs",
+        "src/tools/source_view/selection/tests/chunks.rs",
+        "src/tools/source_view/selection/tests/classified_reads.rs",
+        "src/tools/source_view/selection/tests/provider.rs",
+        "src/tools/source_view/selection/tests/state_budget.rs",
+        "src/tools/selection/tests/plan_token.rs",
+        "src/tools/selection/tests/plan_binding.rs",
+        "src/tools/selection/tests/admission.rs",
+        "src/tools/selection/tests/candidate_pages.rs",
+        "src/tools/selection/tests/code_page.rs",
+        "src/tools/selection/tests/code_page_failures.rs",
+        "src/response/numbered/tests.rs",
+        "tests/runtime_local/local_fetch.rs",
+        "src/tools/judgment/select/question_tests.rs",
+        "src/tools/judgment/select/provider_tests.rs"
       ],
       "variants": [
         "localFetch"
@@ -1418,11 +1498,24 @@
     },
     "lspSearch": {
       "evidence": [
-        "src/tools/lsp_search/tests/mod.rs",
+        "src/tools/lsp_search/tests/call_counts.rs",
+        "src/tools/lsp_search/tests/call_rows.rs",
+        "src/tools/lsp_search/tests/caller_pages.rs",
+        "src/tools/lsp_search/tests/continuations.rs",
+        "src/tools/lsp_search/tests/diagnostics.rs",
+        "src/tools/lsp_search/tests/empty_rows.rs",
+        "src/tools/lsp_search/tests/failures.rs",
         "src/tools/lsp_search/tests/hierarchy.rs",
-        "src/tools/lsp_search/tests/rows.rs",
+        "src/tools/lsp_search/tests/hierarchy_caps.rs",
+        "src/tools/lsp_search/tests/outline.rs",
+        "src/tools/lsp_search/tests/pagination.rs",
+        "src/tools/lsp_search/tests/references.rs",
+        "src/tools/lsp_search/tests/requests.rs",
+        "src/tools/lsp_search/tests/server_context.rs",
+        "src/tools/lsp_search/tests/servers.rs",
         "src/tools/lsp_search/tests/sources.rs",
-        "tests/runtime_local.rs"
+        "src/tools/lsp_search/tests/unresolved_anchors.rs",
+        "tests/runtime_local/lsp_ast.rs"
       ],
       "variants": [
         "anchored:locations",

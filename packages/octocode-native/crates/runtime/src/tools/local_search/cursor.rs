@@ -11,7 +11,7 @@ use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use crate::response::result::ToolError;
 use octocode_contract_types::ErrorCode;
-use octocode_engine::digest::canonicalize_dropping_nulls;
+use octocode_engine::digest::{Nulls, canonical_json};
 use serde_json::{Value, json};
 
 /// The page's continuations, and whether rows remain in its own files.
@@ -147,13 +147,15 @@ pub(super) fn build_next(
     // Rows left in the shown files (`nextMatchPage`) and later files
     // (`nextPage`) are both offered on the page that opens a file group
     // (matchPage 1), so the caller goes depth-first or breadth-first. A
-    // later match page of the same group does not offer `nextPage` again:
-    // that call was already offered, and every executable query appears
-    // once in the chain. A chain's first call (no snapshot yet) offers it
-    // at any match page, since no earlier page did.
+    // middle match page of the same group does not offer `nextPage` again;
+    // the page that ends the group does, so a page with later files always
+    // names a continuation and the depth-first route reaches them. That
+    // repeats one idempotent call (the same snapshot), at most once per
+    // group. A chain's first call (no snapshot yet) offers it at any match
+    // page, since no earlier page did.
     let opens_file_group = match_page <= 1 || local_search_query::snapshot(q).is_none();
     if page < total_pages
-        && opens_file_group
+        && (opens_file_group || next_match_page.is_none())
         && let Some(n) = crate::response::paging::admitted_query(
             ToolId::LocalSearch,
             None,
@@ -322,10 +324,10 @@ pub(super) fn query_key(
             json!(super::layout::shows_span_columns(q)),
         );
     }
-    crate::digest::json_sha256(&canonicalize_dropping_nulls(json!([
-        root.to_string_lossy(),
-        semantics
-    ])))
+    crate::digest::json_sha256(&canonical_json(
+        json!([root.to_string_lossy(), semantics]),
+        Nulls::Drop,
+    ))
 }
 
 #[cfg(test)]

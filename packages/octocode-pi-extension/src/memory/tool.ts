@@ -1,7 +1,8 @@
 import { StringEnum } from '@earendil-works/pi-ai';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { clip, timingOf, plural, resultBlock, timedTool, toolHeader } from '../shared/render.js';
+import { clip, plural, resultBlock, toolHeader } from '../shared/render.js';
+import { timingOf, timedTool } from '../shared/tool-timing.js';
 import type { Permission } from '../permission/ask.js';
 import { projectTrustNow } from '../shared/trust.js';
 import { contentText, DAY_MS, textResult } from '../shared/util.js';

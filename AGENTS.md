@@ -98,7 +98,7 @@ $DEV verify                      # dedupe, docs, and each package's verify
 Without `setup`, `@octocodeai/octocode-core` resolves from npm at the version pinned in
 `packages/octocode-config/package.json`. The local MCP server is the stdio command
 `node packages/octocode-mcp/dist/index.js`. End-to-end suites:
-`node packages/octocode-benchmark/local/e2e/harness/run-all.mjs`. CI runs `$DEV lint:ci` and `$DEV test:ci` (which starts with `$DEV skills:check`; run that after editing anything under `skills/`).
+`node packages/octocode-benchmark/local/e2e/harness/run-all.mjs`. CI runs `$DEV lint:ci`, `$DEV typecheck:ci` and `$DEV test:ci` (which starts with the skill checks; run `$DEV skills:check` after editing anything under `skills/`).
 
 Change rules:
 

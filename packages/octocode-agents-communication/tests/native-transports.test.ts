@@ -1,60 +1,19 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { createServer as createHttpServer } from 'node:http';
-import { createServer } from 'node:net';
-import type { AddressInfo, Server, Socket } from 'node:net';
-import { tmpdir } from 'node:os';
+import type { Socket } from 'node:net';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { runtime } from './store-support.ts';
 import type { JsonRecord } from './json-record.ts';
+import { portOf, rejects, serve, workspace, type Target } from './transport-support.ts';
 
-const { transport, validation } = runtime;
+const { nativeIo, transport, validation } = runtime;
 const posix = process.platform !== 'win32';
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const SESSION = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
-function workspace(t: TestContext) {
-  const path = realpathSync(mkdtempSync(join(tmpdir(), 'native-transports-')));
-  t.after(() => rmSync(path, { recursive: true, force: true }));
-  return path;
-}
-
-/** Where a test server listens: a loopback port, or a Unix socket path. */
-type Target = readonly [port: number, host: string] | readonly [path: string];
 type Script = (frame: JsonRecord, reply: (value: JsonRecord) => void, socket: Socket) => void;
-
-const listening = <Listener extends Server>(server: Listener, ...target: Target) => new Promise<Listener>(resolve => {
-  const ready = () => resolve(server);
-  if (target.length === 2) server.listen(target[0], target[1], ready); else server.listen(target[0], ready);
-});
-const portOf = (server: { address(): AddressInfo | string | null }): number => {
-  const address = server.address();
-  assert.ok(address !== null && typeof address === 'object', 'the server listens on a port');
-  return address.port;
-};
-function serve(t: TestContext, handler: (socket: Socket) => void, ...target: Target) {
-  const sockets = new Set<Socket>();
-  const server = createServer(socket => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-    socket.on('error', () => undefined);
-    handler(socket);
-  });
-  t.after(() => { for (const socket of sockets) socket.destroy(); server.close(); });
-  return listening(server, ...target);
-}
-
-function rejects(promise: Promise<unknown>, pattern: RegExp, name?: string) {
-  return assert.rejects(promise, (error: unknown) => {
-    assert.ok(error instanceof Error);
-    if (name) assert.equal(error.name, name);
-    assert.match(error.message, pattern);
-    return true;
-  });
-}
 
 test('capabilities: receipts, passive injection and wake prerequisites per mode', () => {
   assert.deepEqual(transport.capabilities('raw'), { nativeInput: false, acceptanceReceipt: 'host-confirmation', readReceipt: false });
@@ -72,21 +31,21 @@ test('uuid acceptance takes hyphenless, braced and urn forms', () => {
 
 test('endpoint validation accepts loopback only and refuses credentials, paths and queries', () => {
   const bad = /endpoint must be/;
-  assert.doesNotThrow(() => transport.validate('opencode', 'http://127.0.0.1:4096'));
-  assert.doesNotThrow(() => transport.validate('opencode', 'http://[::1]:4096/'));
-  assert.doesNotThrow(() => transport.validate('codex', 'ws://localhost:9000/'));
-  for (const endpoint of ['http://localhost:4096', 'http://example.com:4096', 'http://user@127.0.0.1:4096', 'http://127.0.0.1:4096/x', 'http://127.0.0.1:4096/?a=1', 'http://127.0.0.1', 'http://127.0.0.1:0', 'https://127.0.0.1:4096', 'http://10.0.0.1:80']) assert.throws(() => transport.validate('opencode', endpoint), bad, endpoint);
-  assert.throws(() => transport.validate('codex', 'ws://user:pw@127.0.0.1:9'), bad);
-  assert.throws(() => transport.validate('codex', 'wss://127.0.0.1:9'), bad);
-  assert.throws(() => transport.validate('raw', 'ws://127.0.0.1:9'), /Raw hooks do not have an endpoint/);
-  assert.throws(() => transport.validate('claude'), /requires endpoint/);
-  assert.throws(() => transport.validate('claude', 'relative.sock'), /absolute path/);
-  assert.throws(() => transport.validate('claude', '/' + 'x'.repeat(110)), /at most 103 bytes/);
-  assert.throws(() => transport.validate('nope', 'ws://127.0.0.1:9'), /Unknown native transport/);
-  assert.doesNotThrow(() => transport.validate('claude', '/tmp/any.sock'));
-  assert.doesNotThrow(() => transport.validate('codex', 'unix:///tmp/codex.sock'));
-  assert.throws(() => transport.validateSession('abc'), /ses_/);
-  assert.doesNotThrow(() => transport.validateSession('ses_abc_123'));
+  assert.doesNotThrow(() => nativeIo.validate('opencode', 'http://127.0.0.1:4096'));
+  assert.doesNotThrow(() => nativeIo.validate('opencode', 'http://[::1]:4096/'));
+  assert.doesNotThrow(() => nativeIo.validate('codex', 'ws://localhost:9000/'));
+  for (const endpoint of ['http://localhost:4096', 'http://example.com:4096', 'http://user@127.0.0.1:4096', 'http://127.0.0.1:4096/x', 'http://127.0.0.1:4096/?a=1', 'http://127.0.0.1', 'http://127.0.0.1:0', 'https://127.0.0.1:4096', 'http://10.0.0.1:80']) assert.throws(() => nativeIo.validate('opencode', endpoint), bad, endpoint);
+  assert.throws(() => nativeIo.validate('codex', 'ws://user:pw@127.0.0.1:9'), bad);
+  assert.throws(() => nativeIo.validate('codex', 'wss://127.0.0.1:9'), bad);
+  assert.throws(() => nativeIo.validate('raw', 'ws://127.0.0.1:9'), /Raw hooks do not have an endpoint/);
+  assert.throws(() => nativeIo.validate('claude'), /requires endpoint/);
+  assert.throws(() => nativeIo.validate('claude', 'relative.sock'), /absolute path/);
+  assert.throws(() => nativeIo.validate('claude', '/' + 'x'.repeat(110)), /at most 103 bytes/);
+  assert.throws(() => nativeIo.validate('nope', 'ws://127.0.0.1:9'), /Unknown native transport/);
+  assert.doesNotThrow(() => nativeIo.validate('claude', '/tmp/any.sock'));
+  assert.doesNotThrow(() => nativeIo.validate('codex', 'unix:///tmp/codex.sock'));
+  assert.throws(() => nativeIo.validateSession('abc'), /ses_/);
+  assert.doesNotThrow(() => nativeIo.validateSession('ses_abc_123'));
 });
 
 test('claude inbound prediction table', () => {
@@ -284,81 +243,6 @@ test('grok reads a leader reply past the old 256 KiB buffer mark and one of exac
   }
 });
 
-/** A fake OpenCode HTTP API over loopback; `calls` records every request. */
-async function opencodeServer(t: TestContext, ws: string, { status = 'idle', directory = ws, message }: { status?: string; directory?: string; message?: JsonRecord } = {}) {
-  const calls: JsonRecord[] = [];
-  const server = createHttpServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on('data', chunk => chunks.push(chunk));
-    request.on('end', () => {
-      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null;
-      calls.push({ method: request.method, url: request.url, authorization: request.headers.authorization, body });
-      const url = request.url ?? '';
-      const json = (code: number, value: unknown) => { response.writeHead(code, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(value)); };
-      if (url.startsWith('/session/status')) return json(200, status ? { ses_a: { type: status } } : {});
-      if (url.startsWith('/session/ses_a/prompt_async')) { response.writeHead(204); return response.end(); }
-      if (url.startsWith('/session/ses_a/message')) return json(200, message ?? { info: { sessionID: 'ses_a', role: 'user', id: 'msg_1' }, parts: [{ type: 'text', text: body.parts[0].text }] });
-      if (url.startsWith('/session/ses_a')) return json(200, { id: 'ses_a', directory });
-      response.writeHead(404); response.end();
-    });
-  });
-  t.after(() => { server.closeAllConnections(); server.close(); });
-  await listening(server, 0, '127.0.0.1');
-  return { endpoint: `http://127.0.0.1:${portOf(server)}`, calls };
-}
-
-test('opencode: preflight, passive message receipt, action prompt and the directory query', async t => {
-  const ws = workspace(t);
-  const { endpoint, calls } = await opencodeServer(t, ws);
-  const delivery = await transport.NativeDelivery.open('opencode', endpoint, 'ses_a', ws);
-  t.after(() => delivery.close());
-  assert.equal(await delivery.prepare(), true);
-  assert.deepEqual(await delivery.offer('fyi text', 'tok', false), { kind: 'http', turnRequested: false });
-  assert.deepEqual(await delivery.offer('act text', 'tok', true), { kind: 'http', turnRequested: true });
-  const message = calls.find(call => call.url.startsWith('/session/ses_a/message'));
-  assert.ok(message);
-  assert.deepEqual(message.body, { noReply: true, parts: [{ type: 'text', text: 'fyi text' }] });
-  assert.equal(new URL(endpoint + message.url).searchParams.get('directory'), ws);
-  const prompted = calls.find(call => call.url.startsWith('/session/ses_a/prompt_async'));
-  assert.ok(prompted);
-  assert.deepEqual(prompted.body, { noReply: false, parts: [{ type: 'text', text: 'act text' }] });
-});
-
-test('opencode: busy defers, a mismatched receipt or workspace is refused, credentials need their endpoint', async t => {
-  const ws = workspace(t);
-  const busy = await opencodeServer(t, ws, { status: 'busy' });
-  const first = await transport.NativeDelivery.open('opencode', busy.endpoint, 'ses_a', ws);
-  assert.equal(await first.prepare(), false);
-  const wrongReceipt = await opencodeServer(t, ws, { message: { info: { sessionID: 'ses_other', role: 'user', id: 'msg_1' }, parts: [] } });
-  const second = await transport.NativeDelivery.open('opencode', wrongReceipt.endpoint, 'ses_a', ws);
-  await rejects(second.offer('x', 't', false), /receipt did not match submitted message\/session; inspect before retrying/, 'ValidationError');
-  const elsewhere = await opencodeServer(t, ws, { directory: workspace(t) });
-  const third = await transport.NativeDelivery.open('opencode', elsewhere.endpoint, 'ses_a', ws);
-  await rejects(third.prepare(), /session\/workspace mismatch; no message submitted/, 'ValidationError');
-  const saved = { ...process.env };
-  t.after(() => { for (const key of ['OPENCODE_SERVER_PASSWORD', 'OPENCODE_SERVER_USERNAME', 'OCTOCODE_OPENCODE_AUTH_ENDPOINT']) if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; });
-  process.env.OPENCODE_SERVER_PASSWORD = 'secret';
-  await assert.rejects(transport.NativeDelivery.open('opencode', busy.endpoint, 'ses_a', ws), /OCTOCODE_OPENCODE_AUTH_ENDPOINT/);
-  process.env.OCTOCODE_OPENCODE_AUTH_ENDPOINT = busy.endpoint;
-  const authed = await transport.NativeDelivery.open('opencode', busy.endpoint, 'ses_a', ws);
-  await authed.prepare();
-  const lastCall = busy.calls.at(-1);
-  assert.ok(lastCall);
-  assert.equal(lastCall.authorization, 'Basic ' + Buffer.from('opencode:secret').toString('base64'));
-  for (const delivery of [first, second, third, authed]) delivery.close();
-});
-
-test('opencode: a non-200 preflight is refused and a non-ses_ identifier is rejected', async t => {
-  const ws = workspace(t);
-  const server = createHttpServer((_request, response) => { response.writeHead(500); response.end('no'); });
-  t.after(() => { server.closeAllConnections(); server.close(); });
-  await listening(server, 0, '127.0.0.1');
-  const delivery = await transport.NativeDelivery.open('opencode', `http://127.0.0.1:${portOf(server)}`, 'ses_a', ws);
-  t.after(() => delivery.close());
-  await rejects(delivery.prepare(), /OpenCode preflight returned HTTP 500; no message submitted/);
-  await assert.rejects(transport.NativeDelivery.open('opencode', 'http://127.0.0.1:1', 'not-a-session', ws), /ses_/);
-});
-
 test('claude: one user line on the messaging socket, closed after the write', { skip: !posix }, async t => {
   const ws = workspace(t);
   const path = join(ws, 'claude.sock');
@@ -428,5 +312,5 @@ test('grok: a non-UUID session, a foreign workspace and a symlinked socket are r
   const symlinkTarget = join(ws, 'link.sock');
   const { symlinkSync } = await import('node:fs');
   symlinkSync(path, symlinkTarget);
-  assert.throws(() => transport.validate('grok', symlinkTarget), /socket owned by this OS user, not a symlink/);
+  assert.throws(() => nativeIo.validate('grok', symlinkTarget), /socket owned by this OS user, not a symlink/);
 });

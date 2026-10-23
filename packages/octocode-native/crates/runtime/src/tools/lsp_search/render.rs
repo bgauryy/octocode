@@ -7,6 +7,10 @@
 use octocode_engine::lsp::uri::uri_to_path as engine_uri_to_path;
 use serde_json::{Value, json};
 
+use super::lsp_search_query;
+use crate::id::ToolId;
+use crate::response::page_windows::{Paging, select};
+
 /// One flattened document symbol: `name`, `kind`, one-based `line` (the
 /// name line, a usable `line`) and `endLine` (the full extent), the
 /// one-based name `character`, and `parent`/`parentLine` for a nested
@@ -177,16 +181,36 @@ pub(super) fn symbol_kind_name(kind: Option<&Value>) -> String {
     .to_owned()
 }
 
-/// How one page is cut: the caller's explicit `pageSize` (a row count), else
-/// as many rows as fit `budget` characters, each row costing its `sizes`
-/// entry. `snapshot` is the result set's digest; `resume` the first row a
-/// copied character-cut continuation names (see [`page_window`]).
-pub(super) struct PageCut<'a> {
-    pub(super) page_size: Option<u32>,
-    pub(super) budget: usize,
+/// How one page is cut: `paging` (the caller's explicit `pageSize` row
+/// count, else as many rows as fit the character budget), each row costing
+/// its `sizes` entry. `snapshot` is the result set's digest, which every
+/// page of the walk carries.
+pub(super) struct Pages<'a> {
+    pub(super) paging: Paging,
     pub(super) sizes: &'a [usize],
     pub(super) snapshot: &'a str,
-    pub(super) resume: Option<usize>,
+}
+
+impl<'a> Pages<'a> {
+    /// The cut `query` asks for: its `pageSize` (clamped to the contract
+    /// bound), else `budget` characters a page.
+    pub(super) fn of(
+        query: &super::LspSearchQuery,
+        budget: usize,
+        sizes: &'a [usize],
+        snapshot: &'a str,
+    ) -> Self {
+        let count = crate::response::paging::page_size(
+            ToolId::LspSearch,
+            None,
+            lsp_search_query::page_size(query),
+        );
+        Self {
+            paging: Paging::of(count, budget),
+            sizes,
+            snapshot,
+        }
+    }
 }
 
 /// The page a continuation asks for next, and the snapshot that pins it. The
@@ -203,90 +227,29 @@ pub(super) struct NextPage {
 pub(super) fn paginate(
     items: &[Value],
     page: u32,
-    cut: &PageCut<'_>,
+    pages: &Pages<'_>,
 ) -> (Vec<Value>, Value, Option<NextPage>) {
-    let (range, pagination, next) = page_window(page, cut);
+    let (range, pagination, next) = page_window(page, pages);
     (items[range].to_vec(), pagination, next)
 }
 
-/// The item range of one page over the `cut.sizes` items, with its
+/// The item range of one page over the `pages.sizes` items, with its
 /// pagination facts (see [`paginate`]) and the cursor of the next page.
 ///
-/// A character cut depends on the response window, which differs between
-/// batches, so the next page's snapshot also names the row it starts at
-/// (`{digest}@{row}.{check}`, see [`row_cursor`]): a continuation run under
-/// any window resumes at exactly that row. A count cut is the same under
-/// every window (its size is in the digest), so its snapshot is the digest
-/// alone.
+/// The cut is a pure function of the result set and the request's own
+/// fields (the budget is pinned per tool, whatever the batch around the
+/// call), so the next page is the same page number under the same digest.
 pub(super) fn page_window(
     page: u32,
-    cut: &PageCut<'_>,
+    pages: &Pages<'_>,
 ) -> (std::ops::Range<usize>, Value, Option<NextPage>) {
-    use crate::response::page_windows::Paging;
-    use crate::response::pages::PageFacts;
-    let total = cut.sizes.len();
-    let page = (page.max(1)) as usize;
-    let paging = Paging::of(cut.page_size.map(|size| size as usize), cut.budget);
-    let (range, pages) = match (paging, cut.resume) {
-        (Paging::Chars(_), Some(start)) if page > 1 => {
-            let start = start.min(total);
-            let rest = paging.windows(&cut.sizes[start..]);
-            let range = rest.first().map_or(total..total, |window| {
-                start + window.start..start + window.end
-            });
-            (range, page - 1 + rest.len())
-        }
-        _ => {
-            let windows = paging.windows(cut.sizes);
-            let range = windows.get(page - 1).cloned().unwrap_or(total..total);
-            (range, windows.len())
-        }
-    };
-    let more = page < pages;
-    let facts = match paging {
-        Paging::Count(size) => PageFacts::counted(page, size, total),
-        Paging::Chars(_) => PageFacts::sized(page, pages, total, more),
-    };
-    let pagination = facts.out_of_range(page > pages.max(1)).to_value();
-    let next = more.then(|| NextPage {
+    let page = page.max(1) as usize;
+    let cut = select(pages.paging, pages.sizes, page);
+    let next = cut.more.then(|| NextPage {
         page: page + 1,
-        snapshot: match paging {
-            Paging::Chars(_) => row_cursor(cut.snapshot, range.end, page + 1),
-            Paging::Count(_) => cut.snapshot.to_owned(),
-        },
+        snapshot: pages.snapshot.to_owned(),
     });
-    (range, pagination, next)
-}
-
-/// The cursor a character-cut continuation names: the digest, the row
-/// `page` starts at, and a check over the three, so an edited row or the
-/// cursor of another page binds to no page (see [`read_row_cursor`]).
-pub(super) fn row_cursor(digest: &str, row: usize, page: usize) -> String {
-    format!("{digest}@{row}.{}", cursor_check(digest, row, page))
-}
-
-/// Hex digits of the SHA-256 over a cursor's digest, row and page that the
-/// cursor carries: short enough to keep a snapshot within its contract
-/// length.
-const CURSOR_CHECK_HEX: usize = 8;
-
-fn cursor_check(digest: &str, row: usize, page: usize) -> String {
-    let mut check = octocode_engine::digest::sha256(format!("{digest}\n{row}\n{page}").as_bytes());
-    check.truncate(CURSOR_CHECK_HEX);
-    check
-}
-
-/// A pinned snapshot's result-set digest and, for a character-cut
-/// continuation of `page`, the row that page starts at (see
-/// [`page_window`]). `None` when the snapshot names a row its check does not
-/// bind to this digest and page: an edited cursor, or another page's.
-pub(super) fn read_row_cursor(pinned: &str, page: usize) -> Option<(&str, Option<usize>)> {
-    let Some((digest, cursor)) = pinned.rsplit_once('@') else {
-        return Some((pinned, None));
-    };
-    let (row, check) = cursor.split_once('.')?;
-    let row = row.parse().ok()?;
-    (check == cursor_check(digest, row, page)).then_some((digest, Some(row)))
+    (cut.range, cut.facts.to_value(), next)
 }
 
 /// Characters each row costs a page when it prints as its own JSON.

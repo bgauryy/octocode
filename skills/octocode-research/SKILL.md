@@ -33,8 +33,8 @@ Scale depth to risk: a lookup ends at exact evidence; deletions, merge verdicts,
 ## Pick the first move
 
 - Task class and Definition of Done: [method](references/method.md#classify-the-task).
-- Literal or identifier: `localSearch`, `ghSearchCode`. Named file: `localFetch`, `ghGetFileContent`.
-- Code shape / symbol identity: `astSearch` / `lspSearch`. History: `ghSearchHistory`, `ghGetHistoryItem`.
+- Literal: `localSearch`, `ghSearchCode`. Named file: `localFetch`, `ghGetFileContent`.
+- Code shape: `astSearch`; identity, callers, implementors: `lspSearch` at the declaration line. History: `ghSearchHistory`, `ghGetHistoryItem`.
 - Repo-wide topology: `npx octocode graph ingest <path>`, then `graph query <op>`; re-ingest on a new revision.
 
 Trace only `entry → transformations → state → output → consumers`; switch tools only when the next claim needs different evidence. Prefer a local checkout; after a 404, never substitute another ref.
@@ -48,7 +48,7 @@ Trace only `entry → transformations → state → output → consumers`; switc
 
 ## Classifiers or clasify?
 
-Start with exact or structural retrieval; use classification only when remaining ambiguity changes what you read next. For noisy searches or large fetches with many plausible passages, use `clasifyContext:{classifiers:[...]}` on `localSearch`, `localFetch` or scoped `ghGetFileContent` to receive selected evidence. Use ordinary `ghSearchCode` to discover paths before screening pinned file sources. To choose among unread files, docs or images, use `clasify` with source references or image assets; discover concrete targets first. For shared questions about individual text regions across resources, use its `sections` operation when the live schema exposes it. Exact anchors, small reads, identity and exhaustive coverage use ordinary tools.
+Start with exact or structural retrieval; use classification only when remaining ambiguity changes what you read next. For noisy searches or large fetches with many plausible passages, use `clasifyContext:{classifiers:[...]}` on `localSearch`, `localFetch` or scoped `ghGetFileContent` to receive selected evidence. On `ghSearchCode` it judges listed hit lines only (`next.judgeHits` judges the rest); to screen whole files, discover paths there, then classify pinned sources. To choose among unread files, docs or images, use `clasify` with source references or image assets; discover concrete targets first. For shared questions about individual text regions across resources, use its `sections` operation when the live schema exposes it. Exact anchors, small reads, identity and exhaustive coverage use ordinary tools.
 
 Ask one observable question per missing fact. Optional `mainGoal`/`reasoning` add a short task context to inline selection. Read [clasify](references/clasify.md) for scopes and typed requests; avoid repeating the same relevance decision in both routes. Read deciding evidence before a source claim; stop when it answers the question. If an unknown/error could change the conclusion, [inspect the underlying evidence](references/clasify.md#recover-from-unknown-or-error); otherwise name the unresolved scope.
 

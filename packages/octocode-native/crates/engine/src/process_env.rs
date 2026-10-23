@@ -59,7 +59,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     /// The engine's production sources: test and bench modules read their
-    /// own variables and never run in a host.
+    /// own variables and never run in a host. A `tests/` directory holds the
+    /// children of a `tests.rs` module.
     fn production_sources() -> Vec<(PathBuf, String)> {
         let mut files = Vec::new();
         let mut dirs = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
@@ -71,7 +72,9 @@ mod tests {
                     .and_then(|name| name.to_str())
                     .unwrap_or("");
                 if path.is_dir() {
-                    dirs.push(path);
+                    if name != "tests" {
+                        dirs.push(path);
+                    }
                 } else if name.ends_with(".rs")
                     && !name.ends_with("tests.rs")
                     && !name.ends_with("_bench.rs")

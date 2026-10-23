@@ -18,7 +18,7 @@ export function loadSqlite(): typeof import('node:sqlite') {
   }
 }
 
-interface TextResult<T = unknown> {
+export interface TextResult<T = unknown> {
   content: Array<{ type: 'text'; text: string }>;
   details: T;
 }

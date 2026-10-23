@@ -5,6 +5,7 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NO_REPLY, startCdpStub, type CdpHandler, type CdpStub } from './fixtures/cdp-stub.js';
 import { fakePermission } from './fake-pi.js';
+import { tmp } from './helpers.js';
 import type { PermissionMode } from '../src/permission/mode.js';
 
 const launch = vi.hoisted(() => vi.fn());
@@ -18,13 +19,6 @@ type Tool = { execute: (id: string, params: Record<string, unknown>, signal?: Ab
 
 const stubs: CdpStub[] = [];
 const tools: InstanceType<typeof BrowserTool>[] = [];
-const dirs: string[] = [];
-
-const tmp = (): string => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-browser-actions-'));
-  dirs.push(dir);
-  return dir;
-};
 
 beforeEach(() => launch.mockReset());
 
@@ -32,7 +26,6 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   await Promise.all(tools.splice(0).map((tool) => tool.close()));
   await Promise.all(stubs.splice(0).map((stub) => stub.close()));
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 /** What each page action does: `click` runs when element [ref] is clicked (by the click action or by upload/download). */
@@ -81,7 +74,7 @@ function register(mode: PermissionMode = 'workspace') {
   const handlers = new Map<string, () => Promise<void>>();
   const pi = { registerTool: (definition: Tool) => (tool = definition), on: (event: string, fn: () => Promise<void>) => handlers.set(event, fn) } as unknown as ExtensionAPI;
   registerBrowserTool(pi, browser);
-  const cwd = tmp();
+  const cwd = tmp('octocode-browser-actions-');
   const run = (params: Record<string, unknown>) => tool!.execute('id', params, undefined, undefined, { cwd });
   const text = async (params: Record<string, unknown>) => (await run(params)).content.map((part) => part.text ?? '').join('\n');
   return { browser, handlers, cwd, run, text };
@@ -238,7 +231,7 @@ describe('visible mode (webLive)', () => {
   }
 
   it('launches a visible Chrome on the persistent profile and leaves it open at shutdown', async () => {
-    const home = tmp();
+    const home = tmp('octocode-browser-actions-');
     const chrome = await startCdpStub({ handle: handler() });
     stubs.push(chrome);
     const kill = vi.fn(async () => undefined);
@@ -274,7 +267,7 @@ describe('visible mode (webLive)', () => {
     stubs.push(chrome);
     const kill = vi.fn(async () => undefined);
     launch.mockResolvedValue({ port: chrome.port, kill, process: { unref: vi.fn() } });
-    vi.stubEnv('OCTOCODE_HOME', tmp());
+    vi.stubEnv('OCTOCODE_HOME', tmp('octocode-browser-actions-'));
     vi.stubEnv('OCTOCODE_BROWSER_VISIBLE', '1');
     vi.stubEnv('OCTOCODE_CHROME_PORT', String(await deadPort()));
     const { text } = register();
@@ -285,7 +278,7 @@ describe('visible mode (webLive)', () => {
   }, 20_000);
 
   it('reuses the profile Chrome from its DevToolsActivePort, keeping its tab at shutdown', async () => {
-    const home = tmp();
+    const home = tmp('octocode-browser-actions-');
     const running = await startCdpStub({ handle: handler() });
     stubs.push(running);
     const profile = path.join(home, 'pi-browser-profile');
@@ -305,7 +298,7 @@ describe('visible mode (webLive)', () => {
   }, 20_000);
 
   it('drops a DevToolsActivePort whose port now answers as another browser, and launches on the profile', async () => {
-    const home = tmp();
+    const home = tmp('octocode-browser-actions-');
     const other = await startCdpStub({ handle: handler() });
     const chrome = await startCdpStub({ handle: handler() });
     stubs.push(other, chrome);
@@ -325,7 +318,7 @@ describe('visible mode (webLive)', () => {
   }, 20_000);
 
   it('refuses a profile another Chrome holds without DevTools', async () => {
-    const home = tmp();
+    const home = tmp('octocode-browser-actions-');
     const profile = path.join(home, 'pi-browser-profile');
     fs.mkdirSync(profile, { recursive: true });
     fs.symlinkSync(`${os.hostname()}-${process.pid}`, path.join(profile, 'SingletonLock'));
@@ -338,103 +331,4 @@ describe('visible mode (webLive)', () => {
     await expect(run({ action: 'snapshot' })).rejects.toThrow(`The browser profile ${profile} is open in a Chrome without DevTools. Close that Chrome and retry.`);
     expect(launch).not.toHaveBeenCalled();
   }, 20_000);
-});
-
-describe('browser actions without a browser', async () => {
-  const { answerDialog, download, uploadFiles } = await import('../src/browser/actions.js');
-  type Session = Parameters<typeof download>[0];
-  type Sent = { method: string; params: Record<string, unknown> };
-
-  /** A page that answers `send` from `reply`, records it, and lets the test emit events. */
-  function fakeSession(reply: (method: string, params: Record<string, unknown>) => unknown = () => ({})) {
-    const listeners = new Set<(method: string, params: Record<string, unknown>) => void>();
-    const sent: Sent[] = [];
-    const page = {
-      on: (listener: (method: string, params: Record<string, unknown>) => void) => (listeners.add(listener), () => listeners.delete(listener)),
-      send: async (method: string, params: Record<string, unknown> = {}) => (sent.push({ method, params }), reply(method, params) ?? {}),
-    };
-    const session = { page, downloads: new Map(), console: [] } as unknown as Session;
-    return { session, page: session.page, sent, listeners };
-  }
-  const element = 'document.body';
-  const downloadsDir = () => path.join(sessionOutputDir('output'), 'downloads');
-
-  afterEach(() => vi.useRealTimers());
-
-  it('refuses to answer when no dialog is open, and passes the prompt reply when one is', async () => {
-    const { session, sent } = fakeSession();
-    await expect(answerDialog(session, true, undefined)).rejects.toThrow('No dialog is open.');
-    session.dialog = { type: 'prompt', message: 'Name?' };
-    expect(await answerDialog(session, false, 'Ada')).toBe('Dismissed the prompt dialog.');
-    expect(sent).toEqual([{ method: 'Page.handleJavaScriptDialog', params: { accept: false, promptText: 'Ada' } }]);
-    expect(session.dialog).toBeUndefined();
-  });
-
-  it('refuses an upload with no files, a missing file, or a gone element', async () => {
-    const dir = tmp();
-    fs.writeFileSync(path.join(dir, 'a.txt'), 'a');
-    const { page } = fakeSession(() => ({ result: {} }));
-    await expect(uploadFiles(page, 1, element, [])).rejects.toThrow('upload needs files');
-    await expect(uploadFiles(page, 1, element, [path.join(dir, 'missing.txt')])).rejects.toThrow(`No such file: ${path.join(dir, 'missing.txt')}`);
-    await expect(uploadFiles(page, 1, element, [path.join(dir, 'a.txt')])).rejects.toThrow('No element [1] — take a new snapshot.');
-  });
-
-  /** A non-input element: clicking it may or may not open a file chooser. */
-  const button = (method: string) => (method === 'Runtime.evaluate' ? { result: { objectId: 'obj' } } : method === 'Runtime.callFunctionOn' ? { result: { value: false } } : {});
-
-  it('says when clicking an upload button opened no file chooser, and turns interception back off', async () => {
-    const dir = tmp();
-    fs.writeFileSync(path.join(dir, 'a.txt'), 'a');
-    const { page, sent } = fakeSession(button);
-    vi.useFakeTimers();
-    const upload = expect(uploadFiles(page, 2, element, [path.join(dir, 'a.txt')])).rejects.toThrow('Clicking [2] opened no file chooser; use the file input instead.');
-    await vi.advanceTimersByTimeAsync(5_000);
-    await upload;
-    expect(sent.filter((item) => item.method === 'Page.setInterceptFileChooserDialog').map((item) => item.params['enabled'])).toEqual([true, false]);
-  });
-
-  it('stops waiting for the file chooser when aborted, before or during the wait', async () => {
-    const dir = tmp();
-    fs.writeFileSync(path.join(dir, 'a.txt'), 'a');
-    const before = new AbortController();
-    before.abort(new Error('already stopped'));
-    const first = fakeSession(button);
-    await expect(uploadFiles(first.page, 2, element, [path.join(dir, 'a.txt')], before.signal)).rejects.toThrow('already stopped');
-    const during = new AbortController();
-    const second = fakeSession((method) => {
-      if (method === 'Runtime.callFunctionOn' && second.sent.filter((item) => item.method === method).length === 2) setTimeout(() => during.abort(), 5);
-      return button(method);
-    });
-    await expect(uploadFiles(second.page, 2, element, [path.join(dir, 'a.txt')], during.signal)).rejects.toThrow(/aborted/i);
-    expect(second.listeners.size).toBe(0);
-    expect(second.sent.at(-1)).toEqual({ method: 'Page.setInterceptFileChooserDialog', params: { enabled: false } });
-  });
-
-  it('turns downloads on once, into the session\'s private folder, and says when there are none yet', async () => {
-    const dir = downloadsDir();
-    const { session, sent } = fakeSession();
-    expect(await download(session, undefined)).toBe(`No downloads yet (saving to ${dir}). Pass ref to click a download link.`);
-    expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
-    expect(session.downloadDir).toBe(dir);
-    await download(session, undefined);
-    expect(sent.map((item) => item.method)).toEqual(['Browser.setDownloadBehavior']);
-  });
-
-  it('stops waiting for a running download when aborted, and lists what finished with its path', async () => {
-    const dir = downloadsDir();
-    const { session } = fakeSession();
-    session.downloads.set('g', { name: 'big.zip', state: 'inProgress', bytes: 1 });
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(new Error('enough')), 20);
-    await expect(download(session, undefined, controller.signal)).rejects.toThrow('enough');
-    session.downloads.set('g', { name: 'big.zip', state: 'canceled', bytes: 1 });
-    fs.writeFileSync(path.join(dir, 'ok.csv'), 'a,b\n');
-    session.downloads.set('h', { name: 'ok.csv', state: 'completed', bytes: 12 });
-    // Chrome's reported path wins over the suggested name (taken names get a suffix).
-    fs.writeFileSync(path.join(dir, 'ok (1).csv'), 'a,b\n');
-    session.downloads.set('i', { name: 'ok.csv', state: 'completed', bytes: 4, path: path.join(dir, 'ok (1).csv') });
-    expect(await download(session, undefined)).toBe(
-      `Downloads in ${dir}:\n- big.zip · 1 bytes · canceled\n- ok.csv · 12 bytes · saved · ${path.join(dir, 'ok.csv')}\n- ok.csv · 4 bytes · saved · ${path.join(dir, 'ok (1).csv')}`,
-    );
-  });
 });

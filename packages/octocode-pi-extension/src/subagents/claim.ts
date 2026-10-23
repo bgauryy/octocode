@@ -8,7 +8,7 @@ import { errorMessage } from '../shared/util.js';
 import type { Team } from '../team/session.js';
 import { currentCatalog } from './catalog.js';
 import { routeModel, type ModelRoute } from './model.js';
-import type { Identity } from './process.js';
+import type { Identity } from './launch.js';
 import { GENERAL_PROFILE, type AgentProfile } from './profiles.js';
 import { agentScratch, dropEmptyScratch, scratchNames, type ReadReports, type ReportQueue } from './handoff.js';
 import type { Background } from './command.js';

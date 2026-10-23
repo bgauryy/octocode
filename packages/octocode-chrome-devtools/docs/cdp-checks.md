@@ -1,12 +1,12 @@
 # Ready checks (`src/engine/cdp-checks/`)
 
-Load when running a check, reading its artifacts, or capturing HAR. Why: Choose a check and read its full artifacts. Run `node "$CDP" schema check [name]` to discover recipes; `check <name> --options JSON` sets their listed knobs. Dedicated commands: `snapshot`, `screenshot`, `run`, `query`, `artifact`. Artifacts: `.octocode/octocode-chrome-devtools/tmp/<timestamp>/`, printed as `[ARTIFACT]`.
+Load when running a check, reading its artifacts, or capturing HAR. Why: Choose a check and read its full artifacts. Run `octocode-chrome-devtools /raw schema check [name]` to discover recipes; `check <name> --options JSON` sets their listed knobs. Dedicated commands: `snapshot`, `screenshot`, `run`, `query`, `artifact`. Artifacts: `.octocode/octocode-chrome-devtools/tmp/<timestamp>/`, printed as `[ARTIFACT]`.
 
 | Check | Does | Knobs |
 |---|---|---|
 | `browser-execute` | Find, act, wait, verify and extract in one invocation; optional concurrent network capture; stops on first failure | `--plan <JSON file>` or `BROWSER_PLAN`; [plan and frame guide](browser-execution.md) |
 | `evidence-query` | Filter saved arrays/events before lossless pagination; reusable index with source positions | `--file`, `--format json\|jsonl`, `--pointer`, `--where`, `--select`, `--cursor`, `--limit`; CLI `query` (generated `dist/engine/evidence-query.mjs`) |
-| `page-snapshot` | `[PAGE]` title+URL, refs `e1…` (controls, headings; document order; same-process iframes inlined; isolated frames print `FRAME_TARGET` under `— iframe <url>`; `clickable` = div/span with cursor:pointer, onclick or tabindex), `—` row/card context lines, `~"…"` inferred names for unnamed controls. All refs saved to `page-snapshot.json`; `[NEXT]` when more | `SNAPSHOT_MAX` (60/page), `SNAPSHOT_PAGE=n`, `SNAPSHOT_OUTLINE=1` (regions `rN` + headings with ref spans), `SNAPSHOT_ROOT=<css\|eN\|rN>`, `SNAPSHOT_VIEWPORT=1`, `SNAPSHOT_TEXT=<n>` (+`page-text.txt`), `SNAPSHOT_CONTEXT=0`, `SNAPSHOT_URLS=1` (link paths), `SNAPSHOT_CLICKABLE=0`, `SNAPSHOT_STDOUT=summary`, `SNAPSHOT_WAIT_SELECTOR`, `SNAPSHOT_WAIT_TEXT`, `SNAPSHOT_WAIT_MS` |
+| `page-snapshot` | `[PAGE]` title+URL, refs `e1…` (controls, headings; document order; same-process iframes inlined; isolated frames print `FRAME_TARGET` under `— iframe <url>`; `clickable` = div/span with cursor:pointer, onclick or tabindex), `—` row/card context lines, `~"…"` inferred names for unnamed controls. All refs saved to `page-snapshot.json`; `[NEXT]` when more | `SNAPSHOT_MAX` (60/page; use `snapshot-query` to read later saved pages), `SNAPSHOT_OUTLINE=1` (regions `rN` + headings with ref spans), `SNAPSHOT_ROOT=<css\|eN\|rN>`, `SNAPSHOT_VIEWPORT=1`, `SNAPSHOT_TEXT=<n>` (+`page-text.txt`), `SNAPSHOT_CONTEXT=0`, `SNAPSHOT_URLS=1` (link paths), `SNAPSHOT_CLICKABLE=0`, `SNAPSHOT_STDOUT=summary`, `SNAPSHOT_WAIT_SELECTOR`, `SNAPSHOT_WAIT_TEXT`, `SNAPSHOT_WAIT_MS` |
 | `page-screenshot` | JPEG of viewport, full page (≤8000px per tile; complete paginated manifest), or one element | `SHOT_FULL=1`, `SHOT_SELECTOR=<css>`, `SHOT_SCALE` (0.25–1; 0.5 ≈ ¼ bytes), `SHOT_FORMAT=png`, `SHOT_QUALITY` (70), `SHOT_ANNOTATE=1` (box + label the snapshot refs; `e20-e80` for a range) |
 | `dom-operations-check` | Actionability, real (trusted) mouse/keyboard input aimed by `DOM.getContentQuads` (correct inside iframes; re-aimed if layout shifts), then `[VERIFY]`: value/checked/selected/files read-back, navigation, DOM mutations, focus, dialogs, popups; `[DIFF]`/`[NEW] [eN]` names refs the action revealed (menus, dialogs) and saves a new `page-snapshot.json` without changing the original capture. Recovers stale refs by unique role+name in the target realm | `DOM_REF`, `DOM_SELECTOR`, or exact `DOM_ROLE` + `DOM_NAME` (ambiguous matches fail); `DOM_ACTION=inspect\|click\|dblclick\|fill\|type\|press\|hover\|select\|check\|uncheck\|focus\|scroll\|upload\|drag\|wait`; `DOM_VALUE` (text, option label/value, scroll px, upload `/abs/a\|/abs/b`, wait text `a\|b`); `DOM_TO_REF`/`DOM_TO_SELECTOR` (drag target; pointer and HTML5); `DOM_STEPS='[{"ref":"e2","action":"fill","value":"x"},…]'` (batch, stops at first failure); `DOM_WAIT_TEXT` + `DOM_WAIT_MS` (8000); `DOM_ACTION=wait DOM_SELECTOR=<css>` waits for visible content; `DOM_DIFF=0`; `DOM_TRACE_EVENTS=1` (types, trust, target and timing; no typed keys/data); `DOM_KEY` (`Enter`, `Tab`, `Escape`, `ArrowDown`, `Control+a`…); `DOM_INPUT=js` (synthetic fallback); `DOM_SETTLE_MS` (500); `DOM_DIALOG=accept` (default dismiss) |
 | `graph-actionability-check` | Operable rows `{url, rows[]}` | `--url`, `--selectors`, `--limit` (25 stdout rows; full set saved), `--graph <file>` |
@@ -21,19 +21,23 @@ Load when running a check, reading its artifacts, or capturing HAR. Why: Choose 
 | `har-pager` / `har-redact` | Page a `.har`; redact before sharing | `--filter all\|failures\|slow\|domain:<host>`, `--min-ms`, `--kind`, `--status`, `--url-regex`, `--page`; `--keep-bodies` (manual review), `--strip-bodies`, `--out` |
 | `api-replay` | Replay one request without Chrome | `--url`, `--method`, `--headers`, `--body`, `--response-file`, `--page`, `--max-chars` (1–20000), `--timeout-ms` |
 | `stealth-check` / `affiliates-stealth-check` | Stealth self-test plus the detector page's own verdicts (`DETECTOR_FAILED`) | `--stealth`, `STEALTH_CHECK_URL`, `AFFILIATES_CHECK_URL` |
-| `webmcp-tools` (+ `.check`) | WebMCP list/invoke; `.check` launches its own Chrome and grades 8 cases | `WEBMCP_ACTION`, `WEBMCP_TOOL`, `WEBMCP_INPUT`, `WEBMCP_FRAME`, `WEBMCP_WAIT_MS` |
+| `webmcp-tools` | List or invoke WebMCP tools | `WEBMCP_ACTION`, `WEBMCP_TOOL`, `WEBMCP_INPUT`, `WEBMCP_FRAME`, `WEBMCP_WAIT_MS` |
 
-Scripts without the sandbox (`evidence-query`, `artifact-query`, `snapshot-query`, `measure-query`, `har-*`, `api-replay`, `webmcp-tools.check`) run with plain `node`.
+The raw CLI dispatches offline helpers without the browser sandbox: `query`, `artifact`, `snapshot-query`, `measure-query`, `har-pager`, `har-redact` and `api-replay`. Run `octocode-chrome-devtools /raw <command> --help` for their inputs. The WebMCP test harness is source-checkout-only: `yarn workspace @octocodeai/octocode-chrome-devtools test:webmcp`.
 
 ## Page health → query
 
 ```bash
 for c in performance network storage; do
-  node "$CDP" check "$c-measure-check" --port 9222 --target <id> --options '{"MEASURE_URL":"<url>"}'
+  octocode-chrome-devtools /raw check "$c-measure-check" --port 9222 --target <id> --options '{"MEASURE_URL":"<url>"}'
+  octocode-chrome-devtools /raw measure-query --latest --view findings
 done
-node "$CDP" measure-query --latest --view findings
-node "$CDP" har-pager <run>/live-network.har --filter failures --format json
+octocode-chrome-devtools /raw har-pager <run>/live-network.har --filter failures --format json
 ```
+
+`--latest` selects the newest run containing a measurement. Missing measurement types remain absent; older runs are never merged automatically. Use explicit `--perf`, `--net` and `--storage` file paths to combine captures whose target and observation boundaries you have checked.
+
+Snapshot refs are retained separately for each target. Switching tabs no longer replaces another tab's latest snapshot. After upgrading from the shared snapshot slot, take a fresh snapshot before using refs. Navigation can still invalidate nodes: inspect the current document and follow stale-ref diagnostics.
 
 ## HAR rules
 

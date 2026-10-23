@@ -3,7 +3,7 @@
 Load when a known flow needs multiple actions, waits, extraction, or frame scope. Why: combine a flow while preserving step evidence. Use one executor invocation, then query its saved evidence. Global URL search can still use the agent's search tool.
 
 ```bash
-node "$CDP" run --port 9222 --target <id> --plan /absolute/plan.json
+octocode-chrome-devtools /raw run --port 9222 --target <id> --plan /absolute/plan.json
 ```
 
 `run --json` or `run --plan -` (stdin) can supply the same JSON. Prefer a file for large plans; execution stages a private file rather than putting the plan in process arguments or environment. The capture saves the complete plan. `run --dry-run` validates without contacting Chrome. Unknown fields, invalid actions and unsupported operations fail before any step. Each step resolves its current target, emits progress, saves results and stops the flow on failure. Diagnose failures before trying another plan. The executor never repeats a failed mutation automatically.
@@ -47,6 +47,8 @@ Optional `frame` scopes a step. Use `{"selector":"iframe[title='Payment']"}` for
 
 The agent owns decisions: inspect the current page, choose the control whose observed role/name or destination advances the goal, execute only the known transition, and verify its effect. After a menu, navigation or frame change, inspect the new state before choosing the next transition. Stop on ambiguous targets or missing authorization. A plan executes explicit steps; it does not infer user intent or choose an unseen destination.
 
+Each run appends `running` and terminal step records to `browser-steps.jsonl`. A trailing `running` record after interruption means the outcome is unknown: inspect the page before retrying a mutation. This journal preserves progress; it does not automatically resume a plan. Network-monitor events append to `events.ndjson` during observation, so emitted events remain available if final HAR or summary generation fails. These files survive process interruption; they do not guarantee power-loss durability or collect events between calls.
+
 CDP parameters can reference earlier results: `{"$step": 2, "pointer": "/result/objectId"}`. Event references use `{"$event":"trace","pointer":"/stream"}` after a matching event. These replace custom glue code for object handles, trace streams, console/network/worker events and chained protocol commands. Subscribe before triggering the event; inspect the installed schema for required enable commands. Stream artifacts disclose their observation boundary and preserve every event, including those that did not match the wait predicate.
 
 A trace flow can use `listen Tracing.tracingComplete` → `cdp Tracing.start` with `transferMode: ReturnAsStream` → `cdp Tracing.end` → `waitEvent` → `readStream` using the event's `/stream`. Every chunk through EOF is saved in order. Decode base64-encoded data per chunk, otherwise UTF-8, then concatenate the bytes. Application-specific algorithms can still require custom logic. On a command timeout the flow stops and reports uncertain mutation outcome; retry per [bounded retry](recovery.md#bounded-retry).
@@ -65,12 +67,12 @@ npx octocode localFetch '{"queries":[{"path":"<observed-result-file>","ranges":[
 Use indexed `query` for arrays, JSONL, HAR `/log/entries`, or a CDP array such as `/result/value`: filter before paging, choose a small page only when useful, and copy its digest-pinned next call unchanged. Use `artifact` for selected objects, text or binary sources. Local tools provide their own complete matches, exact line anchors, read leads and continuations; the browser package delegates that search rather than copying native tool logic.
 
 ```bash
-node "$CDP" query --file /absolute/live-network.har --pointer /log/entries --where '[{"path":"/response/status","op":"gte","value":400}]' --limit 20
-node "$CDP" query --file /absolute/events.jsonl --format jsonl --where '[{"path":"/type","op":"eq","value":"input"}]'
+octocode-chrome-devtools /raw query --file /absolute/live-network.har --pointer /log/entries --where '[{"path":"/response/status","op":"gte","value":400}]' --limit 20
+octocode-chrome-devtools /raw query --file /absolute/events.jsonl --format jsonl --where '[{"path":"/type","op":"eq","value":"input"}]'
 ```
 
 Predicates use JSON pointers with `eq`, `contains`, `gte`, `lte`, or `exists`. Multiple predicates are ANDed. `exists` takes a boolean; numeric comparisons accept a number or an integer string for large integers. Matching rows retain original source index and pointer. `--select '["/request/url","/response/status"]'` explicitly requests projection; original evidence remains in the source. Missing projected fields appear as null and can be distinguished in that source.
 
-The first query builds a reusable offset index before pagination. In raw helper output, every matching row is reachable through `next.continue`; typed CLI/MCP maps it to `next.tool` and `next.query`. Oversized rows provide another executable continuation to their full value. A source digest pins continuations, and index/oversized row corruption fails. JSON envelopes and JSONL stream; selected JSON rows are parsed one at a time. The offset index is stored on disk. Memory follows the largest selected row, nesting and key size, rather than the whole array. Duplicate selected JSON paths fail as ambiguous. Each call hashes the source and index for integrity, so index reuse saves parsing/filtering, not all I/O. Arbitrary objects, raw text, binary data and original sources use `artifact-query.mjs`.
+The first query builds a reusable offset index before pagination. In raw helper output, every matching row is reachable through `next.continue`; typed CLI/MCP maps it to `next.tool` and `next.query`. Oversized rows provide another executable continuation to their full value. A source digest pins continuations, and index/oversized row corruption fails. JSON envelopes and JSONL stream; selected JSON rows are parsed one at a time. The offset index is stored on disk. Memory follows the largest selected row, nesting and key size, rather than the whole array. Duplicate selected JSON paths fail as ambiguous. Each call hashes the source and index for integrity, so index reuse saves parsing/filtering, not all I/O. Arbitrary objects, raw text, binary data and original sources use `octocode-chrome-devtools /raw artifact --file <path>`.
 
 Next: a flow needs custom logic → [script patterns](script-patterns.md); a target or wait fails → [recovery](recovery.md).

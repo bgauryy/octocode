@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { workspaceRootFor } from '../lib/args.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -134,4 +134,41 @@ test('a crawl stays on the --url host unless --span-hosts is passed', () => {
   };
   assert.deepEqual(urls(['--session', 'host-only']), ['https://ex.test/a', 'https://ex.test/b']);
   assert.deepEqual(urls(['--session', 'span', '--span-hosts']), ['https://ex.test/a', 'https://ex.test/b', 'https://other.test/c']);
+});
+
+
+test('an interrupted crawl resumes committed pages without overwriting evidence', async () => {
+  const fixture = join(root, 'body.html');
+  writeFileSync(fixture, '<html><title>Original</title><body><p>Original evidence</p><a href="https://ex.test/next">Next</a></body></html>');
+  const sessionDir = join(realpathSync(root), '.octocode/octocode-scraping/tmp/interrupted');
+  const child = spawn(process.execPath, [script, ...mockArgs('https://ex.test/start', ['--session', 'interrupted', '--crawl', '--max-pages', '2', '--delay-ms', '5000'])], { cwd: root, stdio: 'ignore' });
+  const closed = new Promise(resolve => child.once('close', resolve));
+  try {
+    const checkpoint = join(sessionDir, '.pending/page-001.json');
+    const deadline = Date.now() + 5000;
+    while (!existsSync(checkpoint) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+    assert(existsSync(checkpoint), 'first page must be committed before interruption');
+    child.kill('SIGKILL');
+    await closed;
+    const original = readFileSync(join(sessionDir, 'pages/page-001.json'), 'utf8');
+    const refused = run(mockArgs('https://ex.test/start', ['--session', 'interrupted']));
+    assert.equal(refused.parsed.error.code, 'sessionExists');
+    writeFileSync(fixture, '<html><title>Next page</title><body><p>New evidence</p></body></html>');
+    const resumed = run(mockArgs('https://ex.test/start', ['--session', 'interrupted', '--append', '--crawl', '--max-pages', '2', '--delay-ms', '0']));
+    assert.equal(resumed.status, 0, resumed.stderr || resumed.stdout);
+    assert.equal(resumed.parsed.pages, 2);
+    assert.equal(readFileSync(join(sessionDir, 'pages/page-001.json'), 'utf8'), original);
+    const rows = readFileSync(join(sessionDir, 'sources.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+    assert.deepEqual(rows.map(row => row.url), ['https://ex.test/start', 'https://ex.test/next']);
+    assert(!existsSync(join(sessionDir, '.pending')));
+  } finally { child.kill('SIGKILL'); await closed; }
+});
+
+test('uncommitted page files are preserved and never reused by append', () => {
+  const sessionDir = join(root, '.octocode/octocode-scraping/tmp/incomplete');
+  mkdirSync(join(sessionDir, 'raw'), { recursive: true });
+  writeFileSync(join(sessionDir, 'raw/page-001.html'), 'partial original');
+  const result = run(mockArgs('https://ex.test/start', ['--session', 'incomplete', '--append']));
+  assert.equal(result.parsed.error.code, 'sessionIncomplete');
+  assert.equal(readFileSync(join(sessionDir, 'raw/page-001.html'), 'utf8'), 'partial original');
 });

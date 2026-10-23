@@ -1,7 +1,8 @@
 import { formatAgo, formatSpan } from '../shared/format.js';
 import { visibleControls } from '../shared/sanitize.js';
 import { refText } from './row.js';
-import { priorityName, STATES, type BacklogStore, type Item, type Note, type State } from './store.js';
+import { priorityName, STATES, type Item, type Note, type State } from './item.js';
+import type { BacklogStore } from './store.js';
 
 export const STATE_TITLE: Record<State, string> = { ongoing: 'Ongoing', todo: 'Todo', backlog: 'Backlog (triage)', done: 'Done' };
 /** Board and export order: the flow an item follows, so the board's ←/→ step up/down the sections as drawn. */

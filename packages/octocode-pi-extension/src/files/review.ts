@@ -1,5 +1,5 @@
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { kindOption } from '../permission/ask.js';
+import { kindOption } from '../permission/dialog.js';
 import { foldLines } from '../permission/effect.js';
 import { plural } from '../shared/render.js';
 import { sanitizeTerminalText } from '../shared/sanitize.js';

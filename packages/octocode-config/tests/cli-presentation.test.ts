@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { INSTRUCTION_SECTIONS } from '@octocodeai/octocode-core/mcp';
 import {
   DIRECT_TOOL_DEFINITIONS,
   CLASIFY_SOURCE_TOOL_NAMES,
@@ -9,50 +10,21 @@ import {
   publishedInputSchema,
   publishedJson,
 } from '@octocodeai/octocode-core/schema';
-import {
-  buildCliPresentation,
-  toolHelpSection,
-} from '../scripts/tool-contract/presentation.ts';
+import { type Json, presentation, tool, tools } from './cli-presentation-fixture.ts';
 
-type Json = Record<string, unknown>;
-const presentation = buildCliPresentation() as Json & {
-  tools: Json[];
-  fingerprint: string;
-};
-const tool = (name: string): Json =>
-  presentation.tools.find(entry => entry.name === name)!;
 const definition = (name: string) =>
   getDirectToolDefinitionsWithAddons().find(entry => entry.name === name)!;
 
 describe('CLI presentation embedded by the native binary', () => {
-  it('renders classification instructions for each available route', () => {
-    const instructions = presentation.instructions as Record<string, string>;
-    for (const [name, selection, clasify] of [
-      ['ordinary', false, false],
-      ['selection', true, false],
-      ['clasify', false, true],
-      ['both', true, true],
-    ] as const) {
-      expect(instructions[name]!.includes('<clasify>'), name).toBe(
-        selection || clasify
-      );
-      expect(instructions[name]!.includes('clasifyContext'), name).toBe(
-        selection
-      );
-      expect(instructions[name]!.includes('clasify scouts unread'), name).toBe(
-        clasify
-      );
-      for (const reader of ['localSearch', 'localFetch', 'ghGetFileContent']) {
-        expect(instructions[name]!.includes(reader), `${name}: ${reader}`).toBe(
-          true
-        );
-      }
-    }
+  it('embeds core instruction sections for the native renderer', () => {
+    // Native renders these for its enabled tools (crates/cli schema.rs tests);
+    // MCP renders the same sections in core.
+    expect(presentation.instructionSections).toEqual(INSTRUCTION_SECTIONS);
   });
 
   it('describes every catalog tool under the enforcement fingerprint', () => {
     expect(presentation.fingerprint).toBe(getPublicToolCatalog().fingerprint);
-    expect(presentation.tools.map(entry => entry.name)).toEqual(
+    expect(tools.map(entry => entry.name)).toEqual(
       DIRECT_TOOL_DEFINITIONS.map(entry => entry.name)
     );
   });
@@ -142,7 +114,7 @@ describe('CLI presentation embedded by the native binary', () => {
       'offset',
       'snapshot',
     ]);
-    for (const entry of presentation.tools) {
+    for (const entry of tools) {
       const query = (entry.views as Json).query as Json;
       const shown = Object.keys(
         ((query.querySchema as Json).properties ?? {}) as Json
@@ -206,7 +178,7 @@ describe('CLI presentation embedded by the native binary', () => {
       ).toHaveProperty('selection');
     }
     expect(
-      presentation.tools
+      tools
         .filter(entry => entry.selection)
         .map(entry => entry.name)
         .sort()
@@ -254,12 +226,12 @@ describe('CLI presentation embedded by the native binary', () => {
     const byOperation = lsp.operationFields as Record<string, string[]>;
     expect(byOperation.definition).toContain('rustContext');
     expect(byOperation.references).toEqual(
-      expect.arrayContaining(['includeDeclaration', 'rustContext'])
+      expect.arrayContaining(['groupByFile', 'rustContext'])
     );
     expect(lsp.select).toBe(
       "octocode schema lspSearch --view query --select operation=<operation> shows that operation's fields"
     );
-    for (const entry of presentation.tools) {
+    for (const entry of tools) {
       const view = query(String(entry.name));
       const shown = new Set([
         ...Object.keys(((view.querySchema as Json).properties ?? {}) as Json),
@@ -299,7 +271,7 @@ describe('CLI presentation embedded by the native binary', () => {
   });
 
   it('pre-renders one selection per operation, keyed operation=VALUE', () => {
-    for (const entry of presentation.tools) {
+    for (const entry of tools) {
       const operations = Object.keys(
         operationSchemas(definition(String(entry.name)).inputSchema)
       );
@@ -341,46 +313,6 @@ describe('CLI presentation embedded by the native binary', () => {
     }
   });
 
-  it('precomputes the catalog field list from the published row of each form', () => {
-    for (const entry of presentation.tools)
-      expect(String(entry.fields), String(entry.name)).toMatch(/^\S.*\]$/);
-    expect(tool('ghStructure').fields).toBe(
-      '[operation?:"tree", owner*, repo*, include?, materialize?, maxDepth?, path?, …] | [operation:"refs", owner*, repo*, ref?] | [operation:"languages", owner*, repo*]'
-    );
-    // One form: the published fields, required first, truncated.
-    expect(tool('localSearch').fields).toMatch(
-      /^\[matchString\*, path\*, .*…\]$/
-    );
-    // Several forms: each a flat row, the selector a field with its values
-    // in that form, never a variant label wrapping the row.
-    expect(tool('astSearch').fields).toContain(
-      '[operation:"match", path*, rule*, '
-    );
-    expect(tool('structureSearch').fields).toBe(
-      '[operation?:"tree", path*, extensions?, include?, maxDepth?] | [operation:"files", path*, extensions?, include?, maxDepth?]'
-    );
-    expect(String(tool('lspSearch').fields).split(' | ')).toEqual([
-      '[operation?:"definition"|"typeDefinition"|"implementation", line*, path*, symbolName*, orderHint?, workspaceRoot?]',
-      '[operation:"references", line*, path*, symbolName*, orderHint?, workspaceRoot?]',
-      '[operation:"callers", line*, path*, symbolName*, orderHint?, workspaceRoot?]',
-      '[operation:"callees"|"supertypes", line*, path*, symbolName*, orderHint?, workspaceRoot?]',
-      '[operation:"subtypes", line*, path*, symbolName*, orderHint?, workspaceRoot?]',
-      '[operation:"hover", line*, path*, symbolName*, orderHint?, workspaceRoot?]',
-      '[operation:"documentSymbols"|"diagnostic", path*, workspaceRoot?]',
-      '[operation:"workspaceSymbol", path*, symbolName*, workspaceRoot?]',
-      '[operation:"workspaceSymbol", symbolName*, workspaceRoot*, path?]',
-    ]);
-    // No operation field: the field whose values differ is the selector.
-    expect(tool('artifactSearch').fields).toMatch(
-      /^\[ecosystem:"npm", packageName\*, version\?\] \| \[ecosystem:"npm", keywords\*\]/
-    );
-    for (const entry of presentation.tools)
-      for (const label of (entry.variantNames as string[] | undefined) ?? [])
-        expect(String(entry.fields), String(entry.name)).not.toContain(
-          `${label}[`
-        );
-  });
-
   it('serves the canonical row from the enforcement contract, not a second emission', () => {
     const full = (tool('lspSearch').views as Json).full as Json;
     const { $schema: _schema, ...querySchema } =
@@ -389,35 +321,5 @@ describe('CLI presentation embedded by the native binary', () => {
       )!.querySchema as Json;
     expect(full.querySchema).toEqual(querySchema);
     expect(full.querySchema).not.toHaveProperty('$schema');
-  });
-
-  it('gives every tool a help section with its required fields', () => {
-    for (const entry of presentation.tools) {
-      const help = String(entry.help);
-      expect(help, String(entry.name)).toMatch(/\nRequired/);
-      expect(
-        help.endsWith(`Fields: octocode schema ${String(entry.name)} (complete: --view full)`),
-        String(entry.name)
-      ).toBe(true);
-    }
-    expect(tool('localSearch').help).toMatch(/Required: .*path/);
-    expect(tool('localSearch').help).toContain(
-      "Examples:\n  octocode localSearch registerHandler src"
-    );
-  });
-});
-
-describe('toolHelpSection', () => {
-  it('lists required fields per operation for a tool with operations', () => {
-    const help = toolHelpSection('ghGetHistoryItem');
-    expect(help).toContain('Required fields, by operation:');
-    expect(help).toMatch(/pullRequest\s+.*number/);
-    expect(help).toMatch(/compare\s+.*base, head/);
-  });
-
-  it('labels continuation forms with their executable operation', () => {
-    const help = toolHelpSection('clasify');
-    expect(help).not.toContain('sectionsResume');
-    expect(help).toMatch(/sections\s+operation, assessment/);
   });
 });

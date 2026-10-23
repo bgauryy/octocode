@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { ExtensionAPI, ExtensionContext, SessionBeforeCompactEvent } from '@earendil-works/pi-coding-agent';
 import { firstGap, lineCount, type LineRange } from '../files/coverage.js';
 import { contextReads, seenFiles, RESTORED_FILES_TYPE, type WorkedFile } from '../files/reads.js';
-import type { FileGuard } from '../files/tool.js';
+import type { FileGuard } from '../files/guard.js';
 import { sha256 } from '../shared/atomic.js';
 import { canonicalPath } from '../shared/home.js';
 import { cutText, isRecord, isStaleSessionError } from '../shared/util.js';

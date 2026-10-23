@@ -1,6 +1,8 @@
 # Chrome DevTools operating guide
 
-Use the package MCP tools or `octocode-chrome-devtools /cli` from the workspace cwd. Chrome and Node 24.15+ are required. The package owns all capture, action, protocol and reading logic; the separate skill contains guidance only.
+Use the package MCP tools or `octocode-chrome-devtools /cli` from the workspace cwd. Chrome and Node.js 24.15.0 or later in the 24.x line (`^24.15.0`) are required. The package owns all capture, action, protocol and reading logic; the separate skill contains guidance only.
+
+Agents: load the bundled `octocode-chrome-devtools` skill at `dist/skills/octocode-chrome-devtools/SKILL.md` relative to the package root before browser work, then read the relevant topics below. Keep its references and report scripts beside `SKILL.md`; see [skill installation](README.md#bundled-agent-skill) to register it with your agent. The `skill` tool serves this operating guide and topic guides; it does not install or automatically load the Agent Skill.
 
 ## Discover, inspect, execute, read
 

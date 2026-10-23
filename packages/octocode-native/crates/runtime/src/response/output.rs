@@ -34,21 +34,6 @@ pub(crate) enum PathAnchor {
     QueryParent,
 }
 
-/// How the text channel renders a tool's rows.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TextShape {
-    /// Source text a caller copies from: one inline `content` per row.
-    FileText,
-    /// Ranked search hits (files, match rows, page cursor).
-    SearchHits,
-    /// History items: metadata, then each changed file's patch verbatim.
-    Diff,
-    /// Symbol rows as an indented declaration outline.
-    Outline,
-    /// Generic ordered encoding.
-    Structured,
-}
-
 /// What the shared response stages ask a tool about its own output.
 pub(crate) trait ToolOutput: Sync {
     /// Recovery tip for an error row with no tip of its own (an empty row
@@ -112,9 +97,10 @@ pub(crate) trait ToolOutput: Sync {
         &[]
     }
 
-    /// How the text channel renders this tool's rows.
-    fn text_shape(&self) -> TextShape {
-        TextShape::Structured
+    /// Each row carries one source `content` string a caller copies from
+    /// (numbered lines, sized to its share of the response page).
+    fn reads_source(&self) -> bool {
+        false
     }
 
     /// The tool's own default projection of a successful row's data (never
@@ -129,8 +115,10 @@ pub(crate) trait ToolOutput: Sync {
     }
 
     /// Finish a classified provider page's row `data` after selection: the
-    /// tool's own leads may only name the selected evidence.
-    fn finish_selection(&self, _data: &mut Value, _query: &Value) {}
+    /// tool's own leads may only name the selected evidence. `hidden` holds
+    /// the rows this page judged related or unknown (neither shown nor
+    /// excluded), for a judged read of what their rows did not list.
+    fn finish_selection(&self, _data: &mut Value, _query: &Value, _hidden: &[Value]) {}
 
     /// Settle a row of a repair lead (a corrected rejected call) that the
     /// schema admits but this tool would not serve as asked, so the lead
@@ -169,7 +157,7 @@ mod tests {
                 !output.evidence_kind(&json!({}), &json!({})).is_empty(),
                 "{tool}"
             );
-            if output.text_shape() == TextShape::FileText {
+            if output.reads_source() {
                 assert!(
                     output.reads_worktree() || tool.is_github(),
                     "{tool}: a source read"

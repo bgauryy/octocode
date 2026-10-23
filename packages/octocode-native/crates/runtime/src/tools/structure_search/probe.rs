@@ -5,15 +5,18 @@ use super::*;
 use crate::contracts::listing_roles::ListingRole;
 use octocode_contract_types::ErrorCode;
 
-/// What a walk left out of a listing: `.gitignore`d entries, entries the
-/// path policy withheld, dot entries skipped without `hidden`, and the
-/// directories the default prune skipped (root-relative).
+/// What a walk left out of a listing, root-relative (a directory's with a
+/// trailing `/` where noted): `.gitignore`d entries (`/`), entries the path
+/// policy withheld, dot entries skipped without `hidden` (`/`), the
+/// directories the default prune skipped, and the entries it could not read
+/// (how many, and how many of them for want of permission).
 #[derive(Clone, Debug, Default)]
 pub(super) struct Uncovered {
-    pub(super) ignored: usize,
+    pub(super) ignored: Vec<String>,
     pub(super) withheld: crate::policy::discovery::Withheld,
-    pub(super) hidden: usize,
+    pub(super) hidden: Vec<String>,
     pub(super) pruned: Vec<String>,
+    pub(super) unreadable: (u32, u32),
 }
 
 impl Uncovered {
@@ -34,7 +37,7 @@ impl Uncovered {
 
     /// Whether the walk skipped anything a relaxed walk could list.
     pub(super) fn saw_skips(&self) -> bool {
-        self.ignored > 0 || self.hidden > 0 || !self.pruned.is_empty()
+        !self.ignored.is_empty() || !self.hidden.is_empty() || !self.pruned.is_empty()
     }
 
     /// The causes of `walk` this walk skipped entries by, in [`Cause`] order.
@@ -42,9 +45,26 @@ impl Uncovered {
         walk.skipping()
             .into_iter()
             .filter(|cause| match cause {
-                Cause::Ignored => self.ignored > 0,
-                Cause::Hidden => self.hidden > 0,
+                Cause::Ignored => !self.ignored.is_empty(),
+                Cause::Hidden => !self.hidden.is_empty(),
                 Cause::DefaultExcluded => !self.pruned.is_empty(),
+            })
+            .collect()
+    }
+
+    /// The causes a lead must lift to reach what this walk skipped when no
+    /// probe says where entries sit: [`Self::skipped`], plus the default
+    /// prune when ignored or dot entries were skipped, since a pruned
+    /// directory behind them (a `.gitignore`d `target/`) is never seen as
+    /// pruned.
+    pub(super) fn unproven(&self, walk: Walk) -> Vec<Cause> {
+        let behind = !self.ignored.is_empty() || !self.hidden.is_empty();
+        walk.skipping()
+            .into_iter()
+            .filter(|cause| match cause {
+                Cause::Ignored => !self.ignored.is_empty(),
+                Cause::Hidden => !self.hidden.is_empty(),
+                Cause::DefaultExcluded => behind || !self.pruned.is_empty(),
             })
             .collect()
     }
@@ -118,10 +138,11 @@ impl ProbeBound {
 
 /// An empty listing cannot prove absence in what its walk skipped: when the
 /// same listing over some of it (`probe` re-walks with the given flags)
-/// finds entries, name the rule, entry or directory in a hint and lead to
-/// the listing with exactly those causes lifted. A probe cut before it found
-/// anything proves nothing: the lead lifts every cause the walk skipped by
-/// and the hint says absence there is unproven.
+/// finds entries, the shared disclosure ([`crate::tools::leads::skipped`])
+/// names the rule, entry or directory and leads to the listing with exactly
+/// those causes lifted. A probe cut before it found anything proves nothing:
+/// the lead lifts every cause the walk skipped by, and the warning says
+/// absence there is unproven (the listing is partial).
 pub(super) fn note_empty(
     out: &mut Value,
     query: &impl serde::Serialize,
@@ -139,54 +160,36 @@ pub(super) fn note_empty(
             .workspace_relative(path)
             .unwrap_or_else(|| path.to_string_lossy().into_owned())
     };
-    let (causes, hint) = match diagnose_shown(root, walk, &shown, probe)? {
-        Verdict::Skipped(diagnosis) => {
-            let found = diagnosis.found();
-            let hint = format!(
-                "{}{} {} behind skipped paths ({}); the lead lists them.",
-                if found.cut { "At least " } else { "" },
-                found.count,
-                if found.count == 1 {
-                    "entry sits"
-                } else {
-                    "entries sit"
-                },
-                diagnosis.because()
-            );
-            (diagnosis.causes().to_vec(), hint)
-        }
-        // The probe was cut before it found anything: it proved nothing
-        // about what the walk skipped, so the lead lists the paths this
-        // walk did skip and the hint says absence there is unproven.
-        Verdict::Unproven => {
-            let causes = seen.skipped(walk);
-            if causes.is_empty() {
-                return Ok(());
-            }
-            let hint = format!(
-                "Skipped paths ({}) were not checked in time; absence there is unproven: the lead lists them.",
-                seen.named(&causes)
-            );
-            (causes, hint)
-        }
-        Verdict::Absent => return Ok(()),
+    let verdict = diagnose_shown(root, walk, &shown, probe)?;
+    // A probe cut before it found anything proved nothing about what the
+    // walk skipped: the lead walks everything this walk may have skipped.
+    let unproven = seen.unproven(walk);
+    let named = seen.named(&unproven);
+    let Some(disclosure) = crate::tools::leads::skipped::disclose(
+        &verdict,
+        ["entry", "entries"],
+        crate::tools::leads::skipped::Unchecked {
+            causes: &unproven,
+            named: &named,
+        },
+    ) else {
+        return Ok(());
     };
-    let mut retry = json!({"page": 1, "snapshot": null, "walkOffset": null});
-    lift(&mut retry, &causes);
-    out["next"]["includeSkipped"] = continuation(query, retry);
-    match out["hints"].as_array_mut() {
-        Some(hints) => hints.push(json!(hint)),
-        None => out["hints"] = json!([hint]),
-    }
+    let lead = crate::tools::leads::skipped::lead(
+        crate::id::ToolId::StructureSearch,
+        query,
+        &disclosure.causes,
+    );
+    crate::tools::leads::skipped::attach(out, &disclosure, lead);
     Ok(())
 }
 
 /// A non-empty first page whose walk left out entries leads to the same
 /// listing with the causes it skipped by lifted, in one call: every
-/// ignored or dot entry its summary counts is reachable. Default-pruned
-/// directories (dependencies, build output), which the summary names
-/// rather than counts, are lifted only for a `filtered` listing (one looking
-/// for names, types or metadata), where more of what it looks for may sit.
+/// ignored or dot entry its `skippedPaths` names is reachable. Default-pruned
+/// directories (dependencies, build output) are lifted only for a `filtered`
+/// listing (one looking for names, types or metadata), where more of what it
+/// looks for may sit.
 /// An empty page gets its lead from [`note_empty`], which proves the
 /// skipped paths hold entries.
 pub(super) fn lead_to_skipped(
@@ -206,9 +209,8 @@ pub(super) fn lead_to_skipped(
     if causes.is_empty() {
         return;
     }
-    let mut retry = json!({"page": 1, "snapshot": null, "walkOffset": null});
-    lift(&mut retry, &causes);
-    out["next"]["includeSkipped"] = continuation(query, retry);
+    out["next"]["includeSkipped"] =
+        crate::tools::leads::skipped::lead(crate::id::ToolId::StructureSearch, query, &causes);
 }
 
 /// Entries the one probe walk of an empty listing tags at most: enough to
@@ -314,10 +316,7 @@ where
         if count == 1 { "it" } else { "them" },
     );
     out["next"]["broadenSearch"] = lead;
-    match out["hints"].as_array_mut() {
-        Some(hints) => hints.push(json!(hint)),
-        None => out["hints"] = json!([hint]),
-    }
+    crate::tools::leads::push_hint(out, hint);
     Ok(())
 }
 

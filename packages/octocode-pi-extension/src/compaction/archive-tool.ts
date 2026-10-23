@@ -4,7 +4,8 @@ import { Type } from 'typebox';
 import { archiveFolder } from '../shared/archive.js';
 import { canonicalPath } from '../shared/home.js';
 import { filesUnder, historyFiles, historyScope, listHistory, readableHistory, readHistory, searchHistory, type HistoryFile } from '../shared/history.js';
-import { clip, plural, resultBlock, timedTool, timingOf, toolHeader } from '../shared/render.js';
+import { clip, plural, resultBlock, toolHeader } from '../shared/render.js';
+import { timedTool, timingOf } from '../shared/tool-timing.js';
 import { contentText, errorMessage, textResult } from '../shared/util.js';
 
 /**

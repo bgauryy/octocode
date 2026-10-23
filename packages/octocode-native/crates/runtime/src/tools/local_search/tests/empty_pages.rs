@@ -248,6 +248,60 @@ fn a_case_only_miss_leads_to_ignore_case() {
     }
 }
 
+/// The case probe applies the row's own `wholeWord`: text that occurs only
+/// inside a longer word is no case miss, so no `ignoreCase` lead that finds
+/// nothing again. The hint names `wholeWord` as what blocks the hit, and its
+/// `broadenSearch` lead drops it and finds the file. A whole-word hit in
+/// another case still leads to `ignoreCase`, which keeps `wholeWord`.
+#[test]
+fn a_whole_word_miss_names_whole_word_not_case() {
+    let files = [
+        ("src/a.rs", "const MAX_COLLECTED_FILES: usize = 1;\n"),
+        ("src/b.rs", "let max_collected_files = 1;\n"),
+    ];
+    let run = |fields: serde_json::Value| search_fixture(&files, ls_query(fields, None));
+    let lead_row = |lead: &serde_json::Value| {
+        lead.pointer("/query/queries/0")
+            .unwrap_or(&lead["query"])
+            .clone()
+    };
+    for (case_mode, files) in [("smart", 1), ("sensitive", 1), ("insensitive", 2)] {
+        let empty = run(serde_json::json!({
+            "matchString": "MAX_COLLECTED", "wholeWord": true, "caseMode": case_mode
+        }));
+        assert_eq!(
+            empty["matchedLineCount"].as_u64().unwrap_or(0),
+            0,
+            "{empty}"
+        );
+        assert!(empty["next"].get("ignoreCase").is_none(), "{empty}");
+        assert!(
+            empty["hints"].to_string().contains(&format!(
+                "matches inside longer words in {files} file(s); wholeWord excludes them"
+            )),
+            "{case_mode}: {empty}"
+        );
+        let row = lead_row(&empty["next"]["broadenSearch"]);
+        assert!(row.get("wholeWord").is_none(), "{row}");
+        assert_eq!(run(row.clone())["matchedLineCount"], files, "{row}");
+    }
+    let files = [("src/a.rs", "let max_collected = 1;\n")];
+    let empty = search_fixture(
+        &files,
+        ls_query(
+            serde_json::json!({"matchString": "MAX_COLLECTED", "wholeWord": true}),
+            None,
+        ),
+    );
+    let row = lead_row(&empty["next"]["ignoreCase"]);
+    assert_eq!(row["wholeWord"], true, "{empty}");
+    assert_eq!(
+        search_fixture(&files, ls_query(row.clone(), None))["matchedLineCount"],
+        1,
+        "{row}"
+    );
+}
+
 /// A `maxDepth` cut is disclosed once with the same search at every depth;
 /// an empty directory at the limit hides nothing and is not counted.
 #[test]
@@ -294,10 +348,13 @@ fn an_empty_files_without_row_probes_for_files_without_a_match() {
     let row = serde_json::json!({"path": path, "matchString": "the", "resultView": "filesWithout"});
     let plain = run(row.clone());
     assert!(plain.files.is_empty());
-    assert!(
-        !plain.hints.join(" | ").contains("skipped paths"),
-        "{:?}",
-        plain.hints
+    // The check searched them and found no such file: the hint says so
+    // (outside the `.git/` the path policy withholds from every walk).
+    assert_eq!(
+        plain.hints,
+        [
+            "Skipped paths (1 hidden) hold no file lacking a match outside what their check withheld (warnings)."
+        ],
     );
     assert!(
         plain
@@ -310,7 +367,7 @@ fn an_empty_files_without_row_probes_for_files_without_a_match() {
     let found = run(row);
     let hints = found.hints.join(" | ");
     assert!(
-        hints.contains("1 file(s) lack a match in skipped paths (ignored)"),
+        hints.contains("1 file that lacks a match behind skipped paths (.gitignore:2 'skip/')"),
         "{hints}"
     );
 }
@@ -336,7 +393,10 @@ fn an_include_matching_only_ignored_files_names_the_skip_not_the_scope() {
         .expect("search");
     assert!(result.files.is_empty());
     let hints = result.hints.join(" | ");
-    assert!(hints.contains("match in skipped paths"), "{hints}");
+    assert!(
+        hints.contains("that matches behind skipped paths"),
+        "{hints}"
+    );
     assert!(
         !hints.contains("include/exclude matched no file"),
         "{hints}"
@@ -372,7 +432,7 @@ fn an_empty_search_names_matches_under_ignored_and_hidden_paths() {
     // The probe's finding is the row's first hint (rows keep one).
     let hint = &result.hints[0];
     assert!(
-        hint == "2 file(s) match in skipped paths (ignored, hidden).",
+        hint == "2 files that match behind skipped paths (.gitignore:1 'logs/', hidden .notes/).",
         "{hint}"
     );
     assert!(hint.len() <= 120, "{hint}");
@@ -403,7 +463,7 @@ fn an_empty_search_names_matches_under_ignored_and_hidden_paths() {
     let found = execute_local_search(&retried, &policy, &security, &NeverCancel, None, None, None)
         .expect("retry");
     assert_eq!(found.files.len(), 2, "{found:?}");
-    // Nothing to find elsewhere: no probe hint and no lead.
+    // Nothing to find elsewhere: no lead, and the hint says why none exists.
     let request = ls_query(
         serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "absent-everywhere"}),
         None,
@@ -411,7 +471,123 @@ fn an_empty_search_names_matches_under_ignored_and_hidden_paths() {
     let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
         .expect("search");
     assert!(result.next.is_none(), "{:?}", result.next);
-    assert_eq!(result.hints.len(), 1, "{:?}", result.hints);
+    // `.git/` is a hidden directory the path policy withholds from every
+    // walk: absence there is unproven, and the warning names it.
+    assert_eq!(
+        result.hints,
+        [
+            "Skipped paths (1 ignored, 2 hidden) hold no match outside what their check withheld (warnings)."
+        ],
+    );
+    assert_eq!(
+        result.warnings,
+        ["Skipped paths: 1 entry withheld by path policy: security-policy dirs .git/."],
+    );
+}
+
+/// An empty search whose only unsearched scope is an ignored directory of
+/// symlinks: the check of the skipped paths searched them and could not
+/// follow the links, so no lead lifts the skip; the hint says so and the
+/// warning counts what the check withheld.
+#[cfg(unix)]
+#[test]
+fn an_empty_search_over_skipped_symlinks_says_why_no_lead_exists() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    fs::create_dir(root.path().join(".git")).expect("repository marker");
+    fs::write(root.path().join(".gitignore"), "agents/skills/\n").expect("gitignore");
+    fs::create_dir_all(root.path().join("real")).expect("target dir");
+    fs::write(root.path().join("real/x.md"), "needle-here\n").expect("fixture");
+    fs::create_dir_all(root.path().join("agents/skills")).expect("ignored dir");
+    fs::write(root.path().join("agents/README.md"), "other\n").expect("fixture");
+    std::os::unix::fs::symlink("../../real", root.path().join("agents/skills/real"))
+        .expect("symlink");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({
+            "path": root.path().join("agents").to_string_lossy().into_owned(),
+            "matchString": "needle-here"
+        }),
+        None,
+    );
+    let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
+        .expect("search");
+    assert!(result.files.is_empty());
+    assert!(result.next.is_none(), "{:?}", result.next);
+    assert_eq!(
+        result.hints,
+        ["Skipped paths (1 ignored) hold no match outside what their check withheld (warnings)."],
+    );
+    assert!(
+        result.warnings.iter().any(|warning| warning
+            == "Skipped paths: 1 entry withheld by path policy: 1 symlink not followed."),
+        "{:?}",
+        result.warnings
+    );
+}
+
+/// Skipped paths are disclosed once per cause and rule: directories one
+/// ignore rule hides share one entry, its first path and `count`, while
+/// `extras:["details"]` lists every path. Only skips that could hold a path
+/// the row's `include` matches are named.
+#[test]
+fn skipped_paths_collapse_by_rule_and_stay_within_the_include_scope() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    fs::create_dir(root.path().join(".git")).expect("repository marker");
+    fs::write(root.path().join(".gitignore"), "repos/*\nlogs/\n").expect("gitignore");
+    for dir in ["repos/a", "repos/b", "repos/c", "logs"] {
+        fs::create_dir_all(root.path().join(dir)).expect("ignored dir");
+        fs::write(root.path().join(dir).join("x.txt"), "other\n").expect("fixture");
+    }
+    fs::write(root.path().join("notes.txt"), "other\n").expect("text");
+    let (policy, security) = policy_for(root.path());
+    let path = root.path().to_string_lossy().into_owned();
+    let ignored = |fields: serde_json::Value| {
+        let request = ls_query(fields, None);
+        // An unproven check names every ignored directory with its rule.
+        let result = crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
+            execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
+                .expect("search")
+        });
+        let body = serde_json::to_value(&result).expect("result");
+        body["skippedPaths"]["entries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|entry| entry["cause"] == "ignored")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let entry = |dir: &str, count: Option<u32>, reason: &str| {
+        let mut entry = serde_json::json!({
+            "path": skipped_source_path(root.path(), dir), "cause": "ignored", "reason": reason
+        });
+        if let Some(count) = count {
+            entry["count"] = serde_json::json!(count);
+        }
+        entry
+    };
+    assert_eq!(
+        ignored(serde_json::json!({"path": path, "matchString": "absent"})),
+        [
+            entry("logs", None, ".gitignore:2 'logs/'"),
+            entry("repos/a", Some(3), ".gitignore:1 'repos/*'"),
+        ],
+    );
+    assert_eq!(
+        ignored(serde_json::json!({"path": path, "matchString": "absent", "extras": ["details"]})),
+        [
+            entry("logs", None, ".gitignore:2 'logs/'"),
+            entry("repos/a", None, ".gitignore:1 'repos/*'"),
+            entry("repos/b", None, ".gitignore:1 'repos/*'"),
+            entry("repos/c", None, ".gitignore:1 'repos/*'"),
+        ],
+    );
+    assert_eq!(
+        ignored(
+            serde_json::json!({"path": path, "matchString": "absent", "include": ["repos/b/**"]})
+        ),
+        [entry("repos/b", None, ".gitignore:1 'repos/*'")],
+    );
 }
 
 /// An empty search whose text lives only in a default-excluded directory
@@ -433,7 +609,7 @@ fn an_empty_search_names_default_excluded_directories_that_match() {
     assert!(result.files.is_empty());
     let hint = &result.hints[0];
     assert!(
-        hint == "1 file(s) match in skipped paths (default-excluded).",
+        hint == "1 file that matches behind skipped paths (build/).",
         "{hint}"
     );
     let body = serde_json::to_value(&result).expect("result");
@@ -520,14 +696,76 @@ fn an_unproven_probe_names_the_ignored_paths_and_leads_with_include_ignored() {
         execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
             .expect("search")
     });
-    let hints = result.hints.join(" | ");
-    assert!(
-        hints.contains("1 hidden path(s) were not searched"),
-        "{hints}"
-    );
+    let warnings = result.warnings.join(" | ");
+    assert!(warnings.contains("1 hidden"), "{warnings}");
     let next = result.next.as_ref().expect("lead");
     let lead = &next["includeSkipped"]["query"]["queries"][0];
     assert_eq!(lead["includeHidden"], true, "{next}");
+}
+
+/// An empty page whose check of the skipped paths ran out of time did not
+/// cover them: the row is partial (`skippedPathsUnchecked`), the gap is a
+/// warning, not a hint, and it counts every skipped path of each cause the
+/// walk left out (ignored files too, not only the ignored directories a
+/// fresh walk names). The one lead lifts each of those causes and reaches
+/// every unchecked match.
+#[test]
+fn an_empty_page_whose_skipped_path_check_timed_out_is_partial() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    fs::create_dir(root.path().join(".git")).expect("repository marker");
+    fs::write(root.path().join(".gitignore"), "*.log\n").expect("gitignore");
+    fs::write(root.path().join("a.log"), "needle\n").expect("ignored file");
+    fs::write(root.path().join("b.log"), "other\n").expect("ignored file");
+    fs::create_dir(root.path().join(".hid")).expect("hidden dir");
+    fs::write(root.path().join(".hid/a.txt"), "needle\n").expect("hidden file");
+    fs::write(root.path().join("notes.txt"), "other\n").expect("text");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "needle"}),
+        None,
+    );
+    let result = crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
+        execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
+            .expect("search")
+    });
+    assert!(result.files.is_empty());
+    let body = serde_json::to_value(&result).expect("result");
+    assert_eq!(body["isPartial"], true, "{body}");
+    assert_eq!(
+        body["partialReasons"],
+        serde_json::json!(["skippedPathsUnchecked"]),
+        "{body}"
+    );
+    assert!(body.get("terminalLimit").is_none(), "{body}");
+    let warnings = result.warnings.join(" | ");
+    assert!(
+        warnings.contains("2 ignored") && warnings.contains("2 hidden"),
+        "{warnings}"
+    );
+    assert!(
+        result.hints.iter().all(|hint| !hint.contains("timed out")),
+        "stated once, as a warning: {:?}",
+        result.hints
+    );
+    let lead = &result.next.as_ref().expect("lead")["includeSkipped"]["query"]["queries"][0];
+    assert_eq!(lead["includeIgnored"], true, "{lead}");
+    assert_eq!(lead["includeHidden"], true, "{lead}");
+    let retried: LocalSearchQuery = serde_json::from_value(lead.clone()).expect("lead query");
+    let found = execute_local_search(&retried, &policy, &security, &NeverCancel, None, None, None)
+        .expect("retry");
+    assert_eq!(found.files.len(), 2, "{found:?}");
+}
+
+/// A plain miss states each fact once: `status` and `filesScanned` say it,
+/// so no hint repeats the scanned count.
+#[test]
+fn a_plain_miss_states_the_scanned_count_once() {
+    let body = search_fixture(
+        &[("a.rs", "fn a() {}\n"), ("b.rs", "fn b() {}\n")],
+        ls_query(serde_json::json!({"matchString": "zzqqxx"}), None),
+    );
+    assert_eq!(body["filesScanned"], 2, "{body}");
+    assert!(body.get("hints").is_none(), "{body}");
 }
 
 /// Once the hint names the skipped paths that hold a match, the generic count
@@ -549,7 +787,10 @@ fn a_skipped_match_replaces_the_generic_empty_count() {
     let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
         .expect("search");
     let hints = result.hints.join(" | ");
-    assert!(hints.contains("match in skipped paths"), "{hints}");
+    assert!(
+        hints.contains("that matches behind skipped paths"),
+        "{hints}"
+    );
     assert!(!hints.contains("No matches in"), "{hints}");
 }
 
@@ -586,8 +827,8 @@ fn an_unset_regex_is_literal_even_for_regex_shaped_text() {
     assert_eq!(pattern["matchCount"], 1, "{pattern}");
 }
 
-/// The withheld notice lives once, in warnings; the empty hint does
-/// not repeat it and gives no spelling advice.
+/// What the policy withheld is stated once, in `skippedPaths`; the empty
+/// hint does not repeat it and gives no spelling advice.
 #[test]
 fn withheld_notice_appears_once_on_empty_rows() {
     let body = search_fixture(
@@ -598,8 +839,8 @@ fn withheld_notice_appears_once_on_empty_rows() {
         ls_query(serde_json::json!({"matchString": "ISecretX"}), None),
     );
     assert_eq!(body["matchCount"], 0, "{body}");
-    let text = body.to_string();
-    assert_eq!(text.matches("withheld by path policy").count(), 1, "{body}");
+    let withheld = crate::tools::test_support::skipped_reasons(&body, "withheld");
+    assert_eq!(withheld, [("credential file".into(), 1)], "{body}");
     let hint = body["hints"][0].as_str().expect("empty hint");
     assert!(hint.starts_with("No matches"), "{hint}");
     assert!(!hint.contains("shorter term"), "{hint}");

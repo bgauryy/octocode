@@ -11,7 +11,7 @@ import { render } from './protocols.js';
 import { isWithin, relativePath, type StoreHost } from './store-types.js';
 import { compareCodePoints } from './text.js';
 import { HOUR_MS, LEASE_TTL_DEFAULT_MS, LEASE_TTL_MAX_MS, now } from './timing.js';
-import { compact, dumps } from './wire.js';
+import { compact, dumps } from './json-text.js';
 import { scopeWorkspaces } from './workspace.js';
 
 const OVERLAPS = `WITH hits(id) AS (

@@ -1,19 +1,18 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2024", "ESNext.Disposable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["node"],
-    "strict": true,
     "noEmit": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "paths": { "octocode-mcp-cli": ["../octocode-mcp-cli/src/index.ts"] }
+    "paths": { "octocode-mcp-cli": ["../octocode-mcp-cli/src/index.ts"] },
+    // Tests import the built bundles (dist/<entry>.js, dist/hosts/<host>.js); rootDirs
+    // resolves their types from the sources, so a typecheck needs no build.
+    "rootDirs": ["dist", "src/entries", "src"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

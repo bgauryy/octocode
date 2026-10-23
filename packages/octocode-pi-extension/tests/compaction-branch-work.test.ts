@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cacheClock, idleContinuation, warmingDecision } from '../src/compaction/cache.js';
 import { registerCompaction } from '../src/compaction/register.js';
 import { CLEARED_RESULTS_TYPE, clearedResults, sessionCleared } from '../src/files/reads.js';
-import type { FileGuard } from '../src/files/tool.js';
+import type { FileGuard } from '../src/files/guard.js';
 import { CACHE_RETENTION_ENV } from '../src/shared/env.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
 import { tmp } from './helpers.js';

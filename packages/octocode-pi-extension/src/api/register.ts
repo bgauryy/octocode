@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { OctocodeApi, optionsFromEnv, transportsFor, type AgentDirectory, type ApiOperations } from './bridge.js';
+import { OctocodeApi, type AgentDirectory, type ApiOperations } from './bridge.js';
+import { optionsFromEnv, transportsFor } from './options.js';
 import { notify, say, wordCompletions, type Subcommands } from '../shared/commands.js';
 import { sanitizeTerminalText } from '../shared/sanitize.js';
 import { errorMessage } from '../shared/util.js';

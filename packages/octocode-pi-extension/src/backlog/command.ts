@@ -14,7 +14,8 @@ import { boardText, exportMarkdown, isState, itemDetail, itemFields, itemLine } 
 import { renderBacklogHtml } from './html.js';
 import { refText } from './row.js';
 import { backlogSnapshot } from './snapshot.js';
-import { parseRef, PRIORITIES, STATES, type Item, type UpdateInput } from './store.js';
+import { parseRef, PRIORITIES, STATES, type Item } from './item.js';
+import type { UpdateInput } from './store.js';
 
 /** The fields `Edit` changes, one per editor: the text shown for an item, and the store update for the text saved (a list has one entry per line). */
 const EDITABLE: Record<string, { text(item: Item): string; patch(text: string): UpdateInput }> = {

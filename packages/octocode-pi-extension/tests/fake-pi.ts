@@ -33,6 +33,7 @@ export function fakePi() {
   const shortcuts = new Map<string, { description?: string; handler: (ctx: unknown) => unknown }>();
   const sent: Array<{ message: any; options: any }> = [];
   const entries: Array<{ customType: string; data: unknown }> = [];
+  const labels = new Map<string, string>();
   let activeTools: string[] | undefined;
   const pi = {
     getSettings: () => ({}),
@@ -51,6 +52,7 @@ export function fakePi() {
     sendMessage: (message: unknown, options: unknown) => sent.push({ message, options }),
     sendUserMessage: (message: unknown, options: unknown) => sent.push({ message, options }),
     appendEntry: (customType: string, data: unknown) => entries.push({ customType, data }),
+    setLabel: (id: string, label: string | undefined) => (label === undefined ? labels.delete(id) : labels.set(id, label)),
     getActiveTools: () => activeTools ?? [...tools.keys()],
     getAllTools: () => [...tools.values()],
     setActiveTools: (names: string[]) => {
@@ -66,7 +68,7 @@ export function fakePi() {
   };
   /** Runs every handler for `event` in order and returns the last one's result, as Pi does for most events. */
   const fire = async (event: string, payload: unknown, ctx: unknown) => (await emit(event, payload, ctx)).at(-1);
-  return { pi: pi as unknown as ExtensionAPI, tools, commands, handlers, renderers, shortcuts, sent, entries, emit, fire };
+  return { pi: pi as unknown as ExtensionAPI, tools, commands, handlers, renderers, shortcuts, sent, entries, labels, emit, fire };
 }
 
 interface FakeUi {

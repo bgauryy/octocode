@@ -1,6 +1,8 @@
 //! Commit facts every GitHub history tool reads the same way: who made a
-//! commit, which pull request a squash-merge headline names, and a history
-//! date in UTC.
+//! commit, which pull request a squash-merge headline names, the date a
+//! commit row shows, and the one commit row.
+use super::dates::utc_date;
+use crate::response::result::remove_null_fields;
 use serde_json::{Value, json};
 
 /// A commit person as one string: the GitHub login, else the git name
@@ -64,13 +66,6 @@ fn trailer_pull_request(message: &str, owner: &str, repo: &str) -> Option<u64> {
     })
 }
 
-/// A history date in UTC (`…Z`); text that is not a full timestamp passes
-/// through, and no value is empty text.
-pub(crate) fn utc_date(value: Option<&str>) -> String {
-    let value = value.unwrap_or("");
-    crate::providers::github::utc_timestamp(value).unwrap_or_else(|| value.to_owned())
-}
-
 /// The date a commit row shows: the committer date, the one `since` and
 /// `until` filter on and history orders by; the author date only when the
 /// commit carries no committer date.
@@ -81,6 +76,40 @@ pub(crate) fn commit_date(commit: &Value) -> String {
             .or_else(|| commit.pointer("/commit/author/date"))
             .and_then(Value::as_str),
     )
+}
+
+/// A commit's headline: the first line of its message.
+pub(crate) fn headline(commit: &Value) -> &str {
+    let message = commit
+        .pointer("/commit/message")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    message.lines().next().unwrap_or("")
+}
+
+/// The one commit row of every history list (a search, a listing, a
+/// comparison's or pull request's commits): `commitSha`, `date`
+/// ([`commit_date`]), `messageHeadline` and `author` (login, else git
+/// name). A field the commit lacks is absent; any row's `commitSha` reads
+/// the whole commit.
+pub(crate) fn row(commit: &Value) -> Value {
+    let mut row = json!({
+        "commitSha": commit["sha"],
+        "date": commit_date(commit),
+        "messageHeadline": headline(commit),
+        "author": person(commit, "author"),
+    });
+    remove_null_fields(&mut row);
+    row
+}
+
+/// The message past its headline (the blank separator line dropped);
+/// `None` for a one-line message.
+pub(crate) fn message_body(commit: &Value) -> Option<&str> {
+    let message = commit.pointer("/commit/message").and_then(Value::as_str)?;
+    let (_, body) = message.split_once('\n')?;
+    let body = body.trim_matches(['\n', '\r']).trim_end();
+    (!body.is_empty()).then_some(body)
 }
 
 #[cfg(test)]
@@ -98,18 +127,26 @@ mod tests {
         assert_eq!(commit_date(&bare), "2023-01-01T00:00:00Z");
     }
 
+    /// Every history list shows one commit row: headline, author, the
+    /// committer date in UTC; a missing person is absent, not invented.
     #[test]
-    fn history_dates_are_utc() {
+    fn every_history_list_shows_one_commit_row() {
+        let commit = json!({"sha":"c1","author":{"login":"octo"},"commit":{
+            "message":"fix: parser\n\nLong body.\nMore.\n",
+            "author":{"name":"Ada","date":"2024-01-01T00:00:00Z"},
+            "committer":{"date":"2024-02-01T02:00:00+02:00"}}});
         assert_eq!(
-            utc_date(Some("2024-01-01T02:30:00+02:00")),
-            "2024-01-01T00:30:00Z"
+            row(&commit),
+            json!({"commitSha":"c1","messageHeadline":"fix: parser","author":"octo",
+                "date":"2024-02-01T00:00:00Z"})
         );
+        assert_eq!(message_body(&commit), Some("Long body.\nMore."));
+        let bare = json!({"sha":"c2","commit":{"message":"one line"}});
         assert_eq!(
-            utc_date(Some("2024-01-01T00:00:00Z")),
-            "2024-01-01T00:00:00Z"
+            row(&bare),
+            json!({"commitSha":"c2","messageHeadline":"one line","date":""})
         );
-        assert_eq!(utc_date(Some("not a date")), "not a date");
-        assert_eq!(utc_date(None), "");
+        assert_eq!(message_body(&bare), None);
     }
 
     #[test]

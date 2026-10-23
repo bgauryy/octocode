@@ -1,6 +1,7 @@
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { timingOf, plural, resultBlock, resultText, spillPath, timedTool, toolHeader } from '../shared/render.js';
+import { plural, resultBlock, resultText, spillPath, toolHeader } from '../shared/render.js';
+import { timingOf, timedTool } from '../shared/tool-timing.js';
 import { visibleControls } from '../shared/sanitize.js';
 import { visibleError } from '../shared/visible-error.js';
 import { boundImagePart, capOutputToFile, saveFullOutput, saveImageFile } from '../shared/spill.js';

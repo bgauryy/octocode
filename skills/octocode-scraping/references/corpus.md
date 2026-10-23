@@ -14,6 +14,7 @@ Load when reading script output, searching a session, mapping a site, or extract
 ```
 
 - Query the corpus; never dump pages into chat.
+- Each completed page has a private `.pending/page-NNN.json` checkpoint until all session indexes are written. After interruption, `--append` recovers these pages and their link frontier without overwriting their evidence. Uncommitted page files produce `sessionIncomplete`: preserve that directory and start a new session. Writes use atomic file replacement; concurrent writers to one session and power-loss durability are not supported.
 
 ## Search order
 

@@ -38,7 +38,6 @@ This reference is generated from [`packages/octocode-config/config-contract.json
     "prewarm": "targeted"
   },
   "output": {
-    "format": "yaml",
     "redactEmails": false
   },
   "storage": {
@@ -74,7 +73,6 @@ Environment values take precedence over `.octocoderc`. Each setting has at most 
 | `lsp.cacheDir` | `OCTOCODE_LSP_CACHE_DIR` | unset | path | Directory for managed language-server installs; default <octocode home>/lsp. OCTOCODE_LSP_CACHE_DIR: shell or trusted home .env |
 | `lsp.trustProjectConfig` | `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | `false` | boolean | Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries. OCTOCODE_TRUST_PROJECT_LSP_CONFIG: shell or trusted home .env |
 | `lsp.prewarm` | `OCTOCODE_LSP_PREWARM` | `"targeted"` | `targeted` or `all` or `off` | Language-server prewarm: targeted starts the server an offered lspSearch call names; all also warms the file a read or search names; off disables it. |
-| `output.format` | `OCTOCODE_OUTPUT_FORMAT` | `"yaml"` | `yaml` or `json` | Encoding of rendered text content (the MCP text channel): yaml or json. Structured content is always JSON. The CLI prints this text unless --json. |
 | `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | `false` | boolean | Mask email addresses such as GitHub commit authors. OCTOCODE_REDACT_EMAILS: shell or trusted home .env |
 | `storage.mode` | `OCTOCODE_STORAGE_MODE` | `"persistent"` | `persistent` or `memory` | Whether caches and runtime state may persist on disk. OCTOCODE_STORAGE_MODE: shell or trusted home .env |
 | `storage.stats` | `OCTOCODE_ENABLE_STATS` | `false` | boolean | Write stats.json on flush; stats remain in memory either way. |
@@ -139,6 +137,7 @@ A removed name is reported once as a `removed_setting` warning and otherwise ign
 | `classification.maxCandidates` | `.octocoderc` | Context selection is fixed at 64 candidates per operation; delete the key. |
 | `classification.maxChars` | `.octocoderc` | Context selection is fixed at 131,072 characters per operation; delete the key. |
 | `classification.timeoutMs` | `.octocoderc` | The context selection deadline is fixed at 10 s; delete the key. |
+| `output.format` | `.octocoderc` | MCP text content is always the serialized JSON of structuredContent, and the CLI prints JSON with --json; delete the key. |
 | `OCTOCODE_CLASSIFICATION_TYPE` | environment | The classification provider is built in; unset the variable. |
 | `REQUEST_TIMEOUT` | environment | Request timeout is fixed at 30 s; unset the variable. |
 | `MAX_RETRIES` | environment | Retries are fixed at 3; unset the variable. |
@@ -152,3 +151,4 @@ A removed name is reported once as a `removed_setting` warning and otherwise ign
 | `OCTOCODE_CLASSIFICATION_MAX_CANDIDATES` | environment | Context selection is fixed at 64 candidates per operation; unset the variable. |
 | `OCTOCODE_CLASSIFICATION_MAX_CHARS` | environment | Context selection is fixed at 131,072 characters per operation; unset the variable. |
 | `OCTOCODE_CLASSIFICATION_TIMEOUT_MS` | environment | The context selection deadline is fixed at 10 s; unset the variable. |
+| `OCTOCODE_OUTPUT_FORMAT` | environment | MCP text content is always the serialized JSON of structuredContent, and the CLI prints JSON with --json; unset the variable. |

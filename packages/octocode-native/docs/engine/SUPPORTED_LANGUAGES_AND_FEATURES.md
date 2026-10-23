@@ -8,7 +8,7 @@ npx octocode schema | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end
 
 ## Language matrix
 
-The default build registers **30 extensions in 12 language families**, from one registry (`crates/engine/src/signatures/languages.rs`; the expected set is asserted in `languages_tests.rs`). Structural match, syntax trees, symbols, signatures, graph facts, and LSP grammar adapters all derive from it. Built-in language-server routes are a separate table (`crates/engine/src/lsp/config/catalog.rs`) covering **27 extensions**: Assembly has no route.
+The default build registers **30 extensions in 12 language families**, from one registry (`crates/engine/src/signatures/languages.rs`; the expected set is asserted in `signatures/languages/tests/registry.rs`). Structural match, syntax trees, symbols, signatures, graph facts, and LSP grammar adapters all derive from it. Built-in language-server routes are a separate table (`crates/engine/src/lsp/config/catalog.rs`) covering **27 extensions**: Assembly has no route.
 
 | Language | Extensions | Native AST (match, tree, symbols, rewrite) | Cross-file graph links | Built-in LSP route |
 |---|---|---|---|---|
@@ -35,7 +35,7 @@ Languages with no native grammar (Kotlin, PHP, CSS, HTML, JSON, TOML, YAML, Ruby
 
 ### Grammar features
 
-Every grammar above ships in the default build. Assembly, C++, C#, CUDA and Scala are optional engine features, all enabled by `portable-default`; a build without one returns the typed unsupported result for its extensions, and `languages_tests.rs` derives the expected set from the enabled features. CUDA is the largest grammar, about 6.8 MiB per artifact ([measurement](../DEPENDENCY_AUDIT.md#footprint-interpretation)).
+Every grammar above ships in the default build. Assembly, C++, C#, CUDA and Scala are optional engine features, all enabled by `portable-default`; a build without one returns the typed unsupported result for its extensions, and `signatures/languages/tests/registry.rs` derives the expected set from the enabled features. CUDA is the largest grammar, about 6.8 MiB per artifact ([measurement](../DEPENDENCY_AUDIT.md#footprint-interpretation)).
 
 ## Structural matchers
 

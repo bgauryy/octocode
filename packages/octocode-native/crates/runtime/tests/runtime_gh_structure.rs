@@ -549,12 +549,10 @@ fn is_day(field: &str) -> bool {
 /// A listing row's dates: each dated file or folder name → its day.
 fn updated(row: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
     let mut out = serde_json::Map::new();
-    for key in ["files", "folders"] {
-        for text in row[key].as_array().into_iter().flatten() {
-            let (name, fields) = split_entry(text.as_str().expect("entry"));
-            if let Some(day) = fields.into_iter().find(|field| is_day(field)) {
-                out.insert(name.to_owned(), json!(day));
-            }
+    for text in row["files"].as_array().into_iter().flatten() {
+        let (name, fields) = split_entry(text.as_str().expect("entry"));
+        if let Some(day) = fields.into_iter().find(|field| is_day(field)) {
+            out.insert(name.trim_end_matches('/').to_owned(), json!(day));
         }
     }
     out
@@ -732,7 +730,7 @@ async fn a_page_past_one_hundred_entries_dates_the_first_hundred_and_expands_the
 }
 
 /// A listing states each file's size, in the structureSearch entry
-/// form `"<name> (<bytes>)"`; folders stay bare and dates key bare names.
+/// form `"<name> (<bytes>)"`; a folder is `"<name>/"` and dates key bare names.
 #[tokio::test]
 async fn a_listing_states_each_file_size() {
     let server = MockServer::builder().start().await;
@@ -769,12 +767,7 @@ async fn a_listing_states_each_file_size() {
     let data = row_data(&outcome);
     assert_eq!(
         undated(&data["files"][0], "files"),
-        json!(["big (1).bin (400000)", "small.rs (10)"]),
-        "{data}"
-    );
-    assert_eq!(
-        undated(&data["files"][0], "folders"),
-        json!(["src"]),
+        json!(["big (1).bin (400000)", "small.rs (10)", "src/"]),
         "{data}"
     );
     // The size comes first, then the day: each name is written once.
@@ -864,8 +857,11 @@ async fn a_graphql_failure_keeps_the_listing_and_warns_once() {
         outcome.structured_content
     );
     let data = row_data(&outcome);
-    assert_eq!(data["files"][0]["files"], json!(["one.rs (10)"]), "{data}");
-    assert_eq!(data["files"][0]["folders"], json!(["src"]), "{data}");
+    assert_eq!(
+        data["files"][0]["files"],
+        json!(["one.rs (10)", "src/"]),
+        "{data}"
+    );
     assert!(updated(&data["files"][0]).is_empty(), "{data}");
     assert!(data.get("commitDate").is_none(), "{data}");
     let warnings = data["warnings"].as_array().expect("warnings");
@@ -938,8 +934,11 @@ async fn a_scoped_listing_names_repo_relative_dirs_and_dates_every_name() {
     let data = row_data(&outcome);
     let entries = data["files"].as_array().expect("files");
     assert_eq!(entries[0]["dir"], "pkg", "{data}");
-    assert_eq!(undated(&entries[0], "files"), json!(["a.rs (1)"]), "{data}");
-    assert_eq!(undated(&entries[0], "folders"), json!(["src"]), "{data}");
+    assert_eq!(
+        undated(&entries[0], "files"),
+        json!(["a.rs (1)", "src/"]),
+        "{data}"
+    );
     assert_eq!(entries[1]["dir"], "pkg/src", "{data}");
     // Dates key on the full path: `pkg/a.rs` (8) and `pkg/src` (7) and
     // `pkg/src/lib.rs` (14).
@@ -1094,10 +1093,10 @@ async fn default_refs_name_the_default_branch_and_tags_without_listing_branches(
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/tags"))
+        .and(path("/api/v3/repos/a/b/git/matching-refs/tags"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json!([{"name":"v1","commit":{"sha":"1".repeat(40)}}])),
+                .set_body_json(json!([{"ref":"refs/tags/v1","object":{"sha":"1".repeat(40)}}])),
         )
         .expect(1)
         .mount(&server)
@@ -1133,8 +1132,8 @@ async fn refs_without_branches_lead_to_the_branch_listing() {
     for (route, body) in [
         ("/api/v3/repos/a/b", json!({"default_branch":"main"})),
         (
-            "/api/v3/repos/a/b/tags",
-            json!([{"name":"v1","commit":{"sha":"1".repeat(40)}}]),
+            "/api/v3/repos/a/b/git/matching-refs/tags",
+            json!([{"ref":"refs/tags/v1","object":{"sha":"1".repeat(40)}}]),
         ),
     ] {
         Mock::given(method("GET"))

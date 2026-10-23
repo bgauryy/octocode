@@ -66,6 +66,15 @@ function randomControlPoints(start, end) {
   ];
 }
 
+/** One trusted pointer move with no button held. */
+function mouseMove(x, y, delayMs) {
+  return {
+    method: 'Input.dispatchMouseEvent',
+    params: { type: 'mouseMoved', x, y, button: 'none', buttons: 0 },
+    delayMs,
+  };
+}
+
 /** Bezier-curve mouse movement from (startX, startY) to (endX, endY): array of {method, params, delayMs}. */
 function buildMouseMoveEvents(
   startX,
@@ -108,11 +117,7 @@ function buildMouseMoveEvents(
     const x = Math.round(pt.x + (Math.random() - 0.5) * 2 * wobble);
     const y = Math.round(pt.y + (Math.random() - 0.5) * 2 * wobble);
 
-    events.push({
-      method: 'Input.dispatchMouseEvent',
-      params: { type: 'mouseMoved', x, y, button: 'none', buttons: 0 },
-      delayMs: rand(stepDelayMs[0], stepDelayMs[1]),
-    });
+    events.push(mouseMove(x, y, rand(stepDelayMs[0], stepDelayMs[1])));
 
     burst++;
     if (burst >= burstMax && i < steps) {
@@ -127,28 +132,18 @@ function buildMouseMoveEvents(
   if (Math.random() < overshootChance) {
     const angle = Math.atan2(endY - startY, endX - startX);
     const d = rand(overshootPx[0], overshootPx[1]);
-    events.push({
-      method: 'Input.dispatchMouseEvent',
-      params: {
-        type: 'mouseMoved',
-        x: Math.round(endX + Math.cos(angle) * d),
-        y: Math.round(endY + Math.sin(angle) * d),
-        button: 'none',
-        buttons: 0,
-      },
-      delayMs: rand(20, 50),
-    });
-    events.push({
-      method: 'Input.dispatchMouseEvent',
-      params: {
-        type: 'mouseMoved',
-        x: Math.round(endX + (Math.random() - 0.5) * 4),
-        y: Math.round(endY + (Math.random() - 0.5) * 4),
-        button: 'none',
-        buttons: 0,
-      },
-      delayMs: rand(10, 30),
-    });
+    events.push(
+      mouseMove(
+        Math.round(endX + Math.cos(angle) * d),
+        Math.round(endY + Math.sin(angle) * d),
+        rand(20, 50)
+      ),
+      mouseMove(
+        Math.round(endX + (Math.random() - 0.5) * 4),
+        Math.round(endY + (Math.random() - 0.5) * 4),
+        rand(10, 30)
+      )
+    );
   }
 
   return events;
@@ -162,33 +157,14 @@ function buildClickEvents(x, y, opts: ClickOptions = {}) {
     holdMs = isInput ? [60, 120] : [30, 80],
     button = 'left',
   } = opts;
+  const press = (type, buttons, delayMs) => ({
+    method: 'Input.dispatchMouseEvent',
+    params: { type, x, y, button, buttons, clickCount: 1, modifiers: 0 },
+    delayMs,
+  });
   return [
-    {
-      method: 'Input.dispatchMouseEvent',
-      params: {
-        type: 'mousePressed',
-        x,
-        y,
-        button,
-        buttons: 1,
-        clickCount: 1,
-        modifiers: 0,
-      },
-      delayMs: rand(aimDelayMs[0], aimDelayMs[1]),
-    },
-    {
-      method: 'Input.dispatchMouseEvent',
-      params: {
-        type: 'mouseReleased',
-        x,
-        y,
-        button,
-        buttons: 0,
-        clickCount: 1,
-        modifiers: 0,
-      },
-      delayMs: rand(holdMs[0], holdMs[1]),
-    },
+    press('mousePressed', 1, rand(aimDelayMs[0], aimDelayMs[1])),
+    press('mouseReleased', 0, rand(holdMs[0], holdMs[1])),
   ];
 }
 
@@ -249,6 +225,15 @@ function keyDefinition(key) {
   return { key, code, windowsVirtualKeyCode: vk, text: key };
 }
 
+/** The key identity fields every key event repeats. */
+function keyFields(def) {
+  return {
+    key: def.key,
+    code: def.code,
+    windowsVirtualKeyCode: def.windowsVirtualKeyCode,
+  };
+}
+
 /** Press a key or combo ("Enter", "Control+A", "Shift+Tab"): array of {method, params, delayMs}. */
 export function buildKeyPressEvents(combo) {
   const parts = String(combo).split('+').filter(Boolean);
@@ -273,18 +258,12 @@ export function buildKeyPressEvents(combo) {
     ev(
       printable ? 'keyDown' : 'rawKeyDown',
       {
-        key: def.key,
-        code: def.code,
-        windowsVirtualKeyCode: def.windowsVirtualKeyCode,
+        ...keyFields(def),
         ...(printable ? { text: def.text, unmodifiedText: def.text } : {}),
       },
       40
     ),
-    ev('keyUp', {
-      key: def.key,
-      code: def.code,
-      windowsVirtualKeyCode: def.windowsVirtualKeyCode,
-    }),
+    ev('keyUp', keyFields(def)),
     ...mods
       .reverse()
       .map(([m, d]) =>
@@ -308,9 +287,7 @@ function charKeyEvents(ch, delayMs) {
       method: 'Input.dispatchKeyEvent',
       params: {
         type: 'keyDown',
-        key: def.key,
-        code: def.code,
-        windowsVirtualKeyCode: def.windowsVirtualKeyCode,
+        ...keyFields(def),
         text: def.text,
         unmodifiedText: def.text,
       },
@@ -318,12 +295,7 @@ function charKeyEvents(ch, delayMs) {
     },
     {
       method: 'Input.dispatchKeyEvent',
-      params: {
-        type: 'keyUp',
-        key: def.key,
-        code: def.code,
-        windowsVirtualKeyCode: def.windowsVirtualKeyCode,
-      },
+      params: { type: 'keyUp', ...keyFields(def) },
       delayMs,
     },
   ];
@@ -397,21 +369,7 @@ export function buildScrollEvents(x, y, deltaY, opts: ScrollOptions = {}) {
   return events;
 }
 
-/** Move from (fromX, fromY) to (targetX, targetY) then click: combined event sequence. */
-function buildHumanClickSequence(
-  fromX,
-  fromY,
-  targetX,
-  targetY,
-  isInput = false
-) {
-  return [
-    ...buildMouseMoveEvents(fromX, fromY, targetX, targetY),
-    ...buildClickEvents(targetX, targetY, { isInput }),
-  ];
-}
-
-/** Click in the middle of an element's bounding rect (from a prior getBoundingClientRect() read), slightly randomized. */
+/** Move from the current mouse point, then click in the middle of an element's bounding rect (from a prior getBoundingClientRect() read), slightly randomized. */
 export function buildElementClickSequence(
   currentMouseX,
   currentMouseY,
@@ -424,13 +382,10 @@ export function buildElementClickSequence(
   const targetY = Math.round(
     elementRect.y + elementRect.height * rand(0.35, 0.65)
   );
-  return buildHumanClickSequence(
-    currentMouseX,
-    currentMouseY,
-    targetX,
-    targetY,
-    isInput
-  );
+  return [
+    ...buildMouseMoveEvents(currentMouseX, currentMouseY, targetX, targetY),
+    ...buildClickEvents(targetX, targetY, { isInput }),
+  ];
 }
 
 /** Execute a built event sequence against a live cdp session, awaiting each event's delay. */

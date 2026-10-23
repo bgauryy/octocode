@@ -111,7 +111,7 @@ impl Row {
             // The line sort's own key, counted for every file it ranks, shows
             // whatever the detail.
             lines,
-            // Whole epoch milliseconds: a float would print as `…737.0`.
+            // Whole epoch milliseconds, shown as an ISO 8601 instant.
             modified_ms
                 .filter(|_| modified_shown)
                 .map(|modified| modified.round() as i64),
@@ -188,7 +188,8 @@ pub(super) fn sort_rows(rows: &mut [Row], sort: Sort) {
 /// Group a window's rows (cut from `sort`ed rows) as the page lists them.
 /// Path order groups by directory: the listed path's own entries first,
 /// then each directory once, in walk order (the sort is stable). Other sorts
-/// keep their order, so a directory may open several groups.
+/// keep their rank order exactly; each page groups its own adjacent rows
+/// ([`dir_groups`]).
 pub(super) fn group(rows: &mut Vec<Row>, sort: Sort) {
     if sort == Sort::Path {
         rows.sort_by(|a, b| std::path::Path::new(&a.dir).cmp(std::path::Path::new(&b.dir)));
@@ -198,7 +199,7 @@ pub(super) fn group(rows: &mut Vec<Row>, sort: Sort) {
 
 /// Names each directory once: by its own `{dir, files}` group when the
 /// group lists an entry, else by its bare `name/` row (a stub; one with
-/// fields, `modifiedMs`, is no stub and keeps them). A stub is dropped only
+/// fields, `modified`, is no stub and keeps them). A stub is dropped only
 /// when the directory's group survives, so a directory whose subdirectories
 /// all have groups of their own keeps its stub instead of vanishing from
 /// the listing, even when the two would land on different pages.
@@ -237,16 +238,20 @@ fn drop_grouped_dirs(rows: &mut Vec<Row>) {
     });
 }
 
-/// The page's rows as the response lists them: consecutive entries of one
-/// directory become a `{dir, files}` group, `dir` workspace-relative (the
-/// listed path's own entries included, `prefix` being its spelling), so
-/// `dir + "/" + name` is a path a local tool takes.
+/// The page's rows as the response lists them, in page order: each run of
+/// adjacent entries of one directory becomes one `{dir, files}` group, `dir`
+/// workspace-relative (the listed path's own entries included, `prefix`
+/// being its spelling), so `dir + "/" + name` is a path a local tool takes.
+/// A path-ordered page holds each directory in one run, so it names each
+/// once; a ranked page (`sort` by size, lines, name or time) keeps its rank
+/// order exactly, and a directory it returns to opens a new group. Each
+/// entry keeps the key it ranks by.
 pub(super) fn dir_groups(rows: &[(String, String)], prefix: &str) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for (dir, entry) in rows {
         let dir = super::group_dir(prefix, dir);
         match out.last_mut() {
-            Some(group) if group.get("dir").and_then(Value::as_str) == Some(dir.as_str()) => {
+            Some(group) if group["dir"] == dir.as_str() => {
                 if let Some(items) = group["files"].as_array_mut() {
                     items.push(json!(entry));
                 }
@@ -360,13 +365,14 @@ pub(super) fn generated_or_fixture(path: &str) -> bool {
 }
 
 /// Characters the deferred detail fields add to one entry at most:
-/// `, totalLines=<usize>` and `, modifiedMs=<i64>`, 33 each.
-const DETAIL_FIELDS_RESERVE: usize = 66;
+/// `, totalLines=<usize>` (33) and `, modified=<ISO 8601 instant>` (35 for
+/// a five-digit year).
+const DETAIL_FIELDS_RESERVE: usize = 68;
 
 /// One listed entry inside its directory group: the name, `/` after a
 /// directory, then ` (<fields>)` naming the size in bytes (every non-directory
-/// entry), `symlink`, the line count ([`Lines::field`]) and `modifiedMs=N` as
-/// they apply. The fields never contain ` (`, so the last ` (` of an entry
+/// entry), `symlink`, the line count ([`Lines::field`]) and
+/// `modified=<YYYY-MM-DDTHH:MM:SS.mmmZ>` (UTC) as they apply. The fields never contain ` (`, so the last ` (` of an entry
 /// ending in `)` opens them, whatever the name holds.
 pub(super) fn entry_text(
     name: &str,
@@ -390,7 +396,10 @@ pub(super) fn entry_text(
         fields.push(lines.field());
     }
     if let Some(modified) = modified_ms {
-        fields.push(format!("modifiedMs={modified}"));
+        fields.push(format!(
+            "modified={}",
+            crate::civil_date::iso8601_millis(modified)
+        ));
     }
     if !fields.is_empty() {
         text.push_str(&format!(" ({})", fields.join(", ")));
@@ -526,11 +535,11 @@ pub(super) fn line_count(
     LINE_COUNT_READS.with(|reads| reads.set(reads.get() + 1));
     cancel.check().map_err(ToolError::cancelled)?;
     // Revalidate immediately before reading: discovery authorization is not
-    // permission to follow a subsequently changed link or open a special file.
+    // permission to follow a changed link or open a special file (a FIFO).
     let Ok(validated) = paths.validate_read(path) else {
         return Ok(Lines::Unreadable);
     };
-    let Ok(mut file) = std::fs::File::open(validated.canonical) else {
+    let Ok((mut file, _)) = octocode_engine::text::open_regular(&validated.canonical) else {
         return Ok(Lines::Unreadable);
     };
     let mut buffer = [0_u8; 16 * 1024];

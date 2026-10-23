@@ -1,0 +1,32 @@
+# libFuzzer targets for octocode-native. Its own workspace (the `[workspace]`
+# table below; the main workspace also lists it under `exclude`) with its own
+# Cargo.lock, so libfuzzer-sys never enters the shipped dependency graph and the
+# main lockfile, profiles and toolchain stay untouched.
+#
+# Run through the task runner, which selects the pinned nightly, a separate
+# build directory and a time bound (packages/octocode-native/dev-tools.json):
+#   node skills-dev/octocode-dev/scripts/dev.mjs fuzz:smoke
+#   node skills-dev/octocode-dev/scripts/dev.mjs fuzz -- --seconds 600
+[package]
+name = "octocode-native-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+
+[workspace]
+members = ["."]
+
+# Compiles the engine's real `text/utf8_offsets.rs` by path (std only), so the
+# oracle reaches its crate-private conversions without widening engine's API.
+[[bin]]
+name = "utf8_offsets"
+path = "fuzz_targets/utf8_offsets.rs"
+test = false
+doc = false
+bench = false

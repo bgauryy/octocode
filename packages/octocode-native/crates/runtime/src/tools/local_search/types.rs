@@ -17,7 +17,7 @@ pub(crate) mod local_search_query {
     /// and no context field is set: a bare hit line (`fn prunes(..) {`)
     /// reads as related at best, while the hit with its body shows what it
     /// does, so the judge can select it.
-    pub(crate) const CLASIFY_CONTEXT_LINES: u32 = 8;
+    pub(crate) const CLASIFY_CONTEXT_LINES: u32 = crate::id::CLASIFY_CONTEXT_LINES;
 
     /// Resolve the shorthand once; explicit zero overrides either side.
     pub(crate) fn context(query: &LocalSearchQuery) -> SearchContext {
@@ -243,8 +243,10 @@ pub struct ItemPagination {
     pub current_page: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_pages: Option<u32>,
-    #[serde(rename = "totalItems")]
-    pub total_matches: u32,
+    /// Omitted on a streamed page where it equals the shown rows plus
+    /// `moreLines` and `moreLinesUnlisted`.
+    #[serde(rename = "totalItems", skip_serializing_if = "Option::is_none")]
+    pub total_matches: Option<u32>,
     pub has_more: bool,
     /// Lines of this file's hits on later pages, ascending (numbers,
     /// not a packed list): read them directly or page on.
@@ -340,6 +342,10 @@ pub struct FileErrors {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilePagination {
+    /// What `total_items` counts: files on list and grid pages, hit lines on
+    /// streamed line pages; absent (items) for matchOnly span rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<octocode_contract_types::OutputPaginationVariant0Unit>,
     pub current_page: u32,
     /// The match page this file page shows, past the first.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -348,7 +354,7 @@ pub struct FilePagination {
     /// Grid pages only; streamed pages are cut by the response budget.
     #[serde(rename = "pageSize", skip_serializing_if = "Option::is_none")]
     pub files_per_page: Option<u32>,
-    /// In the pages' unit: files on grid pages, hit rows on streamed pages.
+    /// In the pages' `unit`.
     pub total_items: u32,
     pub has_more: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -382,7 +388,7 @@ pub struct LocalSearchResult {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub skipped_paths: Option<octocode_contract_types::LocalSearchSkippedPaths>,
+    pub skipped_paths: Option<octocode_contract_types::SkippedPaths>,
     #[serde(skip)]
     pub source_snapshot: Option<String>,
     #[serde(skip)]

@@ -1,14 +1,14 @@
-/** SQLite protocol storage, compatibility checks, and no-clobber snapshots, on the built-in `node:sqlite`. */
-import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, statSync, unlinkSync } from 'node:fs';
-import { backup, DatabaseSync, type SQLOutputValue, type StatementSync } from 'node:sqlite';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+/** SQLite protocol storage and compatibility checks on the built-in `node:sqlite`; `database-export.ts` writes snapshots. */
+import { createHash } from 'node:crypto';
+import { closeSync, existsSync, mkdirSync, openSync, realpathSync } from 'node:fs';
+import { DatabaseSync, type SQLOutputValue, type StatementSync } from 'node:sqlite';
+import { basename, dirname, join, resolve } from 'node:path';
 import schemaSql from '../../assets/schema.sql';
 import { ValidationError } from './errors.js';
 import { overlap, realpath } from './paths.js';
 import { WHITESPACE_CLASS } from './text.js';
 import { sleepSync, monotonic } from './timing.js';
-import { compact } from './wire.js';
+import { compact } from './json-text.js';
 import type { CommandResults } from './catalog-types.generated.js';
 
 export const SQL: string = schemaSql;
@@ -321,7 +321,7 @@ function resolvedPath(path: string): string {
 }
 
 /** Refuses a database path SQLite cannot open, before any directory or file is created. */
-function checkPathLength(path: string): void {
+export function checkPathLength(path: string): void {
   const bytes = Buffer.byteLength(resolvedPath(path));
   if (bytes > MAX_DATABASE_PATH_BYTES)
     throw new ValidationError(`Database path is ${bytes} bytes after resolving symlinks; SQLite opens at most ${MAX_DATABASE_PATH_BYTES} bytes. Use a shorter --database or --workspace path.`);
@@ -391,97 +391,5 @@ function openConnection(path: string, readOnly: boolean, create: boolean): Datab
   } catch (error) {
     db.close();
     throw error;
-  }
-}
-
-function sameFile(a: { dev: bigint; ino: bigint }, b: { dev: bigint; ino: bigint }): boolean {
-  return a.dev === b.dev && a.ino === b.ino;
-}
-
-/** A consistent, integrity-checked, never-overwriting copy of `source` at the absolute path `destination`. */
-export async function exportDatabase(source: string, destination: string): Promise<CommandResults['db export']> {
-  if (!isAbsolute(destination)) throw new ValidationError('Export path must be absolute');
-  const parent = realpath(dirname(destination), true);
-  destination = join(parent, basename(destination));
-  const exists = (path: string): boolean => {
-    try {
-      lstatSync(path);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  if (exists(destination)) throw new ValidationError('Export destination already exists; never overwrite a file or symlink');
-  const initial = lstatSync(source, { bigint: true });
-  if (!initial.isFile()) throw new ValidationError('Export source must be a regular database file, not a symlink');
-  source = realpath(source, true);
-  const temp = join(parent, '.communication-export-' + randomBytes(6).toString('hex'));
-  checkPathLength(temp);
-  const db = openDatabase(source, true, false);
-  closeSync(openSync(temp, 'wx', 0o600));
-  try {
-    await backup(db.raw, temp);
-    const target = new DatabaseSync(temp);
-    try {
-      target.exec('PRAGMA journal_mode=DELETE');
-      target.exec('VACUUM');
-    } finally {
-      target.close();
-    }
-    const current = lstatSync(source, { bigint: true });
-    if (!current.isFile() || !sameFile(initial, current)) throw new ValidationError('Source database was replaced during export');
-    const snapshot = openDatabase(temp, true, false);
-    try {
-      const integrity = query(snapshot, 'PRAGMA integrity_check');
-      if (integrity.length !== 1 || integrity[0]!.integrity_check !== 'ok') throw new ValidationError('Export integrity check failed');
-      if (query(snapshot, 'PRAGMA foreign_key_check').length) throw new ValidationError('Export foreign key check failed');
-    } finally {
-      snapshot.close();
-    }
-    // Windows FlushFileBuffers requires a writable handle; 'r+' never truncates.
-    const digest = createHash('sha256');
-    const descriptor = openSync(temp, 'r+');
-    try {
-      fsyncSync(descriptor);
-      const block = Buffer.alloc(65536);
-      for (let length = readSync(descriptor, block, 0, block.length, null); length > 0; length = readSync(descriptor, block, 0, block.length, null)) digest.update(block.subarray(0, length));
-    } finally {
-      closeSync(descriptor);
-    }
-    const size = statSync(temp).size;
-    linkSync(temp, destination);
-    let synced = false;
-    try {
-      const directory = openSync(parent, 'r');
-      try {
-        fsyncSync(directory);
-        synced = true;
-      } finally {
-        closeSync(directory);
-      }
-    } catch {
-      /* directory fsync is unsupported on some platforms */
-    }
-    return {
-      path: destination,
-      source,
-      schemaVersion: schema().schemaVersion,
-      sha256: digest.digest('hex'),
-      bytes: size,
-      scope: 'all-workspaces',
-      includesWorkspaceDocuments: false,
-      documents: 'Preserve referenced workspace and Git common-directory document files separately; this snapshot contains their audit metadata only.',
-      integrity: 'ok',
-      directorySynced: synced,
-    };
-  } finally {
-    db.close();
-    for (const suffix of ['', '-wal', '-shm', '-journal']) {
-      try {
-        unlinkSync(temp + suffix);
-      } catch {
-        /* absent */
-      }
-    }
   }
 }

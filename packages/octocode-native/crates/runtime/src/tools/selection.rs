@@ -10,12 +10,14 @@ use serde_json::{Value, json};
 mod admission;
 mod plan;
 mod provider_page;
+mod run;
 #[cfg(test)]
 mod tests;
 
-use plan::{in_runs, select_scoped};
-pub(crate) use plan::{needs_candidate_states, select};
+use plan::in_runs;
 pub(crate) use provider_page::apply_sanitized_rows;
+use run::select_scoped;
+pub(crate) use run::{needs_candidate_states, select};
 
 #[derive(Clone)]
 pub(crate) struct Runtime {
@@ -29,6 +31,8 @@ pub(crate) struct Runtime {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Decision {
     Selected,
+    /// Judged related but not direct evidence: hidden, and not undecided.
+    Related,
     Excluded,
     Unknown,
 }
@@ -125,6 +129,8 @@ pub(crate) fn serialized_chars(value: &Value) -> usize {
 
 pub(crate) struct Outcome {
     pub selected: Vec<usize>,
+    /// Judged related but not direct evidence: hidden, not unknown.
+    pub related: Vec<usize>,
     /// Judged irrelevant; every other unselected ordinal is unknown.
     pub excluded: Vec<usize>,
     /// The unknown ordinals no judge saw: eligible candidates past the
@@ -173,20 +179,6 @@ impl Outcome {
     /// more than the view shows.
     pub(crate) fn leaves_out(&self) -> bool {
         self.receipt.selected_items < self.receipt.total_items && !self.provider_unavailable()
-    }
-
-    /// The candidate-budget line: how many of this page's `unit` the budget
-    /// judged, when `tool`'s next candidate page judges the rest. The
-    /// response stage adds the one filtered-evidence notice
-    /// ([`crate::response::selection_errors::decorate`]).
-    pub(crate) fn budget_warning(&self, tool: ToolId, unit: &str) -> Option<String> {
-        self.next_candidates(tool)?;
-        let total = self.receipt.total_items;
-        let unjudged = self.unjudged.len();
-        let judged = usize::try_from(total).unwrap_or(0).saturating_sub(unjudged);
-        Some(format!(
-            "clasifyContext judged {judged} of {total} {unit} (candidate budget); {unjudged} were not judged: the next candidate page judges them."
-        ))
     }
 
     /// Whether this candidate page judged `ordinal` (or left it unjudged);
@@ -338,17 +330,27 @@ mod shared_tests {
     }
 
     #[test]
-    fn the_budget_line_counts_what_the_budget_judged_only_when_a_next_page_judges_the_rest() {
-        assert_eq!(
-            outcome(vec![[1, 3]])
-                .budget_warning(ToolId::LocalFetch, "chunks")
-                .as_deref(),
-            Some(
-                "clasifyContext judged 1 of 3 chunks (candidate budget); 2 were not judged: the next candidate page judges them."
-            )
+    fn related_items_are_decided_hidden_and_apart_from_unknown_ones() {
+        let mut plan = plan::Plan::new(
+            "binding".into(),
+            3,
+            SelectionStatus::Partial,
+            SelectionScope::SelectedView,
+            SelectionUnit::Chunks,
+            None,
         );
+        plan.selected = vec![0];
+        plan.related = vec![2];
+        let outcome = plan.finish();
+        let receipt = &outcome.receipt;
+        assert_eq!(receipt.related_items.map(u64::from), Some(1));
+        assert_eq!((receipt.selected_items, receipt.unknown_items), (1, 1));
+        assert_eq!(outcome.related, vec![2]);
+        assert_eq!(outcome.shown(3), vec![0]);
+        assert!(outcome.leaves_out());
+        // A page with no related ordinal omits the count.
         assert_eq!(
-            outcome(Vec::new()).budget_warning(ToolId::LocalFetch, "chunks"),
+            super::shared_tests::outcome(vec![]).receipt.related_items,
             None
         );
     }

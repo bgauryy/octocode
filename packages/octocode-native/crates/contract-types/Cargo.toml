@@ -8,9 +8,10 @@ license.workspace = true
 repository.workspace = true
 description = "Tool wire types generated from the Octocode tool contract"
 
-# No doctests: the generated doc comments are not examples.
+# No doctests (the generated doc comments are not examples) and no unit tests.
 [lib]
 doctest = false
+test = false
 
 [dependencies]
 # Generated contract types use ECMAScript pattern validation.

@@ -15,7 +15,7 @@ The one retry rule for failed steps, timeouts and cancellations:
 | Symptom | Fix |
 |---|---|
 | `Chrome not running on port` / `No page targets` | `open --headless` first, or `--new-tab about:blank` |
-| `Page.navigate` times out everywhere | Stale session: `cleanup`, then `open` again |
+| `Page.navigate` times out everywhere | Inspect connection and target state first. For an owned isolated session, `cleanup`, then `open` and retry once; do not close an unrelated browser |
 | `NO_TRACKED_SESSION` while a browser holds the port | `reason: NOT_PACKAGE_PROFILE` or `NO_SESSION_FILE`: cleanup didn't launch or record that browser, so it won't stop it; close it yourself or use another port. Cleanup from another cwd still finds isolated sessions |
 | Profile locked (cookie bridge) | Use `--from-port` / `--from-storage-state`, or quit Chrome |
 | Need a cross-origin iframe (snapshot inlines only same-process frames) or worker | `targets`, then `--target <id>`, `--target-url <pattern>` or `--target-type service_worker` |

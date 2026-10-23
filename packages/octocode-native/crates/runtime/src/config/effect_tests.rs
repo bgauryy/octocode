@@ -67,31 +67,6 @@ fn data(outcome: &ToolOutcome) -> &Value {
     &outcome.structured_content["results"][0]["data"]
 }
 
-/// `output.format` picks the encoding of the MCP text channel.
-#[tokio::test]
-async fn output_format_encodes_the_text_channel() {
-    let home = tempfile::tempdir().expect("home");
-    let cwd = tempfile::tempdir().expect("cwd");
-    std::fs::write(cwd.path().join("a.txt"), "alpha\n").expect("file");
-    let text = |format: &str| {
-        let rc = json!({"output":{"format":format}});
-        let runtime = runtime(home.path(), cwd.path(), &rc);
-        async move {
-            let outcome = call(&runtime, "localFetch", json!({"path":"a.txt"})).await;
-            outcome.content[0].text.clone()
-        }
-    };
-    let json_text = text("json").await;
-    let parsed: Value = serde_json::from_str(&json_text).expect("json text channel");
-    assert!(parsed.is_object(), "{json_text}");
-    let yaml_text = text("yaml").await;
-    assert!(
-        serde_json::from_str::<Value>(&yaml_text).is_err(),
-        "{yaml_text}"
-    );
-    assert_ne!(json_text, yaml_text);
-}
-
 /// `local.workspaceRoot` is where a relative path resolves, not the cwd.
 #[tokio::test]
 async fn workspace_root_anchors_relative_paths() {

@@ -1,7 +1,8 @@
 //! Result rows: provider items mapped to the published row shapes.
 use crate::response::result::remove_null_fields;
 use crate::security::scan::{ContentScan, sanitize_provider_text};
-use crate::tools::gh_shared::commit::{commit_date, person, utc_date};
+use crate::tools::gh_shared::commit::{self, person};
+use crate::tools::gh_shared::dates::utc_value as utc;
 use octocode_github::ProviderError;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -24,16 +25,6 @@ pub(super) fn sanitize_items(
         }
     }
     Ok(())
-}
-
-/// A provider timestamp in UTC `Z` form; a value that is not a timestamp
-/// stays as sent.
-fn utc(value: Option<&Value>) -> Value {
-    match value {
-        Some(Value::String(text)) => json!(utc_date(Some(text))),
-        Some(value) => value.clone(),
-        None => Value::Null,
-    }
 }
 
 fn labels(v: &Value) -> Vec<String> {
@@ -120,21 +111,10 @@ pub(super) fn map_issue(v: Value, by_update: bool) -> Value {
     row
 }
 
-fn headline(v: &Value) -> &str {
-    v.pointer("/commit/message")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .lines()
-        .next()
-        .unwrap_or("")
-}
-
 /// A commit-search row. No per-row html_url: it is owner/repo/commit/sha,
 /// all already in the row and its envelope (issue and PR rows omit it too).
 pub(super) fn map_commit(v: Value) -> Value {
-    let mut row = json!({"commitSha":v["sha"],"date":commit_date(&v),"messageHeadline":headline(&v),"author":person(&v, "author")});
-    remove_null_fields(&mut row);
-    row
+    commit::row(&v)
 }
 
 /// A commit-list row: headline, date and the author's login; the full
@@ -147,16 +127,10 @@ pub(super) fn map_commit_list(v: Value) -> Value {
         || committer == "web-flow"
         || v.pointer("/committer/login").and_then(Value::as_str) == Some("web-flow")
         || v.pointer("/commit/committer/name") == v.pointer("/commit/author/name");
-    let mut row = json!({
-        "commitSha": v["sha"],
-        "date": commit_date(&v),
-        "messageHeadline": headline(&v),
-        "author": author,
-    });
-    if !same {
+    let mut row = commit::row(&v);
+    if !same && !committer.is_null() {
         row["committer"] = committer;
     }
-    remove_null_fields(&mut row);
     row
 }
 

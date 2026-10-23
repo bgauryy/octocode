@@ -46,9 +46,9 @@ pub(super) fn is_long_line_hit(hit: &SearchMatch) -> bool {
 /// Whether a value of `bytes` UTF-8 bytes passes one localFetch line page
 /// ([`LINE_PAGE_BYTES`], also counted in bytes).
 ///
-/// [`LINE_PAGE_BYTES`]: crate::tools::local_fetch::LINE_PAGE_BYTES
+/// [`LINE_PAGE_BYTES`]: crate::tools::source_view::LINE_PAGE_BYTES
 pub(super) fn passes_line_page(bytes: usize) -> bool {
-    bytes > crate::tools::local_fetch::LINE_PAGE_BYTES
+    bytes > crate::tools::source_view::LINE_PAGE_BYTES
 }
 
 /// A byte window of the hit's line, starting at the hit.

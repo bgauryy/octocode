@@ -1,5 +1,5 @@
 import Ajv2020 from 'ajv/dist/2020.js';
-import { type ZodType } from 'zod';
+import type { ZodType } from 'zod';
 import { isCliView } from './run.js';
 import { commandJsonSchema, type CliCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
 

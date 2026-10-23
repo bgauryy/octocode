@@ -1,4 +1,5 @@
-import { writeFileSync, readFileSync } from 'fs';
+import { readTargetSnapshot } from './snapshot-resource.mjs';
+import { writeFileSync } from 'fs';
 import { join } from 'path';
 
 // Screenshot of the attached tab: viewport (default), full page, or one element.
@@ -35,11 +36,9 @@ const MAX_LABELS = 250;
 async function annotate(cdp) {
   let refs;
   try {
-    const map = JSON.parse(readFileSync(cdp.resourcesFile, 'utf8'));
-    refs =
-      JSON.parse(
-        readFileSync(map.resources['page-snapshot'].artifactPath, 'utf8')
-      ).refs ?? {};
+    const snapshot = readTargetSnapshot(cdp);
+    if (!snapshot) throw new Error('No snapshot for this target');
+    refs = snapshot.data.refs ?? {};
   } catch {
     console.log(
       '[FINDING] SHOT_NO_SNAPSHOT run page-snapshot.mjs first; SHOT_ANNOTATE draws its refs'

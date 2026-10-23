@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { renderCasefoldTable, SOURCE, TARGET } from '../scripts/generate-casefold.mjs';
-import { CASE_FOLDING_UNICODE_VERSION } from '../src/team/casefold-table.js';
+import { CASE_FOLDING_UNICODE_VERSION } from '../src/team/casefold-table.generated.js';
 import { foldComponent, keysOverlap, leaseKey, type LeaseKind } from '../src/team/lease-key.js';
 import { pathKey, TeamStore } from '../src/team/store.js';
 import type { Member } from '../src/team/model.js';
@@ -80,6 +80,6 @@ describe('agent coordination contract (shared vectors)', () => {
   it('keeps the generated case-folding table equal to the package\'s frozen Unicode table', () => {
     const table = JSON.parse(fs.readFileSync(SOURCE, 'utf8')) as { version: string; casefold: Record<string, number[]> };
     expect(CASE_FOLDING_UNICODE_VERSION).toBe(table.version);
-    expect(fs.readFileSync(TARGET, 'utf8'), 'src/team/casefold-table.ts is stale: run `yarn casefold:generate` in packages/octocode-pi-extension').toBe(renderCasefoldTable(table));
+    expect(fs.readFileSync(TARGET, 'utf8'), 'src/team/casefold-table.generated.ts is stale: run `yarn casefold:generate` in packages/octocode-pi-extension').toBe(renderCasefoldTable(table));
   });
 });

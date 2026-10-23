@@ -24,13 +24,18 @@ use octocode_contract_types::{
 };
 
 mod dates;
+mod failures;
 mod listing;
 pub(crate) mod materialize;
 mod refs;
+mod tag_order;
 mod traverse;
+mod tree;
+use failures::*;
 use listing::*;
 use materialize::*;
 use traverse::*;
+use tree::*;
 
 pub async fn run(
     provider: &GitHubProvider,
@@ -41,7 +46,7 @@ pub async fn run(
     if let GhStructureQuery::Tree(query) = query {
         return run_tree(provider, query, request, home).await;
     }
-    let context = request.map_err(|error| search_failure(error, None))?;
+    let context = request.map_err(search_failure)?;
     let error = match execute(provider, query, context, home).await {
         Ok(output) => return Ok(output),
         Err(error) => error,
@@ -53,7 +58,7 @@ pub async fn run(
         .flatten();
     let query = renamed.as_ref().map_or(query, |(_, canonical)| canonical);
     let (owner, repo) = repository(query);
-    let failure = with_ref_recovery(search_failure(error, None), owner, repo);
+    let failure = with_ref_recovery(search_failure(error), owner, repo);
     let failure = with_default_branch(provider, failure, ToolId::GhStructure, query, context).await;
     Err(crate::tools::gh_shared::with_search_repair(
         failure,
@@ -94,8 +99,8 @@ async fn run_tree(
     request: Result<&RequestContext, ProviderError>,
     home: &Path,
 ) -> Result<ToolData, GhFailure> {
-    let context = request.map_err(|error| search_failure(error, None))?;
-    let listed = listed_at(query).map_err(|error| search_failure(error, None))?;
+    let context = request.map_err(search_failure)?;
+    let listed = listed_at(query).map_err(search_failure)?;
     let query = listed.as_ref().unwrap_or(query);
     let error = match execute_tree(provider, query, context, home).await {
         Ok(output) => return Ok(output),
@@ -130,14 +135,14 @@ async fn run_tree(
         return Err(file_failure(error, &at));
     }
     if error.reason == Some(ProviderErrorReason::Submodule) {
-        let failure = search_failure(error, None);
+        let failure = search_failure(error);
         return Err(
             crate::tools::gh_shared::submodule_failure(provider, &at, context, failure).await,
         );
     }
     if !missing_path(&error, Some(at.path)) {
         // A repository that did not resolve leads to a search for its name.
-        let failure = with_ref_recovery(search_failure(error, None), at.owner, at.repo);
+        let failure = with_ref_recovery(search_failure(error), at.owner, at.repo);
         let failure =
             with_default_branch(provider, failure, ToolId::GhStructure, query, context).await;
         return Err(crate::tools::gh_shared::with_search_repair(
@@ -165,101 +170,6 @@ fn listed_at(query: &GhStructureQueryTree) -> Result<Option<GhStructureQueryTree
         path: Some(path),
         ..query.clone()
     }))
-}
-
-/// A full 40-hex `ref` skips ref resolution, so a SHA GitHub does not have
-/// surfaces as the tree read's bare 404. On that failure only, one commit
-/// lookup tells a missing commit (named like any missing ref, with
-/// `hints.viewRefs`) from a missing repository; any other outcome keeps the
-/// original error.
-async fn classify_unresolved_sha(
-    provider: &GitHubProvider,
-    query: &GhStructureQueryTree,
-    context: &RequestContext,
-    error: ProviderError,
-) -> ProviderError {
-    let Some(reference) = query.ref_.as_deref() else {
-        return error;
-    };
-    if error.kind != ProviderErrorKind::NotFound
-        || error.reason.is_some()
-        || !octocode_github::is_full_sha(reference)
-    {
-        return error;
-    }
-    let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
-    match provider
-        .transport
-        .commit_sha(owner, repo, reference, context)
-        .await
-    {
-        Err(probe)
-            if probe.reason == Some(ProviderErrorReason::RefNotFound)
-                || probe.reason == Some(ProviderErrorReason::RepositoryNotFound) =>
-        {
-            missing_ref(probe, owner, repo, reference)
-        }
-        _ => error,
-    }
-}
-
-/// A listing of a file: the repair is that file's read at the same ref.
-fn file_failure(error: ProviderError, at: &RepoPath<'_>) -> GhFailure {
-    let mut read = json!({"owner": at.owner, "repo": at.repo, "path": at.path});
-    if let Some(reference) = at.reference {
-        read["ref"] = json!(reference);
-    }
-    let mut failure = search_failure(error, None);
-    failure.next = Some(Box::new(json!({
-        "read": crate::response::result::Continuation::new(ToolId::GhGetFileContent, read)
-            .confidence(Confidence::Exact)
-            .build()
-    })));
-    failure
-}
-
-fn path_failure(
-    error: ProviderError,
-    at: &RepoPath<'_>,
-    max_depth: Option<std::num::NonZeroU64>,
-    found: Option<PathRecovery>,
-) -> GhFailure {
-    let mut failure = search_failure(error, None);
-    let requested = at.path;
-    let (directory, confidence, hint) = match &found {
-        Some(found) => {
-            failure.message = format!("Path not found in {}/{}: {requested}", at.owner, at.repo);
-            let directory = if found.directory.is_empty() {
-                ".".to_owned()
-            } else {
-                found.directory.clone()
-            };
-            // The listing lead targets the deepest existing prefix; only a
-            // case-only difference is a fact the lead does not state.
-            let hint = if found.file.is_some() {
-                Some("The path names a file (its case differs).")
-            } else if found.directory.eq_ignore_ascii_case(requested) {
-                Some("Only the path's case differs.")
-            } else {
-                None
-            };
-            (directory, Confidence::Exact, hint)
-        }
-        // Without a walk answer the parent listing is the whole recovery.
-        None => (parent_dir(requested), Confidence::Low, None),
-    };
-    let depth = max_depth.map(|depth| i64::try_from(depth.get()).unwrap_or(i64::MAX));
-    let listing = RepoPath {
-        path: &directory,
-        ..*at
-    };
-    failure.next = Some(Box::new(
-        json!({ "viewTree": tree_recovery(&listing, depth, confidence) }),
-    ));
-    match hint {
-        Some(hint) => failure.hint(hint),
-        None => failure,
-    }
 }
 
 /// Largest listing page (contract `pageSize` maximum). Path-only rows stay
@@ -305,168 +215,7 @@ struct Traversal {
     /// content, so the local build-output prune names (`build/`,
     /// `coverage/`, `node_modules/`) do not apply to it.
     #[serde(default)]
-    omitted: std::collections::BTreeMap<String, usize>,
-}
-
-async fn execute_tree(
-    provider: &GitHubProvider,
-    query: &GhStructureQueryTree,
-    context: &RequestContext,
-    home: &Path,
-) -> Result<ToolData, ProviderError> {
-    let scope = Scope::of(query)?;
-    let (resolved_branch, commit_sha) = resolve_listing_ref(provider, query, context).await?;
-    // A listing is read, dated and continued under the canonical name:
-    // later requests skip the redirect, and every lead names the
-    // repository as it is now.
-    let (renamed_warning, canonical) = crate::tools::gh_shared::canonical_query(
-        provider,
-        query,
-        query.owner.as_str(),
-        query.repo.as_str(),
-        context,
-    )
-    .await?
-    .unzip();
-    let query = canonical.as_ref().unwrap_or(query);
-    let listing = Listing {
-        owner: &query.owner,
-        repo: &query.repo,
-        branch: &commit_sha,
-        root: &scope.path,
-        max_depth: scope.depth,
-    };
-    let mut traversal = traverse(provider, &listing, context).await?;
-    scope.select(&mut traversal);
-    let page = ListingPage::of(query, &traversal.entries);
-    let page_dates = date_page(provider, query, &commit_sha, &page, context).await;
-    let dating = PageDating {
-        undated: page_dates.undated,
-        failed: page_dates.warning.is_some(),
-    };
-    let mut value = json!({
-        "files": build_structure(page.entries, &page_dates.entries),
-        "summary": summary(&traversal.entries),
-        "resolvedRef": resolved_branch,
-    });
-    // A caller-supplied full SHA is not restated.
-    if !resolved_branch.eq_ignore_ascii_case(&commit_sha) {
-        value["commitSha"] = json!(commit_sha);
-    }
-    page.paginate(&mut value);
-    dates::attach(&mut value, page_dates);
-    let mut output = ToolData::from(Value::Null);
-    let materialize_resume = if query.materialize == Some(true) {
-        materialize_page(
-            provider,
-            query,
-            &scope,
-            &commit_sha,
-            &page,
-            home,
-            context,
-            &mut value,
-        )
-        .await?
-    } else {
-        None
-    };
-    disclose_limits(&traversal, &page, &mut value, &mut output);
-    if traversal.contents_limit {
-        value["next"]["cloneRepo"] = clone_lead(query, &scope, &commit_sha);
-    }
-    if let Some(warning) = renamed_warning {
-        push_warning_front(&mut value, warning);
-    }
-    // Continuations read the same commit.
-    let pinned = GhStructureQueryTree {
-        ref_: Some(commit_sha.parse().map_err(
-            |error: octocode_contract_types::error::ConversionError| {
-                ProviderError::new(ProviderErrorKind::Decode, error.to_string())
-            },
-        )?),
-        ..query.clone()
-    };
-    attach_continuations(
-        &mut value,
-        &pinned,
-        &page,
-        traversal.failed_subtrees > 0 || dating.failed,
-        query.materialize == Some(true),
-        materialize_resume,
-    )?;
-    dates::expand(&mut value, &pinned, &page, dating.undated)?;
-    // A resumed materialize page (offset > 0) is anchored by `location`:
-    // its first call already listed these entries.
-    let resumed = query.materialize == Some(true)
-        && query.materialize_offset.is_some_and(|offset| offset > 0)
-        && value.get("location").is_some();
-    if resumed && let Some(map) = value.as_object_mut() {
-        map.remove("files");
-    }
-    if !resumed && structure_is_empty(&value) && value.get("isPartial").is_none() {
-        output.status = Some("empty");
-        if let Some(broader) = broaden_listing(&pinned) {
-            value["next"]["broadenSearch"] = broader;
-        }
-    } else if value.pointer("/location/localPath").is_some() {
-        // A materialized listing continues with the local tools at
-        // `location.localPath`; re-listing the tree it just returned adds
-        // nothing.
-    } else if page.current == 1
-        && let Some(read) = entry_read(&pinned, &traversal.entries, &commit_sha)
-    {
-        value["next"]["read"] = read;
-    }
-    output.data = value;
-    Ok(output)
-}
-
-/// An empty filtered listing, broadened ([`crate::tools::gh_shared::broaden`]):
-/// the same commit's listing without its `include` globs, so what the tree
-/// holds names why they matched nothing. Never a materialization.
-fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Value> {
-    crate::tools::gh_shared::broaden(
-        ToolId::GhStructure,
-        &query_row(pinned, &[]),
-        &crate::tools::gh_shared::Broaden {
-            strip: &["materialize", "materializeOffset"],
-            groups: &[&["include"]],
-        },
-        1,
-    )
-}
-
-/// What dating a listing page left: entries no date reached, and whether
-/// the dating request failed (the same page retries it).
-#[derive(Default)]
-struct PageDating {
-    undated: usize,
-    failed: bool,
-}
-
-/// With `extras: ["details"]` a listing states when each entry last changed
-/// (one GraphQL request per page, so only when asked); a materialized page
-/// hands its files to local tools and stays undated.
-async fn date_page(
-    provider: &GitHubProvider,
-    query: &GhStructureQueryTree,
-    commit_sha: &str,
-    page: &ListingPage<'_>,
-    context: &RequestContext,
-) -> dates::PageDates {
-    if !query.extras.contains(&ExtraKind::Details) || query.materialize == Some(true) {
-        return dates::PageDates::default();
-    }
-    dates::page_dates(
-        provider,
-        &query.owner,
-        &query.repo,
-        commit_sha,
-        page.entries,
-        context,
-    )
-    .await
+    omitted: std::collections::BTreeSet<String>,
 }
 
 /// What one listing covers: the requested directory, the depth, and the
@@ -491,7 +240,7 @@ impl Scope {
                 filter.iter().any(|glob| glob.matches(&path))
             };
             traversal.entries.retain(|entry| kept(&entry.path));
-            traversal.omitted.retain(|named, _| {
+            traversal.omitted.retain(|named| {
                 kept(
                     named
                         .rsplit_once(" (")

@@ -7,7 +7,8 @@ import { contentText, firstLine, isRecord, modelLookup, textResult, unpricedMode
 import { storedText } from '../shared/sanitize.js';
 import { formatClock } from '../shared/format.js';
 import { resolveToolPath } from '../shared/home.js';
-import { clip, timingOf, plural, resultBlock, timedTool, toolHeader } from '../shared/render.js';
+import { clip, plural, resultBlock, toolHeader } from '../shared/render.js';
+import { timingOf, timedTool } from '../shared/tool-timing.js';
 import { EDIT_RETENTION_MINUTES } from './edits.js';
 import { describeChanges, describeConflicts, describeMembers, mutatedPaths, senderLabel } from './routing.js';
 import { checkGoal, GOAL_DESCRIPTION } from './identity.js';

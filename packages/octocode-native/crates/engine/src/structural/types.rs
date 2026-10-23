@@ -122,7 +122,7 @@ impl FileMatches {
 pub struct StructuralSearchFilesOptions {
     pub path: String,
     pub pattern: Option<String>,
-    pub rule: Option<String>,
+    pub rule: Option<serde_json::Value>,
     pub include: Option<Vec<String>>,
     /// File-path globs to skip (gitignore-style, e.g. `"*.min.js"`, `"src/gen/**"`).
     /// Mirrors local-search `exclude`.
@@ -189,10 +189,42 @@ pub struct StructuralSearchFilesDetailedResult {
     pub skipped_unsupported: u32,
     pub skipped_unreadable: u32,
     pub skipped_large: u32,
+    /// Entries the directory walk could not read (unreadable directories,
+    /// entries it could not stat), through the last candidate it collected:
+    /// absence below them is unproven.
+    pub walk_errors: WalkErrors,
     pub status: String,
     pub query: StructuralQueryExplanation,
     pub diagnostics: Vec<StructuralDiagnostic>,
     pub warnings: Vec<String>,
+}
+
+/// What a structural walk could not read: the count (`skipped` and
+/// `permission_denied`, as every other walk counts them, so one disclosure
+/// words them) and the first few errors, each naming its path.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WalkErrors {
+    pub skipped: u32,
+    pub permission_denied: u32,
+    pub sample: Vec<String>,
+}
+
+/// Errors [`WalkErrors::sample`] keeps.
+const WALK_ERROR_SAMPLE: usize = 3;
+
+impl WalkErrors {
+    pub(super) fn record(&mut self, error: &ignore::Error) {
+        self.skipped = self.skipped.saturating_add(1);
+        if error
+            .io_error()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
+        {
+            self.permission_denied = self.permission_denied.saturating_add(1);
+        }
+        if self.sample.len() < WALK_ERROR_SAMPLE {
+            self.sample.push(error.to_string());
+        }
+    }
 }
 
 impl StructuralDiagnostic {

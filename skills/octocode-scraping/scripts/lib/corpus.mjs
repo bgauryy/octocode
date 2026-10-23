@@ -1,10 +1,19 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile as writeDirect, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 const GRAPH_SCHEMA_SOURCE = new URL('../schemas/graph.schema.json', import.meta.url);
 import { bytes, cleanForAgent, chunkTextByBytes, detectBrowserNeed, detectTargetError, parsePayload, stripTags, titleFromHtml } from './text.mjs';
 import { buildSiteGraph, buildUnifiedGraph, buildWorkflowIndex, pageSlices } from './analyzers.mjs';
 import { extractButtonsFromHtml, extractCanonicalFromHtml, extractCodeBlocksFromMarkdown, extractFormsFromHtml, extractHeadings, extractJsonLdFromHtml, extractLinksFromHtml, extractLinksFromMarkdown, extractMetaFromHtml, extractResourcesFromHtml, extractTablesFromHtml, extendedExtractFiles, jsonl } from './extractors.mjs';
+
+async function writeFile(file, data, options = {}) {
+  const temporary = file + '.' + randomUUID() + '.tmp';
+  try {
+    await writeDirect(temporary, data, { mode: 0o600, ...options });
+    await rename(temporary, file);
+  } finally { await rm(temporary, { force: true }); }
+}
 
 export async function initCorpus(config) {
   const sessionDir = resolve(process.cwd(), config.outBase, config.sessionId);
@@ -130,7 +139,13 @@ export async function writePage({ sessionDir, config, response, pageIndex }) {
     files: { summary: 'reports/summary.md', failures: 'reports/failures.md', source: 'sources.jsonl', pageMeta: `pages/${pageId}.json`, metadata: `extracts/${pageId}-metadata.json`, headings: 'extracts/headings.jsonl', links: links.length ? 'extracts/links.jsonl' : null, elements: elementRows.length ? 'extracts/elements.jsonl' : null, aiExtract: config.mode === 'extract' ? `extracts/${pageId}-ai-extract.json` : null, textIndex: textRel, textParts, raw: config.noRaw ? null : rawRel },
     searchFirst: [textRel, ...textParts, config.mode === 'extract' ? `extracts/${pageId}-ai-extract.json` : null, 'extracts/headings.jsonl', links.length ? 'extracts/links.jsonl' : null, elementRows.length ? 'extracts/elements.jsonl' : null].filter(Boolean)
   };
-  return { sourceRow, pageMap, links, headings, elements: elementRows, resources: resourceRows, cost: response.creditCost ? { pageId, url: response.url, antCreditsCost: Number(response.creditCost), route: sourceRow.route, fetchedAt: response.fetchedAt } : null };
+  const committed = { sourceRow, pageMap, links, headings, elements: elementRows, resources: resourceRows, cost: response.creditCost ? { pageId, url: response.url, antCreditsCost: Number(response.creditCost), route: sourceRow.route, fetchedAt: response.fetchedAt } : null };
+  // Commit each complete page before fetching another; session indexes can be rebuilt after interruption.
+  const pending = join(sessionDir, '.pending');
+  await mkdir(pending, { recursive: true });
+  const checkpoint = join(pending, pageId + '.json');
+  await writeFile(checkpoint, JSON.stringify(committed));
+  return committed;
 }
 
 const PAGE_SIZE = 20;
@@ -188,5 +203,6 @@ export async function writeSession({ sessionDir, config, startedAt, sources, pag
   await writeFile(join(sessionDir, 'reports/failures.md'), failures.length || !ok ? `# Failures\n\n${failures.map((f) => `- ${f}`).join('\n')}${failures.length ? '\n' : ''}${sources.filter((s) => !s.ok).map((s) => `- ${s.pageId} status ${s.status}: ${s.targetLikelyError || s.providerDetail || s.error || 'HTTP error'}`).join('\n')}\n` : '# Failures\n\nNo fetch failure recorded.\n');
   await writeFile(join(sessionDir, 'reports/summary.md'), `# Scrape Summary\n\nTarget: ${config.targetUrl}\nRoute: ${config.provider}:${config.mode}\nFetched: ${new Date().toISOString()}\nPages: ${sources.length}\nStatus: ${first.status || 'fetch-error'}\nContent-Type: ${first.contentType || 'unknown'}\n\n## Why this corpus matters\n${config.provider} fetched/crawled/extracted the page data; this script normalized it into clean chunks and extracts so Octocode local tools can search/read/prove exact claims without context bloat.\n\n## Artifacts\n- Agent index: \`AGENT_INDEX.json\`\n- Session map: \`MAP.md\` / \`page-map.json\`\n- Source metadata: \`sources.jsonl\`\n- Clean text chunks: \`text/*.clean.part-*.md\`\n- Site graph: \`graph/site-graph.json\`\n- Page indexes: \`indexes/pages-*.json\` / \`indexes/top-links.jsonl\`\n- Metadata: \`extracts/metadata.json\`\n- Headings: \`extracts/headings.jsonl\` (${headingsAll.length})\n- Links: \`extracts/links.jsonl\` (${linksAll.length})\n- Costs: \`reports/costs.md\`\n- Raw audit: \`raw/\`\n\n## Search first\nUse Octocode local tools on \`AGENT_INDEX.json\`, \`indexes/\`, \`graph/site-graph.json\`, \`MAP.md\`, \`page-map.json\`, \`reports/\`, \`text/*.clean.part-*.md\`, \`extracts/\`, \`snippets/\`, \`manifest.json\`, and \`sources.jsonl\`. Read \`raw/\` only for audit/debug.\n${warnings.length ? `\n## Warnings\n${warnings.map((w) => `- ${w.pageId}: ${w.warning}`).join('\n')}\n` : ''}`);
   await writeFile(join(sessionDir, 'README.md'), `# Scrape Session: ${config.sessionId}\n\nTarget: ${config.targetUrl}\nCreated: ${startedAt}\nRoute: ${config.provider}:${config.mode}\nProvider: ${config.provider}\n\n## Start here\n- \`AGENT_INDEX.json\` — compact machine-readable index and search targets\n- \`indexes/pages-001.json\` — paginated page rows for large crawls\n- \`graph/site-graph.json\` — site/workflow graph and smart link candidates\n- \`MAP.md\` / \`page-map.json\` — URL → files map\n- \`reports/summary.md\` — compact overview\n- \`sources.jsonl\` — URL/status/content-type/fetch metadata\n- \`text/\` — cleaned, chunked Markdown/text, good for search\n- \`extracts/\` — structured JSONL rows and metadata\n- \`snippets/\` — small focused evidence excerpts\n\n## Avoid first\n- \`raw/\` — large raw payloads; use only for audit/debug\n`);
+  await rm(join(sessionDir, '.pending'), { recursive: true, force: true });
   return { ok, first, knownTotal };
 }

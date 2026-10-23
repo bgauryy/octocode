@@ -192,7 +192,8 @@ export class AgentsView {
   private backgroundStatus: string | undefined;
   private ctx: ExtensionContext | undefined;
 
-  constructor(private readonly team: Team) {}
+  /** Reads only the team's id, its cached view and the once-a-second watch. */
+  constructor(private readonly team: Pick<Team, 'id' | 'view' | 'watch'>) {}
 
   start(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;

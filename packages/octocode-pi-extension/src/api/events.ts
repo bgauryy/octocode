@@ -50,3 +50,12 @@ export class EventLog {
     this.buffer.length = 0;
   }
 }
+
+/**
+ * Where a tool call sits in the call tree. Calls a tool makes itself (`ctx.executeTool`, e.g. codemode scripts) carry
+ * `parentToolCallId`, and Pi names them `<parent>/<n>`; provider ids contain no `/`, so the parent's segment count is
+ * the depth: `toolu_1` → 0, `toolu_1/1` (parent `toolu_1`) → 1, `toolu_1/1/2` (parent `toolu_1/1`) → 2.
+ */
+export function nesting(parentId: string | undefined): { depth: number; parentId?: string } {
+  return parentId ? { parentId, depth: parentId.split('/').length } : { depth: 0 };
+}

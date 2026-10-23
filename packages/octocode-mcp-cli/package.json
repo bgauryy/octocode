@@ -35,12 +35,11 @@
   "scripts": {
     "build": "node build.mjs",
     "clean": "rm -rf dist/",
-    "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "lint": "yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "test": "vitest run --coverage",
     "test:servers": "vitest run --config vitest.servers.config.ts",
-    "typecheck": "yarn lint",
-    "verify": "yarn lint && yarn test:coverage && yarn build"
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
+    "verify": "yarn lint && yarn typecheck && yarn test && yarn build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

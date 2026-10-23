@@ -143,27 +143,6 @@ fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<(), ArtifactE
     Ok(())
 }
 
-pub(crate) fn split_npm_coordinate(package_name: &str) -> (&str, Option<&str>) {
-    if let Some(rest) = package_name.strip_prefix('@') {
-        if let Some((name, version)) = rest.rsplit_once('@')
-            && !version.is_empty()
-            && name.contains('/')
-        {
-            let name_len = package_name.len() - version.len() - 1;
-            return (&package_name[..name_len], Some(version));
-        }
-        return (package_name, None);
-    }
-    if let Some((name, version)) = package_name.rsplit_once('@')
-        && !name.is_empty()
-        && !version.is_empty()
-        && !name.contains('/')
-    {
-        return (name, Some(version));
-    }
-    (package_name, None)
-}
-
 async fn exact(
     name: &str,
     version: Option<&str>,

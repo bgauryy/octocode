@@ -3,11 +3,11 @@
 Load when launching with flags, a proxy, or tuning stealth. Why: Apply launch settings to the intended session. Launch flags only apply to a fresh browser process. If output says `"reused": true`, clean up or change port.
 
 ```bash
-node "$CDP" open --headless --port 9222 --url "<url>"          # isolated profile; native viewport defaults to 1280x720
-node "$CDP" open --port 9222 --url "<url>"                     # visible isolated profile, for user auth
-node "$CDP" open --profile Default --port 9222 --chromePath "<Chromium>"   # real profile: approval first, browser quit
-node "$CDP" open --headless --proxyServer "socks5://127.0.0.1:1080"
-node "$CDP" open --headless --port 9222 --enableFeatures WebMCP --url "<url>"   # Chrome 150+
+octocode-chrome-devtools /raw open --headless --port 9222 --url "<url>"          # isolated profile; native viewport defaults to 1280x720
+octocode-chrome-devtools /raw open --port 9222 --url "<url>"                     # visible isolated profile, for user auth
+octocode-chrome-devtools /raw open --profile Default --port 9222 --chromePath "<Chromium>"   # real profile: approval first, browser quit
+octocode-chrome-devtools /raw open --headless --proxyServer "socks5://127.0.0.1:1080"
+octocode-chrome-devtools /raw open --headless --port 9222 --enableFeatures WebMCP --url "<url>"   # Chrome 150+
 ```
 
 - Proxy config example: `dist/engine/octocode-chrome-devtools.vpn.example.json`. Other flags: `--windowSize WxH`, `--userAgent`, `--chromePath` (only for non-standard installs), `--proxyBypassList`, `--proxyPacUrl`, `--config <proxy.json>`.

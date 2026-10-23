@@ -11,7 +11,7 @@ import { golden, runtime } from './golden-support.ts';
 import type { RecordInput } from '../src/runtime/catalog-types.generated.ts';
 import type { JsonRecord } from './json-record.ts';
 
-const { database, records, timing, ValidationError } = runtime;
+const { database, databaseExport, records, timing, ValidationError } = runtime;
 type Database = ReturnType<typeof database.openDatabase>;
 type RecordsHost = Parameters<typeof records.fetch>[0];
 // A database the previous runtime created, with its workspace (/usr), identities and outputs frozen in
@@ -278,7 +278,7 @@ test('bound values keep the legacy semantics: booleans are 0/1, whole numbers ar
 test('exporting writes a verified, never-overwriting snapshot the legacy runtime format accepts', async t => {
   const { directory: workspace, file } = legacySession(t);
   const destination = join(workspace, 'snapshot.sqlite');
-  const result = await database.exportDatabase(file, destination);
+  const result = await databaseExport.exportDatabase(file, destination);
   assert.deepEqual(Object.keys(result), ['path', 'source', 'schemaVersion', 'sha256', 'bytes', 'scope', 'includesWorkspaceDocuments', 'documents', 'integrity', 'directorySynced']);
   assert.equal(result.path, destination);
   assert.equal(result.source, file);
@@ -294,14 +294,14 @@ test('exporting writes a verified, never-overwriting snapshot the legacy runtime
   copy.close();
   assert.deepEqual(readdirSyncNames(workspace).filter(name => name.startsWith('.communication-export-')), []);
 
-  await assert.rejects(database.exportDatabase(file, destination), /Export destination already exists/);
+  await assert.rejects(databaseExport.exportDatabase(file, destination), /Export destination already exists/);
   symlinkSync(destination, join(workspace, 'link.sqlite'));
-  await assert.rejects(database.exportDatabase(file, join(workspace, 'link.sqlite')), /Export destination already exists/);
-  await assert.rejects(database.exportDatabase(file, 'relative.sqlite'), /Export path must be absolute/);
+  await assert.rejects(databaseExport.exportDatabase(file, join(workspace, 'link.sqlite')), /Export destination already exists/);
+  await assert.rejects(databaseExport.exportDatabase(file, 'relative.sqlite'), /Export path must be absolute/);
   symlinkSync(file, join(workspace, 'source-link.sqlite'));
-  await assert.rejects(database.exportDatabase(join(workspace, 'source-link.sqlite'), join(workspace, 'other.sqlite')), /regular database file, not a symlink/);
+  await assert.rejects(databaseExport.exportDatabase(join(workspace, 'source-link.sqlite'), join(workspace, 'other.sqlite')), /regular database file, not a symlink/);
   assert.equal(existsSync(join(workspace, 'other.sqlite')), false);
-  await assert.rejects(database.exportDatabase(file, join(workspace, 'missing-dir/out.sqlite')), { code: 'ENOENT' });
+  await assert.rejects(databaseExport.exportDatabase(file, join(workspace, 'missing-dir/out.sqlite')), { code: 'ENOENT' });
 });
 
 function readdirSyncNames(directory: string) {

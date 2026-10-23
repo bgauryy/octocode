@@ -81,18 +81,72 @@ fn an_empty_listing_whose_probe_timed_out_still_leads_to_skipped_paths() {
         )
     })
     .expect("probe");
+    // The shared disclosure of a cut check: a warning, and the listing is
+    // partial.
     assert_eq!(
-        out["hints"],
-        json!([
-            "Skipped paths (build/) were not checked in time; absence there is unproven: the lead lists them."
-        ]),
+        out["warnings"],
+        json!(["Skipped paths (build/) were not checked in time, so absence there is unproven."]),
+        "{out}"
+    );
+    assert_eq!(
+        out["partialReasons"],
+        json!(["skippedPathsUnchecked"]),
         "{out}"
     );
     let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
     assert_eq!(retry["defaultExcludes"], false, "{out}");
-    assert_eq!(retry["page"], 1, "{out}");
+    assert!(retry.get("page").is_none(), "a fresh first page: {out}");
     assert!(retry.get("includeIgnored").is_none(), "{out}");
     assert!(retry.get("snapshot").is_none(), "{out}");
+}
+
+/// An ignored directory can hide a default-pruned one the walk never saw
+/// as pruned (a `.gitignore`d `target/`): an unproven lead over ignored
+/// paths lifts the default prune too, so its first hop reaches them.
+#[test]
+fn an_unproven_lead_over_ignored_paths_lifts_the_default_prune() {
+    let root = tempfile::tempdir().expect("root");
+    std::fs::create_dir_all(root.path().join("target/debug")).expect("target");
+    std::fs::write(root.path().join("target/debug/a.rlib"), "x\n").expect("rlib");
+    let paths = crate::tools::test_support::workspace_policy(root.path());
+    let q: StructureSearchQueryFiles = serde_json::from_value(json!({
+        "operation": "files", "path": root.path(), "extensions": ["rlib"]
+    }))
+    .expect("files query");
+    let seen = super::Uncovered {
+        ignored: vec!["target/".to_owned()],
+        ..Default::default()
+    };
+    let mut out = json!({"status": "empty"});
+    crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
+        super::probe_listing(
+            &mut out,
+            &q,
+            (root.path(), &paths),
+            &seen,
+            |relaxed, entries, walking| {
+                walk_listing(
+                    relaxed,
+                    root.path(),
+                    &paths,
+                    &ContentSecurity::new(),
+                    &crate::execution::cancel::NeverCancel,
+                    entries,
+                    walking,
+                )
+            },
+        )
+    })
+    .expect("probe");
+    let hint = out["warnings"][0].as_str().unwrap_or_default();
+    assert!(
+        hint.starts_with("Skipped paths (ignored; default-excluded)"),
+        "{out}"
+    );
+    let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
+    assert_eq!(retry["includeIgnored"], true, "{out}");
+    assert_eq!(retry["defaultExcludes"], false, "{out}");
+    assert!(retry.get("includeHidden").is_none(), "{out}");
 }
 
 /// A count cut ends the walk before the first uncounted entry, as the
@@ -115,7 +169,7 @@ fn a_count_cut_ends_the_walk_before_the_first_uncounted_entry() {
         was_capped: true,
         skipped: 0,
         permission_denied: 0,
-        ignored: 0,
+        ignored: Vec::new(),
         pruned_dirs: Vec::new(),
         time_cut: None,
         walk_position: 9,

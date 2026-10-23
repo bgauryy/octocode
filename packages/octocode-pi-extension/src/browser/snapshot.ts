@@ -1,5 +1,5 @@
 import { dialogNotice } from './actions.js';
-import type { BrowserSession } from './cdp.js';
+import type { BrowserSession } from './session-state.js';
 import { shortPath } from '../shared/format.js';
 import { visibleControls } from '../shared/sanitize.js';
 import { saveFullOutput } from '../shared/spill.js';

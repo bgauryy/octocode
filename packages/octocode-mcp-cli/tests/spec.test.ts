@@ -1,20 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { z, type ZodType } from 'zod';
+import { flagsFromJsonSchema } from '../src/json-schema-flags.js';
 import {
   commandJsonSchema,
   commandToken,
   defineCli,
   defineCommand,
-  flagToken,
-  flagsFromJsonSchema,
-  flagsFromZod,
   parseCommandInput,
-  usagePattern,
   withCommands,
   type Flag,
   type JsonSchema,
 } from '../src/spec.js';
+import { flagToken, usagePattern } from '../src/usage.js';
+import { flagsFromZod } from '../src/zod-flags.js';
 
 function view(flag: Flag) {
   return {

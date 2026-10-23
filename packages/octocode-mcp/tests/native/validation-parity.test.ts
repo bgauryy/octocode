@@ -33,6 +33,7 @@ type ToolErrorEnvelope = {
   error?: string;
   errorCode?: string;
   details?: string[];
+  hints?: string[];
 };
 
 let request = 0;
@@ -47,9 +48,20 @@ const rejection = async (runtime: Runtime, tool: string, input: unknown) => {
     structuredContent?: ToolErrorEnvelope;
   };
   if (!result.isError) return { text: '', envelope: undefined };
+  const envelope = result.structuredContent;
+  // The text block is the envelope's JSON; read its guidance decoded.
+  expect(result.content).toEqual([
+    { type: 'text', text: JSON.stringify(envelope) },
+  ]);
   return {
-    text: (result.content ?? []).map(block => block.text ?? '').join('\n'),
-    envelope: result.structuredContent,
+    text: [
+      envelope?.error,
+      ...(envelope?.details ?? []),
+      ...(envelope?.hints ?? []),
+    ]
+      .filter(line => line !== undefined)
+      .join('\n'),
+    envelope,
   };
 };
 
@@ -88,7 +100,7 @@ const cases: ReadonlyArray<{
     tool: 'ghSearchCode',
     query: { keywords: ['needle'] },
     says: [
-      'owner: Missing required field: owner (Set owner: code search cannot span all of GitHub (add repo to narrow further).)',
+      'owner: Missing required field: owner (Set owner (a GitHub user or org): code search cannot span all of GitHub. repo is optional and narrows it.)',
     ],
   },
   {
@@ -151,9 +163,6 @@ describe('N-API validation guidance across CLI and MCP availability surfaces', (
       expect(envelope).not.toHaveProperty('kind');
       expect(envelope).not.toHaveProperty('version');
       expect(envelope).not.toHaveProperty('tool');
-    }
-    for (const text of [mcp.text, cli.text]) {
-      expect(text).toContain('(errorCode: invalidInput)');
     }
     const surfaces = { mcp: mcp.text, cli: cli.text };
     for (const [surface, text] of Object.entries(surfaces)) {

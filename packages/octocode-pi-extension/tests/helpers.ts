@@ -17,6 +17,15 @@ process.once('exit', () => {
   for (const dir of created) fs.rmSync(dir, { recursive: true, force: true });
 });
 
+/** Resolves once `check` holds, polling every 20 ms; rejects after `ms`. */
+export async function until(check: () => boolean, ms = 5_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!check()) {
+    if (Date.now() > end) throw new Error('condition not met in time');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 /** A fetched page's text; a case that expects text fails on an image. */
 export function asText(fetched: Fetched): string {
   if (typeof fetched !== 'string') throw new Error(`expected page text, got an ${fetched.mimeType} image`);

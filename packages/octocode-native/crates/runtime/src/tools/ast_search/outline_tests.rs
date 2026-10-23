@@ -2,9 +2,41 @@
 //! paging and the leads an outline offers.
 use super::test_rows::*;
 use crate::execution::cancel::NeverCancel;
-use crate::tools::test_support::{Fixture, checks, simple_policy};
+use crate::tools::test_support::{Fixture, checks, simple_policy, skipped_names};
 use octocode_contract_types::ErrorCode;
-use serde_json::json;
+use serde_json::{Value, json};
+
+/// The facts of declaration rows, nested as the wire nests them: per row
+/// `line`, `endLine`, `kind`, `symbolName`, `exported` and `column` (each only
+/// when the row states it, or its parent's `shared` does) and its `members`.
+fn outline_facts(rows: &Value, shared: &Value) -> Value {
+    Value::Array(
+        rows.as_array()
+            .expect("rows")
+            .iter()
+            .map(|row| {
+                let mut facts = serde_json::Map::new();
+                for (key, wire) in [
+                    ("line", "line"),
+                    ("endLine", "endLine"),
+                    ("kind", "kind"),
+                    ("name", "symbolName"),
+                    ("exported", "exported"),
+                    ("column", "column"),
+                ] {
+                    if let Some(value) = row.get(wire).or_else(|| shared.get(wire)) {
+                        facts.insert(key.into(), value.clone());
+                    }
+                }
+                if let Some(members) = row.get("members") {
+                    let shared = row.get("shared").unwrap_or(&Value::Null);
+                    facts.insert("members".into(), outline_facts(members, shared));
+                }
+                Value::Object(facts)
+            })
+            .collect(),
+    )
+}
 
 #[test]
 fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
@@ -115,22 +147,20 @@ fn single_file_symbols_are_compact_and_path_free() {
         "absolute path leaked: {out}"
     );
     assert_eq!(out["isPartial"], false, "{out}");
-    // One declaration row each (rendered here as the text outline): no
-    // path, ranges or engine ids; an endLine only when the declaration
-    // spans lines; members indented under the `impl` that holds them.
+    // One declaration row each: no path, ranges or engine ids; an endLine
+    // only when the declaration spans lines; members nested under the `impl`
+    // that holds them.
     assert_eq!(
-        json!(crate::response::symbol_outline::outline_rows(
-            &crate::response::symbol_outline::flatten_members(
-                out["symbols"].as_array().expect("rows")
-            )
-        )),
+        outline_facts(&out["symbols"], &Value::Null),
         json!([
-            "1 struct A",
-            "2-4 impl A",
-            "  3 method run",
-            "5 struct B",
-            "5 impl B",
-            "  5 method run"
+            {"line": 1, "kind": "struct", "name": "A"},
+            {"line": 2, "endLine": 4, "kind": "impl", "name": "A", "members": [
+                {"line": 3, "kind": "method", "name": "run"}
+            ]},
+            {"line": 5, "kind": "struct", "name": "B"},
+            {"line": 5, "kind": "impl", "name": "B", "members": [
+                {"line": 5, "kind": "method", "name": "run"}
+            ]}
         ]),
         "{out}"
     );
@@ -297,20 +327,21 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
         json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
     )
     .expect("symbols");
-    // The two `impl A` blocks share one row listing both ranges, so `two`
+    // The two `impl A` blocks are two rows with their own ranges, so `two`
     // (line 6) sits in the second; the two `x` on one line differ only by
     // column, so only they carry it.
     assert_eq!(
-        json!(crate::response::symbol_outline::outline_rows(
-            &crate::response::symbol_outline::flatten_members(
-                out["symbols"].as_array().expect("rows")
-            )
-        )),
+        outline_facts(&out["symbols"], &Value::Null),
         json!([
-            "1 struct A",
-            "2-4,5-7 impl A",
-            "  3 method one; 6 two",
-            "8 function x col 4; 8 x col 14"
+            {"line": 1, "kind": "struct", "name": "A"},
+            {"line": 2, "endLine": 4, "kind": "impl", "name": "A", "members": [
+                {"line": 3, "kind": "method", "name": "one"}
+            ]},
+            {"line": 5, "endLine": 7, "kind": "impl", "name": "A", "members": [
+                {"line": 6, "kind": "method", "name": "two"}
+            ]},
+            {"line": 8, "kind": "function", "name": "x", "column": 4},
+            {"line": 8, "kind": "function", "name": "x", "column": 14}
         ]),
         "{out}"
     );
@@ -324,12 +355,8 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
     )
     .expect("second page");
     assert_eq!(
-        crate::response::symbol_outline::outline_rows(
-            &crate::response::symbol_outline::flatten_members(
-                second["symbols"].as_array().expect("rows")
-            )
-        ),
-        [json!("8 function x col 14")],
+        outline_facts(&second["symbols"], &Value::Null),
+        json!([{"line": 8, "kind": "function", "name": "x", "column": 14}]),
         "{second}"
     );
 }
@@ -348,19 +375,19 @@ fn symbols_trait_impls_name_their_trait_and_macro_members_nest() {
     .expect("source");
     let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
     assert_eq!(
-        json!(crate::response::symbol_outline::outline_rows(
-            &crate::response::symbol_outline::flatten_members(
-                out["symbols"].as_array().expect("rows")
-            )
-        )),
+        outline_facts(&out["symbols"], &Value::Null),
         json!([
-            "1 struct Pipe +",
-            "2-7 impl Pipe",
-            "  3 method read +; 5 read_buf +",
-            "8-10 impl AsyncWrite for Pipe",
-            "  9 method poll_flush",
-            "11-13 impl std::fmt::Debug for Wrap",
-            "  12 method fmt"
+            {"line": 1, "kind": "struct", "name": "Pipe", "exported": true},
+            {"line": 2, "endLine": 7, "kind": "impl", "name": "Pipe", "members": [
+                {"line": 3, "kind": "method", "name": "read", "exported": true},
+                {"line": 5, "kind": "method", "name": "read_buf", "exported": true}
+            ]},
+            {"line": 8, "endLine": 10, "kind": "impl", "name": "AsyncWrite for Pipe", "members": [
+                {"line": 9, "kind": "method", "name": "poll_flush"}
+            ]},
+            {"line": 11, "endLine": 13, "kind": "impl", "name": "std::fmt::Debug for Wrap", "members": [
+                {"line": 12, "kind": "method", "name": "fmt"}
+            ]}
         ]),
         "{out}"
     );
@@ -521,7 +548,8 @@ fn symbols_list_entries_prefer_exact_names_and_lowercase_ignores_case() {
 }
 
 /// An exact `symbolName` match says what it left out: the declarations that
-/// only contain the name, counted and named with their lines.
+/// only contain the name are counted, and `broadenSearch` lists every one of
+/// them (no name is dropped from a notice). Later pages do not repeat it.
 #[test]
 fn an_exact_name_reports_the_declarations_it_hides() {
     let root = Fixture::new();
@@ -531,25 +559,116 @@ fn an_exact_name_reports_the_declarations_it_hides() {
         "fn get() {}
 fn aget() {}
 fn get_or_create() {}
+fn get_or_create() {}
 ",
     )
     .expect("source");
-    let run_name = |name: serde_json::Value| {
-        run(
-            &root.0,
-            json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"symbolName":name}),
-        )
-        .expect("symbols")
-    };
-    let exact = run_name(json!("get"));
+    let run_row = |row: serde_json::Value| run(&root.0, row).expect("symbols");
+    let base = json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source});
+    let mut exact_row = base.clone();
+    exact_row["symbolName"] = json!("get");
+    let exact = run_row(exact_row.clone());
     let warning = exact["warnings"][0].as_str().unwrap_or_default();
-    assert!(warning.contains("2 declarations"), "{exact}");
     assert!(
-        warning.contains("aget (") && warning.contains("get_or_create ("),
+        warning.ends_with(
+            "so 3 declarations that only contain it are not listed: aget, get_or_create. Pass these names to list them."
+        ),
         "{exact}"
     );
+    let broaden = &exact["next"]["broadenSearch"]["query"]["queries"][0];
+    assert_eq!(
+        broaden["symbolName"],
+        json!(["get", "aget", "get_or_create"]),
+        "{exact}"
+    );
+    let broadened = run_row(broaden.clone());
+    assert_eq!(
+        outline_names(&broadened["symbols"]),
+        ["get", "aget", "get_or_create", "get_or_create"],
+        "{broadened}"
+    );
+    assert!(broadened.get("warnings").is_none(), "{broadened}");
+    // A later page of the exact result neither repeats the notice nor the
+    // lead.
+    exact_row["pageSize"] = json!(1);
+    exact_row["page"] = json!(1);
+    std::fs::write(&source, "fn get() {}\nfn get() {}\nfn aget() {}\n").expect("source");
+    let first = run_row(exact_row.clone());
+    assert!(first["warnings"][0].as_str().is_some(), "{first}");
+    let second = run_row(first["next"]["nextPage"]["query"]["queries"][0].clone());
+    assert_eq!(second["pagination"]["currentPage"], 2, "{second}");
+    assert!(second.get("warnings").is_none(), "{second}");
+    assert!(second["next"].get("broadenSearch").is_none(), "{second}");
     // A substring search hides nothing, so it says nothing.
-    assert!(run_name(json!("ge")).get("warnings").is_none());
+    let mut substring = base;
+    substring["symbolName"] = json!("ge");
+    assert!(run_row(substring).get("warnings").is_none());
+}
+
+/// `kinds` never turns an exact `symbolName` into a substring search: a name
+/// declared only with kinds the filter leaves out stays exact, the row says
+/// which kinds hold it, and `broadenSearch` repeats the query with them.
+/// Kinds match the shown `kind` exactly in every language (`function` is not
+/// `method`).
+#[test]
+fn kinds_that_leave_out_an_exact_name_say_so_instead_of_matching_substrings() {
+    let root = Fixture::new();
+    let source = root.0.join("decide.rs");
+    std::fs::write(
+        &source,
+        "struct Engine;\nimpl Engine {\n    fn decide(&self) {}\n}\nstruct Other;\nimpl Other {\n    fn decide(&self) {}\n}\nfn matcher_options_decide_the_match_count() {}\n",
+    )
+    .expect("source");
+    let row = |path: &std::path::Path, kinds: serde_json::Value| json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":path,"symbolName":"decide","kinds":kinds});
+    for path in [source.as_path(), root.0.as_path()] {
+        let out = run(&root.0, row(path, json!(["function"]))).expect("symbols");
+        // A file outline lists `symbols`; a directory groups them in `files`.
+        let listed = |out: &serde_json::Value| {
+            let files = out["files"].as_array().cloned().unwrap_or_default();
+            std::iter::once(&out["symbols"])
+                .chain(files.iter().map(|file| &file["symbols"]))
+                .filter(|rows| rows.is_array())
+                .flat_map(|rows| outline_names(rows).into_iter().map(str::to_owned))
+                .collect::<Vec<_>>()
+        };
+        // No substring stands in for the exact name.
+        assert!(listed(&out).is_empty(), "{out}");
+        let warnings = out["warnings"].to_string();
+        assert!(
+            warnings.contains(
+                "kinds function leaves out every declaration named decide: 2 of kind method. Add method to kinds to list them."
+            ),
+            "{out}"
+        );
+        // The substring declaration the exact name hides is disclosed too.
+        assert!(
+            warnings.contains("matcher_options_decide_the_match_count"),
+            "{out}"
+        );
+        let broaden = &out["next"]["broadenSearch"]["query"]["queries"][0];
+        assert_eq!(broaden["kinds"], json!(["function", "method"]), "{out}");
+        assert_eq!(broaden["symbolName"], json!("decide"), "{out}");
+        let broadened = run(&root.0, broaden.clone()).expect("broadened");
+        assert_eq!(listed(&broadened), ["decide", "decide"], "{broadened}");
+        assert!(
+            !broadened["warnings"]
+                .to_string()
+                .contains("leaves out every"),
+            "{broadened}"
+        );
+        // The second suppressed-name lead follows the kinds lead.
+        assert_eq!(
+            out["next"]["broadenSearch2"]["query"]["queries"][0]["symbolName"],
+            json!(["decide", "matcher_options_decide_the_match_count"]),
+            "{out}"
+        );
+    }
+    // Kinds that keep one exact declaration say nothing about the others.
+    let kept = run(&root.0, row(&source, json!(["method"]))).expect("method kinds");
+    assert!(
+        !kept["warnings"].to_string().contains("leaves out every"),
+        "{kept}"
+    );
 }
 
 #[test]
@@ -953,8 +1072,8 @@ fn symbols_disclose_default_excluded_directories() {
         json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"symbolName":"hiddenHelper"}),
     )
     .expect("symbols");
-    let warnings = out["warnings"].to_string();
-    assert!(warnings.contains("node_modules/"), "{out}");
+    let names = skipped_names(&out, "default-excluded");
+    assert_eq!(names, ["node_modules"], "{out}");
     let lead = &out["next"]["includeSkipped"];
     assert_eq!(lead["tool"], "astSearch", "{out}");
     let query = &lead["query"]["queries"][0];

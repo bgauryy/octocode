@@ -1,6 +1,7 @@
 import { errorMessage, withTimeout } from '../shared/util.js';
 import { closeTarget } from './launch.js';
-import { httpOrigin, logConsole, noteOrigin, noteTabOrigin, pruneClosed, type AttachedTarget, type BrowserSession, type CdpPage } from './cdp.js';
+import type { AttachedTarget, CdpPage } from './cdp.js';
+import { httpOrigin, logConsole, noteOrigin, noteTabOrigin, pruneClosed, type BrowserSession } from './session-state.js';
 import type { PageNetworkPolicy, RequestSource } from './policy.js';
 
 /**

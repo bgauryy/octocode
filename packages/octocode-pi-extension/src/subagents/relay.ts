@@ -1,5 +1,5 @@
 import type { ExtensionUIContext } from '@earendil-works/pi-coding-agent';
-import { ALLOW_ONCE, DENY_NOTE, NOTE_TITLE } from '../permission/ask.js';
+import { ALLOW_ONCE, DENY_NOTE, NOTE_TITLE } from '../permission/dialog.js';
 import { AUDIT_NOTIFY_PREFIX, CHILD_AUDIT_CAP, childAuditEntry, isRoutine, type AuditEntry } from '../permission/audit.js';
 import { redactNonce, splitHeader, type PermissionHeader } from '../permission/header.js';
 import type { ActionClass, AskReason } from '../permission/mode.js';

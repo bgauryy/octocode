@@ -260,22 +260,78 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand, mode: super::O
         let code = output.value["errorCode"].as_str().unwrap_or_default();
         format!("{error} (errorCode: {code})")
     });
-    let written = if mode.json {
-        if let Some(error) = error.filter(|_| mode.tells_stderr()) {
+    // A graph answer prints as JSON in both modes; a text-mode error
+    // prints its message and choices on stderr instead.
+    let written = match error {
+        Some(error) if !mode.json => {
             eprintln!("{error}");
+            eprint!("{}", error_choices(&output.value));
+            0
         }
-        super::write_json(&output.value)
-    } else if let Some(error) = error {
-        eprintln!("{error}");
-        0
-    } else {
-        super::write_text(&octocode_engine::text::yaml_utils::json_to_yaml_string(
-            output.value,
-            None,
-        ))
+        error => {
+            if let Some(error) = error.filter(|_| mode.tells_stderr()) {
+                eprintln!("{error}");
+            }
+            super::write_json(&output.value)
+        }
     };
     match written {
         0 => super::exit_code(output.class),
         failed => failed,
+    }
+}
+
+/// The choices a text-mode error offers, one per line under the message:
+/// ambiguous candidates (a node id with its kind and line, or a snapshot
+/// id), near-miss suggestions, and the command listing the rest.
+fn error_choices(value: &serde_json::Value) -> String {
+    let mut out = String::new();
+    let rows = ["candidates", "suggestions"]
+        .iter()
+        .filter_map(|field| value[*field].as_array())
+        .flatten();
+    for row in rows {
+        let line = match row {
+            serde_json::Value::String(id) => id.clone(),
+            row => {
+                let id = row["id"].as_str().unwrap_or_default();
+                match (row["symbolKind"].as_str(), row["line"].as_u64()) {
+                    (Some(kind), Some(line)) => format!("{id}  ({kind}, line {line})"),
+                    _ => format!("{id}  ({})", row["kind"].as_str().unwrap_or_default()),
+                }
+            }
+        };
+        out.push_str(&format!("  {line}\n"));
+    }
+    if let (Some(total), Some(next)) = (value["total"].as_u64(), value["next"].as_str()) {
+        out.push_str(&format!("  ... {total} in all: {next}\n"));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::error_choices;
+    use serde_json::json;
+
+    #[test]
+    fn text_errors_list_their_candidates_and_the_rest() {
+        let ambiguous = json!({
+            "error": "3 nodes match \"new\"; pass one of the candidate ids",
+            "candidates": [
+                {"id": "src/a.rs#new", "kind": "symbol", "symbolKind": "function", "line": 4},
+                {"id": "src/b.rs", "kind": "file"}
+            ],
+            "total": 3,
+            "truncated": true,
+            "next": "octocode graph query find new --graph g1"
+        });
+        assert_eq!(
+            error_choices(&ambiguous),
+            "  src/a.rs#new  (function, line 4)\n  src/b.rs  (file)\n  ... 3 in all: octocode graph query find new --graph g1\n"
+        );
+        let graphs = json!({"error": "2 graphs match", "candidates": ["g1", "g2"]});
+        assert_eq!(error_choices(&graphs), "  g1\n  g2\n");
+        assert_eq!(error_choices(&json!({"error": "bad"})), "");
     }
 }

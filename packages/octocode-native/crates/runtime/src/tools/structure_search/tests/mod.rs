@@ -1,6 +1,7 @@
 use super::{StructureResult, StructureSearchQuery, execute_structure};
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{AfterRoot, Fixture, sensitive_fixture, simple_policy};
+use crate::tools::test_support::{skipped_count, skipped_names, skipped_reasons};
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
@@ -77,7 +78,7 @@ fn walk_pages(root: &std::path::Path, start: Value) -> Vec<Value> {
 /// `files` rows expanded, one object per entry: `path` (`data.path` +
 /// group `dir` + name, `.` naming the directory itself; bare entries are
 /// `path`'s own), `type` for directories and symlinks, and the entry's
-/// `size`, `totalLines` and `modifiedMs` fields.
+/// `size`, `totalLines` and `modified` (as `modifiedMs`) fields.
 fn listed(out: &Value) -> Vec<Value> {
     let root = out["path"].as_str().expect("path").to_owned();
     // Group dirs are workspace-relative; fixtures list the workspace
@@ -135,8 +136,9 @@ fn listed_entry(dir: &str, entry: &str) -> Value {
             row["totalLines"] = json!(field);
         } else if let Some(lines) = field.strip_prefix("totalLines=") {
             row["totalLines"] = json!(lines.parse::<u64>().expect("totalLines"));
-        } else if let Some(modified) = field.strip_prefix("modifiedMs=") {
-            row["modifiedMs"] = json!(modified.parse::<i64>().expect("modifiedMs"));
+        } else if let Some(modified) = field.strip_prefix("modified=") {
+            row["modifiedMs"] =
+                json!(crate::civil_date::rfc3339_millis(modified).expect("modified"));
         } else {
             row["size"] = json!(field.parse::<i64>().expect("size"));
         }
@@ -643,15 +645,10 @@ fn files_disclose_policy_withheld_coverage_without_exposing_names() {
     std::fs::write(root.0.join(".env.production"), "DUMMY_VALUE=placeholder\n").expect("fixture");
     let out = run(&root.0, json!({"operation":"files","path":root.0,"include":[".env.production"],"includeIgnored":true,"includeHidden":true,"defaultExcludes":false,"mainGoal":"test","reasoning":"test"})).expect("listing");
     assert!(listed(&out).is_empty(), "{out}");
-    assert!(
-        out["warnings"]
-            .as_array()
-            .is_some_and(|warnings| warnings.iter().any(|warning| warning
-                .as_str()
-                .is_some_and(|text| text.starts_with("1 entry withheld by path policy")))),
-        "{out}"
-    );
-    crate::tools::test_support::checks::assert_absent(&out["warnings"], ".env.production");
+    // Counted at the walked scope: the withheld name stays withheld.
+    let reasons = skipped_reasons(&out, "withheld");
+    assert_eq!(reasons, [("credential file".into(), 1)], "{out}");
+    crate::tools::test_support::checks::assert_absent(&out["skippedPaths"], ".env.production");
 }
 
 #[test]
@@ -752,7 +749,7 @@ fn summaries_total_the_listing_not_the_whole_walk() {
 
 /// A tree entry has the one listing-entry shape `files` uses and the output
 /// schema states: `extras: ["details"]` adds `totalLines=N` and
-/// `modifiedMs=N` to each file, and a symlink is its own size plus the `symlink` field.
+/// `modified=<ISO instant>` to each file, and a symlink is its own size plus the `symlink` field.
 #[cfg(unix)]
 #[test]
 fn tree_entries_carry_details_and_symlink_fields_like_files() {
@@ -797,13 +794,13 @@ fn tree_entries_carry_details_and_symlink_fields_like_files() {
         })
         .unwrap_or_else(|| panic!("two.rs entry: {detailed}"));
     assert!(
-        entry.starts_with("two.rs (4, totalLines=2, modifiedMs="),
+        entry.starts_with("two.rs (4, totalLines=2, modified="),
         "{detailed}"
     );
 }
 
 /// The field a listing is sorted by is default output (L6-8): a modified
-/// sort shows each file's `modifiedMs` without `extras`, as the lines sort
+/// sort shows each file's `modified` time without `extras`, as the lines sort
 /// shows `totalLines`; another sort leaves it to `extras: ["details"]`.
 #[test]
 fn a_modified_sort_shows_its_key_without_extras() {
@@ -820,7 +817,7 @@ fn a_modified_sort_shows_its_key_without_extras() {
             .unwrap_or_else(|| panic!("entry: {out}"))
             .to_owned()
     };
-    assert!(entry("modified").starts_with("two.rs (4, modifiedMs="));
+    assert!(entry("modified").starts_with("two.rs (4, modified="));
     assert_eq!(entry("size"), "two.rs (4)");
 }
 
@@ -841,7 +838,10 @@ fn tree_outlines_in_path_order_with_bounded_depth() {
         json!([{"dir":".","files":["README.md (0)", "src/"]}]),
         "{top}"
     );
-    assert!(top.get("pagination").is_none(), "{top}");
+    // The tool states its block; the response stage drops a complete single
+    // page's (`response::rows::walks_on`).
+    assert_eq!(top["pagination"]["hasMore"], false, "{top}");
+    assert_eq!(top["pagination"]["totalPages"], 1, "{top}");
     let all = run(
         &root.0,
         json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"maxDepth":6}),
@@ -1049,4 +1049,35 @@ fn structure_search_never_reaches_a_parser() {
             assert!(!source.contains(forbidden), "{name} references {forbidden}");
         }
     }
+}
+
+/// Ranking order is the contract: a ranked page (`sort:size`), flattened,
+/// lists its entries in rank order even when directories interleave in it.
+/// Only adjacent entries of one directory share a group.
+#[test]
+fn a_ranked_page_flattened_keeps_the_rank_order() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join("a")).expect("a");
+    std::fs::create_dir_all(root.0.join("b")).expect("b");
+    // Sizes interleave the directories: a/5000, b/4000, a/3000, b/2000, a/1000.
+    for (path, size) in [
+        ("a/big.bin", 5000),
+        ("b/large.bin", 4000),
+        ("a/mid.bin", 3000),
+        ("b/small.bin", 2000),
+        ("a/tiny.bin", 1000),
+    ] {
+        std::fs::write(root.0.join(path), vec![b'x'; size]).expect("file");
+    }
+    let out = run(
+        &root.0,
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"entryType":"f","sort":"size"}),
+    )
+    .expect("files");
+    let sizes = listed(&out)
+        .iter()
+        .map(|row| row["size"].as_i64().expect("size"))
+        .collect::<Vec<_>>();
+    assert_eq!(sizes, [5000, 4000, 3000, 2000, 1000], "{out}");
+    assert_eq!(out["files"].as_array().expect("groups").len(), 5, "{out}");
 }

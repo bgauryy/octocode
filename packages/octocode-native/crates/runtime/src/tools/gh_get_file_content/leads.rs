@@ -2,13 +2,13 @@
 //! from the shared localFetch read, and the leads of a match that found
 //! nothing.
 use crate::response::result::Confidence;
-use crate::tools::local_fetch::types::local_fetch_query;
+use crate::tools::source_view::types::local_fetch_query;
 use serde_json::{Value, json};
 
 use super::GhGetFileContentQuery;
 use crate::id::ToolId;
 use crate::response::result::{Continuation, query_row};
-use crate::tools::local_fetch::{LocalFetchQuery, MinifyMode};
+use crate::tools::source_view::LocalFetchQuery;
 
 /// The runnable next step of a match that found nothing: a ghSearchCode of
 /// the repository for the literal (it may live in another file). A regex
@@ -22,14 +22,22 @@ pub(super) fn empty_match_lead(
     if local_fetch_query::is_regex(local) || first.is_empty() {
         return None;
     }
+    let mut row =
+        json!({"owner": query.owner.as_str(), "repo": query.repo.as_str(), "keywords": [first]});
+    // The search reads its hits at the read's ref, not the default branch.
+    if let Some(reference) = query
+        .ref_
+        .as_deref()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+    {
+        row["ref"] = json!(reference);
+    }
     Some((
         "findCode",
-        Continuation::new(
-            ToolId::GhSearchCode,
-            json!({"owner": query.owner.as_str(), "repo": query.repo.as_str(), "keywords": [first]}),
-        )
-        .confidence(Confidence::Medium)
-        .build(),
+        Continuation::new(ToolId::GhSearchCode, row)
+            .confidence(Confidence::Medium)
+            .build(),
     ))
 }
 
@@ -55,13 +63,13 @@ pub(super) fn last_window_repair(
 }
 
 /// One localFetch continuation row as the same read of the GitHub file at
-/// `resolved_ref`, in the caller's view. A window (offset, length or unit)
+/// `resolved_ref`, in the view the shared read chose for it (the caller's,
+/// or none for a lead that reads the text as is). A window (offset, length or unit)
 /// never reads the whole file; a whole-view read (the unfiltered view of a
 /// `fullContent` read) keeps `fullContent`.
 fn github_row(
     mut query: serde_json::Map<String, Value>,
     source: &GhGetFileContentQuery,
-    view: Option<MinifyMode>,
     resolved_ref: &str,
 ) -> Value {
     query.insert("owner".into(), Value::String(source.owner.to_string()));
@@ -74,17 +82,6 @@ fn github_row(
     {
         query.remove("fullContent");
     }
-    match view {
-        Some(MinifyMode::Standard) => {
-            query.insert("minify".into(), Value::String("standard".into()));
-        }
-        Some(MinifyMode::Symbols) => {
-            query.insert("minify".into(), Value::String("symbols".into()));
-        }
-        None => {
-            query.remove("minify");
-        }
-    }
     if let Some(force) = source.force_refresh {
         query.insert("forceRefresh".into(), Value::Bool(force));
     }
@@ -92,9 +89,8 @@ fn github_row(
 }
 
 pub(super) fn rewrite_continuations(
-    result: &mut crate::tools::local_fetch::LocalFetchResult,
+    result: &mut crate::tools::source_view::LocalFetchResult,
     source: &GhGetFileContentQuery,
-    view: Option<MinifyMode>,
     resolved_ref: &str,
 ) -> Option<Value> {
     let mut value = serde_json::to_value(result.next.take()?).ok()?;
@@ -116,7 +112,7 @@ pub(super) fn rewrite_continuations(
         let rows = rows
             .iter()
             .filter_map(Value::as_object)
-            .map(|row| github_row(row.clone(), source, view, resolved_ref))
+            .map(|row| github_row(row.clone(), source, resolved_ref))
             .collect::<Vec<_>>();
         let mut call = Continuation::input(ToolId::GhGetFileContent, json!({"queries": rows}));
         if let Some(confidence) = continuation["confidence"]
@@ -133,7 +129,7 @@ pub(super) fn rewrite_continuations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::local_fetch::{FetchCall, LocalFetchResult, NextCalls, ReadStatus};
+    use crate::tools::source_view::{FetchCall, LocalFetchResult, NextCalls, ReadStatus};
 
     fn read(fields: Value) -> FetchCall {
         let mut row = json!({"path":"README.md"});
@@ -171,7 +167,7 @@ mod tests {
             unfiltered_unknown_rest: rest,
             ..NextCalls::default()
         });
-        let next = rewrite_continuations(&mut result, &source, None, "abc123").expect("next");
+        let next = rewrite_continuations(&mut result, &source, "abc123").expect("next");
         let whole = &next["unfiltered"];
         assert_eq!(whole["tool"], "ghGetFileContent");
         assert_eq!(whole["query"]["queries"][0]["fullContent"], true, "{next}");

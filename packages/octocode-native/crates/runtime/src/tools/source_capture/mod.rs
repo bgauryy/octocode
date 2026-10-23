@@ -9,6 +9,7 @@
 //! or commit), and a selection larger than the state limit fails instead of
 //! being judged from its first part.
 pub(crate) mod assets;
+mod page;
 pub(crate) mod resource;
 pub(crate) mod url;
 
@@ -18,11 +19,11 @@ use crate::execution::{ExecutionContext, ExecutionError, RuntimeLimits};
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::response::outcome::DomainResult;
-use crate::response::rows;
-use crate::security::ContentSecurity;
+use crate::security::{CheckedQuery, ContentSecurity, InputPolicy};
 use crate::tools::judgment::ClassificationError;
 use crate::tools::judgment::Evaluator;
 use octocode_contract_types::ErrorCode;
+use page::read_page;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -43,7 +44,7 @@ pub(crate) trait SourceReader: Sync {
     fn execute(
         &self,
         tool: ToolId,
-        query: &Value,
+        query: &CheckedQuery,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError>;
     /// The saved GitHub access identity, checked against the live one.
@@ -92,13 +93,24 @@ fn failure(code: ErrorCode, message: impl Into<String>, hint: &str) -> Classific
     ClassificationError::new(code, message, hint)
 }
 
-fn too_large(max_chars: usize) -> ClassificationError {
-    failure(
+/// How a source selection too large for one state is judged in parts.
+pub(crate) const IN_PARTS_HINT: &str = "Judge it in parts: narrower ranges, one query row per part, or operation:\"sections\" with the source under resources.";
+
+/// `what` exceeds the `max_chars` state limit. Its recovery: the
+/// long-context limit when the row is under it, then `in_parts`.
+pub(crate) fn too_large(max_chars: usize, what: &str, in_parts: &str) -> ClassificationError {
+    let long = crate::id::clasify_policy::MAX_LONG_CONTEXT_STATE_CHARS;
+    let mut hints = Vec::new();
+    if max_chars < long {
+        hints.push(format!(
+            "Retry with longContext:true for a {long}-character state limit."
+        ));
+    }
+    hints.push(in_parts.to_owned());
+    ClassificationError::with_hints(
         ErrorCode::ClassificationContextTooLarge,
-        format!(
-            "The selected source exceeds the {max_chars}-character state limit; nothing was judged."
-        ),
-        "Select narrower ranges, or split the selection across query rows.",
+        format!("{what} exceeds the {max_chars}-character state limit; nothing was judged."),
+        hints,
     )
 }
 
@@ -145,7 +157,7 @@ pub(crate) fn capture(
         chars += page.content.chars().count();
         text.push_str(&page.content);
         if chars > max_chars {
-            return Err(too_large(max_chars));
+            return Err(too_large(max_chars, "The selected source", IN_PARTS_HINT));
         }
         let Some(mut next) = page.next else {
             return Ok(Captured {
@@ -162,23 +174,14 @@ pub(crate) fn capture(
         }
         row = next;
     }
-    Err(too_large(max_chars))
-}
-
-/// One reader page as the capture needs it.
-struct Page {
-    content: String,
-    /// The local file snapshot or the resolved commit SHA.
-    pin: Option<String>,
-    /// The reader's own row for the next content page.
-    next: Option<Value>,
+    Err(too_large(max_chars, "The selected source", IN_PARTS_HINT))
 }
 
 pub(super) fn prepare_source(
     id: ToolId,
     row: &Value,
     dispatcher: &dyn SourceReader,
-) -> Result<Value, ClassificationError> {
+) -> Result<CheckedQuery, ClassificationError> {
     let tool = id.as_str();
     let mut prepared = crate::contracts::prepare_many_and_validate(tool, json!({"queries":[row]}))
         .map_err(|error| {
@@ -196,148 +199,17 @@ pub(super) fn prepare_source(
             )
         })?;
     let prepared = prepared.pop().unwrap_or(Value::Null);
-    let checked = dispatcher.security().validate_input_parameters(&prepared);
-    if !checked.is_valid {
-        return Err(failure(
-            ErrorCode::SecurityValidationFailed,
-            "The source query is blocked by input security policy.",
-            "Read an allowed path.",
-        ));
-    }
-    Ok(Value::Object(checked.sanitized_params))
-}
-
-fn read_page(
-    id: ToolId,
-    row: &Value,
-    dispatcher: &dyn SourceReader,
-    context: &ExecutionContext,
-) -> Result<Page, ClassificationError> {
-    let prepared = prepare_source(id, row, dispatcher)?;
-    let tool = id.as_str();
-    context.check().map_err(|stop| {
-        let (code, hint) = match stop {
-            crate::execution::ExecutionError::Timeout => (
-                ErrorCode::Timeout,
-                "Retry with more time, or supply the source text as state.",
-            ),
-            _ => (ErrorCode::Cancelled, crate::response::rows::CANCELLED_HINT),
-        };
-        failure(
-            code,
-            "The call stopped before its source was captured.",
-            hint,
-        )
-    })?;
-    let result = dispatcher.execute(id, &prepared, context).map_err(|stop| {
-        failure(
-            match stop {
-                crate::execution::ExecutionError::Timeout => ErrorCode::Timeout,
-                crate::execution::ExecutionError::Cancelled => ErrorCode::Cancelled,
-                _ => ErrorCode::ClassificationContextFailed,
-            },
-            format!("The {tool} source read could not complete."),
-            RERUN_HINT,
-        )
-    })?;
-    let source_digest = result.source_digest.clone();
-    let row_value = rows::result_row(id, 0, &prepared, result.data, result.status);
-    let mut state = rows::envelope_in(vec![row_value], id, &[Some(&prepared)], dispatcher.paths());
-    rows::sanitize_output(
-        &mut state,
-        id,
-        dispatcher.security(),
-        context,
-        dispatcher.config().resolved.output.redact_emails,
-    )
-    .map_err(|_| {
-        failure(
-            ErrorCode::ClassificationContextFailed,
-            "The source read's output could not be sanitized.",
-            RERUN_HINT,
-        )
-    })?;
-    let data = &state["results"][0]["data"];
-    if state["results"][0]["status"] == "error" || data.get("errorCode").is_some() {
-        return Err(reader_failure(id, data));
-    }
-    let content = data["content"].as_str().unwrap_or_default();
-    if content.is_empty() {
-        return Err(failure(
-            ErrorCode::ClassificationContextEmpty,
-            format!("The {tool} source selected no text; nothing was judged."),
-            "Check the ranges and the path.",
-        ));
-    }
-    let pin = match id {
-        ToolId::GhGetFileContent => data["commitSha"]
-            .as_str()
-            .or_else(|| state["shared"]["commitSha"].as_str())
-            .map(str::to_owned),
-        _ => source_digest,
-    };
-    let next = data["next"]["continueWindow"]["query"]["queries"][0]
-        .as_object()
-        .map(|next| Value::Object(next.clone()));
-    Ok(Page {
-        content: content.to_owned(),
-        pin,
-        next,
-    })
-}
-
-/// Re-running a read that failed for a reason repeating it cannot change
-/// (the reader's own hints and leads are the recovery then).
-const RERUN_HINT: &str = "Run the same read directly to inspect it.";
-
-/// The reader's error row as the capture's failure: its code (when
-/// declared), its message, and its own recovery. The reader's leads
-/// (`findFile`, `viewTree`, `repair`, ...) are kept by name. A missing path,
-/// a refusal or an invalid input fails the same way on a re-run, so its own
-/// hints say what to do (else the code's shared recovery); any other failure
-/// also offers the re-run.
-fn reader_failure(tool: ToolId, data: &Value) -> ClassificationError {
-    use crate::id::error_codes::{ErrorClass, class};
-    let declared = crate::id::error_code_of(data).map(|code| (code, class(code)));
-    let leads: Vec<(String, Value)> = ["next", "hints"]
-        .iter()
-        .filter_map(|channel| data[*channel].as_object())
-        .flatten()
-        .filter(|(_, lead)| lead.get("tool").is_some() && lead.get("query").is_some())
-        .map(|(name, lead)| (name.clone(), lead.clone()))
-        .collect();
-    let own = match &data["hints"] {
-        Value::Array(items) => items.as_slice(),
-        hints => hints["text"].as_array().map_or(&[][..], Vec::as_slice),
-    };
-    let mut hints: Vec<String> = own
-        .iter()
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect();
-    let final_failure = declared.is_some_and(|(_, class)| {
-        matches!(
-            class,
-            ErrorClass::NotFound | ErrorClass::Permission | ErrorClass::InvalidInput
-        )
-    });
-    if !final_failure {
-        hints.push(RERUN_HINT.into());
-    } else if hints.is_empty() && leads.is_empty() {
-        // Re-running a final failure fails the same way: say the code's fix.
-        let hint = declared
-            .and_then(|(code, _)| crate::response::rows::error_code_hint(tool, code))
-            .unwrap_or(RERUN_HINT);
-        hints.push(hint.into());
-    }
-    ClassificationError {
-        leads,
-        ..ClassificationError::with_hints(
-            declared.map_or(ErrorCode::ClassificationContextFailed, |(code, _)| code),
-            data["error"].as_str().unwrap_or("The source read failed."),
-            hints,
-        )
-    }
+    // The reader's own row passes the gate every direct call passes.
+    dispatcher
+        .security()
+        .check_input(prepared, InputPolicy::Query)
+        .map_err(|_| {
+            failure(
+                ErrorCode::SecurityValidationFailed,
+                "The source query is blocked by input security policy.",
+                "Read an allowed path.",
+            )
+        })
 }
 
 /// The selection the state names: path, ranges or whole file, and pin.
@@ -386,54 +258,4 @@ pub(super) fn read_lead(id: ToolId, query: &Value, pin: Option<&str>) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A missing file's capture failure carries the reader's own leads and
-    /// hints, not a re-run of a read that cannot succeed.
-    #[test]
-    fn a_final_reader_failure_keeps_its_own_leads_and_hints() {
-        let lead = |tool: &str| json!({"tool": tool, "query": {"queries": [{"path": "src"}]}});
-        let data = json!({
-            "path": "src/exector.rs",
-            "errorCode": "pathNotFound",
-            "error": "Path does not exist: src/exector.rs",
-            "hints": ["Check the spelling."],
-            "next": {"viewTree": lead("structureSearch"), "findFile": lead("structureSearch")},
-        });
-        let failure = reader_failure(ToolId::LocalFetch, &data);
-        assert_eq!(failure.code, ErrorCode::PathNotFound);
-        assert_eq!(failure.hints, vec!["Check the spelling.".to_owned()]);
-        let mut names: Vec<&str> = failure
-            .leads
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect();
-        names.sort_unstable();
-        assert_eq!(names, ["findFile", "viewTree"]);
-        // A refusal with no recovery of its own says the code's fix, never
-        // a re-run that fails the same way.
-        let bare = reader_failure(
-            ToolId::LocalFetch,
-            &json!({"errorCode": "outsideAllowedRoots", "error": "no"}),
-        );
-        assert_eq!(bare.hints.len(), 1, "{:?}", bare.hints);
-        assert_ne!(bare.hints[0], RERUN_HINT);
-        // A failure a re-run can change keeps the re-run beside its hints.
-        let transient = reader_failure(
-            ToolId::LocalFetch,
-            &json!({
-                "errorCode": "fileReadFailed", "error": "io", "hints": {"text": ["Disk busy."]}
-            }),
-        );
-        assert_eq!(
-            transient.hints,
-            vec!["Disk busy.".to_owned(), RERUN_HINT.to_owned()]
-        );
-        let undeclared = reader_failure(
-            ToolId::LocalFetch,
-            &json!({"errorCode": "madeUp", "error": "x"}),
-        );
-        assert_eq!(undeclared.code, ErrorCode::ClassificationContextFailed);
-    }
-}
+mod tests;

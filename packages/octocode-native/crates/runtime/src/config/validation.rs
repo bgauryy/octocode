@@ -262,40 +262,39 @@ mod tests {
     }
 
     #[test]
-    fn output_format_yaml_validates_clean() {
+    fn enum_values_and_null_validate_clean() {
+        for value in [json!("targeted"), json!("off"), Value::Null] {
+            let errors = errors(&json!({"lsp": {"prewarm": value}}));
+            assert!(errors.is_empty(), "{value}: unexpected errors: {errors:?}");
+        }
+    }
+
+    #[test]
+    fn enum_invalid_string_errors() {
+        let errors = errors(&json!({"lsp": {"prewarm": "xml"}}));
+        assert!(
+            errors
+                .iter()
+                .any(|error| error == "lsp.prewarm: Must be one of: targeted, all, off"),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn enum_non_string_errors() {
+        let errors = errors(&json!({"lsp": {"prewarm": 42}}));
+        assert!(
+            errors
+                .iter()
+                .any(|error| error == "lsp.prewarm: Must be a string"),
+            "{errors:?}"
+        );
+    }
+
+    /// A retired setting is ignored, never an error.
+    #[test]
+    fn the_retired_output_format_validates_clean() {
         let errors = errors(&json!({"output": {"format": "yaml"}}));
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-    }
-
-    #[test]
-    fn output_format_json_validates_clean() {
-        let errors = errors(&json!({"output": {"format": "json"}}));
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-    }
-
-    #[test]
-    fn output_format_null_validates_clean() {
-        let errors = errors(&json!({"output": {"format": null}}));
-        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
-    }
-
-    #[test]
-    fn output_format_invalid_string_errors() {
-        let errors = errors(&json!({"output": {"format": "xml"}}));
-        assert!(
-            errors
-                .iter()
-                .any(|error| error == "output.format: Must be one of: yaml, json")
-        );
-    }
-
-    #[test]
-    fn output_format_non_string_errors() {
-        let errors = errors(&json!({"output": {"format": 42}}));
-        assert!(
-            errors
-                .iter()
-                .any(|error| error == "output.format: Must be a string")
-        );
     }
 }

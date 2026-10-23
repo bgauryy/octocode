@@ -237,7 +237,7 @@ export function inventoryRows(items = []) {
  * structureSearch rows (tree and files) in one object shape. Every row is a
  * {dir, files: [...]} group whose `dir` is workspace-relative (like a row
  * path; "." is the workspace root). Entries ("<name>[/][ (<fields>)]";
- * fields: size in bytes, "symlink", "totalLines=N", "modifiedMs=N"; "/" marks
+ * fields: size in bytes, "symlink", "totalLines=N", "modified=<ISO instant>"; "/" marks
  * a directory) expand in order to {path: dir/name, size?, type?, totalLines?,
  * modifiedMs?}, `path` resolving against the response `root`. Object rows
  * pass through.
@@ -253,7 +253,7 @@ export function structureFiles(items = []) {
     for (const field of m ? m[2].split(', ') : []) {
       if (field === 'symlink') row.type = 'symlink';
       else if (field.startsWith('totalLines=')) row.totalLines = Number(field.slice(11));
-      else if (field.startsWith('modifiedMs=')) row.modifiedMs = Number(field.slice(11));
+      else if (field.startsWith('modified=')) row.modifiedMs = Date.parse(field.slice(9));
       else row.size = Number(field);
     }
     return row;

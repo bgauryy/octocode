@@ -288,16 +288,14 @@ impl Layout {
                     + 1
             })
             .collect::<Vec<_>>();
-        let pages = crate::response::page_windows::Paging::Chars(page_budget).windows(&sizes);
-        let shown = crate::response::page_windows::nth_page(
-            &pages,
+        let cut = crate::response::page_windows::select(
+            crate::response::page_windows::Paging::Chars(page_budget),
+            &sizes,
             local_search_query::page(query) as usize,
-        )
-        .map(|window| window.clone().map(|index| (index, 0..0)).collect())
-        .unwrap_or_default();
+        );
         (
-            shown,
-            u32_of_usize(pages.len()).max(1),
+            cut.range.map(|index| (index, 0..0)).collect(),
+            u32_of_usize(cut.pages),
             None,
             u32_of_usize(files.len()),
         )
@@ -526,9 +524,9 @@ impl PageCosts {
         let match_only = query.result_view == LocalSearchQueryResultView::MatchOnly;
         let prefix_chars = match paths.workspace_relative(output_root).as_deref() {
             Some(".") => 0,
-            Some(relative) => crate::response::stream_page::json_text_chars(relative) + 1,
+            Some(relative) => octocode_engine::json_size::string_body_units(relative) + 1,
             None => {
-                crate::response::stream_page::json_text_chars(&output_root.to_string_lossy()) + 1
+                octocode_engine::json_size::string_body_units(&output_root.to_string_lossy()) + 1
             }
         };
         Self {
@@ -558,7 +556,7 @@ impl PageCosts {
     }
 
     pub(super) fn file(&self, file: &octocode_engine::types::TextSearchFile) -> usize {
-        let path = crate::response::stream_page::json_text_chars(&file.path) + self.prefix_chars;
+        let path = octocode_engine::json_size::string_body_units(&file.path) + self.prefix_chars;
         let entry = path + FILE_ENTRY_CHARS;
         if file.matches.iter().any(|m| self.clipped(m)) {
             entry + self.read_chars + path
@@ -606,12 +604,12 @@ impl PageCosts {
 }
 
 /// Per-file paging, reported only while it routes somewhere: more rows
-/// remain, or the requested match page is past the end.
+/// remain, or the requested match page is past the end. `shown` counts the
+/// rows the file entry carries.
 pub(super) fn file_pagination(
     layout: &Layout,
     total: u32,
-    start: usize,
-    end: usize,
+    (start, end, shown): (usize, usize, usize),
     later: &[u32],
     match_page: u32,
 ) -> Option<ItemPagination> {
@@ -621,10 +619,11 @@ pub(super) fn file_pagination(
     if layout.streamed {
         return (end < total as usize).then(|| {
             let (lines, unlisted) = crate::tools::line_spans::more_lines(later, MAX_MORE_LINES);
+            let named = shown + lines.len() + unlisted.map_or(0, |n| n as usize);
             ItemPagination {
                 current_page: None,
                 total_pages: None,
-                total_matches: total,
+                total_matches: (named != total as usize).then_some(total),
                 has_more: true,
                 more_lines: Some(lines),
                 more_lines_unlisted: unlisted,
@@ -644,7 +643,7 @@ pub(super) fn file_pagination(
     (has_more || out_of_range).then_some(ItemPagination {
         current_page: Some(match_page),
         total_pages: Some(total_pages),
-        total_matches: total,
+        total_matches: Some(total),
         has_more,
         more_lines,
         more_lines_unlisted,
@@ -670,7 +669,7 @@ pub(super) fn row_chars(
         row.column = None;
     }
     octocode_engine::json_size::utf16_units(&row).unwrap_or(0)
-        + crate::response::stream_page::json_text_chars(value)
+        + octocode_engine::json_size::string_body_units(value)
         + 1
 }
 
@@ -701,7 +700,7 @@ pub(super) fn pagination_chars(file: &octocode_engine::types::TextSearchFile) ->
     let empty = ItemPagination {
         current_page: None,
         total_pages: None,
-        total_matches: u32_of_usize(total),
+        total_matches: Some(u32_of_usize(total)),
         has_more: true,
         more_lines: Some(Vec::new()),
         more_lines_unlisted: None,

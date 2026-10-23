@@ -1,6 +1,7 @@
 use super::*;
 use crate::execution::cancel::{CancellationCheck, NeverCancel};
 use crate::security::scan::ContentScan;
+use crate::tools::source_view::*;
 use crate::tools::test_support::Fixture;
 use octocode_contract_types::ErrorCode;
 use sha2::Digest;
@@ -110,9 +111,39 @@ fn workspace_policy(root: &Path) -> crate::policy::path::PathPolicy {
     .expect("policy")
 }
 
-mod blocks_and_paths;
+/// `a.txt` of `lines` numbered lines where each line in `hits` reads
+/// `hit<n>`, and a query matching `hit` with one context line.
+fn hit_lines(t: &Fixture, lines: usize, hits: &[usize]) -> (Paths, LocalFetchQuery) {
+    let p = t.0.join("a.txt");
+    let text = hits.iter().fold(numbered(lines), |text, hit| {
+        text.replace(&format!("l{hit}\n"), &format!("hit{hit}\n"))
+    });
+    fs::write(&p, text).expect("test fixture operation should succeed");
+    let mut req = q(&p);
+    req.match_string = Some(MatchString::String("hit".parse().expect("match string")));
+    req.context_lines = Some(1);
+    (Paths(t.0.clone()), req)
+}
+
+const PY_TWO: &str = "import os\n\ndef first(a):\n    x = 1\n    return a\n\n\ndef second(b):\n    if b:\n        return first(1)\n    return 2\n";
+
+mod classified;
+mod declarations;
+mod line_walks;
 mod long_lines;
-mod matches;
+mod match_misses;
+mod match_patterns;
+mod match_ranges;
+mod match_windows;
+mod paging;
+mod paths;
+mod redaction;
+mod regex_dialects;
+mod source;
+mod streamed;
+mod symbols;
+mod views;
+mod wire;
 
 /// A cold symbols view parses its source once: the outline and the
 /// declarations its spans read come from one parse, which seeds the shared

@@ -1,7 +1,8 @@
 import { renderDiff, type BashToolDetails, type Theme } from '@earendil-works/pi-coding-agent';
 import { Box, type Component } from '@earendil-works/pi-tui';
 import { formatDuration } from '../shared/format.js';
-import { clip, COLLAPSED_LINES, expandKey, plural, resultBlock, resultText, timingOf, toolHeader, type RenderContext } from '../shared/render.js';
+import { clip, COLLAPSED_LINES, expandKey, plural, resultBlock, resultText, toolHeader } from '../shared/render.js';
+import { timingOf, type RenderContext } from '../shared/tool-timing.js';
 import { sanitizeTerminalText } from '../shared/sanitize.js';
 import { contentText, isRecord } from '../shared/util.js';
 

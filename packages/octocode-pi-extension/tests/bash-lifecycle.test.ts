@@ -4,19 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { registerBashTool } from '../src/files/bash.js';
-import { BashJobs, jobReport, reapOrphanJobs } from '../src/files/bash-jobs.js';
+import { BashJobs } from '../src/files/bash-jobs.js';
+import { reapOrphanJobs } from '../src/files/bash-orphans.js';
+import { jobReport } from '../src/files/bash-report.js';
 import { Subcommands } from '../src/shared/commands.js';
 import { groupAlive, groupStartTimes, killTree, processAlive, processStartTime, signalTree, stopTree } from '../src/shared/process.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
-
-const until = async (check: () => boolean, ms = 5_000) => {
-  const end = Date.now() + ms;
-  while (!check()) {
-    if (Date.now() > end) throw new Error('condition not met in time');
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-};
+import { tmp, until } from './helpers.js';
 
 const posix = process.platform !== 'win32';
 const hasPerl = posix && spawnSync('perl', ['-e', '1']).status === 0;

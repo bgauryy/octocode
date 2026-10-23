@@ -6,11 +6,11 @@ import appJs from '../../assets/dashboard/app.js' with { type: 'text' };
 import indexHtml from '../../assets/dashboard/index.html';
 import styleCss from '../../assets/dashboard/style.css';
 import { databasePath } from './config.js';
-import { stopEvent } from './dispatch.js';
-import type { DeliveryRuntime } from './dispatch.js';
+import type { DeliveryRuntime } from './delivery-types.js';
+import { stopEvent } from './loop-control.js';
 import { ValidationError } from './errors.js';
 import type { StoreHost } from './store-types.js';
-import { compact, decodeUtf8 } from './wire.js';
+import { compact, decodeUtf8 } from './json-text.js';
 import * as viewData from './view-data.js';
 import type { ViewInput } from './catalog-types.generated.js';
 

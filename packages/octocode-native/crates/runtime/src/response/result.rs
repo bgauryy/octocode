@@ -1,11 +1,12 @@
 //! Tool-owned diagnostics remain separate from public domain data, and the
 //! one builder of executable follow-up calls.
+mod error;
+pub use error::{FailureKind, ToolError};
+pub(crate) use error::{failure_kind, missing_path_lead};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::id::ToolId;
-use crate::id::error_codes::{self, ErrorClass};
-use octocode_contract_types::ErrorCode;
 
 /// How sure a continuation is to help: `exact` is a replay, `high`,
 /// `medium` and `low` a judgment.
@@ -214,138 +215,6 @@ pub(crate) fn with_changes(mut row: Value, changes: &Value) -> Value {
     row
 }
 
-/// How a call failed, for the caller's exit code and error state.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub enum FailureKind {
-    NotFound,
-    Authentication,
-    Permission,
-    RateLimited,
-    Execution,
-}
-
-/// The failure an error row with `code` reports. A rejected request is an
-/// execution failure here; [`crate::response::exit::ExitClass::InvalidInput`] is
-/// decided from the rows.
-pub(crate) fn failure_kind(code: ErrorCode) -> FailureKind {
-    match error_codes::class(code) {
-        ErrorClass::NotFound => FailureKind::NotFound,
-        ErrorClass::Authentication => FailureKind::Authentication,
-        ErrorClass::Permission => FailureKind::Permission,
-        ErrorClass::RateLimited => FailureKind::RateLimited,
-        ErrorClass::InvalidInput | ErrorClass::Execution => FailureKind::Execution,
-    }
-}
-
-/// A local tool call that failed as a whole. The dispatcher renders it as
-/// the one error row: `errorCode`, `error`, then `hints` and `next` when set.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ToolError {
-    pub code: ErrorCode,
-    pub message: String,
-    pub hints: Vec<String>,
-    /// Leads out of the error, e.g. a missing path's nearest existing parent.
-    /// Boxed to keep the error small in `Result`s.
-    pub next: Option<Box<Value>>,
-    /// The coverage receipt of a classified row whose selection failed.
-    pub selection: Option<Box<octocode_contract_types::Selection>>,
-}
-
-impl ToolError {
-    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-            hints: Vec::new(),
-            next: None,
-            selection: None,
-        }
-    }
-
-    /// A failed graph-facts scan: the engine's typed refusals keep their
-    /// declared codes, and a walk stopped by `cancel` is a cancellation.
-    pub(crate) fn graph_scan(
-        error: &octocode_engine::fact_scan::GraphScanError,
-        cancel: &dyn crate::execution::cancel::CancellationCheck,
-    ) -> Self {
-        use octocode_engine::fact_scan::GraphScanError;
-        let code = match error {
-            GraphScanError::UnsupportedLanguage(_) => ErrorCode::LanguageUnsupported,
-            GraphScanError::InvalidGlob(_) => ErrorCode::InvalidGlob,
-            GraphScanError::Failed(_) if cancel.check().is_err() => ErrorCode::Cancelled,
-            GraphScanError::Failed(_) => ErrorCode::ScanFailed,
-        };
-        Self::new(code, error.to_string())
-    }
-
-    /// A continuation whose snapshot no longer describes the source:
-    /// `restart` (usually [`restart_query`]) is `next.restart`. The runtime
-    /// writes the one shared `error` text and clears `isPartial`
-    /// (`response::pages::restart_stale`); a tool never words it.
-    pub(crate) fn stale_snapshot(restart: Value) -> Self {
-        Self {
-            next: Some(Box::new(serde_json::json!({ "restart": restart }))),
-            ..Self::new(
-                ErrorCode::StaleSnapshot,
-                crate::response::pages::STALE_SNAPSHOT_ERROR,
-            )
-        }
-    }
-
-    /// The call was cancelled or ran past its deadline.
-    pub fn cancelled(message: impl Into<String>) -> Self {
-        Self::new(ErrorCode::Cancelled, message)
-    }
-
-    /// A path-policy refusal under the flat code every local tool shares,
-    /// else under the tool's own `access_code`
-    /// ([`crate::policy::PolicyError::local_error_code`]).
-    pub fn policy(error: crate::policy::PolicyError, access_code: ErrorCode) -> Self {
-        Self::new(error.local_error_code(access_code), error.message)
-    }
-
-    /// [`Self::policy`] for a search root; a missing root also leads to a
-    /// tree of its nearest existing parent (`next.viewTree`), where a typo's
-    /// siblings show.
-    pub(crate) fn root_policy(
-        error: crate::policy::PolicyError,
-        requested: &str,
-        paths: &crate::policy::path::PathPolicy,
-        access_code: ErrorCode,
-    ) -> Self {
-        let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
-        let mut out = Self::policy(error, access_code);
-        if missing && let Some(next) = missing_path_lead(paths, requested) {
-            out.next = Some(Box::new(next));
-        }
-        out
-    }
-}
-
-/// `{ "viewTree": <lead> }` to the tree of `requested`'s nearest existing
-/// parent, where a mistyped name's siblings show; the one recovery form every
-/// local tool gives a missing path.
-pub(crate) fn missing_path_lead(
-    paths: &crate::policy::path::PathPolicy,
-    requested: &str,
-) -> Option<serde_json::Value> {
-    let parent = paths.nearest_existing_dir(requested)?;
-    let lead = Continuation::new(
-        ToolId::StructureSearch,
-        serde_json::json!({"operation": "tree", "path": parent}),
-    )
-    .build();
-    Some(serde_json::json!({ "viewTree": lead }))
-}
-
-impl std::fmt::Display for ToolError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for ToolError {}
-
 /// Fields that steer how a call reports, never what it reads: a row never
 /// echoes them, and a continuation inherits only `extras` from its source
 /// row (the brief is request-level).
@@ -400,7 +269,7 @@ impl From<Value> for ToolData {
 /// Every query field that names where a walk stands: its pages, offsets and
 /// snapshots, and the saved `selection` plan they were ordered by. A restart
 /// drops them all; the contract guard keeps the list complete.
-pub(crate) const CURSOR_FIELDS: [&str; 11] = [
+pub(crate) const CURSOR_FIELDS: [&str; 12] = [
     "page",
     "matchPage",
     "importerPage",
@@ -412,6 +281,7 @@ pub(crate) const CURSOR_FIELDS: [&str; 11] = [
     "selection",
     "candidatePage",
     "headSha",
+    "cursor",
 ];
 
 /// The one restart of a row query `row` of `tool`: the same query from its
@@ -480,124 +350,4 @@ pub(crate) fn remove_null_fields(value: &mut Value) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        CURSOR_FIELDS, ToolError, for_each_call, for_each_call_mut, restart_query, stale_snapshot,
-        with_changes,
-    };
-    use crate::id::ToolId;
-    use octocode_contract_types::ErrorCode;
-    use serde_json::{Value, json};
-
-    /// Every query field of every tool that names where a walk stands (a
-    /// page, an offset, a snapshot, a saved selection) is in the one list a
-    /// restart drops, and every listed field is some tool's query field.
-    #[test]
-    fn the_cursor_list_is_every_contract_cursor_field() {
-        let mut fields = std::collections::BTreeSet::new();
-        for tool in ToolId::ALL {
-            let contract = crate::contracts::tool_contract(tool).expect("tool contract");
-            let schema = &contract["querySchema"];
-            let defs = &schema["$defs"];
-            let branches = ["oneOf", "anyOf"]
-                .iter()
-                .find_map(|key| schema.get(*key).and_then(Value::as_array))
-                .map_or_else(|| vec![schema], |branches| branches.iter().collect());
-            for branch in branches {
-                let branch = crate::contracts::resolve_ref(branch, defs);
-                for field in branch["properties"]
-                    .as_object()
-                    .into_iter()
-                    .flatten()
-                    .map(|(f, _)| f)
-                {
-                    fields.insert(field.clone());
-                }
-            }
-        }
-        let cursor = |field: &str| {
-            matches!(field, "page" | "offset" | "snapshot" | "selection")
-                || ["Page", "Offset", "Snapshot"]
-                    .iter()
-                    .any(|suffix| field.ends_with(suffix))
-        };
-        let found: Vec<&String> = fields.iter().filter(|field| cursor(field)).collect();
-        let listed: Vec<&str> = CURSOR_FIELDS.to_vec();
-        for field in &found {
-            assert!(
-                listed.contains(&field.as_str()),
-                "{field} is a cursor field"
-            );
-        }
-        for field in &listed {
-            assert!(fields.contains(*field), "{field} is no query field");
-        }
-    }
-
-    /// A restart is page 1 of the same query: every cursor and the saved
-    /// selection dropped, a replay (`exact`), executable as built.
-    #[test]
-    fn a_restart_drops_every_cursor_and_the_saved_selection() {
-        let row = json!({"path":"src","matchString":"f","page":3,"matchPage":2,
-            "snapshot":"s1","selection":"plan","pageSize":5});
-        let restart = restart_query(ToolId::LocalSearch, &row);
-        assert_eq!(restart["tool"], "localSearch");
-        assert_eq!(restart["confidence"], "exact");
-        assert_eq!(
-            restart["query"]["queries"][0],
-            json!({"path":"src","matchString":"f","pageSize":5})
-        );
-    }
-
-    /// The stale row a tool returns, as a row or as a whole-call error,
-    /// carries the code and the restart; the runtime owns its text.
-    #[test]
-    fn a_stale_snapshot_carries_its_restart() {
-        let restart = restart_query(
-            ToolId::LocalFetch,
-            &json!({"path":"a","offset":90,"snapshot":"s"}),
-        );
-        let row = stale_snapshot(restart.clone());
-        assert_eq!(row["errorCode"], "staleSnapshot");
-        assert_eq!(row["next"]["restart"], restart);
-        let error = ToolError::stale_snapshot(restart.clone());
-        assert_eq!(error.code, ErrorCode::StaleSnapshot);
-        assert_eq!(error.next.as_deref(), Some(&json!({"restart": restart})));
-    }
-
-    /// A change sets its field in place, a `null` change drops it, and the
-    /// fields left keep their order.
-    #[test]
-    fn changes_set_fields_and_nulls_drop_them() {
-        let row = json!({"path":"a","page":2,"pageSize":5,"snapshot":"s"});
-        let changed = with_changes(row, &json!({"page":3,"snapshot":null,"depth":1}));
-        assert_eq!(
-            serde_json::to_string(&changed).expect("json"),
-            r#"{"path":"a","page":3,"pageSize":5,"depth":1}"#
-        );
-    }
-
-    /// The call walk visits every `{tool, query}` at any depth (under `next`,
-    /// `hints`, items, a response page) and never enters a call's query.
-    #[test]
-    fn the_call_walk_visits_every_call_and_never_its_query() {
-        let inner = json!({"tool":"localFetch","query":{"queries":[{"path":"b"}]}});
-        let mut value = json!({
-            "next":{"nextPage":{"tool":"localSearch","query":{"queries":[{"path":"a"}],
-                "nested":inner}}},
-            "items":[{"hints":[inner]}],
-            "tool":"not a call"
-        });
-        let mut tools = Vec::new();
-        for_each_call(&value, &mut |call| tools.push(call["tool"].clone()));
-        assert_eq!(tools, vec![json!("localSearch"), json!("localFetch")]);
-        for_each_call_mut(&mut value, &mut |call| call["visited"] = json!(true));
-        assert_eq!(value["next"]["nextPage"]["visited"], true);
-        assert!(
-            value["next"]["nextPage"]["query"]["nested"]
-                .get("visited")
-                .is_none()
-        );
-        assert_eq!(value["items"][0]["hints"][0]["visited"], true);
-    }
-}
+mod tests;

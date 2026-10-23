@@ -30,6 +30,7 @@ pub(crate) mod selection;
 pub(crate) mod source;
 pub(crate) mod source_capture;
 pub(crate) mod source_sections;
+pub(crate) mod source_view;
 pub(crate) mod structure_search;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -59,31 +60,26 @@ pub(crate) fn display_name(path: &std::path::Path) -> String {
         .into_owned()
 }
 
-/// The directory names a tool's own file walk prunes: the syntax-visible
-/// defaults (dependency/build output, caches, VCS metadata, credential
-/// stores; [`crate::policy::prune`]) plus the tool's `extra`
-/// names.
-pub(crate) fn syntax_prune(
-    extra: impl IntoIterator<Item = String>,
-) -> octocode_engine::search::walk::Prune {
-    octocode_engine::search::walk::Prune::new(
-        crate::policy::prune::defaults()
-            .map(str::to_owned)
-            .chain(extra),
-    )
-}
-
 /// The engine walk a tool's own file walk builds: the default ignore policy
 /// (ignore rules honored, dot entries skipped), never descending into a
-/// `prune`d directory (the root itself is always walked).
+/// directory the one default prune leaves out, nor into the credential
+/// stores or the tool's `extra` names ([`crate::policy::prune::OwnWalk`];
+/// the root itself is always walked).
 pub(crate) fn pruned_walk(
     root: &std::path::Path,
-    prune: octocode_engine::search::walk::Prune,
+    extra: impl IntoIterator<Item = String>,
 ) -> ignore::WalkBuilder {
-    octocode_engine::search::walk::pruned_walk_builder(
+    let prune = crate::policy::prune::OwnWalk::new(root, extra);
+    let mut walk = octocode_engine::search::walk::walk_builder(
         root,
         octocode_engine::search::walk::IgnorePolicy::default(),
         None,
-        prune,
-    )
+    );
+    walk.filter_entry(move |entry| {
+        !prune.prunes(
+            entry.path(),
+            entry.file_type().is_some_and(|kind| kind.is_dir()),
+        )
+    });
+    walk
 }

@@ -308,6 +308,45 @@ fn leftover_matches_on_the_last_file_page_state_has_more() {
     assert_eq!(data["pagination"]["hasMore"], true, "{published}");
 }
 
+/// `pagination.unit` names what `totalItems` counts: files on grid and list
+/// pages, hit lines on streamed line pages; matchOnly span rows leave it
+/// absent (items).
+#[test]
+fn pagination_names_the_unit_its_total_counts() {
+    let root = tempfile::tempdir().expect("fixture");
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        fs::write(root.path().join(name), "HIT one\nHIT two\n".repeat(200)).expect("hits");
+    }
+    let policy = crate::tools::test_support::workspace_policy(root.path());
+    let unit = |fields: serde_json::Value| {
+        let mut query = serde_json::json!({"path":root.path(),"matchString":"HIT"});
+        query
+            .as_object_mut()
+            .expect("query")
+            .extend(fields.as_object().expect("fields").clone());
+        let result = execute_local_search(
+            &ls_query(query, None),
+            &policy,
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+            Some(4_000),
+            None,
+        )
+        .expect("search");
+        let body = serde_json::to_value(&result).expect("output");
+        assert_eq!(body["pagination"]["hasMore"], true, "{body}");
+        body["pagination"]["unit"].clone()
+    };
+    assert_eq!(unit(serde_json::json!({"pageSize": 1})), "files");
+    assert_eq!(
+        unit(serde_json::json!({"resultView": "files", "pageSize": 1})),
+        "files"
+    );
+    assert_eq!(unit(serde_json::json!({})), "lines");
+    assert!(unit(serde_json::json!({"resultView": "matchOnly"})).is_null());
+}
+
 #[test]
 fn file_page_ceiling_keeps_later_files_partial_and_terminal() {
     let root = tempfile::tempdir().expect("fixture");
@@ -671,7 +710,7 @@ fn excludes_sensitive_and_symlink_descendants_before_projection() {
 }
 
 /// A symlink inside the root that the walk does not follow is counted in
-/// the withheld notice, not dropped unseen.
+/// `skippedPaths`, not dropped unseen.
 #[cfg(unix)]
 #[test]
 fn an_in_root_symlink_to_a_file_is_counted() {
@@ -695,13 +734,11 @@ fn an_in_root_symlink_to_a_file_is_counted() {
     )
     .expect("search");
     assert_eq!(result.files.len(), 1);
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|w| w.contains("1 symlink not followed")),
-        "{:?}",
-        result.warnings
+    let result = serde_json::to_value(&result).expect("result");
+    assert_eq!(
+        crate::tools::test_support::skipped_reasons(&result, "withheld"),
+        [("symlink not followed".into(), 1)],
+        "{result}"
     );
 }
 

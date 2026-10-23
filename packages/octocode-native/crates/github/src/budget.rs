@@ -54,28 +54,6 @@ pub(crate) fn ceil_secs(duration: Duration) -> u64 {
     duration.as_millis().div_ceil(1000) as u64
 }
 
-/// Cancellation- and deadline-aware sleep. Fails fast (timeout) instead of
-/// sleeping past the deadline.
-pub(crate) async fn pause(
-    delay: Duration,
-    deadline: Instant,
-    cancellation: &CancellationToken,
-) -> Result<(), ProviderError> {
-    if cancellation.is_cancelled() {
-        return Err(BudgetStop::Cancelled.into());
-    }
-    if Instant::now() + delay >= deadline {
-        return Err(BudgetStop::Deadline.into());
-    }
-    if delay.is_zero() {
-        return Ok(());
-    }
-    tokio::select! {
-        _ = cancellation.cancelled() => Err(BudgetStop::Cancelled.into()),
-        _ = tokio::time::sleep(delay) => Ok(()),
-    }
-}
-
 async fn acquire(
     semaphore: &Arc<Semaphore>,
     deadline: Instant,

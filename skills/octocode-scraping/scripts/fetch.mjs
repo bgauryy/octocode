@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseConfig } from './lib/args.mjs';
 import { fail } from './lib/fail.mjs';
@@ -19,13 +19,35 @@ try {
 // Reusing a populated session without --append would restart pageIds at
 // page-001 and silently overwrite the prior crawl. Refuse; --append continues
 // numbering and keeps the prior roster.
-const priorSourcesPath = join(config.outBase, config.sessionId, 'sources.jsonl');
-let priorSources = [];
-if (existsSync(priorSourcesPath)) {
-  if (!config.append) {
-    fail('sessionExists', `--session ${config.sessionId} already holds ${priorSourcesPath}; pass --append to continue its numbering, or omit --session for a fresh session`, 2, { sessionDir: join(config.outBase, config.sessionId) });
+const priorSessionDir = join(config.outBase, config.sessionId);
+const priorSourcesPath = join(priorSessionDir, 'sources.jsonl');
+const pendingDir = join(priorSessionDir, '.pending');
+let priorSources = [], recovered = [];
+try {
+  if (existsSync(pendingDir)) {
+    for (const file of (await readdir(pendingDir)).filter(name => /^page-\d+\.json$/.test(name)).sort()) {
+      const page = JSON.parse(await readFile(join(pendingDir, file), 'utf8'));
+      if (page.sourceRow?.pageId + '.json' !== file || page.pageMap?.pageId !== page.sourceRow.pageId ||
+          !['links', 'headings', 'elements', 'resources'].every(key => Array.isArray(page[key]))) throw Error('Invalid page checkpoint ' + file);
+      recovered.push(page);
+    }
   }
-  priorSources = (await readFile(priorSourcesPath, 'utf8')).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  if (existsSync(priorSourcesPath)) priorSources = (await readFile(priorSourcesPath, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
+} catch (error) { fail('sessionIncomplete', `Cannot recover session: ${error.message}`, 1, { sessionDir: priorSessionDir }); }
+const priorIds = new Set([...priorSources.map(row => row.pageId), ...recovered.map(page => page.sourceRow.pageId)]);
+for (const folder of ['pages', 'raw', 'text', 'extracts']) {
+  const dir = join(priorSessionDir, folder);
+  if (!existsSync(dir)) continue;
+  for (const file of await readdir(dir)) {
+    const id = file.match(/^(page-\d+)[.-]/)?.[1];
+    if (id && !priorIds.has(id)) fail('sessionIncomplete', `Uncommitted page ${id}; preserve its artifacts and use a new session`, 1, { sessionDir: priorSessionDir });
+  }
+}
+if (existsSync(priorSourcesPath) || recovered.length) {
+  if (!config.append) fail('sessionExists', `--session ${config.sessionId} already contains evidence; pass --append to resume, or use a fresh session`, 2, { sessionDir: priorSessionDir });
+  const merged = new Map(priorSources.map(row => [row.pageId, row]));
+  for (const page of recovered) merged.set(page.sourceRow.pageId, page.sourceRow);
+  priorSources = [...merged.values()];
 }
 
 // Resolve 'auto' → direct for html. Browser rendering is an explicit escalation
@@ -103,9 +125,22 @@ if (priorSources.length) {
   try {
     const priorMap = JSON.parse(await readFile(join(sessionDir, 'page-map.json'), 'utf8'));
     if (Array.isArray(priorMap?.pages)) pageMaps.push(...priorMap.pages);
-  } catch { failures.push('append: prior page-map.json unreadable; roster kept from sources.jsonl only'); }
+  } catch {
+    if (priorSources.some(row => !recovered.some(page => page.sourceRow.pageId === row.pageId))) failures.push('append: prior page-map.json unreadable; only checkpointed pages can recover their map');
+  }
   for (const [path, rows] of [['extracts/links.jsonl',linksAll],['extracts/headings.jsonl',headingsAll],['extracts/elements.jsonl',elementsAll],['extracts/resources.jsonl',resourcesAll],['extracts/costs.jsonl',costs]]) {
     if (existsSync(join(sessionDir,path))) rows.push(...(await readFile(join(sessionDir,path),'utf8')).split('\n').filter(Boolean).map(JSON.parse));
+  }
+  const recoveredIds = new Set(recovered.map(page => page.sourceRow.pageId));
+  for (const [rows, field] of [[pageMaps, 'pageMap'], [linksAll, 'links'], [headingsAll, 'headings'], [elementsAll, 'elements'], [resourcesAll, 'resources'], [costs, 'cost']]) {
+    const retained = rows.filter(row => !recoveredIds.has(row.pageId));
+    rows.length = 0;
+    rows.push(...retained);
+    for (const page of recovered) {
+      const value = page[field];
+      if (Array.isArray(value)) rows.push(...value);
+      else if (value) rows.push(value);
+    }
   }
   // Resume a crawl from the links prior pages found but the session never fetched.
   if (config.crawl) for (const link of linksAll) if (link?.href && !enqueue(link.href)) break;

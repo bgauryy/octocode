@@ -30,7 +30,7 @@ Check `schema` availability, `auth status`, or `lsp-server status <file>` for th
 
 For credentials and settings, follow [configuration](configuration.md). GitHub uses `GH_TOKEN` or `GITHUB_TOKEN`. Inline `clasifyContext` needs `OCTOCODE_CLASSIFICATION_API` (or `classification.api`); public `clasify` additionally needs beta (`OCTOCODE_BETA=1`). Calls without classification perform ordinary retrieval; there is no separate selection switch.
 
-`ghCloneRepo` needs local tools enabled (`OCTOCODE_ENABLE_LOCAL`) and persistent `OCTOCODE_STORAGE_MODE`; `ENABLE_CLONE` is ignored. Inspect live configuration before selecting a capability. No setting change is implied by a missing capability.
+`ghCloneRepo` needs persistent `OCTOCODE_STORAGE_MODE`; exploring the clone (`exploreClone`, local tools) needs `OCTOCODE_ENABLE_LOCAL`. `ENABLE_CLONE` is ignored. Inspect live configuration before selecting a capability. No setting change is implied by a missing capability.
 
 ## 14 public tools
 
@@ -47,7 +47,7 @@ The default catalog contains 12 tools over MCP and 13 in the CLI; the full schem
 - On validation failure, repair the named field. For a row error, use its returned repair or restart instruction; classification can place the error under `queries[].error`.
 - Copy required `next.*` calls unchanged, retaining snapshots, selection, offsets, and scope. Finish `responsePagination` before a row continuation. Match, content, patch, and diagnostic pages can be independent even when one `hasMore` is false.
 - A coverage claim must include every page in its stated view or name the unread part. A classification selection describes candidate decisions, not complete corpus coverage; keep selected pages, unjudged candidates, unknown inspection, and the original view distinct.
-- `hints` are optional leads, not continuations or proof. Use `extras:["hints"]` when needed; other opt-ins are `details`, `stats`, `receipts`, `echo`, and `diagnostics`. Copy a suggested tool's JSON unchanged when following it. `Approximate:` marks low confidence.
+- `hints` are optional leads, not continuations or proof. Set `extras:["hints"]` on each `queries[]` row for next-step leads on successful rows (empty and failed rows show them); other opt-ins are `details`, `stats`, `receipts`, `echo`, and `diagnostics`. Copy a suggested tool's JSON unchanged when following it. `Approximate:` marks low confidence.
 - For a terminal limit, narrow the query; never invent a cursor. For repeated empty results, change scope, filters, ref/index, or source. GitHub may be unindexed: verify the path or search a local checkout.
 - CLI exit codes: `0` success, `1` empty, `2` input, `3` not found, `4` authentication, `5` execution, `7` rate limit. Exit `0` alone proves neither row success nor complete coverage.
 

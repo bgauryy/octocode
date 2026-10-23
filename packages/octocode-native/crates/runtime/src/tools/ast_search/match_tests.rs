@@ -397,7 +397,7 @@ fn clipped_values_do_not_mark_the_row_partial() {
 }
 
 /// A match row with every file and match page shown and no scope gap is
-/// `complete`: its expansions (`expandCaptures`, `expandValues`) and the
+/// `coverage.state: "complete"`: its expansions (`expandCaptures`, `expandValues`) and the
 /// hits read are drill-downs, so the response stage does not mark it
 /// partial. A file page left, or a scope gap, keeps it open.
 #[test]
@@ -409,7 +409,7 @@ fn match_rows_without_unread_pages_are_complete() {
     let base =
         json!({"operation":"match","path":root.0,"pattern":"call($$$A)","language":"typescript"});
     let out = run(&root.0, base.clone()).expect("match");
-    assert_eq!(out["complete"], true, "{out}");
+    assert_eq!(out["coverage"]["state"], "complete", "{out}");
     assert!(out["next"].get("expandCaptures").is_some(), "{out}");
     let row = crate::response::rows::result_row(
         crate::id::ToolId::AstSearch,
@@ -422,11 +422,11 @@ fn match_rows_without_unread_pages_are_complete() {
     let mut paged = base.clone();
     paged["pageSize"] = json!(1);
     let open = run(&root.0, paged).expect("first file page");
-    assert!(open.get("complete").is_none(), "{open}");
+    assert!(open.get("coverage").is_none(), "{open}");
     let mut capped = base;
     capped["maxFiles"] = json!(1);
     let gap = run(&root.0, capped).expect("capped scan");
-    assert!(gap.get("complete").is_none(), "{gap}");
+    assert!(gap.get("coverage").is_none(), "{gap}");
 }
 
 /// Clipped rows across files and past the read-range limit each stay
@@ -666,7 +666,7 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
     )
     .expect("source");
     let query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,
-        "rule":"rule:\n  kind: function_item\n"});
+        "rule":{"kind":"function_item"}});
     let out = run(&root.0, query.clone()).expect("match");
     assert_eq!(
         out["files"][0]["matches"][0],
@@ -869,7 +869,7 @@ fn a_clipped_whole_file_value_is_not_offered_for_reading() {
     .expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":source,"rule":"kind: function_item","captureText":true}),
+        json!({"operation":"match","path":source,"rule":{"kind":"function_item"},"captureText":true}),
     )
     .expect("match");
     assert_eq!(out["matchCount"], 2, "{out}");
@@ -919,7 +919,7 @@ fn clipped_values_past_one_read_batch_are_named() {
     root.write("z.rs", format!("fn z() {{\ncall(\n{args}\n);\n}}\n"));
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"rust","rule":"kind: call_expression",
+        json!({"operation":"match","path":root.0,"language":"rust","rule":{"kind":"call_expression"},
             "captureText":true,"matchContentLength":20}),
     )
     .expect("match");
@@ -1061,11 +1061,14 @@ const LOCAL_ERROR_CPP: &str = "struct S {\n    JSON_HEDLEY_NON_NULL(2)\n    int 
 fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
     let root = Fixture::new();
     for name in ["a", "b", "c", "d"] {
-        root.write(&format!("{name}.cpp"), GARBLED_CPP);
+        root.write(&format!("pkg/lib/{name}.cpp"), GARBLED_CPP);
     }
-    root.write("clean.cpp", "int f() { JSON_ASSERT(1); return 2; }\n");
-    root.write("local.cpp", LOCAL_ERROR_CPP);
-    let row = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,
+    root.write(
+        "pkg/lib/clean.cpp",
+        "int f() { JSON_ASSERT(1); return 2; }\n",
+    );
+    root.write("pkg/lib/local.cpp", LOCAL_ERROR_CPP);
+    let row = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0.join("pkg/lib"),
         "language":"cpp","pattern":"JSON_ASSERT($$$A)","pageSize":1});
     let (paths, security) = simple_policy(&root.0);
     let first = execute_row(row, &paths, &security, &NeverCancel).expect("first page");
@@ -1082,19 +1085,18 @@ fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
         warning.starts_with("4 files parsed with syntax errors"),
         "{warning}"
     );
-    // Paths read as the rows' do, from the workspace root.
+    // Paths read as the rows' do after the response stage, from the
+    // workspace root, so each passes to localFetch verbatim.
     assert!(
-        warning.contains("/a.cpp, ")
-            && warning.contains("/b.cpp, ")
-            && warning.contains("/c.cpp, …)"),
+        warning.contains("(pkg/lib/a.cpp, pkg/lib/b.cpp, pkg/lib/c.cpp, …)"),
         "{warning}"
     );
-    assert!(!warning.contains("/d.cpp"), "{warning}");
+    assert!(!warning.contains("d.cpp"), "{warning}");
     assert!(
         !warning.contains("local.cpp") && !warning.contains("clean.cpp"),
         "{warning}"
     );
-    assert!(first.get("complete").is_none(), "{first}");
+    assert!(first.get("coverage").is_none(), "{first}");
     // Every page states the same coverage.
     let next = first["next"]["nextPage"]["query"]["queries"][0].clone();
     let second = execute_row(next, &paths, &security, &NeverCancel).expect("second page");
@@ -1127,10 +1129,10 @@ fn recovered_syntax_away_from_the_match_is_not_disclosed() {
 #[test]
 fn a_single_file_match_discloses_its_recovered_parse() {
     let root = Fixture::new();
-    root.write("lexer.cpp", GARBLED_CPP);
+    root.write("src/lexer.cpp", GARBLED_CPP);
     let out = run(
-        &root.0.join("lexer.cpp"),
-        json!({"operation":"match","path":root.0.join("lexer.cpp"),"pattern":"JSON_ASSERT($$$A)"}),
+        &root.0,
+        json!({"operation":"match","path":root.0.join("src/lexer.cpp"),"pattern":"JSON_ASSERT($$$A)"}),
     )
     .expect("match runs");
     assert_eq!(out["partialReasons"], json!(["parseRecovered"]), "{out}");
@@ -1139,5 +1141,5 @@ fn a_single_file_match_discloses_its_recovered_parse() {
         warning.starts_with("1 file parsed with syntax errors"),
         "{warning}"
     );
-    assert!(warning.contains("(lexer.cpp)"), "{warning}");
+    assert!(warning.contains("(src/lexer.cpp)"), "{warning}");
 }

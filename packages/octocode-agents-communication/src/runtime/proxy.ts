@@ -1,4 +1,4 @@
-/** Explicitly launched, isolated vendor workers using the bound communication tools. */
+/** Explicitly launched, isolated vendor workers using the bound communication tools: launch, supervision and the shared loop. */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -7,22 +7,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as catalog from './catalog.js';
 import { databasePath } from './config.js';
-import type { HeartbeatInput, RecordUsageInput } from './catalog-types.generated.js';
-import type { Offered } from './rows.js';
-import type { JsonObject } from './validation.js';
-import { Presence, SESSION_EXPIRED, stopEvent, withPeers, type DeliveryRuntime, type DeliveryStore } from './dispatch.js';
+import type { RecordUsageInput } from './catalog-types.generated.js';
+import type { DeliveryStore } from './delivery-types.js';
+import { SESSION_EXPIRED, withPeers } from './dispatch.js';
 import { ValidationError } from './errors.js';
+import { encode } from './json-text.js';
+import { Presence, stopEvent } from './loop-control.js';
 import { claimDeliveryOwner } from './owner-lock.js';
-import { realpath } from './paths.js';
 import { truncateCodePoints } from './text.js';
 import { deadlineAfter, monotonic, now, running, type Stop } from './timing.js';
-import * as transport from './transport.js';
-import { isObject } from './validation.js';
-import { VERSION } from './version.js';
-import { TERMINATE_GRACE_MS, Wire, dumps, encode, refusal } from './wire.js';
+import type { UsageCounter } from './transport.js';
+import { isObject, objectOrEmpty, type JsonObject } from './validation.js';
+import { WORKERS, type LoopWorker, type ProxyArgs, type ProxyRuntime } from './vendor-workers.js';
+import { TERMINATE_GRACE_MS, Wire, refusal } from './wire.js';
 
-const PROXY_INSTRUCTIONS = 'The host manages your identity, presence, live lease renewal and delivery. Use bound tools for the user task. Initiate messages, broadcasts or subscriptions only when the task authorizes them. Follow the supplied skill for leases, replies and completion; unfinished work stays pending. Call inbox only for requested recovery. When no actionable work remains, end the turn. The host waits for mail and starts the next turn; do not sleep or poll to remain active.';
-const USAGE_FIELDS: readonly (readonly [transport.UsageCounter, readonly string[]])[] = [
+const USAGE_FIELDS: readonly (readonly [UsageCounter, readonly string[]])[] = [
   ['inputTokens', ['inputTokens', 'input_tokens', 'input']],
   ['outputTokens', ['outputTokens', 'output_tokens', 'output']],
   ['cachedInputTokens', ['cachedInputTokens', 'cache_read_input_tokens', 'cacheRead']],
@@ -30,45 +29,6 @@ const USAGE_FIELDS: readonly (readonly [transport.UsageCounter, readonly string[
 ];
 const PI_CONTEXT_FIELDS = ['input', 'cacheRead', 'cacheWrite'];
 const POLL_MS = 100;
-
-interface ProxyArgs {
-  vendor?: string;
-  model?: string;
-  prompt?: string;
-  durationMs?: number;
-  name?: string;
-  session?: string;
-  database?: string;
-  workspace: string;
-  tools?: string;
-  trace?: boolean;
-}
-
-/** How a worker reaches the communication runtime from inside a vendor process; the interface layer owns the entry script. */
-interface WorkerLauncher {
-  /** The command and arguments that start the bound MCP server (`mcp ...` flags are appended to `args`). */
-  mcp(args: readonly string[]): { command: string; args: string[] };
-  /** The CLI binary the Pi extension runs for each tool call (its `binding.binary`). */
-  binary: string;
-  /** The bundled Pi extension (`dist/hosts/pi-extension.js`) the worker loads. */
-  piExtension: string;
-}
-
-interface ProxyRuntime extends Pick<DeliveryRuntime, 'output' | 'open'> {
-  launcher: WorkerLauncher;
-  /** Starts the parent-death guard for the vendor process group; the module `watchdog` when omitted. A seam for ordering tests. */
-  watchdog?: (group: number | undefined) => ChildProcess | null;
-}
-
-/** Text for the values the vendor error texts embed. */
-function show(value: unknown): string {
-  return typeof value === 'string' ? value : dumps(value ?? null);
-}
-
-const object = (value: unknown): JsonObject => (isObject(value) ? value : {});
-
-/** A vendor reply field that must be text; anything else counts as missing. */
-const textOf = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /** The first line, or '' for no lines. */
 function firstLine(text: string): string {
@@ -106,7 +66,7 @@ async function worker(args: ProxyArgs, store: DeliveryStore, identity: string, v
     store.attach(identity, { transport: 'raw' });
     const deadline = deadlineAfter(args.durationMs);
     const parent = process.ppid;
-    const handler = new Handler(args, store, identity, model, prompt, directory, runtime);
+    const handler = new Handler({ args, store, identity, model, prompt, directory, runtime });
     const loop = new Loop(handler, stop.signal, deadline, parent);
     let guard: ChildProcess | null = null;
     const host = new Wire(vendor, handler.argv(), handler.cwd, Object.entries(handler.environment), deadline, stop.signal);
@@ -176,257 +136,6 @@ export function watchdog(group: number | undefined): ChildProcess | null {
   return child;
 }
 
-/** What `Loop` reads and drives of a vendor worker: identity, store, wire, and the vendor's handshake, event and delivery steps. */
-export interface LoopWorker {
-  readonly name: string;
-  readonly identity: string;
-  readonly prompt: string;
-  readonly toolNames: readonly string[];
-  readonly deliverWhileBusy: boolean;
-  readonly args: Pick<ProxyArgs, 'tools' | 'trace'>;
-  readonly store: Pick<DeliveryStore, 'workspace' | 'coordinationScope' | 'known' | 'peerContext' | 'stage' | 'finishDispatch' | 'recordUsage'>;
-  readonly host: Pick<Wire, 'pid' | 'event' | 'send'>;
-  session: string;
-  busy: boolean;
-  emit(record: object): void;
-  heartbeat(fields?: HeartbeatInput): Promise<void>;
-  start(): Promise<void>;
-  prime(peers: string): Promise<string>;
-  begin(guidance: string): Promise<void>;
-  onEvent(event: JsonObject, params: JsonObject, message: JsonObject, item: JsonObject, turn: JsonObject): Promise<void>;
-  offer(items: readonly Offered[], content: string): Promise<void>;
-  stageActionOnly(): boolean | null;
-}
-
-/** One vendor's launch arguments, handshake, event protocol and delivery. */
-abstract class VendorWorker implements LoopWorker {
-  abstract readonly name: string;
-  readonly deliverWhileBusy: boolean = true;
-  readonly tools: ReturnType<typeof catalog.selectedTools>;
-  readonly toolNames: string[];
-  readonly mcp: { command: string; args: string[] };
-  readonly cwd: string;
-  readonly environment: Record<string, string> = {};
-  host!: Wire;
-  session = '';
-  busy = true;
-
-  constructor(readonly args: ProxyArgs, readonly store: DeliveryStore, readonly identity: string, readonly model: string, readonly prompt: string, readonly directory: string, readonly runtime: ProxyRuntime) {
-    this.tools = catalog.selectedTools(args.tools);
-    const flags = ['mcp', '--workspace', store.workspace, '--database', String(store.database), '--session', identity];
-    if (args.tools) flags.push('--tools', args.tools);
-    this.mcp = runtime.launcher.mcp(flags);
-    this.toolNames = this.tools.map(tool => tool.name);
-    this.cwd = realpath(directory, true);
-  }
-
-  emit(record: object): void {
-    this.runtime.output(record);
-  }
-
-  emitTexts(message: JsonObject): void {
-    for (const piece of Array.isArray(message.content) ? message.content : []) if (isObject(piece) && piece.type === 'text') this.emit({ type: 'text', text: piece.text });
-  }
-
-  async heartbeat(fields: HeartbeatInput = {}): Promise<void> {
-    await this.store.call(this.identity, 'heartbeat', { renewLeases: true, ...fields });
-  }
-
-  abstract argv(): string[];
-
-  /** Vendor handshake before the first turn; may bind the vendor session. */
-  async start(): Promise<void> {}
-
-  /** Returns the peer context still owed to the first turn. */
-  async prime(peers: string): Promise<string> {
-    return peers;
-  }
-
-  async begin(guidance: string): Promise<void> {
-    await this.deliver(guidance);
-  }
-
-  abstract deliver(content: string, action?: boolean): Promise<void>;
-
-  async offer(items: readonly Offered[], content: string): Promise<void> {
-    await this.deliver(content, items.some(item => item.wake === 'action'));
-  }
-
-  stageActionOnly(): boolean | null {
-    return null;
-  }
-
-  abstract onEvent(event: JsonObject, params: JsonObject, message: JsonObject, item: JsonObject, turn: JsonObject): Promise<void>;
-
-  completed(): void {
-    this.busy = false;
-    this.emit({ type: 'turn-completed', vendor: this.name });
-  }
-}
-
-class CodexWorker extends VendorWorker {
-  readonly name = 'codex';
-
-  argv(): string[] {
-    return ['app-server'];
-  }
-
-  override async start(): Promise<void> {
-    const host = this.host;
-    await host.request('initialize', { clientInfo: { name: 'octocode-agents-communication', version: VERSION } });
-    await host.send({ method: 'initialized', params: {} });
-    await this.heartbeat();
-    const config = object(object(await host.request('config/read', { includeLayers: false })).config);
-    const plugins = Object.fromEntries(Object.keys(object(config.plugins)).map(key => [key, { enabled: false }]));
-    const servers: JsonObject = Object.fromEntries(Object.keys(object(config.mcp_servers)).map(key => [key, { enabled: false }]));
-    servers.agents_communication = { ...this.mcp, enabled: true, enabled_tools: this.toolNames, default_tools_approval_mode: 'approve' };
-    const skills = await this.disabledSkills();
-    await this.heartbeat();
-    const started = object(await host.request('thread/start', this.thread(servers, plugins, skills)));
-    this.session = textOf(object(started.thread).id);
-    if (!this.session) throw new ValidationError('No vendor session ID');
-    await this.heartbeat({ vendorSession: this.session });
-  }
-
-  private async disabledSkills(): Promise<JsonObject[]> {
-    const discovered = object(await this.host.request('skills/list', { cwds: [this.cwd], forceReload: true }));
-    if (!Array.isArray(discovered.data)) throw new ValidationError('Invalid Codex skills list');
-    const skills: JsonObject[] = [];
-    for (const entry of discovered.data) {
-      const listed = object(entry).skills;
-      if (!Array.isArray(listed)) throw new ValidationError('Invalid Codex skills entry');
-      for (const skill of listed) {
-        const path = object(skill).path;
-        if (typeof path !== 'string') throw new ValidationError('Missing Codex skill path');
-        skills.push({ path, enabled: false });
-      }
-    }
-    return skills;
-  }
-
-  private thread(servers: JsonObject, plugins: JsonObject, skills: JsonObject[]): JsonObject {
-    const features = { code_mode: { enabled: false }, shell_tool: false, apply_patch_freeform: false, multi_agent: false, memories: false, hooks: false, apps: false, skill_search: false };
-    const config = { mcp_servers: servers, plugins, project_doc_max_bytes: 0, skills: { config: skills }, web_search: 'disabled', features };
-    return { model: this.model, cwd: this.cwd, approvalPolicy: 'never', sandbox: 'read-only', ephemeral: true, baseInstructions: PROXY_INSTRUCTIONS, developerInstructions: '', config };
-  }
-
-  override async prime(peers: string): Promise<string> {
-    if (peers) await this.host.request('thread/inject_items', transport.codexPeerItems(this.session, peers));
-    return '';
-  }
-
-  override async begin(guidance: string): Promise<void> {
-    await this.host.request('turn/start', { threadId: this.session, input: [{ type: 'text', text: guidance }], effort: 'low' });
-  }
-
-  async deliver(content: string, action = true): Promise<void> {
-    if (action) await this.host.request('turn/start', transport.codexPeerTurn(this.session, content));
-    else await this.host.request('thread/inject_items', transport.codexPeerItems(this.session, content));
-  }
-
-  override stageActionOnly(): boolean | null {
-    return this.busy ? false : null;
-  }
-
-  async onEvent(event: JsonObject, params: JsonObject, _message: JsonObject, item: JsonObject, turn: JsonObject): Promise<void> {
-    const method = event.method;
-    if (method === 'item/completed' && item.type === 'agentMessage') this.emit({ type: 'text', text: item.text });
-    if (method === 'turn/completed') {
-      if (turn.status === 'failed') throw new Error('Vendor turn failed: ' + show(turn.error));
-      this.completed();
-    }
-    if (method === 'error' && params.willRetry !== true) throw new Error('Vendor error: ' + show(params));
-  }
-}
-
-class PiWorker extends VendorWorker {
-  readonly name = 'pi';
-  override readonly deliverWhileBusy = false;
-  private readonly extension: string;
-  private error: unknown = null;
-
-  constructor(args: ProxyArgs, store: DeliveryStore, identity: string, model: string, prompt: string, directory: string, runtime: ProxyRuntime) {
-    super(args, store, identity, model, prompt, directory, runtime);
-    this.extension = runtime.launcher.piExtension;
-    const binding = { binary: runtime.launcher.binary, workspace: store.workspace, database: String(store.database), session: identity, tools: this.tools };
-    this.environment.OCTOCODE_COMMUNICATION_BINDING = encode(binding).toString('utf8');
-  }
-
-  argv(): string[] {
-    return ['--mode', 'rpc', '--model', this.model, '--thinking', 'off', '--system-prompt', PROXY_INSTRUCTIONS, '--no-session', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-context-files', '--no-builtin-tools', '--extension', this.extension];
-  }
-
-  override async start(): Promise<void> {
-    this.session = textOf(object(await this.host.piRequest('get_state', {})).sessionId);
-    if (!this.session) throw new ValidationError('No Pi session ID');
-    await this.heartbeat({ vendorSession: this.session });
-  }
-
-  async deliver(content: string): Promise<void> {
-    await this.host.piRequest('prompt', { message: content });
-  }
-
-  async onEvent(event: JsonObject, _params: JsonObject, message: JsonObject, _item: JsonObject, _turn: JsonObject): Promise<void> {
-    const kind = event.type;
-    if (kind === 'response' && event.success === false) throw new Error('Pi command failed: ' + show(event.error));
-    if (kind === 'message_end' && message.role === 'assistant') {
-      const reason = message.stopReason;
-      const failed = reason === 'error' || reason === 'aborted';
-      this.error = failed ? (message.errorMessage ?? null) : null;
-      if (failed && this.error === null) this.error = reason;
-      this.emitTexts(message);
-    }
-    if (kind === 'agent_settled') {
-      if (this.error !== null) throw new Error('Pi turn failed: ' + show(this.error));
-      this.completed();
-    }
-  }
-}
-
-class ClaudeWorker extends VendorWorker {
-  readonly name = 'claude';
-  private readonly socket: string;
-
-  constructor(args: ProxyArgs, store: DeliveryStore, identity: string, model: string, prompt: string, directory: string, runtime: ProxyRuntime) {
-    super(args, store, identity, model, prompt, directory, runtime);
-    this.socket = join(this.cwd, 'inbox.sock');
-    if (typeof process.geteuid !== 'function') throw new ValidationError('Managed Claude peer delivery requires local Unix sockets; use a host-wired communication binding on this platform');
-    transport.validate('claude', this.socket);
-  }
-
-  argv(): string[] {
-    const settings = encode({ disableAllHooks: true, autoMemoryEnabled: false }).toString('utf8');
-    const servers = encode({ mcpServers: { agents_communication: this.mcp } }).toString('utf8');
-    return ['-p', '--messaging-socket-path', this.socket, '--settings', settings, '--system-prompt', PROXY_INSTRUCTIONS, '--model', this.model, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--setting-sources', '', '--strict-mcp-config', '--mcp-config', servers, '--tools', '', '--allowedTools', 'mcp__agents_communication__*', '--permission-mode', 'dontAsk', '--disable-slash-commands'];
-  }
-
-  async deliver(content: string): Promise<void> {
-    await this.host.send({ type: 'user', message: { role: 'user', content }, session_id: this.session, parent_tool_use_id: null });
-  }
-
-  override async offer(items: readonly Offered[], content: string): Promise<void> {
-    await transport.claude(this.socket, this.session, items[0]!.dispatchToken, content);
-  }
-
-  async onEvent(event: JsonObject, _params: JsonObject, message: JsonObject, _item: JsonObject, _turn: JsonObject): Promise<void> {
-    const kind = event.type;
-    if (kind === 'system' && event.subtype === 'init') {
-      this.session = textOf(event.session_id);
-      if (!this.session) throw new ValidationError('No vendor session ID');
-      await this.heartbeat({ vendorSession: this.session });
-    }
-    if (kind === 'assistant') this.emitTexts(message);
-    if (kind === 'result') {
-      if (event.is_error === true) throw new Error('Vendor turn failed: ' + show(event));
-      this.completed();
-    }
-  }
-}
-
-type WorkerClass = new (args: ProxyArgs, store: DeliveryStore, identity: string, model: string, prompt: string, directory: string, runtime: ProxyRuntime) => VendorWorker;
-
-const WORKERS: Record<string, WorkerClass> = { codex: CodexWorker, pi: PiWorker, claude: ClaudeWorker };
-
 /** Shared worker lifecycle: first turn, heartbeats, vendor events and staged delivery. */
 export class Loop {
   private readonly presence: Presence;
@@ -467,14 +176,14 @@ export class Loop {
   }
 
   async handle(frame: Record<string, unknown>): Promise<void> {
-    const event = object(frame);
+    const event = objectOrEmpty(frame);
     const { worker } = this;
     const wasBusy = worker.busy;
     persistUsage(worker.store, worker.identity, worker.name, worker.session, event);
-    const params = object(event.params);
-    const message = object(event.message);
-    const item = object(params.item);
-    const turn = object(params.turn);
+    const params = objectOrEmpty(event.params);
+    const message = objectOrEmpty(event.message);
+    const item = objectOrEmpty(params.item);
+    const turn = objectOrEmpty(params.turn);
     if (worker.args.trace) this.trace(event, item, turn);
     await worker.onEvent(event, params, message, item, turn);
     if ('method' in event && 'id' in event) await worker.host.send(refusal(event.id));
@@ -516,8 +225,8 @@ export class Loop {
 }
 
 function traceUsage(worker: LoopWorker, event: JsonObject): void {
-  const message = object(event.message);
-  const params = object(event.params);
+  const message = objectOrEmpty(event.message);
+  const params = objectOrEmpty(event.params);
   let scope: string;
   let usage: unknown;
   if (event.method === 'thread/tokenUsage/updated') [scope, usage] = ['thread', params.tokenUsage];
@@ -530,7 +239,7 @@ function traceUsage(worker: LoopWorker, event: JsonObject): void {
 const counted = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
 function usageSource(vendor: string, event: JsonObject, message: JsonObject, params: JsonObject): [unknown, RecordUsageInput['scope'] | null] {
-  if (vendor === 'codex' && event.method === 'thread/tokenUsage/updated') return [object(params.tokenUsage).total, 'cumulative'];
+  if (vendor === 'codex' && event.method === 'thread/tokenUsage/updated') return [objectOrEmpty(params.tokenUsage).total, 'cumulative'];
   if (vendor === 'claude' && event.type === 'result') return [event.usage, 'turn'];
   if (vendor === 'pi' && event.type === 'message_end' && message.role === 'assistant') return [message.usage, 'request'];
   return [null, null];
@@ -542,8 +251,8 @@ function usageKey(vendorSession: string, usage: JsonObject, scope: RecordUsageIn
 }
 
 export function persistUsage(store: Pick<DeliveryStore, 'recordUsage'>, identity: string, vendor: string, vendorSession: string, event: JsonObject): void {
-  const message = object(event.message);
-  const params = object(event.params);
+  const message = objectOrEmpty(event.message);
+  const params = objectOrEmpty(event.params);
   const [usage, scope] = usageSource(vendor, event, message, params);
   if (typeof usage !== 'object' || usage === null || Array.isArray(usage) || scope === null) return;
   const source = usage as JsonObject;
@@ -552,14 +261,14 @@ export function persistUsage(store: Pick<DeliveryStore, 'recordUsage'>, identity
     const value = names.map(name => source[name]).find(counted);
     if (value !== undefined) record[field] = value;
   }
-  const value = object(object(params.tokenUsage).last).inputTokens;
+  const value = objectOrEmpty(objectOrEmpty(params.tokenUsage).last).inputTokens;
   if (counted(value)) record.contextTokens = value;
   if (vendor === 'pi' && PI_CONTEXT_FIELDS.every(key => counted(source[key]))) record.contextTokens = PI_CONTEXT_FIELDS.reduce((sum, key) => sum + (source[key] as number), 0);
   store.recordUsage(identity, record);
 }
 
 function rpcToolRecords(event: JsonObject): JsonObject[] {
-  const item = object(object(event.params).item);
+  const item = objectOrEmpty(objectOrEmpty(event.params).item);
   if (item.type !== 'mcpToolCall') return [];
   if (event.method === 'item/started') return [{ type: 'tool-call', callId: item.id, server: item.server, tool: item.tool, input: item.arguments }];
   if (event.method === 'item/completed') return [{ type: 'tool-result', callId: item.id, server: item.server, tool: item.tool, result: item.result, error: item.error }];
@@ -574,7 +283,7 @@ function executionToolRecords(event: JsonObject): JsonObject[] {
 
 function messageToolRecords(event: JsonObject, calls: Map<string, string>): JsonObject[] {
   const records: JsonObject[] = [];
-  const content = object(event.message).content;
+  const content = objectOrEmpty(event.message).content;
   for (const item of Array.isArray(content) ? content : []) {
     if (!isObject(item)) continue;
     if (item.type === 'tool_use' && typeof item.id === 'string' && typeof item.name === 'string') {

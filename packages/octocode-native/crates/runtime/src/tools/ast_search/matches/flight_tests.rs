@@ -80,7 +80,7 @@ fn identical_rows_running_at_once_share_one_scan() {
 fn a_cancelled_row_stops_waiting_for_another_requests_scan() {
     let root = Fixture::new();
     std::fs::write(root.0.join("source.ts"), "target(1);\n").expect("source");
-    let (paths, security) = simple_policy(&root.0);
+    let (paths, _) = simple_policy(&root.0);
     let row = typed(&json!({"operation":"match", "path":root.0, "pattern":"target($A)"}));
     let super::super::AstSearchQuery::MatchPattern(query) = &row else {
         panic!("a pattern row");
@@ -102,7 +102,7 @@ fn a_cancelled_row_stops_waiting_for_another_requests_scan() {
             drop(held);
             answered_first
         });
-        let outcome = execute_match(q, &paths, &security, &cancel, None);
+        let outcome = execute_match(q, &paths, &cancel, None);
         let _ = answered.send(());
         (outcome, holding.join().expect("holder"))
     });

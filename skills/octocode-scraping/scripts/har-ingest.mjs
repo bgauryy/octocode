@@ -12,28 +12,22 @@
  *   node har-ingest.mjs --session-dir <scrapeSession> --har <file.har> --filter api --domain walmart.com
  */
 import { writeFile, readFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   takeArg,
   hasFlag,
-  redactHarObject,
-  redactSecretsInText,
-  redactSecretsInJson,
-  redactUrl,
-  compactHarEntry,
-  filterHarRows,
   readJsonFile,
   replaceJsonl,
   ensureDir,
   thinPageHint,
   patchAgentIndexForBridge,
   discoverCdpArtifacts,
-  fileBytes,
 } from './lib/bridge.mjs';
+import { ingestBodies, ingestCapture, ingestHar } from './lib/cdp-ingest.mjs';
 import { fail } from './lib/fail.mjs';
+
 
 function usage(code = 2) {
   console.error(`Usage:
@@ -140,9 +134,6 @@ if (fromCdpDir) {
 if (!harPath && !bodiesPath && !capturePaths.length) usage();
 
 const ingestedAt = new Date().toISOString();
-// Content-addressed ids: re-ingesting the same capture replaces its rows instead of duplicating them,
-// and two different captures never overwrite each other's files.
-const ingestId = (kind, text) => `cdp-${kind}-${createHash('sha256').update(text).digest('hex').slice(0, 12)}`;
 const corpusRun = fileURLToPath(new URL('./corpus-run.mjs', import.meta.url));
 const cdpFiles = [];
 const networkRows = [];
@@ -151,216 +142,16 @@ const captureRows = [];
 const sourceRows = [];
 let redactMeta = { headerRowsTouched: 0, cookiesRedacted: 0, entries: 0 };
 let filteredCount = 0;
+const ingestContext = { sessionDir, ingestedAt, noRedact, existingSources };
+const ingestOut = { cdpFiles, networkRows, bodyRows, captureRows, sourceRows };
 
 if (harPath) {
-  const absHar = resolve(harPath);
-  if (!existsSync(absHar)) {
-    fail('notFound', `HAR not found: ${absHar}`, 1);
-  }
-  const harText = await readFile(absHar, 'utf8');
-  const har = JSON.parse(harText);
-  const harId = ingestId('har', harText);
-  if (!noRedact) {
-    const meta = redactHarObject(har, { stripBodies });
-    redactMeta = {
-      headerRowsTouched: meta.headerRowsTouched,
-      cookiesRedacted: meta.cookiesRedacted,
-      entries: (meta.entries || []).length,
-    };
-  } else {
-    redactMeta.entries = (har.log?.entries || []).length;
-  }
-
-  const allRows = (har.log?.entries || []).map(compactHarEntry);
-  const rows = filterHarRows(allRows, filter, { minMs, domain });
-  filteredCount = rows.length;
-
-  // Keep full redacted HAR on disk; extracts get filtered compact rows (pager-smart).
-  const harOutRel = `cdp/${harId}.${noRedact ? 'raw' : 'redacted'}.har`;
-  await writeFile(join(sessionDir, harOutRel), `${JSON.stringify(har, null, 2)}\n`, { mode: 0o600 });
-  cdpFiles.push(harOutRel);
-
-  const compactRel = `cdp/${harId}-network-summary.json`;
-  await writeFile(join(sessionDir, compactRel), `${JSON.stringify({
-    sourceHar: absHar,
-    filter,
-    minMs,
-    domain: domain || null,
-    allEntries: allRows.length,
-    filteredEntries: rows.length,
-    counts: {
-      failures: allRows.filter((r) => r.failed).length,
-      api: allRows.filter((r) => r.looksApi || r.looksJson).length,
-      hosts: [...new Set(allRows.map((r) => r.host).filter(Boolean))].length,
-    },
-    rows,
-  }, null, 2)}\n`);
-  cdpFiles.push(compactRel);
-
-  for (const row of rows) {
-    networkRows.push({
-      kind: 'cdp-network',
-      ingestId: harId,
-      ingestedAt,
-      pageId: null,
-      ...row,
-      evidence: { file: harOutRel, summary: compactRel },
-    });
-  }
-
-  sourceRows.push({
-    pageId: harId,
-    url: rows[0]?.url || existingSources[0]?.url || absHar,
-    route: 'bridge:har-ingest',
-    provider: 'cdp-bridge',
-    status: 200,
-    ok: true,
-    contentType: 'application/json',
-    fetchedAt: ingestedAt,
-    raw: harOutRel,
-    text: compactRel,
-    textParts: [],
-    rawTruncated: false,
-    rawBytes: await fileBytes(join(sessionDir, harOutRel)),
-    textTruncated: false,
-    textBytes: await fileBytes(join(sessionDir, compactRel)),
-    cleanTextBytes: await fileBytes(join(sessionDir, compactRel)),
-    antCreditsCost: null,
-    error: null,
-    providerStatus: null,
-    providerDetail: null,
-    targetLikelyError: null,
-    bridge: { type: 'har', filter, filteredEntries: rows.length, allEntries: allRows.length },
-  });
+  ({ redactMeta, filteredCount } = await ingestHar(harPath, { ...ingestContext, filter, minMs, domain, stripBodies }, ingestOut));
 }
 
-if (bodiesPath) {
-  const absBodies = resolve(bodiesPath);
-  if (!existsSync(absBodies)) {
-    fail('notFound', `bodies file not found: ${absBodies}`, 1);
-  }
-  const bodiesText = await readFile(absBodies, 'utf8');
-  const bodies = JSON.parse(bodiesText);
-  const bodiesId = ingestId('bodies', bodiesText);
-  const list = Array.isArray(bodies) ? bodies : (bodies.bodies || bodies.entries || [bodies]);
-  const outRel = `cdp/${bodiesId}-network-bodies.json`;
-  // Mask credential values in every body and URL; the rest of each body stays as evidence.
-  const safeList = list.map((b, i) => {
-    const rawUrl = typeof b.url === 'string' ? b.url : '';
-    const url = noRedact ? rawUrl : redactUrl(rawUrl);
-    let bodyText = b.body ?? b.text ?? '';
-    if (typeof bodyText !== 'string') bodyText = JSON.stringify(bodyText);
-    if (!noRedact) bodyText = redactSecretsInText(bodyText);
-    const bodyFileRel = `cdp/${bodiesId}-body-${String(i + 1).padStart(3, '0')}.txt`;
-    return { index: i, requestId: b.requestId || null, url, bodyText, bodyFileRel };
-  });
+if (bodiesPath) await ingestBodies(bodiesPath, ingestContext, ingestOut);
 
-  for (const item of safeList) {
-    await writeFile(join(sessionDir, item.bodyFileRel), item.bodyText, { mode: 0o600 });
-    cdpFiles.push(item.bodyFileRel);
-    bodyRows.push({
-      kind: 'cdp-body',
-      ingestId: bodiesId,
-      ingestedAt,
-      requestId: item.requestId,
-      url: item.url,
-      bodyFile: item.bodyFileRel,
-      chars: item.bodyText.length,
-      looksJson: /^\s*[\[{]/.test(item.bodyText),
-      sample: item.bodyText.slice(0, 240),
-    });
-  }
-
-  await writeFile(join(sessionDir, outRel), `${JSON.stringify(safeList.map(({ bodyText, ...rest }) => ({ ...rest, chars: bodyText.length })), null, 2)}\n`, { mode: 0o600 });
-  cdpFiles.push(outRel);
-
-  sourceRows.push({
-    pageId: bodiesId,
-    url: safeList[0]?.url || existingSources[0]?.url || absBodies,
-    route: 'bridge:har-ingest',
-    provider: 'cdp-bridge',
-    status: 200,
-    ok: true,
-    contentType: 'application/json',
-    fetchedAt: ingestedAt,
-    raw: outRel,
-    text: safeList[0]?.bodyFileRel || outRel,
-    textParts: safeList.map((s) => s.bodyFileRel),
-    rawTruncated: false,
-    rawBytes: await fileBytes(join(sessionDir, outRel)),
-    textTruncated: false,
-    textBytes: safeList.reduce((n, s) => n + s.bodyText.length, 0),
-    cleanTextBytes: safeList.reduce((n, s) => n + s.bodyText.length, 0),
-    antCreditsCost: null,
-    error: null,
-    providerStatus: null,
-    providerDetail: null,
-    targetLikelyError: null,
-    bridge: { type: 'bodies', count: safeList.length, sourceFile: absBodies },
-  });
-}
-
-for (const capturePath of capturePaths) {
-  const absCapture = resolve(capturePath);
-  const name = basename(absCapture);
-  const captureText = await readFile(absCapture, 'utf8');
-  const original = JSON.parse(captureText);
-  const captureId = ingestId('capture', captureText);
-  const data = noRedact ? original : redactSecretsInJson(original);
-  if (!noRedact && typeof data.location === 'string') data.location = redactUrl(data.location);
-  if (!noRedact && typeof data.url === 'string') data.url = redactUrl(data.url);
-  const outRel = `cdp/${captureId}-${name}`;
-  await writeFile(join(sessionDir, outRel), `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
-  cdpFiles.push(outRel);
-  const isSnapshot = /^page-snapshot\.json$/i.test(name);
-  const row = isSnapshot ? {
-    kind: 'cdp-page-snapshot',
-    ingestId: captureId,
-    ingestedAt,
-    url: data.url || existingSources[0]?.url || null,
-    refCount: Object.keys(data.refs || {}).length,
-    refs: Object.entries(data.refs || {}).slice(0, 60).map(([ref, value]) => ({ ref, role: value.role || null, name: value.name || null })),
-    evidence: { file: outRel },
-  } : {
-    kind: 'cdp-dom-check',
-    ingestId: captureId,
-    ingestedAt,
-    url: data.location || existingSources[0]?.url || null,
-    found: Boolean(data.found),
-    action: data.action || null,
-    operation: data.operation || null,
-    role: data.role || null,
-    name: data.accessibleNameGuess || data.text || null,
-    canOperate: data.canOperate ?? null,
-    recoveredFromStaleRef: Boolean(data.recoveredFromStaleRef),
-    evidence: { file: outRel },
-  };
-  captureRows.push(row);
-  sourceRows.push({
-    pageId: captureId,
-    url: row.url || absCapture,
-    route: 'bridge:cdp-capture',
-    provider: 'cdp-bridge',
-    status: 200,
-    ok: true,
-    contentType: 'application/json',
-    fetchedAt: ingestedAt,
-    raw: outRel,
-    text: 'extracts/cdp-captures.jsonl',
-    textParts: [],
-    rawTruncated: false,
-    rawBytes: await fileBytes(join(sessionDir, outRel)),
-    textTruncated: false,
-    textBytes: JSON.stringify(row).length,
-    cleanTextBytes: JSON.stringify(row).length,
-    antCreditsCost: null,
-    error: null,
-    providerStatus: null,
-    providerDetail: null,
-    targetLikelyError: null,
-    bridge: { type: row.kind },
-  });
-}
+for (const capturePath of capturePaths) await ingestCapture(capturePath, ingestContext, ingestOut);
 
 const ingestIds = new Set(sourceRows.map((row) => row.pageId));
 await replaceJsonl(join(sessionDir, 'extracts/cdp-network.jsonl'), networkRows, (row) => ingestIds.has(row.ingestId));

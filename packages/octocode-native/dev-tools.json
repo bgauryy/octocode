@@ -1,0 +1,77 @@
+{
+  "description": "Pinned Rust development tools for packages/octocode-native. `node skills-dev/octocode-dev/scripts/dev.mjs rust:tools` compares this file with what is installed and prints the install command of anything missing or different; nothing installs automatically. Tasks: skills-dev/octocode-dev/docs/DEVELOPMENT.md#rust-dev-tools.",
+  "toolchains": {
+    "stable": {
+      "channel": "1.99.1",
+      "pinnedBy": "rust-toolchain.toml",
+      "components": ["clippy", "rustfmt", "rust-analyzer", "llvm-tools"],
+      "install": "rustup toolchain install 1.99.1 (automatic from rust-toolchain.toml)"
+    },
+    "nightly": {
+      "channel": "nightly-2026-10-20",
+      "components": ["miri", "rust-src", "llvm-tools"],
+      "usedBy": ["fuzz", "fuzz:smoke", "miri"],
+      "install": "rustup toolchain install nightly-2026-10-20 --profile minimal --component miri,rust-src,llvm-tools"
+    }
+  },
+  "tools": [
+    { "name": "cargo-nextest", "version": "0.9.148", "versionCommand": ["cargo", "nextest", "--version"], "use": "test:rust (CI gate)" },
+    { "name": "cargo-deny", "version": "0.20.2", "versionCommand": ["cargo", "deny", "--version"], "use": "deny (CI gate)" },
+    { "name": "cargo-shear", "version": "1.14.0", "versionCommand": ["cargo", "shear", "--version"], "use": "shear (CI gate)" },
+    { "name": "cargo-llvm-cov", "version": "0.9.1", "versionCommand": ["cargo", "llvm-cov", "--version"], "use": "coverage:rust" },
+    { "name": "cargo-hack", "version": "0.6.45", "versionCommand": ["cargo", "hack", "--version"], "use": "check:features" },
+    { "name": "cargo-mutants", "version": "27.1.0", "versionCommand": ["cargo", "mutants", "--version"], "use": "mutation testing on changed code" },
+    { "name": "bacon", "version": "3.26.0", "versionCommand": ["bacon", "--version"], "use": "edit loop (bacon.toml)" },
+    { "name": "cargo-fuzz", "version": "0.13.2", "versionCommand": ["cargo", "fuzz", "--version"], "use": "fuzz, fuzz:smoke (fuzz/)" },
+    { "name": "cargo-llvm-lines", "version": "0.4.48", "versionCommand": ["cargo", "llvm-lines", "--version"], "use": "llvm-lines (on-demand compile-size investigation)" },
+    { "name": "cargo-typify", "version": "0.8.0", "versionCommand": ["cargo", "typify", "--version"], "use": "contract regeneration (AGENTS.md)" },
+    { "name": "cargo-zigbuild", "version": "0.23.0", "versionCommand": ["cargo-zigbuild", "--version"], "use": "check:target / build:target (Linux)" },
+    { "name": "cargo-xwin", "version": "0.23.0", "versionCommand": ["cargo", "xwin", "--version"], "use": "check:target / build:target (Windows)" },
+    { "name": "cargo-sweep", "version": "0.8.0", "versionCommand": ["cargo", "sweep", "--version"], "use": "target/ cleanup after a toolchain bump" },
+    { "name": "cargo-machete", "version": "0.9.2", "versionCommand": ["cargo", "machete", "--version"], "use": "optional: unused-dependency cross-check (shear is the gate)", "optional": true },
+    { "name": "cargo-udeps", "version": "0.1.61", "versionCommand": ["cargo", "udeps", "--version"], "use": "optional: unused-dependency cross-check (needs nightly; shear is the gate)", "optional": true }
+  ],
+  "fuzz": {
+    "dir": "fuzz",
+    "targets": ["utf8_offsets"],
+    "libfuzzer": ["-max_len=4096", "-rss_limit_mb=2048", "-timeout=10", "-print_final_stats=1"],
+    "smokeSeconds": 60,
+    "seconds": 600
+  },
+  "miri": {
+    "deadlineSeconds": 1500,
+    "runs": [
+      {
+        "why": "KeyedFlight: the ManuallyDrop release inside the map lock and the transient-key forget, across real threads; many seeds explore interleavings",
+        "package": "octocode-io",
+        "miriflags": "-Zmiri-many-seeds=0..8",
+        "exact": [
+          "flight::tests::blocking_turns_share_one_slot_across_threads",
+          "flight::tests::blocking_turns_work_on_threads_inside_a_runtime",
+          "flight::tests::a_blocking_turn_on_a_thread_with_a_spent_coop_budget_still_comes",
+          "flight::tests::concurrent_last_drops_never_leak_a_transient_key_into_the_next_wave",
+          "flight::tests::a_blocking_waiter_stops_on_its_own_check_while_the_holder_works",
+          "flight::tests::memoized_blocking_computes_once_and_reads_the_memo_after"
+        ]
+      },
+      {
+        "why": "UTF-8/UTF-16 offset math and checkpoint slicing (LineIndex)",
+        "package": "octocode-engine",
+        "filter": "text::utf8_offsets::tests",
+        "skip": ["proptests::", "a_minified_single_line_stays_linear", "checkpointed_columns_match_a_naive_scan_everywhere"]
+      }
+    ],
+    "unsupported": [
+      "tokio IO driver (#[tokio::test], enable_all): foreign function `kqueue` on macOS; the async flight tests stay out",
+      "FFI: libc kill/poll/ioctl/mkfifo/clock_gettime, Windows NT calls, N-API: process, file-handle and addon code stay out",
+      "C libraries (tree-sitter grammars, PCRE2): any test that parses or searches stays out",
+      "Wall-clock budgets: a_minified_single_line_stays_linear asserts elapsed time",
+      "Interpretation cost: checkpointed_columns_match_a_naive_scan_everywhere (a quadratic naive scan over 40 KB) and the proptests (256 cases; isolation hides PROPTEST_CASES, and proptest calls getcwd) outlast the deadline; the fuzz target covers the same conversions"
+    ]
+  },
+  "llvmLines": {
+    "package": "octocode-engine",
+    "args": ["--lib", "--all-features"],
+    "targetDir": "target/llvm-lines"
+  }
+}

@@ -31,7 +31,9 @@ for (const file of walk(skill)) {
   if (guidance.has(entry)) continue;
   const source = join(common, entry);
   const shared =
-    reportScripts.has(entry) || /^references\/[^/]+\.md$/.test(entry);
+    reportScripts.has(entry) ||
+    /^scripts\/lib\/report\/[^/]+\.mjs$/.test(entry) ||
+    /^references\/[^/]+\.md$/.test(entry);
   if (
     !shared ||
     !existsSync(source) ||

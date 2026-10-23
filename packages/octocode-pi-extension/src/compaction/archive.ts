@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import type { CompactionEntry, ExtensionAPI, ExtensionContext, SessionBeforeCompactEvent, SessionEntry } from '@earendil-works/pi-coding-agent';
 import { PARENT_SESSION_ENV } from '../shared/env.js';
 import { repoKey } from '../shared/home.js';
-import { archiveFolder, archiveSearch, fence, headingText, inlineCode, LIBRARY_FILE, readSegments, segmentFile, segmentTldr, sessionLineage, writeSegment, type RecordMessage, type SessionRecord } from '../shared/archive.js';
+import { archiveFolder, archiveSearch, fence, inlineCode, LIBRARY_FILE, oneLine, readSegments, segmentFile, segmentTldr, sessionLineage, writeSegment } from '../shared/archive.js';
+import type { RecordMessage, SessionRecord } from '../shared/session-record.js';
 import { contentText, isRecord, isStaleSessionError, stringList, stringOrEmpty } from '../shared/util.js';
 
 /**
@@ -92,7 +93,7 @@ function messageBlocks(message: Record<string, unknown>): string[] {
     case 'toolResult':
       return [`Tool ${inlineCode(stringOrEmpty(message['toolName']))} · call ${inlineCode(stringOrEmpty(message['toolCallId']))}${message['isError'] === true ? ' · error' : ''}`, ...contentBlocks(message['content'])];
     case 'bashExecution': {
-      const exit = message['cancelled'] === true ? 'cancelled' : `exit ${headingText(String(message['exitCode']))}`;
+      const exit = message['cancelled'] === true ? 'cancelled' : `exit ${oneLine(String(message['exitCode']))}`;
       return [`Command (${exit}):`, fence(stringOrEmpty(message['command']), 'sh'), ...(stringOrEmpty(message['output']) ? [fence(stringOrEmpty(message['output']))] : [])];
     }
     case 'branchSummary':
@@ -124,9 +125,9 @@ function renderMessages(messages: readonly unknown[], entryOf: (message: unknown
   return messages
     .map((message) => {
       const record = isRecord(message) ? message : { role: 'unknown', value: message };
-      const role = record['role'] === 'custom' ? `custom (${headingText(stringOrEmpty(record['customType']))})` : headingText(stringOrEmpty(record['role'])) || 'unknown';
+      const role = record['role'] === 'custom' ? `custom (${oneLine(stringOrEmpty(record['customType']))})` : oneLine(stringOrEmpty(record['role'])) || 'unknown';
       const entry = entryOf(message);
-      const heading = ['###', role, ...(isoTime(record['timestamp']) ? [`· ${isoTime(record['timestamp'])}`] : []), ...(entry ? [`· entry ${headingText(entry)}`] : [])].join(' ');
+      const heading = ['###', role, ...(isoTime(record['timestamp']) ? [`· ${isoTime(record['timestamp'])}`] : []), ...(entry ? [`· entry ${oneLine(entry)}`] : [])].join(' ');
       return [heading, ...messageBlocks(record)].join('\n\n');
     })
     .join('\n\n');

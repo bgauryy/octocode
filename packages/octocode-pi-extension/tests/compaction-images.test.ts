@@ -5,7 +5,7 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it, vi } from 'vitest';
 import { isRequestTooLarge, planTooLargeRecovery } from '../src/compaction/images.js';
 import { registerCompaction } from '../src/compaction/register.js';
-import type { FileGuard } from '../src/files/tool.js';
+import type { FileGuard } from '../src/files/guard.js';
 
 type Handler = (event: unknown, ctx: unknown) => Promise<unknown>;
 

@@ -42,8 +42,16 @@ pub(super) fn read_bounded_source(path: &Path) -> Result<String, SourceReadError
             ReadError::Io(error) => SourceReadError::Unreadable(error.to_string()),
         })?
         .bytes;
-    String::from_utf8(bytes)
-        .map_err(|error| SourceReadError::Unreadable(format!("not valid UTF-8: {error}")))
+    admitted_text(&bytes).map_err(|refusal| SourceReadError::Unreadable(refusal.to_string()))
+}
+
+/// The text of `bytes` a language server syncs and the resolvers scan: the
+/// engine's one admission (binary refused, UTF-8 or BOM-marked UTF-16
+/// decoded, a BOM not text), so coordinates and the server's disk check
+/// agree.
+pub(super) fn admitted_text(bytes: &[u8]) -> Result<String, octocode_engine::text::Refusal> {
+    octocode_engine::text::admit(bytes, octocode_engine::text::Decoding::Unicode)
+        .map(|decoded| decoded.text.into_owned())
 }
 
 /// [`read_bounded_source`] on the blocking pool, so a slow filesystem never

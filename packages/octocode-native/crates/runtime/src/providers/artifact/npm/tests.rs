@@ -605,15 +605,15 @@ async fn npm_path_scoped_credentials_authorize_metadata_requests() {
 #[test]
 fn splits_versioned_and_scoped_coordinates() {
     assert_eq!(
-        super::split_npm_coordinate("leftpad@1.2.3"),
+        crate::contracts::split_coordinate(ArtifactType::Npm, "leftpad@1.2.3"),
         ("leftpad", Some("1.2.3"))
     );
     assert_eq!(
-        super::split_npm_coordinate("@scope/pkg@9.0.0"),
+        crate::contracts::split_coordinate(ArtifactType::Npm, "@scope/pkg@9.0.0"),
         ("@scope/pkg", Some("9.0.0"))
     );
     assert_eq!(
-        super::split_npm_coordinate("@scope/pkg"),
+        crate::contracts::split_coordinate(ArtifactType::Npm, "@scope/pkg"),
         ("@scope/pkg", None)
     );
 }

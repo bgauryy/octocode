@@ -13,7 +13,7 @@ pub const COMPILE_FAILED: &str = "structural.query.compileFailed";
 
 #[derive(Debug, Clone)]
 pub(in crate::structural) enum CompileError {
-    /// A rule that does not parse as a rule: malformed YAML, an unknown key,
+    /// A rule that does not parse as a rule: a wrong value type, an unknown key,
     /// no matcher, a bad regex.
     Rule(String),
     /// Compiling a pattern needed a parse that failed or was interrupted.
@@ -65,7 +65,7 @@ impl CompileError {
                 self.message(),
             )
             .with_recovery(
-                "Check the structural pattern or YAML rule against this file's language grammar.",
+                "Check the structural pattern or rule object against this file's language grammar.",
             ),
         }
     }

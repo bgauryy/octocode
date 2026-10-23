@@ -4,11 +4,7 @@ use super::*;
 use crate::response::result::Confidence;
 use octocode_contract_types::ErrorCode;
 
-pub(super) fn scan_file(
-    q: MatchQuery<'_>,
-    scope: &Scope,
-    security: &ContentSecurity,
-) -> Result<Scan, ToolError> {
+pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolError> {
     let canonical = &scope.canonical;
     super::super::validate_file_language(canonical, scope.language.as_deref())?;
     let Some(bytes) = super::super::read_parse_source(canonical)? else {
@@ -26,18 +22,16 @@ pub(super) fn scan_file(
         }
         return Err(error);
     };
-    // Parse the file as the directory scan does: raw. Output strings are
-    // redacted by the response stage.
-    let source = security
-        .decode_source_bytes(&bytes, super::super::MAX_PARSE_SOURCE_BYTES)
-        .map_err(super::super::policy_error)?;
+    // Parse the file as the directory scan does: admitted by the one text
+    // rule, raw. Output strings are redacted by the response stage.
+    let source = super::super::parse_text(canonical, &bytes)?;
     let source_path = canonical.to_string_lossy();
     let mut r = octocode_engine::structural::search_detailed(
         &source,
         &source_path,
         super::super::parser_override(canonical, scope.language.as_deref()).as_deref(),
         q.pattern().as_deref(),
-        q.rule().as_deref(),
+        q.rule().as_ref(),
     );
     if let Some(diagnostic) = error_diagnostic(&r.diagnostics) {
         let error = diagnostic_error(diagnostic);
@@ -85,7 +79,7 @@ pub(super) fn scan_file(
 pub(super) fn tree_repair(mut error: ToolError, q: MatchQuery<'_>, scope: &Scope) -> ToolError {
     if error.code == ErrorCode::InvalidPattern && error.next.is_none() {
         error.next = Some(Box::new(
-            json!({ "viewTree": tree_lead(q, scope, &scope.canonical) }),
+            json!({ "viewSyntax": tree_lead(q, scope, &scope.canonical, None) }),
         ));
     }
     error
@@ -93,8 +87,19 @@ pub(super) fn tree_repair(mut error: ToolError, q: MatchQuery<'_>, scope: &Scope
 
 /// The syntaxTree read of `file` (its grammar pinned when one was named
 /// for a single file).
-pub(super) fn tree_lead(q: MatchQuery<'_>, scope: &Scope, file: &std::path::Path) -> Value {
-    let mut tree = json!({"operation":"syntaxTree","path":file.to_string_lossy()});
+pub(super) fn tree_lead(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    file: &std::path::Path,
+    line: Option<u64>,
+) -> Value {
+    // One bounded page: the nodes at `line` (the statement that spells the
+    // query's anchor), else the file's first nodes, with the rest a page on.
+    let mut tree =
+        json!({"operation":"syntaxTree","path":file.to_string_lossy(),"pageSize":TREE_LEAD_NODES});
+    if let Some(line) = line {
+        tree["line"] = json!(line);
+    }
     if scope.is_file
         && let Some(language) = q.language()
     {
@@ -103,6 +108,22 @@ pub(super) fn tree_lead(q: MatchQuery<'_>, scope: &Scope, file: &std::path::Path
     crate::response::result::Continuation::new(ToolId::AstSearch, tree)
         .confidence(Confidence::Medium)
         .build()
+}
+
+/// Nodes on the first page of a `viewSyntax` lead.
+const TREE_LEAD_NODES: u32 = 40;
+
+/// The first line of `file` that spells a literal every match must contain:
+/// where a parsed file's tree is compared with the query's shape.
+pub(super) fn anchor_line(q: MatchQuery<'_>, file: &std::path::Path) -> Option<u64> {
+    let anchors =
+        octocode_engine::structural::query_anchors(q.pattern().as_deref(), q.rule().as_ref())?;
+    let source = super::super::read_parse_source(file).ok().flatten()?;
+    super::super::parse_text(file, &source)
+        .ok()?
+        .lines()
+        .position(|line| anchors.iter().any(|anchor| line.contains(anchor.as_str())))
+        .map(|index| index as u64 + 1)
 }
 
 pub(super) fn scan_directory(
@@ -136,8 +157,17 @@ pub(super) fn scan_directory(
     let untracked_ignore_dependencies = std::sync::atomic::AtomicBool::new(false);
     let census = std::sync::Mutex::new(std::collections::BTreeMap::<String, usize>::new());
     let counted = std::sync::Mutex::new(std::collections::HashSet::<std::path::PathBuf>::new());
-    let withheld = std::sync::Mutex::new(crate::policy::discovery::Withheld::default());
-    let discovery = paths.discovery_walk();
+    let include = q.include().unwrap_or_default();
+    let admission = crate::policy::discovery::WalkAdmission::new(
+        paths.discovery_walk(),
+        &scope.canonical,
+        crate::policy::discovery::WalkRules {
+            defaults: q.default_excludes(),
+            include: &include,
+            generated: true,
+            engine_prunes: true,
+        },
+    );
     let price = |m: &StructuralDetailedMatch| match_price(q, m);
     let r = octocode_engine::structural::search_files(
         StructuralSearchFilesOptions {
@@ -147,7 +177,7 @@ pub(super) fn scan_directory(
             include: q.include(),
             exclude: q.exclude(),
             exclude_dir: None,
-            default_exclude_dir: Some(prune::directories_before_policy(q.default_excludes())),
+            default_exclude_dir: Some(prune::walk_names(q.default_excludes(), &include)),
             ignore: octocode_engine::search::walk::IgnorePolicy::new(
                 q.include_ignored(),
                 q.include_hidden(),
@@ -160,33 +190,22 @@ pub(super) fn scan_directory(
         demand(q, &price),
         &|path| {
             // Only a directory or a file of the scanned grammar could have
-            // matched, so only those leave absence unproven.
+            // matched, so only those leave absence unproven when the policy
+            // withholds them or they are links (the walk follows none).
             // A dot entry out of view (no `hidden`) is neither walked nor
             // disclosed, as structureSearch tree does.
             let in_view = q.include_hidden() == Some(true) || !super::super::is_dot_entry(path);
-            // The walk follows no link: one naming a directory or a file of
-            // the scanned grammar is disclosed as not followed, in or out of
-            // the allowed roots.
-            if path.is_symlink() {
-                let is_dir = path.is_dir();
-                if in_view && (is_dir || parses(path)) {
-                    withheld
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .record(path, is_dir);
-                }
+            if !admission.admit(path, None, |is_dir| in_view && (is_dir || parses(path))) {
                 return false;
             }
-            let allowed = discovery.permits(path);
-            let is_dir = path.is_dir();
-            if allowed && is_dir {
+            if path.is_dir() {
                 let mut watched = observed.lock().unwrap_or_else(|error| error.into_inner());
                 watched.insert(path.to_path_buf());
                 if ignore_rules {
                     let inputs = crate::tools::page_memo::directory_ignore_inputs(
                         path,
                         &scope.canonical,
-                        |ignore| discovery.permits(ignore),
+                        |ignore| admission.permits(ignore, None),
                     );
                     external_rules
                         .lock()
@@ -199,22 +218,12 @@ pub(super) fn scan_directory(
                     watched.extend(inputs.files);
                 }
             }
-            if !allowed && in_view && (is_dir || parses(path)) {
-                withheld
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .record(path, is_dir);
-            }
             let unparsed_file = !parses(path) && path.is_file();
             // A file no grammar parses is disclosed, not silently dropped, when
             // the scope is every grammar's files. Under `language` the scope is
             // that language's files: a file of any other kind (a grammar's own
             // or none) was never in it, so it is not skipped evidence.
-            if allowed
-                && unparsed_file
-                && scope.language.is_none()
-                && !has_extension_in(path, &grammars)
-            {
+            if unparsed_file && scope.language.is_none() && !has_extension_in(path, &grammars) {
                 // Named as a row path reads after the response stage: from
                 // the workspace root, else absolute.
                 unparsed
@@ -226,7 +235,7 @@ pub(super) fn scan_directory(
                             .unwrap_or_else(|| path.to_string_lossy().into_owned()),
                     );
             }
-            let admitted = allowed && !unparsed_file;
+            let admitted = !unparsed_file;
             // The engine asks again for each file it reads: count a path once.
             if admitted
                 && scope.language.is_none()
@@ -270,7 +279,7 @@ pub(super) fn scan_directory(
     );
     // A walk stopped at its cap names where it stopped: the unread scopes.
     let stop = || cancel.check().is_err();
-    let admit = |path: &std::path::Path, file_type| discovery.permits_entry(path, file_type);
+    let admit = |path: &std::path::Path, file_type| admission.permits(path, file_type);
     let unwalked = r
         .scan_frontier
         .as_deref()
@@ -284,7 +293,7 @@ pub(super) fn scan_directory(
                         q.include_ignored(),
                         q.include_hidden(),
                     ),
-                    prune: prune::directories_before_policy(q.default_excludes()),
+                    prune: prune::walk_names(q.default_excludes(), &include),
                     include: q.include(),
                     exclude: q.exclude(),
                     candidate: &parses,
@@ -335,10 +344,9 @@ pub(super) fn scan_directory(
         scan_resume: r.scan_resume,
         diagnostics: r.diagnostics,
         skips: (r.skipped_unsupported, r.skipped_unreadable, r.skipped_large),
+        walk_errors: r.walk_errors,
         skipped_by_prefilter: r.skipped_by_pre_filter,
-        withheld: withheld
-            .into_inner()
-            .unwrap_or_else(|error| error.into_inner()),
+        withheld: admission.skipped().withheld,
         unparsed: unparsed
             .into_inner()
             .unwrap_or_else(|error| error.into_inner()),

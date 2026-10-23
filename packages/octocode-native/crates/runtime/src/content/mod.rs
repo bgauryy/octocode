@@ -1,5 +1,8 @@
+mod document_format;
 mod file_type;
 mod markdown_outline;
+
+pub(crate) use document_format::DocumentFormat;
 
 pub use file_type::{FileType, classify_file_type};
 pub(crate) use markdown_outline::markdown_heading_outline;

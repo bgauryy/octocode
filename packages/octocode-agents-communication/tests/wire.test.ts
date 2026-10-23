@@ -8,40 +8,40 @@ import { tempWorkspace } from './helpers.ts';
 import type { JsonRecord } from './json-record.ts';
 import type { Stop } from '../src/runtime/timing.ts';
 
-const { timing, wire, ValidationError } = runtime;
+const { jsonText, timing, wire, ValidationError } = runtime;
 
 // ---- JSON as the previous runtime wrote it -------------------------------------------------------------------------------------
 
 test('dumps equals the recorded output byte for byte for every option set the runtime uses', () => {
-  for (const { options, cases } of golden.dumps) assert.deepEqual(cases.map(({ value }: JsonRecord) => wire.dumps(value, options)), cases.map(({ expected }: JsonRecord) => expected), JSON.stringify(options));
+  for (const { options, cases } of golden.dumps) assert.deepEqual(cases.map(({ value }: JsonRecord) => jsonText.dumps(value, options)), cases.map(({ expected }: JsonRecord) => expected), JSON.stringify(options));
 });
 
 test('dumps escapes lone surrogates and non-ASCII exactly like the recorded output', () => {
-  assert.deepEqual(golden.lone.map(({ value }: JsonRecord) => wire.dumps(value)), golden.lone.map(({ expected }: JsonRecord) => expected));
+  assert.deepEqual(golden.lone.map(({ value }: JsonRecord) => jsonText.dumps(value)), golden.lone.map(({ expected }: JsonRecord) => expected));
 });
 
 test('dumps reproduces the recorded NaN handling and refuses unserializable values', () => {
-  assert.equal(wire.dumps([NaN, Infinity, -Infinity]), '[NaN, Infinity, -Infinity]');
-  assert.throws(() => wire.dumps(NaN, wire.COMPACT), ValidationError);
-  assert.throws(() => wire.dumps({ a: Infinity }, { allowNan: false }), /not JSON compliant/);
-  assert.throws(() => wire.dumps(undefined), TypeError);
-  assert.throws(() => wire.dumps(() => 1), TypeError);
-  assert.throws(() => wire.dumps(new Map()), TypeError);
-  assert.equal(wire.dumps({ a: undefined, b: 1 }), '{"b": 1}');
-  assert.equal(wire.dumps([undefined]), '[null]');
-  assert.equal(wire.dumps(2n ** 70n), '1180591620717411303424');
-  assert.equal(wire.dumps(-0), '0');
+  assert.equal(jsonText.dumps([NaN, Infinity, -Infinity]), '[NaN, Infinity, -Infinity]');
+  assert.throws(() => jsonText.dumps(NaN, jsonText.COMPACT), ValidationError);
+  assert.throws(() => jsonText.dumps({ a: Infinity }, { allowNan: false }), /not JSON compliant/);
+  assert.throws(() => jsonText.dumps(undefined), TypeError);
+  assert.throws(() => jsonText.dumps(() => 1), TypeError);
+  assert.throws(() => jsonText.dumps(new Map()), TypeError);
+  assert.equal(jsonText.dumps({ a: undefined, b: 1 }), '{"b": 1}');
+  assert.equal(jsonText.dumps([undefined]), '[null]');
+  assert.equal(jsonText.dumps(2n ** 70n), '1180591620717411303424');
+  assert.equal(jsonText.dumps(-0), '0');
 });
 
 test('integer-like object keys follow JavaScript order, the one place key order differs from the previous runtime', () => {
   // Documented in JSON-SITES.md: unsorted output of objects with integer-like keys is the only byte divergence.
-  assert.equal(wire.dumps({ b: 1, 2: 2, a: 3 }), '{"2": 2, "b": 1, "a": 3}');
-  assert.equal(wire.dumps({ b: 1, 2: 2, a: 3 }, { sortKeys: true }), '{"2": 2, "a": 3, "b": 1}');
+  assert.equal(jsonText.dumps({ b: 1, 2: 2, a: 3 }), '{"2": 2, "b": 1, "a": 3}');
+  assert.equal(jsonText.dumps({ b: 1, 2: 2, a: 3 }, { sortKeys: true }), '{"2": 2, "a": 3, "b": 1}');
 });
 
 test('encode is compact UTF-8 without ASCII escaping', () => {
-  assert.equal(wire.encode({ a: 'é😀', b: [1, 2.5] }).toString('utf8'), '{"a":"é😀","b":[1,2.5]}');
-  assert.ok(Buffer.isBuffer(wire.encode(1)));
+  assert.equal(jsonText.encode({ a: 'é😀', b: [1, 2.5] }).toString('utf8'), '{"a":"é😀","b":[1,2.5]}');
+  assert.ok(Buffer.isBuffer(jsonText.encode(1)));
 });
 
 test('refusal frames match the recorded output', () => {

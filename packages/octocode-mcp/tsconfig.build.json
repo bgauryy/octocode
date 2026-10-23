@@ -1,6 +1,10 @@
 {
   "extends": "./tsconfig.json",
+  // Declaration emit for dist/public.d.ts (rolled up by scripts/bundle-dts.mjs).
+  // Follow-up: emit with strict on; it is off here until the declaration build
+  // is checked under strict.
   "compilerOptions": {
+    "noEmit": false,
     "emitDeclarationOnly": true,
     "declaration": true,
     "declarationMap": false,
@@ -8,7 +12,6 @@
     "rootDir": "./src",
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "skipLibCheck": true,
     "strict": false,
     "noImplicitAny": false
   },

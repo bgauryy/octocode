@@ -1,13 +1,6 @@
 pub(crate) fn markdown_heading_outline(content: &str, path: &str) -> Option<String> {
-    let path = path
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(path)
-        .to_ascii_lowercase();
-    if ![".md", ".markdown", ".mdx"]
-        .iter()
-        .any(|ext| path.ends_with(ext))
-    {
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    if super::DocumentFormat::of(path) != Some(super::DocumentFormat::Markdown) {
         return None;
     }
     let mut output = Vec::new();

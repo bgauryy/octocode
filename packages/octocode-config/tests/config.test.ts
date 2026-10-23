@@ -1,61 +1,17 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   applyOctocodeEnv,
   DEFAULT_CONFIG,
   ENV_TOKEN_VARS,
-  getOctocodeHome,
   loadOctocodeEnv,
   propagateOctocodeEnv,
 } from '../src/index.js';
-import { isProtectedKey, parseEnv, PROTECTED_KEYS } from '../src/dotenv.js';
+import { isProtectedKey, PROTECTED_KEYS } from '../src/dotenv.js';
 import { CONFIG_FIELDS } from '../src/config/contract.generated.js';
-
-describe('getOctocodeHome', () => {
-  it('OCTOCODE_HOME override wins, path is resolved', () => {
-    expect(getOctocodeHome({ OCTOCODE_HOME: '/custom/home' })).toBe(
-      '/custom/home'
-    );
-  });
-
-  it('trims whitespace from OCTOCODE_HOME override', () => {
-    expect(getOctocodeHome({ OCTOCODE_HOME: '  /trimmed  ' })).toBe('/trimmed');
-  });
-
-  it('empty / blank OCTOCODE_HOME falls through to homedir default', () => {
-    const def = getOctocodeHome({ OCTOCODE_HOME: '' });
-    expect(def.endsWith('.octocode')).toBe(true);
-  });
-
-  it('whitespace-only OCTOCODE_HOME falls through to homedir default', () => {
-    const def = getOctocodeHome({ OCTOCODE_HOME: '   ' });
-    expect(def.endsWith('.octocode')).toBe(true);
-  });
-
-  it('default uses os.homedir()/.octocode on every platform', async () => {
-    vi.resetModules();
-    vi.doMock('node:os', () => ({
-      homedir: () => '/home/test',
-    }));
-
-    const { getOctocodeHome: getMockedHome } = await import('../src/home.js');
-    expect(getMockedHome({})).toBe('/home/test/.octocode');
-    expect(
-      getMockedHome({ XDG_CONFIG_HOME: '/xdg', APPDATA: 'D:\\Roaming' })
-    ).toBe('/home/test/.octocode');
-
-    vi.doUnmock('node:os');
-    vi.resetModules();
-  });
-
-  it('no arguments uses process.env defaults without throwing', () => {
-    expect(() => getOctocodeHome()).not.toThrow();
-    expect(typeof getOctocodeHome()).toBe('string');
-  });
-});
 
 describe('PROTECTED_KEYS', () => {
   it('matches protected keys case-insensitively only on Windows', () => {
@@ -155,64 +111,6 @@ describe('PROTECTED_KEYS', () => {
       'OCTOCODE_REDACT_EMAILS',
     ];
     expect([...PROTECTED_KEYS].sort()).toEqual([...CANONICAL].sort());
-  });
-});
-
-describe('parseEnv', () => {
-  it('parses KEY=VALUE pairs', () => {
-    const m = parseEnv('A=1\nB=two\n');
-    expect(m.A).toBe('1');
-    expect(m.B).toBe('two');
-  });
-
-  it('strips surrounding double quotes', () => {
-    expect(parseEnv('K="hello world"').K).toBe('hello world');
-  });
-
-  it('strips surrounding single quotes', () => {
-    expect(parseEnv("K='v a l'").K).toBe('v a l');
-  });
-
-  it('skips a line with a blank key', () => {
-    expect(parseEnv('=value\nKEY=v')).toEqual({ KEY: 'v' });
-  });
-
-  it('handles export prefix', () => {
-    expect(parseEnv('export KEY=val').KEY).toBe('val');
-  });
-
-  it('ignores # comment lines', () => {
-    const m = parseEnv('# comment\nA=1');
-    expect('comment' in m).toBe(false);
-    expect(m.A).toBe('1');
-  });
-
-  it('ignores lines without = sign', () => {
-    const m = parseEnv('noequals\nA=1');
-    expect('noequals' in m).toBe(false);
-  });
-
-  it('preserves = signs inside the value', () => {
-    // Only the first = splits key from value
-    expect(parseEnv('URL=https://example.com?a=1&b=2').URL).toBe(
-      'https://example.com?a=1&b=2'
-    );
-  });
-
-  it('handles CRLF line endings', () => {
-    const m = parseEnv('A=1\r\nB=2\r\n');
-    expect(m.A).toBe('1');
-    expect(m.B).toBe('2');
-  });
-
-  it('allows empty value (KEY=)', () => {
-    expect(parseEnv('EMPTY=').EMPTY).toBe('');
-  });
-
-  it('returns {} for null / undefined / empty string', () => {
-    expect(parseEnv(null)).toEqual({});
-    expect(parseEnv(undefined)).toEqual({});
-    expect(parseEnv('')).toEqual({});
   });
 });
 

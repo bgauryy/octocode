@@ -193,19 +193,19 @@ fn empty_searches_offer_a_broader_search() {
         "owner":"o","repo":"r","keywords":["fix"],"qualifiers":"author:x","page":2}))
     .expect("query");
     let scoped = super::leads::broaden_search(&scoped).expect("lead")["query"]["queries"].clone();
-    assert_eq!(scoped.as_array().map(Vec::len), Some(2), "{scoped}");
+    // A variant keeps at least one keyword: dropping the only one would
+    // list the scope, unrelated to the topic searched.
+    assert_eq!(scoped.as_array().map(Vec::len), Some(1), "{scoped}");
     assert!(scoped[0].get("qualifiers").is_none(), "{scoped}");
-    let keywords = &scoped[1];
-    assert!(keywords.get("keywords").is_none(), "{keywords}");
-    assert!(keywords.get("page").is_none(), "{keywords}");
-    assert_eq!(keywords["qualifiers"], "author:x", "{keywords}");
+    assert!(scoped[0].get("page").is_none(), "{scoped}");
+    assert_eq!(scoped[0]["keywords"], json!(["fix"]), "{scoped}");
     // Every narrowing filter gets its own variant: a scoped keyword search
     // that is empty because of its date window is recoverable too.
     let both: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest",
         "owner":"o","repo":"r","keywords":["fix"],"since":"2030-01-01"}))
     .expect("query");
     let both = super::leads::broaden_search(&both).expect("lead")["query"]["queries"].clone();
-    assert_eq!(both.as_array().map(Vec::len), Some(2), "{both}");
+    assert_eq!(both.as_array().map(Vec::len), Some(1), "{both}");
     assert!(
         both[0].get("since").is_none() && both[0]["keywords"] == json!(["fix"]),
         "{both}"
@@ -272,7 +272,7 @@ fn issue_rows_carry_a_non_zero_comment_count() {
 
 /// An empty search with several keywords offers one drop-one variant
 /// per keyword (at most 5, the last keyword dropped first) instead of
-/// dropping them all.
+/// dropping them all; a lone keyword is never dropped.
 #[test]
 fn empty_multi_keyword_search_broadens_one_keyword_at_a_time() {
     let variants = |keywords: Value| {
@@ -300,9 +300,11 @@ fn empty_multi_keyword_search_broadens_one_keyword_at_a_time() {
             .iter()
             .all(|row| row.get("pageSize").is_none())
     );
-    let one = variants(json!(["a"]));
-    assert_eq!(one.as_array().map(Vec::len), Some(1), "{one}");
-    assert!(one[0].get("keywords").is_none(), "{one}");
+    // The only keyword is never dropped: nothing broader is offered.
+    let one: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest",
+        "owner":"o","repo":"r","keywords":["a"]}))
+    .expect("query");
+    assert!(super::leads::broaden_search(&one).is_none());
     let seven = variants(json!(["a", "b", "c", "d", "e", "f", "g"]));
     assert_eq!(seven.as_array().map(Vec::len), Some(5), "{seven}");
     assert_eq!(seven[0]["keywords"], json!(["a", "b", "c", "d", "e", "f"]));

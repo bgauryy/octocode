@@ -1,4 +1,5 @@
 //! One domain execution path for public tools and Jev's bounded read context.
+mod source_reader;
 use super::{dispatch, github, github_cache::GitHubContentCache};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::tools::lsp_search::lsp_search_query;
@@ -7,15 +8,14 @@ use crate::{
     id::{ToolFamily, ToolId},
     policy::path::PathPolicy,
     response::outcome::DomainResult,
-    security::ContentSecurity,
+    security::{CheckedQuery, ContentSecurity},
     tools::lsp_search::{LspExecutionConfig, prewarm},
-    tools::source_capture::SourceReader,
 };
 use octocode_contract_types::ErrorCode;
 use octocode_github::ProviderError;
 use serde_json::Value;
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, OnceLock},
 };
 
@@ -42,178 +42,34 @@ pub(crate) struct DomainDispatcher {
     pub(crate) artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
 }
 
-fn retained_access_error() -> crate::tools::judgment::ClassificationError {
-    crate::tools::judgment::ClassificationError::new(
-        ErrorCode::ClassificationContextUnavailable,
-        "The saved source access identity changed or could not be verified. No saved evidence was returned.",
-        "Check source access, then start a fresh request explicitly.",
-    )
-}
-
-impl SourceReader for DomainDispatcher {
-    fn paths(&self) -> &PathPolicy {
-        &self.paths
-    }
-
-    fn security(&self) -> &ContentSecurity {
-        &self.security
-    }
-
-    fn config(&self) -> &ConfigOutput {
-        &self.config
-    }
-
-    fn limits(&self) -> &crate::execution::RuntimeLimits {
-        &self.limits
-    }
-
-    fn home(&self) -> &Path {
-        &self.home
-    }
-
-    fn handle(&self) -> &tokio::runtime::Handle {
-        &self.handle
-    }
-
-    fn availability(&self) -> &crate::execution::availability::ToolAvailability {
-        &self.availability
-    }
-
-    fn evaluator(&self) -> &crate::tools::judgment::Evaluator {
-        &self.evaluator
-    }
-
-    fn execute(
-        &self,
-        tool: ToolId,
-        query: &Value,
-        context: &ExecutionContext,
-    ) -> Result<DomainResult, ExecutionError> {
-        DomainDispatcher::execute(self, tool, query, context)
-    }
-
-    fn retained_github_identity(
-        &self,
-        context: &ExecutionContext,
-    ) -> Result<Option<String>, crate::tools::judgment::ClassificationError> {
-        let observed = self
-            .github_access
-            .identity()
-            .map_err(|()| retained_access_error())?;
-        self.validate_retained_github_identity(observed.as_deref(), context)?;
-        Ok(observed)
-    }
-
-    fn validate_retained_github_identity(
-        &self,
-        expected: Option<&str>,
-        context: &ExecutionContext,
-    ) -> Result<(), crate::tools::judgment::ClassificationError> {
-        let check = || {
-            context.check().map_err(|error| {
-                crate::tools::judgment::ClassificationError::new(
-                    error.code(),
-                    error.to_string(),
-                    "Retry the request explicitly.",
-                )
-            })
-        };
-        check()?;
-        let Some(expected) = expected else {
-            return Ok(());
-        };
-        let identity = self.github_response_identity(context);
-        check()?;
-        if identity.as_ref().is_ok_and(|identity| identity == expected) {
-            Ok(())
-        } else {
-            Err(retained_access_error())
-        }
-    }
-
-    fn text_capture_limit(&self) -> usize {
-        crate::tools::local_fetch::MAX_SOURCE_BYTES as usize
-    }
-
-    fn capture_local_text(
-        &self,
-        query: &Value,
-        context: &ExecutionContext,
-    ) -> Result<(String, PathBuf, String), crate::tools::judgment::ClassificationError> {
-        let parsed = serde_json::from_value(query.clone()).map_err(|_| {
-            crate::tools::judgment::ClassificationError::new(
-                ErrorCode::InvalidClassificationContext,
-                "The local resource query could not be decoded.",
-                "Inspect the localFetch schema.",
-            )
-        })?;
-        let captured =
-            crate::tools::local_fetch::capture_text(&parsed, self.paths.as_ref(), context);
-        context.check().map_err(|error| {
-            crate::tools::judgment::ClassificationError::new(
-                error.code(),
-                error.to_string(),
-                "Retry the request explicitly.",
-            )
-        })?;
-        let captured = captured.map_err(|result| {
-            crate::tools::judgment::ClassificationError::with_hints(
-                result
-                    .error_code
-                    .unwrap_or(ErrorCode::ClassificationContextUnavailable),
-                result
-                    .error
-                    .unwrap_or_else(|| "The local source could not be captured.".into()),
-                result.hints,
-            )
-        })?;
-        Ok((captured.text, captured.canonical, captured.snapshot))
-    }
-
-    /// Acquire source bytes through the same GitHub credential, commit
-    /// resolution, byte cache and request budget as a file read.
-    fn capture_github_content(
-        &self,
-        query: &Value,
-        context: &ExecutionContext,
-        max_bytes: usize,
-    ) -> Result<octocode_github::ContentResponse, crate::tools::judgment::ClassificationError> {
-        let acquired = self
-            .github_services()
-            .map_err(Clone::clone)
-            .and_then(|services| {
-                services.capture_content(
-                    query,
-                    context,
-                    &self.handle,
-                    max_bytes,
-                    &self.github_access,
-                )
-            });
-        acquired.map_err(|error| {
-            let row = github::provider_error(error);
-            crate::tools::judgment::ClassificationError {
-                failure: row.failure,
-                ..crate::tools::judgment::ClassificationError::with_hints(
-                    row.data["errorCode"]
-                        .as_str()
-                        .and_then(crate::id::error_codes::parse)
-                        .unwrap_or(ErrorCode::ClassificationContextFailed),
-                    row.data["error"]
-                        .as_str()
-                        .unwrap_or("The GitHub source could not be acquired."),
-                    row.data["hints"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect(),
-                )
-            }
-        })
+/// A failed local capture as a classification error, with the reader's own
+/// code, message, hints and leads (`viewTree`, `findFile`, `read`).
+fn local_capture_failure(
+    result: Box<crate::tools::source_view::LocalFetchResult>,
+) -> crate::tools::judgment::ClassificationError {
+    let leads = result
+        .next
+        .as_ref()
+        .and_then(|next| serde_json::to_value(next).ok())
+        .and_then(|next| next.as_object().cloned())
+        .map(|next| next.into_iter().collect())
+        .unwrap_or_default();
+    crate::tools::judgment::ClassificationError {
+        leads,
+        ..crate::tools::judgment::ClassificationError::with_hints(
+            result
+                .error_code
+                .unwrap_or(ErrorCode::ClassificationContextUnavailable),
+            result
+                .error
+                .unwrap_or_else(|| "The local source could not be captured.".into()),
+            result.hints,
+        )
     }
 }
+
+#[cfg(test)]
+mod local_capture_tests;
 
 impl DomainDispatcher {
     /// This runtime's GitHub services, built on first use and shared by
@@ -256,10 +112,10 @@ impl DomainDispatcher {
     /// Every route matches the contract family exhaustively; within a
     /// family only the tools with their own runner are named. The runtime
     /// resolves the wire name once.
-    pub fn execute(
+    pub(crate) fn execute(
         &self,
         tool: ToolId,
-        query: &Value,
+        query: &CheckedQuery,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError> {
         let _enter = self.handle.enter();
@@ -303,6 +159,7 @@ impl DomainDispatcher {
         query: &Value,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError> {
+        let row_query = query;
         let query = match dispatch::parse_query(query) {
             Ok(query) => query,
             Err(row) => return Ok(*row),
@@ -345,6 +202,13 @@ impl DomainDispatcher {
                             data.shift_remove("hints");
                             data.insert("next".into(), *next);
                         }
+                        // A retryable registry failure offers the same
+                        // `next.retry` every GitHub failure does.
+                        dispatch::offer_retry(
+                            crate::id::ToolId::ArtifactSearch,
+                            row_query,
+                            &mut row.data,
+                        );
                         row
                     }
                 },
@@ -371,7 +235,7 @@ impl DomainDispatcher {
                     &self.lsp_pool,
                     &self.paths,
                     &self.lsp_execution_config,
-                    context.response_window,
+                    local_response_window(ToolId::LspSearch, context, self.limits.auto_page_chars),
                 ),
             )
             .await?
@@ -409,9 +273,8 @@ impl DomainDispatcher {
         query: &Value,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError> {
-        let window = local_page_chars(tool, context, self.limits.auto_page_chars);
         let context = ExecutionContext {
-            response_window: (window > 0).then_some(window),
+            response_window: local_response_window(tool, context, self.limits.auto_page_chars),
             ..context.clone()
         };
         let selection = self.selection_runtime(&context);
@@ -483,84 +346,33 @@ async fn within_request<F: Future>(
 }
 
 #[cfg(test)]
-mod within_request_tests {
-    use super::*;
+mod within_request_tests;
 
-    fn context(deadline: std::time::Duration) -> ExecutionContext {
-        ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: std::time::Instant::now() + deadline,
-            walk_threads: None,
-            response_window: None,
-            github_credential: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn finished_work_returns_its_output() {
-        let context = context(std::time::Duration::from_secs(60));
-        assert_eq!(within_request(&context, async { 7 }).await, Ok(7));
-    }
-
-    /// A cancelled request does not wait for its language-server work.
-    #[tokio::test]
-    async fn cancelling_the_request_drops_pending_work_at_once() {
-        let context = context(std::time::Duration::from_secs(600));
-        let token = context.cancellation.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            token.cancel();
-        });
-        let outcome = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            within_request(&context, std::future::pending::<()>()),
-        )
-        .await
-        .expect("cancellation ends the work without waiting for it");
-        assert_eq!(outcome, Err(ExecutionError::Cancelled));
-    }
-}
-
-/// The characters one local row's own pages fill. Streamed listing and walk
-/// pages are cut at the automatic response window, which every call of a
-/// walk shares (an explicit `responseLength` is per call, so it never moves
-/// a page cut). localFetch continues by offset: its reader fits the row's
-/// share of the response page, the caller's or the automatic
-/// ([`ExecutionContext::row_page_chars`], see `response::read_share`), and
-/// each row continues by its own `next.continueWindow`.
-fn local_page_chars(tool: ToolId, context: &ExecutionContext, auto_page_chars: usize) -> usize {
-    if tool == ToolId::LocalFetch {
+/// The one page budget of a local row, whichever local tool it is: the
+/// window its own pages fill (`None` when the runtime has no window).
+/// Streamed listing, walk and lspSearch pages are cut at the automatic
+/// response window, which every call of a walk shares (an explicit
+/// `responseLength` is per call, so it never moves a page cut and a
+/// continuation under another window names the same page). localFetch
+/// continues by offset: its reader fits the row's share of the response
+/// page, the caller's or the automatic ([`ExecutionContext::row_page_chars`],
+/// see `response::read_share`), and each row continues by its own
+/// `next.continueWindow`.
+fn local_response_window(
+    tool: ToolId,
+    context: &ExecutionContext,
+    auto_page_chars: usize,
+) -> Option<usize> {
+    let window = if tool == ToolId::LocalFetch {
         context.row_page_chars(auto_page_chars)
     } else {
         auto_page_chars
-    }
+    };
+    (window > 0).then_some(window)
 }
 
 #[cfg(test)]
-mod page_chars_tests {
-    use super::*;
-
-    #[test]
-    fn local_fetch_fills_the_rows_share_and_other_tools_the_automatic_page() {
-        let context = |response_window| ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
-            walk_threads: None,
-            response_window,
-            github_credential: None,
-        };
-        let fetch = |window| local_page_chars(ToolId::LocalFetch, &context(window), 20_000);
-        assert_eq!(fetch(Some(5_000)), 5_000);
-        assert_eq!(fetch(Some(50_000)), 50_000);
-        assert_eq!(fetch(None), 20_000);
-        for tool in [ToolId::LocalSearch, ToolId::StructureSearch] {
-            assert_eq!(
-                local_page_chars(tool, &context(Some(5_000)), 20_000),
-                20_000
-            );
-        }
-    }
-}
+mod page_chars_tests;
 
 /// A failed engine operation becomes one row; sibling rows keep executing.
 /// Worker-thread and FFI boundaries retain their own unwind containment.
@@ -578,22 +390,4 @@ fn execute_row(
 }
 
 #[cfg(test)]
-mod row_tests {
-    use super::*;
-
-    #[test]
-    fn panic_in_one_row_does_not_abort_following_rows() {
-        let rows = [true, false].map(|panics| {
-            execute_row(|| {
-                assert!(!panics, "injected row failure with private input");
-                Ok(DomainResult::payload(serde_json::json!({"value": 7}), None))
-            })
-            .expect("each row returns its own result")
-        });
-        assert_eq!(rows[0].status, Some("error"));
-        assert_eq!(rows[0].data["errorCode"], "executionFailed");
-        assert!(!rows[0].data.to_string().contains("private input"));
-        assert_eq!(rows[1].data["value"], 7);
-        assert_eq!(rows[1].status, None);
-    }
-}
+mod row_tests;

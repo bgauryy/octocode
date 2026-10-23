@@ -49,7 +49,6 @@
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
-    "typescript": "^6.0.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"
   },
@@ -65,18 +64,18 @@
     "clean": "cargo clean && yarn clean:binaries",
     "clean:binaries": "find npm -type f \\( -name 'octocode' -o -name 'octocode.exe' -o -name '*.node' \\) -delete && rm -f octocode-native.*.node",
     "clean:cache": "cargo clean --workspace --profile dev",
-    "test": "yarn test:scripts && vitest run && yarn test:rust",
+    "test": "yarn test:scripts && yarn test:node && yarn test:rust",
     "test:node": "vitest run",
     "test:rust": "cargo nextest run --locked -p octocode-native -p octocode-github -p octocode-io -p octocode-cli -p octocode-runtime-napi --features octocode-runtime-napi/napi-test,octocode-native/dev-unify && cargo nextest run --locked -p octocode-engine --all-features",
     "coverage:rust": "node scripts/coverage-rust.cjs",
     "check:features": "cargo hack check --locked --workspace --each-feature",
     "test:scripts": "node tests/platform.test.cjs && node --test tests/build-publication.test.cjs",
-    "lint": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+    "lint": "yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives . && cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
     "fmt:rust": "cargo fmt --all",
     "fmt:rust:check": "cargo fmt --all -- --check",
-    "typecheck": "tsc --noEmit && cargo check --locked --workspace --all-targets --all-features",
+    "typecheck": "yarn run -T tsgo --noEmit",
     "deny": "cargo deny --locked check",
     "shear": "cargo shear --locked --deny-warnings --check-test-targets",
-    "verify": "yarn fmt:rust:check && yarn lint && yarn deny && yarn shear && tsc --noEmit && yarn test && yarn workspace @octocodeai/config check:tool-contract"
+    "verify": "yarn fmt:rust:check && yarn lint && yarn deny && yarn shear && yarn typecheck && yarn test && yarn workspace @octocodeai/config check:tool-contract"
   }
 }

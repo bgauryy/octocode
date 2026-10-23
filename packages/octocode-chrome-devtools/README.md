@@ -1,10 +1,10 @@
 # @octocodeai/octocode-chrome-devtools
 
-Chrome MCP server and CLI for DOM actions, snapshots, arbitrary CDP methods/events, worker/frame sessions, network captures, profiling, heap/trace/PDF streams and complete saved evidence. The separate `octocode-chrome-devtools` skill is guidance only.
+Chrome MCP server and CLI for DOM actions, snapshots, arbitrary CDP methods/events, worker/frame sessions, network captures, profiling, heap/trace/PDF streams and complete saved evidence. The npm archive bundles the complete guidance-only `octocode-chrome-devtools` Agent Skill under `dist/skills/octocode-chrome-devtools/`, including references and report scripts. The canonical source is `skills/octocode-chrome-devtools` in the monorepo; the build refreshes the bundled copy. This package also ships `OPERATING.md` and its topic guides, served by `/cli skill`; that command reads guidance and does not install Agent Skills.
 
 ## Build and local use
 
-Requires Chrome and Node 24.15+. Run from the workspace cwd:
+Requires Chrome and Node.js 24.15.0 or later in the 24.x line (`^24.15.0`). Run from the workspace cwd:
 
 ```sh
 npx -y @octocodeai/octocode-chrome-devtools /cli --help
@@ -19,12 +19,22 @@ node /absolute/repo/packages/octocode-chrome-devtools/bin/octocode-chrome-devtoo
 
 An install or local link exposes `octocode-chrome-devtools`. Built npm archives include the bundled runtime and shared config; no runtime dependency installation is needed. `src/` owns the TypeScript adapter and browser engines; `dist/` contains generated runtime code. `tests/` and `tools/` are development-only.
 
+## Bundled Agent Skill
+
+After installing the package, locate the skill entry with:
+
+```sh
+node -p "require.resolve('@octocodeai/octocode-chrome-devtools/skill')"
+```
+
+Copy the complete containing `octocode-chrome-devtools` directory into your agent's skill directory; the references and report scripts must stay beside `SKILL.md`. Running through `npx` includes the same files in its package cache but does not register a skill with your agent. Alternatively, use `octocode skill install octocode-chrome-devtools` to install from the Octocode skill catalog.
+
 ## One package, two interfaces
 
 ```sh
 octocode-chrome-devtools                      # MCP stdio
 octocode-chrome-devtools /cli --help          # typed CLI
-octocode-chrome-devtools /cli skill --json    # complete operating guide
+octocode-chrome-devtools /cli skill --json    # operating guide; follow any continuation
 octocode-chrome-devtools /cli cdp --help --json
 ```
 
@@ -41,7 +51,7 @@ yarn workspace @octocodeai/octocode-chrome-devtools verify
 yarn workspace @octocodeai/octocode-chrome-devtools test:live
 ```
 
-`verify` builds, typechecks all TypeScript sources (strict checking at the shared boundaries), checks tooling syntax and the guidance-only skill boundary, runs the hermetic groups, then runs the same advanced local Chrome fixtures through raw CLI, MCP and typed CLI. It also packs and extracts the package outside the monorepo, launches isolated Chrome, executes the documented research capture through both transports, verifies a typed CLI CDP call and checks a synthetic cookie round trip. `test:webmcp` is part of `verify`: it launches a headless Chrome with the WebMCP feature and checks tool listing and invocation on a local fixture (about 8 s). Run `test:package` for that archive smoke test alone. `build` rewrites every generated engine/adapter/config output and deletes obsolete ones.
+`verify` builds, typechecks all TypeScript sources (strict checking at the shared boundaries), checks tooling syntax and the guidance-only skill boundary, runs the hermetic groups, then runs the same advanced local Chrome fixtures through raw CLI, MCP and typed CLI. It also verifies offline npx execution from the packed archive and checks every bundled skill file against its canonical source. The live archive smoke test extracts the package outside the monorepo, launches isolated Chrome, executes the documented research capture through both transports, verifies a typed CLI CDP call and checks a synthetic cookie round trip. `test:webmcp` is part of `verify`: it launches a headless Chrome with the WebMCP feature and checks tool listing and invocation on a local fixture (about 8 s). Run `test:package` for that archive smoke test alone. `build` rewrites every generated engine/adapter/config output and deletes obsolete ones.
 
 The protocol suite plan-validates every advertised command/event offline (`planValidatedCommands`) and reports the methods its fixtures send to Chrome (`testedMethods`). Representative fixtures cover DOM/CSS/accessibility, trusted input, workers, interception, debugger/CPU profiling, heap chunks, trace/PDF streams, WebSockets, storage, emulation, large plans, readiness and fail-stop evidence. Use `--only <name>`, `--transport legacy|mcp|typed-cli` and `--report /absolute/coverage.json` for focused verification.
 

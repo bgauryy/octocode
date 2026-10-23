@@ -58,11 +58,11 @@
     "clean": "rm -rf dist/",
     "generate:config-contract": "node scripts/generate-config-contract.ts",
     "generate:tool-contract": "node scripts/generate-tool-contract.ts",
-    "lint": "node scripts/generate-config-contract.ts --check && node scripts/generate-tool-contract.ts --check && tsc --noEmit -p tsconfig.json",
+    "lint": "node scripts/generate-config-contract.ts --check && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
     "test": "vitest run --coverage",
     "test:tokens:acceptance": "cd ../.. && node packages/octocode-config/tests/token-precedence.acceptance.mjs",
-    "typecheck": "yarn lint",
-    "verify": "yarn lint && yarn test && yarn build"
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
+    "verify": "yarn lint && yarn typecheck && yarn test && yarn build"
   },
   "type": "module",
   "types": "./dist/index.d.ts"

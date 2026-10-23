@@ -10,6 +10,7 @@ use super::rows::{
 use super::shape::mark_empty;
 use super::*;
 use crate::security::scan::Passthrough;
+use crate::tools::gh_shared::history::history_failure;
 use crate::tools::gh_shared::pick_fields;
 use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
 use octocode_github::ProviderError;

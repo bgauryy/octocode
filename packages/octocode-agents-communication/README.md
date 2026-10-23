@@ -203,7 +203,7 @@ node packages/octocode-agents-communication/bin/octocode-agents-communication.mj
 yarn workspace @octocodeai/octocode-agents-communication verify
 ```
 
-`build` bundles the runtime into `dist/` with its type declarations; `typecheck` checks `src/` and `tests/`; `verify` runs typecheck and Node regression checks plus an extracted CLI/MCP release smoke; the repo-root `docs:verify` checks this package's Markdown links and anchors. Checks cover the local platform only. To try an unpublished npm tarball: `npx -y --package /absolute/package.tgz octocode-agents-communication /cli --help`.
+`build` bundles the runtime into `dist/` with its type declarations; `lint` checks the generated catalog types and runs oxlint; `typecheck` checks `src/` and `tests/`; `verify` runs lint, typecheck and Node regression checks plus an extracted CLI/MCP release smoke; the repo-root `docs:verify` checks this package's Markdown links and anchors. Checks cover the local platform only. To try an unpublished npm tarball: `npx -y --package /absolute/package.tgz octocode-agents-communication /cli --help`.
 
 Optional account-backed live checks, one harness (`--help` lists scenarios and options; every run needs `--live` and changes no host settings):
 

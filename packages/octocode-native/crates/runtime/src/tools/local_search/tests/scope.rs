@@ -177,7 +177,7 @@ fn an_empty_search_names_the_rule_that_skipped_its_matches() {
         .expect("search");
     let hint = &result.hints[0];
     assert!(
-        hint.starts_with("3 file(s) match in skipped paths"),
+        hint.starts_with("3 files that match behind skipped paths"),
         "{hint}"
     );
     let body = serde_json::to_value(&result).expect("result");
@@ -1180,7 +1180,7 @@ fn skipped_path_evidence_outlives_compact_hints() {
             .collect::<Vec<_>>();
         if unproven {
             assert_eq!(excluded.len(), 1, "{body}");
-            assert_eq!(excluded[0]["reason"], "first of 2", "{body}");
+            assert_eq!(excluded[0]["count"], 2, "{body}");
         } else {
             for name in [&generated, &pruned] {
                 assert_eq!(
@@ -1419,7 +1419,7 @@ fn a_search_with_hits_discloses_hidden_entries_and_its_lead_reaches_them() {
     assert_eq!(
         body["skippedPaths"]["entries"],
         serde_json::json!([
-            {"path": skipped_source_path(root.path(), ".eslintrc.json"), "cause": "hidden", "reason": "first of 2"},
+            {"path": skipped_source_path(root.path(), ".eslintrc.json"), "cause": "hidden", "count": 2},
         ]),
         "{body}"
     );
@@ -1477,7 +1477,7 @@ fn a_search_with_hits_discloses_ignored_entries_and_its_lead_reaches_them() {
         .iter()
         .find(|entry| entry["cause"] == "ignored")
         .expect("ignored entry");
-    assert_eq!(ignored["reason"], "first of 3", "{body}");
+    assert_eq!(ignored["count"], 3, "{body}");
     let lead = body["next"]["includeSkipped"]["query"]["queries"][0].clone();
     assert_eq!(lead["includeIgnored"], true, "{body}");
     assert_eq!(lead["includeHidden"], true, "{body}");
@@ -1565,7 +1565,7 @@ fn skipped_paths_are_counted_per_cause_and_listed_whole_on_request() {
     assert_eq!(
         grouped["skippedPaths"],
         serde_json::json!({"entries": [
-            {"path": skipped_source_path(root.path(), "pkg0/node_modules"), "cause": "default-excluded", "reason": "first of 8"},
+            {"path": skipped_source_path(root.path(), "pkg0/node_modules"), "cause": "default-excluded", "count": 8},
         ], "sampled": true}),
         "{grouped}"
     );
@@ -1662,4 +1662,54 @@ fn a_scope_miss_lists_the_scope_without_its_globs_and_the_cap_splits_by_director
         ),
         "{tree}"
     );
+}
+
+/// A field the row's other fields leave without effect is named in a
+/// warning instead of silently ignored: context lines in a view that lists
+/// no lines, and include/exclude globs on a path that is one file (searched
+/// whatever the globs). A field that applies says nothing.
+#[test]
+fn a_field_without_effect_is_named_in_a_warning() {
+    let root = tempfile::tempdir().expect("fixture");
+    fs::write(root.path().join("lib.rs"), "fn main() {}\n").expect("lib");
+    let warnings = |fields: serde_json::Value| search_root(root.path(), fields).warnings;
+    assert_eq!(
+        warnings(
+            serde_json::json!({"matchString": "main", "resultView": "files", "contextLines": 3})
+        ),
+        ["contextLines has no effect with resultView \"files\": only line views show context."],
+    );
+    assert_eq!(
+        warnings(serde_json::json!({
+            "matchString": "main", "resultView": "countMatches", "contextBefore": 1, "contextAfter": 2
+        })),
+        [
+            "contextBefore, contextAfter have no effect with resultView \"countMatches\": only line views show context."
+        ],
+    );
+    assert!(warnings(serde_json::json!({"matchString": "main", "contextLines": 3})).is_empty());
+    let file = root.path().join("lib.rs").to_string_lossy().into_owned();
+    let (policy, security) = policy_for(root.path());
+    let on_file = |fields: serde_json::Value| {
+        let mut fields = fields;
+        fields["path"] = file.clone().into();
+        execute_local_search(
+            &ls_query(fields, None),
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+            None,
+            None,
+        )
+        .expect("search")
+        .warnings
+    };
+    assert_eq!(
+        on_file(
+            serde_json::json!({"matchString": "main", "include": ["*.ts"], "exclude": ["*.rs"]})
+        ),
+        ["include, exclude have no effect: path is one file, searched whatever the globs."],
+    );
+    assert!(on_file(serde_json::json!({"matchString": "main"})).is_empty());
 }

@@ -47,7 +47,7 @@ Octocode supports all four [JEV question primitives](https://docs.typesafe.ai/pr
 | **Noul** (`noul`) | One yes/no predicate; optional `{true,false}` meanings | `noul`: probability of yes, 0–1 |
 | **Choice** (`choice`) | Choose among 1–255 `{label:meaning}` alternatives | `choice`, every label's `probabilities`, `confidence` |
 | **Score** (`score`) | Ordered `criteria` levels, low to high, up to 10 | Zero-based, possibly fractional `score`, `probabilities`, `confidence`, `legend` |
-| **Box** (`box`) | Locate a named visible object in an image | Normalized `box:{top,bottom,left,right}` and nullable `confidence` |
+| **Box** (`box`) | Locate a named visible object in an image; a row without `assets` is invalid input | Normalized `box:{top,bottom,left,right}` and nullable `confidence` |
 
 Questions are keyed and independent. Group questions about the same resource or shared section-research resource set in one row; a sibling answer cannot supply context to another question. `instructions` and criterion meanings accept structured JSON; this organizes input, not arbitrary generated JSON output. Confidence describes the distribution, not correctness.
 
@@ -95,7 +95,7 @@ For location scouting, Choice labels can name observed source ranges, with an in
 
 ### Research text sections across resources
 
-Development status: the section contract and runtime pass 90 end-to-end cases in an isolated integrated build. Integration into the shared checkout is pending a file handoff from the concurrent audit. Model quality and token savings have not been measured for this operation.
+Model quality and token savings have not been measured for this operation.
 
 Use `operation:"sections"` when questions apply to individual regions in several text resources. Supply named `resources` once and a reusable keyed `questions` map once. Sources use the same local/GitHub/HTTPS forms as whole-source evaluation, including exact `ranges` or `fullContent:true` for file readers. Discover paths first with `structureSearch` or `localSearch`; use AST/LSP navigation when a symbol or binding is already known. Images keep the whole-image route below.
 
@@ -188,7 +188,7 @@ Results include each asset's saved `path`, origin, snapshot, format, dimensions,
 | `localSearch` | Each hit snippet (hit + context), before paging. With no context field set, a hit is judged with 8 lines each side: a bare hit line rarely shows what the code does, so it reads as related and is never kept; counts describe kept hits. `resultView` `paginated` or `matchOnly` only: another view is rejected at admission, and `repair` in `hints` drops it | Noisy search after path/glob and known-term filtering |
 | `localFetch` | Windows from the file or selected ranges/matches | Large files with unknown relevant locations |
 | `ghGetFileContent` | The same windows, at a resolved commit | Scoped GitHub file reads |
-| `ghSearchCode` | Available hit lines on one provider page | Experimental; filename-only hits stay unknown |
+| `ghSearchCode` | Listed hit lines (up to 5 per file) on one provider page | Experimental; filename-only hits stay unknown; `next.judgeHits` judges the unlisted hits of hidden files |
 
 <!-- tool: localSearch -->
 ```json
@@ -206,11 +206,18 @@ Results include each asset's saved `path`, origin, snapshot, format, dimensions,
 
 The same `clasifyContext` works on fetch. Use `matchString` with enough `contextLines`, or explicit `ranges`, to retain deciding conditions. The default context window can complete a small declaration (an explicit `contextLines` is exact); ranges bound that expansion. Original line numbers remain source coordinates. Search never reads hidden whole-file bodies or recovers lexical misses.
 
-Whole-file `localFetch` keeps declarations and their documentation together when they fit the character budget. Oversized declarations, source gaps, unsupported syntax and extracted views use complete line windows targeting 2,048 characters; omitted spans split windows. Cross-window questions can still stay unresolved, and `longContext` does not join windows. Path/count-only search views, explicit minification, fresh byte windows and streamed sources reject classification with recovery.
+Whole-file `localFetch` keeps declarations and their documentation together when they fit the character budget. Oversized declarations, source gaps, unsupported syntax and extracted views use complete line windows targeting 2,048 characters; omitted spans split windows. Cross-window questions can still stay unresolved, and `longContext` does not join windows. Explicit `minify` without `matchString` and a fresh `unit:"bytes"` window are invalid input, rejected before any read; path/count-only search views and streamed sources reject classification with recovery.
 
 Keyword relevance prioritizes source-content windows for the bounded assessment budget, with each classifier getting an admission turn. This ordering does not select or exclude evidence: the classifier makes those decisions, and selected output stays in source order. Unassessed evidence remains unknown and recoverable.
 
-Each classifier becomes a shared three-level Score rubric: no useful evidence, background, direct evidence. A candidate is selected when any question assigns direct evidence probability above 0.5; excluded only when all assign no useful evidence above 0.5; otherwise unknown. `selection` reports scope, status and selected/excluded/unknown counts; operational `failures` are a subset of unknowns. “Complete” covers that view, not the whole repository. A filtered result, including zero selected candidates, is not proof of absence: inspect the unfiltered evidence before making that claim.
+Each classifier becomes a shared three-level Score rubric: no evidence, related, direct evidence. A candidate is:
+
+- **selected** when any question puts more than 0.5 on direct evidence;
+- **excluded** when every question puts more than 0.5 on no evidence;
+- **related** when every question is decided (more than 0.5 on related or no evidence) and at least one is related;
+- **unknown** otherwise: undecided, unjudged or failed.
+
+Related and unknown candidates are both hidden. Related candidates are confident near-misses: on 2026-10-22, 46 of 47 hidden candidates across three tasks were related, and none held a labelled answer line. `selection` reports scope, status and selected/excluded/unknown counts, plus `relatedItems` when there are any. Operational `failures` are a subset of unknowns. A page whose only hidden candidates are related is `complete`. “Complete” covers that view, not the whole repository. A filtered result, including zero selected candidates, is not proof of absence: inspect the unfiltered evidence before making that claim.
 
 AST/LSP remain ordinary identity and structure tools. Their candidate paths/ranges can feed `clasify` when expensive body reads need screening; classification does not prove identity, reachability or absence.
 
@@ -222,13 +229,14 @@ Ask one observable fact per question: snippets show a check, documentation state
 |---|---|
 | Selected evidence answers the scoped question | Stop; avoid a duplicate fetch or classification |
 | More selected evidence is needed | Copy the selected-page continuation unchanged; it replays without JEV |
-| Unknown/unavailable inline selection matters | Use `next.unfilteredUnknown` for the unknown evidence only, and `next.unfilteredUnknown2`, `next.unfilteredUnknown3`, … for unknown ranges past one call. `next.unfiltered` restores the complete original view ([context selection](OCTOCODE_TOOLS.md#context-selection)) |
+| Unknown/unavailable inline selection matters | Use `next.unfilteredUnknown` for the unknown evidence only, and `next.unfilteredUnknown2`, `next.unfilteredUnknown3`, … for unknown ranges past one call. `next.unfiltered` restores the complete original view, related candidates included ([context selection](OCTOCODE_TOOLS.md#context-selection)) |
+| A `ghSearchCode` file was hidden but lists only some of its hits | Follow `next.judgeHits` (`judgeHits2`, …): one `ghGetFileContent` call per batch judges every keyword window of those files with the same `clasifyContext`. A file's deciding line is often past the 5 it lists |
 | The provider is down or rate-limited (`classificationProviderUnavailable`, `classificationRateLimited`) | The view already came back unfiltered, with no `next.unfiltered` ([context selection](OCTOCODE_TOOLS.md#context-selection)). Read the warning and back off before you classify again |
 | The candidate budget left candidates unjudged | Follow `next.nextCandidatePage` unchanged: the same classified call judges the rest, each candidate once |
 | `clasify` fails or a typed answer is insufficient | Follow the read suggestion in the `error.hints` or `hints` string array when present; repair the named cause |
 | Image judgment is uncertain or fails | Inspect the saved image or original reference with an image-capable tool |
 
-Standalone answers and selected evidence can span response pages. Follow `responsePagination.next` unchanged; its compact saved-result reference reads settled output without repeating state/questions or making another provider request. In memory mode, saved output belongs to the current runtime session; separate CLI invocations need persistent storage to continue. Expired output fails explicitly and requires a deliberate new query. A new query may incur inference. The pending runtime integration returns the complete result without display pagination when a CLI call uses memory storage or when the complete snapshot cannot be retained; a warning explains why. It does not publish an unreachable display continuation.
+Standalone answers and selected evidence can span response pages. Follow `responsePagination.next` unchanged; its compact saved-result reference reads settled output without repeating state/questions or making another provider request. In memory mode, saved output belongs to the current runtime session; separate CLI invocations need persistent storage to continue. Expired output fails explicitly and requires a deliberate new query. A new query may incur inference. When the complete snapshot cannot be retained, the complete result returns without display pagination and a warning explains why. It does not publish an unreachable display continuation.
 
 Unknown/error is not “no.” Captured local/GitHub read leads preserve snapshot/commit and ranges; GitHub search recovery reruns its provider page and can reflect index changes. Following an inspection lead makes no JEV call; errors never automatically dump source bodies. Guidance uses successful-row `warnings`, empty/error `hints`, or `clasify`'s nested `error.hints`. Retry rejected input after correcting it; honor backoff for transient failures.
 
@@ -256,7 +264,7 @@ Inspect fields with `npx octocode schema clasify --view query`; execute a saved 
 | Image count / bytes | 8 per row; 8 MiB each, 16 MiB combined |
 | Image dimensions | 280–1,568 pixels per side; 78,400–2,458,624 total pixels |
 
-Section assessment uses the existing 64-unit, 131,072-serialized-character and 10-second work budget per call, in addition to the request deadline. These implementation bounds passed the isolated end-to-end checks; shared-checkout integration remains pending. The 32 MiB retained-plan limit is not a process memory ceiling. The planner must retain a complete capture before inference; capture or storage limits become explicit outcomes, never an omitted suffix.
+Section assessment uses the existing 64-unit, 131,072-serialized-character and 10-second work budget per call, in addition to the request deadline. The 32 MiB retained-plan limit is not a process memory ceiling. The planner must retain a complete capture before inference; capture or storage limits become explicit outcomes, never an omitted suffix.
 
 Oversized whole-source inputs fail rather than classify a truncated prefix; inline budgets leave unassessed candidates unknown. Admission does not guarantee provider acceptance, particularly for experimental images. Full fields: [tool reference](OCTOCODE_TOOLS.md#semantic-assessment-reference).
 

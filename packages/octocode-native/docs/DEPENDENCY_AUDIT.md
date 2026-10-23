@@ -15,7 +15,7 @@ Every direct dependency of the native crates and the job it owns. A passing unus
 | `rayon` | Bounded parallel file scans |
 | `regex` | General matching and pre-validation of Rust-regex patterns |
 | `regex-syntax` (build, development) | Deriving the secret detector's prescan literals from the pattern table at build time (`build.rs`), and generating pattern samples in its tests |
-| `serde`, `serde_json`, `serde-saphyr` | Typed DTOs, LSP and graph JSON, and YAML rule documents (not YAML source parsing) |
+| `serde`, `serde_json` | Typed DTOs, LSP and graph JSON, and structural rule objects |
 | `sha2`, `hex` | Content digests |
 | `tokio` | Language-server processes, I/O, timeouts, and synchronization |
 | `tree-sitter` and the grammars `-asm`, `-c`, `-c-sharp`, `-cpp`, `-cuda`, `-go`, `-java`, `-javascript`, `-python`, `-rust`, `-scala`, `-typescript` | The parser API and the 12 grammar families in the default build. Assembly, C++, C#, CUDA, and Scala are optional dependencies that the default `portable-default` feature enables (CUDA's size: [Footprint](#footprint-interpretation)) |
@@ -28,7 +28,7 @@ Every direct dependency of the native crates and the job it owns. A passing unus
 
 | Dependency | Owned job |
 |---|---|
-| `serde`, `serde_json`, `serde-saphyr`, `toml` | Contracts, configuration, provider payloads, rewrite rules, manifests, and output |
+| `serde`, `serde_json`, `toml` | Contracts, configuration, provider payloads, rewrite rules, manifests, and output |
 | `regex`, `regress` | Native patterns; `regress` runs the contract's ECMAScript patterns during validation |
 | `url` | Provider endpoint and URI validation |
 | `base64`, `sha2`, `hex`, `getrandom` | Encodings, hashes, snapshots, receipts, and random nonces |
@@ -58,7 +58,7 @@ Every direct dependency of the native crates and the job it owns. A passing unus
   - `clap` for arguments.
   - `flate2`, `zip`, `reqwest`, `futures-util` and `url` for managed language-server downloads and installs.
   - `hyper`, `hyper-util`, `http-body-util`, `bytes`, `tokio-util`, `getrandom`, `base64` and `subtle` for the private loopback server of `octocode config view`: one-time tokens, compared in constant time.
-  - `serde`, `serde_json`, `serde-saphyr` and `toml` for MCP client configs and skill bundles.
+  - `serde`, `serde_json` and `toml` for MCP client configs and skill bundles.
   - `tempfile` to stage a skill install beside its destination, so a failed replace rolls back.
   - `junction` (Windows) for skill directory links; `libc` (Unix) for the warm server: detaching its session, its owner check, and file timestamps.
   - Development: `wiremock`.

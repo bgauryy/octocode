@@ -6,14 +6,14 @@ Load when you write a task-specific `run(cdp)` or combine recipes. Why: adapt me
 
 Read the live schema with `await cdp.protocol()`. Choose the target and methods that answer the question, attach listeners, act, wait for the required condition, verify, save full evidence, then clean up. Use a recipe only when its behavior and observation window fit. Custom scripts can use any schema method through `cdp.send`.
 
-Use `cdp.saveArtifact('capture.json', result)` for JSON, or pass `text`/`binary` as its third argument. It refuses overwrites and prints a lossless paging command. For streamed captures, append every chunk to a file under `cdp.outputDir`, wait for completion, then emit `artifact-query.mjs --file <path> --format text|binary`. Save console, exceptions, raw events, DOM, storage and trace data the same way; summaries are indexes into that evidence.
+Use `cdp.saveArtifact('capture.json', result)` for JSON, or pass `text`/`binary` as its third argument. It refuses overwrites and prints a lossless paging command. For streamed captures, append every chunk to a file under `cdp.outputDir`, wait for completion, then emit `octocode-chrome-devtools /raw artifact --file <path> --format text` (or `--format binary`). Save console, exceptions, raw events, DOM, storage and trace data the same way; summaries are indexes into that evidence.
 
 ## Timing
 
 - Attach listeners before acting. `--new-tab <url>` loads before `run` starts, so for load evidence `Page.navigate` (or `Page.reload`, as the template does) after attaching listeners.
 - **Content ready**: wait for the specific selector, text, or application state needed by the next action. Document `interactive` only establishes a usable document; it does not prove a SPA has finished rendering. Network idle is a separate signal, and polling or background traffic may prevent it. Always bound waits and report the unmet condition.
 - **Network idle**: track in-flight requests by session and request ID, resolve after a quiet window, skip websockets and long polling, always time out.
-- **Wait for element**: poll `Runtime.evaluate` for existence, non-zero size, `el.matches(':disabled')` (covers disabled `<fieldset>`), and a stable box.
+- **Wait for element**: poll `Runtime.evaluate` for existence, non-zero size, `!el.matches(':disabled')` (covers disabled `<fieldset>`), and a stable box.
 - **Input**: in custom scripts use `human-input.mjs`: `runEventSequence(cdp, buildElementClickSequence(x, y, rect, true))`, `buildTypingEvents(text)` (real keydown/keyup), `buildKeyPressEvents('Control+a')`. Synthetic fallback: the prototype's native `value` setter plus `input`/`change`.
 
 ## Observe an action and its requests together

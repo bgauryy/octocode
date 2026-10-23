@@ -159,23 +159,17 @@ pub(super) struct ScopeGaps {
     pub(super) skipped: Option<SkippedWalk>,
 }
 
-/// The skip causes that hid files of the requested grammar: the rules that
-/// name them, with the query that lifts exactly those.
+/// What the skipped walks hold of the requested grammar, as every local
+/// tool discloses it ([`crate::tools::leads::skipped`]), with its lead.
 pub(super) struct SkippedWalk {
-    pub(super) labels: String,
-    pub(super) because: String,
+    pub(super) disclosure: crate::tools::leads::skipped::Disclosure,
     pub(super) lead: Value,
 }
 
 impl SkippedWalk {
-    /// What was skipped and that the lead includes it; `language` names the
-    /// grammar of the skipped files, when the scan has one.
-    pub(super) fn notice(&self, language: Option<&str>) -> String {
-        let subject = language.map_or_else(|| "Files".to_owned(), |name| format!("{name} files"));
-        format!(
-            "{subject} were skipped as {} ({}); the lead includes them.",
-            self.labels, self.because
-        )
+    /// Place the disclosure and its lead on `out`.
+    pub(super) fn attach(self, out: &mut Value) {
+        crate::tools::leads::skipped::attach(out, &self.disclosure, self.lead);
     }
 }
 
@@ -245,23 +239,30 @@ pub(super) fn skipped_walk(
         .stopping(&stop)
         .beyond(walk);
     let verdict = diagnose(&scope.canonical, walk, |relaxed| probe.find(relaxed)).ok()?;
-    let Verdict::Skipped(diagnosis) = verdict else {
-        return None;
-    };
-    let mut lead = q.to_value();
-    lift(&mut lead, diagnosis.causes());
-    if let Some(fields) = lead.as_object_mut() {
-        for field in ["snapshot", "page", "matchPage", "scanOffset"] {
-            fields.remove(field);
-        }
-    }
-    Some(SkippedWalk {
-        labels: diagnosis.labels(),
-        because: diagnosis.because(),
-        lead: crate::response::result::Continuation::new(ToolId::AstSearch, lead)
-            .confidence(Confidence::Exact)
-            .build(),
-    })
+    let language = scope.language.as_deref().or(scope.inferred.as_deref());
+    let subject = language.map_or_else(
+        || ["file".to_owned(), "files".to_owned()],
+        |name| [format!("{name} file"), format!("{name} files")],
+    );
+    // A check cut before it found anything proved nothing: every cause the
+    // walk skipped by is unproven.
+    let skipping = walk.skipping();
+    let named = skipping
+        .iter()
+        .map(|cause| cause.label())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let disclosure = crate::tools::leads::skipped::disclose(
+        &verdict,
+        [subject[0].as_str(), subject[1].as_str()],
+        crate::tools::leads::skipped::Unchecked {
+            causes: &skipping,
+            named: &named,
+        },
+    )?;
+    let lead =
+        crate::tools::leads::skipped::lead(ToolId::AstSearch, &q.to_value(), &disclosure.causes);
+    Some(SkippedWalk { disclosure, lead })
 }
 
 /// The grammars of a directory scope that occur in it and compile the query,
@@ -273,11 +274,11 @@ pub(super) fn directory_choice(
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<GrammarChoice, ToolError> {
-    let prune = prune::directories(q.default_excludes());
     let (include, exclude) = (
         q.include().unwrap_or_default(),
         q.exclude().unwrap_or_default(),
     );
+    let prune = prune::walk_names(q.default_excludes(), &include);
     let discovery = paths.discovery_walk();
     let present = present_grammars(
         root,
@@ -285,7 +286,7 @@ pub(super) fn directory_choice(
         Walk {
             ignored: q.include_ignored().unwrap_or(false),
             hidden: q.include_hidden().unwrap_or(false),
-            default_excludes: !prune.is_empty(),
+            default_excludes: q.default_excludes(),
         },
         q.max_files()
             .map_or_else(octocode_engine::scan_budget::walk_ceiling, |files| {
@@ -302,7 +303,7 @@ pub(super) fn directory_choice(
     .map_err(super::super::native_error)?;
     let (pattern, rule) = (q.pattern(), q.rule());
     Ok(choose_grammar(present.into_iter(), |_, extensions| {
-        compile_check(extensions, pattern.as_deref(), rule.as_deref())
+        compile_check(extensions, pattern.as_deref(), rule.as_ref())
     }))
 }
 

@@ -3,6 +3,8 @@
 //! Zod contract MCP uses). Only runtime availability is joined here: the
 //! catalog lists enabled tools, and per-tool views carry `availability` and
 //! `run`.
+mod grammar;
+use grammar::grammar_instruction;
 use serde_json::{Value, json};
 
 /// A usage error (exit 2) or an execution error (exit 5).
@@ -39,6 +41,53 @@ fn machine_entry<'a>(machine: &'a Value, name: &str) -> Option<&'a Value> {
 
 fn enabled(machine: &Value, name: &str) -> bool {
     machine_entry(machine, name).is_some_and(|tool| tool["availability"]["enabled"] == true)
+}
+
+/// Core's instruction sections (embedded through config) rendered for the
+/// tools this instance runs, as core renders them for MCP plus the CLI's own
+/// sections: a `text` part shows when any of its `tools` runs (always without
+/// `tools`); an `items` part fills `{items}` in `template` with the running
+/// items' text joined by `join`; `selection` parts need context selection.
+fn instructions(sections: &Value, has: impl Fn(&str) -> bool, selection: bool) -> String {
+    let runs = |tool: &Value| tool.as_str().is_some_and(&has);
+    let shown = |part: &Value| -> Option<String> {
+        if part["selection"] == true && !selection {
+            return None;
+        }
+        if let Some(items) = part["items"].as_array() {
+            let listed = items
+                .iter()
+                .filter(|item| runs(&item["tool"]))
+                .filter_map(|item| item["text"].as_str())
+                .collect::<Vec<_>>();
+            return (!listed.is_empty()).then(|| {
+                part["template"].as_str().unwrap_or_default().replacen(
+                    "{items}",
+                    &listed.join(part["join"].as_str().unwrap_or_default()),
+                    1,
+                )
+            });
+        }
+        let tools = part["tools"].as_array();
+        tools
+            .is_none_or(|tools| tools.iter().any(runs))
+            .then(|| part["text"].as_str().unwrap_or_default().to_owned())
+    };
+    sections
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|section| {
+            let tag = section["tag"].as_str()?;
+            let parts = section["parts"]
+                .as_array()?
+                .iter()
+                .filter_map(shown)
+                .collect::<Vec<_>>();
+            (!parts.is_empty()).then(|| format!("<{tag}>{}</{tag}>", parts.join(" ")))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A clasify example's source names a reader this instance runs (a URL
@@ -98,15 +147,6 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
         return Err(usage("Without a tool, only --view full is supported."));
     }
     let presentation = presentation()?;
-    let instruction_view = match (
-        machine["presentation"]["selection"] == true,
-        enabled(machine, "clasify"),
-    ) {
-        (false, false) => "ordinary",
-        (true, false) => "selection",
-        (false, true) => "clasify",
-        (true, true) => "both",
-    };
     let listed: Vec<Value> = tools(presentation)
         .filter_map(|tool| {
             let name = tool["name"].as_str()?;
@@ -135,7 +175,11 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
                 "graph": "octocode graph --help",
             },
         },
-        "instructions": presentation["instructions"][instruction_view],
+        "instructions": instructions(
+            &presentation["instructionSections"],
+            |name| enabled(machine, name),
+            machine["presentation"]["selection"] == true,
+        ),
     });
     if let Some(grammars) = grammar_instruction(&machine["grammarCapabilities"]) {
         value["grammars"] = Value::String(grammars);
@@ -216,7 +260,7 @@ pub(super) fn tool_view(
 }
 
 /// The lspSearch description with the language servers this runtime
-/// resolves, before its tags, as MCP shows it (core
+/// resolves, before its `If empty:`/`Next:` notes, as MCP shows it (core
 /// `getDirectToolDefinitionsWithAddons`): `Servers: rust, ts/js.`
 fn with_lsp_servers(description: &str, servers: &[&str]) -> String {
     let note = if servers.is_empty() {
@@ -224,12 +268,12 @@ fn with_lsp_servers(description: &str, servers: &[&str]) -> String {
     } else {
         format!("Servers: {}.", servers.join(", "))
     };
-    let tags = ["<empty>", "<workflow>"]
+    let notes = [" If empty: ", " Next: "]
         .iter()
-        .filter_map(|tag| description.find(tag))
+        .filter_map(|marker| description.find(marker))
         .min()
         .unwrap_or(description.len());
-    let (prose, tail) = description.split_at(tags);
+    let (prose, tail) = description.split_at(notes);
     format!("{} {note} {}", prose.trim_end(), tail.trim_start())
         .trim_end()
         .to_owned()
@@ -263,292 +307,5 @@ fn selected<'a>(tool: &'a Value, selection: &str) -> Result<&'a Value, SchemaErr
         })
 }
 
-/// The runtime grammar inventory line, stating the common feature set once.
-fn grammar_instruction(capabilities: &Value) -> Option<String> {
-    let structural: Vec<&Value> = capabilities
-        .as_array()?
-        .iter()
-        .filter(|capability| {
-            capability["structuralSearch"] == true
-                && capability["extensions"]
-                    .as_array()
-                    .is_some_and(|extensions| !extensions.is_empty())
-        })
-        .collect();
-    if structural.is_empty() {
-        return None;
-    }
-    let features_of = |capability: &Value| {
-        let mut features = vec!["structural"];
-        if capability["signatureOutline"] == true {
-            features.push("outline");
-        }
-        if capability["graphFacts"] == true {
-            features.push("graph");
-        }
-        features.join("+")
-    };
-    // Most common feature set; the first one seen wins a tie.
-    let mut counts: Vec<(String, usize)> = Vec::new();
-    for capability in &structural {
-        let features = features_of(capability);
-        match counts.iter_mut().find(|(seen, _)| *seen == features) {
-            Some((_, count)) => *count += 1,
-            None => counts.push((features, 1)),
-        }
-    }
-    let mut common = &counts[0];
-    for entry in &counts {
-        if entry.1 > common.1 {
-            common = entry;
-        }
-    }
-    let common = common.0.clone();
-    let strings = |value: &Value| -> Vec<String> {
-        value
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect()
-    };
-    let inventory = structural
-        .iter()
-        .map(|capability| {
-            let mut ids: Vec<String> = capability["languageId"]
-                .as_str()
-                .filter(|id| !id.is_empty())
-                .map(str::to_owned)
-                .into_iter()
-                .collect();
-            ids.extend(strings(&capability["selectorAliases"]));
-            let ids = ids.join(",");
-            let extensions = strings(&capability["extensions"])
-                .iter()
-                .map(|extension| format!(".{extension}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let features = features_of(capability);
-            let tag = if features == common {
-                String::new()
-            } else {
-                format!("; {features}")
-            };
-            let ids = if ids.is_empty() {
-                String::new()
-            } else {
-                format!("{ids}: ")
-            };
-            format!(
-                "{} ({ids}{extensions}{tag})",
-                capability["language"].as_str().unwrap_or_default()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("; ");
-    Some(format!(
-        "Runtime grammar inventory ({common} unless noted): {inventory}. Parser availability does not imply an installed language server or complete cross-file linking."
-    ))
-}
-
 #[cfg(test)]
-mod tests {
-    use super::{catalog, grammar_instruction, remove_unavailable_examples, tool_view};
-    use serde_json::{Value, json};
-
-    /// A machine catalog with every presentation tool enabled except `off`.
-    fn machine(off: &[&str]) -> Value {
-        let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
-        let tools: Vec<Value> = presentation["tools"]
-            .as_array()
-            .expect("tools")
-            .iter()
-            .map(|tool| {
-                let name = tool["name"].as_str().expect("name");
-                json!({ "name": name, "fields": "[]", "availability": { "enabled": !off.contains(&name) } })
-            })
-            .collect();
-        json!({ "fingerprint": "f", "grammarCapabilities": [], "tools": tools })
-    }
-
-    fn message(result: Result<Value, super::SchemaError>) -> String {
-        result.expect_err("an error").message
-    }
-
-    #[test]
-    fn catalog_lists_only_enabled_tools() {
-        let value = catalog(&machine(&["clasify"]), None).expect("catalog");
-        let names: Vec<&str> = value["tools"]
-            .as_array()
-            .expect("tools")
-            .iter()
-            .filter_map(|tool| tool["name"].as_str())
-            .collect();
-        assert!(names.contains(&"localSearch"));
-        assert!(!names.contains(&"clasify"));
-        assert_eq!(value["toolCount"], names.len());
-        assert!(
-            value.get("grammars").is_none(),
-            "no structural grammars, no line"
-        );
-    }
-
-    #[test]
-    fn classification_instructions_follow_available_routes() {
-        for selection in [false, true] {
-            for clasify in [false, true] {
-                let mut machine = machine(if clasify { &[] } else { &["clasify"] });
-                machine["presentation"] = json!({ "selection": selection });
-                let value = catalog(&machine, Some("full")).expect("catalog");
-                let instructions = value["instructions"].as_str().expect("instructions");
-                assert_eq!(instructions.contains("<clasify>"), selection || clasify);
-                assert_eq!(instructions.contains("clasifyContext"), selection);
-                assert_eq!(instructions.contains("clasify scouts unread"), clasify);
-            }
-        }
-    }
-
-    #[test]
-    fn selection_schema_follows_the_resolved_presentation_switch() {
-        let mut machine = machine(&[]);
-        for enabled in [false, true] {
-            machine["presentation"] = json!({ "selection": enabled });
-            for name in ["localSearch", "localFetch"] {
-                for view in ["query", "full"] {
-                    let row = tool_view(&machine, name, Some(view), None).expect("schema");
-                    assert_eq!(
-                        row["querySchema"]["properties"]
-                            .get("clasifyContext")
-                            .is_some(),
-                        enabled
-                    );
-                    assert!(
-                        !row["querySchema"]["required"]
-                            .as_array()
-                            .expect("required")
-                            .contains(&json!("clasifyContext"))
-                    );
-                    if view == "query" {
-                        assert_eq!(
-                            row["continuationFields"].get("selection").is_some(),
-                            enabled
-                        );
-                    } else {
-                        assert_eq!(
-                            row["querySchema"]["properties"].get("selection").is_some(),
-                            enabled
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn clasify_sources_follow_enabled_readers() {
-        for (off, readers) in [
-            (vec![], vec!["localFetch", "ghGetFileContent"]),
-            (vec!["ghGetFileContent"], vec!["localFetch"]),
-            (vec!["localFetch", "ghGetFileContent"], vec![]),
-        ] {
-            let row = tool_view(&machine(&off), "clasify", Some("query"), None).expect("schema");
-            let source = row["querySchema"]["properties"].get("source");
-            assert_eq!(source.is_some(), !readers.is_empty(), "{off:?}");
-            let text = source.map(Value::to_string).unwrap_or_default();
-            for reader in ["localFetch", "ghGetFileContent"] {
-                assert_eq!(
-                    text.contains(reader),
-                    readers.contains(&reader),
-                    "{off:?} {reader}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn clasify_variant_examples_never_suggest_disabled_readers() {
-        let mut view = json!({
-            "variants": [
-                { "name": "source", "example": { "source": { "tool": "localFetch" } } },
-                { "name": "url", "example": { "source": { "url": "https://a.test" } } },
-                { "name": "state", "example": { "state": "known" } }
-            ]
-        });
-        remove_unavailable_examples(&mut view, &["ghGetFileContent"]);
-        assert!(view["variants"][0].get("example").is_none());
-        assert!(view["variants"][1].get("example").is_none());
-        assert_eq!(view["variants"][2]["example"]["state"], "known");
-    }
-
-    #[test]
-    fn select_reads_one_operation_row() {
-        let m = machine(&[]);
-        assert!(
-            message(tool_view(&m, "lspSearch", Some("query"), Some("x")))
-                .starts_with("--select expects operation=VALUE")
-        );
-        assert!(
-            message(tool_view(
-                &m,
-                "lspSearch",
-                Some("query"),
-                Some("operation=nope")
-            ))
-            .starts_with("Unknown operation: nope. Operations: ")
-        );
-        assert_eq!(
-            message(tool_view(
-                &m,
-                "lspSearch",
-                Some("full"),
-                Some("operation=callers")
-            )),
-            "--select requires the query view and a tool name"
-        );
-        // A JSON-quoted string selects the same row as the bare value.
-        let bare =
-            tool_view(&m, "astSearch", Some("query"), Some("operation=symbols")).expect("bare");
-        let quoted = tool_view(
-            &m,
-            "astSearch",
-            Some("query"),
-            Some("operation=\"symbols\""),
-        )
-        .expect("quoted");
-        assert_eq!(bare, quoted);
-        assert!(
-            bare["querySchema"]["properties"]["symbolName"].is_object(),
-            "{bare}"
-        );
-    }
-    #[test]
-    fn grammar_line_states_the_common_feature_set_once() {
-        let capabilities = json!([
-            { "language": "TypeScript", "languageId": "typescript", "selectorAliases": [], "extensions": ["ts"], "structuralSearch": true, "signatureOutline": true, "graphFacts": true },
-            { "language": "Go", "languageId": "go", "selectorAliases": [], "extensions": ["go"], "structuralSearch": true, "signatureOutline": true, "graphFacts": true },
-            { "language": "Asm", "languageId": "asm", "selectorAliases": ["s"], "extensions": ["asm", "s"], "structuralSearch": true, "signatureOutline": false, "graphFacts": false },
-            { "language": "Plain", "languageId": "plain", "selectorAliases": [], "extensions": [], "structuralSearch": true },
-        ]);
-        assert_eq!(
-            grammar_instruction(&capabilities).expect("line"),
-            "Runtime grammar inventory (structural+outline+graph unless noted): TypeScript (typescript: .ts); Go (go: .go); Asm (asm,s: .asm .s; structural). Parser availability does not imply an installed language server or complete cross-file linking."
-        );
-        assert!(grammar_instruction(&json!([])).is_none());
-    }
-
-    #[test]
-    fn lsp_search_names_its_servers_before_the_tags() {
-        assert_eq!(
-            super::with_lsp_servers(
-                "Resolve symbols. <workflow>x</workflow>",
-                &["rust", "ts/js"]
-            ),
-            "Resolve symbols. Servers: rust, ts/js. <workflow>x</workflow>"
-        );
-        assert_eq!(
-            super::with_lsp_servers("Resolve symbols.", &[]),
-            "Resolve symbols. No language server found."
-        );
-    }
-}
+mod tests;

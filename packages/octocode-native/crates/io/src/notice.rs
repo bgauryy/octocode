@@ -35,6 +35,15 @@ static LIVE: Mutex<Vec<Weak<Notices>>> = Mutex::new(Vec::new());
 /// Kinds this process already said on stderr.
 static PRINTED: Mutex<BTreeSet<&'static str>> = Mutex::new(BTreeSet::new());
 
+/// How every notice's text is cleaned before it is recorded or printed,
+/// installed once by the runtime (this crate sits below the security rules).
+static SCRUBBER: std::sync::OnceLock<fn(&str) -> String> = std::sync::OnceLock::new();
+
+/// Install the scrubber every notice passes through; the first call wins.
+pub fn set_scrubber(scrub: fn(&str) -> String) {
+    let _ = SCRUBBER.set(scrub);
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -123,7 +132,11 @@ impl Drop for Entered {
 /// `kind`, and record it in the current [`Scope`] (outside every scope: in
 /// every live one).
 pub fn raise(kind: &'static str, text: impl Into<String>) {
-    let text = text.into();
+    let text: String = text.into();
+    let text = match SCRUBBER.get() {
+        Some(scrub) => scrub(&text),
+        None => text,
+    };
     match Scope::current() {
         Some(scope) => record(&scope.0, kind, &text),
         None => {

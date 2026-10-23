@@ -6,7 +6,7 @@ import { SELECT as RECORD_SELECT, envelope } from './records.js';
 import type { StoreHost } from './store-types.js';
 import { now } from './timing.js';
 import { isObject, isUuid, jsonEqual, type Json } from './validation.js';
-import { compact, parseJsonBytes } from './wire.js';
+import { compact, parseJsonBytes } from './json-text.js';
 
 const ENTITIES = ['session', 'message', 'lease', 'records', 'delivery', 'dispatch', 'document', 'attachment', 'subscriptions'];
 const PAGE_ROWS = 50;

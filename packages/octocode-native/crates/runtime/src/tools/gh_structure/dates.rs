@@ -1,8 +1,12 @@
 //! Freshness of a tree page: each listed entry's last-commit date at the
 //! listed commit, and that commit's own date, as `YYYY-MM-DD`.
+// A day is enough: entries of one page are compared by day, and the
+// listed commit's day bounds them all. Full timestamps would add 10 bytes
+// per entry for an ordering no listing reader asked for.
 use super::*;
 use crate::response::paging::push_warnings;
 use crate::response::result::Confidence;
+use crate::tools::gh_shared::dates::utc_day as day;
 use std::collections::HashMap;
 
 /// Dates of one listing page.
@@ -25,13 +29,6 @@ pub(super) struct PageDates {
 /// 2026-10-06: 1×100 aliases ≈ 3.4 s, 1×300 ≈ 7.6 s (near the 10 s
 /// GraphQL timeout), so a larger page leads the rest via `expandDates`.
 pub(super) const DATED_PER_PAGE: usize = octocode_github::MAX_PATHS_PER_REQUEST;
-
-/// A day is enough: entries of one page are compared by day, and the
-/// listed commit's day bounds them all. Full timestamps would add 10 bytes
-/// per entry for an ordering no listing reader asked for.
-fn day(timestamp: &str) -> Option<String> {
-    timestamp.get(..10).map(str::to_owned)
-}
 
 /// The page's dates: its first [`DATED_PER_PAGE`] entries, one cached
 /// record per (owner, repo, commit, those paths), else one GraphQL request.
@@ -217,8 +214,8 @@ mod tests {
         assert_eq!(
             rows,
             vec![
-                json!({"dir": "src", "files": ["a.rs (12, 2025-01-01)", "b (1).rs (3)"],
-                    "folders": ["old", "sub (2025-02-02)"]}),
+                json!({"dir": "src", "files": ["a.rs (12, 2025-01-01)", "b (1).rs (3)",
+                    "old/", "sub/ (2025-02-02)"]}),
                 json!({"dir": "src/sub", "files": ["b.rs (2025-03-03)"]}),
             ]
         );
@@ -237,11 +234,5 @@ mod tests {
         };
         attach(&mut value, dates);
         assert_eq!(value["warnings"], json!(["first", "dates missing"]));
-    }
-
-    #[test]
-    fn a_timestamp_shortens_to_its_day() {
-        assert_eq!(day("2026-01-31T23:59:59Z").as_deref(), Some("2026-01-31"));
-        assert_eq!(day("bad"), None);
     }
 }

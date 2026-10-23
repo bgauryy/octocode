@@ -2,11 +2,12 @@ import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { openSync, readSync, closeSync, fstatSync, realpathSync } from 'node:fs';
+import { openSync, closeSync, realpathSync } from 'node:fs';
 import { relative, isAbsolute, sep } from 'node:path';
 import { registerBoundTools } from './pi-extension.js';
-import { checkHostWrite, plainHostPath } from './lease-check.js';
 import { bindingArgs, readBinding, runtimeCommand, type PiContext, type PiHost, type PiMessage } from './shared/command.js';
+import { piEditGuard } from './shared/pi-edit-guard.js';
+import { LedgerReceipts } from './shared/pi-ledger.js';
 import type { CommandName } from '../runtime/catalog.js';
 import type { CommandInputs, CommandResults } from '../runtime/catalog-types.generated.js';
 import { heartbeatMs } from '../runtime/timing.js';
@@ -21,16 +22,6 @@ export interface PiBinding {
   database?: string;
   session?: string;
   vendorSession: string;
-}
-
-/** Receipts read so far from one Pi session ledger: the byte offset scanned, the unfinished last line, and the lines skipped as malformed. */
-interface LedgerScan {
-  identity: string;
-  offset: number;
-  rest: Buffer;
-  receipts: Set<string>;
-  header: boolean;
-  skipped: number;
 }
 
 /** What a host may pass when it embeds the bridge; Pi's environment supplies the same fields for the extension entry. */
@@ -49,18 +40,11 @@ export interface PiInboxOptions {
 
 const hosts = new WeakMap<object, { controller: PiInboxController; tools: string | undefined; requireLeases: boolean }>();
 const peerType = 'octocode-peer';
-const SCAN_CHUNK = 1024 * 1024;
 const identityType = 'octocode-identity';
 const recoveryType = 'octocode-completion';
 /** A whole token count, as a provider reports it. */
 const isCount = (value: unknown): value is number => Number.isInteger(value);
 const pause = () => new Promise(resolve => setImmediate(resolve));
-const parseLedgerLine = (line: string): JsonObject | undefined => {
-  try {
-    const row: unknown = JSON.parse(line);
-    return isObject(row) ? row : undefined;
-  } catch { return undefined; }
-};
 /** A delivered message and the token of its offer: what a ledger receipt and a confirmation name. */
 type Receipt = { id: number; dispatchToken: string };
 /** The value at `keys` below `value`, or undefined when the path breaks. */
@@ -94,7 +78,7 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
     return previous.controller;
   }
   const binary = options.binary || fileURLToPath(new URL('../communication.js', import.meta.url));
-  let lastHeartbeat = 0, diskCache: LedgerScan | undefined, maintenance: Promise<unknown> | undefined;
+  let lastHeartbeat = 0, maintenance: Promise<unknown> | undefined;
   const pending = new Map<string, Receipt>();
   let binding: PiBinding | undefined, context: PiContext | undefined, timer: NodeJS.Timeout | undefined, polling: Promise<void> | undefined, active = false, starting = false, stopped = true, generation = 0, idle = idleMin, deliveries = 0;
   let lifecycle = Promise.resolve(), lifecycleRevision = 0;
@@ -129,46 +113,13 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
   const matches = (entry: JsonObject, type: string, predicate: (details: JsonObject) => boolean) => entry.type === 'custom_message' && entry.customType === type && predicate(detailsOf(entry));
   const receiptSet = (rows: JsonObject[]) => new Set<string>(rows.filter(e => matches(e, peerType, d => d.session === binding!.session && d.database === binding!.database))
     .flatMap(e => detailsOf(e).receipts).flatMap(r => (isObject(r) ? [`${r.id}:${r.dispatchToken}`] : [])));
-  // The ledger is append-only JSONL: parse only bytes added since the last scan.
-  // A replaced or shrunken file is rescanned from its header.
+  const ledger = new LedgerReceipts(receiptSet, file => console.error(`Communication inbox: skipping malformed Pi ledger lines in ${file}`));
   const diskReceipts = (): Set<string> | null => {
     const file = context?.sessionManager.getSessionFile?.();
     if (!file) return null;
     let fd: number;
     try { fd = openSync(file, 'r'); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
-    try {
-      const metadata = fstatSync(fd);
-      const identity = `${file}:${metadata.dev}:${metadata.ino}`;
-      if (diskCache?.identity !== identity || metadata.size < diskCache.offset) diskCache = { identity, offset: 0, rest: Buffer.alloc(0), receipts: new Set(), header: false, skipped: 0 };
-      if (metadata.size === diskCache.offset) return diskCache.header ? diskCache.receipts : null;
-      // Scan the unread tail in bounded chunks: memory stays at one chunk plus the unfinished last line, however large the ledger.
-      while (diskCache.offset < metadata.size) {
-        const bytes = Buffer.alloc(Math.min(SCAN_CHUNK, metadata.size - diskCache.offset));
-        let read = 0;
-        while (read < bytes.length) {
-          const count = readSync(fd, bytes, read, bytes.length - read, diskCache.offset + read);
-          if (!count) break;
-          read += count;
-        }
-        const chunk = Buffer.concat([diskCache.rest, bytes.subarray(0, read)]);
-        const end = chunk.lastIndexOf(0x0a) + 1;
-        const lines = chunk.subarray(0, end).toString('utf8').split('\n').filter(Boolean);
-        const parsed = lines.map(parseLedgerLine);
-        const header = parsed[0];
-        if (!diskCache.header && lines.length && (header?.type !== 'session' || header.id !== binding!.vendorSession)) throw new Error('Pi ledger header does not match the bound session');
-        // A malformed entry carries no readable receipt: skip it, so one bad line cannot block every later scan. Its message stays unconfirmed and is retried.
-        const rows = parsed.filter((row): row is JsonObject => row !== undefined);
-        if (rows.length < parsed.length && !diskCache.skipped) console.error(`Communication inbox: skipping malformed Pi ledger lines in ${file}`);
-        diskCache.skipped += parsed.length - rows.length;
-        for (const receipt of receiptSet(rows)) diskCache.receipts.add(receipt);
-        diskCache.header ||= lines.length > 0;
-        diskCache.offset += read;
-        diskCache.rest = Buffer.from(chunk.subarray(end));
-        if (read < bytes.length) break;
-      }
-      // No complete header yet: receipts are unknown, not absent.
-      return diskCache.header ? diskCache.receipts : null;
-    } finally { closeSync(fd); }
+    try { return ledger.read(fd, file, binding!.vendorSession); } finally { closeSync(fd); }
   };
   const persist = async (message: PiMessage, found: () => boolean, expectedGeneration: number, triggerTurn = false): Promise<boolean> => {
     if (expectedGeneration !== generation || !currentBinding()) return false;
@@ -265,23 +216,7 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
   if (options.completionCheck) pi.on('input', event => {
     if (currentBinding() && event.source !== 'extension') workCycle += 1;
   });
-  if (requireLeases) pi.on('tool_call', async (event, ctx) => {
-    // Covers Pi's structured edit/write tools only. Shell/custom tools and later
-    // extension rewrites remain outside this admission check, not silently fenced.
-    if (!['write', 'edit'].includes(event.toolName)) return;
-    const target = currentBinding();
-    if (!target || !isBoundContext(ctx)) return {block: true, reason: 'File edit requires an active communication binding and owned lease.'};
-    const path = event.input?.path;
-    if (!plainHostPath(path) || !plainHostPath(ctx.cwd)) return {block: true, reason: 'File edit requires a plain path without host aliases or parent traversal.'};
-    try {
-      // The same admission call as the Claude and OpenCode guards.
-      const covered = await checkHostWrite(target, {vendorSession: ctx.sessionManager.getSessionId(), cwd: ctx.cwd, path});
-      if (currentBinding() !== target || !isBoundContext(ctx) || event.input?.path !== path) return {block: true, reason: 'Session or file path changed during lease validation; retry in the current session.'};
-      if (!covered) return {block: true, reason: 'File edit blocked: acquire or renew your own covering lease before retrying.'};
-    } catch {
-      return {block: true, reason: 'File edit blocked because live lease ownership could not be verified.'};
-    }
-  });
+  if (requireLeases) pi.on('tool_call', piEditGuard(currentBinding, isBoundContext));
   if (options.disableCacheWarming) pi.on('cache_warming_decision', () => ({ action: 'stop' }));
   const stop = async () => {
     invalidate();
@@ -289,7 +224,7 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
     await maintenance?.catch(() => {});
     await completion;
     pending.clear();
-    diskCache = undefined;
+    ledger.reset();
     try { if (binding?.session) await call('leave'); }
     finally { binding = undefined; options.onBinding?.(null); }
   };

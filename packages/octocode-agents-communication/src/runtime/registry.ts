@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, wri
 import { join, resolve } from 'node:path';
 import { databasePath } from './config.js';
 import { LEASE_TTL_MAX_MS, now } from './timing.js';
-import { compact } from './wire.js';
+import { compact } from './json-text.js';
 
 const VERSION = 1;
 const DIRECTORY = 'active-databases';

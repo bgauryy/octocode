@@ -58,7 +58,7 @@ Production imports point one way: `id`/`num` → `contracts` → `policy` → `c
 | `tools` | Public operations composed from shared runtime services and engine primitives | Independent config, auth, or response systems |
 | `response` | Contract-checked rows, compression, pagination, continuations, sanitized rendering, and the result vocabulary tools write (`result`, `paging`, `page_windows`, `numbered`, `output`, `outcome`, `exit` classification) | Tool execution |
 | `tools/lsp_search` + `runtime/domain_dispatch` | Runtime composition around the engine language-server pool (pool owned by the runtime engine, dispatched and prewarmed through `domain_dispatch`) | A second lifecycle implementation |
-| `tools/<shared>` (the list and each module's purpose live in `tools/module_boundaries.rs` `SHARED_MODULES`) | Logic two or more tools use: for example `empty_walk` (why an empty local walk is empty and the minimal flags that lift it), `leads` (follow-up queries one tool offers into another), `declarations_cache`, `gh_shared`, `source_capture` (its `SourceReader` trait is how clasify reads through the runtime's dispatcher without naming it) | Tool-specific behavior. The guard rejects new tool-to-tool and shared-to-tool edges; `ALLOWED_EDGES` owns the explicit exceptions and their reasons, and stale exceptions fail the guard. |
+| `tools/<shared>` (the list and each module's purpose live in `tools/module_boundaries.rs` `SHARED_MODULES`) | Logic two or more tools use: for example `empty_walk` (why an empty local walk is empty and the minimal flags that lift it), `leads` (follow-up queries one tool offers into another), `declarations_cache`, `gh_shared`, `source_view` (the one view engine over fetched source text: localFetch and ghGetFileContent render through it), `source_capture` (its `SourceReader` trait is how clasify reads through the runtime's dispatcher without naming it) | Tool-specific behavior. The guard rejects every tool-to-tool and shared-to-tool edge. |
 | `tools/ast_graph/store` | CLI-only persisted code graph (`npx octocode graph ingest` / `graph query`): immutable snapshots under `<workspace>/.octocode/graph/` | A public tool contract or MCP surface |
 | `crates/runtime-napi` | Host conversion and native runtime lifecycle | An alternate execution path |
 | `crates/cli` | Arguments, human output, and shell exits | Node, N-API, or duplicated tools |
@@ -185,7 +185,7 @@ Config remains the shared home/dotenv policy owner; core contracts are unchanged
 
 ## Language capability ownership
 
-`crates/engine/src/signatures/languages.rs` is the sole native grammar inventory. Structural search/rewrite, signatures, graph facts, syntax inspection, directory language filters, and LSP grammar adapters derive from that registry; built-in language-server routing comes from a separate server table (`lsp/config/catalog.rs`). Counts, grammar features, and per-language coverage: [SUPPORTED_LANGUAGES_AND_FEATURES.md](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md). YAML rule parsing is configuration syntax, not YAML source support.
+`crates/engine/src/signatures/languages.rs` is the sole native grammar inventory. Structural search/rewrite, signatures, graph facts, syntax inspection, directory language filters, and LSP grammar adapters derive from that registry; built-in language-server routing comes from a separate server table (`lsp/config/catalog.rs`). Counts, grammar features, and per-language coverage: [SUPPORTED_LANGUAGES_AND_FEATURES.md](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md). An astSearch rule is a JSON object, decoded once into the engine's typed rule; YAML files are read as source text only.
 
 `engine::lsp::managed` owns the pinned server manifest and the verified install layout `<home>/lsp/<server>/<tag>/<bin>` with a `.ok` marker; the CLI only downloads and installs. Route resolution order is in [LSP_SERVER_LIFECYCLE.md](docs/engine/LSP_SERVER_LIFECYCLE.md#resolution). Engine LSP discovery reads no `OCTOCODE_*` process environment; the runtime passes resolved options.
 
@@ -231,7 +231,7 @@ Configuration policy is independently owned by `@octocodeai/config` in `config-c
 
 ## Bundled skills
 
-`crates/cli/src/cli/skill/` owns skill parsing, the platform registry, installation,
+`crates/cli/src/cli/skill/` owns the `SKILL.md` name line, the platform registry, installation,
 freshness checks, repair and removal. The Node launcher delegates these commands
 to the native executable. Runtime config owns home and credential resolution.
 
@@ -239,6 +239,11 @@ to the native executable. Runtime config owns home and credential resolution.
 `stage-skills.mjs` filter to stage canonical `skills/` files into Cargo's output
 directory. Rust embeds those bytes and executable permissions. Cargo watches the
 source tree and staging scripts, so a changed workflow is included on rebuild.
+The script also decodes each skill's `description`, which must be one frontmatter line
+holding a JSON string, and embeds it as a `&'static str`; `skills:check` enforces that
+form for the public skills. At runtime Octocode reads no YAML: `skill install --add`
+takes `name` from its single `name:` line (bare or double-quoted), and any other form
+asks for a name override.
 Node is a build prerequisite; no Node process or extraction cache is needed to
 list, inspect, install, check or remove skills from a shipped binary.
 

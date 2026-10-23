@@ -82,7 +82,7 @@ export class AcpBackend implements ExternalBackend {
     const backend = new AcpBackend(child, cwd, input.sessionId ?? '', permission);
     let phase = 'initialize';
     try {
-      const stream = ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>);
+      const stream = ndJsonStream(Writable.toWeb(child.stdin), Readable.toWeb(child.stdout));
       const connection = client({ name: 'octocode-pi-external' })
         .onRequest(methods.client.session.requestPermission, (ctx) => backend.requestPermission(ctx.params, ctx.signal))
         .onNotification(methods.client.session.update, (ctx) => backend.update(ctx.params))

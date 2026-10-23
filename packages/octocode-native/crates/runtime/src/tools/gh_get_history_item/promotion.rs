@@ -9,8 +9,7 @@ use crate::response::pages::Remaining;
 use serde_json::{Map, Value, json};
 
 /// A provider limit an item read's section hit (GitHub lists at most 3,000
-/// PR files), stated on the row: section cursors are an opt-in stats
-/// extra, the limit is evidence.
+/// PR files), stated on the row as evidence beside the section's page block.
 fn hoist_provider_limit(out: &mut Value, row: &str) {
     let limit = out
         .pointer(&format!("{row}/contentPagination"))
@@ -134,14 +133,10 @@ fn narrow_to_axis(nq: &mut Value, axis: Axis, q: &HistoryItemRequest) {
             // A collection page continues only its own surface; the other
             // surfaces were already delivered on this call. The discussion
             // and the inline review comments page apart.
+            // A page of patches lists their files: `patches` alone stays
+            // the caller's one spelling of that read.
             let read = q.sections();
             let own = axis.own_sections();
-            // A page of patches lists their files.
-            let read = if read.has(Section::Patches) {
-                read.with(Section::Files)
-            } else {
-                read
-            };
             Sections::of(own.iter().copied().filter(|section| read.has(*section))).set_on(nq);
         }
     }

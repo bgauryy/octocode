@@ -1,53 +1,23 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { Box, Text } from '@earendil-works/pi-tui';
-import { EventLog } from './events.js';
+import { boundedExternal, boundedText } from './bounded.js';
+import { EventLog, nesting } from './events.js';
+import { registerExternalMessageRenderer } from './external-message.js';
+import { HISTORY_MAX_PAGE, HISTORY_PAGE, historyPage } from './history.js';
+import type { ApiOptions } from './options.js';
 import { apiDir, ensurePrivateDir, newInstanceId, newToken, removeRecord, socketPath, writeRecord, type InstanceRecord } from './registry.js';
 import { SendReceipts, type RunResult, type SendReceipt } from './receipts.js';
 import { ApiServer, type Connection } from './server.js';
-import { clampedParam, DEFAULT_EVENT_TYPES, ERR, MAX_FRAME_BYTES, MESSAGE_KEY_MAX, numberParam, PROTOCOL_VERSION, RpcError, stringParam, WAIT_MS } from './protocol.js';
-import { apiClientLabel, fencedBody, fenceUntrusted, headerText, messageHeader } from '../shared/fence.js';
+import { clampedParam, DEFAULT_EVENT_TYPES, ERR, MESSAGE_KEY_MAX, numberParam, PROTOCOL_VERSION, RpcError, stringParam, WAIT_MS } from './protocol.js';
+import { apiClientLabel, fenceUntrusted, headerText, messageHeader } from '../shared/fence.js';
 import { redactData, redactSecrets, visibleControls } from '../shared/sanitize.js';
-import { saveContentCopy, saveFullOutput } from '../shared/spill.js';
-import { envFlag } from '../shared/env.js';
-import { formatClock } from '../shared/format.js';
-import { clip, resultBlock } from '../shared/render.js';
 import { EXTERNAL_MESSAGE_TYPE, EXTERNAL_SENDER, USER_SENDER, type MessageEnvelope } from '../shared/messages.js';
 import { sha256 } from '../shared/atomic.js';
 import { capChars, contentText, errorMessage, isRecord, isStaleSessionError, toolHint } from '../shared/util.js';
 
-const API_ENV = 'OCTOCODE_API';
-const API_HTTP_ENV = 'OCTOCODE_API_HTTP';
 /** Session entry (`pi.appendEntry`, never sent to the model) written for every turn an API client starts. */
 const EXTERNAL_AUDIT_TYPE = 'octocode-external';
 /** Senders a client may not claim: the user, the team's own API sender, and (checked per call) any live agent. */
 const RESERVED_SENDERS = new Set([USER_SENDER, EXTERNAL_SENDER]);
-
-const RESULT_MAX_CHARS = 64_000;
-/** `messages.list` page size: the default, and the most one page holds (a larger `limit` gets this many; `earlier` reaches the rest). */
-const HISTORY_PAGE = 20;
-const HISTORY_MAX_PAGE = 100;
-
-/**
- * Model text for an event or a history entry: credential-looking spans redacted first (so a secret that straddles the
- * limit is never left half-visible), then, over `RESULT_MAX_CHARS`, cut with the whole redacted text saved to a file
- * the note names (or the note says it could not be saved).
- */
-function boundedText(text: string): string {
-  const safe = redactSecrets(text);
-  if (safe.length <= RESULT_MAX_CHARS) return safe;
-  // The same answer reaches `message`, `agent.end` and the history: the file is named by its content, so that is one file, not one per channel.
-  const copy = saveContentCopy(safe, 'api message');
-  return capChars(safe, RESULT_MAX_CHARS, copy ? `the whole text is in ${copy}` : 'the whole text could not be saved');
-}
-function boundedExternal(value: unknown): unknown {
-  const safe = redactData(value);
-  const text = JSON.stringify(safe);
-  const bytes = Buffer.byteLength(text);
-  if (bytes <= MAX_FRAME_BYTES / 2) return safe;
-  const file = saveFullOutput(text, 'external-api-result');
-  if (!file) throw new RpcError(ERR.unavailable, 'Complete external evidence could not be saved; execution may already have completed', { execution: 'uncertain', bytes });
-  return { fullOutput: { path: file, bytes, format: 'json' }, notice: 'Complete redacted result saved on the Pi host; read this file before acting on the result.' };
-}
 
 /** What the API needs from the team (kept as an interface so the API domain stays independent of it). */
 export interface AgentDirectory {
@@ -56,38 +26,6 @@ export interface AgentDirectory {
   tell(to: string, text: string): unknown;
   /** What a reader of a message from `from` gets for `text`: the text, or (when it is long) its head and the path of a file with all of it; an `error` when it cannot be saved. */
   deliverable(text: string, from: string): string | { error: string };
-}
-
-interface ApiOptions {
-  /** Serve on a Unix socket (default when enabled; not available on Windows). */
-  socket: boolean;
-  /** Serve on loopback HTTP: a port, 0 for any free port, or undefined for no HTTP. */
-  http?: number | undefined;
-}
-
-/** The transports the environment asks for, or undefined when the API is off. A bad port throws its reason instead of silently serving nothing. */
-export function optionsFromEnv(env: NodeJS.ProcessEnv = process.env, platform = process.platform): ApiOptions | undefined {
-  const httpText = env[API_HTTP_ENV]?.trim();
-  const port = httpText === undefined || httpText === '' ? undefined : /^\d+$/.test(httpText) ? Number(httpText) : Number.NaN;
-  if (port !== undefined && !(port >= 0 && port <= 65_535)) throw new Error(`Octocode API is off: ${API_HTTP_ENV}=${httpText} is not a port (0-65535; 0 picks a free one).`);
-  const on = envFlag(env, API_ENV);
-  if (!on) return port === undefined ? undefined : { socket: false, http: port };
-  return transportsFor(port, platform);
-}
-
-/** The transports of an API that is switched on: a Unix socket where there are any, and loopback HTTP on `http` (0: a free port) or, where there is no socket, on a free port. */
-export function transportsFor(http: number | undefined, platform = process.platform): ApiOptions {
-  const socket = platform !== 'win32';
-  return { socket, http: http ?? (socket ? undefined : 0) };
-}
-
-/**
- * Where a tool call sits in the call tree. Calls a tool makes itself (`ctx.executeTool`, e.g. codemode scripts) carry
- * `parentToolCallId`, and Pi names them `<parent>/<n>`; provider ids contain no `/`, so the parent's segment count is
- * the depth: `toolu_1` → 0, `toolu_1/1` (parent `toolu_1`) → 1, `toolu_1/1/2` (parent `toolu_1/1`) → 2.
- */
-export function nesting(parentId: string | undefined): { depth: number; parentId?: string } {
-  return parentId ? { parentId, depth: parentId.split('/').length } : { depth: 0 };
 }
 
 export interface ApiOperations {
@@ -430,55 +368,7 @@ export class OctocodeApi {
     }
   }
 
-  /**
-   * One page of the transcript's user and assistant text, oldest first: the `limit` messages before index `before`
-   * (default: the end); a `limit` outside 1..`HISTORY_MAX_PAGE` is clamped to it and a `before` past the end means the end,
-   * and the page says the size it used. Every message carries its `index`; `earlier.before` is the next page's `before` and is absent
-   * on the first page of the transcript. A text over `RESULT_MAX_CHARS` is cut with its whole text saved to a file.
-   */
   private history(limit: number, before?: number): unknown {
-    const ctx = this.session();
-    const all: Array<{ role: string; text: string }> = [];
-    for (const entry of ctx.sessionManager.getBranch()) {
-      const message = (entry as { type?: string; message?: { role?: string; content?: unknown } }).message;
-      if ((entry as { type?: string }).type !== 'message' || !message?.role) continue;
-      if (message.role !== 'user' && message.role !== 'assistant') continue;
-      const text = contentText(message.content, { separator: '' });
-      if (text) all.push({ role: message.role, text });
-    }
-    const end = Math.min(before ?? all.length, all.length);
-    let start = end;
-    let bytes = 0;
-    const messages: Array<{ index: number; role: string; text: string }> = [];
-    for (let index = end - 1; index >= Math.max(end - limit, 0); index--) {
-      const row = { index, role: all[index]!.role, text: boundedText(all[index]!.text) };
-      const size = Buffer.byteLength(JSON.stringify(row)) + 1;
-      if (messages.length > 0 && bytes + size > MAX_FRAME_BYTES / 2) break;
-      messages.unshift(row);
-      bytes += size;
-      start = index;
-    }
-    return {
-      messages,
-      total: all.length,
-      limit,
-      ...(start > 0 ? { earlier: { before: start } } : {}),
-      last: this.lastAssistantText ? boundedText(this.lastAssistantText) : null,
-    };
+    return historyPage(this.session().sessionManager.getBranch(), this.lastAssistantText, limit, before);
   }
-}
-
-/** `✉ from <client>`, then the client's text: untrusted, so resultBlock sanitizes and previews it instead of Markdown. */
-function registerExternalMessageRenderer(pi: ExtensionAPI): void {
-  pi.registerMessageRenderer(EXTERNAL_MESSAGE_TYPE, (message, { expanded, outputPad }, theme) => {
-    const details = message.details as { from?: unknown; at?: unknown } | undefined;
-    const from = clip(String(details?.from ?? 'API client'), 60);
-    const text = contentText(message.content);
-    // The content is the fenced message the model reads; the header above says who sent it, so draw only the body.
-    const body = fencedBody(text);
-    const box = new Box(outputPad ?? 1, 0);
-    box.addChild(new Text(`${theme.fg('accent', '✉')} ${theme.fg('toolTitle', theme.bold(`from ${from}`))} ${theme.fg('dim', `· Octocode API · ${formatClock(typeof details?.at === 'number' ? details.at : Date.now())}`)}`, 0, 0));
-    box.addChild(resultBlock(theme, { expanded }, { summary: '', body, error: false }));
-    return box;
-  });
 }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { privateDir, sessionOutputDir } from '../shared/home.js';
 import { abortError } from './abort.js';
-import type { BrowserSession } from './cdp.js';
+import type { BrowserSession } from './session-state.js';
 import { applyDownloads } from './emulation.js';
 
 type Page = BrowserSession['page'];

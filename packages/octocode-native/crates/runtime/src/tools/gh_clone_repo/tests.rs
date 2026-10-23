@@ -1,3 +1,5 @@
+use super::pin::api_refusal;
+use super::validate::{is_sparse_path, repository_url, web_root};
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::policy::path::PathPolicyConfig;
@@ -1265,16 +1267,22 @@ fn corruption_expiry_stale_lock_and_failed_publication_preserve_cache() {
             .cached
     );
 
-    let lock = cache::lock_dir(&cache_home, &clone_path);
-    fs::create_dir_all(&lock).expect("stale lock");
-    fs::write(
-        lock.join(cache::LOCK_META_FILE),
-        r#"{"pid":4294967295,"createdAt":0}"#,
-    )
-    .expect("lock meta");
+    // A holder that ended without unlocking (a crash closes its descriptor)
+    // leaves only the lock file: the kernel released the lock, so the next
+    // clone takes it at once, with no age or pid heuristics.
+    let lock = cache::lock_path(&cache_home, &clone_path);
+    let crashed = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock)
+        .expect("lock file");
+    crashed.try_lock().expect("crashed holder takes the lock");
+    drop(crashed);
+    assert!(lock.is_file(), "the lock file stays behind");
     assert!(
         clone_pinned(&fixture, &query(), &context)
-            .expect("recover stale")
+            .expect("a crashed holder's lock does not block")
             .location
             .cached
     );
@@ -1328,16 +1336,22 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
     );
     assert!(log_bytes > 0);
 
-    let live_lock = cache::lock_dir(&cache_home, Path::new(&tag.location.local_path));
-    fs::create_dir_all(&live_lock).expect("live lock");
-    fs::write(
-        live_lock.join(cache::LOCK_META_FILE),
-        serde_json::json!({"pid": std::process::id(), "createdAt": 0}).to_string(),
-    )
-    .expect("live lock metadata");
+    let live_lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(cache::lock_path(
+            &cache_home,
+            Path::new(&tag.location.local_path),
+        ))
+        .expect("live lock file");
+    let held = match octocode_io::lock::try_lock(live_lock).expect("lock") {
+        octocode_io::lock::TryLock::Locked(held) => held,
+        octocode_io::lock::TryLock::Busy(_) => panic!("the live lock is free"),
+    };
     let error = clone_pinned(&fixture, &deep_tag, &context).expect_err("live lock must time out");
     assert_eq!(error.code, ErrorCode::Timeout);
-    fs::remove_dir_all(live_lock).expect("remove live lock");
+    drop(held);
 
     let missing = clone_pinned(
         &fixture,
@@ -1997,6 +2011,12 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
     assert_eq!(row["path"], "src/nested/data.txt", "{next}");
     assert_eq!(row["ref"], commit.as_str(), "{next}");
     assert_eq!(row["owner"], "fixture-owner", "{next}");
+
+    // Only the letter case differs: missing on every filesystem (a commit's
+    // paths are case-sensitive), corrected to the commit's spelling.
+    let next = failed(one("src/Nested"));
+    let row = &next["repair"]["query"]["queries"][0];
+    assert_eq!(row["path"], "src/nested", "{next}");
 
     // A directory is a near miss too, and a list is corrected in place.
     let next = failed(many(&["other", "sr/nested"]));
@@ -2748,4 +2768,23 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
         assert!(cached.location.cached);
         assert_eq!(cached.location.symlinks, cloned.location.symlinks);
     }
+}
+
+/// A persistent cache runs under the runtime's constant limits; a test
+/// runtime's limits replace them field for field.
+#[test]
+fn persistent_defaults_are_the_runtime_constants_and_limits_apply() {
+    let base = CloneConfig::persistent("/h");
+    assert_eq!(base.cache_ttl, Duration::from_secs(24 * 60 * 60));
+    assert_eq!(base.max_cache_size_bytes, 2 * 1024 * 1024 * 1024);
+    assert_eq!(base.max_clone_count, 50);
+    assert_eq!(base.network_timeout, Duration::from_secs(30));
+    let config = CloneConfig::persistent("/h").with_limits(&crate::execution::CloneLimits {
+        ttl: Duration::from_secs(120),
+        max_bytes: 1024 * 1024,
+        max_clones: 7,
+    });
+    assert_eq!(config.cache_ttl, Duration::from_secs(120));
+    assert_eq!(config.max_clone_count, 7);
+    assert_eq!(config.max_cache_size_bytes, 1024 * 1024);
 }

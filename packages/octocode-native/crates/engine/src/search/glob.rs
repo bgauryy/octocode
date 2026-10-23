@@ -113,9 +113,123 @@ impl Globs {
     }
 }
 
+/// Which entries a walk left out could hold a path its `include` globs
+/// match, so a disclosure of skipped paths names only those: a skipped file
+/// that an include glob matches, or a skipped directory below which one
+/// could. Unsure answers (a glob it cannot split by directory) are yes.
+#[derive(Clone, Debug, Default)]
+pub struct IncludeScope {
+    /// One entry per include glob: its directory segments below the root,
+    /// or `None` for a glob that matches a name at any depth.
+    globs: Vec<Option<Vec<String>>>,
+    files: Option<Gitignore>,
+}
+
+impl IncludeScope {
+    /// The scope of `include` (globs as the walk compiles them) under `root`;
+    /// no globs reach everything.
+    pub fn new(root: &Path, include: &[String]) -> Self {
+        let Ok(files) = set(root, include.iter().map(String::as_str), "include") else {
+            return Self::default();
+        };
+        let globs = include
+            .iter()
+            .map(|glob| {
+                let anchored = glob.strip_prefix('/').unwrap_or(glob);
+                let body = anchored.trim_end_matches('/');
+                // gitignore: a glob with no `/` but a trailing one matches a
+                // name at any depth.
+                (anchored.len() != glob.len() || body.contains('/'))
+                    .then(|| body.split('/').map(str::to_owned).collect())
+            })
+            .collect();
+        Self { globs, files }
+    }
+
+    /// Whether `path` (under the root) could hold an included path: a file
+    /// an include glob matches, or a directory below which one could match.
+    pub fn reaches(&self, path: &Path, relative: &Path, is_dir: bool) -> bool {
+        let Some(files) = &self.files else {
+            return true;
+        };
+        if !is_dir {
+            return matches(files, path, false);
+        }
+        let dir = relative
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>();
+        self.globs.iter().any(|glob| {
+            let Some(segments) = glob else {
+                return true;
+            };
+            for (at, name) in dir.iter().enumerate() {
+                let Some(segment) = segments.get(at) else {
+                    // The glob ends at or above this directory: nothing
+                    // deeper matches it.
+                    return false;
+                };
+                if segment.contains("**") {
+                    return true;
+                }
+                // A segment that does not compile alone (a `{a/b}` split
+                // at its `/`) may match: unsure is yes.
+                let matched = match globset::GlobBuilder::new(segment)
+                    .literal_separator(true)
+                    .build()
+                {
+                    Ok(one) => one.compile_matcher().is_match(name.as_ref()),
+                    Err(_) => true,
+                };
+                if !matched {
+                    return false;
+                }
+            }
+            dir.len() < segments.len()
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A skipped directory is in an include list's scope when a path below it
+    /// could match a glob; a skipped file when a glob matches it.
+    #[test]
+    fn an_include_scope_reaches_only_directories_that_could_hold_a_match() {
+        let root = Path::new("/r");
+        let scope = |include: &[&str]| {
+            IncludeScope::new(
+                root,
+                &include
+                    .iter()
+                    .map(|glob| (*glob).to_owned())
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let dir = |scope: &IncludeScope, relative: &str| {
+            scope.reaches(&root.join(relative), Path::new(relative), true)
+        };
+        let agents = scope(&[".agents/**"]);
+        assert!(dir(&agents, ".agents"));
+        assert!(dir(&agents, ".agents/skills/deep"));
+        assert!(!dir(&agents, "packages/repos/asm"));
+        assert!(!dir(&agents, "releases"));
+        let anchored = scope(&["/src/*/lib.rs", "docs/a.md"]);
+        assert!(dir(&anchored, "src"));
+        assert!(dir(&anchored, "src/x"));
+        assert!(!dir(&anchored, "src/x/y"));
+        assert!(dir(&anchored, "docs"));
+        assert!(!dir(&anchored, "docs/a.md"));
+        assert!(!dir(&anchored, "lib"));
+        for anywhere in [&["*.rs"][..], &["build/"], &["**/gen/*.ts"], &[]] {
+            assert!(dir(&scope(anywhere), "any/deep/dir"), "{anywhere:?}");
+        }
+        let files = scope(&["*.go"]);
+        assert!(files.reaches(&root.join("a/b.go"), Path::new("a/b.go"), false));
+        assert!(!files.reaches(&root.join("a/b.ts"), Path::new("a/b.ts"), false));
+    }
 
     fn globs(include: &[&str], exclude: &[&str]) -> Result<Globs, Error> {
         let owned = |list: &[&str]| {

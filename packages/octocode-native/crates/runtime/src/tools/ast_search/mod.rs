@@ -43,10 +43,10 @@ use crate::policy::PolicyError;
 use crate::policy::PolicyErrorCode;
 use crate::response::result::ToolError;
 
-/// A path-policy refusal. Path-shape refusals without a shared code (empty,
-/// looping, over-long, not a regular file, binary, unreadable) are one code.
+/// A path-policy refusal under the code every local tool gives it
+/// ([`PolicyError::shared_code`]).
 pub(super) fn policy_error(error: PolicyError) -> ToolError {
-    ToolError::policy(error, ErrorCode::PathValidationFailed)
+    ToolError::new(error.shared_code(), error.message)
 }
 
 /// The source astSearch parses, read bounded at [`MAX_PARSE_SOURCE_BYTES`];
@@ -62,6 +62,33 @@ pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>
         )),
         Err(ReadError::Io(error)) => Err(io_error(&display_name(path), error)),
     }
+}
+
+/// The text astSearch parses from a source's bytes ([`read_parse_source`]):
+/// the engine's one source admission as its directory scan applies it
+/// (`Decoding::Unicode`: binary refused, UTF-8 or BOM-marked UTF-16, never
+/// a guessed legacy encoding), so a file parses the same named alone or in
+/// a directory. Keep the bytes for digests: coordinates count this text.
+pub(super) fn parse_text<'b>(
+    path: &std::path::Path,
+    bytes: &'b [u8],
+) -> Result<std::borrow::Cow<'b, str>, ToolError> {
+    use octocode_engine::text::{Decoding, Refusal, admit};
+    admit(bytes, Decoding::Unicode)
+        .map(|decoded| decoded.text)
+        .map_err(|refusal| match refusal {
+            Refusal::Binary => policy_error(PolicyError::new(
+                crate::policy::PolicyErrorCode::BinaryContent,
+                format!("{} is binary content, not source text.", display_name(path)),
+            )),
+            Refusal::NotUnicode => ToolError::new(
+                ErrorCode::FileReadFailed,
+                format!(
+                    "Could not read {} as source text: {refusal}.",
+                    display_name(path)
+                ),
+            ),
+        })
 }
 
 /// The terminal row of a source larger than [`MAX_PARSE_SOURCE_BYTES`]; a
@@ -281,7 +308,7 @@ fn header_parse_note(path: &std::path::Path, source: &str) -> Option<String> {
         &path.to_string_lossy(),
         Some("c"),
         None,
-        Some(CPP_KEYWORD_NAMES),
+        Some(&cpp_keyword_names_rule()),
     )
     .matches
     .into_iter()
@@ -293,8 +320,13 @@ fn header_parse_note(path: &std::path::Path, source: &str) -> Option<String> {
     ))
 }
 
-/// C++ keywords the C grammar parses as type or variable names.
-const CPP_KEYWORD_NAMES: &str = r#"{"any":[{"kind":"type_identifier"},{"kind":"identifier"}],"regex":"^(class|namespace|template|typename|virtual|public|private|protected|operator|using)$"}"#;
+/// The rule for C++ keywords the C grammar parses as type or variable names.
+fn cpp_keyword_names_rule() -> serde_json::Value {
+    serde_json::json!({
+        "any": [{"kind": "type_identifier"}, {"kind": "identifier"}],
+        "regex": "^(class|namespace|template|typename|virtual|public|private|protected|operator|using)$"
+    })
+}
 
 /// Row path for a descendant of a directory scope: `{root_name}/{relative}`.
 /// The runtime attaches `base = parent(scope)`, so `base + path` resolves to
@@ -306,6 +338,26 @@ pub(super) fn rooted_display(root: &std::path::Path, relative: &std::path::Path)
     } else {
         format!("{root_name}/{}", relative.to_string_lossy())
     }
+}
+
+/// A row path of `scope` ([`rooted_display`], or the file's own name for a
+/// file scope) as the response stage spells row paths: workspace-relative,
+/// else absolute. Warning text is not rewritten by that stage, so a path it
+/// names is spelled here, the same way, to be passed on verbatim.
+pub(super) fn response_path(
+    paths: &crate::policy::path::PathPolicy,
+    scope: &std::path::Path,
+    is_file: bool,
+    shown: &str,
+) -> String {
+    let file = if is_file {
+        scope.to_path_buf()
+    } else {
+        scope.parent().unwrap_or(scope).join(shown)
+    };
+    paths
+        .workspace_relative(&file)
+        .unwrap_or_else(|| file.to_string_lossy().into_owned())
 }
 
 pub type AstResult = Result<Value, ToolError>;
@@ -325,21 +377,53 @@ pub fn execute_ast(
     cancellation: &dyn crate::execution::cancel::CancellationCheck,
     response_window: Option<usize>,
 ) -> AstResult {
+    let requested = match query {
+        AstSearchQuery::Symbols(query) => query.path.as_str(),
+        AstSearchQuery::MatchPattern(query) => query.path.as_str(),
+        AstSearchQuery::MatchRule(query) => query.path.as_str(),
+        AstSearchQuery::SyntaxTree(query) => query.path.as_str(),
+    };
+    run_ast(query, paths, security, cancellation, response_window)
+        .map_err(|error| missing_path_recovery(error, requested, paths))
+}
+
+/// A `pathNotFound` for the query's path leads to the tree of its nearest
+/// existing parent ([`missing_path_lead`]), the recovery every local tool
+/// gives a missing path; its message names no absolute filesystem path.
+///
+/// [`missing_path_lead`]: crate::response::result::missing_path_lead
+fn missing_path_recovery(
+    mut error: ToolError,
+    requested: &str,
+    paths: &crate::policy::path::PathPolicy,
+) -> ToolError {
+    if error.code != ErrorCode::PathNotFound || error.next.is_some() {
+        return error;
+    }
+    error.next = crate::response::result::missing_path_lead(paths, requested).map(Box::new);
+    error
+}
+
+fn run_ast(
+    query: &AstSearchQuery,
+    paths: &crate::policy::path::PathPolicy,
+    security: &crate::security::ContentSecurity,
+    cancellation: &dyn crate::execution::cancel::CancellationCheck,
+    response_window: Option<usize>,
+) -> AstResult {
     match query {
         AstSearchQuery::Symbols(query) => {
-            execute_symbols(query, paths, security, cancellation, response_window)
+            execute_symbols(query, paths, cancellation, response_window)
         }
         AstSearchQuery::MatchPattern(query) => execute_match(
             MatchQuery::Pattern(query),
             paths,
-            security,
             cancellation,
             response_window,
         ),
         AstSearchQuery::MatchRule(query) => execute_match(
             MatchQuery::Rule(query),
             paths,
-            security,
             cancellation,
             response_window,
         ),
@@ -445,6 +529,14 @@ mod tests {
         let nodes = syntax["nodes"].as_array().expect("node rows");
         assert_eq!(nodes[0], "0 program 1:1-2:1", "{syntax}");
         assert_eq!(nodes[1], "1 export_statement 1:1-1:24 ^0", "{syntax}");
+        // A node that fills a grammar field names it before its kind: the
+        // name a rule's `has`/`inside` `field` matches.
+        assert!(
+            nodes.iter().any(|row| row
+                .as_str()
+                .is_some_and(|row| row.contains(" name:identifier 1:14-1:19 "))),
+            "{syntax}"
+        );
         assert!(syntax.get("nextOffset").is_none(), "{syntax}");
         let tokens = execute_row(
             json!({
@@ -481,6 +573,41 @@ mod tests {
                 serde_json::from_value::<AstSearchQuery>(retired).is_err(),
                 "retired astSearch surface must be rejected"
             );
+        }
+    }
+
+    /// A relative path that does not exist leads to the tree of its nearest
+    /// existing parent, in every operation, as in every local tool; the
+    /// message names no absolute filesystem path.
+    #[test]
+    fn a_missing_relative_path_leads_to_its_parent_without_an_absolute_root() {
+        let root = tempfile::tempdir().expect("root");
+        std::fs::create_dir(root.path().join("src")).expect("src");
+        let paths = crate::tools::test_support::workspace_policy(root.path());
+        let security = ContentSecurity::new();
+        for row in [
+            json!({"operation":"symbols","path":"src/nope.rs"}),
+            json!({"operation":"syntaxTree","path":"src/nope.rs"}),
+            json!({"operation":"match","path":"src/nope.rs","pattern":"fn $A() {}"}),
+        ] {
+            let error = execute_row(
+                row.clone(),
+                &paths,
+                &security,
+                &crate::execution::cancel::NeverCancel,
+            )
+            .expect_err("missing path");
+            assert_eq!(error.code, ErrorCode::PathNotFound, "{row}");
+            assert!(
+                !error
+                    .message
+                    .contains(&root.path().to_string_lossy().into_owned()),
+                "{row}: {}",
+                error.message
+            );
+            let lead = &error.next.as_ref().expect("lead")["viewTree"];
+            assert_eq!(lead["tool"], "structureSearch", "{row}");
+            assert_eq!(lead["query"]["queries"][0]["path"], "src", "{row}");
         }
     }
 
