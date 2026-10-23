@@ -7,7 +7,8 @@ use oxc_semantic::ScopeFlags;
 
 use crate::signatures::js_oxc_shared::property_key_name;
 
-use super::{Fields, expression_type, is_nullish, ts_type};
+use super::{expression_type, is_nullish, ts_type};
+use crate::signatures::receiver_fields::{Fields, merge};
 
 /// Record `ty` for `name`; a second, different type makes it unknown.
 /// A field's annotated type is declared; otherwise a non-nullish initializer
@@ -26,17 +27,7 @@ fn type_field(
     } else if let Some(value) = value
         && !is_nullish(value)
     {
-        merge(inferred, name, expression_type(value, None));
-    }
-}
-
-fn merge(fields: &mut Fields, name: String, ty: Option<String>) {
-    match fields.get_mut(&name) {
-        Some(existing) if *existing != ty => *existing = None,
-        Some(_) => {}
-        None => {
-            fields.insert(name, ty);
-        }
+        merge(inferred, &name, expression_type(value, None));
     }
 }
 
@@ -146,7 +137,7 @@ impl<'a> VisitJs<'a> for ThisAssignments<'_, '_> {
             } else {
                 None
             };
-            merge(self.fields, name, ty);
+            merge(self.fields, &name, ty);
         }
         walk_js::walk_assignment_expression(self, it);
     }

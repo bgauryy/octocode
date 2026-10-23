@@ -6,6 +6,7 @@
 //! the rules outside the walk and the repository markers are watched too.
 use crate::policy::discovery::WalkAdmission;
 use crate::policy::path::PathPolicy;
+use crate::tools::page_memo::DirectoryInputs;
 use octocode_engine::search::text_search::TextSearchPathFilter;
 use std::{
     collections::BTreeSet,
@@ -105,6 +106,15 @@ struct Seen {
 }
 
 impl Seen {
+    /// Record a walked directory's ignore inputs, read before the lock.
+    fn observe(&mut self, inputs: DirectoryInputs, max_weight: usize) {
+        self.rules.extend(inputs.external);
+        self.untracked |= inputs.untracked;
+        for ignore in inputs.files {
+            self.record(ignore, max_weight);
+        }
+    }
+
     /// Record `path`, or drop every entry once they outweigh `max_weight`.
     fn record(&mut self, path: PathBuf, max_weight: usize) {
         if self.oversize {
@@ -152,19 +162,15 @@ impl Recorder {
         // The root's own ignore files decide the walk whether or not the
         // walk reports the root as an entry.
         if ignore_rules && recorder.root.is_dir() {
-            let mut seen = recorder
-                .seen
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            recorder.observe_directory(&recorder.root, &mut seen);
+            let inputs = recorder.directory_inputs(&recorder.root);
+            recorder.lock().observe(inputs, recorder.max_weight);
         }
         recorder
     }
 
     /// What the walk recorded.
     pub(super) fn walked(&self) -> Walked {
-        let seen =
-            std::mem::take(&mut *self.seen.lock().unwrap_or_else(|error| error.into_inner()));
+        let seen = std::mem::take(&mut *self.lock());
         Walked {
             markers: if self.ignore_rules {
                 crate::tools::page_memo::repository_markers(&self.root)
@@ -180,28 +186,31 @@ impl Recorder {
         }
     }
 
-    /// Record a walked directory's ignore inputs
-    /// ([`crate::tools::page_memo::directory_ignore_inputs`]).
-    fn observe_directory(&self, dir: &Path, seen: &mut Seen) {
-        let inputs = crate::tools::page_memo::directory_ignore_inputs(dir, &self.root, |ignore| {
-            self.policy.validate_read(ignore).is_ok()
-        });
-        seen.rules.extend(inputs.external);
-        seen.untracked |= inputs.untracked;
-        for ignore in inputs.files {
-            seen.record(ignore, self.max_weight);
-        }
+    /// What the walk recorded so far, shared by the walk's threads.
+    fn lock(&self) -> std::sync::MutexGuard<'_, Seen> {
+        self.seen.lock().unwrap_or_else(|error| error.into_inner())
     }
-}
 
-impl Recorder {
-    /// Record `path` when the walk admitted it.
+    /// A walked directory's ignore inputs
+    /// ([`crate::tools::page_memo::directory_ignore_inputs`]).
+    fn directory_inputs(&self, dir: &Path) -> DirectoryInputs {
+        crate::tools::page_memo::directory_ignore_inputs(dir, &self.root, |ignore| {
+            self.policy.validate_read(ignore).is_ok()
+        })
+    }
+
+    /// Record `path` when the walk admitted it. A directory's ignore inputs
+    /// are read before the lock is taken, so no walk thread waits on another
+    /// thread's file-system calls.
     fn admitted(&self, path: &Path, is_dir: bool, allowed: bool) -> bool {
         if allowed {
-            let mut seen = self.seen.lock().unwrap_or_else(|error| error.into_inner());
-            seen.record(path.to_path_buf(), self.max_weight);
-            if is_dir && self.ignore_rules && path != self.root {
-                self.observe_directory(path, &mut seen);
+            let inputs = (is_dir && self.ignore_rules && path != self.root)
+                .then(|| self.directory_inputs(path));
+            let entry = path.to_path_buf();
+            let mut seen = self.lock();
+            seen.record(entry, self.max_weight);
+            if let Some(inputs) = inputs {
+                seen.observe(inputs, self.max_weight);
             }
         }
         allowed

@@ -15,14 +15,8 @@ pub(crate) fn byte_windows(
     let mut selected = Vec::new();
     let starts = octocode_engine::text::line_starts(content);
     for (start, end) in spans {
-        let mut a = start.saturating_sub(bytes);
-        while !content.is_char_boundary(a) {
-            a += 1
-        }
-        let mut b = (end + bytes).min(content.len());
-        while b < content.len() && !content.is_char_boundary(b) {
-            b += 1
-        }
+        let mut a = content.ceil_char_boundary(start.saturating_sub(bytes));
+        let b = content.ceil_char_boundary((end + bytes).min(content.len()));
         // Overlapping windows continue from the previous end; re-emitting
         // the overlap would fabricate text that is not in the source.
         if !text.is_empty() {

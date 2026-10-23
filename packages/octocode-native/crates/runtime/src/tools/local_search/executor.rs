@@ -1,9 +1,11 @@
+use super::local_search_query::{self, MAX_COLLECTED_FILES, effective_match_content_length, normalized_query, streamed_layout};
 use super::types::*;
 use super::{
     coverage::*, cursor::*, enclosing::*, handoff::*, layout::*, leads::*, regex_repair::*,
     rows::*, verify::*,
 };
 use crate::execution::cancel::CancellationCheck;
+use crate::id::local_search_policy as policy;
 use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
@@ -15,40 +17,6 @@ use octocode_engine::types::{
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
-
-/// Soft budget (in value chars) for a single localSearch response body.
-/// Distributed across the matches shown on a page so a pathological giant line
-/// or a raised `matchContentLength`/`matchPageSize` cannot emit a multi-MB
-/// body. It bounds displayed value size only: every match row and its line
-/// anchor are preserved, and a clipped row's `expandValues` lead reads its
-/// value whole.
-pub(super) const RESPONSE_VALUE_CHAR_BUDGET: usize = 1_000_000;
-
-/// Floor on the per-match display cap the budget may impose, so a page with many
-/// matches still shows a useful slice of each rather than a few characters.
-pub(super) const MIN_MATCH_VALUE_CHARS: usize = 40;
-
-/// Lean agent-facing defaults (caller values always win). A/B over realistic
-/// locate-the-code queries kept every target file+line on page 1 while cutting
-/// default response bytes ~54% versus the old 100 files / 20 rows / 500 chars /
-/// ±2 lines: one clipped-around-the-hit line per row is enough to pick the
-/// file+line, and `detailed`/`contextLines` or localFetch add surrounding code.
-pub(super) const DEFAULT_MATCH_CONTENT_LENGTH: u32 = 200;
-
-/// Cap on the context-scaled default; an explicit matchContentLength may exceed it.
-pub(super) const MAX_DEFAULT_MATCH_CONTENT_LENGTH: u32 = 4000;
-
-/// Rows per file when a result is too large to show whole.
-pub(super) const DEFAULT_MAX_MATCHES_PER_FILE: u32 = 10;
-
-/// Files per page for snippet views (the first page of a default-layout
-/// result larger than the budget); path-only list views stay at 100.
-pub(super) const DEFAULT_SNIPPET_PAGE_SIZE: u32 = 20;
-
-pub(super) const DEFAULT_LIST_PAGE_SIZE: u32 = 100;
-
-/// Matched files the engine collects for pages; more are counted only.
-pub(super) const MAX_COLLECTED_FILES: u32 = 10_000;
 
 /// One localSearch row; `selection` judges it under `clasifyContext`. A list
 /// `matchString` runs as the one regex query that finds the same lines.
@@ -91,7 +59,7 @@ pub(super) fn page_of(
     // The bytes a stored scan's secret check must read, or `None` when the
     // scan is fresh; a stored file whose digest is missing reads as changed.
     let digests = scan.digests.take();
-    let expected_digest = |source: &std::path::Path| -> Option<Option<super::manifest::Digest>> {
+    let expected_digest = |source: &std::path::Path| -> Option<Option<super::sources::Digest>> {
         digests.as_ref().map(|digests| digests.get(source).copied())
     };
     let root = &scan.validated.canonical;
@@ -632,14 +600,13 @@ pub(super) fn scan_query(
         walked,
     } = scan(query, paths, options, &policy_key, cancel)?;
     // Pages are cut from serialized sizes so a default-layout page, with
-    // the row around it, fits one response window. Sized by the canonical
-    // root, not its spelling: a continuation names the same root relative
-    // to the workspace and must cut the same pages.
-    let mut sized = normalized_query(
+    // the row around it, fits one response window. The budget charges the
+    // root's spelling a fixed size (`page_windows`), so a continuation that
+    // names the same root relative to the workspace cuts the same pages.
+    let sized = normalized_query(
         &local_search_query::canonical(query),
         streamed_layout(query),
     );
-    sized["path"] = json!(validated.canonical.to_string_lossy());
     let page_budget = crate::response::page_windows::page_budget(response_window, &sized);
     // A stored scan was stored under the snapshot derived from its query
     // key and its unchanged collected result: a query with the same key
@@ -793,7 +760,7 @@ pub(super) fn search_options(
 
 /// A scan and the digests of its matched files when it was stored.
 pub(super) type ScanDigests =
-    Option<std::collections::HashMap<std::path::PathBuf, super::manifest::Digest>>;
+    Option<std::collections::HashMap<std::path::PathBuf, super::sources::Digest>>;
 
 /// A walk's matches, the stored digests a reused scan must still hash to,
 /// and what the walk left out.
@@ -1094,41 +1061,6 @@ pub(super) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) 
             ),
         )
     }
-}
-
-/// Per-hit character budget. An omitted matchContentLength scales with the
-/// effective context window so requested context is not silently clipped;
-/// continuations and snapshot identity must use this same value.
-pub(super) fn effective_match_content_length(q: &LocalSearchQuery) -> u32 {
-    local_search_query::match_content_length(q).unwrap_or_else(|| {
-        let view = q.result_view;
-        let context = if uses_context(view) {
-            local_search_query::context(q)
-                .before
-                .saturating_add(local_search_query::context(q).after)
-        } else {
-            0
-        };
-        DEFAULT_MATCH_CONTENT_LENGTH
-            .saturating_mul(context.saturating_add(1))
-            .min(MAX_DEFAULT_MATCH_CONTENT_LENGTH)
-    })
-}
-
-/// Default files per page: snippet views stay lean; path-only views are cheap.
-pub(super) fn default_page_size(view: LocalSearchQueryResultView) -> u32 {
-    match view {
-        LocalSearchQueryResultView::Files
-        | LocalSearchQueryResultView::FilesWithout
-        | LocalSearchQueryResultView::CountLines
-        | LocalSearchQueryResultView::CountMatches => DEFAULT_LIST_PAGE_SIZE,
-        _ => DEFAULT_SNIPPET_PAGE_SIZE,
-    }
-}
-
-/// Views whose match rows carry a context window (so `contextLines` matters).
-pub(super) fn uses_context(view: LocalSearchQueryResultView) -> bool {
-    view == LocalSearchQueryResultView::Paginated
 }
 
 /// Status and `terminalLimit` for a search result. `coverage_gap` means some

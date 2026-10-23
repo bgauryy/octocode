@@ -204,7 +204,7 @@ pub(super) async fn issue(
         let prs = closed_by
             .as_ref()
             .map(|references| references.prs.as_slice());
-        attach_fix_pr(&mut out, query, prs, closed, bounded.is_some());
+        attach_fix_pr(&mut out, query, prs, closed);
     }
     Ok(ToolData {
         remaining,

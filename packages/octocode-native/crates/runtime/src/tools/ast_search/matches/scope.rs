@@ -1,8 +1,21 @@
 //! Scope resolution and grammar choice: the validated scope, the grammar a
 //! query compiles in, why a pattern cannot apply, and the exact-miss rule.
-use super::*;
-use crate::response::result::Confidence;
-use octocode_contract_types::ErrorCode;
+use super::clipped::row_file;
+use super::continuations::tree_lead;
+use super::query::MatchQuery;
+use super::scan::{scan_directory, scan_file};
+use super::types::{Scan, Scope};
+use crate::execution::cancel::CancellationCheck;
+use crate::id::ToolId;
+use crate::policy::path::PathPolicy;
+use crate::response::result::ToolError;
+use crate::tools::ast_rule::{
+    GlobParsers, GrammarChoice, RuleError, choose_grammar, compile_check, count_grammars,
+    language_extensions,
+};
+use octocode_contract_types::{AstSearchQueryMatchRule, ErrorCode};
+use octocode_engine::structural::StructuralDetailedMatch;
+use serde_json::{Value, json};
 
 /// A declaration pattern that matched nothing in a scope that holds
 /// declarations of its kind (named as the pattern names it): a pattern
@@ -23,7 +36,7 @@ pub(super) struct ExactMiss {
 pub(super) fn scope_extension(scope: &Scope) -> Option<String> {
     if scope.is_file {
         return Some(
-            super::super::parser_override(&scope.canonical, scope.language.as_deref())
+            super::super::language::parser_override(&scope.canonical, scope.language.as_deref())
                 .unwrap_or_else(|| {
                     octocode_engine::text::extension_of(
                         &scope.canonical.to_string_lossy(),
@@ -101,8 +114,8 @@ pub(super) fn exact_miss(
                 matches.first().map(|found| u64::from(found.start_line))
             };
             let line = first_line(file.matches.held()).or_else(|| {
-                let bytes = super::super::read_parse_source(&path).ok()??;
-                let source = super::super::parse_text(&path, &bytes).ok()?;
+                let bytes = super::super::source::read_parse_source(&path).ok()??;
+                let source = super::super::source::parse_text(&path, &bytes).ok()?;
                 let parser = Some(file.parser.as_str()).filter(|parser| !parser.is_empty());
                 let found = octocode_engine::structural::search_detailed(
                     &source,
@@ -152,9 +165,7 @@ impl ExactMiss {
             out["next"]["viewSyntax"] = tree;
         }
         out["next"]["broadenSearch"] =
-            crate::response::result::Continuation::new(ToolId::AstSearch, query)
-                .confidence(Confidence::Exact)
-                .build();
+            crate::response::result::Continuation::new(ToolId::AstSearch, query).build();
     }
 }
 
@@ -313,9 +324,9 @@ pub(super) fn resolve_scope(
         .transpose()?;
     let p = paths
         .validate(q.path())
-        .map_err(super::super::policy_error)?;
+        .map_err(super::super::errors::policy_error)?;
     let meta = std::fs::metadata(&p.canonical)
-        .map_err(|error| super::super::io_error(&q.path(), error))?;
+        .map_err(|error| super::super::errors::io_error(&q.path(), error))?;
     if q.scope().is_some() && !meta.is_file() {
         return Err(ToolError::new(
             ErrorCode::InvalidInput,

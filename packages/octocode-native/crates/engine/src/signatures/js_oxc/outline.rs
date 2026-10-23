@@ -178,20 +178,14 @@ fn flatten_symbols(
     }
 }
 
+/// The declaration kind a symbol kind reports: its LSP name when that is one
+/// of [`DECLARATION_KINDS`](crate::signatures::DECLARATION_KINDS), else
+/// `symbol`.
 pub(super) fn symbol_kind_name(kind: u8) -> &'static str {
-    match kind {
-        kind::NAMESPACE => "namespace",
-        kind::CLASS => "class",
-        kind::METHOD => "method",
-        kind::PROPERTY => "property",
-        kind::CONSTRUCTOR => "constructor",
-        kind::ENUM => "enum",
-        kind::INTERFACE => "interface",
-        kind::FUNCTION => "function",
-        kind::VARIABLE => "variable",
-        kind::CONSTANT => "constant",
-        kind::ENUM_MEMBER => "enumMember",
-        kind::TYPE_ALIAS => "type",
-        _ => "symbol",
+    if kind == kind::TYPE_ALIAS {
+        return "type";
     }
+    crate::lsp::symbol_kind::name(u64::from(kind))
+        .filter(|name| crate::signatures::DECLARATION_KINDS.contains(name))
+        .unwrap_or("symbol")
 }

@@ -4,7 +4,6 @@ use super::inventory::file_page_size;
 use super::pr_menu::*;
 use super::{HistoryItemRequest, ItemOperation, Section, Sections};
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::commit::commit_pull_request;
@@ -16,7 +15,7 @@ use serde_json::{Map, Value, json};
 /// rows only with `extras: ["details"]`): the opt-in lead `readFullPatches`
 /// reads the selected files whole; more files than one selection holds
 /// continue in `readFullPatches2`, `readFullPatches3`, …. The grep showed
-/// what was asked, so the lead yields to code reads (`confidence: "low"`).
+/// what was asked, so the lead yields to code reads (an approximate lead).
 pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
     let narrowed = take_reshaped_paths(
         out.pointer_mut("/pullRequests/0/files"),
@@ -38,8 +37,9 @@ pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemReq
             nq.clone(),
             json!({"include": files, "sections": ["patches"]}),
         );
-        let mut lead = continuation(read);
-        lead["confidence"] = json!("low");
+        let lead = Continuation::new(ToolId::GhGetHistoryItem, read)
+            .approximate()
+            .build();
         out["next"][crate::id::numbered("readFullPatches", index)] = lead;
     }
 }
@@ -341,7 +341,6 @@ pub(super) fn commit_pull_request_lead(
                 ToolId::GhGetHistoryItem,
                 json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"number":number}),
             )
-            .confidence(Confidence::Exact)
             .build(),
         );
     }
@@ -351,7 +350,6 @@ pub(super) fn commit_pull_request_lead(
             ToolId::GhSearchHistory,
             json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"keywords":[sha]}),
         )
-        .confidence(Confidence::High)
         .build(),
     )
 }

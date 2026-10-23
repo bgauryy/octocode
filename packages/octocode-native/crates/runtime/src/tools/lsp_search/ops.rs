@@ -28,7 +28,6 @@ use super::{LspSearchQuery, Op};
 use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
-use crate::response::result::Confidence;
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
 use octocode_engine::lsp::config::{representative_source_for, workspace_root_languages};

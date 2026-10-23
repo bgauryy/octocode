@@ -63,9 +63,14 @@ for (const tool of ['localFetch', 'localSearch']) {
         const selected = record.selected = await walk(ctx, spec, { ...query,
           clasifyContext: { classifiers: ['Does this state the number of approvals required for restoration?'] } }, options);
         assert.equal(selected.rows.length, 0, 'injected model miss must remain visible as a selected-view miss');
-        assert.match(JSON.stringify(selected.responses), /not proof of absence/i, 'selected empty view must disclose absence uncertainty');
+        // The per-call disclosure of a filtered view: its receipt and the
+        // unfiltered recovery lead (the "not proof of absence" rule is said
+        // once, in the instructions).
+        assert.ok(dataOf(selected.responses[0]).next?.unfiltered, 'selected empty view must lead to the unfiltered view');
         const receipt = dataOf(selected.responses[0]).selection;
-        assert.ok(level === 1 ? receipt.unknownItems > 0 : receipt.excludedItems > 0);
+        // A middle (related) score is a decided near-miss, hidden and counted
+        // apart from unknown candidates.
+        assert.ok(level === 1 ? receipt.relatedItems > 0 : receipt.excludedItems > 0, JSON.stringify(receipt));
         const before = ctx.calls();
         const recovered = record.recovered = await recoverUnfiltered(ctx, spec, selected.responses[0], options);
         assert.deepEqual(recovered.rows, ordinary.rows, 'recover complete original evidence, not only unknowns');
@@ -93,7 +98,8 @@ await check('boundary-spanning evidence requires whole-source fallback', async (
     const ordinary = record.ordinary = await walk(ctx, spec, query, options);
     const selected = record.selected = await walk(ctx, spec, { ...query,
       clasifyContext: { classifiers: ['Does Project Orion require two approvals?'] } }, options);
-    assert.ok(dataOf(selected.responses[0]).selection.unknownItems > 0);
+    // Chunks holding one fact each score related: decided, hidden, recoverable.
+    assert.ok(dataOf(selected.responses[0]).selection.relatedItems > 0, JSON.stringify(dataOf(selected.responses[0]).selection));
     assert.equal(selected.rows.length, 0);
     const before = ctx.calls();
     const recovered = record.recovered = await recoverUnfiltered(ctx, spec, selected.responses[0], options);

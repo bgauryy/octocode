@@ -60,7 +60,7 @@ describe('resolveNativeBin', () => {
     expect(resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin })).toEqual({ bin });
   });
 
-  it('ignores OCTOCODE_NATIVE_BIN in production, like MCP OCTOCODE_NATIVE_BINDING', () => {
+  it('ignores OCTOCODE_NATIVE_BIN in production', () => {
     const bin = makeFakeBin('process.exit(0)');
     expect(
       resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin, NODE_ENV: 'production' })

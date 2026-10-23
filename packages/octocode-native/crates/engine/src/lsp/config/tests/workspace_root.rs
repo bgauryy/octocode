@@ -119,3 +119,37 @@ fn workspace_root_representative_source_prefers_project_include_roots() {
         .expect("a src TypeScript source");
     assert!(found.ends_with("src/other.ts"), "{found}");
 }
+
+/// A literal include root (`packages` of `packages/*/src/**/*`) also holds
+/// files the project does not compile: the representative matches the
+/// whole include glob and no exclude, so the server loads the project.
+#[test]
+fn workspace_root_representative_source_matches_the_full_include_glob() {
+    let root = std::env::temp_dir().join(format!(
+        "octocode-lsp-root-glob-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(root.join("packages/agent/src/gen")).expect("agent src");
+    std::fs::write(root.join("packages/agent/vitest.config.ts"), "").expect("config");
+    std::fs::write(root.join("packages/agent/src/gen/a.ts"), "").expect("excluded");
+    std::fs::write(root.join("packages/agent/src/loop.ts"), "").expect("source");
+    std::fs::write(
+        root.join("tsconfig.json"),
+        r#"{"include": ["packages/*/src/**/*"], "exclude": ["**/gen/**"]}"#,
+    )
+    .expect("tsconfig");
+    let found = workspace_root_representative_source(&root.to_string_lossy())
+        .expect("an included TypeScript source");
+    assert!(found.ends_with("packages/agent/src/loop.ts"), "{found}");
+
+    // No compiled source at all: any source still roots the server.
+    std::fs::remove_file(root.join("packages/agent/src/loop.ts")).expect("remove");
+    std::fs::remove_file(root.join("packages/agent/src/gen/a.ts")).expect("remove");
+    let found = workspace_root_representative_source(&root.to_string_lossy())
+        .expect("a fallback TypeScript source");
+    assert!(found.ends_with("vitest.config.ts"), "{found}");
+}

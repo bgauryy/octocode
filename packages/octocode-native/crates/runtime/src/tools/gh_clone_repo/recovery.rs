@@ -4,7 +4,6 @@
 //! directory that exists.
 use super::{CloneContext, GhCloneRepoQuery, git};
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::leads::find_file::closest_name;
 use serde_json::{Value, json};
@@ -51,7 +50,6 @@ pub(super) fn sparse_next(
             reference: Some(&commit),
         }
         .lead(ToolId::GhStructure)
-        .confidence(Confidence::Exact)
         .build();
         return Some(json!({"viewTree": lead}));
     }
@@ -73,9 +71,7 @@ pub(super) fn sparse_next(
         Value::String(path) => json!(corrected(&path)),
         other => other,
     };
-    let lead = Continuation::new(ToolId::GhCloneRepo, row)
-        .confidence(Confidence::Exact)
-        .build();
+    let lead = Continuation::new(ToolId::GhCloneRepo, row).build();
     Some(json!({"repair": lead}))
 }
 

@@ -1,7 +1,6 @@
 //! An empty code search: the scope check, its leads and its default hints.
 use super::requested_ref;
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use crate::tools::gh_search_code::{GhSearchCodeQuery, GhSearchCodeQueryMatchIn};
 use crate::tools::gh_shared::{RepoPath, ensure_next};
@@ -122,9 +121,7 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
         diagnostics.add(code, &hint, false);
         value["hints"] = json!([hint]);
     }
-    value["next"][name] = Continuation::new(tool, next_query)
-        .confidence(Confidence::Exact)
-        .build();
+    value["next"][name] = Continuation::new(tool, next_query).build();
     Ok(())
 }
 
@@ -137,10 +134,7 @@ fn add_clone_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, rep
         ..RepoPath::root(owner, repo)
     };
     ensure_next(value);
-    value["next"]["cloneRepo"] = at
-        .lead(ToolId::GhCloneRepo)
-        .confidence(Confidence::Exact)
-        .build();
+    value["next"]["cloneRepo"] = at.lead(ToolId::GhCloneRepo).build();
 }
 
 /// `cloneRepo` runs only where clone is available, so an empty repo-wide
@@ -152,10 +146,7 @@ fn add_root_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, repo
         ..RepoPath::root(owner, repo)
     };
     ensure_next(value);
-    value["next"]["viewTree"] = at
-        .lead(ToolId::GhStructure)
-        .confidence(Confidence::Medium)
-        .build();
+    value["next"]["viewTree"] = at.lead(ToolId::GhStructure).build();
 }
 
 /// A `match:"path"` search whose keywords read as code (spaces or syntax

@@ -3,7 +3,6 @@
 use super::types::*;
 use crate::id::ToolId;
 use crate::policy::prune::DefaultsFlag;
-use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use serde_json::{Value, json};
 
@@ -91,9 +90,7 @@ pub(super) fn leading_binary_listing(
     if query.include_ignored == Some(true) {
         listing["includeIgnored"] = json!(true);
     }
-    Continuation::new(ToolId::StructureSearch, listing)
-        .confidence(Confidence::High)
-        .build()
+    Continuation::new(ToolId::StructureSearch, listing).build()
 }
 
 /// Binary-cut files a warning names one by one; more are a count by

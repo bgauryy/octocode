@@ -14,12 +14,10 @@ mod rows;
 mod tests;
 mod tree;
 mod walk_policy;
-use crate::response::result::Confidence;
-use cut::*;
-use listing::Listing;
-use probe::*;
-use rows::{EntryKind, Row};
-use walk_policy::*;
+mod walked;
+use cut::TimeWindow;
+use probe::ProbeBound;
+use walked::Walked;
 
 pub use octocode_contract_types::StructureSearchQuery;
 
@@ -37,7 +35,6 @@ const WALK_BUDGET: std::time::Duration = octocode_engine::scan_budget::SCAN_TIME
 use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::tools::display_name;
-use crate::tools::empty_walk::{Cause, Hits, Tagged, Walk, diagnose_shown};
 use serde_json::{Value, json};
 
 /// The policy error for `requested`; a missing path also leads to a tree of
@@ -141,9 +138,7 @@ fn continuation(query: &impl serde::Serialize, changes: Value) -> Value {
         serde_json::to_value(query).unwrap_or_else(|_| json!({})),
         &changes,
     );
-    crate::response::result::Continuation::new(crate::id::ToolId::StructureSearch, query)
-        .confidence(Confidence::Exact)
-        .build()
+    crate::response::result::Continuation::new(crate::id::ToolId::StructureSearch, query).build()
 }
 
 /// One level of the listed directory's tree: the subdirectories a listing
@@ -323,165 +318,6 @@ fn end_window(
     // rest is the resume's.
     native.end_at(last);
     TimeWindow::EndedAtRows
-}
-
-/// One listing walk: its rows in listing order (cut to `maxEntries`) and
-/// what the walk saw beside them.
-struct Walked {
-    rows: Vec<Row>,
-    meta: WalkMeta,
-    /// The digest of the rows a snapshot binds, computed once per walk: a
-    /// stored walk's continuation pages reuse it instead of hashing every
-    /// row again.
-    rows_digest: std::sync::OnceLock<String>,
-}
-
-/// What a listing walk saw beside its rows.
-struct WalkMeta {
-    /// Listing rows before this window's end (`scanOffset` plus the rows
-    /// this window took): where `next.continueWalk` resumes.
-    covered: usize,
-    available: usize,
-    total_discovered: usize,
-    was_capped: bool,
-    /// The walk ran out of time before this root-relative entry.
-    time_cut: Option<String>,
-    time_window: TimeWindow,
-    /// Walk entries the window covers, `walkOffset` ones included.
-    walk_position: usize,
-    /// Files, directories and file bytes of this window's rows, counted
-    /// before directories with their own group fold into its header.
-    files: usize,
-    dirs: usize,
-    bytes: u64,
-    uncovered: Uncovered,
-    /// The listing is ranked by something other than walk order (`files`
-    /// sorted by size, lines, name or time): a walk cut at its ceiling ranks
-    /// only the entries it walked first.
-    ranked: bool,
-}
-
-impl memo::Listed for Walked {
-    fn sources(&self) -> Vec<memo::Seen<'_>> {
-        self.rows.iter().map(Row::seen).collect()
-    }
-}
-
-impl Walked {
-    /// The walk's `rows` (listing order) cut to `requested`, less the
-    /// `scan_offset` rows earlier windows listed (listing order is stable,
-    /// so those are the ones they showed), with what the walk left out.
-    fn finish(
-        native: octocode_engine::types::FileSystemQueryResult,
-        mut rows: Vec<Row>,
-        requested: usize,
-        scan_offset: usize,
-        left: WalkLeft<'_>,
-        security: &crate::security::ContentSecurity,
-    ) -> Self {
-        let available = rows.len();
-        rows.truncate(requested);
-        let offset = scan_offset.min(rows.len());
-        rows.drain(..offset);
-        // A non-directory row is a file; bytes are regular files' (a
-        // symlink's own length is no content).
-        let (mut files, mut dirs, mut bytes) = (0, 0, 0);
-        for row in &rows {
-            match row.kind {
-                EntryKind::Directory => dirs += 1,
-                EntryKind::Symlink => files += 1,
-                EntryKind::File => {
-                    files += 1;
-                    bytes += row.seen.0;
-                }
-            }
-        }
-        let meta = WalkMeta {
-            covered: offset + rows.len(),
-            available,
-            total_discovered: native.total_discovered as usize,
-            was_capped: native.was_capped,
-            time_cut: native
-                .time_cut
-                .map(|at| security.sanitize_text(&at, None).content),
-            time_window: TimeWindow::Whole,
-            walk_position: native.walk_position as usize,
-            files,
-            dirs,
-            bytes,
-            uncovered: left.into_uncovered(
-                native.ignored,
-                native.walk_position,
-                (native.skipped, native.permission_denied),
-            ),
-            ranked: false,
-        };
-        Self {
-            rows,
-            meta,
-            rows_digest: std::sync::OnceLock::new(),
-        }
-    }
-
-    /// [`Self::rows_digest`]: the digest of each row's [`Sourced::shown`],
-    /// in listing order.
-    fn rows_digest(&self) -> &str {
-        self.rows_digest.get_or_init(|| {
-            crate::digest::json_sha256(&self.rows.iter().map(Row::shown).collect::<Vec<_>>())
-        })
-    }
-
-    /// Where this page cuts the listing. An early-exit walk that found one
-    /// more match than the limit has more; only a full walk knows the total.
-    fn cut(
-        &self,
-        page: usize,
-        pages: usize,
-        requested: usize,
-        early_exit: bool,
-        (scan_offset, walk_offset): (usize, u32),
-        snapshot: String,
-    ) -> Cut {
-        let meta = &self.meta;
-        let (limit_cut, scan_cut) = if early_exit {
-            (meta.was_capped, false)
-        } else {
-            (meta.available > requested, meta.was_capped)
-        };
-        Cut {
-            page,
-            total_pages: pages.max(1),
-            total: self.rows.len(),
-            requested,
-            available: meta.available,
-            limit_cut,
-            scan_cut,
-            time_cut: meta.time_cut.clone(),
-            time_window: meta.time_window,
-            walk_position: meta.walk_position,
-            walk_offset: walk_offset as usize,
-            early_exit,
-            total_discovered: meta.total_discovered,
-            scan_offset,
-            covered: meta.covered,
-            ranked: meta.ranked,
-            snapshot,
-        }
-    }
-}
-
-impl WalkMeta {
-    /// The page's warnings: `cut`'s own (`warnings`). The query's notes
-    /// read the same for the whole result: they are notices, said once
-    /// ([`crate::response::paging::push_notice`]).
-    fn warn(&self, out: &mut Value, query_notes: Vec<String>, cut: Vec<String>) {
-        if !cut.is_empty() {
-            out["warnings"] = json!(cut);
-        }
-        for note in query_notes {
-            crate::response::paging::push_notice(out, note);
-        }
-    }
 }
 
 /// Execute one typed row. The runtime parses the validated row with its

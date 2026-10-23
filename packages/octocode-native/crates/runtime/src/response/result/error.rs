@@ -14,6 +14,9 @@ pub enum FailureKind {
     Execution,
 }
 
+/// The one text of a stale snapshot, whichever tool's cursor went stale.
+pub(crate) const STALE_SNAPSHOT_ERROR: &str = "The snapshot does not match this source and query (they changed, or the snapshot is missing or from another call); nothing shown remains valid: run the restart call, page 1 without the snapshot.";
+
 /// The failure an error row with `code` reports. A rejected request is an
 /// execution failure here; [`crate::response::exit::ExitClass::InvalidInput`] is
 /// decided from the rows.
@@ -75,10 +78,7 @@ impl ToolError {
     pub(crate) fn stale_snapshot(restart: Value) -> Self {
         Self {
             next: Some(Box::new(serde_json::json!({ "restart": restart }))),
-            ..Self::new(
-                ErrorCode::StaleSnapshot,
-                crate::response::pages::STALE_SNAPSHOT_ERROR,
-            )
+            ..Self::new(ErrorCode::StaleSnapshot, STALE_SNAPSHOT_ERROR)
         }
     }
 

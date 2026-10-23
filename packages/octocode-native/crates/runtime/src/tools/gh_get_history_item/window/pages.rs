@@ -84,7 +84,7 @@ pub(in crate::tools::gh_get_history_item) fn paginate_window<T>(
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, max_inventory_page());
     let loaded = skipped + values.len();
-    let pages = loaded.div_ceil(per).max(1);
+    let pages = crate::response::page_windows::count_pages(loaded, per);
     let requested = page.unwrap_or(1).max(1);
     // A page past an exhausted list is empty and flagged, never clamped to
     // the last page, which would repeat rows the caller already has.

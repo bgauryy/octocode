@@ -13,7 +13,7 @@ impl ToolOutput for Output {
             "Verify path/range."
         }
     }
-    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
+    fn error_hint(&self, code: ErrorCode, _query: &Value) -> Option<&'static str> {
         match code {
             ErrorCode::FileAccessFailed => Some(crate::response::output::LIST_FILES_HINT),
             // The message names the item; `repair` is the corrected read.
@@ -54,7 +54,7 @@ mod tests {
         let matched = Output.fallback_hint(&json!({"path":"a.rs","matchString":"x"}));
         assert!(matched.contains("matchString"), "{matched}");
         assert_eq!(
-            Output.error_hint(ErrorCode::InvalidPagination),
+            Output.error_hint(ErrorCode::InvalidPagination, &Value::Null),
             Some(crate::response::output::NO_HINT)
         );
     }

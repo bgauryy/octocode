@@ -100,7 +100,7 @@ fn structured_windows_join_into_the_envelope_json() {
     let mut options = ResponsePageOptions {
         response_length: Some(1_000),
         response_scope: Some(PageScope::Structured),
-        saved: Some(crate::response::pager::SavedResponse {
+        saved: Some(crate::response::page_model::SavedResponse {
             key: [7; 32],
             expires_at: String::new(),
             storage: "memory",

@@ -185,15 +185,17 @@ fn every_hint_source_fits_the_guidance_budget() {
             }
         }
         for &code in error_codes::ALL {
-            for hint in [
-                super::rows::error_code_hint(tool, code),
-                tool.output().error_hint(code),
-            ]
-            .into_iter()
-            .flatten()
-            {
-                if hint.chars().count() > MAX_GUIDANCE_CHARS {
-                    over.push(format!("{tool:?} {code}: {hint}"));
+            for query in &queries {
+                for hint in [
+                    super::rows::error_code_hint(tool, code, query),
+                    tool.output().error_hint(code, query),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    if hint.chars().count() > MAX_GUIDANCE_CHARS {
+                        over.push(format!("{tool:?} {code}: {hint}"));
+                    }
                 }
             }
         }
@@ -260,15 +262,17 @@ fn no_shared_hint_names_a_cli_only_tool() {
             }
         }
         for &code in error_codes::ALL {
-            for hint in [
-                super::rows::error_code_hint(tool, code),
-                tool.output().error_hint(code),
-            ]
-            .into_iter()
-            .flatten()
-            {
-                if !named(hint).is_empty() {
-                    found.push(format!("{tool:?} {code}: {hint}"));
+            for query in &queries {
+                for hint in [
+                    super::rows::error_code_hint(tool, code, query),
+                    tool.output().error_hint(code, query),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    if !named(hint).is_empty() {
+                        found.push(format!("{tool:?} {code}: {hint}"));
+                    }
                 }
             }
         }

@@ -12,6 +12,7 @@ use super::{
 };
 use crate::providers::artifact::types::artifact_search_query;
 use octocode_contract_types::ErrorCode;
+use octocode_io::retry::classify_status;
 use serde_json::Value;
 
 mod search;
@@ -245,7 +246,10 @@ pub(crate) async fn go(
         Some(token) => match go_search(query, Some(token.to_owned()), client).await {
             Err(error)
                 if error.status.is_some_and(|status| {
-                    matches!(status, 400..=499) && !matches!(status, 401 | 403 | 408 | 429)
+                    matches!(status, 400..=499)
+                        && status != 401
+                        && status != 403
+                        && !classify_status(status).is_retryable()
                 }) =>
             {
                 None

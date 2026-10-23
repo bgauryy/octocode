@@ -1,6 +1,7 @@
 use super::super::test_rows::run_row;
 use super::*;
 use crate::tools::test_support::{Fixture, simple_policy};
+use serde_json::Value;
 
 fn query(path: &std::path::Path, rule: bool) -> Value {
     let mut query =

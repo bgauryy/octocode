@@ -2,7 +2,7 @@
 //! listings), ranked; what the page could not cover is in `coverage`, the
 //! empty page's probes in `probes`.
 
-use super::executor::*;
+use super::local_search_query;
 use super::layout::*;
 use super::types::*;
 use super::{binaries::*, handoff::*, probes::*};
@@ -10,13 +10,20 @@ use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
-use crate::response::result::Confidence;
 use crate::response::result::{CURSOR_FIELDS, Continuation, ToolError, query_row};
 use crate::tools::empty_walk::Cause;
 use crate::tools::leads::skipped::under;
 use octocode_contract_types::{SkippedPathCause, SkippedPaths};
 use octocode_engine::types::{PatternSyntax, SearchOutput, TextSearchOptions};
 use serde_json::{Value, json};
+
+mod alternation;
+mod reads;
+mod skipped;
+#[cfg(test)]
+mod tests;
+
+use alternation::{regex_engine, regex_lead};
 
 /// What a page's leads disclosed of the paths its walk skipped.
 pub(super) struct Disclosed {
@@ -221,249 +228,8 @@ impl Found<'_> {
         })
     }
 
-    /// The causes the walk skipped paths by, so the lead over them lifts
-    /// each in one call: a dot directory the default prune also names
-    /// (`.github`, `.cache`), or a dot file the default excludes match, sits
-    /// behind both.
-    fn skipped_causes(&self) -> Vec<Cause> {
-        let skipped = self.skipped;
-        let excluded = skipped.hidden_excluded
-            || skipped.ignored_excluded
-            || !skipped.generated.is_empty()
-            || !skipped.pruned.is_empty();
-        [
-            (!skipped.ignored.is_empty(), Cause::Ignored),
-            (
-                !skipped.hidden.is_empty() || skipped.ignored_hidden,
-                Cause::Hidden,
-            ),
-            (excluded, Cause::DefaultExcluded),
-        ]
-        .into_iter()
-        .filter_map(|(hit, cause)| hit.then_some(cause))
-        .collect()
-    }
-
-    /// What the walk left out, on the first page: every ignored,
-    /// default-excluded and hidden path with `extras:["details"]`; otherwise
-    /// one entry per cause, its first path with `count`, and `sampled` then;
-    /// and what the path policy withheld, by reason, at the walked scope.
-    /// An empty page's `observed` entries (the skipped paths a re-run found
-    /// matches in, each with its rule) replace the walk's for their causes.
-    fn skipped_paths(
-        &self,
-        observed: Option<SkippedPaths>,
-    ) -> Result<Option<SkippedPaths>, ToolError> {
-        let named = |cause: SkippedPathCause| {
-            observed
-                .as_ref()
-                .is_some_and(|observed| observed.entries.iter().any(|entry| entry.cause == cause))
-        };
-        use octocode_contract_types::SkippedPathCause::{DefaultExcluded, Hidden, Ignored};
-        let (root, skipped) = (self.root, self.skipped);
-        let walked = under(root, Ignored, &skipped.ignored)
-            .chain(under(root, DefaultExcluded, &skipped.pruned))
-            .chain(under(root, DefaultExcluded, &skipped.generated))
-            .chain(under(root, Hidden, &skipped.hidden))
-            .filter(|skip| !named(skip.cause))
-            .chain(crate::tools::leads::skipped::unlifted(
-                &self.root.to_string_lossy(),
-                &skipped.withheld,
-                Default::default(),
-            ));
-        let disclosure = crate::tools::leads::skipped::skipped_paths(
-            walked,
-            lists_every_skipped_path(self.query),
-            !self.walk_complete,
-        )?;
-        Ok(match (disclosure, observed) {
-            (Some(mut disclosure), Some(observed)) => {
-                disclosure.entries.extend(observed.entries);
-                disclosure.sampled |= observed.sampled;
-                Some(disclosure)
-            }
-            (disclosure, observed) => disclosure.or(observed),
-        })
-    }
-
-    /// The calls that read every clipped value on the page whole
-    /// (see [`numbered_calls`]).
-    fn expand_values_leads(&self) -> Vec<(String, Value)> {
-        let query = self.query;
-        let expansions = expand_values(
-            query,
-            self.paths,
-            self.output_root,
-            self.files,
-            self.layout.context,
-            query.multiline != LocalSearchQueryMultiline::Off,
-            // A caller-sized (grid) page keeps its rows whatever the value
-            // width; a streamed page is cut by serialized size.
-            (!self.layout.streamed).then_some(GridPage {
-                value_cap: self.layout.budget_cap.unwrap_or(RESPONSE_VALUE_CHAR_BUDGET),
-            }),
-        );
-        numbered_calls("expandValues", &expansions)
-    }
-
-    /// The regex reading of a literal first page whose `matchString` reads
-    /// as an alternation ([`reads_as_alternation`]) and compiles: its engine
-    /// and the warning, when one bounded count of it over the query's own
-    /// walk finds more matched lines than the literal search.
-    fn alternation_reading(
-        &self,
-        search_options: &TextSearchOptions,
-        cancel: &impl CancellationCheck,
-    ) -> Option<(&'static str, String)> {
-        let query = self.query;
-        let literal = self.scanned.matched_lines?;
-        if self.empty
-            || !self.walk_complete
-            || !self.first_page()
-            || query.regex.is_some()
-            || query.invert_match == Some(true)
-            || !reads_as_alternation(local_search_query::pattern(query))
-        {
-            return None;
-        }
-        let engine = regex_engine(local_search_query::pattern(query))?;
-        let mut options = search_options.probe(SearchOutput::CountLines);
-        options.syntax = if engine == "pcre2" {
-            PatternSyntax::Pcre2
-        } else {
-            PatternSyntax::Regex
-        };
-        if octocode_engine::search::text_pattern::matches_line_break(
-            local_search_query::pattern(query),
-            false,
-        ) {
-            options.multiline = Some(true);
-        }
-        let (found, cut) = probe_search(
-            options,
-            self.paths,
-            query.default_excludes.defaults(),
-            cancel,
-        )?;
-        let lines = found.stats.matched_lines.filter(|lines| *lines > literal)?;
-        let floor = if cut { "at least " } else { "" };
-        Some((
-            engine,
-            format!(
-                "matchString ran as literal text ({}); with regex:\"{engine}\" it matches {floor}{lines}.",
-                crate::response::pages::counted(
-                    u64::from(literal),
-                    "matched line",
-                    "matched lines"
-                )
-            ),
-        ))
-    }
-
     pub(super) fn first_page(&self) -> bool {
         local_search_query::page(self.query).max(1) == 1
-    }
-
-    /// The natural next step on a first page with hits: read the top hit in
-    /// context. A shown declaration of the searched symbol reads that
-    /// declaration whole when one block read holds it; a larger one (a big
-    /// class) reads its hit in context, like any other hit. A partial page
-    /// (a binary cut, an unreadable path) still reads its shown hits; a file
-    /// cut at a NUL byte is never the read (localFetch rejects binaries).
-    pub(super) fn read_lead(&self) -> Option<Value> {
-        let query = self.query;
-        let readable = self.first_page()
-            && !self.layout.list
-            && query.result_view != LocalSearchQueryResultView::MatchOnly
-            && self.layout.context.is_empty()
-            && local_search_query::regex_mode(query) != LocalSearchQueryRegex::Pcre2
-            && query.invert_match != Some(true);
-        if !readable {
-            return None;
-        }
-        let binary_cut = self.scanned.binary_files.as_deref().unwrap_or_default();
-        let text_file = |file: &&SearchFile| {
-            !binary_cut
-                .iter()
-                .any(|cut| std::path::Path::new(cut).ends_with(&file.path))
-        };
-        let declared = self.definition.and_then(|definition| {
-            self.files
-                .iter()
-                .filter(text_file)
-                .find(|file| {
-                    self.output_root.join(&file.path).to_string_lossy()
-                        == definition.source.as_str()
-                })
-                .zip(Some(definition))
-        });
-        match declared {
-            Some((file, definition))
-                if (definition.end + 1).saturating_sub(definition.start) as usize
-                    <= crate::tools::source_view::BLOCK_MAX_LINES =>
-            {
-                Some(declaration_read(
-                    query,
-                    self.root,
-                    file,
-                    definition.start,
-                    definition.end,
-                ))
-            }
-            Some((file, _)) => read_handoff(query, self.root, file),
-            None => self
-                .files
-                .iter()
-                .find(text_file)
-                .and_then(|top| read_handoff(query, self.root, top)),
-        }
-    }
-
-    /// Files skipped as binary from their leading bytes, when any.
-    pub(super) fn leading_binaries(&self) -> Option<u32> {
-        let total: u32 = self
-            .scanned
-            .skipped_binary_extensions
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|group| group.count)
-            .sum();
-        (total > 0).then_some(total)
-    }
-
-    /// Files binary from their leading bytes are outside a text search, not
-    /// a coverage gap: disclosed once, on the first page, as a count by
-    /// extension with a listing.
-    /// The listing also covers binary-cut files too many to name in their
-    /// own warning ([`binary_file_list`]).
-    pub(super) fn skipped_binaries(&self) -> Option<(String, Value)> {
-        if !self.first_page() || self.root.is_file() {
-            return None;
-        }
-        let skipped = self
-            .scanned
-            .skipped_binary_extensions
-            .as_deref()
-            .unwrap_or_default();
-        let cut = self.scanned.binary_files.as_deref().unwrap_or_default();
-        let cut_groups = if cut.len() > MAX_NAMED_BINARY_FILES {
-            binary_groups(cut)
-        } else {
-            Vec::new()
-        };
-        if skipped.is_empty() && cut_groups.is_empty() {
-            return None;
-        }
-        let listing =
-            leading_binary_listing(self.query, &merge_binary_groups(skipped, &cut_groups));
-        let warning = if skipped.is_empty() {
-            // The cut files' own warning carries the count.
-            String::new()
-        } else {
-            leading_binary_warning(skipped)
-        };
-        Some((warning, listing))
     }
 }
 
@@ -482,68 +248,10 @@ fn unfiltered_terms_lead(query: &LocalSearchQuery) -> Value {
     })
 }
 
-/// Whether `text` read as a regex is an alternation: a `|` outside escapes
-/// and character classes splits it into alternatives none of which is
-/// empty.
-fn reads_as_alternation(text: &str) -> bool {
-    // Chars in each alternative so far.
-    let mut alternatives = vec![0usize];
-    let mut chars = text.chars();
-    let mut class = false;
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => {
-                chars.next();
-            }
-            '[' => class = true,
-            ']' => class = false,
-            '|' if !class => {
-                alternatives.push(0);
-                continue;
-            }
-            _ => {}
-        }
-        if let Some(last) = alternatives.last_mut() {
-            *last += 1;
-        }
-    }
-    alternatives.len() > 1 && alternatives.iter().all(|chars| *chars > 0)
-}
-
-/// The engine `text` compiles in as a regex: `rust`, else `pcre2`.
-fn regex_engine(text: &str) -> Option<&'static str> {
-    use octocode_engine::search::text_pattern::validate_text_pattern;
-    if validate_text_pattern(text, false, false).valid {
-        Some("rust")
-    } else {
-        validate_text_pattern(text, false, true)
-            .valid
-            .then_some("pcre2")
-    }
-}
-
-/// The same search with `matchString` read as a regex under `engine`, and
-/// across lines when the regex matches a line break, so the lead runs.
-fn regex_lead(query: &LocalSearchQuery, engine: &str) -> Value {
-    restart_lead(query, |fields| {
-        fields.insert("regex".into(), json!(engine));
-        if query.multiline == LocalSearchQueryMultiline::Off
-            && octocode_engine::search::text_pattern::matches_line_break(
-                local_search_query::pattern(query),
-                false,
-            )
-        {
-            fields.insert("multiline".into(), json!("on"));
-        }
-    })
-}
-
 /// Whether the row lists every skipped path (`extras:["details"]`) instead
 /// of one entry per cause and rule.
 pub(super) fn lists_every_skipped_path(query: &LocalSearchQuery) -> bool {
-    query
-        .extras
-        .contains(&octocode_contract_types::ExtraKind::Details)
+    crate::tools::leads::skipped::every_path(&query.extras)
 }
 
 /// Matches at which a line view leads to its per-file counts.
@@ -625,60 +333,4 @@ pub(super) fn scope_directories(query: &LocalSearchQuery) -> Value {
     let mut tree = json!({"operation": "tree", "path": query.path.as_str(), "maxDepth": 1});
     walk_scope(query, &mut tree);
     Continuation::new(ToolId::StructureSearch, tree).build()
-}
-
-#[cfg(test)]
-mod alternation_tests {
-    use super::reads_as_alternation;
-
-    /// A `|` splits alternatives only outside escapes and classes, and every
-    /// alternative must hold text.
-    #[test]
-    fn an_alternation_has_text_on_every_side() {
-        for text in ["a|b", "(a|b)c", "foo|bar|baz", r"a\.b|c"] {
-            assert!(reads_as_alternation(text), "{text}");
-        }
-        for text in ["a", "a||b", "|a", "a|", r"a\|b", "[a|b]", ""] {
-            assert!(!reads_as_alternation(text), "{text}");
-        }
-    }
-}
-
-/// Executable calls from `reads` (one-row calls, see [`expand_values`]):
-/// each run of one tool's rows in calls of as many rows as that tool
-/// accepts, the first named `name` and the rest `name2`, `name3`, …, so
-/// every read is one call away. A default page is cut so its reads fit one
-/// call (see [`stream_pages`]); a caller-sized page may need more.
-fn numbered_calls(name: &str, reads: &[Value]) -> Vec<(String, Value)> {
-    let mut calls = Vec::new();
-    for run in reads.chunk_by(|a, b| a["tool"] == b["tool"]) {
-        let Some(tool) = run[0]["tool"].as_str().and_then(ToolId::from_name) else {
-            continue;
-        };
-        let rows = run
-            .iter()
-            .filter_map(crate::response::result::continuation_row)
-            .cloned()
-            .collect::<Vec<_>>();
-        for chunk in rows.chunks(crate::response::result::rows_per_call(tool)) {
-            let key = crate::id::numbered(name, calls.len());
-            let call = Continuation::input(tool, json!({ "queries": chunk }))
-                .confidence(Confidence::Exact)
-                .build();
-            calls.push((key, call));
-        }
-    }
-    calls
-}
-
-#[cfg(test)]
-mod json_size_policy_tests {
-    #[test]
-    fn invalid_lead_json_exceeds_every_budget() {
-        let invalid = std::collections::BTreeMap::from([((1, 2), "value")]);
-        assert_eq!(
-            octocode_engine::json_size::bytes(&invalid).unwrap_or(usize::MAX),
-            usize::MAX
-        );
-    }
 }

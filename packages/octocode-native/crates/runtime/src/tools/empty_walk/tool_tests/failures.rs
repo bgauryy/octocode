@@ -121,7 +121,10 @@ fn an_unreadable_directory_leaves_every_walking_tool_partial() {
             .filter(|entry| entry["cause"] == "unreadable")
             .collect::<Vec<_>>();
         assert_eq!(unreadable.len(), 1, "{name}: {out}");
-        assert_eq!(unreadable[0]["reason"], "permission denied", "{name}: {out}");
+        assert_eq!(
+            unreadable[0]["reason"], "permission denied",
+            "{name}: {out}"
+        );
         if name.starts_with("astSearch") {
             assert_eq!(out["isPartial"], json!(true), "{name}: {out}");
             assert_ne!(out["coverage"]["state"], json!("complete"), "{name}: {out}");

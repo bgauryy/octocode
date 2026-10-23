@@ -1,7 +1,7 @@
 //! Original batch row positions and placement of rejected rows on page one.
 
 use crate::response::outcome::ToolOutcome;
-use crate::response::pages::Remaining;
+use crate::response::result::Remaining;
 use crate::security::CheckedQuery;
 use serde_json::{Value, json};
 

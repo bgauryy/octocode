@@ -241,14 +241,3 @@ impl<'t> ReceiverTypes<'t> {
         fields
     }
 }
-
-/// Record `ty` for `name`; a second, different type makes it unknown.
-pub(super) fn merge(fields: &mut Fields, name: &str, ty: Option<String>) {
-    match fields.get_mut(name) {
-        Some(existing) if *existing != ty => *existing = None,
-        Some(_) => {}
-        None => {
-            fields.insert(name.to_owned(), ty);
-        }
-    }
-}

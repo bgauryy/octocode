@@ -39,6 +39,16 @@ pub struct TextSearchMatch {
     pub original_bytes: Option<u32>,
 }
 
+impl TextSearchMatch {
+    /// The identity digest of a match value (see `value_digest`): SHA-256 of
+    /// the value trimmed of surrounding whitespace. Every producer of a row
+    /// and every verifier that restates one uses this rule.
+    pub fn digest_of(value: &str) -> [u8; 32] {
+        use sha2::{Digest as _, Sha256};
+        Sha256::digest(value.trim().as_bytes()).into()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TextSearchFile {
     pub path: String,
@@ -348,9 +358,10 @@ pub enum SourceValues {
     /// Owned snippets; no file is hashed.
     #[default]
     Owned,
-    /// Owned snippets, and each kept file is hashed while it is searched
-    /// and reported as [`TextSearchFile::source`], so a caller can prove the
-    /// values later without reading the file again.
+    /// Owned snippets, and each kept file is hashed by a second whole-file
+    /// read right after its search and reported as
+    /// [`TextSearchFile::source`], so a caller can prove the values later
+    /// without reading the file again.
     Hashed,
     /// [`Self::Hashed`], keeping anchors and complete value digests instead
     /// of owned snippets for ordinary context-free, single-line searches;

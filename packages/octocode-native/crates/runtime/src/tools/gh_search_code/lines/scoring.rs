@@ -1,5 +1,4 @@
 //! How a hit fits a read: the covering window, goal terms, hit scores and the clipped line text.
-use super::MAX_LINE_CHARS;
 use super::blob::Hit;
 
 /// Widest span (in lines) of a window that anchors a multi-keyword read.
@@ -125,8 +124,6 @@ fn hit_shape(lower: &str, after: usize, declares: bool) -> usize {
     if declares { 2 } else { 1 }
 }
 
-/// The line itself when short; otherwise a window starting a little before
-/// the first keyword, marked with `…`.
 /// The char index of the first of `needles` in `line` (0 when none holds):
 /// where a window over the line is placed.
 pub(super) fn first_hit(line: &str, needles: &[String]) -> usize {
@@ -136,20 +133,4 @@ pub(super) fn first_hit(line: &str, needles: &[String]) -> usize {
         .filter_map(|needle| folded.ranges(needle).first().map(|span| span.start))
         .min()
         .map_or(0, |at| line[..at].chars().count())
-}
-
-pub(super) fn clip(line: &str, at_char: usize) -> String {
-    let chars = line.chars().count();
-    if chars <= MAX_LINE_CHARS {
-        return line.to_owned();
-    }
-    let start = at_char.saturating_sub(40).min(chars - MAX_LINE_CHARS);
-    let body: String = line.chars().skip(start).take(MAX_LINE_CHARS).collect();
-    let prefix = if start > 0 { "…" } else { "" };
-    let suffix = if start + MAX_LINE_CHARS < chars {
-        "…"
-    } else {
-        ""
-    };
-    format!("{prefix}{body}{suffix}")
 }

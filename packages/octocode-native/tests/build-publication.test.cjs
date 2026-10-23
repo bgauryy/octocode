@@ -19,7 +19,7 @@ test('every native build script routes through build-native.cjs', () => {
   assert.equal(scripts['check:target'], `${driver} --check --target`);
   for (const platform of Object.keys(PLATFORMS)) assert.equal(scripts[`build:${platform}`], undefined, platform);
   for (const [name, command] of Object.entries(scripts)) {
-    if (name.startsWith('build')) assert.doesNotMatch(command, /cargo build|napi build|--only/, name);
+    if (name.startsWith('build')) assert.doesNotMatch(command, /cargo build|--only/, name);
   }
 });
 
@@ -43,7 +43,7 @@ test('cargo dev-test is the first test:rust selection under libtest', () => {
   assert.deepEqual(alias[1].split(/\s+/), testRustSelections()[0]);
 });
 
-test('host build selects both host crates in one locked cargo invocation', () => {
+test('host build selects the CLI crate in one locked cargo invocation', () => {
   const { PLATFORMS } = require('../bin/platform.cjs');
   const { GLIBC_FLOOR, hostsCommand } = require('../scripts/build-native.cjs');
   for (const platform of [null, ...Object.keys(PLATFORMS)]) {
@@ -51,10 +51,10 @@ test('host build selects both host crates in one locked cargo invocation', () =>
       const { command, args } = hostsCommand(platform, mode, '/tmp/hosts');
       const line = args.join(' ');
       assert.match(command, /^cargo(-zigbuild)?$/);
-      assert.match(line, /-p octocode-cli -p octocode-runtime-napi --bins --lib/);
+      assert.match(line, /-p octocode-cli --bins/);
       assert.match(line, /--locked/);
       assert.match(line, /--target-dir \/tmp\/hosts/);
-      assert.doesNotMatch(line, /napi-test|--all-features/);
+      assert.doesNotMatch(line, /--all-features/);
       assert.equal(line.includes('--release'), Boolean(mode.release), line);
       if (platform) assert.match(line, new RegExp(`--target ${PLATFORMS[platform].triple}`));
       // A check never links: every cross tool runs its `check` subcommand.
@@ -75,7 +75,7 @@ test('host and platform builds never share a target dir', () => {
 });
 
 test('stageFile replaces the destination inode instead of overwriting it', t => {
-  const { stageFile } = require('../scripts/native-addon-utils.cjs');
+  const { stageFile } = require('../scripts/stage-binary.cjs');
   const root = mkdtempSync(join(tmpdir(), 'octocode-stage-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, 'source'), 'new');
@@ -89,7 +89,7 @@ test('stageFile replaces the destination inode instead of overwriting it', t => 
 
 
 test('stageFile keeps unchanged bytes on their existing inode', t => {
-  const { stageFile } = require('../scripts/native-addon-utils.cjs');
+  const { stageFile } = require('../scripts/stage-binary.cjs');
   const root = mkdtempSync(join(tmpdir(), 'octocode-stage-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, 'source');
@@ -133,7 +133,7 @@ test('takeSignals owns the forwarded signals until restore', () => {
   process.removeListener('SIGHUP', previous);
 });
 
-test('each platform package ships exactly the staged CLI binary and runtime addon', () => {
+test('each platform package ships exactly the staged binary', () => {
   const { BINARIES, PLATFORMS, executableName } = require('../bin/platform.cjs');
   assert.deepEqual(BINARIES, ['octocode']);
   const manifest = json(join(__dirname, '..', 'package.json'));
@@ -143,7 +143,7 @@ test('each platform package ships exactly the staged CLI binary and runtime addo
     const files = json(join(__dirname, '..', 'npm', platform, 'package.json')).files;
     assert.deepEqual(
       [...files].sort(),
-      [...BINARIES.map(name => executableName(name, os)), 'README.md', `octocode-native.${platform}.node`].sort(),
+      [...BINARIES.map(name => executableName(name, os)), 'README.md'].sort(),
       platform
     );
   }

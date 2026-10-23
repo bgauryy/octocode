@@ -8,7 +8,6 @@ scripts/
 coverage/
 build.mjs
 tsconfig.json
-tsconfig.build.json
 vitest.config.ts
 ARCHITECTURE.md
 *.dxt

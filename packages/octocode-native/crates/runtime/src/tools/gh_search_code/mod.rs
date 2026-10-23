@@ -16,7 +16,6 @@ mod selection_tests;
 use crate::id::ToolId;
 use crate::num::usize_of;
 use crate::response::paging::{clamp_page_size, mark_partial, push_warnings};
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, ToolData, query_row};
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{
@@ -313,9 +312,7 @@ async fn empty_page(
         let mut content = query_row(query, &[]);
         content["matchIn"] = json!("file");
         content["page"] = json!(1);
-        value["next"]["findCode"] = Continuation::new(ToolId::GhSearchCode, content)
-            .confidence(Confidence::High)
-            .build();
+        value["next"]["findCode"] = Continuation::new(ToolId::GhSearchCode, content).build();
     }
     let hints = code_output::empty_hints(query);
     if value.get("hints").is_none() && !hints.is_empty() {

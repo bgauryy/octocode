@@ -2,10 +2,6 @@
 //! drift and baselines.
 use super::*;
 
-pub(super) fn parent_of(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(dir, _)| dir)
-}
-
 /// Root-relative files changed since `rev` (committed, staged, unstaged) plus
 /// untracked files, via git.
 pub(super) fn git_changed(root: &Path, rev: &str) -> Result<Vec<String>, String> {
@@ -67,7 +63,10 @@ impl Query<'_> {
                 .map_err(|message| GraphOutput::error(ErrorCode::GitFailed, message))?;
             for path in changed {
                 if super::super::super::freshness::is_global_config(&path) {
-                    global.push((parent_of(&path).to_owned(), path));
+                    global.push((
+                        crate::tools::ast_graph::graph::parent(&path).to_owned(),
+                        path,
+                    ));
                 } else if g.t.by_key(&path).is_some() {
                     refs.push(path);
                 } else {

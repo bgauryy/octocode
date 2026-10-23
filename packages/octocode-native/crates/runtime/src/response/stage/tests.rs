@@ -1,6 +1,6 @@
 use super::*;
 use crate::response::cursor::PageScope;
-use crate::response::pager::ResponsePageOptions;
+use crate::response::page_model::ResponsePageOptions;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -72,7 +72,7 @@ fn stage_from(tool: &str, mut structured: Value, source: Option<&Value>) -> Tool
 
 fn fetch_row(index: usize) -> Value {
     json!({"index":index,"data":{"path":"a.txt","content":"one\n","totalLines":1,
-            "next":{"continueWindow":{"tool":"localFetch","confidence":"exact",
+            "next":{"continueWindow":{"tool":"localFetch",
                 "query":{"queries":[{"path":"/tmp/a.txt","mainGoal": "test", "reasoning":"r","offset":1}]}}}}})
 }
 

@@ -26,16 +26,16 @@ test('an artifact that lacks the current contract fingerprint is stale', t => {
 test('an artifact from another version is stale even with the current fingerprint', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-fresh-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const wrong = stage(root, 'linux-x64-gnu', 'octocode-native.linux-x64-gnu.node', `${FINGERPRINT} 20.0.0`);
+  const wrong = stage(root, 'linux-x64-gnu', 'octocode', `${FINGERPRINT} 20.0.0`);
   assert.deepEqual(staleArtifacts([wrong], FINGERPRINT, VERSION), [wrong]);
 });
 
-test('staged native artifacts are the CLI binary and the addon of each platform, and nothing else', t => {
+test('staged native artifacts are the binary of each platform, and nothing else', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-fresh-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const binary = stage(root, 'darwin-arm64', 'octocode', 'x');
-  const addon = stage(root, 'darwin-arm64', 'octocode-native.darwin-arm64.node', 'x');
+  stage(root, 'darwin-arm64', 'octocode-native.darwin-arm64.node', 'x');
   stage(root, 'darwin-arm64', 'package.json', '{}');
   stage(root, 'win32-x64-msvc', 'octocode.exe', 'x');
-  assert.deepEqual(stagedNativeArtifacts(root).sort(), [addon, binary, path.join(root, 'win32-x64-msvc', 'octocode.exe')].sort());
+  assert.deepEqual(stagedNativeArtifacts(root).sort(), [binary, path.join(root, 'win32-x64-msvc', 'octocode.exe')].sort());
 });

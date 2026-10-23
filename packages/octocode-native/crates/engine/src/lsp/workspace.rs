@@ -23,9 +23,11 @@ const MARKERS: [&str; 12] = [
 /// The language server root of `file_path`: for a Rust file, the root of
 /// the Cargo workspace its package belongs to (one rust-analyzer analyzes
 /// every member crate, so a member crate never roots a second one);
-/// otherwise the nearest ancestor holding a project marker. With no marker
-/// anywhere, the file's own directory. Never the process cwd: a server
-/// rooted there would analyze an unrelated tree.
+/// otherwise the nearest ancestor holding a project marker, widened for a
+/// TypeScript-family file to the directory of its governing
+/// `tsconfig.json`/`jsconfig.json` when that sits above the marker. With no
+/// marker anywhere, the file's own directory. Never the process cwd: a
+/// server rooted there would analyze an unrelated tree.
 pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
     let directory = Path::new(&file_path)
         .parent()
@@ -37,8 +39,33 @@ pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
         .map(|package| cargo_workspace_root(&package).unwrap_or(package));
     let root = cargo_root
         .or_else(|| project_root_of_dir(&directory))
-        .unwrap_or(directory);
+        .unwrap_or_else(|| directory.clone());
+    let root = typescript_config_above(&file_path, &directory, &root).unwrap_or(root);
     Ok(root.to_string_lossy().into_owned())
+}
+
+/// Project configs tsserver looks for, nearest first, from a file's
+/// directory upward.
+const TYPESCRIPT_PROJECT_CONFIGS: [&str; 2] = ["tsconfig.json", "jsconfig.json"];
+
+/// The directory of the `tsconfig.json`/`jsconfig.json` governing a
+/// TypeScript-family file when it lies above `root`. tsserver searches for
+/// that config only up to the workspace root it is given
+/// (`projectRootPath`): a package marker below the config (a workspace
+/// package without its own tsconfig) would leave the file in an inferred
+/// project that sees only opened files, so incoming queries (references,
+/// implementations) would miss every unopened importer.
+fn typescript_config_above(file_path: &str, directory: &Path, root: &Path) -> Option<PathBuf> {
+    let language_id = crate::lsp::config::detect_language_id(file_path);
+    if !crate::lsp::family::is_typescript_family(language_id.as_deref()) {
+        return None;
+    }
+    let config_dir = directory.ancestors().find(|dir| {
+        TYPESCRIPT_PROJECT_CONFIGS
+            .iter()
+            .any(|name| dir.join(name).is_file())
+    })?;
+    (!config_dir.starts_with(root)).then(|| config_dir.to_path_buf())
 }
 
 /// The nearest ancestor of `directory` (itself included) holding a

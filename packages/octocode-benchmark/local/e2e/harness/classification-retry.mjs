@@ -2,7 +2,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { NativeRuntime } from '../../../../../packages/octocode-native/js/runtime.js';
 import { checks, collect, rowData, writeResults } from './mcp-client.mjs';
 import { answer, pages, setup, stable, startServer, success } from './read-tool-selection/support.mjs';
 
@@ -41,6 +40,7 @@ const query = (state, instructions = 'Does the evidence contain an explicit null
 const verdicts = result => collect(result.json ?? result.sc, value => value.type === 'noul' && typeof value.noul === 'number').map(value => value.noul);
 const row = result => (result.json ?? result.sc)?.queries?.[0];
 const errors = result => collect(result.json ?? result.sc, value => typeof value.errorCode === 'string').map(value => value.errorCode);
+const account = key => ({ OCTOCODE_CLASSIFICATION_API: key, OCTOCODE_STORAGE_MODE: 'persistent', OCTOCODE_ENABLE_STATS: 'true' });
 const call = async (input, label) => {
   const before = ctx.calls();
   const result = await client.call('clasify', input, {}, label);
@@ -146,24 +146,19 @@ try {
   check('memory judgments do not survive fresh CLI processes', memoryCalls.every(calls => calls === 1)
     && memoryResults.every(result => verdicts(result).includes(0.1) && row(result)?.replayed !== true), JSON.stringify(memoryCalls));
 
-  // Multiple runtimes can coexist in a host process; account boundaries must
-  // hold there, where the process-global cache is actually shared.
-  const runtimes = ['fixture-account-a', 'fixture-account-b'].map(key => new NativeRuntime({
-    surface: 'mcp', cwd: ctx.fixture, env: { ...env, OCTOCODE_CLASSIFICATION_API: key },
-  }));
-  try {
-    const beforeAccounts = ctx.calls();
-    for (const [index, runtime] of runtimes.entries()) {
-      const result = await runtime.executeMcp(`account-${index}`, 'clasify', { queries: [query({ account: 'same-state' })] });
-      assert.ok(verdicts({ sc: result.structuredContent }).includes(0.1), JSON.stringify(result));
-    }
-    check('same-process runtimes with different accounts judge independently', ctx.calls() - beforeAccounts === 2);
-    const beforeWarmAccount = ctx.calls();
-    const warmAccount = await runtimes[0].executeMcp('account-warm', 'clasify', { queries: [query({ account: 'same-state' })] });
-    check('returning to the original account still reuses its own judgment', ctx.calls() === beforeWarmAccount && verdicts({ sc: warmAccount.structuredContent }).includes(0.1));
-  } finally {
-    await Promise.all(runtimes.map(runtime => runtime.close()));
+  // One process holds one runtime now (CLI process or MCP server), so account
+  // boundaries are checked where judgments are shared: the persistent cache,
+  // which every process of the home reads. Another account must not see a
+  // judgment, and returning to the original account must still reuse its own.
+  const beforeAccounts = ctx.calls();
+  for (const key of ['fixture-account-a', 'fixture-account-b']) {
+    const result = await ctx.cli('clasify', query({ account: 'same-state' }), account(key));
+    assert.ok(verdicts(result).includes(0.1), JSON.stringify(result));
   }
+  check('different accounts judge independently', ctx.calls() - beforeAccounts === 2);
+  const beforeWarmAccount = ctx.calls();
+  const warmAccount = await ctx.cli('clasify', query({ account: 'same-state' }), account('fixture-account-a'));
+  check('returning to the original account still reuses its own judgment', ctx.calls() === beforeWarmAccount && verdicts(warmAccount).includes(0.1));
 
   // A selected-view plan binds the account, classifiers, research context and
   // source bytes; every replay must reuse it or fail stale before provider work.
@@ -175,7 +170,7 @@ try {
   const receipt = data.selection;
   check('replay fixture starts from a provider-selected source', ctx.calls() > beforeSelection
     && receipt?.scope === 'selectedView' && receipt.selectedItems > 0 && receipt.excludedItems > 0
-    && receipt.selectedItems + receipt.excludedItems + receipt.unknownItems === receipt.totalItems
+    && receipt.selectedItems + receipt.excludedItems + (receipt.relatedItems ?? 0) + receipt.unknownItems === receipt.totalItems
     && data.content.includes('SELECTED_SELECTION_SENTINEL') && !data.content.includes('EXCLUDED_SELECTION_SENTINEL'), JSON.stringify(receipt));
   // next.unfiltered is the ordinary recovery read; the saved plan rides on the window continuation.
   const next = pages(data).find(lead => lead.kind === 'continueWindow');

@@ -1,8 +1,8 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/server';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import type { Client } from '@modelcontextprotocol/client';
 import { z } from 'zod';
 import {
   cliFromMcp,

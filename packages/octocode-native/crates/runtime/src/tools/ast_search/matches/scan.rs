@@ -1,13 +1,25 @@
-//! The scan of one file or a directory, its stored memo, and the snapshot
-//! that names it.
-use super::*;
-use crate::response::result::Confidence;
+//! The scan of one file or a directory, and the order of its files.
+use super::continuations::tree_repair;
+use super::query::MatchQuery;
+use super::rows::{diagnostic_error, error_diagnostic, match_display_path};
+use super::scope::structural_extensions;
+use super::snapshot::directory_source_digest;
+use super::types::{NamedFiles, Scan, ScannedFile, Scope};
+use super::{demand, match_price};
+use crate::execution::cancel::CancellationCheck;
+use crate::policy::path::PathPolicy;
+use crate::policy::prune;
+use crate::response::result::ToolError;
+use crate::tools::ast_rule::has_extension_in;
 use octocode_contract_types::ErrorCode;
+use octocode_engine::structural::{
+    FileMatches, StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
+};
 
 pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolError> {
     let canonical = &scope.canonical;
-    super::super::validate_file_language(canonical, scope.language.as_deref())?;
-    let Some(bytes) = super::super::read_parse_source(canonical)? else {
+    super::super::language::validate_file_language(canonical, scope.language.as_deref())?;
+    let Some(bytes) = super::super::source::read_parse_source(canonical)? else {
         let mut error = ToolError::new(
             ErrorCode::FileTooLarge,
             "Source exceeds the native parser byte limit.",
@@ -15,8 +27,10 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
         if let Some(lead) = q
             .pattern()
             .as_deref()
-            .and_then(super::super::pattern_literal)
-            .and_then(|literal| super::super::text_search(&canonical.to_string_lossy(), literal))
+            .and_then(super::super::source::pattern_literal)
+            .and_then(|literal| {
+                super::super::source::text_search(&canonical.to_string_lossy(), literal)
+            })
         {
             error.next = Some(Box::new(serde_json::json!({ "findText": lead })));
         }
@@ -24,12 +38,12 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
     };
     // Parse the file as the directory scan does: admitted by the one text
     // rule, raw. Output strings are redacted by the response stage.
-    let source = super::super::parse_text(canonical, &bytes)?;
+    let source = super::super::source::parse_text(canonical, &bytes)?;
     let source_path = canonical.to_string_lossy();
     let mut r = octocode_engine::structural::search_detailed(
         &source,
         &source_path,
-        super::super::parser_override(canonical, scope.language.as_deref()).as_deref(),
+        super::super::language::parser_override(canonical, scope.language.as_deref()).as_deref(),
         q.pattern().as_deref(),
         q.rule().as_ref(),
     );
@@ -48,9 +62,11 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
     if let Some(region) = q.scope() {
         super::super::region::select(region, &source, &mut r.matches)?;
     }
-    if let Some(note) = super::super::cpp_header_note(canonical, q.language().as_deref(), &source) {
+    if let Some(note) =
+        super::super::language::cpp_header_note(canonical, q.language().as_deref(), &source)
+    {
         r.diagnostics.push(StructuralDiagnostic {
-            code: super::super::CPP_HEADER_NOTE.to_owned(),
+            code: super::super::language::CPP_HEADER_NOTE.to_owned(),
             severity: "warning".to_owned(),
             stage: "parse".to_owned(),
             message: note,
@@ -60,7 +76,7 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
     }
     Ok(Scan {
         files: vec![ScannedFile {
-            path: super::super::display_name(canonical),
+            path: crate::tools::display_name(canonical),
             parser: String::new(),
             matches: FileMatches::Held(r.matches),
             diagnostics: r.diagnostics,
@@ -72,58 +88,6 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
         source_digest: octocode_engine::digest::sha256(&bytes),
         ..Scan::default()
     })
-}
-
-/// A query that does not compile against one file leads to that file's
-/// syntax tree, where the node shapes a pattern or rule names are read.
-pub(super) fn tree_repair(mut error: ToolError, q: MatchQuery<'_>, scope: &Scope) -> ToolError {
-    if error.code == ErrorCode::InvalidPattern && error.next.is_none() {
-        error.next = Some(Box::new(
-            json!({ "viewSyntax": tree_lead(q, scope, &scope.canonical, None) }),
-        ));
-    }
-    error
-}
-
-/// The syntaxTree read of `file` (its grammar pinned when one was named
-/// for a single file).
-pub(super) fn tree_lead(
-    q: MatchQuery<'_>,
-    scope: &Scope,
-    file: &std::path::Path,
-    line: Option<u64>,
-) -> Value {
-    // One bounded page: the nodes at `line` (the statement that spells the
-    // query's anchor), else the file's first nodes, with the rest a page on.
-    let mut tree =
-        json!({"operation":"syntaxTree","path":file.to_string_lossy(),"pageSize":TREE_LEAD_NODES});
-    if let Some(line) = line {
-        tree["line"] = json!(line);
-    }
-    if scope.is_file
-        && let Some(language) = q.language()
-    {
-        tree["language"] = json!(language);
-    }
-    crate::response::result::Continuation::new(ToolId::AstSearch, tree)
-        .confidence(Confidence::Medium)
-        .build()
-}
-
-/// Nodes on the first page of a `viewSyntax` lead.
-const TREE_LEAD_NODES: u32 = 40;
-
-/// The first line of `file` that spells a literal every match must contain:
-/// where a parsed file's tree is compared with the query's shape.
-pub(super) fn anchor_line(q: MatchQuery<'_>, file: &std::path::Path) -> Option<u64> {
-    let anchors =
-        octocode_engine::structural::query_anchors(q.pattern().as_deref(), q.rule().as_ref())?;
-    let source = super::super::read_parse_source(file).ok().flatten()?;
-    super::super::parse_text(file, &source)
-        .ok()?
-        .lines()
-        .position(|line| anchors.iter().any(|anchor| line.contains(anchor.as_str())))
-        .map(|index| index as u64 + 1)
 }
 
 pub(super) fn scan_directory(
@@ -185,7 +149,7 @@ pub(super) fn scan_directory(
             max_depth: q.max_depth(),
             max_files: q.max_files(),
             skip_files: Some(q.scan_offset()),
-            max_file_bytes: u32::try_from(super::super::MAX_PARSE_SOURCE_BYTES).ok(),
+            max_file_bytes: u32::try_from(super::super::source::MAX_PARSE_SOURCE_BYTES).ok(),
         },
         demand(q, &price),
         &|path| {
@@ -262,7 +226,7 @@ pub(super) fn scan_directory(
         &|path| parser_extension(scope, path),
         &|| cancel.check().is_err(),
     )
-    .map_err(super::super::native_error)?;
+    .map_err(super::super::errors::native_error)?;
     if let Some(diagnostic) = error_diagnostic(&r.diagnostics) {
         return Err(diagnostic_error(diagnostic));
     }
@@ -363,7 +327,7 @@ pub(super) fn parser_extension(scope: &Scope, path: &std::path::Path) -> String 
     if let Some(extension) = scope.parsers.extension(path) {
         extension.to_owned()
     } else if let Some(parser) =
-        super::super::shared_extension_parser(path, scope.language.as_deref())
+        super::super::language::shared_extension_parser(path, scope.language.as_deref())
     {
         parser
     } else {
@@ -375,46 +339,6 @@ pub(super) fn parser_extension(scope: &Scope, path: &std::path::Path) -> String 
 #[cfg(test)]
 pub(super) static DIRECTORY_SCANS: std::sync::Mutex<Vec<std::path::PathBuf>> =
     std::sync::Mutex::new(Vec::new());
-
-pub(super) fn directory_source_digest<'a>(
-    files: impl Iterator<Item = (&'a str, Option<&'a str>)>,
-) -> String {
-    let identities = files.collect::<std::collections::BTreeMap<_, _>>();
-    crate::digest::json_sha256(&json!(identities))
-}
-
-#[cfg(unix)]
-pub(super) fn memo_source_unchanged(_: &Scope, _: &Scan) -> bool {
-    // StampSet already checked change time and inode as well as size and mtime.
-    true
-}
-
-#[cfg(not(unix))]
-pub(super) fn memo_source_unchanged(scope: &Scope, scan: &Scan) -> bool {
-    // Without Unix change time, restored mtime cannot prove source identity.
-    // Reuse parsing only after bounded reads prove the saved source digest.
-    let digests = scan
-        .sources
-        .iter()
-        .map(|path| {
-            let digest = super::super::read_parse_source(path)
-                .ok()
-                .flatten()
-                .map(|bytes| octocode_engine::digest::sha256(&bytes));
-            (path.to_string_lossy().into_owned(), digest)
-        })
-        .collect::<Vec<_>>();
-    if scope.is_file {
-        digests.first().and_then(|(_, digest)| digest.as_deref())
-            == Some(scan.source_digest.as_str())
-    } else {
-        directory_source_digest(
-            digests
-                .iter()
-                .map(|(path, digest)| (path.as_str(), digest.as_deref())),
-        ) == scan.source_digest
-    }
-}
 
 pub(super) fn sort_files(q: MatchQuery<'_>, files: &mut [ScannedFile]) {
     files.sort_by(|a, b| {
@@ -432,73 +356,4 @@ pub(super) fn sort_files(q: MatchQuery<'_>, files: &mut [ScannedFile]) {
             ordering
         }
     });
-}
-
-/// A continuation page whose fresh rescan stopped at a parse or match
-/// deadline differs from its first page because the scan was cut, not
-/// because the source changed: a retryable `timeout` with the same page as
-/// `next.retry`, never a `staleSnapshot` that discards the pages read.
-pub(super) fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolError> {
-    let interrupted = scan.files.iter().any(|file| {
-        file.diagnostics.iter().any(|diagnostic| {
-            matches!(
-                diagnostic.code.as_str(),
-                octocode_engine::structural::MATCH_DEADLINE
-                    | octocode_engine::structural::PARSE_INTERRUPTED
-            )
-        })
-    });
-    if !interrupted {
-        return None;
-    }
-    let mut error = ToolError::new(
-        ErrorCode::Timeout,
-        "The rescan for this page stopped at the structural match deadline, so it cannot be checked against the earlier pages; the source is unchanged.",
-    );
-    error.next = Some(Box::new(json!({
-        "retry": crate::response::result::Continuation::new(ToolId::AstSearch, q.to_value())
-            .confidence(Confidence::Exact)
-            .build()
-    })));
-    Some(error)
-}
-
-/// The match-row shape a snapshot was cut under; bumped by every row rename.
-pub(super) const MATCH_ROWS_VERSION: u32 = 4;
-
-/// Fingerprint over the query shape, ordered result set and scanned source bytes.
-/// Continuation cursors (page>1 or matchPage>1) that
-/// carry a stale snapshot are rejected with `staleSnapshot`. Fields the
-/// continuation normalizes to a default are digested by their effective
-/// value so a fresh page matches.
-pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> String {
-    let ordered = scan
-        .files
-        .iter()
-        .map(|f| (f.path.clone(), f.matches.len()))
-        .collect::<Vec<_>>();
-    crate::digest::json_sha256(&json!([
-        // Row shape version (v4: `matchCount`, object rows, 1-based columns); an older cursor
-        // restarts instead of mixing shapes across pages.
-        MATCH_ROWS_VERSION,
-        scope.canonical.to_string_lossy(),
-        q.pattern(),
-        q.rule(),
-        q.scope(),
-        q.include(),
-        q.exclude(),
-        q.include_hidden(),
-        q.include_ignored(),
-        q.max_depth(),
-        scope.language,
-        q.language_globs(),
-        q.reverse(),
-        // Always present: validation stamps the contract defaults.
-        q.sort().as_deref().unwrap_or_default(),
-        q.result_view().as_deref().unwrap_or_default(),
-        q.max_files(),
-        q.scan_offset(),
-        &scan.source_digest,
-        ordered
-    ]))
 }

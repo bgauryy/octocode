@@ -36,21 +36,11 @@ mod walk;
 use outline::{module_outline, push_heritage_edges};
 use walk::{collect_member_functions, collect_program};
 
-// LSP SymbolKind numeric codes (subset we emit); keep them in sync with the
-// LSP spec. `TYPE_ALIAS` is module-private: LSP has no type-alias kind, and
-// the tree never leaves this module, so declarations name it `type`.
+// LSP SymbolKind codes come from `lsp::symbol_kind`. `TYPE_ALIAS` is
+// module-private: LSP has no type-alias kind, and the tree never leaves this
+// module, so declarations name it `type`.
 mod kind {
-    pub const NAMESPACE: u8 = 3;
-    pub const CLASS: u8 = 5;
-    pub const METHOD: u8 = 6;
-    pub const PROPERTY: u8 = 7;
-    pub const CONSTRUCTOR: u8 = 9;
-    pub const ENUM: u8 = 10;
-    pub const INTERFACE: u8 = 11;
-    pub const FUNCTION: u8 = 12;
-    pub const VARIABLE: u8 = 13;
-    pub const CONSTANT: u8 = 14;
-    pub const ENUM_MEMBER: u8 = 22;
+    pub use crate::lsp::symbol_kind::*;
     /// Outside the LSP range (1..=26): never confused with a spec kind.
     pub const TYPE_ALIAS: u8 = 0;
 }

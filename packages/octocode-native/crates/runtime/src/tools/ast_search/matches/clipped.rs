@@ -1,7 +1,8 @@
 //! Reads of the lines and values a page clipped (`next.expandValues`,
 //! `next.read`).
-use super::*;
-use crate::response::result::Confidence;
+use super::types::{Group, Scope};
+use crate::id::ToolId;
+use serde_json::{Value, json};
 
 /// One `expandValues` lead whose rows read each file's clipped lines, within
 /// localFetch's batch limit; a warning names every range left out.
@@ -43,7 +44,6 @@ pub(super) fn read_clipped_lines(scope: &Scope, out: &mut Value, page_groups: &[
             ToolId::LocalFetch,
             json!({ "queries": rows }),
         )
-        .confidence(Confidence::High)
         .build();
     }
 }
@@ -144,7 +144,6 @@ pub(super) fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
             ToolId::LocalFetch,
             json!({"path": file.to_string_lossy(), "ranges": ranges}),
         )
-        .confidence(Confidence::High)
         .build(),
     )
 }

@@ -26,7 +26,7 @@ fn payload_and_tool_errors_share_failure_classification() {
 
 #[test]
 fn tool_data_keeps_its_remaining_notes() {
-    let note = crate::response::pages::Remaining {
+    let note = crate::response::result::Remaining {
         page: "nextPage".into(),
         left: "4900 more reachable".into(),
     };
@@ -280,6 +280,13 @@ fn http_status_is_carried_when_present_and_absent_when_not() {
     for (code, status, retryable, hint_fragment) in [
         (ErrorCode::Authentication, Some(401), false, "credentials"),
         (ErrorCode::RateLimited, Some(429), true, "rate-limit reset"),
+        (ErrorCode::HttpStatus, Some(408), true, "Retry once"),
+        (
+            ErrorCode::HttpStatus,
+            Some(404),
+            false,
+            "provider configuration",
+        ),
         (ErrorCode::Timeout, None, true, "Retry once"),
         (
             ErrorCode::CapabilityUnavailable,

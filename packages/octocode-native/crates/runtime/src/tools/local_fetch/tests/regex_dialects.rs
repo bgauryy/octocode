@@ -247,7 +247,7 @@ fn invalid_regex_items_are_named_by_index() {
     assert_eq!(
         crate::id::ToolId::LocalFetch
             .output()
-            .error_hint(ErrorCode::InvalidPattern),
+            .error_hint(ErrorCode::InvalidPattern, &serde_json::Value::Null),
         Some(crate::response::output::NO_HINT)
     );
 }

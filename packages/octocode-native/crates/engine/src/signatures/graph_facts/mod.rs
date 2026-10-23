@@ -16,6 +16,7 @@ mod heritage;
 mod python;
 mod receiver;
 mod rust;
+mod rust_cfg;
 
 mod collect;
 mod imports;
@@ -74,6 +75,8 @@ struct GraphAccumulator {
     modules: Vec<GraphFactRustModule>,
     /// Rust qualified paths outside call and `use` position.
     paths: Vec<crate::graph::GraphFactPath>,
+    /// Line spans of items compiled only under test, outermost only.
+    test_lines: Vec<[u32; 2]>,
     /// Start bytes of name tokens that are not value references: declaration
     /// names and the callee tokens of recorded calls (call edges).
     non_reference_tokens: std::collections::HashSet<usize>,
@@ -112,6 +115,7 @@ impl GraphAccumulator {
             edges: Vec::new(),
             modules: Vec::new(),
             paths: Vec::new(),
+            test_lines: Vec::new(),
             non_reference_tokens: std::collections::HashSet::new(),
             macro_bodies: Vec::new(),
             declaration_spans: Vec::new(),
@@ -238,7 +242,9 @@ fn facts_from_tree(
     declarations_only: bool,
     tree: Option<&tree_sitter::Tree>,
 ) -> Option<super::GraphFactsExtraction> {
-    let ext = extension.to_owned();
+    // One spelling per language for every dispatch below: `pyi` is `py`,
+    // `hpp` is `cpp`, as the language registry lists them.
+    let ext = canonical_extension(extension).to_owned();
     let entry = graph_fact_entry(&ext)?;
     let mut acc = GraphAccumulator::new(file_path, &ext);
     acc.declarations_only = declarations_only;
@@ -305,6 +311,7 @@ fn facts_from_tree(
             paths
         },
         rust_root_unsupported,
+        test_lines: acc.test_lines,
         ..super::native_graph_facts(language_label(&ext, entry.language_id), file_path)
     };
     Some(super::GraphFactsExtraction {
@@ -334,6 +341,7 @@ fn language_label(ext: &str, language_id: Option<&str>) -> String {
         .to_owned()
 }
 
+/// The first extension of the language `ext` belongs to (`pyi` → `py`).
 fn canonical_extension(ext: &str) -> &str {
     languages::find_entry(ext).map_or(ext, |entry| entry.extensions[0])
 }

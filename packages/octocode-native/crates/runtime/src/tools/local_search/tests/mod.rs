@@ -235,6 +235,7 @@ mod match_list;
 mod pages;
 mod scope;
 mod secrets;
+#[cfg(unix)]
 mod special_files;
 mod stored;
 

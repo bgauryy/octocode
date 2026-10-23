@@ -6,7 +6,8 @@ use super::{RuntimeError, ToolRuntime};
 use crate::config::{self, ConfigOutput};
 use crate::contracts;
 use crate::response::cursor::Cursor;
-use crate::response::pager::{ResponsePageOptions, SavedPages};
+use crate::response::page_model::ResponsePageOptions;
+use crate::response::pager::SavedPages;
 use crate::response::result::FailureKind;
 use crate::security::{CheckedQuery, Sanitized};
 use octocode_contract_types::ErrorCode;
@@ -25,7 +26,7 @@ pub(super) struct PageReplay {
     pub(super) github_identity: Option<String>,
     /// Sealed: a store reloaded from disk passes the output gate again.
     pub(super) structured: Sanitized,
-    pub(super) remaining: Vec<Vec<crate::response::pages::Remaining>>,
+    pub(super) remaining: Vec<Vec<crate::response::result::Remaining>>,
     pub(super) response_query: Value,
     pub(super) failure: Option<FailureKind>,
     pub(super) expires_at: String,

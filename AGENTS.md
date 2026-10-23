@@ -24,11 +24,11 @@ flowchart LR
   config["@octocodeai/config (private): generates the tool contract"]
   native["Native runtime: embeds the contract; validates, executes, secures and shapes every tool"]
   core --> config --> native
-  native -- N-API addon --> mcp[MCP server]
+  native -- "octocode mcp" --> mcp[MCP launcher]
   native -- octocode binary --> cli[CLI launcher]
 ```
 
-The MCP server, CLI launcher and VS Code extension are thin adapters with no tool logic.
+The MCP launcher, CLI launcher and VS Code extension are thin adapters with no tool logic.
 
 ## Working rules
 
@@ -52,8 +52,8 @@ The MCP server, CLI launcher and VS Code extension are thin adapters with no too
 
 | Path | npm name | What it is |
 |---|---|---|
-| `packages/octocode-native` | `@octocodeai/octocode-native` | The Rust engine: every tool, the native `octocode` binary, and the N-API addon the MCP server loads. One platform package per target under `npm/<platform>` carries the binaries |
-| `packages/octocode-mcp` | `octocode-mcp` | Thin stdio MCP server: loads the addon, checks the contract fingerprint, registers the available tools |
+| `packages/octocode-native` | `@octocodeai/octocode-native` | The Rust engine: every tool, the native `octocode` binary (CLI commands and the stdio MCP server, `octocode mcp`). One platform package per target under `npm/<platform>` carries the binaries |
+| `packages/octocode-mcp` | `octocode-mcp` | Thin launcher (`npx octocode-mcp`): runs `octocode mcp` from the native binary over the same stdio; native serves both MCP protocol eras |
 | `packages/octocode` | `octocode` | Node CLI launcher (`npx octocode`): forwards unchanged arguments and stdio to the native binary; native owns all commands |
 | `packages/octocode-config` | `@octocodeai/config` (private) | The only tool-contract generator, plus configuration loading (home, `.env`, `.octocoderc`). Bundled into the MCP server and CLI |
 | `packages/octocode-vscode` | `octocode-mcp-vscode` | VS Code extension: GitHub sign-in, token sync, MCP install across editors. Runs no research tools |
@@ -113,8 +113,8 @@ flowchart LR
   `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json`.
 - Don't hand-edit `packages/octocode-config/contract/` or `toolTypes.generated.ts`, and don't
   hand-write wire types (Zod/TypeScript copies or serde query/result structs).
-- A contract fingerprint mismatch means regenerate and rebuild; don't override it with
-  `OCTOCODE_ALLOW_CONTRACT_DRIFT`.
+- The binary embeds the contract it serves, so a stale one means regenerate and rebuild native;
+  there is no runtime override.
 - Configuration flows through `@octocodeai/config`; don't duplicate home, env or dotenv handling.
 - Never lower coverage floors.
 

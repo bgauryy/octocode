@@ -5,7 +5,6 @@
 // per entry for an ordering no listing reader asked for.
 use super::*;
 use crate::response::paging::push_warnings;
-use crate::response::result::Confidence;
 use crate::tools::gh_shared::dates::utc_day as day;
 use std::collections::HashMap;
 
@@ -144,26 +143,17 @@ pub(super) fn expand(
         ToolId::GhStructure,
         json!({ "queries": rows }),
     )
-    .confidence(Confidence::Exact)
     .build();
     Ok(())
 }
 
 fn cache_key(owner: &str, repo: &str, commit_sha: &str, paths: &[&str]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut digest = Sha256::new();
-    for value in [
-        owner.to_ascii_lowercase().as_str(),
-        repo.to_ascii_lowercase().as_str(),
-        commit_sha,
-    ]
-    .into_iter()
-    .chain(paths.iter().copied())
-    {
-        digest.update(value.as_bytes());
-        digest.update([0]);
-    }
-    format!("github-tree-dates:{}", hex::encode(digest.finalize()))
+    let (owner, repo) = (owner.to_ascii_lowercase(), repo.to_ascii_lowercase());
+    let fields = [owner.as_str(), repo.as_str(), commit_sha]
+        .into_iter()
+        .chain(paths.iter().copied())
+        .collect::<Vec<_>>();
+    octocode_github::fields_key("github-tree-dates", &fields)
 }
 
 /// State the page's commit date (`commitDate`) and its dating warning; the

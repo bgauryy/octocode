@@ -1,6 +1,5 @@
 use crate::id::ToolId;
-use crate::num::{u32_of, usize_of};
-use crate::response::result::Confidence;
+use crate::num::usize_of;
 use crate::response::result::ToolError;
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
@@ -10,9 +9,13 @@ use octocode_contract_types::ErrorCode;
 use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::json;
 
+mod render;
+use render::{node_page_chars, render_tree_page};
+
 /// Engine-unit views over the generated `syntaxTree` query.
 pub(crate) mod ast_search_query_syntax_tree {
-    use super::*;
+    use super::AstSearchQuerySyntaxTree;
+    use crate::num::u32_of;
     pub(crate) fn language(query: &AstSearchQuerySyntaxTree) -> Option<String> {
         query.language.as_ref().map(ToString::to_string)
     }
@@ -47,16 +50,19 @@ pub fn execute_syntax(
     cancel.check().map_err(ToolError::cancelled)?;
     let p = paths
         .validate_read(q.path.as_str())
-        .map_err(super::policy_error)?;
-    super::validate_file_language(
+        .map_err(super::errors::policy_error)?;
+    super::language::validate_file_language(
         &p.canonical,
         ast_search_query_syntax_tree::language(q).as_deref(),
     )?;
-    let Some(bytes) = super::read_parse_source(&p.canonical)? else {
-        return Ok(super::source_limit(&p.canonical.to_string_lossy(), None));
+    let Some(bytes) = super::source::read_parse_source(&p.canonical)? else {
+        return Ok(super::source::source_limit(
+            &p.canonical.to_string_lossy(),
+            None,
+        ));
     };
     let sanitized = security.sanitize_text(
-        &super::parse_text(&p.canonical, &bytes)?,
+        &super::source::parse_text(&p.canonical, &bytes)?,
         Some(&p.canonical),
     );
     let snapshot = crate::digest::json_sha256(&json!([
@@ -88,7 +94,7 @@ pub fn execute_syntax(
     let source = Source {
         content: &sanitized.content,
         path: &p.canonical,
-        extension: super::parser_override(
+        extension: super::language::parser_override(
             &p.canonical,
             ast_search_query_syntax_tree::language(q).as_deref(),
         ),
@@ -119,7 +125,7 @@ fn check_line(q: &AstSearchQuerySyntaxTree, line: u32, content: &str) -> Result<
     );
     let repaired = crate::response::result::query_row(q, &["line", "page", "snapshot"]);
     error.next = Some(Box::new(json!({
-        "repair": crate::response::result::Continuation::new(ToolId::AstSearch, repaired).confidence(Confidence::Exact).build()
+        "repair": crate::response::result::Continuation::new(ToolId::AstSearch, repaired).build()
     })));
     Err(error)
 }
@@ -306,157 +312,5 @@ fn page_windows(
     crate::response::page_windows::Paging::of(None, budget).windows(&sizes)
 }
 
-/// The row of one read page: its nodes and diagnostics, pagination and the
-/// next page; a failed inspection is an error row.
-fn render_tree_page(
-    q: &AstSearchQuerySyntaxTree,
-    display_path: &str,
-    TreePage { r, more, facts }: TreePage,
-    snapshot: &str,
-) -> serde_json::Value {
-    // Line/column locate every node; byte offsets are verbose (core field
-    // class): the verbose stage keeps `returnedBytes` for `debug`.
-    let node_bytes = r
-        .nodes
-        .iter()
-        .map(|n| format!("{}-{}", n.start_byte, n.end_byte))
-        .collect::<Vec<_>>();
-    let nodes = r.nodes.iter().map(node_page_row).collect::<Vec<_>>();
-    let codes = r
-        .diagnostics
-        .iter()
-        .map(|d| d.code.clone())
-        .collect::<Vec<_>>();
-    // A walk's notes do not change between its pages: page 1 states them, and
-    // a walk cut is stated where the listing stops (an error row keeps all).
-    let first_page = ast_search_query_syntax_tree::page(q) == 1;
-    let diagnostics = r
-        .diagnostics
-        .into_iter()
-        .filter(|d| {
-            r.status == "error"
-                || if is_walk_cut(&d.code) {
-                    !more
-                } else {
-                    first_page
-                }
-        })
-        .map(|d| crate::tools::ast_rule::diagnostic_row(&d, None))
-        .collect::<Vec<_>>();
-    // A failed inspection is an error row that states its error once: the
-    // declared code and message of the engine's first diagnostic. It has no
-    // page, snapshot or diagnostics to add.
-    if r.status == "error" {
-        let first = diagnostics.first();
-        let code = first
-            .and_then(|diagnostic| diagnostic["code"].as_str())
-            .map_or(ErrorCode::ExecutionFailed, super::engine_error_code);
-        let message = first
-            .and_then(|diagnostic| diagnostic["message"].as_str())
-            .unwrap_or("The syntax tree could not be built.");
-        return json!({"operation":"syntaxTree","path":display_path,"status":"error","errorCode":code,"error":message});
-    }
-    let page = ast_search_query_syntax_tree::page(q);
-    let complete = r.status == "ok" && !more;
-    let pagination = facts.to_value();
-    let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"returnedBytes":node_bytes,"snapshot":snapshot,"isPartial":!complete,
-        "pagination":pagination});
-    if !diagnostics.is_empty() {
-        out["diagnostics"] = json!(diagnostics);
-    }
-    if more {
-        if let Some(lead) = crate::response::paging::next_page_call(
-            &mut out,
-            ToolId::AstSearch,
-            Some("syntaxTree"),
-            crate::response::result::query_row(q, &[]),
-            "page",
-            usize_of(page) + 1,
-            &[("snapshot", json!(snapshot))],
-        ) {
-            out["next"] = json!({ "nextPage": lead });
-        }
-    } else if r.status == "partial" {
-        for reason in walk_cuts(&codes) {
-            crate::response::paging::terminal_limit(&mut out, reason, &[]);
-        }
-    }
-    out
-}
-
-/// A walk-budget stop: the listing ends there, not at the tree's end.
-fn is_walk_cut(code: &str) -> bool {
-    code.starts_with("syntaxTree.budget.")
-}
-
-/// The `partialReasons` of a partial walk, from its engine diagnostics: a
-/// recovered parse, the walk deadline, the node limit.
-fn walk_cuts(codes: &[String]) -> Vec<&'static str> {
-    let reasons = codes
-        .iter()
-        .filter_map(|code| match code.as_str() {
-            "syntaxTree.parse.recovered" => Some("parseRecovered"),
-            "syntaxTree.budget.deadline" => Some("deadline"),
-            "syntaxTree.budget.nodeLimit" => Some("nodeLimit"),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if reasons.is_empty() {
-        vec!["walkCut"]
-    } else {
-        reasons
-    }
-}
 /// Nodes read from the engine per call while a window-sized page is cut.
 const NODE_CHUNK: u32 = 100_000;
-
-fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
-    node_row(
-        n.id,
-        (n.field.as_deref(), &n.kind),
-        n.named,
-        [n.start_line, n.start_column, n.end_line, n.end_column],
-        n.parent_id,
-    )
-}
-
-/// Characters a node adds to its delivered page: its row. Its
-/// `returnedBytes` entry is a `stats` extra a default row drops, so a page
-/// asking for stats may run past the window by those entries.
-fn node_page_chars(n: &octocode_engine::structural::SyntaxTreeNode) -> usize {
-    octocode_engine::json_size::string_body_units(&node_page_row(n)) + 1
-}
-
-/// One node as `"<id> [<field>:]<kind> <startLine>:<startColumn>-<endLine>:<endColumn>
-/// ^<parentId>"` (1-based lines and columns, end exclusive). The grammar field
-/// the node fills in its parent prefixes its kind (`name:identifier`), as
-/// tree-sitter prints `name: (identifier)`; an anonymous token's kind is
-/// quoted (`"("`); the root has no parent.
-fn node_row(
-    id: u32,
-    (field, kind): (Option<&str>, &str),
-    named: bool,
-    span: [u32; 4],
-    parent: Option<u32>,
-) -> String {
-    let [start_line, start_column, end_line, end_column] = span;
-    let kind = if named {
-        kind.to_owned()
-    } else {
-        format!("\"{kind}\"")
-    };
-    let kind = match field {
-        Some(field) => format!("{field}:{kind}"),
-        None => kind,
-    };
-    // 1-based lines and columns; the end stays exclusive.
-    let (start_column, end_column) = (
-        crate::num::one_based_column(start_column),
-        crate::num::one_based_column(end_column),
-    );
-    let mut row = format!("{id} {kind} {start_line}:{start_column}-{end_line}:{end_column}");
-    if let Some(parent) = parent {
-        row.push_str(&format!(" ^{parent}"));
-    }
-    row
-}

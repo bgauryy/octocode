@@ -44,6 +44,7 @@ impl Query<'_> {
                 self.flags.edge_kinds.clone()
             },
             weakest: self.flags.weakest,
+            tests: true,
         }
     }
 
@@ -129,7 +130,7 @@ impl Query<'_> {
     }
 
     pub(super) fn hubs(&self) -> Result<GraphOutput, GraphOutput> {
-        let filter = self.filter(&[EdgeKind::Imports]);
+        let filter = self.filter(&[EdgeKind::Imports]).production();
         let rank_by = self.flags.direction.unwrap_or(Direction::In);
         let page = hubs(self.g, &filter, self.flags.kind, rank_by);
         let mut extra = edges_extra(&filter);

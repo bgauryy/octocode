@@ -1,14 +1,13 @@
 //! Page layout: how a scan is cut into pages (grid or streamed), what a
 //! page costs, and the reads that expand clipped values.
 
-use super::executor::*;
+use super::local_search_query::{self, RESPONSE_VALUE_CHAR_BUDGET, MIN_MATCH_VALUE_CHARS, DEFAULT_MAX_MATCHES_PER_FILE, effective_match_content_length, default_page_size, normalized_query, streamed_layout, SPAN_COLUMN_PATH, shows_span_columns};
 use super::types::*;
 use super::{cursor::*, enclosing::*, handoff::*, rows::*};
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use crate::id::ToolId;
 use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
-use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use crate::response::result::ToolError;
 use serde_json::{Value, json};
@@ -631,7 +630,10 @@ pub(super) fn file_pagination(
             }
         });
     }
-    let total_pages = total.div_ceil(layout.matches_per).max(1);
+    let total_pages = u32_of_usize(crate::response::page_windows::count_pages(
+        total as usize,
+        layout.matches_per as usize,
+    ));
     let has_more = match_page < total_pages;
     let out_of_range = start >= total as usize && total > 0;
     let (more_lines, more_lines_unlisted) = if has_more && !later.is_empty() {
@@ -671,20 +673,6 @@ pub(super) fn row_chars(
     octocode_engine::json_size::utf16_units(&row).unwrap_or(0)
         + octocode_engine::json_size::string_body_units(value)
         + 1
-}
-
-/// The response path of a span row's `column`.
-const SPAN_COLUMN_PATH: &str = "results[].data.files[].matches[].column";
-
-/// Whether the response keeps `column` on this query's rows: only matchOnly
-/// span rows carry one, and only while the output stage keeps the field
-/// ([`crate::response::extras::keeps`]: core may class it an extra its
-/// `extras` kind must name). A page is priced for what it emits.
-pub(super) fn shows_span_columns(query: &LocalSearchQuery) -> bool {
-    query.result_view == LocalSearchQueryResultView::MatchOnly
-        && serde_json::to_value(query).is_ok_and(|row| {
-            crate::response::extras::keeps(ToolId::LocalSearch, &row, SPAN_COLUMN_PATH)
-        })
 }
 
 /// Most chars a streamed file entry's `pagination` can take: its later rows
@@ -774,13 +762,6 @@ pub(super) fn max_expansion_rows() -> usize {
 
 /// Rows one page shows: (file index, rank-order row range), in page order.
 pub(super) type PageRows = Vec<(usize, std::ops::Range<usize>)>;
-
-/// Default layouts use the response budget when neither page axis is sized.
-pub(super) fn streamed_layout(q: &LocalSearchQuery) -> bool {
-    local_search_query::page_size(q).is_none()
-        && local_search_query::match_page_size(q).is_none()
-        && local_search_query::match_page(q) <= 1
-}
 
 /// Default-layout pages, cut from one row stream: each file's first
 /// `per_file` ranked rows in file order, then every file's remaining rows.
@@ -929,13 +910,11 @@ pub(super) fn expansion_read_chars(query: &LocalSearchQuery, multiline: bool) ->
         json!({"expandValues": {
             "tool": ToolId::LocalSearch.as_str(),
             "query": {"queries": [normalized_query(query, true)]},
-            "confidence": "exact",
         }})
     } else {
         json!({"expandValues": {
             "tool": ToolId::LocalFetch.as_str(),
             "query": {"queries": [{"path": "", "ranges": []}]},
-            "confidence": "exact",
         }})
     };
     octocode_engine::json_size::utf16_units(&read).unwrap_or(0)
@@ -974,7 +953,6 @@ fn multiline_expansion(
         ToolId::LocalFetch,
         json!({"path": path, "ranges": [format!("{}-{}", first.saturating_sub(context.before).max(1), READ_TO_END_LINE)]}),
     )
-    .confidence(Confidence::Exact)
     .build();
     // A file-scoped search is a fresh run: no page, snapshot or saved
     // selection of the wider scope carries over.
@@ -987,9 +965,7 @@ fn multiline_expansion(
             fields.insert("path".into(), json!(path));
             fields.insert("matchContentLength".into(), json!(longest));
         }
-        Continuation::new(ToolId::LocalSearch, search)
-            .confidence(Confidence::Exact)
-            .build()
+        Continuation::new(ToolId::LocalSearch, search).build()
     });
     (search, fetch)
 }
@@ -1035,11 +1011,7 @@ pub(super) fn expand_values(
             fields.remove("snapshot");
             fields.remove("selection");
         }
-        return vec![
-            Continuation::new(ToolId::LocalSearch, widened)
-                .confidence(Confidence::Exact)
-                .build(),
-        ];
+        return vec![Continuation::new(ToolId::LocalSearch, widened).build()];
     }
     let mut reads = Vec::new();
     // Multiline files: a file-scoped search widened to its longest value
@@ -1080,7 +1052,6 @@ pub(super) fn expand_values(
                 .collect::<Vec<_>>();
             reads.push(
                 Continuation::new(ToolId::LocalFetch, json!({"path": path, "ranges": ranges}))
-                    .confidence(Confidence::Exact)
                     .build(),
             );
         }

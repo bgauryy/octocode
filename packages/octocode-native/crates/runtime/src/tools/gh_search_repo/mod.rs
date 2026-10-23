@@ -282,7 +282,7 @@ impl crate::response::output::ToolOutput for Output {
     /// A missing owner names the login and has no repair; an exact
     /// repository that did not resolve carries its own `findRepository`
     /// lead. Neither is helped by the search fallback.
-    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
+    fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
         (code == ErrorCode::NotFound).then_some(crate::response::output::NO_HINT)
     }
     fn evidence_kind(&self, _query: &serde_json::Value, _data: &serde_json::Value) -> &'static str {

@@ -160,7 +160,10 @@ impl Window {
             octocode_engine::digest::sha256(candidates.join("\u{0}").as_bytes())
         );
         let total = candidates.len();
-        let pages = u32_of_usize(total.div_ceil(MAX_CANDIDATE_FILES).max(1));
+        let pages = u32_of_usize(crate::response::page_windows::count_pages(
+            total,
+            MAX_CANDIDATE_FILES,
+        ));
         let page = request.page.max(1);
         if page > pages || request.expected.is_some_and(|expected| expected != digest) {
             return Cut::Stale;

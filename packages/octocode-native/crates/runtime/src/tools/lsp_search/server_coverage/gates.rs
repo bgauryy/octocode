@@ -57,9 +57,7 @@ pub(super) fn annotate_rust(
     context["features"] = json!("all");
     rerun["rustContext"] = context;
     row["next"]["expandFeatures"] =
-        crate::response::result::Continuation::new(ToolId::LspSearch, rerun)
-            .confidence(Confidence::Medium)
-            .build();
+        crate::response::result::Continuation::new(ToolId::LspSearch, rerun).build();
 }
 
 /// Which `cfg` gate a scan looks for.

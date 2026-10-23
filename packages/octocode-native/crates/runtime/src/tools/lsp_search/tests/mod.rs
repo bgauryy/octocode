@@ -57,6 +57,21 @@ fn public_row(data: &serde_json::Value) -> serde_json::Value {
     out
 }
 
+/// `data` as the response stage finishes it for `query`: the tool's recovery
+/// hint (`ToolOutput::error_hint` / `category_hint`) placed beside its leads.
+fn with_stage_hints(query: &LspSearchQuery, data: &serde_json::Value) -> serde_json::Value {
+    let mut row = serde_json::json!({
+        "status": data.get("status").cloned().unwrap_or_default(),
+        "data": data,
+    });
+    crate::response::rows::apply_hint_policy(
+        &mut row,
+        crate::id::ToolId::LspSearch,
+        &lsp_search_query::to_row(query),
+    );
+    row["data"].take()
+}
+
 /// Client options for fake servers, which answer at once: no settle wait.
 pub(super) const FAKE_SERVER_CLIENT: octocode_engine::lsp::client::LspClientOptions =
     octocode_engine::lsp::client::LspClientOptions {

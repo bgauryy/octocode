@@ -1,5 +1,5 @@
 // Cross-surface page walks for response-pagination.mjs: every surface (native
-// CLI, npm CLI, direct N-API, MCP) must reach the same source evidence through
+// CLI, npm CLI, MCP) must reach the same source evidence through
 // its continuations, exactly once, and reject a stale snapshot.
 import assert from 'node:assert/strict';
 import path from 'node:path';

@@ -2,7 +2,7 @@
 
 End-to-end checks for the local MCP tools (`structureSearch`, `localSearch`,
 `localFetch`, `astSearch`, `lspSearch`) against the repo's **built** MCP server
-(`packages/octocode-mcp/dist/index.js` + the native addons). Tracked: harness and fixtures. Not tracked: the cloned repos (see [repository inventory](../repos/README.md)), generated grammar and large fixtures, and raw run output.
+(`packages/octocode-mcp/dist/index.js` + the native binary). Tracked: harness and fixtures. Not tracked: the cloned repos (see [repository inventory](../repos/README.md)), generated grammar and large fixtures, and raw run output.
 
 ```sh
 node skills-dev/octocode-dev/scripts/dev.mjs build:dev                              # from the repo root, after changing native

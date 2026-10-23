@@ -49,13 +49,10 @@ impl PageScope {
     }
 }
 
-/// The content snapshot of a row plan of `full` at `budget` chars per page.
-pub(crate) fn rows_snapshot(budget: usize, full: &str) -> String {
-    snapshot_of(
-        PageScope::Rows,
-        budget,
-        &octocode_engine::digest::sha256(full.as_bytes()),
-    )
+/// The content snapshot of a row plan at `budget` chars per page, of an
+/// envelope whose compact rendering has the hex SHA-256 `digest`.
+pub(crate) fn rows_snapshot(budget: usize, digest: &str) -> String {
+    snapshot_of(PageScope::Rows, budget, digest)
 }
 
 /// The content snapshot of a character window over the serialized envelope.
@@ -190,7 +187,7 @@ mod tests {
     #[test]
     fn content_snapshots_match_the_pagers_formats() {
         let full = "{\"results\":[]}";
-        let rows = rows_snapshot(600, full);
+        let rows = rows_snapshot(600, &octocode_engine::digest::sha256(full.as_bytes()));
         let parsed = Cursor::of_snapshot([1; 32], &rows, PageScope::Rows, 600, 2).expect("rows");
         assert_eq!(parsed.content_snapshot(), rows);
         let window = window_snapshot(full);

@@ -10,7 +10,7 @@
 //! no longer carries them. The counts come from the tool's own typed notes
 //! ([`crate::response::result::ToolData::remaining`], for counts only the tool
 //! knows) or else the row's public pagination facts, noted as data
-//! ([`Remaining`]) before extras pruning ([`note_remaining`]); the stage
+//! ([`crate::response::result::Remaining`]) before extras pruning ([`note_remaining`]); the stage
 //! takes them off the rows ([`take_remaining_notes`]) and the pager words
 //! the moved ones ([`redisclose`]). `partialReasons` say why a row is
 //! partial, never how much is left.
@@ -20,11 +20,9 @@ mod remaining;
 mod stale;
 pub(crate) use facts::{PageFacts, SpanFacts};
 pub(crate) use remaining::{
-    Remaining, counted, first_named, items_left, more, note_remaining, redisclose,
-    take_remaining_notes,
+    counted, first_named, items_left, more, note_remaining, redisclose, take_remaining_notes,
 };
 use serde_json::{Map, Value};
-pub(crate) use stale::STALE_SNAPSHOT_ERROR;
 pub(super) use stale::{restart_stale, settle_out_of_range};
 
 use crate::id::ToolId;

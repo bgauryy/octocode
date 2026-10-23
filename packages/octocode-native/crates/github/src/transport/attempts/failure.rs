@@ -115,7 +115,7 @@ enum Failure {
     Primary { reset: u64, wait: Duration },
     /// Secondary limit: key-wide cooldown for `wait`.
     Secondary { wait: Duration },
-    /// 5xx: retried with jittered backoff or `retry-after`.
+    /// 5xx or 408: retried with jittered backoff or `retry-after`.
     Server,
     /// Octokit doNotRetry (400/401/403/404/410/422/451) and everything else.
     Final,
@@ -162,7 +162,7 @@ fn classify_failure(
             wait: config.reset_wait(reset),
         };
     }
-    if classify_status(code).is_server() {
+    if classify_status(code).is_retryable() {
         Failure::Server
     } else {
         Failure::Final

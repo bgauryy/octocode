@@ -45,10 +45,7 @@ impl Dom {
             if stop() {
                 return None;
             }
-            let mut cut = rest.len().min(PARSE_CHUNK_BYTES);
-            while !rest.is_char_boundary(cut) {
-                cut += 1;
-            }
+            let cut = rest.ceil_char_boundary(rest.len().min(PARSE_CHUNK_BYTES));
             parser.process(StrTendril::from(&rest[..cut]));
             rest = &rest[cut..];
         }

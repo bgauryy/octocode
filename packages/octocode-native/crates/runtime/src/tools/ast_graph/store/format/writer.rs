@@ -235,7 +235,8 @@ impl<'t> Encoder<'t> {
                 &mut edges,
                 zigzag(i64::from(edge.dst) - i64::from(edge.src)),
             );
-            edges.push(((edge.kind as u8) << 2) | edge.confidence as u8);
+            let test = if edge.test { EDGE_TEST } else { 0 };
+            edges.push(((edge.kind as u8) << 2) | edge.confidence as u8 | test);
             put(&mut edges, u64::from(self.sid(edge.detail)));
             put_opt(&mut edges, edge.line);
         }

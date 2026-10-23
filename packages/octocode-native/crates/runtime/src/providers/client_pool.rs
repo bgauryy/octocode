@@ -1,11 +1,10 @@
 //! One pooled `reqwest::Client` per Tokio runtime and key.
 //!
 //! hyper drives each pooled connection from a task spawned on the runtime that
-//! opened it, so once that runtime shuts down (every `#[tokio::test]`, or a
-//! closed N-API `NativeRuntime`) its pooled connections are dead and reuse
-//! fails with "dispatch task is gone". Keying by [`tokio::runtime::Id`] keeps
-//! pooling across threads and calls within one runtime while never sharing
-//! connections across runtimes. The list is small and LRU-evicted, so
+//! opened it, so once that runtime shuts down (every `#[tokio::test]`) its
+//! pooled connections are dead and reuse fails with "dispatch task is gone".
+//! Keying by [`tokio::runtime::Id`] keeps pooling across threads and calls
+//! within one runtime while never sharing connections across runtimes. The list is small and LRU-evicted, so
 //! short-lived runtimes cannot grow it.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};

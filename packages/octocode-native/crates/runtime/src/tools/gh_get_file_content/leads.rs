@@ -1,7 +1,7 @@
 //! The runnable next steps of a GitHub file read: its own pages rewritten
 //! from the shared localFetch read, and the leads of a match that found
 //! nothing.
-use crate::response::result::Confidence;
+use crate::response::result::is_approximate;
 use crate::tools::source_view::types::local_fetch_query;
 use serde_json::{Value, json};
 
@@ -35,9 +35,7 @@ pub(super) fn empty_match_lead(
     }
     Some((
         "findCode",
-        Continuation::new(ToolId::GhSearchCode, row)
-            .confidence(Confidence::Medium)
-            .build(),
+        Continuation::new(ToolId::GhSearchCode, row).build(),
     ))
 }
 
@@ -55,11 +53,7 @@ pub(super) fn last_window_repair(
     let mut row = query_row(query, &[]);
     row["ref"] = json!(sha);
     row["ranges"] = json!([format!("{start}-{end}")]);
-    Some(
-        Continuation::new(ToolId::GhGetFileContent, row)
-            .confidence(Confidence::High)
-            .build(),
-    )
+    Some(Continuation::new(ToolId::GhGetFileContent, row).build())
 }
 
 /// One localFetch continuation row as the same read of the GitHub file at
@@ -115,11 +109,8 @@ pub(super) fn rewrite_continuations(
             .map(|row| github_row(row.clone(), source, resolved_ref))
             .collect::<Vec<_>>();
         let mut call = Continuation::input(ToolId::GhGetFileContent, json!({"queries": rows}));
-        if let Some(confidence) = continuation["confidence"]
-            .as_str()
-            .and_then(Confidence::from_wire)
-        {
-            call = call.confidence(confidence);
+        if is_approximate(continuation) {
+            call = call.approximate();
         }
         *continuation = call.build();
     }

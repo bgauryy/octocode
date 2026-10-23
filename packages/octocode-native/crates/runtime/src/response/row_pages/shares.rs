@@ -1,4 +1,4 @@
-use super::super::pages::Remaining;
+use super::super::result::Remaining;
 use crate::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
 use serde_json::{Map, Value, json};
 

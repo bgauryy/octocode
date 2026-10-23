@@ -46,7 +46,6 @@ pub(super) fn file_failure(error: ProviderError, at: &RepoPath<'_>) -> GhFailure
     let mut failure = search_failure(error);
     failure.next = Some(Box::new(json!({
         "read": crate::response::result::Continuation::new(ToolId::GhGetFileContent, read)
-            .confidence(Confidence::Exact)
             .build()
     })));
     failure
@@ -60,7 +59,7 @@ pub(super) fn path_failure(
 ) -> GhFailure {
     let mut failure = search_failure(error);
     let requested = at.path;
-    let (directory, confidence, hint) = match &found {
+    let (directory, approximate, hint) = match &found {
         Some(found) => {
             failure.message = format!("Path not found in {}/{}: {requested}", at.owner, at.repo);
             let directory = if found.directory.is_empty() {
@@ -77,10 +76,10 @@ pub(super) fn path_failure(
             } else {
                 None
             };
-            (directory, Confidence::Exact, hint)
+            (directory, false, hint)
         }
         // Without a walk answer the parent listing is the whole recovery.
-        None => (parent_dir(requested), Confidence::Low, None),
+        None => (parent_dir(requested), true, None),
     };
     let depth = max_depth.map(|depth| i64::try_from(depth.get()).unwrap_or(i64::MAX));
     let listing = RepoPath {
@@ -88,7 +87,7 @@ pub(super) fn path_failure(
         ..*at
     };
     failure.next = Some(Box::new(
-        json!({ "viewTree": tree_recovery(&listing, depth, confidence) }),
+        json!({ "viewTree": tree_recovery(&listing, depth, approximate) }),
     ));
     match hint {
         Some(hint) => failure.hint(hint),

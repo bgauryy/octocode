@@ -54,14 +54,14 @@ fn the_cursor_list_is_every_contract_cursor_field() {
 }
 
 /// A restart is page 1 of the same query: every cursor and the saved
-/// selection dropped, a replay (`exact`), executable as built.
+/// selection dropped, a replay, executable as built.
 #[test]
 fn a_restart_drops_every_cursor_and_the_saved_selection() {
     let row = json!({"path":"src","matchString":"f","page":3,"matchPage":2,
             "snapshot":"s1","selection":"plan","pageSize":5});
     let restart = restart_query(ToolId::LocalSearch, &row);
     assert_eq!(restart["tool"], "localSearch");
-    assert_eq!(restart["confidence"], "exact");
+    assert!(restart.get("confidence").is_none());
     assert_eq!(
         restart["query"]["queries"][0],
         json!({"path":"src","matchString":"f","pageSize":5})

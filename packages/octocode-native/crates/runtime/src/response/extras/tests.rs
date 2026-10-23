@@ -287,7 +287,7 @@ fn no_new_ad_hoc_extras_output_branches() {
         // trims), and the git HEAD read made only for receipts.
         ("response/rows", 3),
         // Details list every path behind a grouped skip entry.
-        ("tools/local_search/leads", 1),
+        ("tools/leads/skipped", 1),
         // The language-server receipt is built only for receipts.
         ("tools/lsp_search", 1),
         // Snippet `matches` go only when resolved `lines` replace them.

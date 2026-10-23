@@ -1,6 +1,5 @@
 //! What a failed read or listing names in its leads: the commit it resolved, its canonical name, a submodule's repository.
 use super::{GhFailure, RenameCheck, RepoPath, canonical_repo, tree_recovery};
-use crate::response::result::Confidence;
 use octocode_github::{GitHubProvider, RequestContext};
 use serde_json::json;
 
@@ -129,14 +128,9 @@ fn submodule_recovery(
         path: "",
         reference: pinned,
     };
-    let confidence = if pinned.is_some() {
-        Confidence::High
-    } else {
-        Confidence::Low
-    };
     failure.hints.clear();
     failure.next = Some(Box::new(
-        json!({ "viewTree": tree_recovery(&at, None, confidence) }),
+        json!({ "viewTree": tree_recovery(&at, None, pinned.is_none()) }),
     ));
     failure
 }

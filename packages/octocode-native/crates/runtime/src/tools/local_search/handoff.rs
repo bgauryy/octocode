@@ -1,11 +1,11 @@
 //! Read leads out of a search page: the declaration or hits a localFetch
 //! call reads next.
 
+use super::local_search_query;
 use super::enclosing::*;
 use super::types::*;
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use serde_json::{Value, json};
 
@@ -62,7 +62,6 @@ pub(super) fn long_line_read(path: &str, hit: &SearchMatch) -> Value {
             "offset": hit.byte_offset,
         }),
     )
-    .confidence(Confidence::Exact)
     .build()
 }
 

@@ -4,7 +4,7 @@ use super::*;
 /// Production files no entrypoint reaches: `(file, orphan)` rows, files
 /// only tests reach, and the count of skipped Python library files.
 pub(super) fn unreached_files(v: &View, entries: &[u32]) -> (Vec<(u32, bool)>, Vec<u32>, usize) {
-    let prod = v.reach(entries);
+    let prod = v.reach(entries, false);
     // Test seeds: test/config files plus test functions living inside
     // production files (Rust `mod tests`, pytest functions).
     let tests = v
@@ -17,7 +17,7 @@ pub(super) fn unreached_files(v: &View, entries: &[u32]) -> (Vec<(u32, bool)>, V
             node.kind == NodeKind::Symbol && node.flags & FLAG_TEST != 0
         }))
         .collect::<Vec<_>>();
-    let test_reach = v.reach(&tests);
+    let test_reach = v.reach(&tests, true);
     // Edges into a file or its symbols from any other file, in one pass.
     let mut external_in = vec![0usize; v.t.nodes.len()];
     for edge in &v.t.edges {
@@ -196,19 +196,28 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         .collect::<BTreeSet<_>>();
     let mut by_file = BTreeMap::<u32, Vec<&str>>::new();
     let mut local_only = BTreeMap::<u32, Vec<&str>>::new();
+    // Files whose exports this detector cannot judge, by language.
+    let mut unjudged = BTreeMap::<&str, BTreeSet<u32>>::new();
     for (id, node) in t.nodes.iter().enumerate() {
         if node.kind != NodeKind::Symbol || node.flags & FLAG_EXPORTED == 0 || node.parent != NONE {
             continue;
         }
         let file = node.file;
-        if !v.file_level(file)
+        // Judged languages are never package-scoped, so production is
+        // file-level here; the language check below discloses the rest.
+        if !v.production(file)
             || v.meta(file).contains(";library")
             || v.is_entry(file)
             || public.contains(&file)
             || namespace_used.contains(&file)
             || unreachable.contains(&file)
-            || !exports_judged(v.key(file), t.str(node.detail))
         {
+            continue;
+        }
+        if !exports_judged(v.key(file), t.str(node.detail)) {
+            if !NAMED_IMPORT_LANGUAGES.contains(&v.language(file)) {
+                unjudged.entry(v.language(file)).or_default().insert(file);
+            }
             continue;
         }
         let used = t.incoming(id as u32).any(|e| {
@@ -231,6 +240,7 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         let bucket = if local { &mut local_only } else { &mut by_file };
         bucket.entry(file).or_default().push(t.str(node.name));
     }
+    note_unjudged_exports(&mut c.notes, &unjudged);
     for (file, names) in local_only {
         let key = v.key(file).to_owned();
         push(
@@ -280,5 +290,26 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
                 )],
             },
         );
+    }
+}
+
+/// States which files' exports were not judged, so an empty
+/// `unused-export` or `export-only-local` result never reads as "none".
+fn note_unjudged_exports(notes: &mut Vec<Value>, unjudged: &BTreeMap<&str, BTreeSet<u32>>) {
+    if unjudged.is_empty() {
+        return;
+    }
+    let files = unjudged.values().map(BTreeSet::len).sum::<usize>();
+    let languages = unjudged
+        .iter()
+        .map(|(language, files)| format!("{language}: {}", files.len()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let reason = format!(
+        "exports of {files} production file(s) not judged ({languages}): only languages with named-import linking ({}) are checked; confirm with lspSearch references",
+        NAMED_IMPORT_LANGUAGES.join(", ")
+    );
+    for detector in ["unused-export", "export-only-local"] {
+        note(notes, detector, &reason);
     }
 }

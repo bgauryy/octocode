@@ -149,36 +149,10 @@ pub(super) fn symbol_kind_name(kind: Option<&Value>) -> String {
     if let Some(kind) = kind.and_then(Value::as_str) {
         return kind.to_owned();
     }
-    match kind.and_then(Value::as_u64) {
-        Some(1) => "file",
-        Some(2) => "module",
-        Some(3) => "namespace",
-        Some(4) => "package",
-        Some(5) => "class",
-        Some(6) => "method",
-        Some(7) => "property",
-        Some(8) => "field",
-        Some(9) => "constructor",
-        Some(10) => "enum",
-        Some(11) => "interface",
-        Some(12) => "function",
-        Some(13) => "variable",
-        Some(14) => "constant",
-        Some(15) => "string",
-        Some(16) => "number",
-        Some(17) => "boolean",
-        Some(18) => "array",
-        Some(19) => "object",
-        Some(20) => "key",
-        Some(21) => "null",
-        Some(22) => "enumMember",
-        Some(23) => "struct",
-        Some(24) => "event",
-        Some(25) => "operator",
-        Some(26) => "typeParameter",
-        _ => "unknown",
-    }
-    .to_owned()
+    kind.and_then(Value::as_u64)
+        .and_then(octocode_engine::lsp::symbol_kind::name)
+        .unwrap_or("unknown")
+        .to_owned()
 }
 
 /// How one page is cut: `paging` (the caller's explicit `pageSize` row

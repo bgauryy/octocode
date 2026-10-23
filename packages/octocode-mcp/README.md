@@ -1,10 +1,11 @@
 # Octocode MCP server
 
 `octocode-mcp` exposes Octocode research tools over the Model Context Protocol
-using a stdio transport. It is a thin adapter: tool contracts come from
-`@octocodeai/octocode-core`, while `@octocodeai/octocode-native` owns tool
-execution, policy, and response shaping. A missing native runtime is a startup
-error; there is no JavaScript execution fallback.
+using a stdio transport. It is a thin launcher for `octocode mcp`, the MCP
+server in the native binary (`@octocodeai/octocode-native`), which owns the
+protocol, tool contracts, execution, policy, and response shaping. A missing
+platform binary is a startup error; there is no JavaScript execution fallback.
+Without Node, run `octocode mcp` directly.
 
 ## Requirements
 

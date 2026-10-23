@@ -28,6 +28,7 @@ use octocode_io::flight::KeyedFlight;
 pub const MAX_PER_PAGE: usize = 100;
 
 pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, LimiterKey};
+pub use cache_key::fields_key;
 pub use commit_dates::{MAX_PATHS_PER_REQUEST, PathDates};
 pub use content::{
     CachedContent, ConditionalCache, ContentRequest, ContentResponse, GitHubProvider, NoCache,

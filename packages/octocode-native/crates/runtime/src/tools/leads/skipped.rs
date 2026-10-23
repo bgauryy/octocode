@@ -53,6 +53,11 @@ pub(crate) fn under<'a>(
     })
 }
 
+/// `extras:["details"]` lists every path behind a grouped skip entry.
+pub(crate) fn every_path(extras: &[octocode_contract_types::ExtraKind]) -> bool {
+    extras.contains(&octocode_contract_types::ExtraKind::Details)
+}
+
 /// A walk's skip cause as `skippedPaths` names it.
 pub(crate) fn skipped_cause(cause: Cause) -> SkippedPathCause {
     match cause {

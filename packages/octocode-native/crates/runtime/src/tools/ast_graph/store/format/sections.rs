@@ -160,7 +160,8 @@ pub(super) fn read_edges(
         let dst = u32::try_from(i64::from(src) + unzigzag(edges.var()?))
             .map_err(|_| "graph edge references are out of range")?;
         let packed = edges.u8()?;
-        let kind = EdgeKind::from_u8(packed >> 2).ok_or("graph edge kind is unknown")?;
+        let kind =
+            EdgeKind::from_u8((packed & !EDGE_TEST) >> 2).ok_or("graph edge kind is unknown")?;
         let confidence =
             Confidence::from_u8(packed & 0b11).ok_or("graph edge confidence is unknown")?;
         let detail = edges.var_u32()?;
@@ -175,6 +176,7 @@ pub(super) fn read_edges(
             confidence,
             detail,
             line,
+            test: packed & EDGE_TEST != 0,
         });
     }
     Ok(())

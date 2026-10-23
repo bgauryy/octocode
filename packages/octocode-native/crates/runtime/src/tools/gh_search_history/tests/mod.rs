@@ -52,6 +52,40 @@ mod provider;
 mod shaping;
 mod terms;
 
+/// Redacts `key = "<value>"` only where that context shows, as the real
+/// scanner does for a context-named secret; a bare value is invisible to it.
+struct ContextOnly;
+
+impl ContentScan for ContextOnly {
+    fn sanitize(
+        &self,
+        text: &str,
+        _: &std::path::Path,
+    ) -> Result<(String, Vec<String>), (octocode_contract_types::ErrorCode, String)> {
+        let clean = text.replace(
+            "key = \"c7Tvo+hBKqFYY+kv5ZJr3J1TWDtk\"",
+            "key = \"[REDACTED-ENVVARSECRETS]\"",
+        );
+        Ok((clean, Vec::new()))
+    }
+}
+
+/// A secret the body names by context is redacted where a title repeats it
+/// bare, though no row shows the body: the rows alone would leak it.
+#[test]
+fn a_secret_named_in_a_body_is_redacted_in_the_title_that_repeats_it() {
+    let secret = "c7Tvo+hBKqFYY+kv5ZJr3J1TWDtk";
+    let mut items = vec![
+        json!({"number": 1, "title": format!("rotate {secret}"), "body": format!("key = \"{secret}\"")}),
+        json!({"number": 2, "title": "unrelated", "labels": [{"name": secret}]}),
+    ];
+    super::rows::sanitize_items(&mut items, &ContextOnly).expect("sanitized");
+    let rendered = Value::Array(items.clone()).to_string();
+    assert!(!rendered.contains(secret), "{rendered}");
+    assert_eq!(items[1]["title"], "unrelated");
+    assert_eq!(items[0]["number"], 1);
+}
+
 /// An empty search that sent no keywords is not told to broaden them.
 #[test]
 fn the_empty_fallback_names_keywords_only_when_the_search_had_them() {

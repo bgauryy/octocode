@@ -31,7 +31,7 @@ fn unresolved_symbol_anchor_suggests_near_names_or_locates_the_name_elsewhere() 
     // static prose.
     assert!(row["next"].get("read").is_none(), "{row}");
     // The lead names the one near name; no sentence repeats it.
-    assert!(row["hints"].as_array().is_some_and(Vec::is_empty), "{row}");
+    assert!(row.get("hints").is_none(), "{row}");
     // A name the file never spells is declared elsewhere: the recovery
     // locates it in the workspace (whose results carry the line to retry
     // with), not a read of lines that cannot hold it, wherever `line` was.
@@ -102,7 +102,10 @@ fn unresolved_anchor_leads_to_real_symbol_lines() {
     assert_eq!(lead("findSimilar2")["line"], 350, "{row}");
     // Every candidate fits the tool's batch limit and gets a runnable suggestion.
     assert_eq!(lead("findSimilar3")["line"], 40, "{row}");
-    assert_eq!(row["next"]["findSimilar"]["confidence"], "high", "{row}");
+    assert!(
+        row["next"]["findSimilar"].get("confidence").is_none(),
+        "{row}"
+    );
     let hints = row["hints"].to_string();
     assert!(!hints.contains("`render` appears on line 40."), "{row}");
     assert!(!hints.contains("312") && !hints.contains("350"), "{row}");

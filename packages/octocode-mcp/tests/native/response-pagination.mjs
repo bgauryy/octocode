@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { buildMcpInstructions } from '@octocodeai/config/mcp';
 import { getDirectToolDefinitionsWithAddons } from '@octocodeai/config/schema';
 import {
@@ -15,18 +14,10 @@ import {
   checkToolPages,
 } from './response-pagination-checks.mjs';
 
-// A candidate addon to check; without one, the packaged runtime the servers load.
-const [
-  referenceServer,
-  nativeServer,
-  addon = createRequire(import.meta.url).resolve(
-    '@octocodeai/octocode-native/runtime'
-  ),
-] = process.argv.slice(2);
-assert.ok(
-  referenceServer && nativeServer,
-  'usage: node response-pagination.mjs <reference> <native> [<addon>]'
-);
+// The MCP server under test: the launcher by default (it starts the native
+// binary's `octocode mcp`).
+const [server = path.resolve(import.meta.dirname, '../../dist/index.js')] =
+  process.argv.slice(2);
 
 const fixture = await mkdtemp(path.join(tmpdir(), 'octocode-native-mcp-'));
 const source = path.join(fixture, 'unicode.txt');
@@ -40,14 +31,16 @@ const env = {
   WORKSPACE_ROOT: fixture,
   ALLOWED_PATHS: fixture,
   NODE_ENV: 'development',
-  OCTOCODE_NATIVE_BINDING: addon,
+  // An ambient provider key would switch on context selection, which the
+  // instructions check below does not model.
+  OCTOCODE_CLASSIFICATION_API: '',
 };
 const require = createRequire(import.meta.url);
-const { NativeRuntime } = require(path.resolve(addon));
 const {
   resolveNativeBinaryPath,
-} = require('@octocodeai/octocode-native/bin/resolve-binary.cjs');
-const nativeBinary = resolveNativeBinaryPath();
+} = require('../../../octocode-native/bin/resolve-binary.cjs');
+const nativeBinary =
+  process.env.OCTOCODE_NATIVE_BIN ?? resolveNativeBinaryPath();
 const npmCli = path.resolve(
   import.meta.dirname,
   '../../../octocode/out/octocode.js'
@@ -74,19 +67,15 @@ async function cliCall(command, prefix, args) {
   }
 }
 
-function surfaces(client, runtime) {
+function surfaces(client) {
   return [
     ['native CLI', args => cliCall(nativeBinary, [], args)],
     ['npm CLI', args => cliCall(process.execPath, [npmCli], args)],
-    [
-      'direct N-API',
-      args => runtime.executeMcp(`page-${randomUUID()}`, 'localFetch', args),
-    ],
     ['MCP', args => client.callTool({ name: 'localFetch', arguments: args })],
   ];
 }
 
-async function connect(server) {
+async function connect() {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [path.resolve(server)],
@@ -101,23 +90,6 @@ async function connect(server) {
   });
   await client.connect(transport);
   return client;
-}
-
-// A page as two servers can agree on it: its structuredContent (each page's
-// text is asserted to be exactly that JSON) without the per-server snapshot
-// expiry clock. The content-addressed responseSnapshot cursors must match.
-function comparablePage({ isError, structuredContent }) {
-  return { isError, structuredContent: withoutExpiry(structuredContent) };
-}
-
-function withoutExpiry(value) {
-  if (Array.isArray(value)) return value.map(withoutExpiry);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => key !== 'expiresAt')
-      .map(([key, nested]) => [key, withoutExpiry(nested)])
-  );
 }
 
 async function collect(client) {
@@ -168,56 +140,37 @@ async function collect(client) {
   assert.equal(last?.hasMore ?? false, false);
   assert.equal(last?.next, undefined);
   // Concatenating the windows in order reconstructs the exact envelope JSON,
-  // multi-byte characters intact: the row holds the source bytes its own
-  // pagination names.
+  // multi-byte characters intact: a read row is the numbered source lines its
+  // own pagination names.
   const envelope = JSON.parse(
     pages.map(page => page.structuredContent.responseWindow).join('')
   );
   const row = envelope.results?.[0]?.data;
-  const { offset, length } = row?.pagination ?? {};
+  const { offset, length, unit } = row?.pagination ?? {};
+  assert.equal(unit, 'lines');
   assert.equal(
     row?.content,
-    Buffer.from(sourceText)
-      .subarray(offset, offset + length)
-      .toString()
+    sourceText
+      .split('\n')
+      .slice(0, -1)
+      .map((line, index) => `${index + 1}\t${line}\n`)
+      .slice(offset, offset + length)
+      .join('')
   );
   assert.match(row.content, /😀/u);
   return pages;
 }
 
-function nativeInstructions() {
-  const runtime = new NativeRuntime({
-    surface: 'mcp',
-    env: Object.fromEntries(
-      Object.entries(env).filter(([, value]) => typeof value === 'string')
-    ),
-  });
-  try {
-    const catalog = runtime.catalog();
-    return buildMcpInstructions({
-      availableTools: catalog.tools
-        .filter(tool => tool.available)
-        .map(tool => tool.name),
-      selection: catalog.presentation?.selection === true,
-    });
-  } finally {
-    void runtime.close();
-  }
-}
-
-const reference = await connect(referenceServer);
-const native = await connect(nativeServer);
-const directRuntime = new NativeRuntime({
-  surface: 'mcp',
-  env: Object.fromEntries(
-    Object.entries(env).filter(([, value]) => typeof value === 'string')
-  ),
-});
+const native = await connect();
 try {
   const nativeTools = await native.listTools();
-  // The server composes instructions from the native catalog (available tools
-  // and the selection switch); rebuild them from the same addon.
-  assert.equal(native.getInstructions(), nativeInstructions());
+  const availableTools = nativeTools.tools.map(tool => tool.name);
+  // The binary composes instructions from its embedded copy of core's
+  // presentation; core's own renderer must give the same text.
+  assert.equal(
+    native.getInstructions(),
+    buildMcpInstructions({ availableTools, selection: false })
+  );
   const localFetch = nativeTools.tools.find(tool => tool.name === 'localFetch');
   assert.ok(localFetch, 'native catalog must advertise localFetch');
   assert.ok(localFetch.title);
@@ -229,11 +182,7 @@ try {
       definition => definition.name === 'localFetch'
     ).annotations
   );
-  const [expected, actual] = await Promise.all([
-    collect(reference),
-    collect(native),
-  ]);
-  assert.deepEqual(actual.map(comparablePage), expected.map(comparablePage));
+  const actual = await collect(native);
 
   const stale = await native.callTool({
     name: 'localFetch',
@@ -242,12 +191,13 @@ try {
   assert.equal(stale.isError, true);
   assert.equal(stale.structuredContent.errorCode, 'responseSnapshotExpired');
   assert.equal(stale.structuredContent.responsePagination, undefined);
-  const [expectedInvalid, actualInvalid] = await Promise.all([
-    reference.callTool({ name: 'localFetch', arguments: { queries: [{}] } }),
-    native.callTool({ name: 'localFetch', arguments: { queries: [{}] } }),
-  ]);
-  assert.deepEqual(actualInvalid, expectedInvalid);
-  const calls = surfaces(native, directRuntime);
+  const invalid = await native.callTool({
+    name: 'localFetch',
+    arguments: { queries: [{}] },
+  });
+  assert.equal(invalid.isError, true);
+  assert.equal(invalid.structuredContent.errorCode, 'invalidInput');
+  const calls = surfaces(native);
   const toolPages = await checkToolPages(calls, source, sourceText);
   const responsePages = await checkResponsePages(calls, source);
   console.log(
@@ -261,10 +211,6 @@ try {
     })
   );
 } finally {
-  await Promise.allSettled([
-    reference.close(),
-    native.close(),
-    directRuntime.close(),
-  ]);
+  await Promise.allSettled([native.close()]);
   await rm(fixture, { recursive: true, force: true });
 }

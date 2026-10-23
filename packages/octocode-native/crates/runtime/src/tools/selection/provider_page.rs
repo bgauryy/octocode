@@ -121,7 +121,7 @@ pub(crate) fn apply_sanitized_rows(
                 );
                 row["data"] = json!({
                     "errorCode":stale["errorCode"],
-                    "error":crate::response::pages::STALE_SNAPSHOT_ERROR,
+                    "error":crate::response::result::STALE_SNAPSHOT_ERROR,
                     "next":stale["next"],
                 });
                 row["status"] = stale["status"].clone();

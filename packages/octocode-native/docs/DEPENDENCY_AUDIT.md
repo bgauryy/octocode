@@ -58,15 +58,15 @@ Every direct dependency of the native crates and the job it owns. A passing unus
   - `clap` for arguments.
   - `flate2`, `zip`, `reqwest`, `futures-util` and `url` for managed language-server downloads and installs.
   - `hyper`, `hyper-util`, `http-body-util`, `bytes`, `tokio-util`, `getrandom`, `base64` and `subtle` for the private loopback server of `octocode config view`: one-time tokens, compared in constant time.
+  - `rmcp` (`server`, `transport-io`) for `octocode mcp`, the stdio MCP server: protocol framing and both protocol eras; tool listing and execution stay in this crate and the runtime.
   - `serde`, `serde_json` and `toml` for MCP client configs and skill bundles.
   - `tempfile` to stage a skill install beside its destination, so a failed replace rolls back.
   - `junction` (Windows) for skill directory links; `libc` (Unix) for the warm server: detaching its session, its owner check, and file timestamps.
   - Development: `wiremock`.
-- `octocode-runtime-napi`: `napi`, `napi-derive`, and `napi-build`. No other crate depends on N-API.
 
 ## Footprint interpretation
 
-A same-source, same-profile N-API ablation on Darwin ARM64 (2026-09-20, release profile, stripped) measured the addon at 27,877,344 bytes without Assembly and CUDA. Enabling only Assembly added 16,528 bytes (+0.06%); enabling only CUDA added 7,116,704 bytes (+6.787 MiB, +25.53%). CUDA ships in `portable-default` regardless; it is the largest grammar. Turning it on by default (2026-10-18, Darwin ARM64, release, stripped) grew the CLI binary from 53,075,776 to 60,389,296 bytes and the addon from 48,012,848 to 55,203,072 bytes, about 6.9 MiB each. These are shipped-artifact sizes, not source or build-cache sizes.
+A same-source, same-profile ablation on Darwin ARM64 (2026-09-20, release profile, stripped) measured the runtime library artifact at 27,877,344 bytes without Assembly and CUDA. Enabling only Assembly added 16,528 bytes (+0.06%); enabling only CUDA added 7,116,704 bytes (+6.787 MiB, +25.53%). CUDA ships in `portable-default` regardless; it is the largest grammar. Turning it on by default (2026-10-18, Darwin ARM64, release, stripped) grew the CLI binary from 53,075,776 to 60,389,296 bytes, about 6.9 MiB. These are shipped-artifact sizes, not source or build-cache sizes.
 
 ## Duplicate versions
 

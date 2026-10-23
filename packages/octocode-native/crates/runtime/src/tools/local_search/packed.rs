@@ -394,7 +394,7 @@ mod tests {
             column: line * 3,
             byte_offset: line * 5,
             value: value.to_owned(),
-            value_digest: <sha2::Sha256 as sha2::Digest>::digest(value.trim().as_bytes()).into(),
+            value_digest: TextSearchMatch::digest_of(value),
             count: line.is_multiple_of(2).then_some(line),
             rank: Some(line % 4),
             original_chars: line.is_multiple_of(3).then_some(4_000),

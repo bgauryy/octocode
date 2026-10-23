@@ -40,18 +40,27 @@ pub(crate) trait ToolOutput: Sync {
     /// carries only its own facts).
     fn fallback_hint(&self, query: &Value) -> &'static str;
 
-    /// Recovery for an `errorCode` only this tool emits; [`NO_HINT`] when
-    /// the row's own facts are the whole answer. Codes every tool shares
-    /// (sandbox, auth, rate limit, timeout, not found, invalid input) are
-    /// answered by the response stage.
-    fn error_hint(&self, _code: ErrorCode) -> Option<&'static str> {
+    /// Recovery for an `errorCode` only this tool emits, or its own for a
+    /// timeout; [`NO_HINT`] when the row's own facts are the whole answer.
+    /// `query` is the row's query (`Null` for a request-level failure).
+    /// Codes every tool shares (sandbox, auth, rate limit, not found,
+    /// invalid input) are answered by the response stage.
+    fn error_hint(&self, _code: ErrorCode, _query: &Value) -> Option<&'static str> {
         None
     }
 
     /// Recovery for an empty row's `category` only this tool emits;
     /// [`NO_HINT`] when the row's own facts are the whole answer.
-    fn category_hint(&self, _category: &str) -> Option<&'static str> {
+    fn category_hint(&self, _category: &str, _query: &Value) -> Option<&'static str> {
         None
+    }
+
+    /// Whether the hooks' recovery is stated even on a row that carries
+    /// leads (the leads run the next call; the hint says when or why). The
+    /// response stage then adds the code's or category's hint beside them,
+    /// never the tool's fallback.
+    fn hints_beside_leads(&self) -> bool {
+        false
     }
 
     /// Kind of evidence a row is (`meta.evidence.kind`).

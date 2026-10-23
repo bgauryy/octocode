@@ -1,5 +1,6 @@
 //! One page of an issue's discussion comments, each body windowed, sized
 //! to the response page.
+use crate::response::pages::PageFacts;
 use crate::tools::gh_get_history_item::axis::Axis;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::remaining::{BodyWindows, Remainder};
@@ -187,7 +188,7 @@ pub(super) async fn issue_comments(
         .map(|total| crate::response::pages::PageFacts::counted(page_no, grid, total))
         .filter(|facts| facts.past_end().is_some());
     let mut pagination = past_end.map_or_else(
-        || json!({"hasMore": more}),
+        || PageFacts::open(page_no, None, more).to_value(),
         |facts| facts.out_of_range(true).to_value(),
     );
     let mut resume_size = None;

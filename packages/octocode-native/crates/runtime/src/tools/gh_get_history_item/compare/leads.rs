@@ -3,7 +3,7 @@
 use super::pages::ListedCommits;
 use crate::id::ToolId;
 use crate::response::paging::push_warnings;
-use crate::response::result::{Confidence, Continuation};
+use crate::response::result::Continuation;
 use crate::tools::gh_get_history_item::HistoryItemRequest;
 use crate::tools::gh_get_history_item::file_page::{Lead, first_page, literal_prefix};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
@@ -41,9 +41,7 @@ pub(super) fn capped_file_leads(
         }
         leads.push((
             "narrowScope",
-            Continuation::new(ToolId::GhSearchHistory, history)
-                .confidence(Confidence::High)
-                .build(),
+            Continuation::new(ToolId::GhSearchHistory, history).build(),
         ));
     }
     if !file_limit {
@@ -96,9 +94,7 @@ fn capped_files_reach(
             .collect::<Vec<_>>();
         return Some((
             "readCommitFiles",
-            Continuation::input(ToolId::GhGetHistoryItem, json!({"queries": rows}))
-                .confidence(Confidence::High)
-                .build(),
+            Continuation::input(ToolId::GhGetHistoryItem, json!({"queries": rows})).build(),
         ));
     }
     let (page, size) = page_starting_at(listed.seen?, batch);
@@ -117,8 +113,6 @@ fn commit_list_lead(
     }
     (
         "listCommits",
-        Continuation::new(ToolId::GhGetHistoryItem, list)
-            .confidence(Confidence::High)
-            .build(),
+        Continuation::new(ToolId::GhGetHistoryItem, list).build(),
     )
 }

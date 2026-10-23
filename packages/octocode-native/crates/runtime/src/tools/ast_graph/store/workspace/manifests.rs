@@ -21,10 +21,6 @@ pub(super) fn join(dir: &str, file: &str) -> String {
     }
 }
 
-pub(super) fn parent(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(dir, _)| dir)
-}
-
 /// PEP 508 requirement → import-ish name (`Django>=4` → `django`).
 pub(super) fn python_requirement(spec: &str) -> Option<String> {
     let name = spec

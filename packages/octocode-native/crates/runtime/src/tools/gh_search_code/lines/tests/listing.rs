@@ -144,7 +144,10 @@ fn long_lines_keep_a_window_around_the_keyword() {
     assert!(clipped);
     assert!(lines[0].starts_with("1\t…"), "{}", lines[0]);
     assert!(lines[0].contains("needle"));
-    assert!(lines[0].chars().count() <= MAX_LINE_CHARS + 4);
+    // The same cut localSearch makes: `…` opens the window, `...` closes it,
+    // and the shown line spends exactly the budget.
+    assert!(lines[0].ends_with("..."), "{}", lines[0]);
+    assert_eq!(lines[0].chars().count(), "1\t".len() + MAX_LINE_CHARS);
 }
 
 /// Several keywords list the lines holding every keyword; lines with

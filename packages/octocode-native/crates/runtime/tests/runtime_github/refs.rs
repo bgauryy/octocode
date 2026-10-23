@@ -1,14 +1,11 @@
 //! Refs and repository identity: pinned and bad refs, missing SHAs, renamed and standing repositories.
 
-use crate::support::{self, Run as _};
-use octocode_contract_types::ErrorCode;
+use crate::support::{self};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use octocode_github::mock_http::{Arrivals, Delayed};
 use serde_json::json;
-use std::time::Duration;
-use support::{ALL_EXTRAS, Workspace, call, checks, row_data, row_status};
-use wiremock::matchers::{method, path, path_regex, query_param};
+use support::{Workspace, call, checks, row_data, row_status};
+use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Through the whole response stage, a code search pinned to a non-default

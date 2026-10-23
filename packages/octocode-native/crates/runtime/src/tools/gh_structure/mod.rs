@@ -1,7 +1,6 @@
 //! ghStructure: a known repository's tree at one commit, optionally written
 //! to a local directory (`materialize`).
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::ToolData;
 use crate::response::result::query_row;
 use crate::tools::gh_shared::{

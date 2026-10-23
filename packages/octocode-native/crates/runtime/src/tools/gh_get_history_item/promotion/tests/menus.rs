@@ -101,7 +101,7 @@ fn menus_hold_at_most_two_entries_and_inventory_reviews_many_files() {
         menu["readSelectedPatches"]["query"]["queries"][0]["include"],
         json!(["src/a.rs", "src/b.rs"])
     );
-    assert_eq!(menu["readSelectedPatches"]["confidence"], "high");
+    assert!(menu["readSelectedPatches"].get("confidence").is_none());
     assert!(menu.get("readPatches").is_some(), "{menu}");
     // The discussion read is the third candidate: it stays reachable
     // through `include`, not the menu.

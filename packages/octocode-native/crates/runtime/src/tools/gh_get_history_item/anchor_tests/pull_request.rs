@@ -109,7 +109,7 @@ async fn pr_match_string_miss_offers_the_unfiltered_read() {
     assert!(out.get("hints").is_none(), "{out}");
     let lead = &out["next"]["withoutMatchString"];
     assert_eq!(lead["tool"], "ghGetHistoryItem", "{out}");
-    assert_eq!(lead["confidence"], "exact", "{out}");
+    assert!(lead.get("confidence").is_none(), "{out}");
     let unfiltered = first_query(&out, "withoutMatchString");
     for absent in ["matchString", "contextLines"] {
         assert!(unfiltered.get(absent).is_none(), "{absent}: {unfiltered}");

@@ -1,4 +1,4 @@
-// All thirteen read tools: ordinary completeness plus four-reader context selection.
+// Every MCP read tool: ordinary completeness plus four-reader context selection.
 // No live provider: HTTP(S) is blocked except for the shared loopback fixture.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -38,8 +38,7 @@ const selected = process.argv
 const cases = selected
   ? CASES.filter(row => selected.includes(row.tool))
   : CASES;
-assert.equal(READ_TOOLS.length, 13);
-assert.equal(new Set(READ_TOOLS).size, 13);
+assert.deepEqual([...READ_TOOLS].sort(), contract.tools.filter(t => !t.beta && !t.cliOnly).map(t => t.name).sort(), 'one case per published (non-beta, MCP) contract tool');
 assert.deepEqual(
   CASES.filter(row => row.scope)
     .map(row => row.tool)
@@ -257,8 +256,9 @@ function receipts(spec, run) {
         `${field} is a nonnegative integer`
       );
     }
+    assert.ok(receipt.relatedItems === undefined || (Number.isInteger(receipt.relatedItems) && receipt.relatedItems > 0), 'relatedItems (decided near-misses, hidden) is omitted or positive');
     assert.equal(
-      receipt.selectedItems + receipt.excludedItems + receipt.unknownItems,
+      receipt.selectedItems + receipt.excludedItems + (receipt.relatedItems ?? 0) + receipt.unknownItems,
       receipt.totalItems,
       'selection partitions reconcile'
     );

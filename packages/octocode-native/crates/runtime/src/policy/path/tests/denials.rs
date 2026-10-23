@@ -203,3 +203,33 @@ fn outside_read_denial_does_not_reveal_existence() {
     std::fs::remove_dir_all(workspace).expect("remove workspace fixture");
     std::fs::remove_dir_all(outside).expect("remove outside fixture");
 }
+
+/// Allowed roots are named as `redact` shows them in every build: the
+/// workspace as `.`, home roots as `~/...`, never an absolute layout; a root
+/// inside another allowed root is left out.
+#[test]
+fn outside_denial_names_the_allowed_roots_redacted_once_each() {
+    let workspace = fixture();
+    let home = fixture();
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(workspace.clone()),
+        additional_roots: vec![
+            home.join(".octocode"),
+            home.join(".octocode/tmp/clone"),
+            workspace.join("nested"),
+        ],
+        home_dir: Some(home.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let denied = policy
+        .validate("/nowhere/at/all.txt")
+        .expect_err("outside path");
+    assert_eq!(denied.code, PolicyErrorCode::OutsideAllowedRoots);
+    assert_eq!(
+        denied.message,
+        "Path '/nowhere/at/all.txt' is outside allowed directories (allowed: ., ~/.octocode)"
+    );
+    std::fs::remove_dir_all(workspace).expect("remove workspace fixture");
+    std::fs::remove_dir_all(home).expect("remove home fixture");
+}

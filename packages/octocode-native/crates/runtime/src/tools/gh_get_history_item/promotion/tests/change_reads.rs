@@ -126,7 +126,6 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     let sides = ChangeSides {
         new_ref: Some("c0ffee"),
         old_ref: Some("parent1"),
-        old_confidence: crate::response::result::Confidence::High,
     };
     let reads = change_reads("o", "r", std::slice::from_ref(&modified), &sides, |_| true);
     let names = reads.iter().map(|(name, _)| *name).collect::<Vec<_>>();

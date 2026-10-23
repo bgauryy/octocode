@@ -37,7 +37,7 @@ pub(crate) enum Readiness {
 }
 
 impl Readiness {
-    /// Stable string form crossing the napi boundary into JS.
+    /// Stable string form.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::ProgressIdle => "progressIdle",

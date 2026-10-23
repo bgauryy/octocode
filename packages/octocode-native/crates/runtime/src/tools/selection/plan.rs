@@ -11,7 +11,6 @@ use octocode_contract_types::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
-use std::io::Read;
 
 /// Version 9 records related (near-miss) ordinals apart from unknown ones.
 pub(super) const VERSION: u8 = 9;
@@ -106,17 +105,14 @@ pub(super) fn in_runs(runs: &[[u32; 2]], ordinal: u32) -> bool {
 
 pub(super) fn decode(token: &str) -> Option<Plan> {
     let compressed = URL_SAFE_NO_PAD.decode(token).ok()?;
-    let mut bytes = Vec::new();
     // Failure details repeat across candidates; compression keeps their exact
     // evidence in replay tokens. Bound expansion of caller-supplied tokens.
     const MAX_PLAN_BYTES: u64 = 4 * 1024 * 1024;
-    flate2::read::ZlibDecoder::new(compressed.as_slice())
-        .take(MAX_PLAN_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() as u64 > MAX_PLAN_BYTES {
-        return None;
-    }
+    let bytes = octocode_io::read::read_limited(
+        flate2::read::ZlibDecoder::new(compressed.as_slice()),
+        MAX_PLAN_BYTES,
+    )
+    .ok()??;
     serde_json::from_slice(&bytes).ok()
 }
 

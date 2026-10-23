@@ -39,11 +39,13 @@ url = { workspace = true }
 flate2 = { workspace = true }
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 reqwest = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "io-util", "time", "process"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "io-util", "io-std", "time", "process"] }
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["server", "tokio"] }
 http-body-util = "0.1"
 subtle = "2"
+# The MCP server (`octocode mcp`): stdio transport over the shared runtime.
+rmcp = { version = "3.7", default-features = false, features = ["server", "transport-io"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

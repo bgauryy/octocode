@@ -128,7 +128,7 @@ pub(super) fn facts_heap_bytes(
         .iter()
         .map(|d| size_of::<crate::graph::GraphFactDiagnostic>() + text(&d.message))
         .sum::<usize>();
-    bytes += facts.error_lines.len() * size_of::<[u32; 2]>();
+    bytes += (facts.error_lines.len() + facts.test_lines.len()) * size_of::<[u32; 2]>();
     bytes += reference_counts
         .iter()
         .map(|r| size_of::<crate::types::GraphReferenceCount>() + text(&r.declaration_id))

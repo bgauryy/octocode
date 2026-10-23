@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { cliView } from '../src/run.js';
@@ -159,7 +159,7 @@ describe('request cancellation', () => {
     await Promise.all([server.connect(a),client.connect(b)]);
     try {
       const controller = new AbortController();
-      const request = client.callTool({name:'wait',arguments:{}}, undefined, {signal:controller.signal}).catch(error => error);
+      const request = client.callTool({name:'wait',arguments:{}}, {signal:controller.signal}).catch(error => error);
       await ready;
       expect(received).toBeDefined();
       controller.abort();

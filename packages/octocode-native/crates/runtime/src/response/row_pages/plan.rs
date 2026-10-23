@@ -1,4 +1,4 @@
-use super::super::pages::Remaining;
+use super::super::result::Remaining;
 use super::{
     FragmentArena, PartShare, Placed, fair_shares, keep_row_next, row_next_chars, row_part_chars,
     volatile_reserve,
@@ -16,11 +16,23 @@ pub(super) struct RowPlan {
     pub(super) rows: usize,
 }
 
-impl RowPlan {
+/// The rows of one envelope readied for planning at any row budget: their
+/// first-fragment fields set aside and each row sized, once. The size of the
+/// whole ([`Self::size`]) tells which page-block reserve a plan needs before
+/// any plan is built, so no plan is built twice.
+#[derive(Clone)]
+pub(super) struct PreparedRows {
+    rows: Vec<Value>,
+    first_fields: Vec<Map<String, Value>>,
+    reserves: Vec<usize>,
+    sizes: Vec<usize>,
+    tool: Option<crate::id::ToolId>,
+}
+
+impl PreparedRows {
     pub(super) fn new(
         mut rows: Vec<Value>,
         volatile: &[Option<Map<String, Value>>],
-        row_budget: usize,
         tool: Option<crate::id::ToolId>,
     ) -> Self {
         let first_names = tool.map_or(&[][..], |tool| tool.output().first_fragment_fields());
@@ -56,6 +68,29 @@ impl RowPlan {
                 octocode_engine::json_size::utf16_units(row).unwrap_or(0) + 1 + reserve
             })
             .collect();
+        Self {
+            rows,
+            first_fields,
+            reserves,
+            sizes,
+            tool,
+        }
+    }
+
+    /// The rows' sizes added up: what they take on a page when none is split.
+    pub(super) fn size(&self) -> usize {
+        self.sizes.iter().sum()
+    }
+
+    /// The plan that packs these rows into pages of `row_budget` chars.
+    pub(super) fn plan(self, row_budget: usize) -> RowPlan {
+        let Self {
+            rows,
+            first_fields,
+            reserves,
+            sizes,
+            tool,
+        } = self;
         let shares = fair_shares(&sizes, row_budget);
         let mut arena = FragmentArena {
             required: tool.map(crate::contracts::shared_fields::required_entry_fields),
@@ -83,7 +118,7 @@ impl RowPlan {
             }
         }
         let (placed, total_pages) = assign_pages(heads.into_iter().chain(tails), row_budget);
-        Self {
+        RowPlan {
             arena,
             first_fields,
             placed,
@@ -91,7 +126,9 @@ impl RowPlan {
             rows: sizes.len(),
         }
     }
+}
 
+impl RowPlan {
     /// Build page `page`'s rows in row order, materializing only its
     /// fragments; part one regains its row's per-call provider facts.
     pub(super) fn build_page(

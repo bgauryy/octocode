@@ -1,4 +1,5 @@
 use super::*;
+use crate::response::result::is_approximate;
 
 #[test]
 fn splits_leads_and_prose_out_of_next_without_touching_pages() {
@@ -268,53 +269,37 @@ fn a_broaden_search_lead_keeps_every_alternative_row() {
 }
 
 #[test]
-fn confidence_goes_from_every_call_but_low_which_still_yields_its_place() {
-    let call = |tool: &str, confidence: &str| json!({"tool":tool,"confidence":confidence,"query":{"queries":[{"path":"a"}],"confidence":"exact"}});
+fn an_approximate_lead_yields_its_place_and_keeps_its_caveat() {
+    let call = |tool: &str, approximate: bool| {
+        let mut call = json!({"tool":tool,"query":{"queries":[{"path":"a"}]}});
+        if approximate {
+            call["confidence"] = json!("low");
+        }
+        call
+    };
     let mut structured = json!({"results":[{"index":0,"data":{
         "next": {
-            "nextPage": call("localSearch", "exact"),
-            "widen": call("localSearch", "low"),
-            "read": call("localFetch", "high"),
-            "findReferences": call("lspSearch", "medium")
+            "nextPage": call("localSearch", false),
+            "widen": call("localSearch", true),
+            "read": call("localFetch", false),
+            "findReferences": call("lspSearch", false)
         },
-        "files": [{"path":"a","hints":{"read":call("localFetch", "exact")}}],
+        "files": [{"path":"a","hints":{"read":call("localFetch", false)}}],
         "confidence": "exact"
     }}]});
     split_hints(&mut structured, ToolId::LocalSearch);
     let data = &structured["results"][0]["data"];
-    assert!(
-        data["next"]["nextPage"].get("confidence").is_none(),
-        "{data}"
-    );
-    assert_eq!(data["next"]["nextPage"]["query"]["confidence"], "exact");
     let leads = data["hints"].as_object().expect("hints");
     assert_eq!(
         leads.keys().cloned().collect::<Vec<_>>(),
         vec!["read", "findReferences", "widen"],
-        "low-confidence leads follow exact routes: {data}"
+        "approximate leads follow exact routes: {data}"
     );
     assert!(
-        leads.iter().all(|(name, lead)| if name == "widen" {
-            lead["confidence"] == "low"
-        } else {
-            lead.get("confidence").is_none()
-        }),
-        "{data}"
-    );
-    assert!(
-        data["files"][0]["hints"]["read"]
-            .get("confidence")
-            .is_none(),
+        leads
+            .iter()
+            .all(|(name, lead)| is_approximate(lead) == (name == "widen")),
         "{data}"
     );
     assert_eq!(data["confidence"], "exact", "only continuations change");
-    // A low call that keeps its place keeps its caveat.
-    let mut lossy = json!({"results":[{"index":0,"status":"error","data":{
-        "next": {"repair": call("localSearch", "low")}
-    }}]});
-    split_hints(&mut lossy, ToolId::LocalSearch);
-    assert_eq!(
-        lossy["results"][0]["data"]["hints"]["repair"]["confidence"], "low",
-        "{lossy}"
-    );
 }

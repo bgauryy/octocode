@@ -1,7 +1,7 @@
 //! One listing window cut into pages, and the continuations it leads to
 //! (`nextPage`, `continueWalk`, `narrowScope`).
-
-use super::*;
+use super::{continuation, max_walk, narrow_scope};
+use serde_json::{Value, json};
 
 /// Serialized chars one row adds to a page: `entry` always, plus `header`
 /// when the row opens a group: it starts the page, or `continues` is false

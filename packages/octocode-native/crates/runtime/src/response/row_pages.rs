@@ -8,7 +8,8 @@ mod shares;
 mod skeleton;
 mod slicer;
 use arena::{Fragment, FragmentArena, Planned, mark_continuations};
-use plan::RowPlan;
+use octocode_engine::digest::JsonFingerprint;
+use plan::{PreparedRows, RowPlan};
 use serde_json::{Map, Value, json};
 pub(crate) use shares::fair_shares;
 use shares::{PartShare, keep_row_next, row_next_chars, row_part_chars};
@@ -18,8 +19,8 @@ use skeleton::{
 };
 use slicer::{Open, Slicer};
 
-use super::pager::{ResponsePageOptions, ResponsePagination, restart_pagination};
-use super::pages::Remaining;
+use super::page_model::{ResponsePageOptions, ResponsePagination, restart_pagination};
+use super::result::Remaining;
 
 #[cfg(test)]
 thread_local! {
@@ -69,13 +70,13 @@ fn incomplete_banner_chars(skeleton: &Map<String, Value>, rows: usize) -> usize 
 #[cfg(test)]
 pub(super) fn paginate_rows(
     structured: Map<String, Value>,
-    full: &str,
     options: &ResponsePageOptions,
     volatile: Vec<Option<Map<String, Value>>>,
     remaining: &[Vec<Remaining>],
     tool: Option<crate::id::ToolId>,
 ) -> (Map<String, Value>, ResponsePagination) {
-    RowSource::new(structured, full, options, volatile, tool, &|_| 0).page(
+    let envelope = octocode_engine::digest::fingerprint_json(&structured).expect("envelope");
+    RowSource::new(structured, &envelope, options, volatile, tool, &|_| 0).page(
         options,
         remaining,
         &|_| 0,
@@ -113,11 +114,12 @@ pub(super) struct RowSource {
 }
 
 impl RowSource {
-    /// Plan `structured` (serialized as `full`) at the `responseLength` of
-    /// `options`.
+    /// Plan `structured`, whose compact rendering is `envelope` (one
+    /// streaming pass names its length and content snapshot, so the
+    /// rendering is never built), at the `responseLength` of `options`.
     pub(super) fn new(
         mut structured: Map<String, Value>,
-        full: &str,
+        envelope: &JsonFingerprint,
         options: &ResponsePageOptions,
         mut volatile: Vec<Option<Map<String, Value>>>,
         tool: Option<crate::id::ToolId>,
@@ -132,8 +134,8 @@ impl RowSource {
         volatile.resize(rows.len(), None);
         let overhead =
             octocode_engine::json_size::utf16_units(&structured).unwrap_or(0) + rows_key.len() + 6;
-        let total = full.encode_utf16().count();
-        let snapshot = super::cursor::rows_snapshot(budget, full);
+        let total = envelope.utf16_units;
+        let snapshot = super::cursor::rows_snapshot(budget, &envelope.digest);
         let template = |has_more: bool| ResponsePagination {
             scope: "rows".into(),
             current_page: total.max(1),
@@ -153,24 +155,16 @@ impl RowSource {
         // Room for the envelope warning a page with rows left over leads with,
         // and for the pagination block.
         let banner = incomplete_banner_chars(&structured, rows.len());
-        let plan_with = |reserve: usize, rows: Vec<Value>| {
-            let row_budget = budget.saturating_sub(overhead + banner + reserve).max(1);
-            RowPlan::new(rows, &volatile, row_budget, tool)
-        };
+        let row_budget = |reserve: usize| budget.saturating_sub(overhead + banner + reserve).max(1);
         let finished = block(&template(false));
         let widest = block(&template(true));
-        let plan = if total + finished <= budget {
-            let plan = plan_with(finished, rows.clone());
-            // By size alone one page holds it; a plan that splits it anyway
-            // carries the block of a page with more on every page.
-            if plan.total_pages == 1 {
-                plan
-            } else {
-                plan_with(widest, rows)
-            }
-        } else {
-            plan_with(widest, rows)
-        };
+        let prepared = PreparedRows::new(rows, &volatile, tool);
+        // A response whose rows, added up, fit one page beside the block a
+        // finished page carries is one page of that block. Past it some row
+        // splits, so every page of the plan carries the block of a page
+        // with more behind it.
+        let one_page = total + finished <= budget && prepared.size() <= row_budget(finished);
+        let plan = prepared.plan(row_budget(if one_page { finished } else { widest }));
         Self {
             skeleton: structured,
             rows_key,

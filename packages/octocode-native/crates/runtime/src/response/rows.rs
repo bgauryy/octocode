@@ -27,7 +27,7 @@ use serde_json::{Map, Value, json};
 pub(crate) struct RowParts {
     pub(crate) diagnostics: crate::response::result::ToolDiagnostics,
     pub(crate) cache: bool,
-    pub(crate) remaining: Vec<super::pages::Remaining>,
+    pub(crate) remaining: Vec<super::result::Remaining>,
 }
 
 /// One row as the response stage ships it, from a tool's `data`: the one

@@ -83,6 +83,9 @@ test('C3 one base: 0-based text and column 0 fail; 1-based passes', () => {
   // Allow-listed by decision: offsets.
   assert.deepEqual(zeroBasedTexts({ ghCloneRepo: { inputSchema: { properties: { responseOffset: { description: 'a zero-based page index' } } } } }), []);
   assert.equal(zeroBasedTexts({ astSearch: { inputSchema: { properties: { page: { description: 'zero-based page' } } } } }).length, 1);
+  // A clasify score is the index of its criterion, not a source coordinate.
+  assert.deepEqual(zeroBasedTexts({ clasify: { inputSchema: { properties: { questions: { description: 'score: zero-based levels' } } } } }), []);
+  assert.equal(zeroBasedTexts({ clasify: { inputSchema: { properties: { sections: { description: 'zero-based lines' } } } } }).length, 1);
   assert.deepEqual(zeroCoordinates({ results: [{ data: { matches: [{ line: 3, column: 0 }] } }] }), ['.results[0].data.matches[0].column=0']);
   assert.deepEqual(zeroCoordinates({ results: [{ data: { matches: [{ line: 3, column: 1 }] } }] }), []);
 });
@@ -101,16 +104,19 @@ test('C4 no silent omission: unlistedNested without next fails; with next or ter
   assert.deepEqual(silentOmissions({ results: [{ data: { stats: { skippedFiles: 0 } } }] }), []);
 });
 
-test('C5 description lint: a <workflow> note naming a neighbor names one of its fields', async t => {
-  const fields = tool => (tool === 'localFetch' ? new Set(['matchString']) : new Set());
+test('C5 description lint: every field a Next: note attributes to a tool is one it takes or the source returns', async t => {
+  const fields = tool => (tool === 'localFetch' ? new Set(['matchString', 'line']) : new Set());
   for (const [name, description, reasons] of [
-    ['neighbor with its field passes', 'Find text. <workflow>hit → localFetch matchString</workflow>', []],
-    ['terminal note naming no tool passes', 'Read lines. <workflow>cite lines by number</workflow>', []],
-    ['missing note fails', 'Find text with localFetch matchString.', ['no <workflow> note']],
-    ['neighbor without a field fails', 'Find text. <workflow>then localFetch</workflow>', ['names localFetch but none of its fields']],
+    ['neighbor with its field passes', 'Find text. Next: hit → localFetch matchString', []],
+    ['terminal note naming no tool passes', 'Read lines. Next: cite lines by number', []],
+    ['routing by purpose alone passes', 'Find text. Next: content → localFetch', []],
+    ['missing note fails', 'Find text with localFetch matchString.', ['no Next: note']],
+    ['a retired <workflow> tag is no note', 'Find text. <workflow>hit → localFetch matchString</workflow>', ['no Next: note']],
     // Core's workflow grammar names what the source returns to carry over.
-    ['neighbor with a carried output field passes', 'Find text. <workflow>hit commitSha → localFetch</workflow>', []],
-    ['an output field outside the note does not count', 'Find text with commitSha. <workflow>then localFetch</workflow>', ['names localFetch but none of its fields']],
+    ['neighbor with a carried output field passes', 'Find text. Next: hit commitSha → localFetch', []],
+    ['a field neither side has fails', 'Find text. Next: hit inventedKnob → localFetch line', ['inventedKnob: neither localFetch takes it nor localSearch returns it']],
+    ['a known field word the neighbor lacks fails', 'Find text. Next: hit → localFetch ref', ['ref: neither localFetch takes it nor localSearch returns it']],
+    ['a segment naming no tool is prose', 'Find text. Next: cite inventedKnob; hit → localFetch', []],
   ]) await t.test(name, () => assert.deepEqual(descriptionLint('localSearch', description, ['localSearch', 'localFetch'], fields, new Set(['commitSha'])), reasons));
 });
 

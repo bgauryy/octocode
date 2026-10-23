@@ -35,7 +35,8 @@
       "includeHidden",
       "includeSkipped",
       "narrowScope",
-      "viewFileCount"
+      "viewFileCount",
+      "walkDeeper"
     ],
     "enrichmentNames": [
       "expandValues",
@@ -102,6 +103,7 @@
         "viewTree",
         "viewSyntax",
         "viewDiagnostics",
+        "walkDeeper",
         "withoutMatchString",
         "withoutUsers"
       ],
@@ -274,7 +276,7 @@
     "versionNotFound": "notFound",
     "workspaceRootInvalid": "execution"
   },
-  "fingerprint": "c313644d5a93d19aa975fe3fac013b4be40c4d3460f42829f0b361595f452927",
+  "fingerprint": "ae35c34fc4c6f5931dbae87ad065a292de7329f219256f86f3b7724de80a0b4a",
   "limits": {
     "clasifyContextLines": 8,
     "defaultReadContextLines": 3,
@@ -27158,6 +27160,7 @@
                                   "type": "string"
                                 },
                                 "currentPage": {
+                                  "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                                   "maximum": 9007199254740991,
                                   "minimum": 0,
                                   "type": "integer"
@@ -27558,6 +27561,7 @@
                                   "type": "string"
                                 },
                                 "currentPage": {
+                                  "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                                   "maximum": 9007199254740991,
                                   "minimum": 0,
                                   "type": "integer"
@@ -28393,7 +28397,7 @@
                       "type": "string"
                     },
                     "keywords": {
-                      "description": "ANDed literal items (a phrase is one); no OR/NOT.",
+                      "description": "ANDed items (a phrase is one); may match other word forms; no OR/NOT.",
                       "items": {
                         "type": "string"
                       },
@@ -36586,6 +36590,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -36849,7 +36854,7 @@
                 "type": "string"
               },
               "relatedItems": {
-                "description": "Hidden near-misses (related, not direct); omitted when none.",
+                "description": "Hidden near-misses: judged related to a question but not direct evidence; next.unfiltered lists them; omitted when none.",
                 "maximum": 9007199254740991,
                 "minimum": 1,
                 "type": "integer"
@@ -39020,7 +39025,7 @@
             "type": "string"
           },
           "keywords": {
-            "description": "ANDed literal items (a phrase is one); no OR/NOT.",
+            "description": "ANDed items (a phrase is one); may match other word forms; no OR/NOT.",
             "items": {
               "type": "string"
             },
@@ -47552,6 +47557,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -51257,7 +51263,7 @@
                       "title": "MatchString"
                     },
                     "minify": {
-                      "description": "Omit: raw. standard: drops comments/blank lines, keeps source line numbers. symbols: paged outline; not with matchString/ranges.",
+                      "description": "Omit: raw. standard: drops comments/blank lines and code whitespace (not exact text), keeps line numbers. symbols: paged outline; not with matchString/ranges.",
                       "enum": [
                         "standard",
                         "symbols"
@@ -59461,6 +59467,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -59747,7 +59754,7 @@
                 "type": "string"
               },
               "relatedItems": {
-                "description": "Hidden near-misses (related, not direct); omitted when none.",
+                "description": "Hidden near-misses: judged related to a question but not direct evidence; next.unfiltered lists them; omitted when none.",
                 "maximum": 9007199254740991,
                 "minimum": 1,
                 "type": "integer"
@@ -61619,7 +61626,7 @@
             "title": "MatchString"
           },
           "minify": {
-            "description": "Omit: raw. standard: drops comments/blank lines, keeps source line numbers. symbols: paged outline; not with matchString/ranges.",
+            "description": "Omit: raw. standard: drops comments/blank lines and code whitespace (not exact text), keeps line numbers. symbols: paged outline; not with matchString/ranges.",
             "enum": [
               "standard",
               "symbols"
@@ -70330,6 +70337,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -73128,7 +73136,7 @@
             "type": "string"
           },
           "HI_Include": {
-            "description": "Path globs over changed files.",
+            "description": "Path globs over changed files; narrow a large change set.",
             "items": {
               "minLength": 1,
               "type": "string"
@@ -81697,6 +81705,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -87300,7 +87309,7 @@
             "type": "string"
           },
           "HI_Include": {
-            "description": "Path globs over changed files.",
+            "description": "Path globs over changed files; narrow a large change set.",
             "items": {
               "minLength": 1,
               "type": "string"
@@ -96330,6 +96339,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -106754,6 +106764,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -116823,6 +116834,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -117086,7 +117098,7 @@
                 "type": "string"
               },
               "relatedItems": {
-                "description": "Hidden near-misses (related, not direct); omitted when none.",
+                "description": "Hidden near-misses: judged related to a question but not direct evidence; next.unfiltered lists them; omitted when none.",
                 "maximum": 9007199254740991,
                 "minimum": 1,
                 "type": "integer"
@@ -119907,6 +119919,13 @@
         }
       ],
       "scanTotals": "always",
+      "semanticPolicy": {
+        "listPageSize": 100,
+        "matchContentLength": 200,
+        "matchesPerFile": 10,
+        "maxMatchContentLength": 4000,
+        "snippetPageSize": 20
+      },
       "shortDescription": "Find text or regex matches in local files.",
       "variants": [
         {
@@ -128441,6 +128460,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -139849,6 +139869,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -145167,7 +145188,7 @@
                       "title": "MatchString"
                     },
                     "minify": {
-                      "description": "Omit: raw. standard: drops comments/blank lines, keeps source line numbers. symbols: paged outline; not with matchString/ranges.",
+                      "description": "Omit: raw. standard: drops comments/blank lines and code whitespace (not exact text), keeps line numbers. symbols: paged outline; not with matchString/ranges.",
                       "enum": [
                         "standard",
                         "symbols"
@@ -153353,6 +153374,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -153639,7 +153661,7 @@
                 "type": "string"
               },
               "relatedItems": {
-                "description": "Hidden near-misses (related, not direct); omitted when none.",
+                "description": "Hidden near-misses: judged related to a question but not direct evidence; next.unfiltered lists them; omitted when none.",
                 "maximum": 9007199254740991,
                 "minimum": 1,
                 "type": "integer"
@@ -155448,7 +155470,7 @@
             "title": "MatchString"
           },
           "minify": {
-            "description": "Omit: raw. standard: drops comments/blank lines, keeps source line numbers. symbols: paged outline; not with matchString/ranges.",
+            "description": "Omit: raw. standard: drops comments/blank lines and code whitespace (not exact text), keeps line numbers. symbols: paged outline; not with matchString/ranges.",
             "enum": [
               "standard",
               "symbols"
@@ -155984,7 +156006,7 @@
                           "type": "array"
                         },
                         "graphDepth": {
-                          "description": "Hierarchy hops; default 1. callers/callees/supertypes/subtypes only; bounded walks may return next.continueWalk.",
+                          "description": "Hierarchy hops; default 1 (direct). callers/callees/supertypes/subtypes; walkDeeper adds one; next.continueWalk resumes.",
                           "maximum": 20,
                           "minimum": 1,
                           "type": "integer"
@@ -156147,7 +156169,7 @@
                           "type": "array"
                         },
                         "graphDepth": {
-                          "description": "Hierarchy hops; default 1. callers/callees/supertypes/subtypes only; bounded walks may return next.continueWalk.",
+                          "description": "Hierarchy hops; default 1 (direct). callers/callees/supertypes/subtypes; walkDeeper adds one; next.continueWalk resumes.",
                           "maximum": 20,
                           "minimum": 1,
                           "type": "integer"
@@ -156313,7 +156335,7 @@
                           "type": "array"
                         },
                         "graphDepth": {
-                          "description": "Hierarchy hops; default 1. callers/callees/supertypes/subtypes only; bounded walks may return next.continueWalk.",
+                          "description": "Hierarchy hops; default 1 (direct). callers/callees/supertypes/subtypes; walkDeeper adds one; next.continueWalk resumes.",
                           "maximum": 20,
                           "minimum": 1,
                           "type": "integer"
@@ -166049,6 +166071,7 @@
                     "type": "string"
                   },
                   "currentPage": {
+                    "description": "0: this row lists none of the section; its next.* page lists it from the first.",
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
@@ -170712,7 +170735,7 @@
                 "type": "array"
               },
               "graphDepth": {
-                "description": "Hierarchy hops; default 1. callers/callees/supertypes/subtypes only; bounded walks may return next.continueWalk.",
+                "description": "Hierarchy hops; default 1 (direct). callers/callees/supertypes/subtypes; walkDeeper adds one; next.continueWalk resumes.",
                 "maximum": 20,
                 "minimum": 1,
                 "type": "integer"
@@ -170875,7 +170898,7 @@
                 "type": "array"
               },
               "graphDepth": {
-                "description": "Hierarchy hops; default 1. callers/callees/supertypes/subtypes only; bounded walks may return next.continueWalk.",
+                "description": "Hierarchy hops; default 1 (direct). callers/callees/supertypes/subtypes; walkDeeper adds one; next.continueWalk resumes.",
                 "maximum": 20,
                 "minimum": 1,
                 "type": "integer"
@@ -171041,7 +171064,7 @@
                 "type": "array"
               },
               "graphDepth": {
-                "description": "Hierarchy hops; default 1. callers/callees/supertypes/subtypes only; bounded walks may return next.continueWalk.",
+                "description": "Hierarchy hops; default 1 (direct). callers/callees/supertypes/subtypes; walkDeeper adds one; next.continueWalk resumes.",
                 "maximum": 20,
                 "minimum": 1,
                 "type": "integer"

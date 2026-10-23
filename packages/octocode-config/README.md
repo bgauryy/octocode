@@ -14,7 +14,7 @@ re-export `@octocodeai/octocode-core` for interfaces.
 - `getOctocodeHome(env?)` resolves `OCTOCODE_HOME` or the platform default.
 - `loadOctocodeEnv(options)` loads the home and workspace `.env` files; `applyOctocodeEnv(map, options)` applies them under the protected-key policy; `propagateOctocodeEnv(options)` does both.
 - `CONFIG_FIELDS` (every setting's metadata), `DEFAULT_CONFIG` (generated defaults), `configFieldEnvName(path)` (a setting's env variable), and `ENV_TOKEN_VARS` (GitHub token names, priority order) come from the contract.
-- `contractDriftAllowed(env, { bundled })` and `contractDriftMessage(core, native)` are the shared fail-closed core/native fingerprint gate (`devOverridesAllowed` covers every dev-only override); `RuntimeSurface` names the runtime surfaces.
+- `devOverridesAllowed(env, { bundled })` gates the dev-only `OCTOCODE_NATIVE_BIN` override for the launchers; `RuntimeSurface` names the runtime surfaces.
 
 Do not reimplement these rules in a consuming package.
 

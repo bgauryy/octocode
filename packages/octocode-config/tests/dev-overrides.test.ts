@@ -2,11 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   configFieldEnvName,
-  contractDriftAllowed,
-  contractDriftMessage,
   devOverridesAllowed,
 } from '../src/index.js';
-import { CONTRACT_DRIFT_OVERRIDE_ENV } from '../src/config/devOverrides.js';
 
 describe('devOverridesAllowed', () => {
   it('never honours overrides under NODE_ENV=production', () => {
@@ -23,35 +20,6 @@ describe('devOverridesAllowed', () => {
     expect(devOverridesAllowed({ NODE_ENV: 'staging' }, { bundled: true })).toBe(false);
     expect(devOverridesAllowed({ NODE_ENV: 'development' }, { bundled: true })).toBe(true);
     expect(devOverridesAllowed({ NODE_ENV: 'test' }, { bundled: true })).toBe(true);
-  });
-});
-
-describe('contractDriftAllowed', () => {
-  const on = { [CONTRACT_DRIFT_OVERRIDE_ENV]: '1' };
-
-  it('requires the override env set to 1', () => {
-    expect(contractDriftAllowed({}, { bundled: false })).toBe(false);
-    expect(contractDriftAllowed({ [CONTRACT_DRIFT_OVERRIDE_ENV]: 'true' }, { bundled: false })).toBe(false);
-    expect(contractDriftAllowed(on, { bundled: false })).toBe(true);
-  });
-
-  it('keeps production and unopted bundles fail-closed', () => {
-    expect(contractDriftAllowed({ ...on, NODE_ENV: 'production' }, { bundled: false })).toBe(false);
-    expect(contractDriftAllowed(on, { bundled: true })).toBe(false);
-    expect(contractDriftAllowed({ ...on, NODE_ENV: 'development' }, { bundled: true })).toBe(true);
-  });
-});
-
-describe('contractDriftMessage', () => {
-  it('names both fingerprints and every override condition', () => {
-    const message = contractDriftMessage('a'.repeat(64), 'b'.repeat(64));
-    expect(message).toContain('Contract drift');
-    expect(message).toContain('fingerprint mismatch');
-    expect(message).toContain('a'.repeat(64));
-    expect(message).toContain('b'.repeat(64));
-    expect(message).toContain(`${CONTRACT_DRIFT_OVERRIDE_ENV}=1`);
-    expect(message).toContain('NODE_ENV=development');
-    expect(message).toContain('NODE_ENV=production always fails closed');
   });
 });
 

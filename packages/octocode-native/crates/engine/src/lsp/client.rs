@@ -173,7 +173,7 @@ impl NativeLspClient {
     }
 
     pub fn with_options(config: LspLanguageServerConfig, options: LspClientOptions) -> Self {
-        // Every launch path (discovery, runtime, napi) gets the per-server
+        // Every launch path (discovery, runtime) gets the per-server
         // safe defaults; user-supplied options still win key by key.
         let mut config = config;
         crate::lsp::config::apply_server_default_options(&mut config, None);

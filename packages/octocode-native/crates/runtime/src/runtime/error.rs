@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 /// A rejected call as every surface prints it.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ToolError {
+pub struct RejectedCall {
     /// `{error, details?, errorCode}`: MCP structuredContent (and, serialized,
     /// its text content), CLI JSON stdout. Every string leaf is scrubbed.
     pub envelope: Sanitized,
@@ -26,7 +26,7 @@ pub struct ToolError {
 /// typed with the error's `errorCode`; a timeout without details names what
 /// to try next for that tool. Every string is secret-scrubbed.
 #[must_use]
-pub fn tool_error_result(tool: &str, error: &RuntimeError) -> ToolError {
+pub fn tool_error_result(tool: &str, error: &RuntimeError) -> RejectedCall {
     let mut envelope = match error.payload.as_deref() {
         Some(payload @ Value::Object(_)) => payload.clone(),
         _ => crate::contracts::tool_error(&error.message, Vec::new()),
@@ -52,7 +52,7 @@ pub fn tool_error_result(tool: &str, error: &RuntimeError) -> ToolError {
     } else {
         format!("{detail} (errorCode: {code})")
     };
-    ToolError { envelope, text }
+    RejectedCall { envelope, text }
 }
 
 /// The MCP `CallToolResult` of a finished call. Its one text block is the
@@ -85,7 +85,7 @@ pub fn mcp_result(
 /// names the language server's cold start), else the generic narrowing advice.
 fn timeout_hint(tool: &str) -> &'static str {
     ToolId::from_name(tool)
-        .and_then(|id| id.output().error_hint(ErrorCode::Timeout))
+        .and_then(|id| id.output().error_hint(ErrorCode::Timeout, &Value::Null))
         .unwrap_or(
             "Retry, or narrow the call: fewer queries, a smaller path or repository scope, or a tighter filter.",
         )

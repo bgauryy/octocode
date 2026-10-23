@@ -187,7 +187,6 @@ pub(in super::super) fn attach_read_lead(row: &mut Value) {
         ToolId::LocalFetch,
         json!({ "queries": reads }),
     )
-    .confidence(Confidence::High)
     .build();
 }
 

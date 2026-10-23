@@ -234,13 +234,20 @@ impl Operation<'_, '_> {
                             "path": file
                         }),
                     )
-                    .confidence(Confidence::Medium)
                     .build();
             }
             let hint = if others.is_empty() {
-                format!(
-                    "workspaceRoot-only search covered the {searched} project of one file; pass path for a source file in the symbol's project."
-                )
+                match super::super::session::root_representative(self.path, &self.scope.root) {
+                    Some(file) => format!(
+                        "workspaceRoot-only search: the {searched} server searched the project of {}; for another project, pass path there.",
+                        std::path::Path::new(&file)
+                            .strip_prefix(&self.scope.root)
+                            .map_or(file.as_str().into(), std::path::Path::to_string_lossy)
+                    ),
+                    None => format!(
+                        "workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's."
+                    ),
+                }
             } else {
                 format!(
                     "workspaceRoot-only search used the {searched} server; this root also holds {} unsearched projects.",

@@ -220,7 +220,7 @@ jobs:
 
   # End-to-end tool health (dev.mjs test:tools): every tool through the built CLI
   # and MCP server against hermetic fixtures and a loopback mock. It needs the
-  # native binary and addon, so it runs after the native job passes, on its own build.
+  # native binary, so it runs after the native job passes, on its own build.
   e2e:
     name: E2E tool health (${{ matrix.runner }})
     needs: native
@@ -244,7 +244,7 @@ jobs:
       - run: yarn install --immutable --mode=skip-build
       - name: Build (dev)
         run: node skills-dev/octocode-dev/scripts/dev.mjs build:dev
-      # Addon ABI, exports, platform resolution and staging, against the build above.
+      # Package exports, platform resolution and staging, against the build above.
       - name: Native Node tests
         run: yarn workspace @octocodeai/octocode-native test:node
       - name: Tool health

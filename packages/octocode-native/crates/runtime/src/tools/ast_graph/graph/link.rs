@@ -106,13 +106,6 @@ pub(super) fn sanitize(security: &ContentSecurity, text: &str) -> String {
     security.sanitize_text(text, None).content
 }
 
-pub(super) fn extension(file: &str) -> &str {
-    file.rsplit('.')
-        .next()
-        .filter(|x| !x.contains('/'))
-        .unwrap_or("")
-}
-
 /// Per-scan inputs every file's linking reads.
 pub(super) struct LinkInputs<'x> {
     pub(super) known: &'x BTreeSet<String>,
@@ -132,7 +125,7 @@ pub(super) fn link_file(
 ) {
     let lang = Linker::of(&file);
     let language = if p.language.is_empty() {
-        extension(&file).to_owned()
+        octocode_engine::text::extension_of(&file, false, "")
     } else {
         p.language.clone()
     };
@@ -141,6 +134,7 @@ pub(super) fn link_file(
     let facts = FileFacts {
         reference_counts: counts,
         language,
+        test_lines: p.test_lines.clone(),
         ..Default::default()
     };
     let mut linker = FileLink {

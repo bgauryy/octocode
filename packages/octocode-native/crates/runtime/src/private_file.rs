@@ -77,15 +77,12 @@ fn names_beneath<'a>(boundary: &Path, path: &'a Path) -> io::Result<Vec<&'a OsSt
 
 /// Read at most `limit` bytes; a larger input is an error, never a prefix.
 pub(crate) fn read_limited(reader: impl Read, limit: u64) -> io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    reader.take(limit + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > limit {
-        return Err(io::Error::new(
+    octocode_io::read::read_limited(reader, limit)?.ok_or_else(|| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("File exceeds {} KiB.", limit / 1024),
-        ));
-    }
-    Ok(bytes)
+        )
+    })
 }
 
 #[cfg(test)]

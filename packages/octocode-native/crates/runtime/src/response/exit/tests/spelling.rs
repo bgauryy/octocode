@@ -13,7 +13,7 @@ fn no_error_code_is_spelled_as_a_string() {
         .expect("crates dir");
     let mut scanned = 0;
     let mut spelled = Vec::new();
-    for krate in ["runtime/src", "cli/src", "runtime-napi/src"] {
+    for krate in ["runtime/src", "cli/src"] {
         let mut pending = vec![crates.join(krate)];
         while let Some(dir) = pending.pop() {
             for entry in std::fs::read_dir(&dir).expect("read crate dir").flatten() {

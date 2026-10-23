@@ -27,7 +27,6 @@ use super::inferred_project::is_incoming;
 use super::scope::Scope;
 use super::{LspSearchQuery, Op};
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::tools::lsp_search::lsp_search_query;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -143,7 +142,6 @@ pub(super) fn workspace_symbols(
             ToolId::LspSearch,
             json!({"operation": "documentSymbols", "path": path}),
         )
-        .confidence(Confidence::Medium)
         .build();
     }
 }

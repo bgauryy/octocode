@@ -125,7 +125,7 @@ fn sanitizes_every_nested_returned_string() {
         "nested": [{"body": "a secret value"}],
         "next": {"tool": "secret-tool", "query": {"path": "secret.rs"}}
     });
-    sanitize_all_strings(&mut value, &ReplacingScan)
+    sanitize_provider_json(&ReplacingScan, &mut value, Path::new(SCAN_PATH))
         .expect("GitHub history test data should be valid");
     assert_eq!(value["title"], "[MASKED]");
     assert_eq!(value["nested"][0]["body"], "a [MASKED] value");
@@ -142,20 +142,11 @@ fn sanitizes_every_nested_returned_string() {
 /// lift).
 #[tokio::test]
 async fn a_secondary_rate_limit_keeps_its_unknown_remaining_count() {
+    use crate::security::scan::Passthrough;
     use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    struct Passthrough;
-    impl ContentScan for Passthrough {
-        fn sanitize(
-            &self,
-            text: &str,
-            _path: &Path,
-        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
-            Ok((text.to_owned(), Vec::new()))
-        }
-    }
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/issues/7"))

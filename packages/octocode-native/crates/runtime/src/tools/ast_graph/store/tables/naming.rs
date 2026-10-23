@@ -1,5 +1,5 @@
-//! Naming helpers: package names, unparsed targets, languages, ecosystems,
-//! test-module ranges and callee splitting.
+//! Naming helpers: package names, unparsed targets, languages, ecosystems
+//! and callee splitting.
 use super::*;
 
 /// Package identity for an external import specifier, by ecosystem rules.
@@ -104,20 +104,6 @@ pub(super) fn ecosystem(language: &str) -> &'static str {
         "c" | "cpp" | "cuda" => "system",
         _ => "other",
     }
-}
-
-/// Line ranges of Rust test modules (`mod tests`, `mod proptests`, …) (unit tests living
-/// inside production files; their imports are test-scoped).
-pub(super) fn test_module_ranges(facts: &FileFacts, language: &str) -> Vec<(u32, u32)> {
-    if language != "rust" {
-        return Vec::new();
-    }
-    facts
-        .declarations
-        .iter()
-        .filter(|d| d.kind == "module" && d.name.contains("test"))
-        .map(|d| (d.line, d.end_line))
-        .collect()
 }
 
 /// `(qualifier, name)` of a callee: `this.run` → `("this", "run")`,

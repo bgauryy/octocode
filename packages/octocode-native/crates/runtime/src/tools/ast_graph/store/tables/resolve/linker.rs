@@ -291,7 +291,7 @@ impl Linker<'_> {
     pub(in super::super) fn dir(&self, file: u32) -> &str {
         self.scope
             .path(file)
-            .map_or("", |path| path.rsplit_once('/').map_or("", |(dir, _)| dir))
+            .map_or("", crate::tools::ast_graph::graph::parent)
     }
 }
 

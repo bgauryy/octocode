@@ -22,7 +22,7 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
   check(`F1 ${variant}: callers find run`, callers(up).some(c => c.startsWith('run@b.')), callers(up).join(','));
 }
 {
-  const file = path.join(NATIVE, 'scripts/native-addon-utils.cjs');
+  const file = path.join(NATIVE, 'scripts/stage-binary.cjs');
   // Anchor on the live declaration line: this is a real repo file that moves.
   const line = fs.readFileSync(file, 'utf8').split('\n').findIndex(l => l.startsWith('function stageFile(')) + 1;
   // coverage.importerScan is a verbose (stats) field, listed only under extras:["stats"].
@@ -50,13 +50,16 @@ let rustServer;
   check('F3: root-only search directly finds the Rust declaration', (rowData(ws)?.matches ?? []).some(i => i.symbolName === 'is_alive' && i.path?.endsWith('.rs')), ws.text.slice(0, 150));
 }
 
-// F7 — pasted ast-grep rule files run as-is; unsupported operators still fail clearly.
+// F7 — an ast-grep rule runs as a JSON rule object; a pasted YAML rule file
+// and unsupported operators fail clearly, naming the accepted shape.
 {
-  const rule = 'id: unsafe-fn\nlanguage: rust\nseverity: warning\nmessage: x\nrule:\n  kind: function_item\n  has:\n    pattern: unsafe { $$$ }\n    stopBy: end\n';
+  const rule = { kind: 'function_item', has: { pattern: 'unsafe { $$$ }', stopBy: 'end' } };
   const e = await call('astSearch', { operation: 'match', path: path.join(NATIVE, 'crates/runtime/src'), language: 'rust', resultView: 'files', rule });
-  check('F7: rule file with metadata keys matches', !e.rowErrors && collect(rowData(e), o => typeof o.path === 'string').length > 0, e.text.slice(0, 100));
-  const bad = await call('astSearch', { operation: 'match', path: path.join(NATIVE, 'crates/runtime/src'), language: 'rust', rule: 'rule:\n  pattern: $A\nconstraints: {}\n' });
-  check('F7: unsupported constraints still rejected with the supported field list', bad.rowErrors === 1 && /constraints/.test(bad.text), bad.text.slice(0, 120));
+  check('F7: a JSON rule object matches', !e.isError && !e.rowErrors && collect(rowData(e), o => typeof o.path === 'string').length > 0, e.text.slice(0, 100));
+  const yaml = await call('astSearch', { operation: 'match', path: path.join(NATIVE, 'crates/runtime/src'), language: 'rust', resultView: 'files', rule: 'id: unsafe-fn\nlanguage: rust\nrule:\n  kind: function_item\n' });
+  check('F7: a pasted YAML rule file is rejected naming the object fields', yaml.isError && /Expected object/.test(yaml.text) && /\bkind\b/.test(yaml.text), yaml.text.slice(0, 160));
+  const bad = await call('astSearch', { operation: 'match', path: path.join(NATIVE, 'crates/runtime/src'), language: 'rust', rule: { pattern: '$A', constraints: {} } });
+  check('F7: unsupported constraints still rejected by name', bad.isError && /constraints/.test(bad.text), bad.text.slice(0, 120));
 }
 
 // F8 / secrets — redaction on every surface, no matchString oracle, honest hint.

@@ -135,7 +135,7 @@ else {
       && !pending.length && !repeated && uniqueHits.size === hits.length
       && [...files].some(file => file.endsWith('schedule_one.go')) && receipt?.unit === 'chunks'
       && receipt.selectedItems === groups && receipt.selectedItems < receipt.totalItems
-      && receipt.selectedItems + receipt.excludedItems + receipt.unknownItems === receipt.totalItems,
+      && receipt.selectedItems + receipt.excludedItems + (receipt.relatedItems ?? 0) + receipt.unknownItems === receipt.totalItems,
     JSON.stringify({ selection: receipt, groups, hits: hits.length, pages: pages.length, remaining: pending.length, files: [...files] }).slice(0, 400));
   }
 
@@ -193,7 +193,7 @@ else {
       check('walk: every selected page succeeds', view.ok, view.pages.filter(p => p.isError || p.rowErrors).map(p => p.text.slice(0, 80)).join(' | '));
       check('walk: the selected view holds the deciding line', view.lines.some(([n]) => n === 173), receiptText(r));
       check('walk: selected pages keep source order, carry one receipt, terminate, and withhold the filler', view.complete && sourceOrdered(view.lines)
-        && r?.selectedItems + r?.excludedItems + r?.unknownItems === r?.totalItems && r.selectedItems < r.totalItems && view.lines.length < 429
+        && r?.selectedItems + r?.excludedItems + (r?.relatedItems ?? 0) + r?.unknownItems === r?.totalItems && r.selectedItems < r.totalItems && view.lines.length < 429
         && view.pages.every(page => JSON.stringify(rowData(page)?.selection) === JSON.stringify(r)), `${view.pages.length} pages, ${view.lines.length} lines, ${receiptText(r)}`);
       const next = rowData(first)?.next;
       const unfiltered = next?.unfiltered;

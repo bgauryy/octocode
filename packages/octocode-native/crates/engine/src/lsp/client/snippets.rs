@@ -20,7 +20,7 @@ pub const SNIPPET_CONTENT_WITHHELD: &str = "[content withheld — path not autho
 /// content. The authorizer receives the path decoded from the server's URI
 /// and returns the path to read (for example its canonical, policy-validated
 /// form), or `None` to refuse. It runs before any filesystem access to that
-/// file. The default allows every path as given (the napi methods use it).
+/// file. The default allows every path as given.
 #[derive(Clone, Default)]
 pub struct SnippetReadPolicy {
     authorizer: Option<Arc<SnippetPathAuthorizer>>,

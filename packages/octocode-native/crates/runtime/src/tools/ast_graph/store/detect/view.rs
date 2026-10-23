@@ -8,7 +8,8 @@ pub(super) struct View<'a> {
     pub(super) files: Vec<u32>,
     /// Node → owning file node.
     pub(super) file_of: Vec<u32>,
-    /// Runtime import adjacency between authored files (sorted, distinct).
+    /// Runtime import adjacency between authored files, production edges
+    /// only (sorted, distinct).
     pub(super) out: Vec<Vec<u32>>,
     pub(super) inc: Vec<Vec<u32>>,
     /// First importing line per runtime edge.
@@ -34,7 +35,8 @@ impl<'a> View<'a> {
         let mut inc = vec![Vec::new(); n];
         let mut edge_line = BTreeMap::new();
         for edge in &t.edges {
-            if edge.kind != EdgeKind::Imports || edge.src == edge.dst {
+            // Test code is no production dependency.
+            if edge.kind != EdgeKind::Imports || edge.src == edge.dst || edge.test {
                 continue;
             }
             let (src, dst) = (&t.nodes[edge.src as usize], &t.nodes[edge.dst as usize]);
@@ -207,8 +209,10 @@ impl<'a> View<'a> {
     }
 
     /// Node-level forward reachability over every edge kind from `seeds`;
-    /// reaching a symbol also reaches (loads) its file.
-    pub(super) fn reach(&self, seeds: &[u32]) -> Vec<bool> {
+    /// reaching a symbol also reaches (loads) its file. Test edges are
+    /// followed only with `tests`: production code is not kept alive by
+    /// the test code beside it.
+    pub(super) fn reach(&self, seeds: &[u32], tests: bool) -> Vec<bool> {
         let mut seen = vec![false; self.t.nodes.len()];
         let mut queue = VecDeque::new();
         for seed in seeds {
@@ -226,7 +230,7 @@ impl<'a> View<'a> {
                 }
             };
             visit(file, &mut queue);
-            for edge in self.t.out(id) {
+            for edge in self.t.out(id).iter().filter(|edge| tests || !edge.test) {
                 visit(edge.dst, &mut queue);
             }
         }

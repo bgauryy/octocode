@@ -1,8 +1,15 @@
 //! Failure rows: server errors on the anchor line, typed failure codes,
-//! setup failures and the tips each failure carries.
+//! setup failures and the tip the response stage states for each.
 
-use super::output::failure_hint;
 use super::*;
+
+/// The tip the response stage states for `failure` on a row of `query`:
+/// the one hint hook, keyed by the failure's code (shared codes first, then
+/// lspSearch's own), never a tip the failure carries.
+fn tip(failure: &LspFailure, query: &serde_json::Value) -> &'static str {
+    crate::response::rows::error_code_hint(crate::id::ToolId::LspSearch, failure.code, query)
+        .unwrap_or_else(|| panic!("no tip for {:?}", failure.code))
+}
 
 /// An empty answer on a line the server itself failed to analyze is not
 /// absence: the row is partial and names that error. Errors on other lines,
@@ -91,12 +98,32 @@ fn path_policy_denials_are_file_access_failures_not_missing_servers() {
     ));
     assert_eq!(denied.code, ErrorCode::OutsideAllowedRoots);
     assert!(!denied.retryable);
-    assert!(denied.hint.contains("ALLOWED_PATHS"));
+    assert!(
+        tip(&denied, &serde_json::Value::Null).contains("ALLOWED_PATHS"),
+        "{}",
+        tip(&denied, &serde_json::Value::Null)
+    );
     let missing = LspFailure::path_denied(crate::policy::PolicyError::new(
         crate::policy::PolicyErrorCode::NotFound,
         "missing",
     ));
     assert_eq!(missing.code, ErrorCode::PathNotFound);
+    // Every other refusal sends the caller to verify the path, as local
+    // reads do; none is told to fall back to a search for candidates.
+    for code in [
+        crate::policy::PolicyErrorCode::NotFound,
+        crate::policy::PolicyErrorCode::NotRegular,
+        crate::policy::PolicyErrorCode::BinaryContent,
+        crate::policy::PolicyErrorCode::Io,
+    ] {
+        let refused =
+            LspFailure::path_denied(crate::policy::PolicyError::new(code, "refused"));
+        let text = tip(&refused, &serde_json::Value::Null);
+        assert!(
+            text.contains("structureSearch") && text.contains("retry the exact path"),
+            "{code:?}: {text}"
+        );
+    }
 }
 
 #[test]
@@ -162,9 +189,10 @@ fn clangd_invalid_ast_is_a_non_retryable_setup_failure_naming_the_fix() {
         (invalid.code, invalid.retryable, invalid.lexical_fallback),
         (ErrorCode::MissingConfiguration, false, false)
     );
-    assert!(!invalid.hint.contains("Retry once"), "{}", invalid.hint);
+    let hint = tip(&invalid, &serde_json::Value::Null);
+    assert!(!hint.contains("Retry once"), "{hint}");
     for fix in ["compile_commands.json", "compile_flags.txt", ".clangd"] {
-        assert!(invalid.hint.contains(fix), "{fix}: {}", invalid.hint);
+        assert!(hint.contains(fix), "{fix}: {hint}");
     }
     assert!(
         invalid.message.contains("invalid AST"),
@@ -203,11 +231,12 @@ fn failure_tips_never_name_workspace_root_outside_workspace_symbol() {
         Error::connection_closed("LSP connection closed"),
         Error::resource_exhausted("server stopped for its memory"),
     ];
+    let row = lsp_search_query::to_row(&anchored);
     let mut tips = engine
         .iter()
-        .map(|error| LspFailure::from_engine(error).hint.to_owned())
+        .map(|error| tip(&LspFailure::from_engine(error), &row).to_owned())
         .collect::<Vec<_>>();
-    tips.push(LspFailure::overdue("no answer".into()).hint.to_owned());
+    tips.push(tip(&LspFailure::overdue("no answer".into()), &row).to_owned());
     for code in [
         ErrorCode::Timeout,
         ErrorCode::ServerUnavailable,
@@ -217,7 +246,12 @@ fn failure_tips_never_name_workspace_root_outside_workspace_symbol() {
         ErrorCode::RequestFailed,
         ErrorCode::AnchorUnresolved,
     ] {
-        tips.extend(failure_hint(&anchored, code).map(str::to_owned));
+        tips.extend(
+            crate::id::ToolId::LspSearch
+                .output()
+                .error_hint(code, &row)
+                .map(str::to_owned),
+        );
     }
     for tip in tips {
         assert!(!tip.contains("workspaceRoot"), "{tip}");
@@ -228,10 +262,61 @@ fn failure_tips_never_name_workspace_root_outside_workspace_symbol() {
 /// tools that locate and read the candidates without the server.
 #[test]
 fn a_timeout_tip_names_a_retry_and_the_tools_that_work_without_the_server() {
-    let tip = LspFailure::from_engine(&octocode_engine::error::Error::timeout("slow")).hint;
+    let timeout = LspFailure::from_engine(&octocode_engine::error::Error::timeout("slow"));
+    let text = tip(&timeout, &serde_json::Value::Null);
     for tool in ["Retry", "astSearch", "localSearch", "localFetch"] {
-        assert!(tip.contains(tool), "{tip}");
+        assert!(text.contains(tool), "{text}");
     }
+}
+
+/// One code stands for retryable and final causes alike (a stale request,
+/// a rejected one, a relation the source could not establish; a closed
+/// connection, a memory kill), so its one tip names the row's `retryable`
+/// flag, the retry it allows, and the reads that work without the server.
+/// Every typed failure gets a tip of its own code, never the generic one.
+#[test]
+fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
+    use octocode_engine::error::{Error, RpcError};
+    let rpc = |code: i64, message: &str| {
+        LspFailure::from(Error::rpc(RpcError::from_value(serde_json::json!({
+            "code": code, "message": message
+        }))))
+    };
+    let generic = crate::id::ToolId::LspSearch
+        .output()
+        .error_hint(ErrorCode::ExecutionFailed, &serde_json::Value::Null)
+        .expect("generic tip");
+    let failures = [
+        LspFailure::invalid_query("lspSearch requires path or workspaceRoot"),
+        LspFailure::unestablished("base type unresolved"),
+        rpc(-32801, "content modified"),
+        rpc(-32602, "bad params"),
+        LspFailure::from(engine_error("boom")),
+        LspFailure::from(Error::connection_closed("LSP connection closed")),
+        LspFailure::from(Error::resource_exhausted("memory cap exceeded")),
+        rpc(-32001, "invalid AST"),
+        rpc(-32601, "method not found"),
+        LspFailure::overdue("no answer".into()),
+    ];
+    for failure in &failures {
+        let text = tip(failure, &serde_json::Value::Null);
+        assert_ne!(text, generic, "{failure:?}");
+        assert!(
+            text.chars().count() <= crate::response::rows::MAX_GUIDANCE_CHARS,
+            "{text}"
+        );
+    }
+    for failure in failures.iter().filter(|failure| {
+        matches!(failure.code, ErrorCode::RequestFailed | ErrorCode::ServerCrashed)
+    }) {
+        let text = tip(failure, &serde_json::Value::Null);
+        for word in ["Retry once if retryable", "astSearch", "localFetch"] {
+            assert!(text.contains(word), "{word}: {text}");
+        }
+    }
+    let invalid = tip(&failures[0], &serde_json::Value::Null);
+    assert!(invalid.contains("octocode schema lspSearch"), "{invalid}");
+    assert!(!invalid.contains("Retry once"), "{invalid}");
 }
 
 /// A language server killed for its memory is a final answer, not a retry:
@@ -245,19 +330,26 @@ fn a_memory_exhausted_server_is_final_and_leaves_an_unverified_text_lead() {
     let failure = LspFailure::from_engine(&error);
     assert_eq!(failure.code, ErrorCode::ServerCrashed);
     assert!(!failure.retryable, "{failure:?}");
-    for text in [failure.message.as_str(), failure.hint] {
+    let hint = tip(&failure, &serde_json::Value::Null);
+    for text in [failure.message.as_str(), hint] {
         assert!(!text.contains("maxMemoryMb"), "{text}");
     }
-    assert!(failure.hint.contains("unverified"), "{}", failure.hint);
+    assert!(hint.contains("unverified"), "{hint}");
 
     let query = query(serde_json::json!({
         "operation": "callers", "path": "/repo/src/lib.rs", "symbolName": "greet", "line": 3,
         "graphDepth": 3, "importerPage": 2, "page": 2, "pageSize": 4,
         "snapshot": "caller-snapshot", "workspaceRoot": "/repo", "orderHint": 1
     }));
-    let row = failure.row(&query, "file:///repo/src/lib.rs");
+    let bare = failure.row(&query, "file:///repo/src/lib.rs");
+    assert!(bare.get("hints").is_none(), "the tip is the stage's: {bare}");
+    let row = with_stage_hints(&query, &bare);
     assert_eq!(row["errorCode"], "serverCrashed", "{row}");
-    assert_eq!(row["hints"], serde_json::json!([failure.hint]), "{row}");
+    assert_eq!(
+        row["hints"],
+        serde_json::json!([tip(&failure, &lsp_search_query::to_row(&query))]),
+        "{row}"
+    );
     assert!(row["next"].get("retry").is_none(), "{row}");
     let text = &row["next"]["findText"];
     assert_eq!(text["tool"], "localSearch", "{row}");

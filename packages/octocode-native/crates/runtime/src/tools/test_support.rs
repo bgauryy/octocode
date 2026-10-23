@@ -91,6 +91,69 @@ pub(crate) fn published(tool: ToolId, query: &Value, row: &Value) -> Value {
     public
 }
 
+/// A tool's raw executor `row` for `query` through the response stages of a
+/// runtime call that name paths: row shaping, the workspace respelling of
+/// row and continuation paths ([`crate::response::rows::envelope_in`]) and
+/// continuation finalizing. The envelope a caller reads, before the
+/// response pager.
+pub(crate) fn published_in(tool: ToolId, query: &Value, row: &Value, paths: &PathPolicy) -> Value {
+    use crate::response::continuations::{Scope, Sources, finalize};
+    let status = row["status"].as_str();
+    let shaped = crate::response::rows::result_row(tool, 0, query, row.clone(), status);
+    let mut public = crate::response::rows::envelope_in(vec![shaped], tool, &[Some(query)], paths);
+    finalize(
+        &mut public,
+        tool,
+        &Sources::Rows(&[Some(query)]),
+        &Scope::everything(),
+    )
+    .expect("valid continuations");
+    public
+}
+
+/// The first query row of the `next.nextPage` that a tool's raw page-1
+/// `row` for `query` publishes ([`published_in`]).
+pub(crate) fn published_next_page(
+    tool: ToolId,
+    query: &Value,
+    row: &Value,
+    paths: &PathPolicy,
+) -> Value {
+    let public = published_in(tool, query, row, paths);
+    let next = &public["results"][0]["data"]["next"]["nextPage"];
+    assert_eq!(next["tool"], tool.as_str(), "page 1 leads on: {public}");
+    let row = next["query"]["queries"][0].clone();
+    assert!(row.is_object(), "an executable nextPage: {next}");
+    row
+}
+
+/// Page 1 and the `next.nextPage` its published response leads to are cut
+/// from one page budget at every window, for a tool that recomputes page N
+/// from the budget: a budget that differed between them would start page 2
+/// past rows page 1 never reached, or repeat some. `budget_of` is the
+/// tool's own page budget of a query row under a window. `query` names an
+/// absolute workspace path, so the published continuation respells it.
+pub(crate) fn assert_next_page_keeps_the_budget(
+    tool: ToolId,
+    query: &Value,
+    row: &Value,
+    paths: &PathPolicy,
+    budget_of: impl Fn(Option<usize>, &Value) -> usize,
+) {
+    let next = published_next_page(tool, query, row, paths);
+    assert_ne!(
+        next["path"], query["path"],
+        "{tool}: the continuation respells page 1's path"
+    );
+    for window in [None, Some(4_000), Some(20_000), Some(100_000)] {
+        assert_eq!(
+            budget_of(window, &next),
+            budget_of(window, query),
+            "{tool} window {window:?}: page 1 {query} and page 2 {next}"
+        );
+    }
+}
+
 /// A tool's raw executor `row` for `query`, as [`published`], satisfies the
 /// tool's output contract.
 pub(crate) fn assert_row_contract(tool: ToolId, query: &Value, row: &Value) {

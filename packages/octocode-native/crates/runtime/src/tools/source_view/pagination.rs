@@ -84,14 +84,6 @@ fn byte_page(line_page_bytes: usize) -> usize {
     line_page_bytes.clamp(MIN_BYTE_PAGE, LINE_PAGE_BYTES)
 }
 
-/// The 1-based line holding byte `offset` of `content`.
-fn line_at(content: &str, offset: usize) -> usize {
-    1 + content.as_bytes()[..offset]
-        .iter()
-        .filter(|byte| **byte == b'\n')
-        .count()
-}
-
 /// The page of `content` that `q` asks for, with a line page of at most
 /// `budget`. With `source`, a
 /// line window counts raw source lines: `offset` and `length` name a span
@@ -183,21 +175,15 @@ fn view_page(content: &str, q: &LocalFetchQuery, budget: LineBudget) -> Page {
             // An offset inside a character starts the page at that
             // character's first byte (the end snaps forward the same way),
             // so no byte is skipped; the row states the page's offset.
-            let mut offset = offset.min(content.len());
-            while !content.is_char_boundary(offset) {
-                offset -= 1;
-            }
+            let offset = content.floor_char_boundary(offset);
             let chunk_size =
                 local_fetch_query::window_length(q).unwrap_or(if q.full_content == Some(true) {
                     content.len()
                 } else {
                     byte_page(budget.line)
                 });
-            let mut end = (offset + chunk_size).min(content.len());
-            while end < content.len() && !content.is_char_boundary(end) {
-                end += 1
-            }
-            let first = line_at(content, offset);
+            let mut end = content.ceil_char_boundary((offset + chunk_size).min(content.len()));
+            let first = octocode_engine::text::line_containing(content, offset);
             let resume = (q.full_content != Some(true))
                 .then(|| oversized_line_end(content, first, offset, end, budget.line))
                 .flatten();

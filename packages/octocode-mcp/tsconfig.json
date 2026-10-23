@@ -7,6 +7,8 @@
     "noEmit": true,
     "rootDir": "..",
     "esModuleInterop": true,
+    "allowJs": true,
+    "checkJs": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,

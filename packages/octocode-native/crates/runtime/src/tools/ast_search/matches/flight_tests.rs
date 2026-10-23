@@ -1,3 +1,4 @@
+use super::scan::DIRECTORY_SCANS;
 use super::*;
 use crate::tools::test_support::{Fixture, simple_policy};
 use octocode_contract_types::ErrorCode;

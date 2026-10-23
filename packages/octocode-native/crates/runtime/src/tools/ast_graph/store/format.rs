@@ -38,7 +38,10 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// line in the record instead of in its message.
 /// v5: a diagnostic names the file node it is about (`target`), so
 /// `dependents` finds the unlinked path imports of a file.
-pub(crate) const FORMAT_VERSION: u32 = 5;
+/// v6: an edge records whether its evidence is test code (`test`).
+pub(crate) const FORMAT_VERSION: u32 = 6;
+/// Packed edge byte bit: the edge's evidence is test code.
+const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;
 const TABLE_ENTRY_LEN: usize = 4 + 8 + 8;
 /// Sentinel for an absent `u32` reference (no file, no parent, no line).
@@ -196,6 +199,10 @@ pub(crate) struct EdgeRec {
     /// Import relation or call resolution strategy.
     pub detail: u32,
     pub line: u32,
+    /// Every site of this edge is test code: a test file, or an item
+    /// compiled only under test (Rust `#[cfg(test)]`). Production
+    /// detectors, `cycles` and `hubs` leave it out; traversals keep it.
+    pub test: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -208,7 +215,8 @@ pub(crate) struct DiagRec {
     pub target: u32,
 }
 
-/// The decoded snapshot. Edges are sorted by `(src, kind, dst, line)`;
+/// The decoded snapshot. Edges are sorted by `(src, kind, dst)`, then
+/// production evidence before test evidence, then `line`;
 /// `out_offsets[n]..out_offsets[n + 1]` are node `n`'s outgoing edges and
 /// `in_edges[in_offsets[n]..in_offsets[n + 1]]` index its incoming ones.
 #[derive(Debug, Default)]

@@ -24,11 +24,62 @@ pub(super) static KEEPS_NON_CREDENTIAL_VALUES: LazyLock<Vec<bool>> = LazyLock::n
 });
 
 /// Whether a credential-assignment match assigns a credential: its `secret`
-/// value is not an identifier name ([`is_identifier_name`]) and not a hex
-/// digest keyed by a file path ([`is_file_digest`]). `key` is the line's
-/// text before the value (ending in the key, its quotes and its operator).
+/// value is not an identifier name ([`is_identifier_name`]), not a hex
+/// digest keyed by a file path ([`is_file_digest`]), not a statement reading
+/// another name ([`reads_a_name`]) and not a phrase of plain words under an
+/// opaque-string key ([`is_plain_phrase`]). `key` is the line's text before
+/// the value (ending in the key, its quotes and its operator).
 pub(super) fn assigns_a_credential(key: &str, secret: &str) -> bool {
-    !is_identifier_name(secret) && !is_file_digest(key, secret) && !reads_a_name(key, secret)
+    !is_identifier_name(secret)
+        && !is_file_digest(key, secret)
+        && !reads_a_name(key, secret)
+        && !is_plain_phrase(key, secret)
+}
+
+/// Credential words that name a value a person may choose as a phrase.
+const PHRASE_CREDENTIAL_WORDS: &[&str] = &["secret", "password", "passwd", "passphrase"];
+
+/// Whether `secret` is a phrase of plain words (`meta form value 1`,
+/// `Enter your API key here`) assigned to a key whose credential word names
+/// an opaque machine string: `key`, `token` or `credential`. API keys,
+/// tokens and credential strings never put spaces between dictionary
+/// words, so such a phrase is a label, a placeholder or test data. A
+/// `password`, `passphrase` or `secret` may be a phrase a person chose
+/// (`correct horse battery staple`), so a key naming one keeps its phrase
+/// redacted. A plain word is a pronounceable word ([`pronounceable_word`],
+/// any case, one trailing punctuation mark) or a number of at most four
+/// digits; at least two words and no other piece (`Bearer <token>` keeps
+/// its token piece, so it stays a credential).
+fn is_plain_phrase(key: &str, secret: &str) -> bool {
+    let name = key_name(key).to_ascii_lowercase();
+    if PHRASE_CREDENTIAL_WORDS
+        .iter()
+        .any(|word| name.contains(word))
+    {
+        return false;
+    }
+    let mut words = 0;
+    let mut pieces = 0;
+    let plain = secret.split_whitespace().all(|piece| {
+        pieces += 1;
+        let piece = piece.strip_suffix(['.', ',', ';', ':', '!', '?']).unwrap_or(piece);
+        if !piece.is_empty() && piece.len() <= 4 && piece.bytes().all(|byte| byte.is_ascii_digit()) {
+            return true;
+        }
+        words += 1;
+        pronounceable_word(piece.to_ascii_lowercase().as_bytes())
+    });
+    plain && pieces >= 2 && words >= 2
+}
+
+/// The key a credential assignment names: the last word of the line's text
+/// before the value, without its quotes and operator (`"db.password": ` →
+/// `db.password`).
+fn key_name(key: &str) -> &str {
+    key.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ':' | '=' | '>'))
+        .rsplit(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '{' | ',' | '('))
+        .next()
+        .unwrap_or_default()
 }
 
 /// Whether an unquoted `secret` ends a code statement that assigns another
@@ -69,11 +120,7 @@ fn is_identifier_word(segment: &str) -> bool {
 fn is_file_digest(key: &str, secret: &str) -> bool {
     let digest = matches!(secret.len(), 32 | 40 | 64 | 128)
         && secret.bytes().all(|byte| byte.is_ascii_hexdigit());
-    let name = key
-        .trim_end_matches(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ':' | '=' | '>'))
-        .rsplit(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '{' | ',' | '('))
-        .next()
-        .unwrap_or_default();
+    let name = key_name(key);
     digest
         && ((name.contains(['/', '\\']) && has_file_extension(name)) || is_source_code_path(name))
 }

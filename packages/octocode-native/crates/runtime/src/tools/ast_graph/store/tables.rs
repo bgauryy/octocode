@@ -23,6 +23,7 @@ mod names;
 mod naming;
 mod projector;
 mod stats;
+mod test_code;
 use names::*;
 pub(crate) use naming::canonical_language;
 use naming::*;

@@ -11,7 +11,17 @@ const { check, summary } = checks('usage-regressions');
 const client = await startServer();
 const { call, raw } = client;
 const RUNTIME = 'packages/octocode-native/crates/runtime/src';
-const LARGE = `${RUNTIME}/contracts/validate.rs`;
+/** Every Rust source under RUNTIME, workspace-relative. */
+const runtimeSources = fs.readdirSync(path.join(ROOT, RUNTIME), { recursive: true })
+  .filter(file => file.endsWith('.rs'))
+  .map(file => `${RUNTIME}/${file}`);
+/** The largest runtime source: chosen by size, so module splits never shrink it under the page window. */
+const LARGE = runtimeSources
+  .map(file => [file, fs.statSync(path.join(ROOT, file)).size])
+  .toSorted((a, b) => b[1] - a[1])[0][0];
+/** The runtime source declaring `fn suggest_field`, wherever a split moves it. */
+const SUGGEST_FIELD = /^\s*(?:pub(?:\([^)]*\))?\s+)?fn suggest_field\b/;
+const SUGGEST = runtimeSources.find(file => fs.readFileSync(path.join(ROOT, file), 'utf8').split('\n').some(line => SUGGEST_FIELD.test(line)));
 
 /** The CLI as agents call it through a shell: exit code plus parsed stdout. */
 function cli(tool, input, env = {}) {
@@ -57,7 +67,8 @@ for (const [label, tool, query, field, want, never] of [
 {
   const depth = cli('structureSearch', { queries: [{ path: 'packages', depth: 2 }] });
   check('U8 CLI: a single misspelled field is not rerouted to another tool', !/send queries\[0\] to/.test(details(depth)), details(depth));
-  const fetch = cli('localFetch', { queries: [{ path: 'package.json', resultView: 'files', pageSize: 3 }] });
+  // Routed only when localSearch runs the whole row (it requires matchString).
+  const fetch = cli('localFetch', { queries: [{ path: 'package.json', matchString: 'name', resultView: 'files', pageSize: 3 }] });
   check('U8 CLI: localFetch with resultView/pageSize names localSearch', fetch.exit === 2 && /are localSearch\b/.test(details(fetch)), details(fetch));
   const ast = cli('astSearch', { queries: [{ path: 'packages', operation: 'files', pageSize: 5 }] });
   check('U9 CLI: astSearch operation "files" names structureSearch', ast.exit === 2 && /is a structureSearch operation/.test(details(ast)), details(ast));
@@ -151,8 +162,8 @@ for (const [label, tool, query, field, want, never] of [
 
 // lspSearch on Rust: the first call starts the server, the next one is warm.
 {
-  const file = path.join(ROOT, LARGE);
-  const line = fs.readFileSync(file, 'utf8').split('\n').findIndex(l => l.startsWith('fn suggest_field')) + 1;
+  const file = path.join(ROOT, SUGGEST);
+  const line = fs.readFileSync(file, 'utf8').split('\n').findIndex(l => SUGGEST_FIELD.test(l)) + 1;
   const first = await call('lspSearch', { path: file, symbolName: 'suggest_field', line, operation: 'references' });
   check('U17 MCP: cold lspSearch references answers without a timeout', !first.isError && !/errorCode\W+timeout\b/.test(first.text) && lspLocations(first).length > 0 && first.ms < 90_000, JSON.stringify({ ms: first.ms, locations: lspLocations(first).length, isError: first.isError, errorCode: rowData(first)?.errorCode, error: rowData(first)?.error }));
   const warm = await call('lspSearch', { path: file, symbolName: 'suggest_field', line, operation: 'references' });

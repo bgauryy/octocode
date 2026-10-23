@@ -5,7 +5,6 @@
 use super::{RuntimeError, ToolRuntime};
 use crate::contracts;
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::{extras, rows};
 use crate::security::{CheckedQuery, InputPolicy};
 use octocode_contract_types::ErrorCode;
@@ -133,14 +132,9 @@ fn repair_lead(
         }
     }
     let exact = repaired.dropped.is_empty() && repaired.approximate.is_empty();
+    let lead = crate::response::result::Continuation::input(tool, repaired.input);
     Some(RepairLead {
-        lead: crate::response::result::Continuation::input(tool, repaired.input)
-            .confidence(if exact {
-                Confidence::High
-            } else {
-                Confidence::Low
-            })
-            .build(),
+        lead: if exact { lead } else { lead.approximate() }.build(),
         dropped: repaired.dropped,
         approximate: repaired.approximate,
     })

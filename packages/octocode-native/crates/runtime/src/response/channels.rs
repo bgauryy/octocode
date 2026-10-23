@@ -18,6 +18,7 @@ use serde_json::{Map, Value, json};
 
 use crate::id::continuation_channels::{HINT_TEXT_KEY, HINTS_KEY, PAGES_KEY};
 use crate::id::{Channel, ToolId, channel, continuation_channels, kind};
+use crate::response::result::is_approximate;
 
 /// Keys that name a row, and notes that lead it: they stay ahead of the
 /// continuation keys.
@@ -90,9 +91,6 @@ pub(super) fn move_text(object: &mut Map<String, Value>) {
 /// - leads move from `next` to the internal hint map, keeping every row and
 ///   field its tool built (the rows may be routes the response never
 ///   shows, such as pruned directories);
-/// - `confidence` goes from every call once it has ranked the leads, except
-///   `low`: the caveat that a call only approximates the request (a lossy
-///   repair) stays with it;
 /// - with `opt_in_leads` (a successful row whose `extras` lacks `hints`),
 ///   only the contract's `defaultLeads` stay: the row already holds the
 ///   path, ref and lines a next call is built from;
@@ -123,15 +121,6 @@ pub(super) fn shape(
         merge_repeats(next, tool);
     }
     split(object, tool, withheld, opt_in_leads);
-    for key in [PAGES_KEY, HINTS_KEY] {
-        if let Some(Value::Object(calls)) = object.get_mut(key) {
-            for call in calls.values_mut().filter_map(Value::as_object_mut) {
-                if call.get("confidence").and_then(Value::as_str) != Some("low") {
-                    call.shift_remove("confidence");
-                }
-            }
-        }
-    }
 }
 
 /// A partial object (`isPartial: true`) whose `next` holds no page of this
@@ -299,7 +288,7 @@ fn split(object: &mut Map<String, Value>, tool: ToolId, withheld: bool, opt_in_l
 /// (`continuationChannels.leadPriority`) goes first, then its default leads
 /// (`defaultLeads`: what the default output shows never yields to an
 /// opt-in lead), then the rest in the order the tool emitted them (new
-/// evidence first). A lead marked `confidence: "low"` yields its place to
+/// evidence first). An approximate lead yields its place to
 /// any other. The choice is deterministic: a stable order, never a tie
 /// broken by hashing.
 fn order_leads(hints: &mut Map<String, Value>) {
@@ -316,7 +305,7 @@ fn order_leads(hints: &mut Map<String, Value>) {
         .enumerate()
         .map(|(order, (name, call))| {
             (
-                (call["confidence"] == "low", rank(name), opt_in(name), order),
+                (is_approximate(call), rank(name), opt_in(name), order),
                 name.clone(),
             )
         })

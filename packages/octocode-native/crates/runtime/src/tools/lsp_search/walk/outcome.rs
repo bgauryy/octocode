@@ -3,7 +3,10 @@
 
 use super::nodes::anchor_range;
 use super::public::public_via;
-use super::{Expansion, HierarchyWalk, MAX_HIERARCHY_FAN_OUT, MAX_HIERARCHY_NODES, Resume};
+use super::{
+    Expansion, HierarchyWalk, MAX_HIERARCHY_DEPTH, MAX_HIERARCHY_FAN_OUT, MAX_HIERARCHY_NODES,
+    Resume,
+};
 use crate::tools::lsp_search::failure::{LspFailure, continuation, partial_with_retry};
 use crate::tools::lsp_search::render::uri_to_path;
 use crate::tools::lsp_search::{LspSearchQuery, Op, lsp_search_query};
@@ -94,7 +97,8 @@ pub(in crate::tools::lsp_search) fn mark_partial_expansion(
 /// were dropped, and `next.continueWalk2…N` for every other such parent
 /// (every page walks the same graph, so earlier pages would repeat them). A
 /// node whose results were cut to [`MAX_HIERARCHY_FAN_OUT`] resumes the same
-/// way: re-anchored, it lists every result.
+/// way: re-anchored, it lists every result. A walk that stopped only at its
+/// depth offers the next one ([`offer_deeper_walk`]).
 pub(in crate::tools::lsp_search) fn mark_truncation(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -109,6 +113,7 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
         .flat_map(|(_, walk)| walk.resumes.iter())
         .collect::<Vec<_>>();
     if resumes.is_empty() {
+        offer_deeper_walk(row, query, walks);
         return;
     }
     let fan_out_capped = walks
@@ -164,6 +169,45 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
             }
         }
     }
+}
+
+/// The lead past `graphDepth`: the walk answered every level it was asked
+/// for, but nodes at its last level were never expanded, so whether they
+/// have results of their own (a subclass of a subclass, a caller's callers)
+/// is unknown. `next.walkDeeper` reruns the query one level deeper from its
+/// start (no cursor), on the page that ends the listing: none while a
+/// remaining page (site, candidate or importer window) is offered, since
+/// those list the same walk. None at [`MAX_HIERARCHY_DEPTH`].
+fn offer_deeper_walk(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    walks: &[(Expansion, &HierarchyWalk)],
+) {
+    let depth = lsp_search_query::graph_depth(query).unwrap_or(1);
+    let frontier = walks
+        .iter()
+        .flat_map(|(_, walk)| &walk.edges)
+        .filter(|edge| edge.level == depth)
+        .count();
+    let pages_remain = row
+        .get("next")
+        .and_then(Value::as_object)
+        .is_some_and(|next| {
+            next.keys()
+                .any(|name| crate::id::is_remaining(crate::id::ToolId::LspSearch, name))
+        });
+    if frontier == 0 || depth >= MAX_HIERARCHY_DEPTH || pages_remain {
+        return;
+    }
+    let mut next = lsp_search_query::to_row(query);
+    let Some(object) = next.as_object_mut() else {
+        return;
+    };
+    for field in crate::response::result::CURSOR_FIELDS {
+        object.remove(field);
+    }
+    object.insert("graphDepth".into(), json!(depth + 1));
+    row["next"]["walkDeeper"] = continuation(next);
 }
 
 /// Every walk's TypeScript built-in library callees, each named once.

@@ -1,6 +1,4 @@
 //! `operation: "commit"`: one commit's header and its changed-file page.
-//! `operation: "commit"` and `operation: "compare"`: commit metadata or a
-//! ref comparison, each with one page of changed files.
 use super::file_page::{
     DiffSides, FilePage, Lead, empty_scope_warning, file_page_note, lead_first, patch_needle,
     read_commit_lead, shape_file_page,

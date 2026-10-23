@@ -1,4 +1,4 @@
-//! Import and module facts: Rust `use` and `mod`, C/C++ `#include`, C# `using`.
+//! Import and module facts: Rust `use`, `mod` and `include!`, C/C++ `#include`, C# `using`.
 
 use super::positions::NodePositions;
 use super::rust::{collect_rust_imports, rust_inner_unsupported};
@@ -179,4 +179,60 @@ pub(super) fn push_language_import<'a>(
         module_scope: None,
     });
     &mut acc.imports[index]
+}
+/// A file-inclusion macro (`include!`, `include_str!`, `include_bytes!`)
+/// whose one argument is a plain string literal: an import of that path,
+/// which the linker resolves against this file's directory. `include!`
+/// splices code (`include`); `include_str!` and `include_bytes!` embed the
+/// file as data (`include-data`). A computed path
+/// (`concat!(env!("OUT_DIR"), …)`) names no file and is skipped.
+pub(super) fn collect_rust_include(
+    node: Node<'_>,
+    content: &str,
+    index: &NodePositions<'_>,
+    acc: &mut GraphAccumulator,
+) {
+    let name = node
+        .child_by_field_name("macro")
+        .and_then(|name| node_text(name, content))
+        .map(|name| name.rsplit("::").next().unwrap_or(name).trim());
+    let import_kind = match name {
+        Some("include") => "include",
+        Some("include_str" | "include_bytes") => "include-data",
+        _ => return,
+    };
+    let mut cursor = node.walk();
+    let Some(arguments) = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "token_tree")
+    else {
+        return;
+    };
+    let mut cursor = arguments.walk();
+    let mut literals = arguments.named_children(&mut cursor);
+    let (Some(literal), None) = (literals.next(), literals.next()) else {
+        return;
+    };
+    let Some(specifier) = (literal.kind() == "string_literal")
+        .then(|| node_text(literal, content))
+        .flatten()
+        .and_then(|text| text.strip_prefix('"')?.strip_suffix('"'))
+        .filter(|path| !path.is_empty() && !path.contains('\\'))
+        .map(str::to_owned)
+    else {
+        return;
+    };
+    let line = index.range(node).start.line + 1;
+    acc.imports.push(GraphFactImport {
+        id: format!("include:{specifier}:{line}:{}", acc.imports.len()),
+        specifier,
+        line,
+        import_kind: import_kind.to_owned(),
+        local_name: None,
+        imported_name: None,
+        imported_range: None,
+        local_range: None,
+        resolution_hint: None,
+        module_scope: None,
+    });
 }

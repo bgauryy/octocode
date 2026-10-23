@@ -1,8 +1,10 @@
+use crate::response::result::RESPELLED_FIELDS;
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
-/// Spell every absolute local `path` of a continuation's rows (`{tool,
-/// query}` under `next`, `hints`, or a row) relative to the workspace root,
+/// Spell every absolute local `path` ([`RESPELLED_FIELDS`]) of a
+/// continuation's rows (`{tool, query}` under `next`, `hints`, or a row)
+/// relative to the workspace root,
 /// which relative paths resolve against: the same file, without repeating
 /// the root the response already names as `root`. Paths outside the
 /// workspace, `file://` uris and non-local fields stay as they are.
@@ -14,18 +16,21 @@ pub(super) fn relativize_continuation_paths(value: &mut Value, workspace: &str) 
             .into_iter()
             .flatten()
         {
-            if let Some(Value::String(path)) = row.get_mut("path")
-                && let Some(relative) = workspace_relative(path, workspace)
-            {
-                *path = relative;
+            for field in RESPELLED_FIELDS {
+                if let Some(Value::String(path)) = row.get_mut(field)
+                    && let Some(relative) = workspace_relative(path, workspace)
+                {
+                    *path = relative;
+                }
             }
         }
     });
 }
 
 /// Whether a continuation (`{tool, query}` at any depth) names a relative
-/// local `path`: it resolves against the workspace root, which the response
-/// then names as `root` even when no row carries a path (an empty row).
+/// local path ([`RESPELLED_FIELDS`]): it resolves against the workspace
+/// root, which the response then names as `root` even when no row carries a
+/// path (an empty row).
 pub(super) fn relative_continuation_path(value: &Value) -> bool {
     let mut relative = false;
     crate::response::result::for_each_call(value, &mut |call| {
@@ -35,9 +40,11 @@ pub(super) fn relative_continuation_path(value: &Value) -> bool {
             .into_iter()
             .flatten()
             .any(|row| {
-                row.get("path")
-                    .and_then(Value::as_str)
-                    .is_some_and(|path| !Path::new(path).is_absolute() && !path.contains("://"))
+                RESPELLED_FIELDS.iter().any(|field| {
+                    row.get(field).and_then(Value::as_str).is_some_and(|path| {
+                        !Path::new(path).is_absolute() && !path.contains("://")
+                    })
+                })
             });
     });
     relative

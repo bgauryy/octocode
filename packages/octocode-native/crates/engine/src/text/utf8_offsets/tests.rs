@@ -13,6 +13,20 @@ fn line_starts_split_at_newlines_and_line_at_finds_the_line() {
     assert_eq!(line_starts(""), [0]);
 }
 
+#[test]
+fn one_lookup_line_matches_the_table_lookup_at_every_offset() {
+    for text in ["", "ab\ncd\n\nx", "é\n\n", "no newline"] {
+        let starts = line_starts(text);
+        for offset in 0..=text.len() + 2 {
+            assert_eq!(
+                line_containing(text, offset),
+                line_at(&starts, offset.min(text.len())),
+                "{text:?} @{offset}"
+            );
+        }
+    }
+}
+
 /// Number of UTF-8 bytes up to (not including) the `char_index`-th
 /// UTF-16 code unit in `s`. Clamps to `s.len()` if `char_index` exceeds the string.
 fn utf16_to_byte_offset(s: &str, char_index: usize) -> usize {

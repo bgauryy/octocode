@@ -6,7 +6,6 @@ use super::{
     check_control, git, history_depth, policy_denied,
 };
 use crate::policy::PolicyErrorCode;
-use crate::response::result::Confidence;
 use octocode_contract_types::ErrorCode;
 use std::path::{Path, PathBuf};
 
@@ -234,7 +233,6 @@ fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json
     };
     serde_json::json!({
         "exploreClone": crate::response::result::Continuation::new(tool, serde_json::Value::Object(query))
-            .confidence(Confidence::Exact)
             .build()
     })
 }

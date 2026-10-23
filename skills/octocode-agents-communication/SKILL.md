@@ -1,6 +1,6 @@
 ---
 name: octocode-agents-communication
-description: "Load this skill first whenever agents on different hosts (Claude Code, Codex, Pi) or worktrees share files, must message each other or hand off a path, or a cross-agent delivery went missing; good for peers, locks, messages and the communication CLI or MCP. Not for agents inside one Pi team: use Pi's coordinate."
+description: "Load this skill first whenever agents on different hosts (Claude Code, Codex, Pi, Octocode) or worktrees share files, message each other, hand off a path, or lose a delivery; good for peers, locks, messages and the communication CLI or MCP. Not for agents within one Octocode or Pi team, which coordinate natively."
 ---
 
 # Agents communication

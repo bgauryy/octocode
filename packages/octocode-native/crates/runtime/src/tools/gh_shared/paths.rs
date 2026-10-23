@@ -1,7 +1,7 @@
 //! Repository paths: lexical resolution and the missing-path recovery walk.
 use super::repository_not_found;
 use crate::id::ToolId;
-use crate::response::result::{Confidence, Continuation};
+use crate::response::result::Continuation;
 use octocode_github::{
     GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
@@ -214,11 +214,8 @@ pub(crate) fn listing_path(path: &str) -> Result<String, ProviderError> {
 
 /// A ghStructure listing of `path` at the caller's ref (and depth, when the
 /// caller set one): a fresh query from page 1, not a page of the failed call.
-pub(crate) fn tree_recovery(
-    at: &RepoPath<'_>,
-    max_depth: Option<i64>,
-    confidence: Confidence,
-) -> Value {
+/// `approximate` marks a listing of a guessed directory.
+pub(crate) fn tree_recovery(at: &RepoPath<'_>, max_depth: Option<i64>, approximate: bool) -> Value {
     let mut tree_query = json!({"owner": at.owner, "repo": at.repo, "path": repo_path(at.path)});
     if let Some(reference) = at.reference {
         tree_query["ref"] = json!(reference);
@@ -226,7 +223,11 @@ pub(crate) fn tree_recovery(
     if let Some(depth) = max_depth {
         tree_query["maxDepth"] = json!(depth);
     }
-    Continuation::new(ToolId::GhStructure, tree_query)
-        .confidence(confidence)
-        .build()
+    let listing = Continuation::new(ToolId::GhStructure, tree_query);
+    if approximate {
+        listing.approximate()
+    } else {
+        listing
+    }
+    .build()
 }

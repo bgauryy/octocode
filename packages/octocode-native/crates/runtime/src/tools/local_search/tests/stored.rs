@@ -1,6 +1,7 @@
 //! Stored scans and continuation pages: a later page is cut from the
 //! scan its first page stored, equals the page a rescan cuts, and restarts
 //! when the walk, a shown file or the snapshot no longer holds.
+use super::super::local_search_query;
 use super::*;
 use octocode_contract_types::ErrorCode;
 
@@ -642,7 +643,7 @@ fn rejects_changed_and_forged_snapshots_even_on_empty_or_final_pages() {
     )
     .expect_err("changed results must reject snapshot");
     assert_eq!(stale.code, ErrorCode::StaleSnapshot);
-    assert_eq!(stale.message, crate::response::pages::STALE_SNAPSHOT_ERROR);
+    assert_eq!(stale.message, crate::response::result::STALE_SNAPSHOT_ERROR);
     let restart = stale.next.expect("restart");
     assert_eq!(restart["restart"]["tool"], "localSearch");
     // The restart is the first page: every cursor field is omitted.

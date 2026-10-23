@@ -5,11 +5,7 @@ use super::*;
 /// With no language server, the lexical check of a named symbol: a
 /// whole-word, case-sensitive localSearch over the workspace (else the
 /// file's directory).
-pub(super) fn attach_text_search(
-    value: &mut Value,
-    query: &LspSearchQuery,
-    confidence: Option<Confidence>,
-) {
+pub(super) fn attach_text_search(value: &mut Value, query: &LspSearchQuery, approximate: bool) {
     let Some(symbol) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
     else {
         return;
@@ -28,9 +24,10 @@ pub(super) fn attach_text_search(
         return;
     };
     let lead = symbol_search_lead(query, symbol, &scope);
-    value["next"]["findText"] = match confidence {
-        Some(confidence) => lead.confidence(confidence),
-        None => lead,
+    value["next"]["findText"] = if approximate {
+        lead.approximate()
+    } else {
+        lead
     }
     .build();
 }
@@ -48,9 +45,6 @@ pub(in super::super) fn empty(
         "reason": reason,
         "lsp": { "serverAvailable": server_available },
     });
-    if let Some(hint) = empty_hint(category, lsp_search_query::operation(query)) {
-        row["hints"] = json!([hint]);
-    }
     // A workspaceRoot-only query has no file: the row names none.
     if let Some(path) = lsp_search_query::path(query) {
         row["path"] = json!(path);
@@ -130,9 +124,7 @@ pub(in super::super) fn build_scripts_rerun(query: &LspSearchQuery) -> Value {
     let mut context = lsp_search_query::rust_context(query).unwrap_or_else(|| json!({}));
     context["buildScripts"] = json!(true);
     rerun["rustContext"] = context;
-    crate::response::result::Continuation::new(crate::id::ToolId::LspSearch, rerun)
-        .confidence(Confidence::Medium)
-        .build()
+    crate::response::result::Continuation::new(crate::id::ToolId::LspSearch, rerun).build()
 }
 
 /// Whether the request already runs build scripts (`rustContext.buildScripts`).
@@ -142,9 +134,7 @@ pub(in super::super) fn runs_build_scripts(query: &LspSearchQuery) -> bool {
 
 /// An exact, executable `lspSearch` continuation.
 pub(in super::super) fn continuation(query: Value) -> Value {
-    crate::response::result::Continuation::new(ToolId::LspSearch, query)
-        .confidence(Confidence::Exact)
-        .build()
+    crate::response::result::Continuation::new(ToolId::LspSearch, query).build()
 }
 
 /// Name the row's coverage state where the row reports coverage details
@@ -180,11 +170,6 @@ pub(in super::super) fn mark_diagnostics_unpublished(
     row["reason"] = json!(format!(
         "The language server published no diagnostics for this document within {wait_ms} ms."
     ));
-    row["hints"] = json!(
-        empty_hint("diagnosticsNotPublished", "diagnostic")
-            .into_iter()
-            .collect::<Vec<_>>()
-    );
     partial_with_retry(row, query, "diagnosticsNotPublished", &[]);
 }
 

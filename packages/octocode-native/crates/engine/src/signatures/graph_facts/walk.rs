@@ -175,6 +175,15 @@ pub(super) fn visit_node(
         };
         if rust {
             context.unsupported |= rust_inner_unsupported(node, content);
+            if !context.test
+                && (context.attributes.cfg_test
+                    || super::rust_cfg::inner_cfg_requires_test(node, content))
+            {
+                let range = line_index.range(node);
+                acc.test_lines
+                    .push([range.start.line + 1, range.end.line + 1]);
+                context.test = true;
+            }
         }
         let active = declarations.last();
         let rust_node = rust.then_some(RustNodeContext {

@@ -239,7 +239,7 @@ fn patch_hops_are_the_same_file_page_at_the_stream_cursor() {
     assert_eq!(hop["offset"], 900, "{hop}");
     assert_eq!(
         notes,
-        [crate::response::pages::Remaining {
+        [crate::response::result::Remaining {
             page: "continuePatch".into(),
             left: "2 unfinished patches".into()
         }]

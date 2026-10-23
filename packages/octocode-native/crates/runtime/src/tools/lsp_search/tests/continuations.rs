@@ -267,3 +267,58 @@ async fn compact_reference_terminal_fit_preserves_controls_and_cursor_identity()
         assert_eq!(stale["errorCode"], "staleSnapshot");
     }
 }
+
+/// lspSearch recomputes page N from the page budget: page 1 asked for an
+/// absolute path over 128 characters and the `next.nextPage` its published
+/// response leads to (that path respelled workspace-relative) get the same
+/// budget, so the continuation starts exactly where page 1 stopped.
+#[tokio::test]
+async fn reference_next_page_keeps_page_one_budget() {
+    use serde_json::json;
+    let (_dir, root, paths) = temp_workspace();
+    let deep = (0..3).fold(root.join("deep"), |dir, level| {
+        let mut name = format!("level_{level}_{}", "x".repeat(60));
+        name.truncate(60);
+        dir.join(name)
+    });
+    std::fs::create_dir_all(&deep).expect("deep dir");
+    let file = deep.join("a.ts");
+    std::fs::write(&file, "const used = 1;\n".repeat(400)).expect("source");
+    let absolute = file.to_string_lossy().into_owned();
+    assert!(absolute.len() > 128, "{absolute}");
+    let uri = octocode_engine::lsp::uri::path_to_uri(&absolute).expect("uri");
+    let found = (0..400)
+        .map(|line| {
+            json!({"uri":uri,"content":"const used = 1;",
+                "range":{"start":{"line":line,"character":6},"end":{"line":line,"character":10}}})
+        })
+        .collect::<Vec<_>>();
+    let query =
+        query(json!({"operation":"references","path":absolute,"symbolName":"used","line":1}));
+    let window = 4_000;
+    let row = locations(
+        &query,
+        &mut SourceCache::new(&paths),
+        "references",
+        "referencesProvider",
+        found,
+        crate::response::page_windows::page_budget(
+            Some(window),
+            &lsp_search_query::to_row(&query),
+        ),
+        Some(window),
+    )
+    .await;
+    let row = with_next(&query, row);
+    assert_eq!(row["pagination"]["hasMore"], true, "page 1 leads on: {row}");
+    crate::tools::test_support::assert_next_page_keeps_the_budget(
+        crate::id::ToolId::LspSearch,
+        &lsp_search_query::to_row(&query),
+        &row,
+        &paths,
+        |window, row| {
+            let typed: LspSearchQuery = serde_json::from_value(row.clone()).expect("typed row");
+            crate::response::page_windows::page_budget(window, &lsp_search_query::to_row(&typed))
+        },
+    );
+}

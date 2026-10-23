@@ -221,3 +221,40 @@ fn rust_nonconventional_modules_and_macros_remain_explicitly_unsupported() {
     );
     assert!(codes(&value).contains(&"rustMacroExpansion".to_owned()));
 }
+
+/// Items compiled only under `cfg(test)` (an outer `#[cfg(test)]` or
+/// `#[cfg(all(test, …))]`, or an inner `#![cfg(test)]`) are reported once
+/// as 1-based `[start, end]` line spans; `not(test)` and `any(test, …)`
+/// also compile outside tests, so they are no test span.
+#[test]
+fn rust_cfg_test_items_are_test_line_spans() {
+    let value = facts(
+        "pub fn run() {}\n\
+         #[cfg(test)]\n\
+         mod tests {\n\
+         \x20   #[cfg(test)]\n\
+         \x20   mod nested {}\n\
+         \x20   use super::run;\n\
+         }\n\
+         #[cfg(test)]\n\
+         mod mounted;\n\
+         #[cfg(all(test, feature = \"x\"))]\n\
+         fn helper() {}\n\
+         #[cfg(not(test))]\n\
+         fn real() {}\n\
+         #[cfg(any(test, feature = \"x\"))]\n\
+         fn either() {}\n\
+         mod inner {\n\
+         \x20   #![cfg(test)]\n\
+         \x20   fn probe() {}\n\
+         }\n",
+        "src/lib.rs",
+    );
+    assert_eq!(
+        value["testLines"],
+        serde_json::json!([[3, 7], [9, 9], [11, 11], [16, 19]]),
+        "{value}"
+    );
+    let plain = facts("mod tests {}\n", "src/lib.rs");
+    assert!(plain.get("testLines").is_none(), "{plain}");
+}

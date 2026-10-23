@@ -6,13 +6,13 @@ use super::*;
 fn stale_snapshot_names_source_or_query() {
     for cause in ["source and query", "changed", "missing", "another call"] {
         assert!(
-            crate::response::pages::STALE_SNAPSHOT_ERROR.contains(cause),
+            crate::response::result::STALE_SNAPSHOT_ERROR.contains(cause),
             "{cause}"
         );
     }
-    assert!(!crate::response::pages::STALE_SNAPSHOT_ERROR.contains("next."));
+    assert!(!crate::response::result::STALE_SNAPSHOT_ERROR.contains("next."));
     // The next call: the row's one lead, `restart`.
-    assert!(crate::response::pages::STALE_SNAPSHOT_ERROR.contains("restart"));
+    assert!(crate::response::result::STALE_SNAPSHOT_ERROR.contains("restart"));
 }
 
 /// A restart the tool did not build is the one restart owner's: page 1
@@ -31,7 +31,7 @@ fn a_runtime_restart_drops_cursors_and_the_saved_selection() {
         data["next"]["restart"]["query"]["queries"][0],
         json!({"path":"a.rs"})
     );
-    assert_eq!(data["next"]["restart"]["confidence"], "exact");
+    assert!(data["next"]["restart"].get("confidence").is_none());
 }
 
 /// A content window states where it stands in its unit: the shown

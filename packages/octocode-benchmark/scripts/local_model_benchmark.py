@@ -61,7 +61,6 @@ def native_call(binary, name, arguments, root, timeout=40):
             raise ValueError('Request a page of at most 5000 characters; use returned continuations')
         env = dict(os.environ, OCTOCODE_BETA='1', ALLOWED_PATHS=str(root),
                    CARGO_NET_OFFLINE='true', GOPROXY='off', GOSUMDB='off', npm_config_offline='true')
-        env.pop('OCTOCODE_ALLOW_CONTRACT_DRIFT', None)
         proc = subprocess.run([str(binary), name, json.dumps(sent), '--json'], cwd=root, env=env,
                               capture_output=True, text=True, timeout=timeout)
         output = json.loads(proc.stdout)

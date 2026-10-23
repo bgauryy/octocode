@@ -90,6 +90,18 @@ pub(crate) struct FileFacts {
     pub stamp: Option<octocode_engine::stamp::SourceStamp>,
     /// What the scanned source says about the file (roles, entry markers).
     pub marks: super::store::classify::SourceMarks,
+    /// 1-based `[start, end]` spans of code compiled only under test (Rust
+    /// `#[cfg(test)]` items): their edges and declarations are test code.
+    pub test_lines: Vec<[u32; 2]>,
+}
+
+impl FileFacts {
+    /// Whether `line` lies in code compiled only under test.
+    pub(crate) fn test_scoped(&self, line: u32) -> bool {
+        self.test_lines
+            .iter()
+            .any(|[start, end]| (*start..=*end).contains(&line))
+    }
 }
 pub(crate) type Node = octocode_engine::graph::FileGraphNode;
 

@@ -4,7 +4,7 @@
 # skipped, so re-running the command retries only missing or invalid runs.
 #
 # MCP arms on the local build run a snapshot taken when the campaign starts (build/: the MCP
-# bundle plus the native package and addon), so a rebuild in another session cannot swap or
+# launcher bundle plus the native platform package), so a rebuild in another session cannot swap or
 # delete it mid-campaign. Set OCTO_MCP_CMD to run any other build or published version, or
 # OCTO_MCP_CMD_<arm> (dashes as underscores) to give one mcp-* arm its own build: snapshot
 # each variant with snapshot_build.sh and pass the command it prints.

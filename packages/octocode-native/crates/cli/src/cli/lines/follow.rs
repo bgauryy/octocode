@@ -144,7 +144,7 @@ pub(in super::super) fn command(tool: &str, json: &str) -> String {
         // double quotes reach the program intact from PowerShell 7.3.
         format!("octocode {tool} '{}'", json.replace('\'', "''"))
     } else {
-        format!("octocode {tool} '{}'", json.replace('\'', r"'\''"))
+        format!("octocode {tool} {}", octocode_io::shell::quote(json))
     }
 }
 

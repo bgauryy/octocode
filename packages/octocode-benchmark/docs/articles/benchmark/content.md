@@ -90,7 +90,7 @@ CLI and MCP are thin fronts over one shared path: receive the goal, validate and
 
 ![Left-to-right request path: Goal → CLI/MCP → tools-core → Validate & secure → Provider/engine → Bounded result](assets/octocode-request-flow.png)
 
-Under the hood, remote providers fetch GitHub and npm evidence. A Rust/napi engine handles local search, minification, structural analysis, and LSP. Caching avoids repeat fetches; line-aware pages and security sanitization keep payloads lean and safe.
+Under the hood, remote providers fetch GitHub and npm evidence. A native Rust engine handles local search, minification, structural analysis, and LSP. Caching avoids repeat fetches; line-aware pages and security sanitization keep payloads lean and safe.
 
 ![Architecture: CLI and MCP into shared tools-core, with arrows to metadata, remote evidence, and native engine, plus layered safety](assets/octocode-architecture.png)
 

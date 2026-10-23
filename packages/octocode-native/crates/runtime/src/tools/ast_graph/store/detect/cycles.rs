@@ -2,9 +2,9 @@
 use super::*;
 
 /// The file graph the stored tables hold, over the files `keep` admits:
-/// each `imports` edge between them under its kind, and each Rust `mod`
-/// declaration (a `contains` edge) as a module-tree edge — the input of the
-/// one cycle engine ([`Cycles`]).
+/// each production `imports` edge between them under its kind, and each
+/// Rust `mod` declaration (a `contains` edge) as a module-tree edge — the
+/// input of the one cycle engine ([`Cycles`]). Test edges close no cycle.
 pub(in super::super) fn file_graph(
     t: &GraphTables,
     keep: &dyn Fn(u32) -> bool,
@@ -18,7 +18,7 @@ pub(in super::super) fn file_graph(
         let entry = graph.entry(t.str(node.key).to_owned()).or_default();
         for edge in t.out(id) {
             let target = &t.nodes[edge.dst as usize];
-            if target.kind != NodeKind::File || !keep(edge.dst) {
+            if target.kind != NodeKind::File || !keep(edge.dst) || edge.test {
                 continue;
             }
             let kind = match edge.kind {
@@ -161,7 +161,7 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
     let mut names = Vec::new();
     for file in &v.files {
         if v.production(*file) && v.language(*file) != "go" {
-            let dir = parent_dir(v.key(*file));
+            let dir = dirname(v.key(*file));
             if !dirs.contains_key(dir) {
                 dirs.insert(dir, names.len() as u32);
                 names.push(dir);
@@ -170,12 +170,13 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
     }
     let mut adj = vec![BTreeMap::<u32, (u32, u32)>::new(); names.len()];
     for file in &v.files {
-        let Some(&from) = dirs.get(parent_dir(v.key(*file))) else {
+        let Some(&from) = dirs.get(dirname(v.key(*file))) else {
             continue;
         };
         for target in &v.out[*file as usize] {
-            if let Some(&to) = dirs.get(parent_dir(v.key(*target)))
+            if let Some(&to) = dirs.get(dirname(v.key(*target)))
                 && from != to
+                && !rust_module_lineage(v, *file, *target)
             {
                 adj[from as usize].entry(to).or_insert((*file, *target));
             }
@@ -229,4 +230,21 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
             },
         );
     }
+}
+
+/// Whether one of two Rust files is a module declared below the other
+/// (`tree.rs` or `tree/mod.rs` and `tree/child.rs`; a crate root and any
+/// module of its crate): one module tree, which is no directory coupling.
+fn rust_module_lineage(v: &View, a: u32, b: u32) -> bool {
+    let below = |parent: &str, child: &str| {
+        let dir = rust_module_child_dir(parent);
+        dir == "."
+            || child
+                .strip_prefix(dir.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+    };
+    let (a_key, b_key) = (v.key(a), v.key(b));
+    v.language(a) == "rust"
+        && v.language(b) == "rust"
+        && (below(a_key, b_key) || below(b_key, a_key))
 }

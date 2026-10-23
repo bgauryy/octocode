@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{PathPolicy, normalize};
+use super::{PathPolicy, normalize, projected_canonical_root};
 use crate::policy::{PolicyError, PolicyErrorCode};
 
 impl PathPolicy {
@@ -22,31 +22,37 @@ impl PathPolicy {
         }
     }
 
+    /// The allowed roots for a denial, as `redact` shows paths (never an
+    /// absolute home or workspace layout, in any build). The symlink-resolved
+    /// copy `add_root` keeps of a root is the same root, and a root inside
+    /// another allowed root grants nothing more: both are left out, and each
+    /// shown name appears once. Empty when there are no roots.
     pub(super) fn describe_roots(&self) -> String {
-        if self.roots.is_empty() {
+        let configured = self
+            .roots
+            .iter()
+            .enumerate()
+            .filter(|(index, root)| {
+                !self.roots[..*index]
+                    .iter()
+                    .any(|earlier| projected_canonical_root(earlier).as_ref() == Some(*root))
+            })
+            .map(|(_, root)| root)
+            .collect::<Vec<_>>();
+        let mut shown: Vec<String> = Vec::new();
+        for root in &configured {
+            let nested = configured
+                .iter()
+                .any(|other| other != root && root.starts_with(other));
+            let name = self.redact(root);
+            if !nested && !shown.contains(&name) {
+                shown.push(name);
+            }
+        }
+        if shown.is_empty() {
             return String::new();
         }
-        // Debug builds may surface the full filesystem layout to aid diagnosis.
-        if cfg!(debug_assertions) {
-            return format!(
-                " (allowed: {})",
-                self.roots
-                    .iter()
-                    .map(|root| root.to_string_lossy().into_owned())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        // Release builds must not leak absolute filesystem paths in user-facing
-        // errors; show only redacted/abbreviated roots.
-        format!(
-            " (allowed: {})",
-            self.roots
-                .iter()
-                .map(|root| self.redact(root))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+        format!(" (allowed: {})", shown.join(", "))
     }
 
     pub(super) fn io_error(&self, error: std::io::Error, input: &Path) -> PolicyError {

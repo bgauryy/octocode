@@ -181,10 +181,13 @@ const ZERO_BASED = /\b(0-based|zero-based|0-indexed|zero-indexed)\b/i;
  * - `responseOffset`: a character offset into the rendered response (or,
  *   with responseScope rows, a page index) — an offset, not a line/column.
  * - lspSearch `orderHint`: an index into the symbol list, not a source position.
+ * - clasify `questions`: a score answer is the index of its criterion in the
+ *   criteria array, not a source position.
  */
 const ZERO_BASED_ALLOWED = [
   /(^|\.)responseOffset\.description$/,
   /^lspSearch\.inputSchema\..*\.orderHint\.description$/,
+  /^clasify\.inputSchema\..*\.questions\.description$/,
 ];
 /** Published texts (descriptions at any depth) naming a 0-based coordinate. */
 export function zeroBasedTexts(published) {
@@ -244,23 +247,29 @@ export function silentOmissions(sc) {
 }
 
 // ---------- C5 description lint ----------
+/** Field-shaped words a note may carry besides camelCase names (core's KNOWN_FIELD_WORDS). */
+const NOTE_FIELD_WORDS = new Set(['commitSha', 'headSha', 'mergeCommitSha', 'localPath', 'sourceRef', 'line', 'endLine', 'number', 'path', 'repository', 'owner', 'repo', 'ref', 'dir', 'blocks', 'symbolName', 'location']);
 /**
- * One description: carries one <workflow> note; when the note names a neighbor
- * tool, it names one of that neighbor's published fields too. A note that
- * names no tool is a terminal workflow (cite lines, write files).
- * `publishedFields(tool)` → Set.
+ * One description: ends in one ` Next:` note (core's description grammar,
+ * octocode-core toolDescriptions.test.ts). Core's note rule
+ * (workflowNotes.test.ts): a note may route by purpose alone ("content →
+ * localSearch"), but every field word in a ";" segment that names a tool must
+ * be one a tool named there takes or this tool returns; a segment naming no
+ * tool is prose. `publishedFields(tool)` → Set.
  */
 export function descriptionLint(tool, description, toolNames, publishedFields, ownOutputs = new Set()) {
   const reasons = [];
-  const desc = String(description ?? '');
-  const note = /<workflow>([^<]+)<\/workflow>/.exec(desc)?.[1] ?? '';
-  const names = (fields, text) => [...(fields ?? [])].some(f => new RegExp(`(?<![\\w.])${f}(?![\\w])`).test(text));
-  const neighbors = toolNames.filter(t => t !== tool && new RegExp(`\\b${t}\\b`).test(desc));
-  if (!note) reasons.push('no <workflow> note');
-  if (!neighbors.length) return reasons;
-  // A note names what to carry: a neighbor's input field, or (core's workflow
-  // grammar) a field this tool returns, inside the note itself.
-  else if (!neighbors.some(n => names(publishedFields(n), desc)) && !names(ownOutputs, note)) reasons.push(`names ${neighbors.join(',')} but none of its fields`);
+  const note = / Next: (.+)$/.exec(String(description ?? ''))?.[1] ?? '';
+  if (!note) return ['no Next: note'];
+  for (const segment of note.split(';')) {
+    const named = toolNames.filter(t => new RegExp(`(?<![\\w.])${t}(?![\\w])`).test(segment));
+    if (!named.length) continue;
+    const words = [...segment.matchAll(/[A-Za-z]\w*/g)].map(match => match[0])
+      .filter(word => !toolNames.includes(word) && (NOTE_FIELD_WORDS.has(word) || /^[a-z]+[A-Z]\w*$/.test(word)));
+    for (const word of words)
+      if (!ownOutputs.has(word) && !named.some(t => publishedFields(t)?.has(word)))
+        reasons.push(`${word}: neither ${named.join('/')} takes it nor ${tool} returns it`);
+  }
   return reasons;
 }
 /** Check a core-measured MCP surface against its capability profile. */

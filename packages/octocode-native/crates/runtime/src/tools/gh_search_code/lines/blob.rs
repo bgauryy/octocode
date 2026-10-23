@@ -1,5 +1,5 @@
 //! One scanned blob: its keyword hits, their anchor, the listed lines and the declaration a hit names.
-use super::scoring::{clip, covering_window, first_hit, goal_terms, hit_score};
+use super::scoring::{covering_window, first_hit, goal_terms, hit_score};
 use super::{MAX_LINE_CHARS, MAX_LINES_PER_FILE};
 use crate::num::u32_of_usize;
 use crate::security::scan::ContentScan;
@@ -249,13 +249,14 @@ impl Blob<'_> {
                             .map(|(clean, _)| clean)
                     },
                     |clean, changed| {
-                        clip(
+                        octocode_engine::text::clip_around(
                             clean,
                             if changed {
                                 first_hit(clean, needles)
                             } else {
                                 at
                             },
+                            MAX_LINE_CHARS,
                         )
                     },
                 )

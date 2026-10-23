@@ -1,7 +1,7 @@
 //! GitHub search paging: the 1,000-result window, next pages, completeness and repair leads.
 use super::{GhFailure, RepoPath, repository_not_found, repository_search};
 use crate::id::ToolId;
-use crate::response::result::{Confidence, Continuation, query_row};
+use crate::response::result::{Continuation, query_row};
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 use serde_json::{Value, json};
 
@@ -154,9 +154,7 @@ pub(crate) fn add_next(
 fn page_replay(tool: ToolId, query: &impl serde::Serialize, page: usize) -> Value {
     let mut row = query_row(query, &[]);
     row["page"] = json!(page);
-    Continuation::new(tool, row)
-        .confidence(Confidence::Exact)
-        .build()
+    Continuation::new(tool, row).build()
 }
 
 /// The listing that checks an empty search's `path` scope (a path that is
@@ -174,11 +172,7 @@ pub(crate) fn path_check(row: &Value) -> Option<Value> {
         path: path.rsplit_once('/').map_or("", |(parent, _)| parent),
         reference: row["ref"].as_str(),
     };
-    Some(
-        at.lead(ToolId::GhStructure)
-            .confidence(Confidence::Exact)
-            .build(),
-    )
+    Some(at.lead(ToolId::GhStructure).build())
 }
 
 /// What GitHub said about one search page's completeness.

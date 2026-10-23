@@ -1,12 +1,10 @@
 {
   "name": "@octocodeai/octocode-native",
   "version": "20.2.0",
-  "description": "Native Octocode CLI and tool runtime",
+  "description": "Native Octocode CLI and MCP server",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "license": "MIT",
   "type": "module",
-  "main": "./js/runtime.cjs",
-  "types": "./js/runtime.d.ts",
   "engines": {
     "node": "^24.15.0"
   },
@@ -17,16 +15,6 @@
   },
   "bin": "./bin/octocode.cjs",
   "exports": {
-    ".": {
-      "types": "./js/runtime.d.ts",
-      "import": "./js/runtime.js",
-      "require": "./js/runtime.cjs"
-    },
-    "./runtime": {
-      "types": "./js/runtime.d.ts",
-      "import": "./js/runtime.js",
-      "require": "./js/runtime.cjs"
-    },
     "./bin/octocode.cjs": "./bin/octocode.cjs",
     "./bin/launch-native.cjs": "./bin/launch-native.cjs",
     "./bin/resolve-binary.cjs": "./bin/resolve-binary.cjs",
@@ -34,7 +22,6 @@
   },
   "files": [
     "bin",
-    "js",
     "docs/engine",
     "README.md"
   ],
@@ -62,11 +49,11 @@
     "check:target": "node scripts/build-native.cjs --check --target",
     "build:all": "yarn clean:binaries && node scripts/build-native.cjs --release --all",
     "clean": "cargo clean && yarn clean:binaries",
-    "clean:binaries": "find npm -type f \\( -name 'octocode' -o -name 'octocode.exe' -o -name '*.node' \\) -delete && rm -f octocode-native.*.node",
+    "clean:binaries": "find npm -type f \\( -name 'octocode' -o -name 'octocode.exe' \\) -delete",
     "clean:cache": "cargo clean --workspace --profile dev",
     "test": "yarn test:scripts && yarn test:node && yarn test:rust",
     "test:node": "vitest run",
-    "test:rust": "cargo nextest run --locked -p octocode-native -p octocode-github -p octocode-io -p octocode-cli -p octocode-runtime-napi --features octocode-runtime-napi/napi-test,octocode-native/dev-unify && cargo nextest run --locked -p octocode-engine --all-features",
+    "test:rust": "cargo nextest run --locked -p octocode-native -p octocode-github -p octocode-io -p octocode-cli --features octocode-native/dev-unify && cargo nextest run --locked -p octocode-engine --all-features",
     "coverage:rust": "node scripts/coverage-rust.cjs",
     "check:features": "cargo hack check --locked --workspace --each-feature",
     "test:scripts": "node tests/platform.test.cjs && node --test tests/build-publication.test.cjs",

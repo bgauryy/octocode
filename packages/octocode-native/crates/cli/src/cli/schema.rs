@@ -47,8 +47,14 @@ fn enabled(machine: &Value, name: &str) -> bool {
 /// tools this instance runs, as core renders them for MCP plus the CLI's own
 /// sections: a `text` part shows when any of its `tools` runs (always without
 /// `tools`); an `items` part fills `{items}` in `template` with the running
-/// items' text joined by `join`; `selection` parts need context selection.
-fn instructions(sections: &Value, has: impl Fn(&str) -> bool, selection: bool) -> String {
+/// items' text joined by `join`; `selection` parts need context selection;
+/// `cli` sections show only when `cli` is set (MCP omits them).
+pub(super) fn instructions(
+    sections: &Value,
+    has: impl Fn(&str) -> bool,
+    selection: bool,
+    cli: bool,
+) -> String {
     let runs = |tool: &Value| tool.as_str().is_some_and(&has);
     let shown = |part: &Value| -> Option<String> {
         if part["selection"] == true && !selection {
@@ -77,6 +83,7 @@ fn instructions(sections: &Value, has: impl Fn(&str) -> bool, selection: bool) -
         .as_array()
         .into_iter()
         .flatten()
+        .filter(|section| cli || section["cli"] != true)
         .filter_map(|section| {
             let tag = section["tag"].as_str()?;
             let parts = section["parts"]
@@ -179,6 +186,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
             &presentation["instructionSections"],
             |name| enabled(machine, name),
             machine["presentation"]["selection"] == true,
+            true,
         ),
     });
     if let Some(grammars) = grammar_instruction(&machine["grammarCapabilities"]) {
@@ -262,7 +270,7 @@ pub(super) fn tool_view(
 /// The lspSearch description with the language servers this runtime
 /// resolves, before its `If empty:`/`Next:` notes, as MCP shows it (core
 /// `getDirectToolDefinitionsWithAddons`): `Servers: rust, ts/js.`
-fn with_lsp_servers(description: &str, servers: &[&str]) -> String {
+pub(super) fn with_lsp_servers(description: &str, servers: &[&str]) -> String {
     let note = if servers.is_empty() {
         "No language server found.".to_owned()
     } else {

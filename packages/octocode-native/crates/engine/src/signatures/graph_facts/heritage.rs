@@ -53,7 +53,7 @@ pub(super) fn collect_heritage(
                 });
             }
         }
-        ("py" | "pyi", "class_definition") => {
+        ("py", "class_definition") => {
             if let Some(arguments) = node.child_by_field_name("superclasses") {
                 let mut cursor = arguments.walk();
                 for argument in arguments.named_children(&mut cursor) {

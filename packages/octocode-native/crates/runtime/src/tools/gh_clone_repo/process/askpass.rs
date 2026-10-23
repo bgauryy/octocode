@@ -53,11 +53,11 @@ impl AskPass {
              {password}*) printf '%s\\n' {token} ;;\n\
              *) exit 1 ;;\n\
              esac\n",
-            user = shell_quote(&format!("Username for '{scheme}://{authority}'")),
-            password = shell_quote(&format!(
+            user = octocode_io::shell::quote(&format!("Username for '{scheme}://{authority}'")),
+            password = octocode_io::shell::quote(&format!(
                 "Password for '{scheme}://x-access-token@{authority}'"
             )),
-            token = shell_quote(token),
+            token = octocode_io::shell::quote(token),
         );
         let mut file = octocode_io::atomic::create_new(&helper.script, 0o700)
             .map_err(|error| failed(error.to_string()))?;
@@ -78,9 +78,4 @@ impl Drop for AskPass {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.directory);
     }
-}
-
-/// `text` as one single-quoted POSIX shell word.
-fn shell_quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "'\\''"))
 }

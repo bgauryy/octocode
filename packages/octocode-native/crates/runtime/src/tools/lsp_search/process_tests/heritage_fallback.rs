@@ -342,5 +342,11 @@ fn implementation_on_a_member_keeps_the_server_failure() {
     let failure = implementation_failing_row("implementation", ("b.ts", "run", 1, 2))
         .expect_err("no scan can answer a member");
     assert_eq!(failure.code, ErrorCode::RequestFailed);
-    assert!(!failure.hint.contains("workspaceRoot"), "{}", failure.hint);
+    let tip = crate::response::rows::error_code_hint(
+        ToolId::LspSearch,
+        failure.code,
+        &serde_json::json!({"operation": "implementation", "path": "b.ts", "symbolName": "run", "line": 1}),
+    )
+    .expect("a request failure's tip");
+    assert!(!tip.contains("workspaceRoot"), "{tip}");
 }

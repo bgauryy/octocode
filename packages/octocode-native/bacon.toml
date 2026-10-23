@@ -24,8 +24,8 @@ need_stdout = false
 [jobs.test]
 command = [
     "cargo", "nextest", "run", "--hide-progress-bar", "--failure-output", "final",
-    "--locked", "-p", "octocode-native", "-p", "octocode-github", "-p", "octocode-io", "-p", "octocode-cli", "-p", "octocode-runtime-napi",
-    "--features", "octocode-runtime-napi/napi-test,octocode-native/dev-unify",
+    "--locked", "-p", "octocode-native", "-p", "octocode-github", "-p", "octocode-io", "-p", "octocode-cli",
+    "--features", "octocode-native/dev-unify",
 ]
 need_stdout = true
 analyzer = "nextest"

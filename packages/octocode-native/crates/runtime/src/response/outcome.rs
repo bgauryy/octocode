@@ -22,7 +22,7 @@ pub(crate) struct DomainResult {
     pub failure: Option<FailureKind>,
     /// The tool's typed notes of what its pages leave to read
     /// ([`crate::response::result::ToolData::remaining`]).
-    pub remaining: Vec<crate::response::pages::Remaining>,
+    pub remaining: Vec<crate::response::result::Remaining>,
 }
 
 impl DomainResult {

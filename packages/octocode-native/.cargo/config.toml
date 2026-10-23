@@ -30,7 +30,7 @@
 #   cargo dev-test -- tools::local_search::         # a runtime unit-test module
 # tests/build-publication.test.cjs keeps this alias equal to `test:rust`.
 [alias]
-dev-test = "test --locked -p octocode-native -p octocode-github -p octocode-io -p octocode-cli -p octocode-runtime-napi --features octocode-runtime-napi/napi-test,octocode-native/dev-unify"
+dev-test = "test --locked -p octocode-native -p octocode-github -p octocode-io -p octocode-cli --features octocode-native/dev-unify"
 
 # ── sccache: cache rustc invocations across branches / clean builds ───────────
 # 60–80% faster on a warm cache. Tradeoff: sccache disables incremental

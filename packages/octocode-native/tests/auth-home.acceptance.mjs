@@ -1,4 +1,5 @@
-// Run after native, CLI, and MCP debug builds. All secrets and homes are fixtures.
+// Run after native, CLI, and MCP builds (OCTOCODE_NATIVE_BIN with NODE_ENV=development
+// points both launchers at a debug binary). All secrets and homes are fixtures.
 import assert from 'node:assert/strict';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -11,18 +12,13 @@ import {
   stat,
 } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const require = createRequire(import.meta.url);
-const { NativeRuntime } = require(
-  join(root, 'packages/octocode-native/js/runtime.cjs')
-);
 const credential = (hostname, token = 'synthetic-home-token') => ({
   hostname,
   username: 'home-fixture-user',
@@ -142,6 +138,10 @@ const env = {
   ALLOWED_PATHS: dir,
   OCTOCODE_ENABLE_STATS: 'false',
   GITHUB_API_URL: `http://127.0.0.1:${server.address().port}/api/v3`,
+  ...(process.env.OCTOCODE_NATIVE_BIN && {
+    NODE_ENV: process.env.NODE_ENV,
+    OCTOCODE_NATIVE_BIN: process.env.OCTOCODE_NATIVE_BIN,
+  }),
 };
 const cli = (...args) =>
   run([join(root, 'packages/octocode/out/octocode.js'), ...args], env);
@@ -167,22 +167,16 @@ const connectMcp = async () => {
   );
   return mcpClient;
 };
-let runtime, client;
+let client;
 try {
   await seedHome(home, [credential('127.0.0.1'), credential(logoutHost)]);
-  // A fresh runtime loads the Node-written home.
-  runtime = new NativeRuntime({ surface: 'mcp', env });
+  // A fresh process loads the Node-written home.
   const status = JSON.parse(await cli('auth', 'status', '--json'));
   assert.equal(status.tokenSource, 'octocode-storage');
   // GitHub accepted the home token: the verified login is the fixture's.
   assert.equal(status.verification, 'verified');
   assert.equal(status.username, 'http-fixture-user');
   assert.ok(!JSON.stringify(status).includes('synthetic-'));
-  const addon = await runtime.executeMcp('home-addon', 'ghGetFileContent', {
-    queries: [query],
-  });
-  assert.ok(JSON.stringify(addon).includes('home store works'));
-  assert.ok(!JSON.stringify(addon).includes('synthetic-'));
   client = await connectMcp();
   const mcp = await client.callTool({
     name: 'ghGetFileContent',
@@ -228,25 +222,19 @@ try {
   // can still use gh. (A running process keeps its pinned selection.)
   await writeFile(join(home, 'credentials.json'), 'corrupt');
   await client.close();
-  await runtime.close();
-  runtime = new NativeRuntime({ surface: 'mcp', env });
   client = await connectMcp();
   expected = 'synthetic-gh-token';
   const fallback = JSON.parse(await cli('auth', 'status', '--json'));
   assert.equal(fallback.tokenSource, 'gh-cli');
   assert.equal(fallback.username, 'http-fixture-user');
-  for (const result of [
-    await runtime.executeMcp('gh-fallback-addon', 'ghGetFileContent', {
-      queries: [query],
-    }),
+  const result = JSON.stringify(
     await client.callTool({
       name: 'ghGetFileContent',
       arguments: { queries: [query] },
-    }),
-  ]) {
-    assert.ok(JSON.stringify(result).includes('home store works'));
-    assert.ok(!JSON.stringify(result).includes('synthetic-'));
-  }
+    })
+  );
+  assert.ok(result.includes('home store works'));
+  assert.ok(!result.includes('synthetic-'));
   assert.equal(
     await readFile(join(home, 'credentials.json'), 'utf8'),
     'corrupt'
@@ -256,7 +244,6 @@ try {
     JSON.stringify({
       nodeFormatRead: 'passed',
       cli: 'passed',
-      addon: 'passed',
       stdioMcp: 'passed',
       homeIsolation: 'passed',
       homeLogout: 'passed',
@@ -271,7 +258,6 @@ try {
   );
 } finally {
   await client?.close();
-  await runtime?.close();
   await new Promise(done => server.close(done));
   await rm(dir, { recursive: true, force: true });
 }

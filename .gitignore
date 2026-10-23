@@ -29,14 +29,12 @@ packages/octocode-benchmark/local/e2e/.octocode/
 !packages/*/README.md
 !packages/*/npm/*/README.md
 
-# ─── Rust / NAPI packages ───────────────────────────────────────────────────
+# ─── Rust packages ──────────────────────────────────────────────────────────
 # Cargo build artefacts
 target/
 .octocode-*-target/
-# Compiled NAPI native bindings — built locally per platform, never committed
-*.node
-# Compiled native CLI binaries in platform packages — built per platform at
-# publish time, never committed (mirrors the *.node policy above).
+# Compiled native binaries in platform packages — built per platform at
+# publish time, never committed.
 packages/*/npm/*/octocode
 packages/*/npm/*/octocode.exe
 # cargo-mutants run output (current and previous run)

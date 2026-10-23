@@ -20,6 +20,7 @@ mod auth_discovery;
 mod contract_field_effects;
 mod lock_poison_policy;
 mod runtime_artifact_search;
+mod runtime_ast_page_walks;
 mod runtime_batch_indices;
 mod runtime_batch_response;
 mod runtime_clasify;

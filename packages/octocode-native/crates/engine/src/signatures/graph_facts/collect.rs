@@ -1,14 +1,15 @@
 //! Declaration and call facts of one node.
 
 use super::imports::{
-    collect_c_include, collect_csharp_using, collect_rust_module, collect_rust_use,
+    collect_c_include, collect_csharp_using, collect_rust_include, collect_rust_module,
+    collect_rust_use,
 };
 use super::positions::NodePositions;
 use super::python::collect_python_imports;
 use super::walk::{
     RustNodeContext, is_grouped_go_import, is_item_level, method_kind, push_macro_gap,
 };
-use super::{GraphAccumulator, heritage, rust};
+use super::{GraphAccumulator, heritage};
 use tree_sitter::Node;
 
 use crate::graph::{
@@ -112,9 +113,8 @@ pub(super) fn collect_node_facts(
     {
         collect_rust_module(node, content, line_index, acc, rust);
     } else if rust.is_some() && node.kind() == "macro_invocation" {
-        rust::collect_rust_include(node, content, line_index, acc);
-    } else if matches!(acc.ext.as_str(), "py" | "pyi")
-        && matches!(node.kind(), "import_statement" | "import_from_statement")
+        collect_rust_include(node, content, line_index, acc);
+    } else if acc.ext == "py" && matches!(node.kind(), "import_statement" | "import_from_statement")
     {
         collect_python_imports(node, content, line_index, acc);
     } else if node.kind() == "preproc_include" {

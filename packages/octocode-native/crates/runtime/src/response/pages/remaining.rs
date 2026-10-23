@@ -1,19 +1,12 @@
 use super::{WARNINGS, is_complete};
 use crate::id::ToolId;
 use crate::id::continuation_channels::PAGES_KEY;
+use crate::response::result::Remaining;
 use serde_json::{Map, Value};
 
 /// The row key that carries the engine's [`Remaining`] notes until the
 /// stage renders them; never public.
 pub(super) const REMAINING: &str = "remaining";
-
-/// A page of a row that leaves a counted rest to read: the page's `next`
-/// name and what is left (`17 more files`), as data.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct Remaining {
-    pub page: String,
-    pub left: String,
-}
 
 /// Notes on `row` every page of its data that `tool` leaves remaining with
 /// a counted rest: the tool's `typed` note of a page (a count only the tool

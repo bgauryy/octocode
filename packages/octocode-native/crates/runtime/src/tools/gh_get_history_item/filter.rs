@@ -146,7 +146,7 @@ pub(super) enum PathPattern {
 
 impl PathPattern {
     pub(super) fn parse(pattern: &str) -> Result<Self, String> {
-        if !pattern.contains(['*', '?', '[', '{']) {
+        if !pattern.contains(octocode_engine::search::glob::GLOB_META) {
             return Ok(Self::Scope(pattern.to_owned()));
         }
         GlobBuilder::new(pattern)

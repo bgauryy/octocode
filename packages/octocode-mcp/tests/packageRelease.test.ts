@@ -5,14 +5,11 @@ import { describe, expect, it } from 'vitest';
 interface PackageManifest {
   version: string;
   bin: string;
-  main: string;
-  exports: {
-    '.': {
-      types: string;
-      import: string;
-    };
-  };
+  main?: unknown;
+  exports?: unknown;
   files: string[];
+  dependencies: Record<string, string>;
+  optionalDependencies: Record<string, string>;
 }
 
 interface DxtManifest {
@@ -101,13 +98,26 @@ describe('published package release contract', () => {
     expect(packageJson.files).toContain(dxtManifest.icon);
     expect(existsSync(resolve(packageRoot, dxtManifest.icon))).toBe(true);
   });
+});
 
-  it('keeps the root programmatic import aligned with its declarations', () => {
-    expect(packageJson.exports['.']).toEqual({
-      types: './dist/public.d.ts',
-      import: './dist/public.js',
-    });
-    expect(packageJson.main).toBe('dist/public.js');
+describe('published launcher package', () => {
+  const packageJson = readJson<PackageManifest>('package.json');
+
+  it('is a launcher: one executable, no library entry, the binary from platform packages', () => {
     expect(packageJson.bin).toBe('dist/index.js');
+    expect(packageJson.main).toBeUndefined();
+    expect(packageJson.exports).toBeUndefined();
+    expect(Object.keys(packageJson.dependencies)).toEqual([
+      '@typescript/native-preview',
+    ]);
+    expect(
+      Object.keys(packageJson.optionalDependencies).length
+    ).toBeGreaterThan(0);
+    for (const [name, version] of Object.entries(
+      packageJson.optionalDependencies
+    )) {
+      expect(name).toMatch(/^@octocodeai\/octocode-native-/);
+      expect(version).toBe(packageJson.version);
+    }
   });
 });

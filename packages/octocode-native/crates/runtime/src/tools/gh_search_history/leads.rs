@@ -3,7 +3,6 @@
 use super::rows::{is_completed, is_merged, item_number, item_repo, read_target};
 use super::{GhSearchHistoryQuery, HistorySearch};
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::leads::broaden::{Broaden, broaden};
@@ -43,16 +42,16 @@ pub(super) fn read_pull_request(q: &GhSearchHistoryQuery, items: &[Value]) -> Op
         .map(|(owner, repo)| (owner.to_owned(), repo.to_owned()))
         .or_else(|| item_repo(&items[target]))?;
     let number = item_number(&items[target])?;
+    let read = Continuation::new(
+        ToolId::GhGetHistoryItem,
+        pr_read_query(&owner, &repo, number),
+    );
     Some(
-        Continuation::new(
-            ToolId::GhGetHistoryItem,
-            pr_read_query(&owner, &repo, number),
-        )
-        .confidence(if is_merged(&items[target]) {
-            Confidence::Medium
+        if is_merged(&items[target]) {
+            read
         } else {
-            Confidence::Low
-        })
+            read.approximate()
+        }
         .build(),
     )
 }
@@ -70,11 +69,7 @@ pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value])
     if let Some(path) = gh_search_history_query::path(q) {
         read["include"] = json!([path]);
     }
-    Some(
-        Continuation::new(ToolId::GhGetHistoryItem, read)
-            .confidence(Confidence::High)
-            .build(),
-    )
+    Some(Continuation::new(ToolId::GhGetHistoryItem, read).build())
 }
 
 /// The PR holding a commit no headline names: issue search matches PRs
@@ -86,7 +81,6 @@ pub(super) fn find_commit_pull_request(q: &GhSearchHistoryQuery, sha: &str) -> O
             ToolId::GhSearchHistory,
             json!({"operation":"pullRequest","owner":owner,"repo":repo,"keywords":[sha]}),
         )
-        .confidence(Confidence::High)
         .build(),
     )
 }
@@ -101,7 +95,7 @@ pub(super) fn read_issue(q: &GhSearchHistoryQuery, items: &[Value]) -> Option<Va
             ToolId::GhGetHistoryItem,
             issue_read_query(owner, repo, number),
         )
-        .confidence(Confidence::Low)
+        .approximate()
         .build(),
     )
 }
@@ -118,7 +112,7 @@ pub(super) fn read_commit(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> 
     }
     Some(
         Continuation::new(ToolId::GhGetHistoryItem, read)
-            .confidence(Confidence::Low)
+            .approximate()
             .build(),
     )
 }
@@ -141,7 +135,6 @@ pub(super) fn issue_links_read(q: &GhSearchHistoryQuery) -> Option<Value> {
             ToolId::GhGetHistoryItem,
             json!({"operation":"issue","owner":owner,"repo":repo,"number":number}),
         )
-        .confidence(Confidence::High)
         .build(),
     )
 }
@@ -175,11 +168,7 @@ pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
     } else {
         row["qualifiers"] = json!(kept);
     }
-    Some(
-        Continuation::new(ToolId::GhSearchHistory, row)
-            .confidence(Confidence::Medium)
-            .build(),
-    )
+    Some(Continuation::new(ToolId::GhSearchHistory, row).build())
 }
 
 /// Result page `page` (the cursor [`crate::response::paging::next_cursor`]
@@ -188,9 +177,7 @@ pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize, page_size: usize)
     let mut next = same_query(q);
     next["page"] = json!(page);
     next["pageSize"] = json!(page_size);
-    Continuation::new(ToolId::GhSearchHistory, next)
-        .confidence(Confidence::Exact)
-        .build()
+    Continuation::new(ToolId::GhSearchHistory, next).build()
 }
 
 /// An empty search, broadened ([`broaden`]): `qualifiers`, the
@@ -241,10 +228,9 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
         })
     };
     let mut row = same_query(q);
-    let resumed = match sort.as_deref() {
+    match sort.as_deref() {
         Some("committer-date") => {
             row["until"] = json!(last(&["/commit/committer/date", "/commit/author/date"])?);
-            true
         }
         Some("created") => {
             if q.filters().created.is_some() {
@@ -252,7 +238,6 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
             }
             let bound = if newest_first { "until" } else { "since" };
             row[bound] = json!(last(&["/created_at"])?);
-            true
         }
         Some("updated") if q.filters().updated.is_none() => {
             let date = last(&["/updated_at"])?;
@@ -262,25 +247,15 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
                 Some(qualifiers) => format!("{} {term}", qualifiers.trim()),
                 None => term,
             });
-            true
         }
         _ => {
             row["sort"] = json!("created:desc");
-            false
         }
-    };
+    }
     crate::contracts::validate(
         ToolId::GhSearchHistory.as_str(),
         json!({ "queries": [row] }),
     )
     .ok()?;
-    Some(
-        Continuation::new(ToolId::GhSearchHistory, row)
-            .confidence(if resumed {
-                Confidence::Exact
-            } else {
-                Confidence::Medium
-            })
-            .build(),
-    )
+    Some(Continuation::new(ToolId::GhSearchHistory, row).build())
 }

@@ -10,7 +10,6 @@ RUNNER_KIND="${RUNNER:-claude}"
 command -v "$RUNNER_KIND" >/dev/null && ok "$RUNNER_KIND installed" || bad "$RUNNER_KIND not found"
 gh auth status >/dev/null 2>&1 && ok "GitHub authenticated" || bad "GitHub auth unavailable"
 command -v pi >/dev/null && ok "pi judge installed" || bad "pi judge not found"
-unset OCTOCODE_ALLOW_CONTRACT_DRIFT
 for arm in ${1//,/ }; do
   case "$arm" in
     mcp|mcp-*|local-mcp|local-mcp-*)

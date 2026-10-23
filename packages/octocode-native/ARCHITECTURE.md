@@ -1,18 +1,18 @@
 # Native tool runtime architecture
 
-`octocode-native` is the sole public tool execution owner and the npm distribution owner for the native CLI and runtime addon.
+`octocode-native` is the sole public tool execution owner and the npm distribution owner for the native binary (CLI and MCP server).
 
 ```text
-native CLI ───────────────────┐
+octocode <tool> (CLI) ────────┐
                              ├──▶ Rust ToolRuntime
-Node MCP → N-API adapter ─────┘       ├── generated octocode-core contracts
+octocode mcp (stdio MCP) ─────┘       ├── generated octocode-core contracts
                                       ├── config and security policy
                                       ├── providers, credentials, and caches
                                       ├── tool orchestration and responses
                                       └── octocode-engine primitives
 ```
 
-The CLI never loads N-API or JavaScript. The MCP addon and native CLI call the same Rust runtime. The Node CLI owns process startup only; Rust owns command parsing, output, interactive selection, skills, and the browser configuration server. The separate Node MCP adapter owns its protocol framing and registration.
+Neither interface loads JavaScript. The CLI commands and `octocode mcp` run in the same binary and call the same Rust runtime. The Node launchers (`octocode`, `octocode-mcp`) own process startup only; Rust owns command parsing, output, interactive selection, skills, the browser configuration server and the MCP server. `octocode mcp` (rmcp) owns protocol framing for both eras (2025-11-25 `initialize`, 2026-07-28 `server/discover`) and lists tools from the embedded presentation; execution, validation and response shaping are the runtime's.
 
 GitHub materialization separates acquisition from persistence. `tools/gh_structure/materialize`
 owns listing order, provider reads, limits, and continuations; its `snapshot` module owns
@@ -53,15 +53,15 @@ Production imports point one way: `id`/`num` → `contracts` → `policy` → `c
 | `contracts` | Generated schemas/rules, defaults, validation, and canonical contract fingerprint | Provider or tool execution |
 | `execution` | The request kernel: `ExecutionContext`/`ExecutionError`, cooperative cancellation, the runtime's code limits, and per-runtime tool availability | Anything from response, providers, tools or runtime |
 | `runtime` | Admission, dispatch and ordered bulk orchestration (execution codes include `responseTooLarge` and `unroutedTool`). `runtime/error.rs` is the one projection of a rejected call: `tool_error_result` builds the `{error, details?, errorCode}` envelope and its one-line text for CLI JSON, the terminal, the warm server and MCP | CLI presentation or MCP SDK types |
-| `policy` / `security` | Path, content, command, and secret policy; the one error scrubber (`scrub_error_text` / `scrub_error_payload`) shared by the CLI and N-API | Interface-specific behavior |
+| `policy` / `security` | Path, content, command, and secret policy; the one error scrubber (`scrub_error_text` / `scrub_error_payload`) shared by the CLI and MCP | Interface-specific behavior |
 | `providers` / `cache` | Remote DTOs (GitHub, artifact registries, classification and its Jev wire validator), HTTP, retries, credentials, endpoint caches | CLI or MCP framing |
 | `tools` | Public operations composed from shared runtime services and engine primitives | Independent config, auth, or response systems |
 | `response` | Contract-checked rows, compression, pagination, continuations, sanitized rendering, and the result vocabulary tools write (`result`, `paging`, `page_windows`, `numbered`, `output`, `outcome`, `exit` classification) | Tool execution |
 | `tools/lsp_search` + `runtime/domain_dispatch` | Runtime composition around the engine language-server pool (pool owned by the runtime engine, dispatched and prewarmed through `domain_dispatch`) | A second lifecycle implementation |
 | `tools/<shared>` (the list and each module's purpose live in `tools/module_boundaries.rs` `SHARED_MODULES`) | Logic two or more tools use: for example `empty_walk` (why an empty local walk is empty and the minimal flags that lift it), `leads` (follow-up queries one tool offers into another), `declarations_cache`, `gh_shared`, `source_view` (the one view engine over fetched source text: localFetch and ghGetFileContent render through it), `source_capture` (its `SourceReader` trait is how clasify reads through the runtime's dispatcher without naming it) | Tool-specific behavior. The guard rejects every tool-to-tool and shared-to-tool edge. |
 | `tools/ast_graph/store` | CLI-only persisted code graph (`npx octocode graph ingest` / `graph query`): immutable snapshots under `<workspace>/.octocode/graph/` | A public tool contract or MCP surface |
-| `crates/runtime-napi` | Host conversion and native runtime lifecycle | An alternate execution path |
-| `crates/cli` | Arguments, human output, and shell exits | Node, N-API, or duplicated tools |
+| `crates/cli` | Arguments, human output, and shell exits | Node or duplicated tools |
+| `crates/cli/src/cli/mcp_server/` | The stdio MCP server: tool and instruction listing composed from the embedded presentation and runtime catalog (`listing.rs`), request dispatch into the runtime and era-specific response metadata (`handler.rs`), startup, signals and shutdown (`mod.rs`) | Tool behavior or contract text |
 | `crates/cli/src/cli/serve/` | The warm server for read-only CLI tool calls: socket, runtimes per directory and environment on one language-server pool, and its limits ([README](README.md#warm-tool-server)) | Tool behavior |
 | `crates/cli/src/cli/mcp_install.rs`, `mcp_manage.rs`, `mcp_clients.rs` | MCP client configuration writers and the client path catalogue | Tool execution |
 | `crates/cli/src/cli/lsp_provision/` | Verified language-server downloads: allowlisted hosts, SHA-256 pinned assets, bounded time and size, streamed through an owner-only spool file under a per-target `flock` | Engine LSP discovery |
@@ -75,9 +75,9 @@ worker-thread isolation, sanitizer errors, and minifier fallback stay with their
 owners. These independent threads and recovery policies cannot be replaced by
 an outer row catch. Consumers call each engine operation at its defining module.
 
-Six crates, and these Cargo edges only: `engine` and `io` are leaves;
-`github` → `io`; `runtime` → `io`, `engine`, `github`; `cli` → `io`, `runtime`,
-`engine`, `github`; `runtime-napi` → `runtime`. `crates/runtime` is a pure `rlib`.
+Six crates, and these Cargo edges only: `engine`, `io` and `contract-types` are
+leaves; `github` → `io`, `contract-types`; `runtime` → `io`, `engine`, `github`,
+`contract-types`; `cli` → `io`, `runtime`, `engine`, `github`, `contract-types`. `crates/runtime` is a pure `rlib`.
 `crates/io` owns the primitives the crates above the engine share, among them
 the one in-process memo outside the engine and the keyed single flight around it
 ([`crates/io/src/lib.rs`](crates/io/src/lib.rs) lists them and the engine's own caches).
@@ -92,8 +92,7 @@ GitHub content reads take one flight per `(partition, commit, path)`, and a cach
 body at a resolved commit is served without revalidation; a movable ref stays
 fresh through its own memoized resolution. Runtime keeps configuration,
 credential selection, cache policy, and generated tool contracts. `crates/cli`
-owns the `octocode` binary; `crates/runtime-napi` owns the runtime `cdylib` and
-its Node conversions. All six crates inherit one workspace version and remain
+owns the `octocode` binary (CLI and MCP server). All six crates inherit one workspace version and remain
 unpublished Cargo packages.
 
 In-memory page and scan memos (`tools/page_memo.rs`, `octocode_io::memo`) are
@@ -126,11 +125,11 @@ read its memory. If the complete
 result cannot be retained, the runtime returns it intact with an oversized
 disclosure instead of offering an unreachable page.
 
-The engine's `scan_budget` holds the time and walk budget of an unbounded scan (no caller `maxFiles`): it stops at a chunk boundary past the budget and returns the walk-order index to resume from, and `lsp/module_path` anchors bundled language-server lookup at the loaded module (the N-API addon or the CLI binary), not at `current_exe()`, which is `node` under MCP.
+The engine's `scan_budget` holds the time and walk budget of an unbounded scan (no caller `maxFiles`): it stops at a chunk boundary past the budget and returns the walk-order index to resume from, and `lsp/module_path` anchors bundled language-server lookup at `current_exe()`, the one native binary.
 
-`crates/engine` is consumed as a Rust library with its default grammar set. PCRE2 is unconditional, structural matching is implemented by the engine’s `structural/octo` modules over the shared Tree-sitter registry, and the default build includes every grammar. It exposes reusable algorithms, not public policy, and has no N-API surface; `crates/runtime-napi` does not depend on it. Engine errors carry a `reason` and an `ErrorKind`.
+`crates/engine` is consumed as a Rust library with its default grammar set. PCRE2 is unconditional, structural matching is implemented by the engine’s `structural/octo` modules over the shared Tree-sitter registry, and the default build includes every grammar. It exposes reusable algorithms, not public policy, and has no host-interface surface. Engine errors carry a `reason` and an `ErrorKind`.
 
-Tension: the engine is described as algorithms, not policy, yet it owns the language-server pool and its process IO (`lsp/pool.rs`, `lsp/client.rs`). Those stay in the engine so the CLI daemon and the N-API addon share one pool; moving them out is a design decision, not a cleanup.
+Tension: the engine is described as algorithms, not policy, yet it owns the language-server pool and its process IO (`lsp/pool.rs`, `lsp/client.rs`). Those stay in the engine so the CLI daemon and the MCP server share one pool; moving them out is a design decision, not a cleanup.
 
 AST declaration extraction indexes local export aliases by symbol name in the engine
 and polls cancellation during outline construction. Runtime owns a bounded cache of
@@ -259,18 +258,14 @@ the migration fixtures preserve installer reports and filesystem behavior.
 
 ## Build modes
 
-`scripts/build-native.cjs` selects `octocode-cli` and `octocode-runtime-napi` in
-one Cargo invocation, so shared dependencies resolve with one feature set for the
-host artifacts.
+`scripts/build-native.cjs` builds `octocode-cli` (all its binaries) in one Cargo
+invocation with the committed lockfile.
 
-- Binary builds select `octocode-cli` and contain the full CLI/runtime. Neither host crate declares default Cargo features.
-- Every build stages the host binaries into their platform package so the local CLI launcher executes the rebuilt runtime. Staging (binaries and addons) atomically replaces each inode — never an in-place overwrite, which can crash a running MCP server that has the addon mapped or leave a stale macOS code-signature cache.
-- Runtime addon builds select `octocode-runtime-napi` and expose the same runtime to MCP. Its optional `napi-test` feature is for Rust tests only.
-- Each platform package contains the optimized native CLI and runtime addon.
-- Root entrypoints `.`/`./runtime` load the runtime addon lazily.
-- Darwin addons are ad-hoc signed after staging because target-specific linker signatures are not a sufficient loadability guarantee.
-- Host-platform staging and platform verification load the addon in a subprocess before release acceptance.
-- Release acceptance exercises the direct native CLI, the built Node launcher, direct N-API calls, and real stdio MCP calls.
+- The binary contains the full CLI, the MCP server and the runtime. The crate declares no default Cargo features.
+- Every build stages the host binary into its platform package so the local launchers execute the rebuilt runtime. Staging atomically replaces the inode — never an in-place overwrite, which can crash a running MCP server or leave a stale macOS code-signature cache.
+- Each platform package contains the optimized native binary only; there is no addon and no root entrypoint that loads one.
+- Host-platform staging and platform verification run the binary in a subprocess before release acceptance.
+- Release acceptance exercises the direct native CLI, the built Node launchers, and real stdio MCP calls (`octocode mcp` directly and through `octocode-mcp`).
 
 Rust crate extraction does not create new npm packages. Build commands use the
 committed lockfile; release preparation synchronizes versions before compilation,

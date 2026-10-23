@@ -54,6 +54,7 @@ fn help_lists_only_the_minimal_command_surface() {
         "auth",
         "skill",
         "install",
+        "mcp",
     ] {
         assert!(
             text.contains(&format!("\n  {tool}")),
@@ -103,7 +104,7 @@ fn tool_help_uses_canonical_core_short_descriptions() {
     // The tool commands are exactly the contract tools: a tool dropped from
     // the contract must not linger as a command, and none may be missing.
     let system = [
-        "schema", "config", "auth", "graph", "skill", "install", "help",
+        "schema", "config", "auth", "graph", "skill", "install", "mcp", "help",
     ];
     let mut listed_tools = stdout(&root)
         .split("Commands:")

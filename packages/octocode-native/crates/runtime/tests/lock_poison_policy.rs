@@ -74,7 +74,7 @@ fn no_production_lock_is_skipped_when_poisoned() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let pattern = skip_pattern();
     let mut offenders = Vec::new();
-    for krate in ["engine", "github", "io", "runtime", "cli", "runtime-napi"] {
+    for krate in ["engine", "github", "io", "runtime", "cli"] {
         let mut files = Vec::new();
         rust_sources(&crates.join(krate).join("src"), &mut files);
         for file in files {

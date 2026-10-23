@@ -7,7 +7,7 @@ use crate::{
     config::ConfigOutput,
     id::{ToolFamily, ToolId},
     policy::path::PathPolicy,
-    response::outcome::DomainResult,
+    response::outcome::{DomainResult, Upstream},
     security::{CheckedQuery, ContentSecurity},
     tools::lsp_search::{LspExecutionConfig, prewarm},
 };
@@ -246,12 +246,18 @@ impl DomainDispatcher {
                     // not a provider failure.
                     context.check()?;
                     let missing = failure.code == ErrorCode::PathNotFound;
-                    let mut row = dispatch::provider_failure(
-                        failure.message,
+                    // No tip here: the response stage states the code's tip
+                    // for lspSearch (`ToolOutput::error_hint`).
+                    let mut row = DomainResult::provider(
                         failure.code,
-                        vec![failure.hint.into()],
+                        failure.message,
+                        Vec::new(),
                         None,
-                        Some(failure.retryable),
+                        Upstream {
+                            retryable: failure.retryable,
+                            http_status: None,
+                            rate_limit: None,
+                        },
                     );
                     // The same recovery every local tool gives a missing path.
                     if missing

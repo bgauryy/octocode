@@ -114,10 +114,8 @@ fn an_indivisible_fragment_flags_its_page_oversized() {
 #[test]
 fn a_page_request_builds_only_that_pages_fragments() {
     let structured = envelope();
-    let full = Value::Object(structured.clone()).to_string();
     let (_, first) = paginate_rows(
         structured.clone(),
-        &full,
         &options(700, 0, None),
         Vec::new(),
         &[],
@@ -128,7 +126,6 @@ fn a_page_request_builds_only_that_pages_fragments() {
     MATERIALIZED.with(|count| count.set(0));
     let (page, _) = paginate_rows(
         structured,
-        &full,
         &options(700, last, Some(first.snapshot.clone())),
         Vec::new(),
         &[],

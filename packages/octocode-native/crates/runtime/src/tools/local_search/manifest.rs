@@ -15,6 +15,7 @@
 use super::super::page_memo::{PageMemo, Proof};
 use super::layout::FilePrice;
 use super::packed::Packed;
+use super::sources::Digest;
 pub use super::verify::Redaction;
 pub use super::walked::Walked;
 use crate::policy::discovery::WalkSkips;
@@ -36,11 +37,8 @@ const MAX_TOTAL_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 const TTL: Duration = Duration::from_secs(60);
 
-/// SHA-256 of a matched file's bytes.
-pub type Digest = [u8; 32];
-
 /// A matched file as it was when its scan was stored.
-struct Source {
+pub(super) struct Source {
     path: String,
     digest: Digest,
 }
@@ -149,15 +147,6 @@ pub struct Stored {
 
 /// Stored scans, weighed by their kept bytes.
 static STORE: PageMemo<Scan> = PageMemo::new(TTL, MAX_ENTRIES, MAX_TOTAL_BYTES);
-
-/// Streamed SHA-256 of the regular file at `path` (a FIFO or link fails).
-pub fn digest_file(path: &std::path::Path) -> std::io::Result<Digest> {
-    let (file, _) = octocode_engine::text::open_regular(path)?;
-    let (_, hex) = octocode_engine::digest::copy_hashed(file, std::io::sink())?;
-    let mut digest = [0; 32];
-    hex::decode_to_slice(hex, &mut digest).map_err(std::io::Error::other)?;
-    Ok(digest)
-}
 
 /// `value` packed for storage, or `None` when it is too large to store.
 #[cfg(test)]
@@ -304,11 +293,16 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
 }
 
 /// Hash `path` and check every match value against the hashed bytes; `None`
-/// when the file is unreadable, over `budget`, or no longer holds a value.
-fn read_source(path: String, matches: &[TextSearchMatch], budget: &mut u64) -> Option<Source> {
+/// when the file is unreadable, over `budget`, no longer a regular file (a
+/// FIFO or link swapped in since the walk), or no longer holds a value.
+pub(super) fn read_source(
+    path: String,
+    matches: &[TextSearchMatch],
+    budget: &mut u64,
+) -> Option<Source> {
     // Bounded by the budget left: a file grown past it is refused unread.
     let octocode_engine::text::Source { bytes, metadata } =
-        octocode_engine::text::read_source(std::path::Path::new(&path), *budget).ok()?;
+        octocode_engine::text::read_regular(std::path::Path::new(&path), *budget).ok()?;
     let size = u64::try_from(bytes.len()).ok()?;
     // A length other than the handle's own means it was written meanwhile.
     if size != metadata.len() {
@@ -429,7 +423,7 @@ mod tests {
                     column: 0,
                     byte_offset: 0,
                     value: value.into(),
-                    value_digest: Sha256::digest(value.trim().as_bytes()).into(),
+                    value_digest: TextSearchMatch::digest_of(value),
                     count: None,
                     rank: None,
                     original_chars: None,
@@ -469,7 +463,7 @@ mod tests {
         let stored = get(snapshot, "policy").expect("consistent scan stored");
         let digest: Digest = Sha256::digest(held.as_bytes()).into();
         assert_eq!(stored.digests.get(&path), Some(&digest));
-        assert_eq!(digest_file(&path).ok(), Some(digest));
+        assert_eq!(super::super::sources::digest_file(&path).ok(), Some(digest));
     }
 
     /// A file the search hashed is stored with the search's digest and is

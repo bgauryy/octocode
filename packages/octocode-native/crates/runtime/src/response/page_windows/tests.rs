@@ -235,6 +235,55 @@ fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
     }
 }
 
+/// Each field a continuation respells ([`RESPELLED_FIELDS`]) costs the same
+/// in any spelling: page 1 with an absolute path and page 2 with the
+/// workspace-relative one are cut from one budget, so no row falls between
+/// them. That holds past the fixed reserve ([`RESPELLED_CHARS`]) and for
+/// text the window counts in UTF-16 units.
+#[test]
+fn every_respelled_field_costs_the_same_in_any_spelling() {
+    let deep = |chars: usize| {
+        let segment = format!("/{}", "d".repeat(59));
+        let mut path = segment.repeat(chars.div_ceil(60));
+        path.truncate(chars);
+        path
+    };
+    let spellings = [
+        "/private/var/folders/nf/tf_qg9k56l97qnkcc2b_w5z40000gn/T/.tmpSS5f3Z/work/outline/src"
+            .to_owned(),
+        "outline/src".to_owned(),
+        ".".to_owned(),
+        deep(300),
+        deep(1_000),
+        deep(1_000)[1..].to_owned(),
+        "/work/日本語/パッケージ/源代码/😀/src".to_owned(),
+        "日本語/パッケージ/源代码/😀/src".repeat(12),
+    ];
+    assert!(spellings.iter().any(|path| path.len() > RESPELLED_CHARS * 2));
+    for field in RESPELLED_FIELDS {
+        let spelled = |path: &str| {
+            let mut query = serde_json::json!({"matchString": "x"});
+            query[field] = serde_json::json!(path);
+            query
+        };
+        let absolute = spelled(&spellings[0]);
+        let reserve = reserve_chars(&absolute, 2);
+        let budget = page_budget(Some(20_000), &absolute);
+        for path in &spellings {
+            let query = spelled(path);
+            // The reserve itself, so the `window / 2` floor of a small
+            // window cannot hide a difference.
+            assert_eq!(reserve_chars(&query, 2), reserve, "{field}: {path}");
+            assert_eq!(page_budget(Some(20_000), &query), budget, "{field}: {path}");
+            assert_eq!(page_budget(Some(4_000), &query), page_budget(Some(4_000), &absolute));
+        }
+        // A respelled field still has room reserved: it is copied into
+        // each continuation.
+        let without = serde_json::json!({"matchString": "x"});
+        assert!(page_budget(Some(20_000), &without) > budget, "{field}");
+    }
+}
+
 /// A walk's page budget measures only fields that select rows: every
 /// cursor, intent field and `clasifyContext` is left out, so a
 /// continuation is cut like the first page.

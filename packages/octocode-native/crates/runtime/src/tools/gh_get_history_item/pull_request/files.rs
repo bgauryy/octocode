@@ -71,7 +71,6 @@ pub(super) fn shape_files_section(
             &pr_menu::ChangeSides {
                 new_ref: str_at(raw, "/head/sha").filter(|_| merge_read.is_none() || unpatched),
                 old_ref: str_at(raw, "/base/sha").filter(|sha| !sha.is_empty()),
-                old_confidence: crate::response::result::Confidence::Medium,
             },
             |file| file_filter.matches(file),
         )

@@ -27,7 +27,7 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
     let row = json!({"id":"research","operation":"sections","resources":resources,
             "questions":(0..7).map(|question| (format!("q/{question}"), json!({"type":"choice","criteria":(0..13).map(|option| (format!("option-{option}"), Value::Null)).collect::<Map<_,_>>()}))).collect::<Map<_,_>>(),
             "next":{"nextSectionPage":{"tool":"clasify","query":{"queries":[{"operation":"sections","assessment":"next"}]}}}});
-    let plan = RowPlan::new(vec![row], &[None], 1_800, Some(crate::id::ToolId::Clasify));
+    let plan = PreparedRows::new(vec![row], &[None], Some(crate::id::ToolId::Clasify)).plan(1_800);
     assert!(plan.total_pages > 1);
     let mut seen = std::collections::BTreeMap::new();
     let mut definitions = 0;
@@ -78,7 +78,7 @@ fn declared_collections_leave_a_single_oversized_answer_whole() {
     let answer = json!({"status":"answered","answer":{"type":"choice","choice":probabilities.keys().next().expect("option"),"confidence":0.0,"probabilities":probabilities}});
     let row = json!({"id":"research","operation":"sections","questions":{"q":{"type":"choice"}},
             "resources":{"r":{"sections":[{"id":"s","target":{"bytes":[0,1],"lines":[1,1]},"answers":{"q":answer}}]}}});
-    let plan = RowPlan::new(vec![row], &[None], 500, Some(crate::id::ToolId::Clasify));
+    let plan = PreparedRows::new(vec![row], &[None], Some(crate::id::ToolId::Clasify)).plan(500);
     assert_eq!(plan.total_pages, 1);
     let rows = plan.build_page(0, &[None], &[]);
     assert_eq!(
@@ -102,7 +102,7 @@ fn large_resource_identity_does_not_force_one_page_per_small_answer() {
     let row = json!({"id":"research","operation":"sections",
             "resources":{"r":{"source":{"url":format!("https://example.test/{}","x".repeat(4000))},
             "sections":[{"id":"s","target":{"bytes":[0,1],"lines":[1,1]},"answers":answers}]}}});
-    let plan = RowPlan::new(vec![row], &[None], 500, Some(crate::id::ToolId::Clasify));
+    let plan = PreparedRows::new(vec![row], &[None], Some(crate::id::ToolId::Clasify)).plan(500);
     assert_eq!(plan.total_pages, 1);
     let rows = plan.build_page(0, &[None], &[]);
     assert_eq!(
@@ -125,7 +125,7 @@ fn answer_fragments_continue_their_only_section() {
         .collect::<Map<_, _>>();
     let row = json!({"id":"research","operation":"sections",
             "resources":{"r/~0":{"sections":[{"id":"s","target":{"bytes":[0,1],"lines":[1,1]},"answers":answers}]}}});
-    let plan = RowPlan::new(vec![row], &[None], 600, Some(crate::id::ToolId::Clasify));
+    let plan = PreparedRows::new(vec![row], &[None], Some(crate::id::ToolId::Clasify)).plan(600);
     assert!(plan.total_pages > 1);
     let mut seen = Map::new();
     let mut fragments = 0;

@@ -13,7 +13,6 @@ impl<'a> Projector<'a> {
         for (file, facts) in &built.facts {
             let language = self.lang(file);
             let eco = ecosystem(language);
-            let test_scopes = test_module_ranges(facts, language);
             for import in facts
                 .imports
                 .iter()
@@ -32,11 +31,7 @@ impl<'a> Projector<'a> {
                 if eco == "cargo" && declared == Declared::Unknown {
                     continue;
                 }
-                if declared != Declared::Builtin
-                    && test_scopes
-                        .iter()
-                        .any(|(start, end)| (*start..=*end).contains(&import.line))
-                {
+                if declared != Declared::Builtin && facts.test_scoped(import.line) {
                     declared = Declared::TestScoped;
                 }
                 packages.entry(name.clone()).or_insert(eco);
@@ -74,12 +69,14 @@ impl<'a> Projector<'a> {
         relinked: &BTreeSet<(&str, u32)>,
         calls: CallStats,
     ) -> Projection {
+        // Production evidence outranks test evidence, then the earliest line.
         self.edges.sort_by(|a, b| {
-            (a.src, a.kind, a.dst, a.detail, a.line, a.confidence).cmp(&(
+            (a.src, a.kind, a.dst, a.detail, a.test, a.line, a.confidence).cmp(&(
                 b.src,
                 b.kind,
                 b.dst,
                 b.detail,
+                b.test,
                 b.line,
                 b.confidence,
             ))
@@ -87,10 +84,11 @@ impl<'a> Projector<'a> {
         self.edges.dedup_by(|b, a| {
             a.src == b.src && a.kind == b.kind && a.dst == b.dst && a.detail == b.detail
         });
-        // Between two nodes, the earliest evidence comes first: a walk that
-        // shows one edge per neighbor cites the file's first reference.
+        // Between two nodes, the earliest production evidence comes first: a
+        // walk that shows one edge per neighbor cites the file's first
+        // production reference, and a test reference only when it is all.
         self.edges
-            .sort_by_key(|e| (e.src, e.kind, e.dst, e.line, e.detail, e.confidence));
+            .sort_by_key(|e| (e.src, e.kind, e.dst, e.test, e.line, e.detail, e.confidence));
         let built = self.built;
         let mut diagnostics = built
             .diagnostics

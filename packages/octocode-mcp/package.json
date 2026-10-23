@@ -1,25 +1,20 @@
 {
   "name": "octocode-mcp",
-  "description": "Model Context Protocol (MCP) server for advanced GitHub repository analysis and code discovery. Provides AI assistants with powerful tools to search, analyze, and understand codebases across GitHub.",
+  "description": "Model Context Protocol (MCP) server for code research across GitHub, npm, local files and LSP. A launcher for the native Octocode binary's MCP server.",
   "version": "20.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": "dist/index.js",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.3.1",
-    "@octocodeai/octocode-core": "21.0.1",
-    "@octocodeai/octocode-native": "20.2.0",
     "@typescript/native-preview": "7.0.0-dev.20260707.2"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/client": "^2.3.1",
     "@octocodeai/config": "workspace:*",
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "^5.0.4",
     "esbuild": "^0.28.2",
     "prettier": "^3.9.10",
-    "rollup": "^4.64.6",
-    "rollup-plugin-dts": "^6.5.1",
     "typescript": "^6.0.3",
     "typescript-language-server": "^6.0.2",
     "vite": "^8.3.4",
@@ -29,15 +24,8 @@
   "engines": {
     "node": "^24.15.0"
   },
-  "exports": {
-    ".": {
-      "types": "./dist/public.d.ts",
-      "import": "./dist/public.js"
-    }
-  },
   "files": [
-    "dist/*.js",
-    "dist/**/*.d.ts",
+    "dist/index.js",
     "dist/docs/**",
     "assets/logo.png",
     "manifest.json",
@@ -68,7 +56,6 @@
     "typescript"
   ],
   "license": "MIT",
-  "main": "dist/public.js",
   "mcp": {
     "type": "stdio",
     "command": "octocode-mcp",
@@ -84,9 +71,8 @@
     "directory": "packages/octocode-mcp"
   },
   "scripts": {
-    "build": "yarn check:manifest && yarn clean && node build.mjs && yarn build:types && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
-    "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && yarn build:types && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
-    "build:types": "tsc --emitDeclarationOnly --outDir dist/.types -p tsconfig.build.json && node scripts/bundle-dts.mjs",
+    "build": "yarn check:manifest && yarn clean && node build.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
+    "build:dev": "node build.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
     "check:manifest": "node scripts/sync-manifest.mjs --check",
     "clean": "rm -rf dist/",
     "format": "prettier --write src tests",
@@ -94,11 +80,19 @@
     "sync:manifest": "node scripts/sync-manifest.mjs",
     "test": "vitest run --coverage",
     "test:acceptance": "yarn test:boundary && cd ../.. && node packages/octocode-mcp/tests/integration/stdio.acceptance.mjs --cli-mcp-parity",
-    "test:boundary": "node tests/native/node-boundary.mjs && node tests/native/addon-boundary.mjs && node tests/native/response-pagination.mjs dist/index.js dist/index.js",
+    "test:boundary": "node tests/native/response-pagination.mjs",
     "test:contracts:classification": "cd ../.. && node packages/octocode-mcp/tests/integration/clasify-availability.acceptance.mjs && node packages/octocode-mcp/tests/integration/selection-execution.acceptance.mjs",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "type": "module",
-  "types": "dist/public.d.ts"
+  "optionalDependencies": {
+    "@octocodeai/octocode-native-darwin-arm64": "20.2.0",
+    "@octocodeai/octocode-native-darwin-x64": "20.2.0",
+    "@octocodeai/octocode-native-linux-arm64-gnu": "20.2.0",
+    "@octocodeai/octocode-native-linux-x64-gnu": "20.2.0",
+    "@octocodeai/octocode-native-linux-x64-musl": "20.2.0",
+    "@octocodeai/octocode-native-win32-arm64-msvc": "20.2.0",
+    "@octocodeai/octocode-native-win32-x64-msvc": "20.2.0"
+  }
 }

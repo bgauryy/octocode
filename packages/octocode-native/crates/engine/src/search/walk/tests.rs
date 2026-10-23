@@ -243,10 +243,10 @@ fn prune_skips_named_directories_below_the_root_only() {
     walk.filter_entry(move |entry| !prune.prunes_entry(entry));
     let files: BTreeSet<String> = walk
         .build()
-    .filter_map(Result::ok)
-    .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
-    .map(|entry| relative(&root, entry.path()))
-    .collect();
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
+        .map(|entry| relative(&root, entry.path()))
+        .collect();
     assert_eq!(files, BTreeSet::from(["src/a.rs".to_owned()]));
 }
 

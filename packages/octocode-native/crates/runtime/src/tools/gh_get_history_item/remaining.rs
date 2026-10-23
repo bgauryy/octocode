@@ -6,7 +6,8 @@
 //! block, and become the row's [`Remaining`] notes
 //! ([`crate::response::result::ToolData::remaining`]).
 use super::axis::Axis;
-use crate::response::pages::{Remaining, counted, items_left, more};
+use crate::response::pages::{counted, items_left, more};
+use crate::response::result::Remaining;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 

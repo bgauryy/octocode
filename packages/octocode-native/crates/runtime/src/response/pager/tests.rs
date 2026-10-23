@@ -1,6 +1,8 @@
 //! Response pager tests.
 
 use super::*;
+use crate::response::cursor::{Cursor, PageScope};
+use crate::response::page_model::ResponsePageOptions;
 use serde_json::json;
 mod rows;
 mod structured;

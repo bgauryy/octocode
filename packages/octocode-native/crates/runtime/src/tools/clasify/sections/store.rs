@@ -46,15 +46,7 @@ impl Sessions {
         std::fs::create_dir_all(disk)
             .map_err(|_| unavailable("The assessment storage directory is unavailable."))?;
         loop {
-            let mut options = std::fs::OpenOptions::new();
-            options.create(true).truncate(false).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt as _;
-                options.mode(0o600);
-            }
-            let file = options
-                .open(disk.join(name))
+            let file = octocode_io::lock::open_lock_file(&disk.join(name))
                 .map_err(|_| unavailable("The assessment transaction lock is unavailable."))?;
             let wait = context
                 .deadline

@@ -260,7 +260,7 @@
     "ghSearchRepo": {
       "evidence": [
         "src/tools/gh_search_repo/tests.rs",
-        "tests/runtime_github.rs",
+        "tests/runtime_github/batches.rs",
         "src/response/extras/tests.rs",
         "src/response/extras/sorted_tests.rs",
         "src/response/extras/picked_tests.rs"
@@ -338,7 +338,7 @@
     "ghSearchCode": {
       "evidence": [
         "src/tools/gh_search_code/query.rs",
-        "tests/runtime_github.rs",
+        "tests/runtime_github/refs.rs",
         "src/tools/selection/tests/plan_token.rs",
         "src/tools/selection/tests/plan_binding.rs",
         "src/tools/selection/tests/admission.rs",
@@ -427,7 +427,7 @@
       "evidence": [
         "src/tools/gh_structure/tests.rs",
         "src/tools/gh_structure/materialize/tests.rs",
-        "tests/runtime_github.rs",
+        "tests/runtime_github/materialize.rs",
         "tests/runtime_gh_structure.rs"
       ],
       "variants": [
@@ -519,7 +519,7 @@
         "src/tools/local_fetch/tests/views.rs",
         "src/tools/local_fetch/tests/wire.rs",
         "src/tools/source_view/block/tests.rs",
-        "tests/runtime_github.rs",
+        "tests/runtime_github/file_reads.rs",
         "src/tools/selection/tests/plan_token.rs",
         "src/tools/selection/tests/plan_binding.rs",
         "src/tools/selection/tests/admission.rs",
@@ -636,8 +636,9 @@
     "ghSearchHistory": {
       "evidence": [
         "src/tools/gh_search_history/tests/terms.rs",
-        "src/tools/gh_search_history/tests/provider.rs",
-        "tests/runtime_github_history.rs",
+        "src/tools/gh_search_history/tests/provider/request_fields.rs",
+        "src/tools/gh_search_history/tests/provider/rows.rs",
+        "tests/runtime_github_history/search.rs",
         "src/response/extras/tests.rs",
         "src/response/extras/sorted_tests.rs",
         "src/response/extras/picked_tests.rs"
@@ -717,8 +718,8 @@
     },
     "ghGetHistoryItem": {
       "evidence": [
-        "src/tools/gh_get_history_item/mod.rs",
-        "tests/runtime_github_history.rs",
+        "src/tools/gh_get_history_item/tests.rs",
+        "tests/runtime_github_history/commits.rs",
         "tests/runtime_github_compare/pages.rs"
       ],
       "variants": [
@@ -820,7 +821,8 @@
         "src/providers/artifact/exact_lookup_tests.rs",
         "src/providers/artifact/version_gate_tests.rs",
         "src/providers/artifact/crates/tests.rs",
-        "src/providers/artifact/go.rs",
+        "src/providers/artifact/go/discovery_tests.rs",
+        "src/providers/artifact/go/tests.rs",
         "src/providers/artifact/packagist.rs",
         "src/providers/artifact/pypi/tests.rs",
         "src/providers/artifact/rubygems.rs",
@@ -890,8 +892,10 @@
     },
     "ghCloneRepo": {
       "evidence": [
-        "src/tools/gh_clone_repo/tests.rs",
-        "src/tools/gh_clone_repo/cache.rs"
+        "src/tools/gh_clone_repo/tests/caching.rs",
+        "src/tools/gh_clone_repo/tests/sparse.rs",
+        "src/tools/gh_clone_repo/tests/rows.rs",
+        "src/tools/gh_clone_repo/cache/tests.rs"
       ],
       "variants": [
         "ghCloneRepo"
@@ -1090,11 +1094,22 @@
     },
     "structureSearch": {
       "evidence": [
-        "src/tools/structure_search/tests/mod.rs",
+        "src/tools/structure_search/tests/inputs.rs",
+        "src/tools/structure_search/tests/lines.rs",
+        "src/tools/structure_search/tests/files.rs",
+        "src/tools/structure_search/tests/tree.rs",
         "src/tools/structure_search/tests/budget.rs",
+        "src/tools/structure_search/tests/budget/resume.rs",
+        "src/tools/structure_search/tests/budget/windows.rs",
         "src/tools/structure_search/tests/ignore.rs",
         "src/tools/structure_search/tests/listing.rs",
+        "src/tools/structure_search/tests/pages.rs",
+        "src/tools/structure_search/tests/read_leads.rs",
+        "src/tools/structure_search/tests/skips.rs",
+        "src/tools/structure_search/tests/walk_ceiling.rs",
         "src/tools/structure_search/tests/scans.rs",
+        "src/tools/structure_search/tests/summaries.rs",
+        "src/tools/structure_search/tests/probes.rs",
         "tests/runtime_local/walks.rs"
       ],
       "variants": [
@@ -1222,11 +1237,16 @@
     },
     "astSearch": {
       "evidence": [
-        "src/tools/ast_search/mod.rs",
-        "src/tools/ast_search/policy_tests.rs",
+        "src/tools/ast_search/execute_tests.rs",
+        "src/tools/ast_search/errors.rs",
+        "src/tools/ast_search/policy_tests/grammar_windows.rs",
+        "src/tools/ast_search/policy_tests/languages.rs",
+        "src/tools/ast_search/policy_tests/walk.rs",
         "src/tools/ast_search/file_language_tests.rs",
         "tests/runtime_local/lsp_ast.rs",
-        "src/tools/ast_search/rule_tests.rs",
+        "src/tools/ast_search/rule_tests/patterns.rs",
+        "src/tools/ast_search/rule_tests/rules.rs",
+        "src/tools/ast_search/rule_tests/syntax_tree.rs",
         "../engine/src/structural/octo/tests/patterns.rs",
         "../engine/src/structural/octo/tests/rules.rs",
         "src/tools/ast_search/region_tests.rs",

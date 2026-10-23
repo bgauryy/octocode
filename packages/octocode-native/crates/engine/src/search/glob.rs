@@ -13,6 +13,17 @@ use ignore::overrides::{Override, OverrideBuilder};
 
 use crate::error::{Error, ErrorKind};
 
+/// The characters that make a pattern a glob rather than a literal path or
+/// name: every reading of an `include` entry tests against this one set.
+pub const GLOB_META: [char; 4] = ['*', '?', '[', '{'];
+
+/// Whether `pattern` is a bare word: no `/` and no [`GLOB_META`] character.
+/// An `include` entry that is one names a file or directory by a part of its
+/// name rather than a path or a glob.
+pub fn is_bare_word(pattern: &str) -> bool {
+    !pattern.contains('/') && !pattern.contains(GLOB_META)
+}
+
 /// A request's `include` and `exclude` globs, compiled once for a walk rooted
 /// at `root`.
 #[derive(Clone, Debug)]
@@ -193,6 +204,16 @@ impl IncludeScope {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bare_word_has_no_slash_and_no_glob_character() {
+        for word in ["local_fetch", "main.rs", "", "a-b"] {
+            assert!(is_bare_word(word), "{word:?}");
+        }
+        for pattern in ["src/api", "*.rs", "a?", "[ab]", "{a,b}", "src/**"] {
+            assert!(!is_bare_word(pattern), "{pattern:?}");
+        }
+    }
 
     /// A skipped directory is in an include list's scope when a path below it
     /// could match a glob; a skipped file when a glob matches it.

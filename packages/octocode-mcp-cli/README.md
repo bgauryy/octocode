@@ -18,7 +18,7 @@ try {
 }
 ```
 
-`connectStdio` and `connectStreamableHttp` perform the MCP handshake through `@modelcontextprotocol/sdk`. `cliFromMcp` takes that connected `Client`. Server instructions are the default output and the root `--help`. Each tool name is a command. The tool description is that command's `--help` lead. The tool `inputSchema` is the usage line and the FLAGS section. `runCli` sends `tools/call` with the flag values and prints the tool result.
+`connectStdio` and `connectStreamableHttp` perform the MCP handshake through `@modelcontextprotocol/client`. `cliFromMcp` takes that connected `Client`. Server instructions are the default output and the root `--help`. Each tool name is a command. The tool description is that command's `--help` lead. The tool `inputSchema` is the usage line and the FLAGS section. `runCli` sends `tools/call` with the flag values and prints the tool result.
 
 `connectStreamableHttp(url)` is the same path for a Streamable HTTP server.
 

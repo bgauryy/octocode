@@ -11,7 +11,6 @@
 //! leading child skipped by `scanOffset`). A directory that alone holds more
 //! candidates than the ceiling has no such scope: no narrower `path` reaches
 //! its files, which is a typed terminal limit.
-use crate::response::result::Confidence;
 use octocode_engine::types::{EntryType, FileSystemQueryOptions, FileSystemQueryResult};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -343,11 +342,7 @@ pub(super) fn narrowed(query: &Value, reach: &Reach) -> Option<Value> {
         }
     }
     let narrowed = crate::response::result::with_changes(query.clone(), &changes);
-    Some(
-        crate::response::result::Continuation::new(ToolId::AstSearch, narrowed)
-            .confidence(Confidence::Exact)
-            .build(),
-    )
+    Some(crate::response::result::Continuation::new(ToolId::AstSearch, narrowed).build())
 }
 
 #[cfg(test)]

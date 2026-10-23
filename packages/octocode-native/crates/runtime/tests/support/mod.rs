@@ -20,7 +20,16 @@ mod cursor;
 mod providers;
 mod workspace;
 
+// The cli integration tests mount this module by path and use only part of it.
+#[allow(
+    unused_imports,
+    reason = "the cli integration tests share this support module"
+)]
 pub use cursor::{assert_cursor_only, cursor_at_offset, cursor_offset, cursor_response};
+#[allow(
+    unused_imports,
+    reason = "the cli integration tests share this support module"
+)]
 pub use providers::{PROVIDER_LIMITS, capture_allowed, clasify_runtime, github_api, provider_env};
 pub use workspace::Workspace;
 

@@ -3,14 +3,12 @@
 //! changed files as path+stat, patch lines numbered on their own side).
 use super::{HistoryItemRequest, execute};
 use crate::id::ToolId;
-use crate::security::scan::ContentScan;
+use crate::security::scan::Passthrough;
 use crate::tools::gh_shared::test_support::{fixture_context, mock_provider};
 use crate::tools::test_support::{checks, published};
-use octocode_contract_types::ErrorCode;
 use octocode_github::RetryPolicy;
 use octocode_github::mock_http::mount_json;
 use serde_json::{Value, json};
-use std::path::Path;
 use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -25,17 +23,6 @@ mod pull_request;
 const BASE: &str = "1111111111111111111111111111111111111111";
 const HEAD: &str = "2222222222222222222222222222222222222222";
 const MERGE_BASE: &str = "3333333333333333333333333333333333333333";
-
-struct Passthrough;
-impl ContentScan for Passthrough {
-    fn sanitize(
-        &self,
-        text: &str,
-        _path: &Path,
-    ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
-        Ok((text.to_owned(), Vec::new()))
-    }
-}
 
 async fn read(server: &MockServer, row: Value) -> Value {
     let provider = mock_provider(server, RetryPolicy::default());

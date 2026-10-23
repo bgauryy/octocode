@@ -2,7 +2,7 @@ import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { Client } from '@modelcontextprotocol/client';
 import { cliFromMcp, connectClient, createStdioTransport } from '../src/from-mcp.js';
 import { runCli, type CliIo } from '../src/run.js';
 import type { CliSpec } from '../src/spec.js';

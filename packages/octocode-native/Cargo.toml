@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/engine", "crates/github", "crates/io", "crates/contract-types", "crates/runtime", "crates/cli", "crates/runtime-napi"]
+members = ["crates/engine", "crates/github", "crates/io", "crates/contract-types", "crates/runtime", "crates/cli"]
 default-members = ["crates/cli"]
 # libFuzzer targets: their own workspace and lockfile (fuzz/Cargo.toml).
 exclude = ["fuzz"]
@@ -18,19 +18,14 @@ publish = false
 repository = "https://github.com/bgauryy/octocode.git"
 
 # ── Shared dependency versions ────────────────────────────────────────────────
-# Dependencies shared across crates, or that are ABI/security-critical, are
-# centralized. The napi / napi-derive / napi-build trio is ABI-critical: the
-# runtime addon must compile against one N-API ABI. Crate-local single-consumer
-# deps stay in their own manifest — a single-use version has no second place to
-# drift to.
+# Dependencies shared across crates, or that are security-critical, are
+# centralized. Crate-local single-consumer deps stay in their own manifest — a
+# single-use version has no second place to drift to.
 #
 # `optional` is a per-crate concern and cannot live here. Per-crate
 # `features = [...]` are additive on top of the baseline declared here (see
 # tokio / windows-sys).
 [workspace.dependencies]
-napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"] }
-napi-derive = { version = "3" }
-napi-build = { version = "2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 regex = "1"

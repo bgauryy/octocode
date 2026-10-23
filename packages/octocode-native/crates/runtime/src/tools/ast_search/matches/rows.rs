@@ -1,6 +1,9 @@
-//! Match rows, scope gaps and the repairs a page offers.
-use super::*;
-use crate::response::result::Confidence;
+//! Match rows and the diagnostics a scan reports.
+use super::query::MatchQuery;
+use crate::id::ToolId;
+use crate::response::result::ToolError;
+use octocode_engine::structural::{StructuralDetailedMatch, StructuralDiagnostic};
+use serde_json::{Value, json};
 
 /// One match row, an object: `line`, `column` (1-based), `endLine` for a
 /// multi-line match, and `value` (source text or a marked, bounded prefix). With
@@ -145,208 +148,7 @@ pub(super) fn continuation_with(q: MatchQuery<'_>, changes: Value, snapshot: &st
     let mut query = q.to_value();
     query["snapshot"] = json!(snapshot);
     let query = crate::response::result::with_changes(query, &changes);
-    crate::response::result::Continuation::new(ToolId::AstSearch, query)
-        .confidence(Confidence::Exact)
-        .build()
-}
-
-/// What a directory scan can still offer beside its answer: the other
-/// grammars the scope holds (an empty scan only), and the walk flags that
-/// were off while files of the requested grammar sat behind them.
-#[derive(Default)]
-pub(super) struct ScopeGaps {
-    pub(super) repair: Option<Value>,
-    pub(super) skipped: Option<SkippedWalk>,
-}
-
-/// What the skipped walks hold of the requested grammar, as every local
-/// tool discloses it ([`crate::tools::leads::skipped`]), with its lead.
-pub(super) struct SkippedWalk {
-    pub(super) disclosure: crate::tools::leads::skipped::Disclosure,
-    pub(super) lead: Value,
-}
-
-impl SkippedWalk {
-    /// Place the disclosure and its lead on `out`.
-    pub(super) fn attach(self, out: &mut Value) {
-        crate::tools::leads::skipped::attach(out, &self.disclosure, self.lead);
-    }
-}
-
-impl ScopeGaps {
-    pub(super) fn of(
-        q: MatchQuery<'_>,
-        scope: &Scope,
-        paths: &PathPolicy,
-        cancel: &dyn CancellationCheck,
-    ) -> Self {
-        Self {
-            repair: other_language_repair(q, scope, paths, cancel),
-            skipped: skipped_walk(q, scope, paths, cancel),
-        }
-    }
-
-    /// A scan with no other language to offer (it found matches, it parsed
-    /// files, or no `language` was set): only the skipped walks, no repair.
-    pub(super) fn beside_parsed(
-        q: MatchQuery<'_>,
-        scope: &Scope,
-        paths: &PathPolicy,
-        cancel: &dyn CancellationCheck,
-    ) -> Self {
-        Self {
-            repair: None,
-            skipped: skipped_walk(q, scope, paths, cancel),
-        }
-    }
-}
-
-/// Asks which of the walks the request left off (ignore files, hidden
-/// entries, default-excluded directories) hold files of the requested
-/// grammar; the lead lifts exactly those.
-pub(super) fn skipped_walk(
-    q: MatchQuery<'_>,
-    scope: &Scope,
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-) -> Option<SkippedWalk> {
-    let extensions = scope.extensions.as_ref()?;
-    let walk = Walk {
-        ignored: q.include_ignored().unwrap_or(false),
-        hidden: q.include_hidden().unwrap_or(false),
-        default_excludes: q.default_excludes(),
-    };
-    let budget = q
-        .max_files()
-        .map_or_else(octocode_engine::scan_budget::walk_ceiling, |files| {
-            files as usize
-        });
-    let (include, exclude) = (
-        q.include().unwrap_or_default(),
-        q.exclude().unwrap_or_default(),
-    );
-    let discovery = paths.discovery_walk();
-    let permits = |path: &std::path::Path| discovery.permits(path);
-    let stop = || cancel.check().is_err();
-    let keep = |path: &std::path::Path| {
-        has_extension_in(path, extensions) || scope.parsers.extension(path).is_some()
-    };
-    let probe = FileProbe::new(&scope.canonical, budget, &permits, &keep)
-        .within(Globs {
-            include: &include,
-            exclude: &exclude,
-        })
-        .stopping(&stop)
-        .beyond(walk);
-    let verdict = diagnose(&scope.canonical, walk, |relaxed| probe.find(relaxed)).ok()?;
-    let language = scope.language.as_deref().or(scope.inferred.as_deref());
-    let subject = language.map_or_else(
-        || ["file".to_owned(), "files".to_owned()],
-        |name| [format!("{name} file"), format!("{name} files")],
-    );
-    // A check cut before it found anything proved nothing: every cause the
-    // walk skipped by is unproven.
-    let skipping = walk.skipping();
-    let named = skipping
-        .iter()
-        .map(|cause| cause.label())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let disclosure = crate::tools::leads::skipped::disclose(
-        &verdict,
-        [subject[0].as_str(), subject[1].as_str()],
-        crate::tools::leads::skipped::Unchecked {
-            causes: &skipping,
-            named: &named,
-        },
-    )?;
-    let lead =
-        crate::tools::leads::skipped::lead(ToolId::AstSearch, &q.to_value(), &disclosure.causes);
-    Some(SkippedWalk { disclosure, lead })
-}
-
-/// The grammars of a directory scope that occur in it and compile the query,
-/// without `language` in play.
-pub(super) fn directory_choice(
-    q: MatchQuery<'_>,
-    root: &std::path::Path,
-    parsers: &GlobParsers,
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-) -> Result<GrammarChoice, ToolError> {
-    let (include, exclude) = (
-        q.include().unwrap_or_default(),
-        q.exclude().unwrap_or_default(),
-    );
-    let prune = prune::walk_names(q.default_excludes(), &include);
-    let discovery = paths.discovery_walk();
-    let present = present_grammars(
-        root,
-        &prune,
-        Walk {
-            ignored: q.include_ignored().unwrap_or(false),
-            hidden: q.include_hidden().unwrap_or(false),
-            default_excludes: q.default_excludes(),
-        },
-        q.max_files()
-            .map_or_else(octocode_engine::scan_budget::walk_ceiling, |files| {
-                files as usize
-            }),
-        Globs {
-            include: &include,
-            exclude: &exclude,
-        },
-        parsers,
-        &|path| discovery.permits(path),
-        &|| cancel.check().is_err(),
-    )
-    .map_err(super::super::native_error)?;
-    let (pattern, rule) = (q.pattern(), q.rule());
-    Ok(choose_grammar(present.into_iter(), |_, extensions| {
-        compile_check(extensions, pattern.as_deref(), rule.as_ref())
-    }))
-}
-
-/// One repair lead that runs the query once per candidate grammar, as a
-/// batch within the input limit (the most frequent grammars lead).
-pub(super) fn language_repair(q: MatchQuery<'_>, languages: &[String]) -> Value {
-    let base = q.to_value();
-    let queries = languages
-        .iter()
-        .take(crate::response::result::rows_per_call(ToolId::AstSearch))
-        .map(|language| {
-            let mut row = base.clone();
-            row["language"] = json!(language);
-            if let Some(fields) = row.as_object_mut() {
-                fields.remove("snapshot");
-            }
-            row
-        })
-        .collect::<Vec<_>>();
-    crate::response::result::Continuation::input(ToolId::AstSearch, json!({ "queries": queries }))
-        .confidence(Confidence::Exact)
-        .build()
-}
-
-/// The repair of a `language` that parsed no file in a directory: the
-/// grammars the scope does hold, when the query compiles in any of them.
-pub(super) fn other_language_repair(
-    q: MatchQuery<'_>,
-    scope: &Scope,
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-) -> Option<Value> {
-    let requested = q.language()?;
-    let languages =
-        match directory_choice(q, &scope.canonical, &scope.parsers, paths, cancel).ok()? {
-            GrammarChoice::One(language) => vec![language],
-            GrammarChoice::Several(languages) => languages,
-            GrammarChoice::Invalid | GrammarChoice::Absent => return None,
-        }
-        .into_iter()
-        .filter(|language| *language != requested)
-        .collect::<Vec<_>>();
-    (!languages.is_empty()).then(|| language_repair(q, &languages))
+    crate::response::result::Continuation::new(ToolId::AstSearch, query).build()
 }
 
 pub(super) fn diag(d: &StructuralDiagnostic) -> Value {
@@ -364,7 +166,7 @@ pub(super) fn error_diagnostic(
 /// The engine diagnostic as a tool error carrying its declared wire code.
 pub(super) fn diagnostic_error(diagnostic: &StructuralDiagnostic) -> ToolError {
     ToolError::new(
-        super::super::engine_error_code(&diagnostic.code),
+        super::super::errors::engine_error_code(&diagnostic.code),
         diagnostic.message.clone(),
     )
 }

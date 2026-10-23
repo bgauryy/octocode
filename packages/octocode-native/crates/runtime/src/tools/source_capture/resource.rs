@@ -177,7 +177,8 @@ fn local_recovery(
     }
     if error.hints.is_empty()
         && error.leads.is_empty()
-        && let Some(hint) = crate::response::rows::error_code_hint(ToolId::LocalFetch, error.code)
+        && let Some(hint) =
+            crate::response::rows::error_code_hint(ToolId::LocalFetch, error.code, query)
     {
         error.hints.push(hint.to_owned());
     }

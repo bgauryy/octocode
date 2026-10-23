@@ -3,19 +3,11 @@ use octocode_native::runtime::ToolRuntime;
 use serde_json::{Value, json};
 use std::io::{self};
 
-/// Read at most `limit` bytes from `reader`; `Ok(None)` when it holds more.
-pub(super) fn read_bounded(reader: impl io::Read, limit: u64) -> io::Result<Option<Vec<u8>>> {
-    use std::io::Read;
-    let mut bytes = Vec::new();
-    reader.take(limit + 1).read_to_end(&mut bytes)?;
-    Ok((bytes.len() as u64 <= limit).then_some(bytes))
-}
-
 /// Largest management request read from stdin.
 pub(super) const MAX_MANAGEMENT_REQUEST_BYTES: u64 = 128 * 1024;
 
 pub(super) fn config_management(runtime: &ToolRuntime) -> u8 {
-    let result = read_bounded(io::stdin(), MAX_MANAGEMENT_REQUEST_BYTES)
+    let result = octocode_io::read::read_limited(io::stdin(), MAX_MANAGEMENT_REQUEST_BYTES)
         .map_err(|_| super::config::ManageError::from("Cannot read management request."))
         .and_then(|request| {
             let request = request.ok_or("Management request exceeds 128 KiB.")?;

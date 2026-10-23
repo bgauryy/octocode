@@ -50,8 +50,8 @@ fn fixture_tree() -> PathBuf {
 fn high_hit_search(criterion: &mut Criterion) {
     let root = fixture_tree();
     let path = root.display().to_string();
-    // `_digest` hashes every searched file in the read it searches with, as
-    // localSearch asks (its page cache keeps those digests).
+    // `_digest` also hashes every kept file (a second whole-file read after
+    // its search), as localSearch asks (its page cache keeps those digests).
     for (name, values) in [
         ("text_high_hit_collect", SourceValues::Owned),
         ("text_high_hit_collect_digest", SourceValues::Hashed),

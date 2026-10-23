@@ -142,7 +142,7 @@ pub(super) const ENCLOSING_RESERVE_CHARS: usize = ENCLOSING_FIELD_CHARS + 80;
 /// unreadable, unsupported, or no longer the bytes a stored scan matched.
 pub(super) fn shown_outline(
     source: &std::path::Path,
-    expected: Option<Option<super::manifest::Digest>>,
+    expected: Option<Option<super::sources::Digest>>,
     security: &ContentSecurity,
 ) -> Option<super::enclosing::Outline> {
     let bytes = shown_bytes(source, expected)?;
@@ -150,13 +150,14 @@ pub(super) fn shown_outline(
 }
 
 /// The current bytes of a shown file within the parse cap, or `None` when
-/// it is larger, unreadable, or no longer the bytes a stored scan matched.
+/// it is larger, unreadable, no longer a regular file (a FIFO or link
+/// swapped in since the walk), or no longer the bytes a stored scan matched.
 pub(super) fn shown_bytes(
     source: &std::path::Path,
-    expected: Option<Option<super::manifest::Digest>>,
+    expected: Option<Option<super::sources::Digest>>,
 ) -> Option<Vec<u8>> {
     let limit = octocode_engine::signatures::MAX_PARSE_SIZE;
-    let bytes = crate::tools::source::read_bounded(source, limit).ok()?;
+    let bytes = super::sources::read_entry(source, limit)?;
     if let Some(expected) = expected
         && expected != Some(<[u8; 32]>::from(Sha256::digest(&bytes)))
     {
@@ -173,7 +174,7 @@ pub(super) fn annotate_match_keys(
     files: &mut [SearchFile],
     output_root: &std::path::Path,
     page_budget: usize,
-    expected: &dyn Fn(&std::path::Path) -> Option<Option<super::manifest::Digest>>,
+    expected: &dyn Fn(&std::path::Path) -> Option<Option<super::sources::Digest>>,
     security: &ContentSecurity,
 ) -> Option<String> {
     let mut used = octocode_engine::json_size::bytes(&*files).unwrap_or(usize::MAX);
@@ -262,7 +263,7 @@ pub(super) fn annotate_enclosing(
     symbol: Option<&str>,
     declaring: Option<&str>,
     output_root: &std::path::Path,
-    expected: &dyn Fn(&std::path::Path) -> Option<Option<super::manifest::Digest>>,
+    expected: &dyn Fn(&std::path::Path) -> Option<Option<super::sources::Digest>>,
     mut outlines: super::verify::Outlines,
     security: &ContentSecurity,
 ) -> (Option<Definition>, Option<String>) {

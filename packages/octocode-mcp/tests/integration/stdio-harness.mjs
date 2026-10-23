@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { createLocalAcceptanceFixture } from './local-acceptance-fixture.mjs';
 import { suggestedCall } from '../../../../packages/octocode-benchmark/local/e2e/harness/lead-predicates.mjs';
 

@@ -43,7 +43,7 @@ fn hint_call(text: &str) -> Option<(&str, Value)> {
     validate(tool, query.clone()).expect("suggested call validates unchanged");
     let mut call = serde_json::json!({"tool":tool,"query":query});
     if low {
-        call["confidence"] = serde_json::json!("low");
+        call["confidence"] = serde_json::json!("low"); // wire form of `Continuation::approximate`
     }
     Some((name, call))
 }
@@ -52,7 +52,10 @@ fn hint_call(text: &str) -> Option<(&str, Value)> {
 /// the internal object format. Every decoded call must validate unchanged.
 #[cfg_attr(
     not(unix),
-    allow(dead_code, reason = "its in-crate caller is unix-only; integration tests use it on every platform")
+    allow(
+        dead_code,
+        reason = "its in-crate caller is unix-only; integration tests use it on every platform"
+    )
 )]
 pub fn hint(data: &Value, name: &str) -> Value {
     let Some(items) = data.get("hints") else {

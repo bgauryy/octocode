@@ -34,8 +34,12 @@ pub(super) fn locate(options: &QueryOptions) -> Result<PathBuf, Failure> {
                 }
             ),
             None => format!(
-                "no graph under {}; run `octocode graph ingest <path>` first",
-                home.display()
+                "no graph under {}: workspace {} has no snapshot (the workspace is --workspace, else the nearest .git ancestor inside the allowed roots, else the current directory). Run `octocode graph ingest <path>` to write one here, or pass --workspace <dir> naming the workspace that holds .octocode/graph",
+                home.display(),
+                home.parent()
+                    .and_then(Path::parent)
+                    .unwrap_or(&home)
+                    .display()
             ),
         };
         fail(ErrorCode::NotFound, message)

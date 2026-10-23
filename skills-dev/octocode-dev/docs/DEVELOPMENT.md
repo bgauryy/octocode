@@ -26,8 +26,7 @@ The package map is in `<repo>/AGENTS.md`. Native Cargo crates under `packages/oc
 | `runtime` | `octocode-native` | Tool catalog, validation, config resolution, GitHub auth, providers, security, response shaping, pagination, `clasify`; `build.rs` embeds `packages/octocode-config/contract/` |
 | `engine` | `octocode-engine` | Primitives: text search, tree-sitter AST, LSP client pool, minification, secret scanning, code graph |
 | `github` | `octocode-github` | GitHub REST/GraphQL transport, bounded provider operations, credential traits |
-| `cli` | `octocode-cli` | The native `octocode` binary: tool commands, `schema`, `config`, `auth`, `graph`, `skill`, `install` |
-| `runtime-napi` | `octocode-runtime-napi` | N-API adapter the MCP server loads in-process |
+| `cli` | `octocode-cli` | The native `octocode` binary: tool commands, `schema`, `config`, `auth`, `graph`, `skill`, `install`, and the stdio MCP server (`mcp`, on rmcp) |
 
 ## Concept to code
 
@@ -36,7 +35,8 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 | Concept | Where |
 |---|---|
 | Contracts, descriptions, instructions, budgets | core `src/toolContract/` (`instructions.ts`, `descriptions.ts`, `published*.ts`, `validation/`, `output*.ts`, `limits.ts`) → `packages/octocode-config/contract/` |
-| MCP startup, fingerprint gate, registration | `packages/octocode-mcp/src/native/index.ts` |
+| MCP server: startup, tool listing from the embedded presentation, call dispatch | `crates/cli/src/cli/mcp_server/` (`mod.rs`, `listing.rs`, `handler.rs`) |
+| MCP launcher: runs `octocode mcp` | `packages/octocode-mcp/src/index.ts` |
 | CLI dispatch and exit codes | `crates/cli/src/cli/mod.rs` |
 | Validation and row isolation | `crates/runtime/src/contracts/` (`validate.rs`, `mod.rs`) |
 | Gate, dispatch, row shaping | `crates/runtime/src/runtime/engine.rs`, `domain_dispatch.rs` |
@@ -66,11 +66,11 @@ flowchart TD
   C --> D["Output: packages/octocode-config/contract/ and src/contracts/toolTypes.generated.ts; committed, never hand-edited; check:tool-contract fails when it is stale"]
   D --> E["Rebuild native: yarn workspace @octocodeai/octocode-native build:dev; crates/runtime/build.rs embeds contract/ in place"]
   E --> F{Fingerprint matches?}
-  F -- yes --> G[Native serves the contract]
+  F -- yes --> G["Native serves the contract: CLI and octocode mcp"]
   F -- no --> H[build.rs fails: regenerate and rebuild]
 ```
 
-Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_types.rs` holds only the generated types native source names and what they reach: after a native edit that starts or stops naming one, regenerate (`check:tool-contract` fails until then). Until native is rebuilt, the MCP server refuses to start and CLI `schema` refuses to describe tools. `OCTOCODE_ALLOW_CONTRACT_DRIFT=1` downgrades that to a warning outside production. Release order: [RELEASE.md](RELEASE.md).
+Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_types.rs` holds only the generated types native source names and what they reach: after a native edit that starts or stops naming one, regenerate (`check:tool-contract` fails until then). The binary embeds the contract it serves (CLI and `octocode mcp` alike), so a stale contract fails the native build and there is no runtime override. Release order: [RELEASE.md](RELEASE.md).
 
 ### Adding a tool field
 
@@ -169,9 +169,7 @@ These are not user settings and are not read from `.octocoderc`. User settings a
 
 | Variable | Read by | Effect |
 |---|---|---|
-| `OCTOCODE_NATIVE_BIN` | `octocode` launcher | Absolute path to a native `octocode` binary used instead of the platform package. Ignored when `NODE_ENV=production`; the bundled CLI honors it only with `NODE_ENV` `development` or `test` |
-| `OCTOCODE_NATIVE_BINDING` | `octocode-mcp` | Path to a candidate `.node` addon. Ignored when `NODE_ENV=production`; the bundled `dist` honors it only with `NODE_ENV` `development` or `test` |
-| `OCTOCODE_ALLOW_CONTRACT_DRIFT` | `octocode-mcp`, CLI `schema` | `1` turns the fingerprint mismatch into a stderr warning; same `NODE_ENV` limits |
+| `OCTOCODE_NATIVE_BIN` | `octocode` and `octocode-mcp` launchers | Absolute path to a native `octocode` binary used instead of the platform package. Ignored when `NODE_ENV=production`; the bundled launchers honor it only with `NODE_ENV` `development` or `test` |
 | `XDG_CONFIG_HOME` | native `octocode install` (Linux) | Locates IDE config directories (default `~/.config`); never moves the Octocode home |
 
 ## Ownership rules

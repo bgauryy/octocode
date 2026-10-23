@@ -7,6 +7,49 @@ pub fn sha256(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
+/// What one streaming pass over a value's compact JSON rendering learned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JsonFingerprint {
+    /// The [`sha256`] of the rendering's bytes.
+    pub digest: String,
+    /// The rendering's length in UTF-16 units.
+    pub utf16_units: usize,
+}
+
+/// The [`JsonFingerprint`] of `value`'s compact rendering (`serde_json::to_string`),
+/// without building the rendering: the digest and length are of exactly the
+/// bytes `to_string` would produce. `None` if serialization failed.
+pub fn fingerprint_json(value: &(impl serde::Serialize + ?Sized)) -> Option<JsonFingerprint> {
+    struct Tee {
+        hasher: Sha256,
+        utf16_units: usize,
+    }
+    impl std::io::Write for Tee {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.hasher.update(bytes);
+            self.utf16_units += crate::json_size::utf16_units_of_utf8(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    // serde_json writes many tiny pieces; hash them in blocks.
+    let mut tee = std::io::BufWriter::with_capacity(
+        64 * 1024,
+        Tee {
+            hasher: Sha256::new(),
+            utf16_units: 0,
+        },
+    );
+    serde_json::to_writer(&mut tee, value).ok()?;
+    let tee = tee.into_inner().ok()?;
+    Some(JsonFingerprint {
+        digest: hex::encode(tee.hasher.finalize()),
+        utf16_units: tee.utf16_units,
+    })
+}
+
 /// Copy `reader` into `writer` in fixed-size blocks, returning the byte count
 /// and the [`sha256`] of exactly the bytes copied, so a large file is hashed
 /// without being held in memory.
@@ -70,8 +113,26 @@ pub fn canonical_json(value: Value, nulls: Nulls) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{Nulls, canonical_json, sha256};
+    use super::{Nulls, canonical_json, fingerprint_json, sha256};
     use serde_json::json;
+
+    /// The streamed fingerprint is the digest and UTF-16 length of the
+    /// rendering `to_string` builds, whatever the value holds.
+    #[test]
+    fn a_json_fingerprint_is_that_of_the_rendered_string() {
+        for value in [
+            serde_json::json!(null),
+            serde_json::json!({"a": [1, 2.5, true, null], "b": "quote \" tab \t é 中文 😀"}),
+            serde_json::json!({"rows": (0..2000).map(|i| serde_json::json!({"i": i, "t": "😀é".repeat(i % 7)})).collect::<Vec<_>>()}),
+        ] {
+            let rendered = serde_json::to_string(&value).unwrap();
+            let fingerprint = fingerprint_json(&value).unwrap();
+            assert_eq!(fingerprint.digest, sha256(rendered.as_bytes()));
+            assert_eq!(fingerprint.utf16_units, rendered.encode_utf16().count());
+        }
+        let invalid = std::collections::BTreeMap::from([((1, 2), "value")]);
+        assert_eq!(fingerprint_json(&invalid), None);
+    }
 
     #[test]
     fn copy_hashed_reports_what_it_wrote() {

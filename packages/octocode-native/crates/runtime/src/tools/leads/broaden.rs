@@ -3,7 +3,7 @@
 //! what each variant drops, so no filter is dropped silently.
 
 use crate::id::ToolId;
-use crate::response::result::{CURSOR_FIELDS, Confidence, Continuation};
+use crate::response::result::{CURSOR_FIELDS, Continuation};
 use serde_json::{Value, json};
 
 /// Keys no broadened variant copies beside [`CURSOR_FIELDS`]: a variant is
@@ -95,7 +95,7 @@ pub(crate) fn broaden(
         .collect::<Vec<_>>();
     (!variants.is_empty()).then(|| {
         Continuation::input(tool, json!({ "queries": variants }))
-            .confidence(Confidence::Low)
+            .approximate()
             .build()
     })
 }
@@ -110,76 +110,128 @@ fn without_index<T: Clone>(items: &[T], dropped: usize) -> Vec<T> {
         .collect()
 }
 
-/// `next.broadenSearch` on an empty result, with one hint naming what each
-/// of its rows drops or sets relative to `row` (the search it broadens), so
-/// no filter is dropped silently.
+/// `next.broadenSearch` on an empty result, with hints naming what each of
+/// its rows drops or sets relative to `row` (the search it broadens), so no
+/// filter is dropped silently.
 pub(crate) fn set_broadened(value: &mut Value, row: &Value, lead: Value) {
-    let note = broadened_note(row, &lead);
+    let notes = broadened_notes(row, &lead);
     value["next"]["broadenSearch"] = lead;
-    if let Some(note) = note {
+    for note in notes {
         super::push_hint(value, note);
     }
 }
+
+const NOTE_PREFIX: &str = "broadenSearch rows: ";
 
 /// `broadenSearch rows: queries[0] drops qualifiers; queries[1] drops
 /// keyword "b"`: per row of `lead`, the keys of `row` it lacks (each removed
 /// keyword by value, each removed word of a split lone keyword) and the
 /// values it rewrites. Paging keys are not filters and go unnamed.
-fn broadened_note(row: &Value, lead: &Value) -> Option<String> {
-    let source = row.as_object()?;
-    let rows = lead.pointer("/query/queries")?.as_array()?;
-    let parts = rows
-        .iter()
-        .enumerate()
-        .filter_map(|(index, variant)| {
-            let (mut dropped, mut set) = (Vec::new(), Vec::new());
-            for (key, value) in source {
-                if stripped(key) {
-                    continue;
-                }
-                match (key.as_str(), variant.get(key)) {
-                    (_, Some(kept)) if kept == value => {}
-                    ("keywords", Some(Value::Array(kept))) => {
-                        dropped.extend(dropped_terms(value, kept));
-                    }
-                    (_, Some(new)) => set.push(format!("{key} {new}")),
-                    (_, None) => dropped.push(key.clone()),
-                }
+///
+/// Every note fits one hint's guidance budget, whatever the number of rows:
+/// rows are packed in order, and a row starts the next note when it would
+/// overflow this one. A row whose own entry is over the budget (long
+/// keywords or values) names them by position instead, which keeps every
+/// row named; the row's query in the lead carries the values.
+fn broadened_notes(row: &Value, lead: &Value) -> Vec<String> {
+    let (Some(source), Some(rows)) = (
+        row.as_object(),
+        lead.pointer("/query/queries").and_then(Value::as_array),
+    ) else {
+        return Vec::new();
+    };
+    let note = |parts: &[String]| format!("{NOTE_PREFIX}{}", parts.join("; "));
+    let fits = |text: &str| text.chars().count() <= crate::response::rows::MAX_GUIDANCE_CHARS;
+    let mut notes = Vec::new();
+    let mut open: Vec<String> = Vec::new();
+    for (index, variant) in rows.iter().enumerate() {
+        let Some(part) = row_change(index, source, variant, false)
+            .filter(|part| fits(&note(std::slice::from_ref(part))))
+            .or_else(|| row_change(index, source, variant, true))
+        else {
+            continue;
+        };
+        open.push(part);
+        if open.len() > 1
+            && !fits(&note(&open))
+            && let Some(last) = open.pop()
+        {
+            notes.push(note(&open));
+            open = vec![last];
+        }
+    }
+    if !open.is_empty() {
+        notes.push(note(&open));
+    }
+    notes
+}
+
+/// What one row `variant` drops or sets relative to `source`, as
+/// `queries[i] drops …, sets …`; values are named by position when
+/// `by_position`.
+fn row_change(
+    index: usize,
+    source: &serde_json::Map<String, Value>,
+    variant: &Value,
+    by_position: bool,
+) -> Option<String> {
+    let (mut dropped, mut set) = (Vec::new(), Vec::new());
+    for (key, value) in source {
+        if stripped(key) {
+            continue;
+        }
+        match (key.as_str(), variant.get(key)) {
+            (_, Some(kept)) if kept == value => {}
+            ("keywords", Some(Value::Array(kept))) => {
+                dropped.extend(dropped_terms(value, kept, by_position));
             }
-            let changes = [("drops", dropped), ("sets", set)]
-                .into_iter()
-                .filter(|(_, items)| !items.is_empty())
-                .map(|(verb, items)| format!("{verb} {}", items.join(", ")))
-                .collect::<Vec<_>>();
-            (!changes.is_empty()).then(|| format!("queries[{index}] {}", changes.join(", ")))
-        })
+            (_, Some(_)) if by_position => set.push(key.clone()),
+            (_, Some(new)) => set.push(format!("{key} {new}")),
+            (_, None) => dropped.push(key.clone()),
+        }
+    }
+    let changes = [("drops", dropped), ("sets", set)]
+        .into_iter()
+        .filter(|(_, items)| !items.is_empty())
+        .map(|(verb, items)| format!("{verb} {}", items.join(", ")))
         .collect::<Vec<_>>();
-    (!parts.is_empty()).then(|| format!("broadenSearch rows: {}", parts.join("; ")))
+    (!changes.is_empty()).then(|| format!("queries[{index}] {}", changes.join(", ")))
 }
 
 /// The terms of `source` keywords a variant's `kept` keywords lack: each
 /// removed keyword by value, or, when a lone keyword was split, each removed
-/// word.
-fn dropped_terms(source: &Value, kept: &[Value]) -> Vec<String> {
+/// word; by 1-based position (`keyword 2`, `word 1`) when `by_position`.
+fn dropped_terms(source: &Value, kept: &[Value], by_position: bool) -> Vec<String> {
     let source = source.as_array().map_or(&[][..], Vec::as_slice);
+    let name = |noun: &str, position: usize, value: String| {
+        if by_position {
+            format!("{noun} {}", position + 1)
+        } else {
+            format!("{noun} {value}")
+        }
+    };
     if let ([Value::String(lone)], [Value::String(left)]) = (source, kept) {
         let mut left = left.split_whitespace().collect::<Vec<_>>();
         return lone
             .split_whitespace()
-            .filter(|word| match left.iter().position(|kept| kept == word) {
-                Some(at) => {
-                    left.remove(at);
-                    false
-                }
-                None => true,
-            })
-            .map(|word| format!("word {}", json!(word)))
+            .enumerate()
+            .filter(
+                |(_, word)| match left.iter().position(|kept| kept == word) {
+                    Some(at) => {
+                        left.remove(at);
+                        false
+                    }
+                    None => true,
+                },
+            )
+            .map(|(position, word)| name("word", position, json!(word).to_string()))
             .collect();
     }
     source
         .iter()
-        .filter(|keyword| !kept.contains(keyword))
-        .map(|keyword| format!("keyword {keyword}"))
+        .enumerate()
+        .filter(|(_, keyword)| !kept.contains(keyword))
+        .map(|(position, keyword)| name("keyword", position, keyword.to_string()))
         .collect()
 }
 

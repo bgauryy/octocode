@@ -218,6 +218,10 @@ pub struct GraphFactsDocument {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub error_lines: Vec<[u32; 2]>,
     pub modules: Vec<GraphFactRustModule>,
+    /// 1-based `[start, end]` line spans of items compiled only under test
+    /// (Rust `#[cfg(test)]`, `#![cfg(test)]`), outermost spans only.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub test_lines: Vec<[u32; 2]>,
     /// Rust qualified paths outside call and `use` position.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<GraphFactPath>,

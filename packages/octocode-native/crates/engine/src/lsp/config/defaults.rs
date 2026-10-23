@@ -141,7 +141,7 @@ pub fn workspace_symbol_limit(config: &LspLanguageServerConfig) -> Option<usize>
 const TSGO_WORKSPACE_SYMBOL_LIMIT: usize = 256;
 
 /// Apply per-server safe defaults to a resolved launch configuration, on
-/// every launch path (discovery, runtime, napi). rust-analyzer runs no
+/// every launch path (discovery, runtime). rust-analyzer runs no
 /// repository code (build scripts, proc-macros, `cargo check`); clangd writes
 /// no index into the repository; jdtls keeps its workspace data outside it
 /// and does not auto-build; Metals opens no HTTP port. Defaults sit

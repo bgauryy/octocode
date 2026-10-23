@@ -9,8 +9,6 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     // Temp home, no credentials, dead proxy, guarded fetch and child processes.
     setupFiles: ['../../test-utils/external-effects-guard.ts'],
-    // CI never builds the native addon (OCTOCODE_NO_NATIVE=1); these suites load it.
-    exclude: process.env.OCTOCODE_NO_NATIVE === '1' ? ['tests/native/**', '**/node_modules/**'] : ['**/node_modules/**'],
     testTimeout: 10000,
     hookTimeout: 1000,
     teardownTimeout: 1000,
@@ -19,17 +17,12 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
-      // Floors are measured over the full suite (native included); a no-native
-      // run covers ~2% of src/ and reports coverage without gating it.
-      thresholds:
-        process.env.OCTOCODE_NO_NATIVE === '1'
-          ? undefined
-          : {
-              statements: 78,
-              branches: 64,
-              functions: 79,
-              lines: 80,
-            },
+      thresholds: {
+        statements: 78,
+        branches: 64,
+        functions: 79,
+        lines: 80,
+      },
     },
   },
 });

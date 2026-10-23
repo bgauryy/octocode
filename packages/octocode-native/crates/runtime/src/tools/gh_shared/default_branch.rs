@@ -4,7 +4,6 @@
 //! ref as a runnable lead.
 use super::GhFailure;
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use serde_json::Value;
@@ -134,9 +133,7 @@ pub(crate) async fn default_branch_retry(
     for field in fields {
         row[*field] = Value::from(branch.clone());
     }
-    let lead = Continuation::new(tool, row)
-        .confidence(Confidence::Exact)
-        .build();
+    let lead = Continuation::new(tool, row).build();
     Some(DefaultBranchRetry { branch, lead })
 }
 

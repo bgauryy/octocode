@@ -82,7 +82,7 @@ for (const [lang, l] of Object.entries(L)) {
     check(`${lang}: call pattern ${l.call}($A) matches`, matches.length > 0, m.text.slice(0, 100));
     check(`${lang}: UTF-16 column after emoji`, !!capture && capture.column === expected, res.utf16);
   }
-  const k = await call('astSearch', { operation: 'match', path: dir, language: lang, rule: `rule:\n  kind: ${l.kind}\n`, resultView: 'countMatches' });
+  const k = await call('astSearch', { operation: 'match', path: dir, language: lang, rule: { kind: l.kind }, resultView: 'countMatches' });
   // Minimal countMatches: per-file matchCount (restored from `shared`).
   const kc = (rowData(k)?.files ?? []).reduce((sum, f) => sum + (f.matchCount ?? 0), 0);
   res.kind = `${l.kind}=${kc}`;

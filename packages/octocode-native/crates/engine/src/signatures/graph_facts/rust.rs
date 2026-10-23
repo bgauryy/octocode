@@ -8,11 +8,13 @@ use crate::signatures::nodes::node_text;
 use super::{GraphAccumulator, NodePositions};
 use crate::graph::GraphFactImport;
 
-/// Outer attributes that precede one item, folded as `(path, unsupported)`.
+/// Outer attributes that precede one item, folded as `(path, unsupported)`
+/// plus whether a `cfg` compiles the item only under test.
 #[derive(Clone, Debug, Default)]
 pub(super) struct RustAttributes {
     pub(super) path: Option<String>,
     pub(super) unsupported: bool,
+    pub(super) cfg_test: bool,
 }
 
 /// Context carried down the single graph-fact traversal, so no Rust collector
@@ -26,6 +28,8 @@ pub(super) struct RustContext {
     pub(super) block_local: bool,
     /// This node or an ancestor carries unsupported outer or inner attributes.
     pub(super) unsupported: bool,
+    /// A strict ancestor compiles only under test (its span is recorded).
+    pub(super) test: bool,
 }
 
 impl RustContext {
@@ -36,6 +40,7 @@ impl RustContext {
             block_local: self.block_local
                 || matches!(node.kind(), "block" | "function_item" | "impl_item"),
             unsupported: self.unsupported,
+            test: self.test,
         }
     }
 }
@@ -76,6 +81,7 @@ fn fold_rust_attributes<'t>(
             }
             // `cfg` gates whether a module compiles, not which file it maps
             // to: the edge is conditional, not unknown.
+            "cfg" => folded.cfg_test |= super::rust_cfg::cfg_requires_test(inner),
             "allow"
             | "warn"
             | "deny"
@@ -84,7 +90,6 @@ fn fold_rust_attributes<'t>(
             | "doc"
             | "deprecated"
             | "no_implicit_prelude"
-            | "cfg"
             | "macro_use"
             | "test" => {}
             // A conditional attribute that rewrites the path does change it.
@@ -122,6 +127,7 @@ pub(super) fn rust_child_contexts(
         contexts.push(RustContext {
             unsupported: inherited.unsupported || attributes.unsupported,
             block_local: inherited.block_local,
+            test: inherited.test,
             attributes,
         });
         match child.kind() {
@@ -335,61 +341,4 @@ pub(super) fn collect_rust_paths(
         }
         _ => {}
     }
-}
-
-/// A file-inclusion macro (`include!`, `include_str!`, `include_bytes!`)
-/// whose one argument is a plain string literal: an import of that path,
-/// which the linker resolves against this file's directory. `include!`
-/// splices code (`include`); `include_str!` and `include_bytes!` embed the
-/// file as data (`include-data`). A computed path
-/// (`concat!(env!("OUT_DIR"), …)`) names no file and is skipped.
-pub(super) fn collect_rust_include(
-    node: Node<'_>,
-    content: &str,
-    index: &NodePositions<'_>,
-    acc: &mut GraphAccumulator,
-) {
-    let name = node
-        .child_by_field_name("macro")
-        .and_then(|name| node_text(name, content))
-        .map(|name| name.rsplit("::").next().unwrap_or(name).trim());
-    let import_kind = match name {
-        Some("include") => "include",
-        Some("include_str" | "include_bytes") => "include-data",
-        _ => return,
-    };
-    let mut cursor = node.walk();
-    let Some(arguments) = node
-        .named_children(&mut cursor)
-        .find(|child| child.kind() == "token_tree")
-    else {
-        return;
-    };
-    let mut cursor = arguments.walk();
-    let mut literals = arguments.named_children(&mut cursor);
-    let (Some(literal), None) = (literals.next(), literals.next()) else {
-        return;
-    };
-    let Some(specifier) = (literal.kind() == "string_literal")
-        .then(|| node_text(literal, content))
-        .flatten()
-        .and_then(|text| text.strip_prefix('"')?.strip_suffix('"'))
-        .filter(|path| !path.is_empty() && !path.contains('\\'))
-        .map(str::to_owned)
-    else {
-        return;
-    };
-    let line = index.range(node).start.line + 1;
-    acc.imports.push(GraphFactImport {
-        id: format!("include:{specifier}:{line}:{}", acc.imports.len()),
-        specifier,
-        line,
-        import_kind: import_kind.to_owned(),
-        local_name: None,
-        imported_name: None,
-        imported_range: None,
-        local_range: None,
-        resolution_hint: None,
-        module_scope: None,
-    });
 }

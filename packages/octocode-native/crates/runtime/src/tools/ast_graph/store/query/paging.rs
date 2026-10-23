@@ -129,18 +129,6 @@ pub(super) fn run_page(
     }
 }
 
-pub(super) fn quote(arg: &str) -> String {
-    if !arg.is_empty()
-        && arg
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_./:@,=+".contains(c))
-    {
-        arg.to_owned()
-    } else {
-        format!("'{}'", arg.replace('\'', r"'\''"))
-    }
-}
-
 pub(super) fn next_command(options: &QueryOptions, id: &str, offset: usize) -> String {
     format!("{} --offset {offset}", command(options, id))
 }

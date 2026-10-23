@@ -11,10 +11,9 @@ use super::remaining::Remainder;
 use super::util::str_at;
 use super::window::clamp_warning;
 use crate::id::ToolId;
-use crate::response::pages::Remaining;
 use crate::response::paging::push_warnings;
-use crate::response::result::Confidence;
 use crate::response::result::Continuation;
+use crate::response::result::Remaining;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::ensure_next;
 use serde_json::{Value, json};
@@ -75,7 +74,6 @@ pub(super) fn shape_file_page(
             &ChangeSides {
                 new_ref: sides.new,
                 old_ref: sides.old,
-                old_confidence: Confidence::High,
             },
             |_| true,
         )
@@ -185,7 +183,6 @@ pub(super) fn read_commit_lead(query: &HistoryItemRequest, sha: &str) -> Value {
         ToolId::GhGetHistoryItem,
         json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"ref":sha}),
     )
-    .confidence(Confidence::Exact)
     .build()
 }
 
@@ -275,7 +272,7 @@ pub(super) fn empty_scope_warning(
 /// without glob characters, else the directory before its first glob
 /// (`packages/react/**` → `packages/react/`); `None` for a bare glob.
 pub(super) fn literal_prefix(pattern: &str) -> Option<String> {
-    let glob = pattern.find(['*', '?', '[', '{']);
+    let glob = pattern.find(octocode_engine::search::glob::GLOB_META);
     let prefix = match glob {
         None => pattern,
         Some(at) => pattern[..at].rsplit_once('/').map_or("", |(dir, _)| dir),

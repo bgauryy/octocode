@@ -17,11 +17,7 @@ export {
   applyOctocodeEnv,
   propagateOctocodeEnv,
 } from './dotenv.js';
-export {
-  devOverridesAllowed,
-  contractDriftAllowed,
-  contractDriftMessage,
-} from './config/devOverrides.js';
+export { devOverridesAllowed } from './config/devOverrides.js';
 
 /** Every setting's generated default (the native resolver's base layer). */
 export const DEFAULT_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE);

@@ -3,7 +3,10 @@ use super::*;
 
 impl FileLink<'_, '_> {
     pub(super) fn edge(&mut self, target: &str, kind: &str, line: u32) {
-        add_edge(self.b, &mut self.node, target, kind, line);
+        let facts = &self.facts;
+        add_edge(self.b, &mut self.node, target, kind, line, &|line| {
+            facts.test_scoped(line)
+        });
     }
 
     /// Whether `line` lies inside a function or method body of this file

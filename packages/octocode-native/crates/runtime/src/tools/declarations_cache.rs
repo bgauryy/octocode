@@ -96,7 +96,7 @@ fn weight(document: &GraphFactsDocument) -> usize {
             .iter()
             .map(|diagnostic| diagnostic.message.len())
             .sum::<usize>()
-        + document.error_lines.len() * 8
+        + (document.error_lines.len() + document.test_lines.len()) * 8
 }
 
 /// The declarations of `content` at `path` in the file's own grammar.

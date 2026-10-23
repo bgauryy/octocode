@@ -1,6 +1,7 @@
 use super::remaining::REMAINING;
-use super::{PageFacts, Remaining, SpanFacts, note_remaining, redisclose, take_remaining_notes};
+use super::{PageFacts, SpanFacts, note_remaining, redisclose, take_remaining_notes};
 use crate::id::ToolId;
+use crate::response::result::Remaining;
 use serde_json::{Value, json};
 mod facts;
 mod remaining;

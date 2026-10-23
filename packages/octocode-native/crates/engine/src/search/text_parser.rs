@@ -1,6 +1,6 @@
 //! Assembles match and context lines into per-file snippets.
+use crate::text::clip::{MATCH_TAIL_CHARS, clip_around, truncate_unicode};
 use crate::types::SearchContext;
-use sha2::{Digest as _, Sha256};
 use std::collections::HashMap;
 
 use crate::types::{TextSearchFile, TextSearchMatch};
@@ -47,9 +47,6 @@ pub(crate) fn strip_trailing_newline(mut s: String) -> String {
     s
 }
 
-/// Chars kept after the match start when a snippet must be clipped.
-const MATCH_TAIL_CHARS: usize = 20;
-
 /// Char index for a UTF-16 `column` within `line` (clamped to the line).
 fn utf16_to_char_index(line: &str, column: u32) -> usize {
     let mut units = 0usize;
@@ -71,62 +68,9 @@ fn line_rank_at(line: &str, column: u32) -> u32 {
     super::relevance::line_rank(line.as_bytes(), byte)
 }
 
-/// Whether [`clip_around_match`] cuts a window around the match rather
-/// than keeping the line's head.
-fn clips_to_window(line: &str, column: u32, max_chars: usize) -> bool {
-    max_chars > 3
-        && utf16_to_char_index(line, column) + MATCH_TAIL_CHARS.min(max_chars / 2) >= max_chars
-}
-
-/// Clip `line` to `max_chars`, keeping the match at UTF-16 `column` visible.
-/// Lines whose match already fits the head are truncated from the start; otherwise
-/// the window starts a quarter-snippet before the match and is marked with `…`.
-/// A window near the line's end starts earlier instead, so it still spends
-/// `max_chars` (the tail it ends on is the line's own, unmarked). A limit too
-/// short for a marker shows the line's own chars from the match.
+/// [`clip_around`] of a match at UTF-16 `column` of `line`.
 fn clip_around_match(line: &str, column: u32, max_chars: usize) -> String {
-    let line_chars = line.chars().count();
-    if line_chars <= max_chars {
-        return line.to_owned();
-    }
-    if max_chars <= 3 {
-        let start = utf16_to_char_index(line, column).min(line_chars - max_chars);
-        return line.chars().skip(start).take(max_chars).collect();
-    }
-    if !clips_to_window(line, column, max_chars) {
-        return truncate_unicode(line, max_chars);
-    }
-    let match_char = utf16_to_char_index(line, column);
-    // `…` takes one char; the rest of the window is the line from its start.
-    let start_char = match_char
-        .saturating_sub(max_chars / 4)
-        .min(line_chars - (max_chars - 1));
-    let start_byte = line
-        .char_indices()
-        .nth(start_char)
-        .map_or(line.len(), |(byte, _)| byte);
-    format!("…{}", truncate_unicode(&line[start_byte..], max_chars - 1))
-}
-
-/// Truncates a string to at most `max_chars` Unicode scalar values, appending
-/// `...` when truncated; a limit too short for the marker keeps the leading
-/// chars themselves.
-pub(crate) fn truncate_unicode(s: &str, max_chars: usize) -> String {
-    if max_chars <= 3 {
-        return s.chars().take(max_chars).collect();
-    }
-
-    let head_chars = max_chars - 3;
-    let mut head_byte_end = 0;
-    for (char_idx, (byte_idx, _ch)) in s.char_indices().enumerate() {
-        if char_idx == head_chars {
-            head_byte_end = byte_idx;
-        }
-        if char_idx == max_chars {
-            return format!("{}...", &s[..head_byte_end]);
-        }
-    }
-    s.to_owned()
+    clip_around(line, utf16_to_char_index(line, column), max_chars)
 }
 
 /// Assembles a single file's matches into the final `TextSearchFile`, joining each
@@ -205,7 +149,7 @@ pub(crate) fn assemble_file(
                 };
                 let joined = join(&before);
                 let (chars, joined_bytes) = (joined.chars().count(), joined.len());
-                let value_digest = Sha256::digest(joined.trim().as_bytes()).into();
+                let value_digest = TextSearchMatch::digest_of(&joined);
                 let value = if chars <= max_snippet {
                     joined
                 } else {
@@ -274,7 +218,7 @@ pub fn line_match(
     let (clipped, bytes) = (chars > max_snippet, line_text.len());
     let rank = line_rank_at(line_text, column);
     let byte_offset = utf16_to_byte_offset(line_text, column);
-    let value_digest = Sha256::digest(line_text.trim().as_bytes()).into();
+    let value_digest = TextSearchMatch::digest_of(line_text);
     let value = if !clipped {
         line_text.to_owned()
     } else {

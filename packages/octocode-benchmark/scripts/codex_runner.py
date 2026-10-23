@@ -106,7 +106,6 @@ def main():
         server['env']={**server.get('env',{}),'OCTOCODE_HOME':str(home),'ALLOWED_PATHS':'','OCTOCODE_ENABLE_LOCAL':'true',
             'OCTOCODE_ENABLE_STATS':'true','OCTOCODE_STORAGE_MODE':'persistent',
             'OCTOCODE_TRUST_PROJECT_LSP_CONFIG':'false','OCTOCODE_LSP_AUTO_INSTALL':'off','OCTOCODE_LSP_PREWARM':'off'}
-        server['env'].pop('OCTOCODE_ALLOW_CONTRACT_DRIFT',None)
         if trace_url: server['env']['OCTOCODE_CLASSIFICATION_API_HOST']=trace_url
         prompt, corpus = prepare_question(args.prompt.read_text(), os.environ.get('QUESTION_REPO_MAP'),
             lab/'repos', os.environ.get('LOCAL_REPOS', server['env'].get('WORKSPACE_ROOT',str(lab))))

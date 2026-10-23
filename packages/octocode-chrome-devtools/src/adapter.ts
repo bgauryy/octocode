@@ -8,7 +8,7 @@ import {
   mcpServerOptions,
 } from 'octocode-mcp-cli';
 import { McpServer } from '@modelcontextprotocol/server';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import {
   chromeCommands as commands,
   chromeInstructions,

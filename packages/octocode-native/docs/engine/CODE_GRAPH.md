@@ -49,7 +49,7 @@ scoped file list, so it reports `changed`, `missing`, `added` and `excluded`
 sources and changed configs. A snapshot truncated at its file limit is never
 reported fresh.
 
-`graph.bin` (format v5) is a sectioned, varint-coded file:
+`graph.bin` (format v6) is a sectioned, varint-coded file:
 
 - **Header:** magic `OCGRAPH\0`, format version, section count, and the
   SHA-256 of the body.
@@ -58,7 +58,8 @@ reported fresh.
   suffix (`Struct.member`), and the reader rebuilds `path#Struct.member`, so
   every path is stored once.
 - **`NODE` and `EDGE`:** varint columns. Edges are delta-coded by source, and
-  kind plus confidence share one byte.
+  kind, confidence and a test bit (every site of the edge is test code: a
+  test file, or a Rust `#[cfg(test)]` item) share one byte.
 - **`KEYX` / `NAMX`:** lookup permutations.
 - **`DIAG`, `FDIG`, `FCMP`, `ENTR`:** diagnostics (file, line, code,
   message, and the file node a diagnostic is about, when that is another

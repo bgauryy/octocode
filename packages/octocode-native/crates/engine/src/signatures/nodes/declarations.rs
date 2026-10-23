@@ -282,15 +282,14 @@ pub(in crate::signatures) fn is_exported_declaration(
             .strip_prefix("pub")
             .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
         "go" => name.chars().next().is_some_and(char::is_uppercase),
-        "py" | "pyi" => parent.is_none() && !name.starts_with('_'),
+        "py" => parent.is_none() && !name.starts_with('_'),
         "java" | "cs" => text.starts_with("public ") || text.starts_with("export "),
         ext if crate::signatures::languages::is_c_family_extension(ext) => {
             parent.is_none() && !text.starts_with("static ")
         }
         // The generic grammar does not model `.global`/`.globl` visibility
         // strongly enough to advertise labels as exported bindings.
-        "asm" | "assembly" | "s" => false,
-        "scala" | "sc" | "sbt" => parent.is_none() && !name.starts_with('_'),
+        "asm" => false,
         _ => parent.is_none() && !name.starts_with('_'),
     }
 }

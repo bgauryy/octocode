@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * Builds and stages the native artifacts: the `octocode` binary plus the
- * runtime addon, in one Cargo invocation.
+ * Builds and stages the native `octocode` binary (CLI and MCP server).
  *
  * Usage:
  *   build-native.cjs [--release]
@@ -9,11 +8,10 @@
  *   build-native.cjs --release --all [--jobs N]
  *   build-native.cjs --check [--target <platform>... | --all] [--jobs N]
  *
- * No --target builds for the host and stages the binaries and addon into
- * npm/<host>/, plus the addon into the package root (what the local launcher
- * and MCP load). A --target build stages all three artifacts into
- * npm/<platform>/ (and the root addon too when the platform is the host).
- * Cross targets use cargo-zigbuild (Linux) or cargo-xwin (Windows).
+ * No --target builds for the host and stages the binary into npm/<host>/,
+ * where the launchers (`octocode`, `octocode-mcp`) find it. A --target build
+ * stages it into npm/<platform>/. Cross targets use cargo-zigbuild (Linux)
+ * or cargo-xwin (Windows).
  *
  * --check type-checks the same selection for each platform through the same
  * cross tool (its C build scripts included) without linking or staging: the
@@ -26,7 +24,7 @@ const { mkdirSync } = require('fs');
 const { availableParallelism, totalmem } = require('os');
 const { join, relative } = require('path');
 const { BINARIES, PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
-const { stageFile, verifyAddonLoads, verifyBinaryRuns } = require('./native-addon-utils.cjs');
+const { stageFile, verifyBinaryRuns } = require('./stage-binary.cjs');
 
 const ROOT = join(__dirname, '..');
 
@@ -60,12 +58,6 @@ function parseArgs(argv) {
 }
 
 const hostPlatform = getPlatformSuffix();
-
-function isCross(platform) {
-  const host = PLATFORMS[hostPlatform];
-  const target = PLATFORMS[platform];
-  return !host || host.os !== target.os || host.arch !== target.arch || host.libc !== target.libc;
-}
 
 /** A libc-only difference (musl on a glibc x64 runner) links with the host toolchain CI installs. */
 function needsCrossLinker(platform) {
@@ -121,27 +113,16 @@ function targetDir(platform) {
   return platform ? join(ROOT, 'target', 'platforms', platform) : join(ROOT, 'target');
 }
 
-function crossEnv(platform) {
-  const env = { ...process.env };
-  const target = platform && PLATFORMS[platform];
-  // A static-CRT musl target cannot emit the cdylib addons; CI builds musl natively and is unaffected.
-  if (target?.libc === 'musl' && isCross(platform)) {
-    const key = `CARGO_TARGET_${target.triple.toUpperCase().replace(/-/g, '_')}_RUSTFLAGS`;
-    env[key] = `${env[key] ?? ''} -C target-feature=-crt-static`.trim();
-  }
-  return env;
-}
-
-/** The Cargo invocation for `platform` (null: the host) as `{ command, args }`. */
 /**
  * The oldest glibc a cross-linked gnu artifact runs on: Node 24's own floor
- * (nodejs/node BUILDING.md, platform list), so the addon loads wherever Node
+ * (nodejs/node BUILDING.md, platform list), so the binary runs wherever Node
  * does. cargo-zigbuild reads it from the target suffix; without it zig links
  * hard GLIBC_2.29/2.30 version requirements (libm `pow`/`log`, and std's
  * weak `gettid`). A native Linux build links the host's glibc instead.
  */
 const GLIBC_FLOOR = '2.28';
 
+/** The Cargo invocation for `platform` (null: the host) as `{ command, args }`. */
 function hostsCommand(platform, { release = false, check = false }, dir) {
   const target = platform && PLATFORMS[platform];
   const subcommand = check ? 'check' : 'build';
@@ -159,8 +140,7 @@ function hostsCommand(platform, { release = false, check = false }, dir) {
     ...cargo,
     '--locked',
     '-p', 'octocode-cli',
-    '-p', 'octocode-runtime-napi',
-    '--bins', '--lib',
+    '--bins',
     // Dev builds share compiled crates with `test:rust` (see crates/runtime `dev-unify`).
     ...(release ? ['--release'] : ['--features', 'octocode-native/dev-unify']),
     ...(target ? ['--target', triple] : []),
@@ -169,47 +149,22 @@ function hostsCommand(platform, { release = false, check = false }, dir) {
   return { command, args };
 }
 
-function artifactNames(platform) {
-  const os = PLATFORMS[platform].os;
-  return {
-    binaries: BINARIES.map(name => executableName(name, os)),
-    library:
-      os === 'win32' ? 'octocode_runtime_napi.dll'
-        : os === 'darwin' ? 'liboctocode_runtime_napi.dylib'
-          : 'liboctocode_runtime_napi.so',
-  };
-}
-
-function stageHosts(platform, explicitTarget, release, dir) {
-  const { binaries, library } = artifactNames(platform);
+function stageBinary(platform, explicitTarget, release, dir) {
   const profile = release ? 'release' : 'debug';
   const built = explicitTarget ? join(dir, PLATFORMS[platform].triple, profile) : join(dir, profile);
   const packageDir = join(ROOT, 'npm', platform);
   mkdirSync(packageDir, { recursive: true });
-  const staged = [];
-  for (const binary of binaries) {
-    const destination = join(packageDir, binary);
-    stageFile(join(built, binary), destination, { executable: true });
-    staged.push(destination);
-  }
-  const addon = `octocode-native.${platform}.node`;
-  // npm/<platform>/ always holds the addon next to the binaries it was built
-  // with; a host build that refreshed only the binaries left a stale addon.
-  const destinations = [join(packageDir, addon)];
-  if (platform === hostPlatform) destinations.push(join(ROOT, addon));
-  for (const destination of destinations) {
-    stageFile(join(built, library), destination, { platform });
-    staged.push(destination);
-  }
-  return staged;
+  return BINARIES.map(name => {
+    const file = executableName(name, PLATFORMS[platform].os);
+    const destination = join(packageDir, file);
+    stageFile(join(built, file), destination, { executable: true });
+    return destination;
+  });
 }
 
 function verifyStaged(platform, staged) {
   if (platform !== hostPlatform) return;
-  for (const artifact of staged) {
-    if (artifact.endsWith('.node')) verifyAddonLoads(artifact);
-    else if (/[\\/]octocode(\.exe)?$/.test(artifact)) verifyBinaryRuns(artifact);
-  }
+  for (const artifact of staged) verifyBinaryRuns(artifact);
 }
 
 async function buildPlatform(platform, explicitTarget, options) {
@@ -217,10 +172,10 @@ async function buildPlatform(platform, explicitTarget, options) {
   const target = explicitTarget ? platform : null;
   const dir = targetDir(target);
   const { command, args } = hostsCommand(target, options, dir);
-  await run(`${label}:${options.check ? 'check' : 'hosts'}`, command, args, crossEnv(target));
+  await run(`${label}:${options.check ? 'check' : 'build'}`, command, args, process.env);
   if (options.check) return;
 
-  const staged = stageHosts(platform, explicitTarget, options.release, dir);
+  const staged = stageBinary(platform, explicitTarget, options.release, dir);
   verifyStaged(platform, staged);
   for (const artifact of staged) console.log(`[${label}] staged ${relative(ROOT, artifact)}`);
 }

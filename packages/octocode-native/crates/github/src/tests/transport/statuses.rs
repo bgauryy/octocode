@@ -33,38 +33,59 @@ async fn distinguishes_permission_from_rate_limit_and_bounds_body() {
 }
 
 #[tokio::test]
-async fn retries_transient_server_failure_once() {
+async fn retries_transient_failures_once_including_request_timeout() {
+    for status in [408_u16, 500] {
+        let server = MockServer::builder().start().await;
+        let flaky = Sequence::new(vec![
+            ResponseTemplate::new(status),
+            ResponseTemplate::new(200).set_body_bytes(b"ok"),
+        ]);
+        let attempts = flaky.arrivals.clone();
+        Mock::given(method("GET"))
+            .respond_with(flaky)
+            .mount(&server)
+            .await;
+        let endpoint = mock_endpoint(&server);
+        let transport = GitHubTransport::new(
+            endpoint.clone(),
+            RetryPolicy {
+                max_attempts: 2,
+                base_delay: Duration::from_millis(1),
+                max_retry_after: Duration::from_secs(1),
+                max_rate_limit_wait: Duration::from_secs(1),
+            },
+            GitHubBudget::relaxed(),
+        )
+        .expect("transport");
+        let page = transport
+            .execute(
+                RequestSpec::get(endpoint.rest(&["flaky"]).expect("route")),
+                &RequestContext::with_timeout(Duration::from_secs(2), 16),
+            )
+            .await
+            .expect("retry");
+        assert_eq!(page.body, b"ok".as_slice());
+        assert_eq!(attempts.count(), 2, "HTTP {status}");
+    }
+}
+
+/// A request timeout that outlasts every attempt still reports itself
+/// retryable: the transport and the error share one verdict on 408.
+#[tokio::test]
+async fn a_request_timeout_that_outlasts_the_retries_stays_retryable() {
     let server = MockServer::builder().start().await;
-    let flaky = Sequence::new(vec![
-        ResponseTemplate::new(500),
-        ResponseTemplate::new(200).set_body_bytes(b"ok"),
-    ]);
-    let attempts = flaky.arrivals.clone();
     Mock::given(method("GET"))
-        .respond_with(flaky)
+        .respond_with(ResponseTemplate::new(408))
+        .expect(3)
         .mount(&server)
         .await;
-    let endpoint = mock_endpoint(&server);
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        RetryPolicy {
-            max_attempts: 2,
-            base_delay: Duration::from_millis(1),
-            max_retry_after: Duration::from_secs(1),
-            max_rate_limit_wait: Duration::from_secs(1),
-        },
-        GitHubBudget::relaxed(),
-    )
-    .expect("transport");
-    let page = transport
-        .execute(
-            RequestSpec::get(endpoint.rest(&["flaky"]).expect("route")),
-            &RequestContext::with_timeout(Duration::from_secs(2), 16),
-        )
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let error = get_x(&transport, &endpoint, 1024)
         .await
-        .expect("retry");
-    assert_eq!(page.body, b"ok".as_slice());
-    assert_eq!(attempts.count(), 2);
+        .expect_err("timeout");
+    assert_eq!(error.status, Some(408));
+    assert!(error.retryable);
+    server.verify().await;
 }
 
 #[tokio::test]

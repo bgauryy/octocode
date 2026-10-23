@@ -82,7 +82,7 @@ export function answer(request, mode = 'score') {
       else if (mode === 'policyUnknown')
         probabilities =
           index === 0 ? { 0: 0.5, 1: 0.5, 2: 0 } : { 0: 0.9, 1: 0.1, 2: 0 };
-      else if (uncertain) probabilities = { 0: 0.2, 1: 0.8, 2: 0 };
+      else if (uncertain) probabilities = { 0: 0.5, 1: 0.5, 2: 0 }; // no level passes the threshold: unknown (a confident level 1 is related)
       else if (high) probabilities = { 0: 0, 1: 0, 2: 1 };
       else probabilities = { 0: 1, 1: 0, 2: 0 };
       const expectedScore = Object.entries(probabilities).reduce(

@@ -1,9 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
-import {
-  StreamableHTTPClientTransport,
-  type StreamableHTTPClientTransportOptions,
-} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Client, StreamableHTTPClientTransport, type StreamableHTTPClientTransportOptions } from '@modelcontextprotocol/client';
+import { StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/client/stdio';
 import { cliView, contentText, type CliView } from './run.js';
 import { commandToken, defineCli, defineCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
 
@@ -112,15 +108,14 @@ function asProtocol(client: Client): McpClientLike {
           name: tool.name,
           description: tool.description,
           title: tool.title,
-          inputSchema: tool.inputSchema as JsonSchema | undefined,
-          outputSchema: tool.outputSchema as JsonSchema | undefined,
+          inputSchema: tool.inputSchema,
+          outputSchema: tool.outputSchema,
           annotations: tool.annotations,
         })),
       };
     },
     async callTool(params) {
       const result = await client.callTool({ name: params.name, arguments: params.arguments });
-      if ('toolResult' in result && !('content' in result)) return { toolResult: result.toolResult };
       const call = result as {
         isError?: boolean;
         structuredContent?: Record<string, unknown>;

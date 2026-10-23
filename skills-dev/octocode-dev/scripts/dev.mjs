@@ -35,7 +35,7 @@ const TASKS = {
   test: ['Run every workspace test script', [health('run', 'test')]],
   'test:ci': ['Skill checks, then tests without benchmark or native', [...SKILL_CHECKS, health('run', 'test', ...CI_EXCLUDE)]],
   'skills:check': ['Skill lint, shared report viewer, and skill script tests', [...SKILL_CHECKS, ...SKILLS_COMMON]],
-  // Not in test:ci: it drives the built native binary and addon, so CI runs it in its own `e2e` job after build:dev.
+  // Not in test:ci: it drives the built native binary, so CI runs it in its own `e2e` job after build:dev.
   'test:tools': ['End-to-end health of every tool via CLI and MCP, hermetic: driver self-test, then every lead explored (needs build:dev; [tool,...] [--deep])', [
     ['node', ['--test', path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health/driver.test.mjs')]],
     ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health.mjs')]],

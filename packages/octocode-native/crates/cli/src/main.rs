@@ -8,7 +8,7 @@ mod cli;
 // engine's `rayon` pools, not on tokio
 // worker threads. A multi-thread runtime would spawn one worker per core per
 // invocation only to leave them idle, so the CLI drives a single-threaded
-// reactor. (The MCP/N-API path is unaffected — napi owns its own tokio runtime.)
+// reactor; `octocode mcp` serves on it too.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::process::ExitCode {
     match cli::parse_args() {

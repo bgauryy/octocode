@@ -1,7 +1,7 @@
 //! The pull requests that close an issue (`closedBy`) and the fix read
 //! they lead to.
 use crate::id::ToolId;
-use crate::response::result::{Confidence, Continuation, remove_nulls};
+use crate::response::result::{Continuation, remove_nulls};
 use crate::tools::gh_get_history_item::HistoryItemRequest;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::util::str_at;
@@ -120,13 +120,7 @@ pub(super) fn attach_fix_pr(
     query: &HistoryItemRequest,
     closed_by: Option<&[ClosingPr]>,
     closed: bool,
-    bounded: bool,
 ) {
-    let confidence = if bounded {
-        Confidence::Medium
-    } else {
-        Confidence::High
-    };
     let next = match closed_by.and_then(<[ClosingPr]>::first) {
         // A small fix reads whole in one call: its patches are the evidence
         // (`closedBy` already links it to this issue). A larger one names
@@ -144,9 +138,7 @@ pub(super) fn attach_fix_pr(
             }
             (
                 "readPullRequest",
-                Continuation::new(ToolId::GhGetHistoryItem, read)
-                    .confidence(confidence)
-                    .build(),
+                Continuation::new(ToolId::GhGetHistoryItem, read).build(),
             )
         }
         None if closed && closed_by.is_none() => (
@@ -156,7 +148,6 @@ pub(super) fn attach_fix_pr(
                 json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),
                     "keywords":[gh_get_history_item_query::number(query).unwrap_or_default().to_string()]}),
             )
-            .confidence(Confidence::Medium)
             .build(),
         ),
         None => return,

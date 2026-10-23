@@ -1,5 +1,10 @@
+mod admission;
+mod sparse;
+
 use super::{CloneContext, CloneError, GitRunRequest, cache, control};
+use admission::git_permit;
 use octocode_contract_types::ErrorCode;
+use sparse::sparse_set_args;
 use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
@@ -167,71 +172,6 @@ pub(super) fn symlinks(
     Ok(links)
 }
 
-/// `sparse-checkout set` arguments for `sparse_paths` at the fetched commit. Cone mode
-/// always includes every file beside each cone directory, so when any path is
-/// a file every path becomes an exact anchored non-cone pattern (a directory
-/// as `/dir/`); directories alone (and paths that do not resolve, left for
-/// the caller's not-found check) keep cone mode. A failed `ls-tree` fails
-/// the checkout: guessing cone mode would widen a file scope to its folder.
-fn sparse_set_args(
-    context: &CloneContext<'_>,
-    target: &Path,
-    sparse_paths: &[String],
-) -> Result<Vec<OsString>, CloneError> {
-    let paths = sparse_paths
-        .iter()
-        .map(|path| path.trim_end_matches('/'))
-        .collect::<Vec<_>>();
-    // ls-tree reads tree objects only, so it never lazily fetches a blob;
-    // `-z` keeps unusual paths unquoted.
-    let mut ls_tree = scoped(target, &["ls-tree", "-z", "FETCH_HEAD", "--"]);
-    ls_tree.extend(paths.iter().map(OsString::from));
-    let files = run(
-        context,
-        ls_tree,
-        sparse_timeout(context),
-        "resolve sparse path type",
-        None,
-    )?
-    .stdout
-    .split('\0')
-    .filter_map(|line| {
-        let (meta, entry) = line.split_once('\t')?;
-        (meta.split_whitespace().nth(1) == Some("blob")).then(|| entry.to_owned())
-    })
-    .collect::<Vec<_>>();
-    let is_file = |path: &str| files.iter().any(|file| file == path);
-    if !paths.iter().any(|path| is_file(path)) {
-        let mut args = scoped(
-            target,
-            &["sparse-checkout", "set", "--cone", "--skip-checks", "--"],
-        );
-        args.extend(sparse_paths.iter().map(OsString::from));
-        return Ok(args);
-    }
-    let mut args = scoped(target, &["sparse-checkout", "set", "--no-cone", "--"]);
-    args.extend(paths.iter().map(|path| {
-        let mut pattern = file_pattern(path);
-        if !is_file(path) {
-            pattern.push('/');
-        }
-        OsString::from(pattern)
-    }));
-    Ok(args)
-}
-
-/// Anchored gitignore-style pattern matching exactly one repo-relative file.
-fn file_pattern(path: &str) -> String {
-    let mut pattern = String::from("/");
-    for character in path.chars() {
-        if matches!(character, '\\' | '*' | '?' | '[' | ']' | '!' | '#') {
-            pattern.push('\\');
-        }
-        pattern.push(character);
-    }
-    pattern
-}
-
 /// Check out `commit` (a full SHA: `run` pins every row to one) with
 /// `depth` commits of history, limited to `sparse_paths`.
 pub(super) fn checkout(
@@ -332,54 +272,6 @@ fn hardened(args: Vec<OsString>) -> Vec<OsString> {
         .collect()
 }
 
-/// Longest cooldown a clone waits out before failing fast.
-const GIT_COOLDOWN_CAP: Duration = Duration::from_secs(10);
-
-fn git_permit(
-    context: &CloneContext<'_>,
-    repository_url: &str,
-    token: Option<&str>,
-) -> Result<tokio::sync::OwnedSemaphorePermit, CloneError> {
-    use octocode_github::{GitHubBudget, LimiterKey};
-    let Ok(url) = url::Url::parse(repository_url) else {
-        return Err(CloneError::new(
-            ErrorCode::InvalidInput,
-            "Repository URL could not be parsed",
-        ));
-    };
-    let budget = GitHubBudget::global();
-    let state_dir = context
-        .config
-        .persistent
-        .then(|| context.config.cache_home.join("tmp").join("ratelimit"));
-    budget
-        .acquire_git_blocking(
-            &LimiterKey::for_url(&url, token),
-            state_dir.as_deref(),
-            GIT_COOLDOWN_CAP,
-            context.deadline,
-            &|| context.cancellation.check().is_err(),
-        )
-        .map_err(admission_error)
-}
-
-/// Why the shared GitHub limiter refused a git transfer: the caller's own
-/// cancellation or deadline, else a secondary-limit cooldown or an open
-/// circuit, which the row states as the limiter's own provider failure
-/// (rate-limit facts, retryable, `next.retry`).
-fn admission_error(error: octocode_github::ProviderError) -> CloneError {
-    use octocode_github::ProviderErrorKind;
-    match error.kind {
-        ProviderErrorKind::Cancelled => {
-            CloneError::new(ErrorCode::Cancelled, error.message.to_string())
-        }
-        ProviderErrorKind::Timeout => {
-            CloneError::new(ErrorCode::Timeout, error.message.to_string())
-        }
-        _ => CloneError::provider(error),
-    }
-}
-
 fn run(
     context: &CloneContext<'_>,
     args: Vec<OsString>,
@@ -410,60 +302,4 @@ fn run(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tools::gh_clone_repo::CloneFailure;
-    use octocode_github::{ProviderError, ProviderErrorKind, RateLimit};
-
-    fn limited(kind: ProviderErrorKind) -> ProviderError {
-        let mut error = ProviderError::new(kind, "GitHub secondary rate limit; request not sent.");
-        error.rate_limit = Some(Box::new(RateLimit {
-            remaining: None,
-            reset_epoch_seconds: None,
-            retry_after_seconds: Some(42),
-            resource: None,
-        }));
-        error.retryable = true;
-        error
-    }
-
-    /// A limiter cooldown is the limiter's provider failure, not clone text:
-    /// the row keeps its rate-limit block, retryability and retry delay.
-    #[test]
-    fn a_limiter_rate_limit_is_the_rows_provider_failure() {
-        match CloneFailure::from(admission_error(limited(ProviderErrorKind::RateLimited))) {
-            CloneFailure::Provider(error) => {
-                assert_eq!(error.kind, ProviderErrorKind::RateLimited);
-                assert!(error.retryable);
-                assert_eq!(
-                    error.rate_limit.and_then(|rate| rate.retry_after_seconds),
-                    Some(42)
-                );
-            }
-            CloneFailure::Clone(error) => panic!("rate limit flattened to text: {error:?}"),
-        }
-    }
-
-    /// An open circuit names its real cause (an outage), not a rate limit.
-    #[test]
-    fn an_open_circuit_keeps_its_cause() {
-        match CloneFailure::from(admission_error(limited(ProviderErrorKind::Transport))) {
-            CloneFailure::Provider(error) => assert_eq!(error.kind, ProviderErrorKind::Transport),
-            CloneFailure::Clone(error) => panic!("circuit flattened to text: {error:?}"),
-        }
-    }
-
-    /// The caller's own cancellation or deadline stays the clone's error.
-    #[test]
-    fn the_callers_own_stop_stays_a_clone_error() {
-        for (kind, code) in [
-            (ProviderErrorKind::Cancelled, ErrorCode::Cancelled),
-            (ProviderErrorKind::Timeout, ErrorCode::Timeout),
-        ] {
-            match CloneFailure::from(admission_error(ProviderError::new(kind, "stopped"))) {
-                CloneFailure::Clone(error) => assert_eq!(error.code, code),
-                CloneFailure::Provider(error) => panic!("caller stop became provider: {error:?}"),
-            }
-        }
-    }
-}
+mod tests;

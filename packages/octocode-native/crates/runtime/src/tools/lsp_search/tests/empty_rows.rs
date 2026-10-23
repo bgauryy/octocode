@@ -15,7 +15,7 @@ fn an_empty_hierarchy_row_says_the_relation_is_empty() {
             "operation": operation, "path": "src/a.ts", "symbolName": "A", "line": 1
         }))
         .expect("hierarchy query");
-        let row = empty(&query, "noLocations", "no results", true);
+        let row = with_stage_hints(&query, &empty(&query, "noLocations", "no results", true));
         let hint = row["hints"][0].as_str().expect("hint");
         assert!(hint.contains(wording), "{operation}: {hint}");
         assert!(!hint.contains("Verify the symbol"), "{hint}");
@@ -27,7 +27,10 @@ fn an_empty_hierarchy_row_says_the_relation_is_empty() {
     .expect("references query");
     // The row's executable `next.read` is the recovery; the general
     // advice lives once in the tool description.
-    let row = empty(&query, "noLocations", "no results", true);
+    let row = with_stage_hints(
+        &query,
+        &with_next(&query, empty(&query, "noLocations", "no results", true)),
+    );
     assert!(row.get("hints").is_none(), "{row}");
 }
 
@@ -41,7 +44,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     }));
     let empty = with_next(&query, empty(&query, "noLocations", "none", true));
     assert_eq!(empty["status"], "empty");
-    assert_eq!(empty["next"]["read"]["confidence"], "exact");
+    assert!(empty["next"]["read"].get("confidence").is_none());
     // A package that includes no unloaded source: no tip, and no static
     // advice beside the executable `next.read`.
     assert!(empty.get("hints").is_none(), "{empty}");
@@ -162,8 +165,9 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     assert_eq!(search["matchString"], "\\bexecute\\b", "{down}");
     assert_eq!(search["regex"], "rust", "{down}");
     assert_eq!(search["caseMode"], "sensitive", "{down}");
+    // The row's own leads say it all.
     assert!(
-        down["hints"].as_array().is_some_and(Vec::is_empty),
+        with_stage_hints(&query, &down).get("hints").is_none(),
         "{down}"
     );
     crate::contracts::validate_output("lspSearch", &public_row(&down))
@@ -223,11 +227,12 @@ fn workspace_root_failures_emit_a_string_path_without_directory_read_recovery() 
 
     assert!(down["path"].is_string(), "{down}");
     assert!(down.get("next").is_none(), "{down}");
+    let hinted = with_stage_hints(&query, &down);
     assert!(
-        down["hints"][0]
+        hinted["hints"][0]
             .as_str()
             .is_some_and(|hint| hint.contains("Provide path")),
-        "{down}"
+        "{hinted}"
     );
     crate::contracts::validate_output("lspSearch", &public_row(&down))
         .expect("workspace-root failure must satisfy the internal output contract");

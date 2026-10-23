@@ -44,10 +44,8 @@ fn walk(
     structured: &Map<String, Value>,
     length: usize,
 ) -> Vec<(Map<String, Value>, ResponsePagination)> {
-    let full = Value::Object(structured.clone()).to_string();
     let (_, first) = paginate_rows(
         structured.clone(),
-        &full,
         &options(length, 0, None),
         Vec::new(),
         &[],
@@ -56,7 +54,7 @@ fn walk(
     (0..first.total_pages)
         .map(|offset| {
             let request = options(length, offset, Some(first.snapshot.clone()));
-            let page = paginate_rows(structured.clone(), &full, &request, Vec::new(), &[], None);
+            let page = paginate_rows(structured.clone(), &request, Vec::new(), &[], None);
             assert!(page.1.restart.is_none(), "length {length} page {offset}");
             page
         })

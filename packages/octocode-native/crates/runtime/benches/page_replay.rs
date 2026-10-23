@@ -23,7 +23,6 @@
 
 #[expect(
     dead_code,
-    unused_imports,
     reason = "shared integration-test fixture; the benchmark uses part of it"
 )]
 #[path = "../tests/support/mod.rs"]

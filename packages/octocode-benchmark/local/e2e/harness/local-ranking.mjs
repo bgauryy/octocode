@@ -10,7 +10,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { findHint, nextHints, ROOT, RESULTS, startServer, expandShared, hermeticEnv } from './mcp-client.mjs';
-import { dataOf, failure, stable, success } from './read-tool-selection/support.mjs';
+import { contract, dataOf, failure, stable, success } from './read-tool-selection/support.mjs';
 
 const fixture = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-selection-')));
 const cliPath = path.join(ROOT, 'packages/octocode/out/octocode.js');
@@ -30,13 +30,10 @@ docLines[900] = `${marker} Cancelling a waiting request removes it before any wo
 const docPath = path.join(fixture, 'large-document.txt');
 fs.writeFileSync(docPath, `${docLines.join('\n')}\n`);
 
-// Score answers follow the core three-level policy: level 2 selects, level 0
-// excludes. A question whose goal names the background records selects them,
-// so a second classifier can widen the selection without a new fixture.
-let mode = 'score';
-let calls = 0;
-const sentStates = [];
-const sentQuestions = [];
+// Score answers follow the core three-level policy: level 2 selects, level 0 excludes. A question whose
+// goal names the background records selects them, so a second classifier widens the selection.
+let mode = 'score', calls = 0;
+const sentStates = [], sentQuestions = [];
 const mock = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -45,11 +42,7 @@ const mock = http.createServer(async (req, res) => {
   sentStates.push(request.state);
   sentQuestions.push(Object.values(request.questions ?? {}));
   if (mode === 'timeout') await new Promise(resolve => setTimeout(resolve, 500));
-  if (mode === '429' || mode === '500' || mode === '401') {
-    res.writeHead(Number(mode), { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ error: 'synthetic provider failure' }));
-    return;
-  }
+  if (['429', '500', '401'].includes(mode)) { res.writeHead(Number(mode), { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'synthetic provider failure' })); return; }
   if (mode === 'malformed') { res.end('{broken'); return; }
   const state = JSON.stringify(request.state);
   const answers = Object.fromEntries(Object.entries(request.questions ?? {}).map(([id, q]) => {
@@ -63,8 +56,7 @@ const mock = http.createServer(async (req, res) => {
       legend: Object.fromEntries(levels.map((level, i) => [String(i), level])),
     }];
   }));
-  res.writeHead(200, { 'content-type': 'application/json' });
-  res.end(JSON.stringify({ model: request.model, answers, usage: { input_tokens: 10, output_tokens: 2 } }));
+  res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ model: request.model, answers, usage: { input_tokens: 10, output_tokens: 2 } }));
 });
 await new Promise(resolve => mock.listen(0, '127.0.0.1', resolve));
 const isolated = hermeticEnv(process.env, 'local-ranking');
@@ -72,9 +64,7 @@ const env = {
   ...isolated,
   OCTOCODE_CLASSIFICATION_API: 'fixture-key',
   OCTOCODE_CLASSIFICATION_API_HOST: `http://127.0.0.1:${mock.address().port}`,
-  OCTOCODE_BETA: 'true',
-  OCTOCODE_STORAGE_MODE: 'memory',
-  OCTOCODE_LSP_PREWARM: 'off',
+  OCTOCODE_BETA: 'true', OCTOCODE_STORAGE_MODE: 'memory', OCTOCODE_LSP_PREWARM: 'off',
   DISABLE_TOOLS: '', TOOLS_TO_RUN: '', ALLOWED_PATHS: fixture, WORKSPACE_ROOT: fixture,
 };
 const checks = [];
@@ -98,10 +88,7 @@ async function cliArgs(args, overrides = {}) {
   });
 }
 const cli = (tool, query, overrides) => cliArgs([tool, JSON.stringify({ queries: [query] }), '--json'], overrides);
-const viaMcp = async (tool, query) => {
-  const result = await mcp.call(tool, query);
-  return { json: result.sc, chars: result.text.length, ms: result.ms };
-};
+const viaMcp = async (tool, query) => { const result = await mcp.call(tool, query); return { json: result.sc, chars: result.text.length, ms: result.ms }; };
 async function check(name, run) {
   if (process.argv[2] && !name.includes(process.argv[2])) return;
   mode = 'score';
@@ -112,6 +99,8 @@ async function check(name, run) {
 }
 const sourceRows = row => String(row.content ?? '').split('\n').filter(line => /^\d+\t/.test(line));
 const matchRows = row => (row.files ?? []).flatMap(file => (file.matches ?? []).map(match => `${file.path}:${match.line}:${match.value ?? ''}`));
+/** Hit lines of a search page: a snippet whose context reaches other hits lists them in `matchedLines`. */
+const hitLines = row => (row.files ?? []).flatMap(file => (file.matches ?? []).flatMap(match => (match.matchedLines ?? [match.line]).map(line => `${file.path}:${line}`)));
 const rowsOf = (tool, row) => tool === 'localFetch' ? sourceRows(row) : matchRows(row);
 const lineNumber = row => Number(row.split('\t')[0]);
 const PAGE_KINDS = ['nextPage', 'nextMatchPage', 'continueWindow'];
@@ -119,11 +108,14 @@ const continuation = row => Object.entries(row.next ?? {}).find(([kind]) => PAGE
 
 /** Every selected or ordinary page reachable from one query; `unfiltered` recovery is not a page. */
 async function walk(call, tool, query) {
-  const pending = [query], seen = new Set(), rows = [], results = [], provider = [];
+  const pending = [query], seen = new Set(), rows = [], hits = [], results = [], provider = [];
   while (pending.length) {
     assert.ok(results.length < 160, 'continuation walk terminates');
     const next = pending.shift();
     const id = JSON.stringify(next);
+    // By design (local_search/cursor.rs) a file group's last page re-offers its first page's
+    // idempotent nextPage; a walk of both axes calls it once. Any other repeated edge is a bug.
+    if (seen.has(id) && next.page !== undefined && next.matchPage === undefined) continue;
     if (seen.has(id)) fs.writeFileSync(path.join(RESULTS, 'local-ranking-duplicate-edge.json'), JSON.stringify({ tool, initial: query, repeated: next, pending, rows, results }, null, 2));
     assert.ok(!seen.has(id), `a continuation edge must not repeat: ${id}`);
     seen.add(id);
@@ -133,6 +125,7 @@ async function walk(call, tool, query) {
     provider.push(calls - before);
     results.push(result);
     rows.push(...rowsOf(tool, row));
+    if (tool === 'localSearch') hits.push(...hitLines(row));
     for (const [kind, lead] of Object.entries(row.next ?? {})) {
       if (!PAGE_KINDS.includes(kind)) continue;
       assert.equal(lead.tool, tool);
@@ -140,9 +133,14 @@ async function walk(call, tool, query) {
       pending.push(...lead.query.queries);
     }
   }
-  return { rows, results, provider };
+  return { rows, hits, results, provider };
 }
-const ordinary = query => { const { clasifyContext, selection, ...plain } = query; return plain; };
+/** The ordinary read a classified query selects from: with no context field, classified localSearch judges hits with `limits.clasifyContextLines`. */
+const ordinary = (query, tool) => {
+  const { clasifyContext, selection, ...plain } = query;
+  const implied = tool === 'localSearch' && clasifyContext && !['contextLines', 'contextBefore', 'contextAfter'].some(field => field in plain);
+  return implied ? { ...plain, contextLines: contract.limits.clasifyContextLines } : plain;
+};
 
 /** A selected-view receipt whose partitions reconcile. */
 function receipt(row, unit) {
@@ -153,7 +151,8 @@ function receipt(row, unit) {
   assert.equal(value.unit, unit);
   for (const field of ['totalItems', 'selectedItems', 'excludedItems', 'unknownItems'])
     assert.ok(Number.isInteger(value[field]) && value[field] >= 0, `${field} is a nonnegative integer`);
-  assert.equal(value.selectedItems + value.excludedItems + value.unknownItems, value.totalItems, 'selection partitions reconcile');
+  assert.ok(value.relatedItems === undefined || (Number.isInteger(value.relatedItems) && value.relatedItems > 0), 'relatedItems (decided near-misses, hidden) is omitted or positive');
+  assert.equal(value.selectedItems + value.excludedItems + (value.relatedItems ?? 0) + value.unknownItems, value.totalItems, 'selection partitions reconcile');
   return value;
 }
 
@@ -284,7 +283,7 @@ try {
       assert.ok(mcpRejected.isError || mcpRejected.sc?.errorCode, 'MCP rejects hidden public clasify');
       assert.equal(calls, beforePublic, 'rejected public calls do not send evidence');
       // Retrieval emits no clasify handoff on any surface (RFC: Scout/handoff flows removed).
-      const plain = { ...ordinary(search), matchString: 'ordinary bookkeeping', pageSize: 5, extras: ['hints'], mainGoal: classifiers[0] };
+      const plain = { ...ordinary(search, 'localSearch'), matchString: 'ordinary bookkeeping', pageSize: 5, extras: ['hints'], mainGoal: classifiers[0] };
       for (const result of [await cli('localSearch', plain), await cli('localSearch', plain, overrides), { json: (await server.call('localSearch', plain)).sc }]) {
         const row = success(result);
         assert.equal(findHint(row, 'hints.clasify'), undefined);
@@ -314,11 +313,11 @@ try {
         assert.equal(calls, before);
       }
       const before = calls;
-      assert.equal(success(await cli(tool, ordinary(query))).selection, undefined, 'ordinary reads carry no receipt');
+      assert.equal(success(await cli(tool, ordinary(query, tool))).selection, undefined, 'ordinary reads carry no receipt');
       assert.equal(calls, before);
     });
     await check(`${label}: selected evidence only, source order, fresh-process replay and lossless recovery`, async () => {
-      const baseline = await walk(cli, tool, ordinary(query));
+      const baseline = await walk(cli, tool, ordinary(query, tool));
       const before = calls;
       const selected = await walk(cli, tool, query);
       assert.ok(selected.provider[0] > 0, 'the first page judges the candidates');
@@ -342,7 +341,7 @@ try {
       return { pages: selected.results.length, providerCalls: calls - before, evidenceRows: selected.rows.length, baselineRows: baseline.rows.length };
     });
     await check(`${label}: refused provider calls expose no unjudged body; a provider that cannot answer now withholds nothing`, async () => {
-      const baseline = await walk(cli, tool, ordinary(query));
+      const baseline = await walk(cli, tool, ordinary(query, tool));
       const attempts = [];
       // A selection past its constant deadline is covered by
       // runtime_clasify::a_selection_past_its_deadline_withholds_bodies_and_recovers.
@@ -451,7 +450,7 @@ try {
       fs.writeFileSync(path.join(budgetDir, `f${String(i).padStart(2, '0')}.txt`), `topic ${i}: ordinary bookkeeping details${tail}\n`);
     }
     const query = { ...search, path: budgetDir, pageSize: 70, sort: 'path' };
-    const baseline = await walk(cli, 'localSearch', ordinary(query));
+    const baseline = await walk(cli, 'localSearch', ordinary(query, 'localSearch'));
     const before = calls;
     const limited = await walk(cli, 'localSearch', query);
     const value = receipt(dataOf(limited.results[0]), 'chunks');
@@ -469,11 +468,12 @@ try {
   await check('an all-selected view preserves original order across both pagination axes', async () => {
     mode = 'tie';
     const query = { ...search, pageSize: 2, matchPageSize: 2 };
-    const baseline = await walk(cli, 'localSearch', ordinary(query));
+    const baseline = await walk(cli, 'localSearch', ordinary(query, 'localSearch'));
     const selected = await walk(cli, 'localSearch', query);
     const expectedCount = fs.readdirSync(searchDir).reduce((sum, file) => sum + fs.readFileSync(path.join(searchDir, file), 'utf8').split('\n').filter(line => line.includes('topic')).length, 0);
-    assert.equal(baseline.rows.length, expectedCount, 'every fixture match is reached');
-    assert.equal(new Set(baseline.rows).size, expectedCount, 'each original match occurs once');
+    assert.equal(baseline.hits.length, expectedCount, 'every fixture match is reached');
+    assert.equal(new Set(baseline.hits).size, expectedCount, 'each original match occurs once');
+    assert.equal(new Set(baseline.rows).size, baseline.rows.length, 'each snippet occurs once');
     assert.deepEqual(selected.rows, baseline.rows);
     const value = receipt(dataOf(selected.results[0]), 'chunks');
     assert.equal(value.status, 'complete');
@@ -498,7 +498,7 @@ try {
     const value = receipt(dataOf(selected.results[0]), 'chunks');
     assert.equal(value.status, 'complete');
     assert.equal(value.selectedItems, value.totalItems, 'any direct classifier selects a window');
-    const baseline = await walk(cli, 'localFetch', ordinary(query));
+    const baseline = await walk(cli, 'localFetch', ordinary(query, 'localFetch'));
     assert.deepEqual(selected.rows, baseline.rows);
     assert.equal(new Set(selected.rows).size, 1200);
   });
@@ -520,7 +520,7 @@ try {
     lines[135] = `${marker} בקשה מבוטלת before it starts.`;
     fs.writeFileSync(edgePath, lines.join('\r\n'));
     const query = { path: edgePath, clasifyContext: { classifiers }, unit: 'lines', length: 17 };
-    const baseline = await walk(cli, 'localFetch', ordinary(query));
+    const baseline = await walk(cli, 'localFetch', ordinary(query, 'localFetch'));
     assert.equal(new Set(baseline.rows).size, 160);
     const selected = await walk(cli, 'localFetch', query);
     assertSubsequence(selected.rows, baseline.rows);
@@ -548,7 +548,7 @@ try {
   });
   await check('disjoint fetch ranges retain source anchors after selection', async () => {
     const query = { path: docPath, clasifyContext: { classifiers }, ranges: ['5-35', '885-925'], unit: 'lines', length: 31 };
-    const baseline = await walk(cli, 'localFetch', ordinary(query));
+    const baseline = await walk(cli, 'localFetch', ordinary(query, 'localFetch'));
     const selected = await walk(cli, 'localFetch', query);
     assertSubsequence(selected.rows, baseline.rows);
     assert.ok(selected.rows.some(row => lineNumber(row) === 901 && row.includes(marker)));
@@ -558,7 +558,7 @@ try {
   });
   await check('matchString hit windows are judged separately and keep exact anchors', async () => {
     const query = { path: docPath, matchString: ['Entry 120: ', marker], contextLines: 2, clasifyContext: { classifiers }, unit: 'lines', length: 4 };
-    const baseline = await walk(cli, 'localFetch', ordinary(query));
+    const baseline = await walk(cli, 'localFetch', ordinary(query, 'localFetch'));
     assert.ok(baseline.rows.some(row => lineNumber(row) === 120) && baseline.rows.some(row => lineNumber(row) === 901), 'both hit windows are ordinary evidence');
     const selected = await walk(cli, 'localFetch', query);
     assertSubsequence(selected.rows, baseline.rows);
@@ -650,7 +650,7 @@ try {
     assert.equal(named.json.errorCode, 'invalidInput', JSON.stringify(named.json));
     assert.match(named.json.error, /Remove 'resources' from queries\[0\]: it applies only with operation:"sections"/, JSON.stringify(named.json));
     for (const tool of ['localSearch', 'localFetch']) {
-      const plain = ordinary(tool === 'localSearch' ? search : fetch);
+      const plain = ordinary(tool === 'localSearch' ? search : fetch, tool);
       for (const field of [{ goals: classifiers }, { classifiers }, { ranking: 'legacy-plan' }]) {
         const result = await cli(tool, { ...plain, ...field });
         assertRejected(result, `${tool} ${Object.keys(field)[0]}`);
@@ -679,7 +679,7 @@ try {
     const giant = `${marker} ${'x'.repeat(9000)}`;
     fs.writeFileSync(giantPath, `${giant}\n`);
     const query = { path: giantPath, clasifyContext: { classifiers }, unit: 'lines', length: 1 };
-    const baseline = success(await cli('localFetch', ordinary(query)));
+    const baseline = success(await cli('localFetch', ordinary(query, 'localFetch')));
     const before = sentStates.length;
     const selected = success(await cli('localFetch', query));
     assert.equal(receipt(selected, 'chunks').selectedItems, 1);

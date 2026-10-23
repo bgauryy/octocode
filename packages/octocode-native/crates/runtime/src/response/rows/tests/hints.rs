@@ -7,7 +7,7 @@ use crate::response::output::SANDBOX_HINT;
 fn a_cancellation_bounds_its_retry_and_otherwise_reports() {
     for tool in [ToolId::LocalSearch, ToolId::Clasify, ToolId::GhSearchCode] {
         assert_eq!(
-            error_code_hint(tool, ErrorCode::Cancelled),
+            error_code_hint(tool, ErrorCode::Cancelled, &Value::Null),
             Some(CANCELLED_HINT)
         );
     }

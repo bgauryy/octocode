@@ -177,7 +177,6 @@ pub(super) fn document_symbols_payload(
             ToolId::LocalFetch,
             json!({ "queries": [{ "path": path, "ranges": [read] }] }),
         )
-        .confidence(Confidence::Medium)
         .build();
     }
     row

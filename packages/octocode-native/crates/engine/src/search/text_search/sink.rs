@@ -8,7 +8,6 @@ use crate::types::TextSearchMatch;
 use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
 use grep_searcher::{Searcher, Sink, SinkContext, SinkMatch};
-use sha2::{Digest as _, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
@@ -184,7 +183,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                             last_line: None,
                             column,
                             byte_offset: start as u32,
-                            value_digest: Sha256::digest(value.trim().as_bytes()).into(),
+                            value_digest: TextSearchMatch::digest_of(&value),
                             value,
                             count: None,
                             rank: None,
@@ -207,7 +206,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     last_line: None,
                     column: 0,
                     byte_offset: 0,
-                    value_digest: Sha256::digest(line_text.trim().as_bytes()).into(),
+                    value_digest: TextSearchMatch::digest_of(&line_text),
                     value: line_text,
                     count: None,
                     rank: None,

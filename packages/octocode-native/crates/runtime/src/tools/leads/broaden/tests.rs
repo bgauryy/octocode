@@ -130,7 +130,8 @@ fn a_broadened_search_names_what_each_row_drops() {
         value["hints"],
         json!([
             "tip",
-            "broadenSearch rows: queries[0] drops qualifiers; queries[1] drops since, until; queries[2] drops keyword \"b\"; queries[3] drops keyword \"a\""
+            "broadenSearch rows: queries[0] drops qualifiers; queries[1] drops since, until; queries[2] drops keyword \"b\"",
+            "broadenSearch rows: queries[3] drops keyword \"a\""
         ]),
         "{value}"
     );
@@ -146,6 +147,43 @@ fn a_broadened_search_names_what_each_row_drops() {
         json!(["broadenSearch rows: queries[0] drops ref, sets include [\"*.rs\"]"]),
         "{value}"
     );
+}
+
+/// The note names every row however many there are, and each note is one
+/// hint within the guidance budget: rows pack in order, a row that overflows
+/// starts the next hint, and a row whose own values are too long to state is
+/// named by position, never cut.
+#[test]
+fn broadened_notes_stay_within_the_hint_budget_and_name_every_row() {
+    let budget = crate::response::rows::MAX_GUIDANCE_CHARS;
+    let drop = no_split(&[], &[&["qualifiers"], &["since", "until"]]);
+    let long = "x".repeat(150);
+    let row = json!({"operation":"pullRequest","owner":"o","repo":"r",
+        "keywords":["alpha","beta","gamma",long,"delta"],
+        "since":"2026-01-01","until":"2026-02-01","qualifiers":"author:x"});
+    let lead = broaden(ToolId::GhSearchHistory, &row, &drop, 5).expect("variants");
+    let rows = lead["query"]["queries"].as_array().expect("rows").len();
+    assert_eq!(rows, 5, "{lead}");
+    let mut value = json!({});
+    set_broadened(&mut value, &row, lead);
+    let hints = value["hints"].as_array().expect("hints");
+    assert!(hints.len() > 1, "{value}");
+    for hint in hints {
+        let hint = hint.as_str().expect("text");
+        assert!(hint.chars().count() <= budget, "{hint}");
+    }
+    let all = hints
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(" ");
+    for index in 0..rows {
+        assert!(all.contains(&format!("queries[{index}] ")), "{all}");
+    }
+    // The over-long keyword is named by its position; the others by value.
+    assert!(all.contains("drops keyword 4"), "{all}");
+    assert!(all.contains("drops keyword \"delta\""), "{all}");
+    assert!(!all.contains(&long), "{all}");
 }
 
 /// `row` (an executor row with `next.broadenSearch`) as the response stage

@@ -145,7 +145,6 @@ export PATH="$HERE/guard:$HERE:$PATH"
 [ -z "$EXTRA_PATH" ] || export PATH="$EXTRA_PATH:$PATH"   # local-shell: read-only git/find first
 export GHC_LOG="$RUN/ghc.jsonl"   # headroom wrapper's own log (diagnostic only)
 
-unset OCTOCODE_ALLOW_CONTRACT_DRIFT
 cd "$WORK"
 if [ "${RUNNER:-claude}" = codex ]; then
   [ -f "$RUN/mcp.json" ] || { echo "Codex runner supports MCP-only arms" >&2; exit 2; }

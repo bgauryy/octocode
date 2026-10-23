@@ -61,6 +61,32 @@ fn resolves_root_skips_deep_nested_marker_in_favour_of_parent() {
     assert_eq!(resolved, expected);
 }
 
+/// A workspace package without its own tsconfig roots a TypeScript file at
+/// the repository tsconfig above it (tsserver searches only up to its root);
+/// a package with its own tsconfig, and a non-TypeScript file, keep the
+/// package marker.
+#[test]
+fn typescript_files_root_at_their_governing_tsconfig() {
+    let root = TmpDir::new();
+    fs::write(root.join("tsconfig.json"), b"{}").expect("root tsconfig");
+    let bare = root.join("packages").join("bare");
+    let owned = root.join("packages").join("owned");
+    for package in [&bare, &owned] {
+        fs::create_dir_all(package.join("src")).expect("package src");
+        fs::write(package.join("package.json"), b"{}").expect("package manifest");
+    }
+    fs::write(owned.join("tsconfig.json"), b"{}").expect("package tsconfig");
+    let resolve = |file: PathBuf| {
+        let root =
+            resolve_workspace_root_for_file(file.to_string_lossy().into_owned()).expect("resolve");
+        PathBuf::from(root)
+    };
+    assert_eq!(resolve(bare.join("src").join("guards.ts")), *root);
+    assert_eq!(resolve(bare.join("src").join("view.jsx")), *root);
+    assert_eq!(resolve(owned.join("src").join("index.ts")), owned);
+    assert_eq!(resolve(bare.join("src").join("main.py")), bare);
+}
+
 /// A member crate's file roots the server at its Cargo workspace, so
 /// every member shares one rust-analyzer; a standalone package roots
 /// at itself, and a non-Rust file keeps the nearest marker.

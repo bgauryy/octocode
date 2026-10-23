@@ -4,7 +4,6 @@ use super::GhSearchCodeQuery;
 use super::code_output::{Resolution, requested_ref, row_repo};
 use crate::id::ToolId;
 use crate::num::u32_of_usize;
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, continuation_row_mut, query_row};
 use crate::tools::leads::broaden::{Broaden, broaden};
 use serde_json::{Value, json};
@@ -40,7 +39,6 @@ pub(super) fn read_top_match(top: &Value) -> Option<Value> {
                 "contextLines": 5,
             }),
         )
-        .confidence(Confidence::Medium)
         .build(),
     )
 }
@@ -196,11 +194,7 @@ pub(super) fn declaration_read(
         "block": true,
         "ref": sha,
     });
-    Some(
-        Continuation::new(ToolId::GhGetFileContent, read)
-            .confidence(Confidence::Medium)
-            .build(),
-    )
+    Some(Continuation::new(ToolId::GhGetFileContent, read).build())
 }
 
 /// ghGetFileContent read of a resolved file's best hit for the goal (5 lines
@@ -236,11 +230,7 @@ pub(super) fn line_read(
         // the window before the read runs.
         "ref": sha,
     });
-    Some(
-        Continuation::new(ToolId::GhGetFileContent, read)
-            .confidence(Confidence::Medium)
-            .build(),
-    )
+    Some(Continuation::new(ToolId::GhGetFileContent, read).build())
 }
 
 /// The read of a file the index did not search at the requested ref: the
@@ -262,7 +252,6 @@ pub(super) fn unsearched_ref_read(query: &GhSearchCodeQuery) -> Option<Value> {
             ToolId::GhGetFileContent,
             json!({"owner": query.owner.as_str(), "repo": repo.as_str(), "path": path, "ref": reference}),
         )
-        .confidence(Confidence::Medium)
         .build(),
     )
 }
@@ -295,11 +284,7 @@ pub(super) fn or_split(query: &GhSearchCodeQuery) -> Option<Value> {
             row
         })
         .collect::<Vec<_>>();
-    Some(
-        Continuation::input(ToolId::GhSearchCode, json!({ "queries": rows }))
-            .confidence(Confidence::Medium)
-            .build(),
-    )
+    Some(Continuation::input(ToolId::GhSearchCode, json!({ "queries": rows })).build())
 }
 
 /// Variants an empty search offers at most: each one is another code search

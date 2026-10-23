@@ -5,7 +5,10 @@ use reqwest::{StatusCode, header::HeaderMap};
 use serde::Deserialize;
 use url::Url;
 
-use octocode_io::{budget::BudgetStop, retry::BodyError};
+use octocode_io::{
+    budget::BudgetStop,
+    retry::{BodyError, classify_status},
+};
 
 use super::RequestContext;
 use crate::{GitHubEndpoint, ProviderError, ProviderErrorKind, ProviderErrorReason};
@@ -181,7 +184,7 @@ pub(super) fn response_error(
             .map(Into::into),
         documentation_url: parsed.documentation_url.map(String::into_boxed_str),
         rate_limit: None,
-        retryable: status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS,
+        retryable: classify_status(status.as_u16()).is_retryable(),
         reason: missing_ref.then_some(ProviderErrorReason::RefNotFound),
         sso_url: sso_directive(headers, "required")
             .and_then(|parameters| sso_parameter(parameters, "url"))

@@ -3,10 +3,13 @@
 //! false-positive controls applied, and commands that verify it.
 //!
 //! Two rules keep findings honest:
-//! - **Liveness is optimistic.** Any edge (a low-confidence call, a dynamic or
-//!   type-only import) keeps a node alive for dead-code detectors.
+//! - **Liveness is optimistic.** Any production edge (a low-confidence call, a
+//!   dynamic or type-only import) keeps a node alive for dead-code detectors.
 //! - **Violations are pessimistic.** Only runtime import edges between
 //!   authored files count as evidence for cycles, hubs, and layering.
+//!
+//! Test code (test files, Rust `#[cfg(test)]` items and the modules they
+//! mount) is never production evidence: its edges carry `test`.
 //!
 //! Generated, bundled, vendored, and declaration files are never subjects.
 use super::classify::{
@@ -17,7 +20,9 @@ use super::format::{
 };
 use crate::tools::ast_graph::algorithms::Cycles;
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};
+use crate::tools::ast_graph::graph::{dirname, rust_module_child_dir};
 use crate::tools::ast_graph::types::{DiagnosticCode, Node};
+use octocode_io::shell::quote;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -150,21 +155,6 @@ fn stable_id(detector: &str, parts: &[&str]) -> String {
 /// Maps magnitude (members, dependents, count) into a `[0.6, 1.0]` factor.
 fn magnitude(size: usize) -> f64 {
     (0.6 + 0.08 * ((1 + size) as f64).log2()).min(1.0)
-}
-
-fn quote(arg: &str) -> String {
-    if arg
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "-_./:@".contains(c))
-    {
-        arg.to_owned()
-    } else {
-        format!("'{}'", arg.replace('\'', r"'\''"))
-    }
-}
-
-fn parent_dir(path: &str) -> &str {
-    path.rsplit_once('/').map_or(".", |(dir, _)| dir)
 }
 
 /// Runs the selected detectors (all when `only` is empty) and ranks them.

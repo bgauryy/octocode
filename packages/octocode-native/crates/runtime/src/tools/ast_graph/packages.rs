@@ -12,6 +12,7 @@
 //! heritage clause naming a same-package class links to its file. Go
 //! same-package references produce no edge.
 
+use super::graph::dirname;
 use super::linking::Linker;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -33,10 +34,6 @@ pub(super) enum PackageLink {
     /// Names a scanned module/package that holds no linkable file.
     UnresolvedInternal,
     External,
-}
-
-fn dir_of(path: &str) -> &str {
-    path.rsplit_once('/').map_or(".", |(dir, _)| dir)
 }
 
 fn join(dir: &str, rest: &str) -> String {
@@ -104,7 +101,7 @@ impl PackageIndex {
         let mut index = Self::default();
         let mut go_dirs = BTreeSet::new();
         for file in known {
-            let dir = dir_of(file).to_owned();
+            let dir = dirname(file).to_owned();
             let linker = Linker::of(file);
             if matches!(linker, Linker::Go | Linker::Java) {
                 index
@@ -122,7 +119,7 @@ impl PackageIndex {
                     if current == "." {
                         break;
                     }
-                    current = dir_of(current);
+                    current = dirname(current);
                 }
             }
             if let Some(name) = file.rsplit('/').next().filter(|_| linker == Linker::Java) {
@@ -184,7 +181,7 @@ impl PackageIndex {
         {
             return None;
         }
-        let dir = dir_of(importer);
+        let dir = dirname(importer);
         let target = join(dir, &format!("{name}.java"));
         self.files_by_dir
             .get(dir)?

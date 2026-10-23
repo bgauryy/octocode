@@ -247,5 +247,17 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
     );
     let last = pages.last().expect("final page");
     assert!(last.get("isPartial").is_none(), "{last}");
-    assert!(last.get("next").is_none(), "the route terminates: {last}");
+    // No page remains; the one lead walks one level deeper from the start.
+    let next = last["next"].as_object().expect("the deeper-walk lead");
+    assert_eq!(
+        next.keys().collect::<Vec<_>>(),
+        ["walkDeeper"],
+        "the route terminates: {last}"
+    );
+    let deeper = &next["walkDeeper"]["query"]["queries"][0];
+    assert_eq!(deeper["graphDepth"], 2, "{last}");
+    assert!(
+        deeper.get("candidatePage").is_none(),
+        "from the start: {last}"
+    );
 }

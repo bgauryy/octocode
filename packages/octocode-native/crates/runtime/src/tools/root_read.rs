@@ -1,7 +1,25 @@
-//! The file a directory listing leads to first. ghStructure (a remote
-//! listing) and structureSearch (a local one) rank their files here, so one
-//! tree gets the same read lead from either tool.
+//! What a directory listing shares between ghStructure (a remote listing)
+//! and structureSearch (a local one): the file it leads to first, so one tree
+//! gets the same read lead from either tool, and the text of a listed entry.
 use crate::content::{FileType, classify_file_type, is_test_path};
+
+/// Rank of a file no [`read_rank`] tier names (an outline-able file, or one
+/// in a small listing): it reads last.
+pub(crate) const RANK_ANY: u8 = 6;
+
+/// One listed entry: its `name`, `/` after a directory, then ` (<fields>)`
+/// when it has `fields`. The fields never contain ` (`, so the last ` (` of an
+/// entry ending in `)` opens them, whatever the name holds.
+pub(crate) fn entry_text(name: &str, is_dir: bool, fields: &[String]) -> String {
+    let mut text = name.to_owned();
+    if is_dir {
+        text.push('/');
+    }
+    if !fields.is_empty() {
+        text.push_str(&format!(" ({})", fields.join(", ")));
+    }
+    text
+}
 
 /// A listed file's read rank (lower reads first), or `None` for a file no
 /// lead should read (tests, data, config, generated output).
@@ -72,7 +90,7 @@ fn entry_matches(lower: &str, wanted: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::read_rank;
+    use super::{entry_text, read_rank};
 
     fn rank(path: &str) -> Option<u8> {
         read_rank(path, path.matches('/').count(), &[])
@@ -108,6 +126,15 @@ mod tests {
     fn tests_and_data_are_not_read_leads() {
         assert_eq!(rank("src/a.test.ts"), None);
         assert_eq!(rank("data.json"), None);
+    }
+
+    #[test]
+    fn an_entry_names_a_directory_with_a_slash_and_lists_its_fields() {
+        assert_eq!(entry_text("a.rs", false, &[]), "a.rs");
+        assert_eq!(entry_text("src", true, &[]), "src/");
+        let fields = ["12".to_owned(), "symlink".to_owned()];
+        assert_eq!(entry_text("a.rs", false, &fields), "a.rs (12, symlink)");
+        assert_eq!(entry_text("src", true, &fields[..1]), "src/ (12)");
     }
 
     #[test]

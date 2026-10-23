@@ -4,8 +4,8 @@
 //! chunks (a cancel stops it). [`read_source`] opens without blocking (a FIFO cannot hang it), checks the
 //! opened handle is a regular file, and reads through `take(limit + 1)`, so a
 //! file grown past the limit since it was listed is refused without being
-//! read whole. [`open_regular`] also refuses a final symlink, for a walk
-//! entry that may have been swapped since it was listed. [`sniff`] is the one
+//! read whole. [`open_regular`] and [`read_regular`] also refuse a final
+//! symlink, for a walk entry that may have been swapped since it was listed. [`sniff`] is the one
 //! definition of binary content every tool applies. [`admit`] is the one
 //! admission of complete bytes as text (whole-source sniff, then decode) that
 //! every reader of a whole source calls; [`sniff`] alone judges the prefix of
@@ -301,7 +301,20 @@ fn open_nonblocking(path: &Path, unfollowed: bool) -> std::io::Result<std::fs::F
 
 /// The bytes of the regular file at `path`, at most `limit`.
 pub fn read_source(path: &Path, limit: u64) -> Result<Source, ReadError> {
-    let file = open_nonblocking(path, false).map_err(ReadError::Io)?;
+    read_bounded(path, limit, false)
+}
+
+/// [`read_source`] of a walk entry re-read after the walk: it also refuses a
+/// final symlink, as [`open_regular`] does, so an entry swapped for a link
+/// since it was listed is never followed.
+pub fn read_regular(path: &Path, limit: u64) -> Result<Source, ReadError> {
+    read_bounded(path, limit, true)
+}
+
+/// The bounded read behind [`read_source`] and [`read_regular`];
+/// `unfollowed` refuses a final symlink.
+fn read_bounded(path: &Path, limit: u64, unfollowed: bool) -> Result<Source, ReadError> {
+    let file = open_nonblocking(path, unfollowed).map_err(ReadError::Io)?;
     let metadata = file.metadata().map_err(ReadError::Io)?;
     if !metadata.is_file() {
         return Err(ReadError::NotRegular);

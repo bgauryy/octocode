@@ -9,9 +9,9 @@ use tokio::runtime::Handle;
 use tokio::sync::{Mutex, oneshot};
 
 /// Spawn async cleanup from a `Drop`. Uses the runtime handle captured when
-/// the guard was built (a `Drop` can run on a non-runtime thread, e.g. a napi
-/// finalizer, where `Handle::try_current()` fails), falling back to the
-/// current runtime only if none was captured.
+/// the guard was built (a `Drop` can run on a non-runtime thread, where
+/// `Handle::try_current()` fails), falling back to the current runtime only
+/// if none was captured.
 fn spawn_cleanup<F>(runtime: Option<&Handle>, future: F)
 where
     F: Future<Output = ()> + Send + 'static,

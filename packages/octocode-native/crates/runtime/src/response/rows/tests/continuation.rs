@@ -65,7 +65,7 @@ fn a_stale_snapshot_always_restarts_with_one_text() {
     let data = &row["data"];
     assert_eq!(
         data["error"],
-        super::super::super::pages::STALE_SNAPSHOT_ERROR,
+        crate::response::result::STALE_SNAPSHOT_ERROR,
         "{data}"
     );
     assert!(
@@ -90,7 +90,7 @@ fn a_stale_snapshot_always_restarts_with_one_text() {
     assert_eq!(row["data"]["next"]["restart"], own);
     assert_eq!(
         row["data"]["error"],
-        super::super::super::pages::STALE_SNAPSHOT_ERROR
+        crate::response::result::STALE_SNAPSHOT_ERROR
     );
 }
 

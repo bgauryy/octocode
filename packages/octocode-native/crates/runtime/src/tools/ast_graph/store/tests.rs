@@ -11,6 +11,7 @@ mod issues;
 mod linking;
 mod queries;
 mod rust_paths;
+mod rust_test_code;
 mod snapshots;
 mod stale;
 

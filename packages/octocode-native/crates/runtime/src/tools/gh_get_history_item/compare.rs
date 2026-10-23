@@ -9,7 +9,6 @@ use super::window::COMPARE_FILE_LIMIT;
 use super::{HistoryItemRequest, ItemOperation, Section, fetch, validation};
 use crate::id::ToolId;
 use crate::response::paging::push_warnings;
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, ToolData};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use octocode_github::{GitHubProvider, GitHubTransport, ProviderError, RequestContext};
@@ -141,10 +140,8 @@ pub(super) async fn compare(
     // section states their count with none shown, and its page lists them
     // from the first. An empty file answer is the whole answer.
     if files_asked && !window && first_page(query) && total > 0 && out["status"] != "empty" {
-        let mut unshown = crate::response::pages::PageFacts::counted(1, per, total).to_value();
-        unshown["currentPage"] = json!(0);
-        unshown["hasMore"] = json!(true);
-        out["contentPagination"][Axis::Commits.key()] = unshown;
+        out["contentPagination"][Axis::Commits.key()] =
+            crate::response::pages::PageFacts::unshown(per, total).to_value();
         cursors.commit_page = Some(1);
     }
     attach_diff_continuations(&mut out, &pinned, ItemOperation::Compare, None, cursors);
@@ -203,9 +200,7 @@ fn swapped_refs(query: &HistoryItemRequest) -> Value {
     }
     swapped["base"] = json!(gh_get_history_item_query::head(query));
     swapped["head"] = json!(gh_get_history_item_query::base(query));
-    Continuation::new(ToolId::GhGetHistoryItem, swapped)
-        .confidence(Confidence::Exact)
-        .build()
+    Continuation::new(ToolId::GhGetHistoryItem, swapped).build()
 }
 
 /// One comparison page as GitHub answers it, with both ends pinned to

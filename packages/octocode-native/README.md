@@ -4,8 +4,9 @@
 > **Directory:** `packages/octocode-native/`
 
 The Rust engine behind every Octocode tool, shipped as one npm distribution: the
-standalone `octocode` binary (no Node needed) and the `NativeRuntime` N-API addon
-that the MCP server loads from `.` or `./runtime`.
+standalone `octocode` binary (no Node needed). It runs the CLI commands and the stdio
+MCP server (`octocode mcp`), which both protocol eras (2025-11-25 and 2026-07-28) reach
+from the same process.
 
 ```sh
 $ npx octocode --version
@@ -66,12 +67,12 @@ binary. Use npm until the native formula is published
 ### From source (requires Rust)
 
 ```sh
-yarn workspace @octocodeai/octocode-native build:dev   # host CLI + addon, staged into npm/<host>/
+yarn workspace @octocodeai/octocode-native build:dev   # host binary, staged into npm/<host>/
 yarn workspace @octocodeai/octocode-native build       # the same, release profile
 ```
 
-`scripts/build-native.cjs` builds the CLI and the runtime addon in one Cargo
-invocation, then stages them atomically. A plain
+`scripts/build-native.cjs` builds the binary in one Cargo invocation, then stages
+it atomically. A plain
 `cargo build --manifest-path packages/octocode-native/Cargo.toml` (default member
 `crates/cli`) writes `target/debug/octocode` without staging.
 
@@ -87,8 +88,7 @@ lists every Cargo dependency between them.
 | `crates/github` | GitHub protocol and transport, retries, `Partition` ([`lib.rs`](crates/github/src/lib.rs)) | `io` |
 | `crates/contract-types` | The tool wire types generated from the contract (`include!`s `packages/octocode-config/contract/tool_types.rs`) | none |
 | `crates/runtime` (`octocode-native`) | `ToolRuntime`: config, credentials, contracts, availability, tools, responses | `io`, `engine`, `github`, `contract-types` |
-| `crates/cli` | The `octocode` binary and its warm tool server | `io`, `runtime`, `engine`, `github` |
-| `crates/runtime-napi` | The N-API addon the MCP server loads | `runtime` |
+| `crates/cli` | The `octocode` binary: its commands, its warm tool server and the stdio MCP server (`octocode mcp`) | `io`, `runtime`, `engine`, `github` |
 
 Design and invariants: [ARCHITECTURE.md](ARCHITECTURE.md). Languages and what
 each feature supports:
@@ -99,11 +99,10 @@ dependencies: [DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md).
 
 ```
 packages/octocode-native/
-├─ crates/{engine,io,github,runtime,cli,runtime-napi}/
-├─ js/          runtime loader (`.` and `./runtime`)
+├─ crates/{engine,io,github,contract-types,runtime,cli}/
 ├─ bin/         platform-selecting launcher (`octocode-native` bin)
-├─ npm/<p>/     one package per platform: the `octocode` binary and `octocode-native.<p>.node`
-└─ scripts/     build-native.cjs (build + atomic staging), native-addon-utils.cjs
+├─ npm/<p>/     one package per platform: the `octocode` binary
+└─ scripts/     build-native.cjs (build + atomic staging), stage-binary.cjs
 ```
 
 Cross-platform and release builds (`build:target <platform>`, `build:all`) and
@@ -226,7 +225,7 @@ of compiling another copy, and libtest runs each test binary in one process.
 
 ## Constraints
 
-- No N-API in the CLI binary or the runtime library: it lives only in `crates/runtime-napi`.
+- One binary serves CLI and MCP; the MCP interface adds no tool logic (`crates/cli/src/cli/mcp_server/` lists tools from the embedded presentation and calls the shared runtime).
 - No command delegates back to Node; the CLI owns all command behavior.
 - Workspace clippy policy denies `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, and `dbg_macro`.
 - Arguments use clap v4 derive; enum-like arguments are validated at parse time, so a bad value exits `2` with the choices listed.

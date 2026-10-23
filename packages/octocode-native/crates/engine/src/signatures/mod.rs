@@ -14,6 +14,7 @@ mod js_oxc_commonjs;
 mod js_oxc_receiver;
 mod js_oxc_references;
 mod js_oxc_shared;
+pub(crate) mod receiver_fields;
 
 /// v2: diagnostics are typed records (`code`, `message`, `line`), not text.
 pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 2;

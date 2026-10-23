@@ -6,7 +6,10 @@
 // continuation fields the published row hides, one line each, and names the
 // other accepted fields it hides (per operation, or the whole row's) with
 // the `--select` or `--view full` call that shows their schemas.
-import { INSTRUCTION_SECTIONS } from '@octocodeai/octocode-core/mcp';
+import {
+  INSTRUCTION_SECTIONS,
+  deferredDispatcherDefinition,
+} from '@octocodeai/octocode-core/mcp';
 import { cliExamples, cliOutput, cliSpec, schemaFieldNames } from './cli-flags.ts';
 import {
   CLASIFY_SOURCE_TOOL_NAMES,
@@ -232,11 +235,31 @@ function envelopeFields(inputSchema: Definition['inputSchema']): Json {
   return Object.keys(fields).length === 0 ? {} : { envelopeFields: fields };
 }
 
-/** A tool's `schema` views and `--select operation=X` views. */
+/**
+ * A tool as the MCP server lists it: the published input envelope, and the
+ * line it adds to the deferred-tool dispatcher's description. Native applies
+ * the runtime addons (language servers) and the context-selection switch by
+ * choosing among these precomputed variants.
+ */
+function mcpDefinition(definition: Definition): Json {
+  const { name, title, description, annotations, inputSchema } = definition;
+  const deferredLine = deferredDispatcherDefinition([{ name, inputSchema }])
+    .description.split('\n')
+    .at(1);
+  return {
+    title,
+    description,
+    ...(annotations && { annotations }),
+    inputSchema: publishedInputSchema(inputSchema),
+    deferredLine,
+  };
+}
+
+/** A tool's `schema` views, `--select operation=X` views and MCP listing. */
 function rendered(
   definition: Definition,
   querySchema: Json
-): { views: Json; selections: Json } {
+): { views: Json; selections: Json; mcp: Json } {
   const { name, inputSchema } = definition;
   const variants = getToolSchemaVariants(name);
   // Core's presentation catalog owns any availability-dependent row changes.
@@ -267,7 +290,20 @@ function rendered(
         ]
       )
     ),
+    mcp: mcpDefinition(definition),
   };
+}
+
+/**
+ * The deferred-tool dispatcher for every tool; native keeps the entries of
+ * the tools the runtime defers (`mcp.deferred`) in `inputSchema.properties.tool.enum`
+ * and appends their `deferredLine`s to `description`.
+ */
+function mcpDispatcher(definitions: readonly Definition[]): Json {
+  const { name, title, description, inputSchema } = deferredDispatcherDefinition(
+    definitions
+  );
+  return { name, title, intro: description.split('\n')[0], inputSchema };
 }
 
 /** The `cli-presentation.json` the native binary embeds beside the enforcement contract. */
@@ -289,6 +325,7 @@ export function buildCliPresentation(): Json {
     // them for MCP.
     instructionSections: INSTRUCTION_SECTIONS,
     clasifySourceTools: [...CLASIFY_SOURCE_TOOL_NAMES],
+    mcpDispatcher: mcpDispatcher(definitions),
     tools: definitions.map(definition => {
       const { name } = definition;
       const querySchema = catalog.tools.find(tool => tool.name === name)!

@@ -5,7 +5,8 @@
 //! JSON only, identically for every surface: MCP, CLI JSON, and the CLI's
 //! views, which print from the same envelope.
 
-use super::pager::{ResponseError, ResponseInput, ResponsePageOptions, SavedPages};
+use super::page_model::ResponsePageOptions;
+use super::pager::{ResponseError, ResponseInput, SavedPages};
 use crate::contracts::{self, ContractValidationError};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::id::ToolId;
@@ -38,7 +39,7 @@ pub(crate) fn settle(
     structured: &mut Sanitized,
     response_query: &Value,
     failure: &mut Option<FailureKind>,
-) -> Result<Vec<Vec<super::pages::Remaining>>, ContractValidationError> {
+) -> Result<Vec<Vec<super::result::Remaining>>, ContractValidationError> {
     structured.edit(|structured| settle_value(tool, structured, response_query, failure))
 }
 
@@ -47,7 +48,7 @@ fn settle_value(
     structured: &mut Value,
     response_query: &Value,
     failure: &mut Option<FailureKind>,
-) -> Result<Vec<Vec<super::pages::Remaining>>, ContractValidationError> {
+) -> Result<Vec<Vec<super::result::Remaining>>, ContractValidationError> {
     crate::response::selection_errors::decorate(tool, structured, response_query);
     super::notices::place(structured, tool.output().rows_key());
     super::channels::publish_hints(structured, tool);
@@ -72,7 +73,7 @@ fn settle_value(
 /// response that fits one page is never copied.
 pub(crate) fn respond(
     input: StageInput,
-    remaining: Vec<Vec<super::pages::Remaining>>,
+    remaining: Vec<Vec<super::result::Remaining>>,
     keep: Option<&mut Option<Sanitized>>,
     context: &ExecutionContext,
 ) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
@@ -137,7 +138,7 @@ pub(crate) fn respond(
 pub(crate) fn respond_saved(
     input: StageInput,
     envelope: &Sanitized,
-    remaining: &[Vec<super::pages::Remaining>],
+    remaining: &[Vec<super::result::Remaining>],
     pages: &SavedPages,
     context: &ExecutionContext,
 ) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {

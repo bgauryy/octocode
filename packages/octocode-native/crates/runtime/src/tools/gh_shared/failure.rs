@@ -1,7 +1,7 @@
 //! The failure a GitHub tool states: its message, hint and recovery lead.
 use super::RepoPath;
 use crate::id::ToolId;
-use crate::response::result::{Confidence, Continuation};
+use crate::response::result::Continuation;
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 use serde_json::{Value, json};
 
@@ -151,17 +151,13 @@ pub(crate) fn search_failure(error: ProviderError) -> GhFailure {
 pub(crate) fn ref_recovery(owner: &str, repo: &str) -> Value {
     let mut refs = RepoPath::root(owner, repo).row();
     refs["operation"] = json!("refs");
-    Continuation::new(ToolId::GhStructure, refs)
-        .confidence(Confidence::High)
-        .build()
+    Continuation::new(ToolId::GhStructure, refs).build()
 }
 
 /// A repository that did not resolve: a search for its name names the
 /// owner that holds it.
 pub(crate) fn repository_search(repo: &str) -> Value {
-    Continuation::new(ToolId::GhSearchRepo, json!({"keywords": [repo]}))
-        .confidence(Confidence::Medium)
-        .build()
+    Continuation::new(ToolId::GhSearchRepo, json!({"keywords": [repo]})).build()
 }
 
 /// The error for an owner-wide search that found no such login. It names the

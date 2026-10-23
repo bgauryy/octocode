@@ -42,7 +42,9 @@ pub fn close_unclosed_group(text: &str, pcre2: bool) -> Option<String> {
 }
 
 /// `a(|b|c[` → `a\(|b|c\[`: split on unescaped `|`, keep alternatives that
-/// parse on their own, escape the rest. `None` for a single alternative or
+/// parse on their own, escape the rest. An empty alternative (`f(|`, `|g(`)
+/// is dropped: it would match every line, which no failed search meant.
+/// `None` for a single alternative, when nothing but empty ones remain, or
 /// when the joined result still fails to parse.
 pub fn repair_alternation(text: &str, pcre2: bool) -> Option<String> {
     let mut parts = vec![String::new()];
@@ -68,6 +70,7 @@ pub fn repair_alternation(text: &str, pcre2: bool) -> Option<String> {
     };
     let repaired = parts
         .iter()
+        .filter(|part| !part.is_empty())
         .map(|part| {
             if !part.is_empty() && valid(part) {
                 part.clone()
@@ -77,7 +80,7 @@ pub fn repair_alternation(text: &str, pcre2: bool) -> Option<String> {
         })
         .collect::<Vec<_>>()
         .join("|");
-    valid(&repaired).then_some(repaired)
+    (!repaired.is_empty() && valid(&repaired)).then_some(repaired)
 }
 
 /// Whether a failing Rust-engine pattern set is only a PCRE2 construct
@@ -136,6 +139,24 @@ mod tests {
         ] {
             assert_eq!(repair_alternation(text, false).as_deref(), Some(expected));
         }
+    }
+
+    /// A stray `|` leaves an empty branch, which matches every line; the
+    /// repair keeps only the anchors the caller wrote.
+    #[test]
+    fn an_empty_alternative_is_dropped_not_kept_as_match_everything() {
+        for (text, expected) in [
+            ("fn (validate|", "fn \\(validate"),
+            ("|call(", "call\\("),
+            ("a(||b", "a\\(|b"),
+            ("(|", "\\("),
+        ] {
+            let repaired = repair_alternation(text, false);
+            assert_eq!(repaired.as_deref(), Some(expected), "{text}");
+            let pattern = regex::Regex::new(expected).expect("valid");
+            assert!(!pattern.is_match("an unrelated line"), "{text}");
+        }
+        assert_eq!(repair_alternation("|", false), None);
     }
 
     #[test]

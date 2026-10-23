@@ -62,24 +62,23 @@ pub(in super::super) fn concise(value: &str) -> String {
     text
 }
 
+/// Whether the row states a way forward: a hint text or an executable lead.
 pub(crate) fn has_recovery(value: &Value) -> bool {
+    states(value, true)
+}
+
+/// Whether the row states a hint text (leads do not count).
+fn has_hint_text(value: &Value) -> bool {
+    states(value, false)
+}
+
+fn states(value: &Value, leads: bool) -> bool {
     if let Some(values) = value.as_array() {
-        return values.iter().any(has_recovery);
+        return values.iter().any(|child| states(child, leads));
     }
     let Some(node) = value.as_object() else {
         return false;
     };
-    if node
-        .get("hints")
-        .and_then(Value::as_array)
-        .is_some_and(|hints| {
-            hints
-                .iter()
-                .any(|hint| hint.as_str().is_some_and(|text| !text.trim().is_empty()))
-        })
-    {
-        return true;
-    }
     let has_text = |hints: &Value| {
         hints.as_array().is_some_and(|hints| {
             hints
@@ -87,28 +86,31 @@ pub(crate) fn has_recovery(value: &Value) -> bool {
                 .any(|hint| hint.as_str().is_some_and(|text| !text.trim().is_empty()))
         })
     };
-    if node
-        .get("hints")
-        .and_then(|hints| hints.get(crate::id::continuation_channels::HINT_TEXT_KEY))
-        .is_some_and(has_text)
+    if node.get("hints").is_some_and(has_text)
+        || node
+            .get("hints")
+            .and_then(|hints| hints.get(crate::id::continuation_channels::HINT_TEXT_KEY))
+            .is_some_and(has_text)
     {
         return true;
     }
-    if ["next", "hints"].iter().any(|key| {
-        node.get(*key)
-            .and_then(Value::as_object)
-            .is_some_and(|calls| calls.values().any(crate::response::result::is_call))
-    }) {
+    if leads
+        && ["next", "hints"].iter().any(|key| {
+            node.get(*key)
+                .and_then(Value::as_object)
+                .is_some_and(|calls| calls.values().any(crate::response::result::is_call))
+        })
+    {
         return true;
     }
     for (key, child) in node {
-        if METADATA_CONTAINERS.contains(&key.as_str()) && has_recovery(child) {
+        if METADATA_CONTAINERS.contains(&key.as_str()) && states(child, leads) {
             return true;
         }
         if key == "repositories"
             && child
                 .as_object()
-                .is_some_and(|repos| repos.values().any(has_recovery))
+                .is_some_and(|repos| repos.values().any(|repo| states(repo, leads)))
         {
             return true;
         }
@@ -123,11 +125,18 @@ pub(crate) const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login or s
 /// The one recovery for a cancelled call, on every tool and stage.
 pub(crate) const CANCELLED_HINT: &str = "Retry only if the result is still needed and what cancelled it changed; otherwise report the cancellation.";
 
+const TRANSIENT_HINT: &str =
+    "Retry once; if it persists, narrow scope and verify provider availability.";
+
 /// The one recovery table for the `errorCode` values every tool shares
 /// (provider kinds, policy, locks, input). A tool answers only for the codes
-/// it alone emits (`ToolOutput::error_hint`); any other code gets the tool's
-/// fallback hint.
-pub(crate) fn error_code_hint(tool: ToolId, code: ErrorCode) -> Option<&'static str> {
+/// it alone emits, or its own timeout (`ToolOutput::error_hint`); any other
+/// code gets the tool's fallback hint.
+pub(crate) fn error_code_hint(
+    tool: ToolId,
+    code: ErrorCode,
+    query: &Value,
+) -> Option<&'static str> {
     Some(match code {
         ErrorCode::OutsideAllowedRoots | ErrorCode::SymlinkEscape => SANDBOX_HINT,
         ErrorCode::Authentication => GITHUB_AUTH_RECOVERY_HINT,
@@ -137,9 +146,12 @@ pub(crate) fn error_code_hint(tool: ToolId, code: ErrorCode) -> Option<&'static 
         ErrorCode::RateLimited | ErrorCode::ClassificationRateLimited => {
             "Wait for Retry-After or the rate-limit reset before retrying."
         }
-        ErrorCode::Timeout | ErrorCode::Transport | ErrorCode::Server => {
-            "Retry once; if it persists, narrow scope and verify provider availability."
-        }
+        // A tool that knows why its own calls time out says so.
+        ErrorCode::Timeout => tool
+            .output()
+            .error_hint(code, query)
+            .unwrap_or(TRANSIENT_HINT),
+        ErrorCode::Transport | ErrorCode::Server => TRANSIENT_HINT,
         ErrorCode::Cancelled => CANCELLED_HINT,
         ErrorCode::ResponseTooLarge => "Narrow the requested scope.",
         ErrorCode::RedirectDenied => "Use the canonical allowed host and repository.",
@@ -159,7 +171,7 @@ pub(crate) fn error_code_hint(tool: ToolId, code: ErrorCode) -> Option<&'static 
         ErrorCode::PathNotFound => crate::response::output::VERIFY_PATH_HINT,
         ErrorCode::PathPolicyDenied => crate::policy::discovery::WITHHELD_HINT,
         code => {
-            if let Some(hint) = tool.output().error_hint(code) {
+            if let Some(hint) = tool.output().error_hint(code, query) {
                 hint
             } else if crate::id::error_codes::class(code)
                 == crate::id::error_codes::ErrorClass::InvalidInput
@@ -172,39 +184,49 @@ pub(crate) fn error_code_hint(tool: ToolId, code: ErrorCode) -> Option<&'static 
     })
 }
 
-fn error_fallback_hint(tool: ToolId, query: &Value, row: &Value) -> &'static str {
-    // Local tools report a sandbox refusal under its own code
-    // (`outsideAllowedRoots`), so the hint is keyed by code alone.
+/// The `errorCode` of a failed row, as the contract names it.
+fn row_code(row: &Value) -> Option<ErrorCode> {
     row.pointer("/data/errorCode")
         .and_then(Value::as_str)
         .and_then(crate::id::error_codes::parse)
-        .and_then(|code| error_code_hint(tool, code))
-        .unwrap_or_else(|| tool.output().fallback_hint(query))
 }
 
 /// The tool's fallback hint on an empty or failed row of `query` that has no
 /// recovery of its own: the code's recovery for a failure, the tool's
 /// fallback for both (an empty answer never ends bare). The continuation
 /// stage calls it again after dropping a lead this surface cannot run or the
-/// contract rejects.
+/// contract rejects. A tool that states its hints beside leads
+/// ([`crate::response::output::ToolOutput::hints_beside_leads`]) gets the
+/// code's or category's own hint on a row that carries leads but no hint text.
 pub(crate) fn ensure_recovery(row: &mut Value, tool: ToolId, query: &Value) {
     let status = row.get("status").and_then(Value::as_str);
-    if !matches!(status, Some("error" | "empty" | "outOfRange")) || has_recovery(row) {
+    if !matches!(status, Some("error" | "empty" | "outOfRange")) {
         return;
     }
-    let hint = if status == Some("error") {
-        error_fallback_hint(tool, query, row)
+    let output = tool.output();
+    let with_leads = has_recovery(row);
+    if with_leads && (!output.hints_beside_leads() || has_hint_text(row)) {
+        return;
+    }
+    let stated = if status == Some("error") {
+        // Local tools report a sandbox refusal under its own code
+        // (`outsideAllowedRoots`), so the hint is keyed by code alone.
+        row_code(row).and_then(|code| error_code_hint(tool, code, query))
     } else {
         // An empty row that names its own category answers for itself: the
         // tool's hint for that category (or none), not the generic fallback.
         row.pointer("/data/category")
             .and_then(Value::as_str)
-            .and_then(|category| tool.output().category_hint(category))
-            .unwrap_or_else(|| tool.output().fallback_hint(query))
+            .and_then(|category| output.category_hint(category, query))
     };
-    if hint == crate::response::output::NO_HINT {
+    let hint = if with_leads {
+        stated
+    } else {
+        Some(stated.unwrap_or_else(|| output.fallback_hint(query)))
+    };
+    let Some(hint) = hint.filter(|hint| *hint != crate::response::output::NO_HINT) else {
         return;
-    }
+    };
     let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
         return;
     };

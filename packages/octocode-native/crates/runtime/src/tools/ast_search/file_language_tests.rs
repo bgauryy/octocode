@@ -67,7 +67,7 @@ fn a_file_of_another_grammar_is_a_mismatch_that_names_its_extension() {
     assert_eq!(
         ToolId::AstSearch
             .output()
-            .error_hint(ErrorCode::LanguageMismatch),
+            .error_hint(ErrorCode::LanguageMismatch, &serde_json::Value::Null),
         Some(crate::response::output::NO_HINT)
     );
 }
@@ -249,7 +249,7 @@ fn symbols_of_a_file_without_a_grammar_are_unsupported_not_empty() {
     }
     let hint = ToolId::AstSearch
         .output()
-        .error_hint(ErrorCode::SymbolsUnsupported)
+        .error_hint(ErrorCode::SymbolsUnsupported, &serde_json::Value::Null)
         .expect("hint");
     assert!(
         hint.contains("language") && hint.contains("languageGlobs"),

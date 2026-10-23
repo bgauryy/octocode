@@ -14,7 +14,7 @@ impl ToolOutput for Output {
             "Broaden the syntax/name query, path, or filters."
         }
     }
-    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
+    fn error_hint(&self, code: ErrorCode, _query: &Value) -> Option<&'static str> {
         Some(match code {
             ErrorCode::InvalidPattern => crate::tools::ast_rule::INVALID_PATTERN_HINT,
             // The typed error and terminalLimit (plus a findText lead

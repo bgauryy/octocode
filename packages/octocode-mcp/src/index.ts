@@ -1,53 +1,27 @@
-import { startNativeMcp } from './native/index.js';
+// `octocode-mcp` only starts the native binary's MCP server (`octocode mcp`):
+// the binary owns the protocol, the tools and the configuration. Resolution
+// and signal-forwarding are the CLI launcher's (one source for both packages).
+import {
+  NativeLaunchError,
+  delegateToNative,
+  resolveNativeBin,
+} from '../../octocode/src/cli/native-delegate.js';
+import { failStartup } from './startup-failure.js';
 
-/** How long a failed start waits for the client's first request. */
-const STARTUP_FAILURE_REPLY_MS = 10_000;
-
-/**
- * A failed start answers the client's first request (its `initialize`) with
- * the reason, then exits, so the client shows why instead of a closed
- * connection. stderr keeps the same line for logs.
- */
-function failStartup(message: string): void {
-  process.stderr.write(`${message}\n`);
-  let done = false;
-  const exit = (): void => {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    process.exit(1);
-  };
-  const timer = setTimeout(exit, STARTUP_FAILURE_REPLY_MS);
-  timer.unref?.();
-  let buffer = '';
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (chunk: string) => {
-    buffer += chunk;
-    let end: number;
-    while (!done && (end = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, end);
-      buffer = buffer.slice(end + 1);
-      let id: unknown;
-      try {
-        id = (JSON.parse(line) as { id?: unknown } | null)?.id;
-      } catch {
-        continue;
-      }
-      if (typeof id !== 'string' && typeof id !== 'number') continue;
-      const error = { code: -32603, message };
-      process.stdout.write(
-        `${JSON.stringify({ jsonrpc: '2.0', id, error })}\n`,
-        exit
-      );
-      return;
+const resolved = resolveNativeBin();
+if ('error' in resolved) {
+  failStartup(`Server initialization failed: ${resolved.error}`);
+} else {
+  delegateToNative(resolved.bin, ['mcp', ...process.argv.slice(2)]).then(
+    code => {
+      process.exitCode = code;
+    },
+    (error: unknown) => {
+      const message =
+        error instanceof NativeLaunchError || error instanceof Error
+          ? error.message
+          : String(error);
+      failStartup(`Server initialization failed: ${message}`);
     }
-  });
-  process.stdin.once('end', exit);
-  process.stdin.once('error', exit);
+  );
 }
-
-startNativeMcp().catch((error: unknown) => {
-  const message =
-    error instanceof Error ? error.message : String(error ?? 'unknown');
-  failStartup(`Server initialization failed: ${message}`);
-});

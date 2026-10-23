@@ -140,41 +140,117 @@ pub fn representative_source_for(workspace_root: &str, extension: &str) -> Optio
         ".py" => &["py"],
         _ => return None,
     };
-    let mut preferred = if matches!(extension, ".ts" | ".js") {
-        project_include_roots(root)
+    let project = if matches!(extension, ".ts" | ".js") {
+        ProjectFiles::read(root)
     } else {
-        Vec::new()
+        ProjectFiles::default()
     };
+    let mut preferred = project.roots.clone();
     preferred.push(root.join("src"));
+    let preferred = preferred
+        .into_iter()
+        .filter(|candidate| candidate.starts_with(root))
+        .chain(std::iter::once(root.to_path_buf()))
+        .collect::<Vec<_>>();
+    // A file the project config compiles first: a literal include root such
+    // as `packages` (of `packages/*/src/**/*`) also holds files outside it
+    // (`packages/a/vitest.config.ts`). Any source only when none matches.
+    let compiled = |path: &Path| project.compiles(root, path);
     preferred
         .iter()
-        .filter(|candidate| candidate.starts_with(root))
-        .find_map(|candidate| first_source_under(candidate, family))
-        .or_else(|| first_source_under(root, family))
+        .find_map(|candidate| first_source_under(candidate, family, &compiled))
+        .or_else(|| {
+            preferred
+                .iter()
+                .find_map(|candidate| first_source_under(candidate, family, &|_| true))
+        })
 }
 
-/// Literal leading directories (or files) of a tsconfig/jsconfig `include`
-/// and `files` list: `"src/**/*.ts"` -> `src`. A config that is not plain JSON
+/// The file patterns of a root tsconfig/jsconfig: the literal leading
+/// directories of its `files`/`include` entries (`"src/**/*.ts"` -> `src`),
+/// where a representative is searched first, and the full `include`/`exclude`
+/// globs a representative must satisfy. A config that is not plain JSON
 /// (comments, trailing commas) yields nothing and the caller falls back.
-fn project_include_roots(root: &Path) -> Vec<std::path::PathBuf> {
-    let Some(config) = ["tsconfig.json", "jsconfig.json"]
+#[derive(Default)]
+struct ProjectFiles {
+    roots: Vec<std::path::PathBuf>,
+    include: Option<globset::GlobSet>,
+    exclude: Option<globset::GlobSet>,
+}
+
+impl ProjectFiles {
+    fn read(root: &Path) -> Self {
+        let Some(config) = ["tsconfig.json", "jsconfig.json"]
+            .iter()
+            .find_map(|name| std::fs::read_to_string(root.join(name)).ok())
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        else {
+            return Self::default();
+        };
+        let patterns = |keys: &[&str]| {
+            keys.iter()
+                .filter_map(|key| config.get(*key).and_then(Value::as_array))
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        let included = patterns(&["files", "include"]);
+        Self {
+            roots: include_roots(root, &included),
+            include: glob_set(&included),
+            exclude: glob_set(&patterns(&["exclude"])),
+        }
+    }
+
+    /// Whether the config compiles `path`: it matches an include (every file
+    /// when the config lists none) and no exclude.
+    fn compiles(&self, root: &Path, path: &Path) -> bool {
+        let Ok(relative) = path.strip_prefix(root) else {
+            return false;
+        };
+        self.include
+            .as_ref()
+            .is_none_or(|set| set.is_match(relative))
+            && !self
+                .exclude
+                .as_ref()
+                .is_some_and(|set| set.is_match(relative))
+    }
+}
+
+/// tsconfig globs: `*` stays within one path segment, and a pattern names
+/// a file or a directory (whose whole tree it covers). `None` for no
+/// pattern, or one globset rejects.
+fn glob_set(patterns: &[String]) -> Option<globset::GlobSet> {
+    if patterns.is_empty() {
+        return None;
+    }
+    let mut builder = globset::GlobSetBuilder::new();
+    for pattern in patterns {
+        let pattern = pattern.trim_start_matches("./").trim_end_matches('/');
+        for form in [pattern.to_owned(), format!("{pattern}/**")] {
+            builder.add(
+                globset::GlobBuilder::new(&form)
+                    .literal_separator(true)
+                    .build()
+                    .ok()?,
+            );
+        }
+    }
+    builder.build().ok()
+}
+
+/// Literal leading directories (or files) of `files`/`include` patterns.
+fn include_roots(root: &Path, patterns: &[String]) -> Vec<std::path::PathBuf> {
+    patterns
         .iter()
-        .find_map(|name| std::fs::read_to_string(root.join(name)).ok())
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-    else {
-        return Vec::new();
-    };
-    ["files", "include"]
-        .iter()
-        .filter_map(|key| config.get(*key).and_then(Value::as_array))
-        .flatten()
-        .filter_map(Value::as_str)
         .filter_map(|pattern| {
             let literal = Path::new(pattern)
                 .components()
                 .take_while(|component| {
                     let part = component.as_os_str().to_string_lossy();
-                    !part.contains(['*', '?', '{', '['])
+                    !part.contains(crate::search::glob::GLOB_META)
                 })
                 .collect::<std::path::PathBuf>();
             (!literal.as_os_str().is_empty() && literal != Path::new("."))
@@ -183,8 +259,13 @@ fn project_include_roots(root: &Path) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
-/// First source file of `family` at or under `start` (a file or directory).
-fn first_source_under(start: &Path, family: &[&str]) -> Option<String> {
+/// First source file of `family` at or under `start` (a file or directory)
+/// that `accept` keeps.
+fn first_source_under(
+    start: &Path,
+    family: &[&str],
+    accept: &dyn Fn(&Path) -> bool,
+) -> Option<String> {
     const MAX_ENTRIES: usize = 2_000;
     const MAX_DEPTH: usize = 6;
     // Deliberately not the runtime prune policy (`policy::prune`). This walk
@@ -199,7 +280,7 @@ fn first_source_under(start: &Path, family: &[&str]) -> Option<String> {
     };
     if start.is_file() {
         let name = start.file_name()?.to_string_lossy();
-        return is_source(&name).then(|| start.to_string_lossy().into_owned());
+        return (is_source(&name) && accept(start)).then(|| start.to_string_lossy().into_owned());
     }
     let mut queue = std::collections::VecDeque::from([(start.to_path_buf(), 0usize)]);
     let mut seen = 0usize;
@@ -225,7 +306,7 @@ fn first_source_under(start: &Path, family: &[&str]) -> Option<String> {
                 {
                     queue.push_back((entry.path(), depth + 1));
                 }
-            } else if file_type.is_file() && is_source(&name) {
+            } else if file_type.is_file() && is_source(&name) && accept(&entry.path()) {
                 return Some(entry.path().to_string_lossy().into_owned());
             }
         }

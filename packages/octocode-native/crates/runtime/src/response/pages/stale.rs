@@ -1,9 +1,7 @@
 use super::{page_blocks_deep, page_blocks_deep_mut};
 use crate::id::ToolId;
+use crate::response::result::STALE_SNAPSHOT_ERROR;
 use serde_json::{Map, Value, json};
-
-/// The one text of a stale snapshot, whichever tool's cursor went stale.
-pub(crate) const STALE_SNAPSHOT_ERROR: &str = "The snapshot does not match this source and query (they changed, or the snapshot is missing or from another call); nothing shown remains valid: run the restart call, page 1 without the snapshot.";
 
 /// A stale-snapshot row ends the page: the shared text, no `isPartial` and no
 /// `hasMore` (nothing of the shown result remains to read), no continuation

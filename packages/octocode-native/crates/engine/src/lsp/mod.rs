@@ -10,6 +10,7 @@ pub mod pool;
 mod project_config;
 pub mod resolver;
 mod spawn_limits;
+pub mod symbol_kind;
 pub(crate) mod transport;
 pub mod types;
 pub mod uri;

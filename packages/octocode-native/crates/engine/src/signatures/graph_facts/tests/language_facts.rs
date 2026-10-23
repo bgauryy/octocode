@@ -196,3 +196,34 @@ def helper():
                 .any(|call| call.get("callee").is_some_and(|callee| callee == "helper")))
     );
 }
+
+/// A language's alias extensions (`.pyi` stubs, C++ `.hpp`) read exactly as
+/// its first extension: exports, heritage and imports dispatch on one
+/// spelling.
+#[test]
+fn an_alias_extension_yields_the_facts_of_its_canonical_extension() {
+    let python = "import os\nfrom pkg import thing\n\nclass Base:\n    pass\n\nclass Child(Base):\n    def run(self):\n        pass\n\ndef _private():\n    pass\n";
+    let cpp = "#include <vector>\nclass Shape {};\nclass Circle : public Shape {};\n";
+    for (canonical, alias, source) in [("a.py", "a.pyi", python), ("a.cpp", "a.hpp", cpp)] {
+        // Only the file name (in the file field and every id) may differ.
+        let spelled = |path: &str| facts(source, path).to_string().replace(path, "FILE");
+        assert_eq!(spelled(canonical), spelled(alias), "facts of {alias}");
+    }
+    let exported = |graph: &Value, name: &str| {
+        graph["declarations"]
+            .as_array()
+            .and_then(|all| all.iter().find(|d| d["name"] == name))
+            .map(|d| d["exported"].clone())
+    };
+    let stub = facts(python, "a.pyi");
+    assert_eq!(exported(&stub, "Child"), Some(Value::Bool(true)));
+    assert_eq!(exported(&stub, "_private"), Some(Value::Bool(false)));
+    assert!(
+        heritage(python, "a.pyi")
+            .iter()
+            .any(|(relation, from, to, _)| relation == "extends"
+                && from.ends_with("Child")
+                && to == "Base"),
+        "a stub's class bases are read"
+    );
+}

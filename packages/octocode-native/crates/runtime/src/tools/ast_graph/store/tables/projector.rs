@@ -44,6 +44,7 @@ impl<'a> Projector<'a> {
         for file in all_files {
             projector.push_file(file);
         }
+        projector.mount_test_modules();
         projector
     }
 
@@ -91,6 +92,7 @@ impl<'a> Projector<'a> {
         detail: &str,
         line: u32,
     ) {
+        let test = self.test_evidence(src, line);
         let detail = self.strings.id(detail);
         self.edges.push(EdgeRec {
             src,
@@ -99,6 +101,7 @@ impl<'a> Projector<'a> {
             confidence,
             detail,
             line,
+            test,
         });
     }
 
@@ -138,13 +141,10 @@ impl<'a> Projector<'a> {
         ordered.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.id.cmp(&b.id)));
         let keys = symbol_keys(file, &ordered, &by_id);
         let file_is_test = self.has_role(file, ROLE_TEST);
-        let test_scopes = test_module_ranges(facts, self.lang(file));
         let python = self.lang(file) == "python";
         let is_test_decl = |decl: &Declaration| {
             file_is_test
-                || test_scopes
-                    .iter()
-                    .any(|(start, end)| *start <= decl.line && decl.line <= *end)
+                || facts.test_scoped(decl.line)
                 || (python
                     && ((matches!(decl.kind.as_str(), "function" | "method")
                         && decl.name.starts_with("test_"))

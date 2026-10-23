@@ -56,7 +56,8 @@ fn a_fifo_is_not_a_file_named_by_its_path_with_nothing_to_retry() {
     );
     use crate::response::output::ToolOutput;
     assert_eq!(
-        crate::tools::local_fetch::output::Output.error_hint(ErrorCode::NotAFile),
+        crate::tools::local_fetch::output::Output
+            .error_hint(ErrorCode::NotAFile, &serde_json::Value::Null),
         Some(crate::response::output::NO_HINT)
     );
 }

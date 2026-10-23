@@ -2,44 +2,24 @@
 //! one builder of executable follow-up calls.
 mod error;
 pub use error::{FailureKind, ToolError};
-pub(crate) use error::{failure_kind, missing_path_lead};
+pub(crate) use error::{STALE_SNAPSHOT_ERROR, failure_kind, missing_path_lead};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::id::ToolId;
 
-/// How sure a continuation is to help: `exact` is a replay, `high`,
-/// `medium` and `low` a judgment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Confidence {
-    Exact,
-    High,
-    Medium,
-    Low,
+/// The call field that marks a lead approximate, and its only value.
+const CONFIDENCE_FIELD: &str = "confidence";
+const APPROXIMATE: &str = "low";
+
+/// Whether `call` is an approximate lead ([`Continuation::approximate`]).
+#[must_use]
+pub(crate) fn is_approximate(call: &Value) -> bool {
+    call.get(CONFIDENCE_FIELD).and_then(Value::as_str) == Some(APPROXIMATE)
 }
 
-impl Confidence {
-    const ALL: [Self; 4] = [Self::Exact, Self::High, Self::Medium, Self::Low];
-
-    /// The wire value.
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Exact => "exact",
-            Self::High => "high",
-            Self::Medium => "medium",
-            Self::Low => "low",
-        }
-    }
-
-    /// The confidence a built continuation carries as `wire`.
-    pub(crate) fn from_wire(wire: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|confidence| confidence.as_str() == wire)
-    }
-}
-
-/// One executable follow-up call, `{tool, query, confidence?}`. The
+/// One executable follow-up call, `{tool, query, confidence?}`; `confidence`
+/// is `"low"` for an approximate lead and absent otherwise. The
 /// `query` is always the complete tool input: query rows for new work, or
 /// snapshot and paging fields for a saved response. MCP and CLI run it verbatim. Every `next`
 /// page and `hints` lead is built here; debug builds and tests validate each
@@ -48,7 +28,7 @@ impl Confidence {
 pub(crate) struct Continuation {
     tool: ToolId,
     input: Value,
-    confidence: Option<Confidence>,
+    approximate: bool,
 }
 
 impl Continuation {
@@ -62,12 +42,14 @@ impl Continuation {
         Self {
             tool,
             input,
-            confidence: None,
+            approximate: false,
         }
     }
 
-    pub fn confidence(mut self, confidence: Confidence) -> Self {
-        self.confidence = Some(confidence);
+    /// Marks the call a judgment that may not help (a guessed path or
+    /// symbol), so it yields its place to exact leads.
+    pub fn approximate(mut self) -> Self {
+        self.approximate = true;
         self
     }
 
@@ -77,8 +59,8 @@ impl Continuation {
         let mut call = Map::new();
         call.insert("tool".into(), Value::from(self.tool.as_str()));
         call.insert("query".into(), self.input);
-        if let Some(confidence) = self.confidence {
-            call.insert("confidence".into(), Value::from(confidence.as_str()));
+        if self.approximate {
+            call.insert(CONFIDENCE_FIELD.into(), Value::from(APPROXIMATE));
         }
         Value::Object(call)
     }
@@ -192,7 +174,7 @@ pub(crate) fn call_line(call: &Value) -> Option<String> {
     if !is_call(call) {
         return None;
     }
-    let qualification = if call.get("confidence").and_then(Value::as_str) == Some("low") {
+    let qualification = if is_approximate(call) {
         "Approximate: "
     } else {
         ""
@@ -220,6 +202,13 @@ pub(crate) fn with_changes(mut row: Value, changes: &Value) -> Value {
 /// row (the brief is request-level).
 pub(crate) const INTENT_FIELDS: [&str; 3] = ["mainGoal", "reasoning", "extras"];
 
+/// Query fields the response stage respells in every continuation it
+/// publishes: an absolute local `path` becomes workspace-relative
+/// (`response::rows::paths::relativize_continuation_paths`). The same field
+/// reaches page 1 and page 2 in different spellings, so a page budget may
+/// not measure it ([`crate::response::page_windows::page_budget`]).
+pub(crate) const RESPELLED_FIELDS: [&str; 1] = ["path"];
+
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct ToolDiagnostics {
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -240,6 +229,14 @@ impl ToolDiagnostics {
     }
 }
 
+/// A page of a row that leaves a counted rest to read: the page's `next`
+/// name and what is left (`17 more files`), as data.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub(crate) struct Remaining {
+    pub page: String,
+    pub left: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(transparent)]
 pub(crate) struct ToolData {
@@ -253,7 +250,7 @@ pub(crate) struct ToolData {
     /// stage words a note only for a page a split moved
     /// ([`crate::response::pages::note_remaining`]).
     #[serde(skip)]
-    pub remaining: Vec<crate::response::pages::Remaining>,
+    pub remaining: Vec<crate::response::result::Remaining>,
 }
 impl From<Value> for ToolData {
     fn from(data: Value) -> Self {
@@ -293,9 +290,7 @@ pub(crate) fn restart_query(tool: ToolId, row: &Value) -> Value {
             fields.remove(field);
         }
     }
-    Continuation::new(tool, restart)
-        .confidence(Confidence::Exact)
-        .build()
+    Continuation::new(tool, restart).build()
 }
 
 /// [`ToolError::stale_snapshot`] as a result row, for a tool that returns

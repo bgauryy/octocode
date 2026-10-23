@@ -2,9 +2,9 @@
 //! glob syntax in `filename` or `path`, each with its repair.
 use super::{GhSearchCodeQuery, code_output};
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::gh_shared::GhFailure;
+use octocode_engine::search::glob::GLOB_META;
 use octocode_github::{ProviderError, ProviderErrorKind};
 use serde_json::json;
 
@@ -21,17 +21,12 @@ pub(super) fn ref_without_repo(query: &GhSearchCodeQuery) -> Option<GhFailure> {
         ),
     );
     let message = error.message.to_string();
-    let repair = Continuation::new(ToolId::GhSearchCode, query_row(query, &["ref"]))
-        .confidence(Confidence::High)
-        .build();
+    let repair = Continuation::new(ToolId::GhSearchCode, query_row(query, &["ref"])).build();
     Some(GhFailure {
         next: Some(Box::new(json!({ "repair": repair }))),
         ..GhFailure::new(error, message).hint("Add repo to read that repository's hits at the ref.")
     })
 }
-
-/// Glob metacharacters (the shared `include` reading's set).
-const GLOB_META: [char; 4] = ['*', '?', '[', '{'];
 
 /// GitHub's `filename:` matches file names containing its text, never a
 /// glob, so a glob there silently matches nothing. Refused before any
@@ -47,9 +42,7 @@ pub(super) fn filename_glob(query: &GhSearchCodeQuery) -> Option<GhFailure> {
     let repair = (!text.is_empty() && !text.contains(GLOB_META)).then(|| {
         let mut row = query_row(query, &[]);
         row["filename"] = json!(text);
-        Continuation::new(ToolId::GhSearchCode, row)
-            .confidence(Confidence::High)
-            .build()
+        Continuation::new(ToolId::GhSearchCode, row).build()
     });
     let rule = format!(
         "filename \"{filename}\" is a glob; filename matches file names containing its text"
@@ -103,9 +96,7 @@ pub(super) fn path_glob(query: &GhSearchCodeQuery) -> Option<GhFailure> {
         if let Some(ext) = extension.filter(|_| query.extensions.is_empty()) {
             row["extensions"] = json!([ext]);
         }
-        Continuation::new(ToolId::GhSearchCode, row)
-            .confidence(Confidence::High)
-            .build()
+        Continuation::new(ToolId::GhSearchCode, row).build()
     });
     let rule = format!("path \"{path}\" is a glob; path is a directory prefix");
     let message = match (&repair, extension) {

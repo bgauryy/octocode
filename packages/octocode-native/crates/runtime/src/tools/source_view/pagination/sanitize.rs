@@ -129,10 +129,7 @@ fn clean_offset(raw: &str, clean: &str, raw_at: usize) -> (usize, Option<(usize,
                 .find(REDACTION_PREFIX)
                 .map_or(clean.len(), |at| placeholder_end + at)
                 .min(placeholder_end + ANCHOR_BYTES);
-            let mut anchor_end = anchor_end;
-            while !clean.is_char_boundary(anchor_end) {
-                anchor_end -= 1;
-            }
+            let anchor_end = clean.floor_char_boundary(anchor_end);
             let anchor = &clean[placeholder_end..anchor_end];
             let resumes = if anchor.is_empty() {
                 raw.len()
@@ -150,11 +147,7 @@ fn clean_offset(raw: &str, clean: &str, raw_at: usize) -> (usize, Option<(usize,
         i += step;
         j += step;
     }
-    let mut j = j.min(clean.len());
-    while !clean.is_char_boundary(j) {
-        j -= 1;
-    }
-    (j, None)
+    (clean.floor_char_boundary(j), None)
 }
 
 /// Rebuild a raw-coordinate byte page from a sanitized window with the same

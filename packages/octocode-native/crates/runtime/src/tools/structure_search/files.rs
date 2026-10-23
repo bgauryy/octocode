@@ -1,5 +1,6 @@
 //! `files`: paths found by name or metadata, sorted, path-ordered rows
 //! grouped like `tree` ([`super::listing`] runs it).
+use super::probe::FilterProbe;
 
 use crate::num::u32_of;
 use crate::response::result::ToolError;
@@ -42,8 +43,8 @@ super::listing::listing_fields!(StructureSearchQueryFiles {
     fn early_exit(&self) -> bool {
         self.sort == StructureSearchQueryFilesSort::Path
     }
-    fn filter_probe(&self, root: &std::path::Path) -> Result<super::FilterProbe, ToolError> {
-        super::FilterProbe::new(
+    fn filter_probe(&self, root: &std::path::Path) -> Result<FilterProbe, ToolError> {
+        FilterProbe::new(
             root,
             &include_globs(self).unwrap_or_default(),
             &self.extensions,

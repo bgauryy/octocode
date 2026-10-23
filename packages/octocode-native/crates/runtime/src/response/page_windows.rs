@@ -14,7 +14,7 @@
 use std::ops::Range;
 
 use crate::response::pages::PageFacts;
-use crate::response::result::{CURSOR_FIELDS, INTENT_FIELDS};
+use crate::response::result::{CURSOR_FIELDS, INTENT_FIELDS, RESPELLED_FIELDS};
 
 /// How a result set is cut into pages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +160,15 @@ const ROW_SKELETON_CHARS: usize = 2_000;
 /// whose continuation rewords them still cuts every page at the same rows.
 const FREE_TEXT_CHARS: usize = 1_200;
 
+/// Room for each field the response stage respells in continuations
+/// ([`RESPELLED_FIELDS`]: page 1 may name an absolute `path`, its
+/// continuations the workspace-relative one). Budgeted at a fixed size
+/// rather than measured: a measured spelling gave page 2 a larger budget
+/// than page 1, so its cut started past rows page 1 never reached. Sized for
+/// a typical absolute workspace path; a longer value only makes the response
+/// pager split the page into row parts.
+const RESPELLED_CHARS: usize = 128;
+
 /// Whether a query field leaves the page boundaries unchanged: a cursor (it
 /// names where a walk stands, [`CURSOR_FIELDS`]), an intent field (it steers
 /// how a call reports, [`INTENT_FIELDS`]) or `clasifyContext`. The one
@@ -184,18 +193,21 @@ fn page_chars(window: Option<usize>, reserve: usize) -> usize {
 
 /// What a response row needs besides its entries, for a row whose
 /// continuations copy `query` `copies` times. Only fields that select rows
-/// are measured, so every page of one walk gets the same budget.
+/// count, and a respelled one at its fixed size, so every page of one walk
+/// gets the same budget whatever spelling reached it.
 fn reserve_chars(query: &serde_json::Value, copies: usize) -> usize {
     let measured = match query.as_object() {
         Some(fields) => fields
             .iter()
             .filter(|(name, _)| !is_unsized_field(name))
             .map(|(name, value)| {
+                let value = if RESPELLED_FIELDS.contains(&name.as_str()) {
+                    RESPELLED_CHARS
+                } else {
+                    octocode_engine::json_size::utf16_units_or(value, usize::MAX)
+                };
                 octocode_engine::json_size::string_body_units(name)
-                    .saturating_add(octocode_engine::json_size::utf16_units_or(
-                        value,
-                        usize::MAX,
-                    ))
+                    .saturating_add(value)
                     .saturating_add(4)
             })
             .fold(0_usize, usize::saturating_add),

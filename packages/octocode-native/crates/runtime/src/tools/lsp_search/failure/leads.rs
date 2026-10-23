@@ -145,11 +145,6 @@ pub(in super::super) fn ignored_text_lead(
         row["includeIgnored"] = json!(true);
     }
     crate::response::result::Continuation::input(ToolId::LocalSearch, json!({"queries": rows}))
-        .confidence(if broad || unfinished || files.is_empty() {
-            Confidence::Medium
-        } else {
-            Confidence::High
-        })
         .build()
 }
 
@@ -181,15 +176,13 @@ pub(in super::super) fn text_search_lead(
         return crate::response::result::Continuation::input(
             ToolId::LocalSearch,
             json!({ "queries": rows }),
-        )
-        .confidence(Confidence::High);
+        );
     }
     let mut search = row(root);
     if !include.is_empty() {
         search["include"] = json!(include);
     }
     crate::response::result::Continuation::new(ToolId::LocalSearch, search)
-        .confidence(Confidence::Medium)
 }
 
 /// The lexical lead of a `workspaceSymbol` query term over `root`: the term
@@ -206,7 +199,6 @@ pub(in super::super) fn term_search_lead(
         search["include"] = json!(include);
     }
     crate::response::result::Continuation::new(ToolId::LocalSearch, search)
-        .confidence(Confidence::Medium)
 }
 
 /// The lexical lead of the query's symbol over `root`: its query term as

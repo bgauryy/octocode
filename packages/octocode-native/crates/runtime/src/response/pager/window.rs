@@ -1,5 +1,5 @@
 use super::super::cursor::{Cursor, PageScope};
-use super::{ResponsePageOptions, ResponsePagination};
+use super::super::page_model::{ResponsePageOptions, ResponsePagination, restart_pagination};
 use serde_json::{Value, json};
 
 /// The pagination scope of a structured window.
@@ -73,42 +73,6 @@ pub(super) fn paginate_window(text: &str, options: &ResponsePageOptions) -> Page
             oversized: None,
             next: None,
         }),
-    }
-}
-
-/// A restart page: the request cannot continue the response it names (its
-/// snapshot changed or is missing, or its offset is invalid). Its `next`
-/// resumes from the first page. `has_more` is false only for a page past the end
-/// of an unchanged response: nothing follows the offset asked for, so a
-/// caller walking `next` while `hasMore` stops instead of reading page 1
-/// again.
-pub(in super::super) fn restart_pagination(
-    scope: &str,
-    current_page: usize,
-    offset: usize,
-    total_pages: usize,
-    total_chars: usize,
-    snapshot: String,
-    options: &ResponsePageOptions,
-    changed: bool,
-    has_more: bool,
-) -> ResponsePagination {
-    let expected = options.response_snapshot.clone();
-    ResponsePagination {
-        scope: scope.into(),
-        current_page,
-        total_pages,
-        has_more,
-        char_offset: offset,
-        char_length: 0,
-        total_chars,
-        snapshot,
-        changed: Some(expected.is_some() && changed),
-        expected_snapshot: expected,
-        restart: Some(true),
-        next_char_offset: Some(0),
-        oversized: None,
-        next: None,
     }
 }
 

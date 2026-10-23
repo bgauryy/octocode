@@ -48,6 +48,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TOOL_POLICIES } from '@octocodeai/config/schema';
 import { RESULTS, ROOT, checks, cli as runCli, inventoryRows, nextHints, outlineRows, startServer, structureFiles, writeResults } from './mcp-client.mjs';
+import { nativeBinaryStamp } from './native-binary.mjs';
 import {
   ANCHOR_FILE, GATE_FACTOR, ROLLING_FILE, allHintEntries, baselineRecord, bodyHash, bytesUnderKey, callRows, canonical, describeFlag, envelopeContainer,
   gateTask, hintEntries, isHintContainer, isHintKey, isPageName, keyBytes, keyShares, leadBytes, loadVerboseRules, maxLeadEntries, mergeCounts, schemaErrors, selfTest, verboseFields,
@@ -764,9 +765,7 @@ const { results: checkResults, failed } = summary();
 // Baselines: rolling only on an accepted run; the anchor only on an explicit flag.
 const build = () => {
   const dist = path.join(ROOT, 'packages/octocode-mcp/dist/index.js');
-  const addon = fs.readdirSync(path.join(ROOT, 'packages/octocode-native')).find(f => /^octocode-native\..+\.node$/.test(f));
-  const stat = addon && fs.statSync(path.join(ROOT, 'packages/octocode-native', addon));
-  return { mcpDist: fs.existsSync(dist) ? sha16(fs.readFileSync(dist, 'utf8')) : null, nativeAddon: stat ? { file: addon, bytes: stat.size, mtime: stat.mtime.toISOString() } : null };
+  return { mcpDist: fs.existsSync(dist) ? sha16(fs.readFileSync(dist, 'utf8')) : null, nativeBinary: nativeBinaryStamp() };
 };
 const writeBaseline = (name, role) => {
   const prev = readBaseline(name);

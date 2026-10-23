@@ -2,13 +2,16 @@
 use super::*;
 
 pub(super) fn stats(g: &Graph) -> GraphOutput {
+    // The rankings read production code: test edges are left out.
     let imports = EdgeFilter {
         kinds: vec![EdgeKind::Imports],
         weakest: Confidence::Low,
+        tests: false,
     };
     let calls = EdgeFilter {
         kinds: vec![EdgeKind::Calls],
         weakest: Confidence::Low,
+        tests: false,
     };
     let top = |filter: &EdgeFilter, kind: NodeKind| -> Vec<Value> {
         hubs(g, filter, Some(kind), Direction::In)
@@ -31,6 +34,7 @@ pub(super) fn stats(g: &Graph) -> GraphOutput {
         "mostImportedFiles": top(&imports, NodeKind::File),
         "mostImportedPackages": top(&imports, NodeKind::Package),
         "mostCalledSymbols": top(&calls, NodeKind::Symbol),
+        "testEdges": "excluded",
         "evidence": m["evidence"],
     }))
 }

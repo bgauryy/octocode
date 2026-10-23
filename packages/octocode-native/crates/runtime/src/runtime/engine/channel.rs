@@ -11,7 +11,7 @@ use crate::execution::{ExecutionContext, ExecutionError};
 use crate::id::ToolId;
 use crate::response::cursor::Cursor;
 use crate::response::outcome::ToolOutcome;
-use crate::response::pager::ResponsePageOptions;
+use crate::response::page_model::ResponsePageOptions;
 use crate::response::result::FailureKind;
 use crate::response::{continuations, stage};
 use crate::security::{CheckedQuery, Sanitized};
@@ -76,7 +76,7 @@ impl ChannelRun {
     pub(super) fn run(mut self, context: &ExecutionContext) -> StageResult {
         if let Some(replay) = self.replayed.take() {
             let mut stage = self.stage(Sanitized::scrubbed(Value::Null), true);
-            stage.options.saved = Some(crate::response::pager::SavedResponse {
+            stage.options.saved = Some(crate::response::page_model::SavedResponse {
                 key: self.replays.1,
                 expires_at: replay.expires_at.clone(),
                 storage: self.replays.0.storage(),
@@ -119,7 +119,7 @@ impl ChannelRun {
             tool: self.id,
             structured,
             options: ResponsePageOptions {
-                saved: Some(crate::response::pager::SavedResponse {
+                saved: Some(crate::response::page_model::SavedResponse {
                     key: self.replays.1,
                     expires_at: page_expiry(),
                     storage: self.replays.0.storage(),
@@ -233,7 +233,7 @@ impl ChannelRun {
         &self,
         settled: &Settled<'_>,
         structured: Sanitized,
-        remaining: Vec<Vec<crate::response::pages::Remaining>>,
+        remaining: Vec<Vec<crate::response::result::Remaining>>,
         context: &ExecutionContext,
     ) -> Result<
         (

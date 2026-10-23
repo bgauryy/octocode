@@ -11,14 +11,19 @@ use super::source::SourceCache;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
+use octocode_engine::lsp::symbol_kind;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::Path;
 
 /// LSP `SymbolKind`s that own call sites: method, constructor, function.
-const CALLABLE_KINDS: [u64; 3] = [6, 9, 12];
-/// LSP `SymbolKind::File`, for calls made at module top level.
-const FILE_KIND: u64 = 1;
+const CALLABLE_KINDS: [u64; 3] = [
+    symbol_kind::METHOD as u64,
+    symbol_kind::CONSTRUCTOR as u64,
+    symbol_kind::FUNCTION as u64,
+];
+/// LSP `symbol_kind::File`, for calls made at module top level.
+const FILE_KIND: u64 = symbol_kind::FILE as u64;
 
 /// Caller edges `(node, call sites)` derived from each verified importer's
 /// references, for servers whose call hierarchy cannot cross the importer's

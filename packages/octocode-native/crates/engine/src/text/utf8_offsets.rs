@@ -59,6 +59,16 @@ pub fn line_at(starts: &[usize], offset: usize) -> usize {
     starts.partition_point(|start| *start <= offset).max(1)
 }
 
+/// The 1-based line of byte `offset` of `text`, counted in place: the same
+/// answer as [`line_at`] over [`line_starts`] for one lookup, without
+/// building the table. `offset` past the end is the last line.
+pub fn line_containing(text: &str, offset: usize) -> usize {
+    1 + text.as_bytes()[..offset.min(text.len())]
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count()
+}
+
 /// Maps byte offsets to/from 0-based lines, byte columns, and UTF-16
 /// code-unit columns. Built once in a single pass; every lookup after that is
 /// O(log n) via binary search over the line-start table. The index holds no

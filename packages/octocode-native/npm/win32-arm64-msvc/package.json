@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-native-win32-arm64-msvc",
-  "description": "Octocode CLI and runtime addon — win32-arm64-msvc",
+  "description": "Octocode native binary — win32-arm64-msvc",
   "version": "20.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
@@ -11,8 +11,7 @@
   ],
   "files": [
     "octocode.exe",
-    "README.md",
-    "octocode-native.win32-arm64-msvc.node"
+    "README.md"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -22,11 +21,5 @@
     "type": "git",
     "url": "https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode-native"
-  },
-  "main": "./octocode-native.win32-arm64-msvc.node",
-  "exports": {
-    ".": "./octocode-native.win32-arm64-msvc.node",
-    "./runtime": "./octocode-native.win32-arm64-msvc.node",
-    "./package.json": "./package.json"
   }
 }

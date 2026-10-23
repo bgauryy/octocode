@@ -2,15 +2,29 @@
 //! a first page stored), bind the page cut to a snapshot, cut and render the
 //! page, and probe an empty listing. An operation contributes only its
 //! query: the walk it asks the engine for ([`Listing`]).
+use super::cut::page_ranges;
+use super::probe::{FilterProbe, broaden_empty, lead_to_skipped, probe_listing};
+use super::walked::Walked;
+use super::{
+    StructureResult, Walking, listing_prefix, memo, restart_if_stale, rows, validated_root, walked,
+};
+use crate::response::result::ToolError;
+use crate::tools::display_name;
+use crate::tools::empty_walk::Walk;
+use serde_json::{Value, json};
 
-use super::rows;
-use super::*;
 use crate::contracts::listing_roles::structure_search::FIELDS as LISTING_FIELDS;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
 use octocode_contract_types::StructureSearchQueryFilesSort as Sort;
-use octocode_engine::types::{FileKind, FileSystemQueryOptions};
+use octocode_engine::types::FileSystemQueryOptions;
+
+mod walk;
+
+#[cfg(test)]
+pub(super) use walk::listing_walks;
+use walk::walk_listing;
 
 /// A listing operation's query: the fields both operations share
 /// ([`listing_fields!`]) and what the operation decides itself.
@@ -231,128 +245,6 @@ pub(super) fn execute_listing<Q: Listing>(
     Ok(out)
 }
 
-/// Walk once: rows ranked by the query's sort and cut to `requested`,
-/// path-ordered rows grouped by directory, directories with their own group
-/// not also listed bare. A probe walk (`walking`) stops at its first
-/// `requested` entries, whatever the sort, and admits nothing past its
-/// deadline; a listing walk stops at its time budget.
-pub(super) fn walk_listing<Q: Listing>(
-    q: &Q,
-    root: &std::path::Path,
-    paths: &PathPolicy,
-    security: &ContentSecurity,
-    cancel: &dyn CancellationCheck,
-    requested: usize,
-    walking: Walking<'_>,
-) -> Result<Walked, ToolError> {
-    #[cfg(test)]
-    LISTING_WALKS.with(|walks| walks.set(walks.get() + 1));
-    let bound = walking.probe();
-    // Leave out what localSearch leaves out: ignored entries (unless
-    // includeIgnored, counted by the walk) and paths the path policy denies
-    // (sensitive names, and symlinks out of the allowed roots). Denied
-    // entries the listing would otherwise show are counted and reported,
-    // never silently dropped.
-    let include = crate::policy::include::include_globs(q.globs().0);
-    let left = WalkLeft::new(paths, root, q.default_excludes(), &include);
-    let policy = WalkPolicy {
-        bound,
-        probe: q.filter_probe(root)?,
-        show_hidden: q.show_hidden(),
-        filtered: q.filtered(),
-    };
-    let sort = q.sort();
-    let walk_limit = if q.early_exit() || bound.is_some() {
-        u32_of_usize(requested)
-    } else {
-        max_walk()
-    };
-    let resumes = Resumes {
-        identity: q.walk_identity(root),
-        paths,
-        root,
-    };
-    let (resume, window_rows) = resumes.options(walking, q.walk_offset(), requested);
-    let mut native = octocode_engine::search::fs_query::query_file_system(
-        FileSystemQueryOptions {
-            resume,
-            window_rows,
-            time_budget: walking.budget(),
-            // The callback applies the default prune (`WalkLeft`).
-            exclude_dir: None,
-            stop_at_limit: Some(true),
-            skip_entries: Some(q.walk_offset()),
-            limit: Some(walk_limit),
-            ..q.engine_options(root)
-        },
-        &|path, file_type, visit| left.admit(&policy, path, file_type, visit),
-        &|| cancel.check().is_err(),
-    )
-    .map_err(|error| walk_error(error, q.path(), cancel))?;
-    cancel.check().map_err(ToolError::cancelled)?;
-    // The line sort's key, counted for every file it ranks (a probe only
-    // counts entries and ranks none) within the walk's time budget, measured
-    // from the count's start so a walk that spent its own budget still ranks
-    // what it walked. Counting is part of the walk: a budget spent before
-    // every file is counted cuts the walk at the first uncounted one
-    // ([`cut_walk_before`]), and `next.continueWalk` resumes there.
-    let mut lines = if sort == Sort::Lines && bound.is_none() {
-        let (lines, cut) = rows::count_lines(
-            &native
-                .entries
-                .iter()
-                .map(|e| {
-                    (e.entry_type != FileKind::Directory).then(|| std::path::Path::new(&e.path))
-                })
-                .collect::<Vec<_>>(),
-            paths,
-            cancel,
-            walking
-                .budget()
-                .map(|budget| octocode_engine::scan_budget::walk_now() + budget),
-        )?;
-        if let Some(at) = cut {
-            cut_walk_before(&mut native, at);
-        }
-        lines
-    } else {
-        vec![None; native.entries.len()]
-    };
-    let window = end_window(&mut native, requested, q.scan_offset(), sort == Sort::Path);
-    resumes.keep(&mut native, walking);
-    // `end_window` keeps a walk-order prefix: the counts of its entries.
-    lines.truncate(native.entries.len());
-    // The modified sort's own key shows whatever the detail.
-    let modified_shown = q.details() || sort == Sort::Modified;
-    let mut rows = rows::rows_of(&native.entries, lines, root, security, modified_shown);
-    rows::sort_rows(&mut rows, sort);
-    let mut walk = Walked::finish(native, rows, requested, q.scan_offset(), left, security);
-    walk.meta.time_window = window;
-    walk.meta.ranked = sort != Sort::Path;
-    rows::group(&mut walk.rows, sort);
-    Ok(walk)
-}
-
-/// End the walk before `native.entries[at]`, as its time budget does: the
-/// entry and every one after it in walk order are uninspected, and
-/// `next.continueWalk` resumes there.
-pub(super) fn cut_walk_before(
-    native: &mut octocode_engine::types::FileSystemQueryResult,
-    at: usize,
-) {
-    let Some(first) = native.entries.get(at) else {
-        return;
-    };
-    let (relative, before) = (
-        first.relative_path.clone(),
-        first.walk_position.saturating_sub(1),
-    );
-    // The window ends before the walk's own end, so not at its ceiling, and
-    // counts only what it covers.
-    native.end_at(before);
-    native.time_cut = Some(relative);
-}
-
 /// The response for this page of a walk. `detail` reads this page's files'
 /// line counts and times under that path policy.
 fn listing_page<Q: Listing>(
@@ -417,18 +309,3 @@ fn listing_page<Q: Listing>(
     walk.meta.warn(&mut out, query_notes, warnings);
     Ok(out)
 }
-
-#[cfg(test)]
-thread_local! {
-    static LISTING_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// Listing and probe walks this thread ran.
-#[cfg(test)]
-pub(super) fn listing_walks() -> usize {
-    LISTING_WALKS.with(std::cell::Cell::get)
-}
-
-#[cfg(test)]
-#[path = "listing_tests.rs"]
-mod tests;

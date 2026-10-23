@@ -5,7 +5,7 @@ use super::patch_hop::*;
 use super::pr_menu::*;
 use super::remaining::Remainder;
 use super::{HistoryItemRequest, ItemOperation, Section, Sections};
-use crate::response::pages::Remaining;
+use crate::response::result::Remaining;
 use serde_json::{Map, Value, json};
 
 /// A provider limit an item read's section hit (GitHub lists at most 3,000

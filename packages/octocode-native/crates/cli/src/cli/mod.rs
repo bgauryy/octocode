@@ -10,6 +10,7 @@ mod management;
 mod mcp_clients;
 mod mcp_install;
 mod mcp_manage;
+mod mcp_server;
 mod output;
 mod parse;
 mod schema;
@@ -19,7 +20,7 @@ mod system;
 use catalog::machine_catalog;
 use clap::Parser;
 use commands::{AuthCommand, Command, ConfigCommand, ToolArgs};
-use management::{config_management, read_bounded};
+use management::config_management;
 use octocode_contract_types::ErrorCode;
 use octocode_native::config::RuntimeSurface;
 use octocode_native::id::ToolId;
@@ -120,6 +121,7 @@ pub async fn run(args: Args) -> u8 {
             return config_view::run(no_open, idle_timeout, json_out).await;
         }
         Command::Serve { socket } => return serve::run(&socket).await,
+        Command::Mcp => mcp_server::run().await,
         Command::Tool(tool) => return run_tool(tool, mode).await,
         command => command,
     };
@@ -231,7 +233,7 @@ async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> 
         }),
         Command::LspServer { command } => lsp_provision::run(runtime, command, json_out).await,
         // Handled in `run` before the runtime starts.
-        Command::Tool(_) | Command::Serve { .. } => 2,
+        Command::Tool(_) | Command::Serve { .. } | Command::Mcp => 2,
     }
 }
 

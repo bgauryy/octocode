@@ -4,6 +4,6 @@
 #   cargo mutants -f crates/io/src/lib.rs
 
 test_tool = "nextest"
-# `--all-features` compiles every crate's tests (runtime-napi links only with
-# `napi-test`) and matches the `yarn lint` selection.
+# `--all-features` compiles every crate's tests and matches the `yarn lint`
+# selection.
 all_features = true

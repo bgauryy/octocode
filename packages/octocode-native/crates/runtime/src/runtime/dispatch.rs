@@ -11,6 +11,7 @@ use crate::tools::local_search::{LocalSearchQuery, SearchStatus, execute_local_s
 use crate::tools::source_view::LocalFetchQuery;
 use crate::tools::structure_search::{StructureSearchQuery, execute_structure};
 use octocode_contract_types::ErrorCode;
+use octocode_io::retry::classify_status;
 use serde_json::Value;
 
 /// The runtime-owned services a local row runs against.
@@ -202,7 +203,7 @@ pub(super) fn provider_failure(
 ) -> DomainResult {
     let retryable = retryable.unwrap_or_else(|| {
         matches!(code, ErrorCode::Timeout | ErrorCode::ProviderError)
-            || http_status.is_some_and(|status| status == 408 || status == 429 || status >= 500)
+            || http_status.is_some_and(|status| classify_status(status).is_retryable())
     });
     // An invalid input's message names the rejected field or the registry's
     // own reason; a static hint would only restate it.

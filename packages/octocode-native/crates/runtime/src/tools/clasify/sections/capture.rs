@@ -159,16 +159,9 @@ fn prepare(
     )?;
     let mut units = Vec::new();
     let mut retained_bytes = octocode_engine::json_size::bytes(&metadata).unwrap_or(usize::MAX);
-    let mut line_starts = vec![0];
-    line_starts.extend(
-        captured
-            .text
-            .bytes()
-            .enumerate()
-            .filter_map(|(index, byte)| (byte == b'\n').then_some(index + 1)),
-    );
+    let line_starts = octocode_engine::text::line_starts(&captured.text);
     let location = |range: &std::ops::Range<usize>| {
-        let line = |byte| line_starts.partition_point(|&start| start <= byte);
+        let line = |byte| octocode_engine::text::line_at(&line_starts, byte);
         json!({"bytes":[range.start,range.end],"lines":[line(range.start),line(range.end.saturating_sub(1).max(range.start))]})
     };
     let complete = source_sections::visit(

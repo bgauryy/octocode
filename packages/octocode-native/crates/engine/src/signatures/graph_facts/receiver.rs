@@ -34,9 +34,9 @@ pub(super) enum Lang {
 
 impl Lang {
     fn for_extension(ext: &str) -> Option<Self> {
-        Some(match super::canonical_extension(ext) {
+        Some(match ext {
             "rs" => Self::Rust,
-            "py" | "pyi" => Self::Python,
+            "py" => Self::Python,
             "java" => Self::Java,
             "go" => Self::Go,
             "cs" => Self::CSharp,
@@ -115,8 +115,6 @@ struct Binding {
     /// Byte where its scope ends.
     until: usize,
 }
-
-type Fields = HashMap<String, Option<String>>;
 
 /// Per-tree receiver-type resolver; caches function bindings, type fields
 /// and the file's named type declarations.
@@ -335,9 +333,9 @@ mod python;
 mod rust;
 mod type_text;
 
+use crate::signatures::receiver_fields::{Fields, merge};
 use bindings::{bind_pattern, push};
 use cpp::cpp_declarator_name;
-use fields::merge;
 use type_text::is_identifier;
 pub(super) use type_text::{clean_type_text, python_type_text};
 

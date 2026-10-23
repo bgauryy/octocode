@@ -150,6 +150,22 @@ fn a_read_follows_a_symlink_and_a_walk_open_refuses_it() {
     std::os::unix::fs::symlink(&target, &link).expect("link");
     assert_eq!(read_source(&link, 1024).expect("read").bytes, b"fn a() {}");
     assert!(open_regular(&link).is_err());
+    assert!(matches!(read_regular(&link, 1024), Err(ReadError::Io(_))));
+    assert_eq!(
+        read_regular(&target, 1024).expect("read").bytes,
+        b"fn a() {}"
+    );
+    let fifo = dir.path().join("pipe.rs");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+    // Non-blocking open: a FIFO with no writer is refused, not waited on.
+    assert!(matches!(
+        read_regular(&fifo, 1024),
+        Err(ReadError::NotRegular)
+    ));
 }
 
 #[test]

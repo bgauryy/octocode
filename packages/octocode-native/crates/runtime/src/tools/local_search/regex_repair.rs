@@ -1,5 +1,6 @@
 //! Pattern validation and runnable repairs for an invalid regex.
 
+use super::local_search_query;
 use super::types::*;
 use crate::id::ToolId;
 use crate::regex_repair::{close_unclosed_group, only_pcre2_compiles, repair_alternation};

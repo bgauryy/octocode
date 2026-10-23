@@ -17,7 +17,6 @@ use super::render::{
 use super::source::SourceCache;
 use crate::id::ToolId;
 use crate::response::page_windows::{Paging, select};
-use crate::response::result::Confidence;
 use crate::tools::lsp_search::lsp_search_query;
 use serde_json::{Value, json};
 

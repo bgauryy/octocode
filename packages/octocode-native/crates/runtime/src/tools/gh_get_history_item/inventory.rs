@@ -12,6 +12,13 @@ use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use octocode_github::MAX_PER_PAGE;
 use serde_json::{Map, Value, json};
 
+mod missing_patch;
+mod review;
+
+use missing_patch::inventory_patch_flag;
+pub(super) use missing_patch::missing_patch_reason;
+pub(super) use review::review_selection;
+
 /// Largest patch-free inventory page (contract pullRequest `pageSize` maximum).
 pub(super) fn max_inventory_page() -> usize {
     crate::contracts::query_schema_max(
@@ -236,77 +243,6 @@ pub(super) struct ShapedFiles {
     pub(super) unfinished_patches: usize,
 }
 
-/// Review priority of a changed path: source first, then tests, then other
-/// files; docs, changesets, lockfiles, and generated output last.
-pub(super) fn review_tier(path: &str) -> u8 {
-    use crate::content::{FileType, classify_file_type, is_test_path};
-    let lower = path.to_ascii_lowercase();
-    let generated = lower.starts_with(".changeset/")
-        || lower.contains("/.changeset/")
-        || lower.contains("generated")
-        || lower.contains(".min.")
-        || lower.ends_with(".snap")
-        || lower.contains("__snapshots__/");
-    match classify_file_type(path) {
-        _ if generated => 3,
-        Some(FileType::Doc | FileType::Lock) => 3,
-        Some(FileType::Code) if is_test_path(path) => 1,
-        Some(FileType::Code) => 0,
-        _ => 2,
-    }
-}
-
-/// Estimated rendered patch chars per changed line (diff marker, text,
-/// newline), and per file header, for packing a review into one budget.
-pub(super) const REVIEW_LINE_CHARS: usize = 45;
-
-pub(super) const REVIEW_FILE_CHARS: usize = 80;
-
-/// Files one review read names at most: one provider-sized patch page.
-pub(super) const MAX_REVIEW_FILES: usize = 30;
-
-/// `next.readSelectedPatches`: the files whose patches answer "what changed" —
-/// source files first (then other non-test, non-doc files), most changed
-/// lines first — packed into one call's patch budget. Tests, docs,
-/// changesets, lockfiles and generated output are left to the inventory.
-/// Always names at least the top file when one qualifies.
-pub(super) fn review_selection(files: &[Value], budget: usize) -> Vec<String> {
-    let mut ranked = files
-        .iter()
-        .enumerate()
-        .filter_map(|(index, file)| {
-            let path = str_at(file, "/filename")?;
-            let binary = is_binary_name(path);
-            let tier = if binary { 3 } else { review_tier(path) };
-            let changed = usize_at(file, "/additions") + usize_at(file, "/deletions");
-            (tier == 0 || tier == 2).then_some((
-                (tier, std::cmp::Reverse(changed), index),
-                path,
-                changed,
-            ))
-        })
-        .collect::<Vec<_>>();
-    ranked.sort_by_key(|(rank, _, _)| *rank);
-    // Files that fit one call's budget come first (packed, most changed
-    // first), so the first read delivers whole patches; the rest follow in
-    // rank order and arrive through `continuePatch`.
-    let mut used = 0usize;
-    let mut packed = Vec::new();
-    let mut rest = Vec::new();
-    for (_, path, changed) in ranked {
-        let cost = changed.saturating_mul(REVIEW_LINE_CHARS) + REVIEW_FILE_CHARS;
-        if used + cost <= budget {
-            used += cost;
-            packed.push(path.to_owned());
-        } else {
-            rest.push(path.to_owned());
-        }
-    }
-    packed.extend(rest);
-    packed.truncate(MAX_REVIEW_FILES);
-    packed
-}
-
 /// Shape a pull request's changed-file page into `row`: compact inventory
 /// rows without patches, one object per file with them.
 pub(super) fn shape_pr_files(
@@ -453,55 +389,4 @@ pub(super) fn compact_file_header(row: &mut Value) {
 
 pub(super) fn file_metadata(file: &Value) -> Value {
     json!({"filename":str_at(file,"/filename").unwrap_or(""),"status":string(file.get("status")),"additions":usize_at(file,"/additions"),"deletions":usize_at(file,"/deletions"),"previousFilename":file.get("previous_filename")})
-}
-
-/// Extensions GitHub never diffs as text.
-pub(super) const BINARY_EXTENSIONS: &[&str] = &[
-    "7z", "a", "avi", "bin", "bmp", "bz2", "class", "db", "dll", "dylib", "eot", "exe", "flac",
-    "gif", "gz", "ico", "jar", "jpeg", "jpg", "lib", "mov", "mp3", "mp4", "node", "o", "ogg",
-    "otf", "pdf", "png", "psd", "pyc", "rlib", "so", "sqlite", "tgz", "tiff", "ttf", "war", "wasm",
-    "wav", "webm", "webp", "woff", "woff2", "xz", "zip",
-];
-
-/// Why a changed file has no provider patch, or `None` when there is nothing
-/// to diff (a pure rename). `tooLarge`: GitHub omits a single oversized diff
-/// but still counts its lines. `binary`: a binary extension. `omitted`:
-/// GitHub sent neither patch nor line counts — binary, empty, or past the
-/// PR's total diff budget — so `additions`/`deletions` of 0 are not evidence
-/// of an unchanged file; read the file at `headSha` instead.
-pub(super) fn missing_patch_reason(file: &Value) -> Option<&'static str> {
-    let changes = usize_at(file, "/additions") + usize_at(file, "/deletions");
-    if changes > 0 {
-        return Some("tooLarge");
-    }
-    if str_at(file, "/status") == Some("renamed") {
-        return None;
-    }
-    let name = str_at(file, "/filename").unwrap_or("");
-    Some(if is_binary_name(name) {
-        "binary"
-    } else {
-        "omitted"
-    })
-}
-
-/// Whether a changed file's name has a binary extension (its basename's,
-/// never a dotted directory's).
-fn is_binary_name(path: &str) -> bool {
-    BINARY_EXTENSIONS.contains(&octocode_engine::text::extension_of(path, true, "").as_str())
-}
-
-/// Inventory rows flag files GitHub sent without a patch. REST entries
-/// (which carry a blob `sha`) say why; GraphQL file nodes never include a
-/// patch, so only their binary files are flagged (by name: a binary change
-/// has no line counts either).
-fn inventory_patch_flag(row: &mut Value, file: &Value) {
-    if file.get("patch").is_some() {
-        return;
-    }
-    let reason = missing_patch_reason(file)
-        .filter(|reason| file.get("sha").is_some() || *reason == "binary");
-    if let Some(reason) = reason {
-        row["patchUnavailable"] = json!(reason);
-    }
 }

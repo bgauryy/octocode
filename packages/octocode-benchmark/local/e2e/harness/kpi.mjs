@@ -11,8 +11,8 @@
 //
 // Without --competitors it runs harness/competitors.mjs (OCTOCODE_BETA=true,
 // saved as results/competitors-kpi-<label>.json). The environment passes
-// through, so OCTOCODE_NATIVE_BINDING (with NODE_ENV=development) measures a
-// candidate addon and OCTOCODE_COMPETITOR_GITHUB=0 skips network tasks.
+// through, so OCTOCODE_NATIVE_BIN (with NODE_ENV=development) measures a
+// candidate binary and OCTOCODE_COMPETITOR_GITHUB=0 skips network tasks.
 // Writes <out>/KPI-<label>.json and .md (default .octocode/evals/<date>-kpi).
 import fs from 'node:fs';
 import path from 'node:path';

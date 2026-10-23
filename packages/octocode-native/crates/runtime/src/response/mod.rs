@@ -15,6 +15,7 @@ pub(crate) mod notices;
 pub(crate) mod numbered;
 pub mod outcome;
 pub(crate) mod output;
+pub(crate) mod page_model;
 pub(crate) mod page_windows;
 pub mod pager;
 pub(crate) mod pages;

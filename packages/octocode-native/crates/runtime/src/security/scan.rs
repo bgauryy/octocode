@@ -82,6 +82,21 @@ pub(crate) fn sanitize_provider_text(
         })
 }
 
+/// Every string leaf of provider `value` sanitized as [`sanitize_provider_text`]
+/// at `path`, through the one response walker ([`super::sanitize_json`]): a
+/// value redacted where its context shows is redacted wherever else the
+/// payload repeats it bare, so a secret named in a body that a row never
+/// shows still redacts its bare copy in a title.
+pub(crate) fn sanitize_provider_json(
+    security: &impl ContentScan,
+    value: &mut serde_json::Value,
+    path: &Path,
+) -> Result<(), octocode_github::ProviderError> {
+    super::sanitize_json(value, &mut |text, _| {
+        sanitize_provider_text(security, text, path)
+    })
+}
+
 /// A test scan double that returns every text unchanged.
 #[cfg(test)]
 pub(crate) struct Passthrough;
@@ -118,8 +133,8 @@ impl ContentScan for super::ContentSecurity {
 /// large file does not rescan the whole blob on every `next.continueWindow`.
 ///
 /// A line/byte page is cut from the sanitized full view, so each page
-/// otherwise re-runs `sanitize` over the entire file (~55 ms release for a
-/// 176 KB file, dominating a cache-hit read). Entries are keyed by a SHA-256
+/// otherwise re-runs `sanitize` over the entire file (~1.6 ms release for a
+/// 75 KB file, measured 2026-10-23, the largest cost of a cache-hit read). Entries are keyed by a SHA-256
 /// of the scanned text and path, so a hit needs the exact bytes in hand and
 /// returns exactly what the scanner produced for them; redaction is unchanged.
 /// One memo must only ever wrap one scanner (the owning runtime's policy).

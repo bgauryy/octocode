@@ -5,7 +5,6 @@ use crate::providers::artifact::{
     ArtifactError, ArtifactItem, ArtifactSearchQuery, ArtifactType, github_repo_dir, github_slug,
     page_out_of_range, release_ref_in,
 };
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::leads::broaden::{Broaden, broaden};
 use octocode_contract_types::ErrorCode;
@@ -152,9 +151,7 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
         let mut last = copied(query);
         last.insert("page".into(), json!(super::last_reachable_page(query)));
         error.message = limit.warning;
-        let lead = Continuation::new(ToolId::ArtifactSearch, Value::Object(last))
-            .confidence(Confidence::Exact)
-            .build();
+        let lead = Continuation::new(ToolId::ArtifactSearch, Value::Object(last)).build();
         error.next = Some(Box::new(json!({ "repair": lead })));
         return error;
     }
@@ -172,7 +169,7 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
             Some((
                 "broadenSearch",
                 Continuation::new(ToolId::ArtifactSearch, Value::Object(exact))
-                    .confidence(Confidence::Low)
+                    .approximate()
                     .build(),
             ))
         }
@@ -188,9 +185,7 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
                 .collect::<Vec<_>>();
             Some((
                 "repair",
-                Continuation::input(ToolId::ArtifactSearch, json!({ "queries": queries }))
-                    .confidence(Confidence::Medium)
-                    .build(),
+                Continuation::input(ToolId::ArtifactSearch, json!({ "queries": queries })).build(),
             ))
         }
         ErrorCode::VersionNotFound | ErrorCode::CapabilityUnavailable
@@ -198,9 +193,7 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
         {
             Some((
                 "repair",
-                Continuation::new(ToolId::ArtifactSearch, Value::Object(exact))
-                    .confidence(Confidence::Medium)
-                    .build(),
+                Continuation::new(ToolId::ArtifactSearch, Value::Object(exact)).build(),
             ))
         }
         _ => None,

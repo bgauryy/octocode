@@ -1,5 +1,6 @@
 //! `tree`: a bounded directory outline, children name-sorted, depth-first,
 //! rows grouped by directory ([`super::listing`] runs it).
+use super::probe::FilterProbe;
 
 use crate::num::{u32_of, u32_of_usize};
 use crate::response::result::ToolError;
@@ -38,8 +39,8 @@ super::listing::listing_fields!(StructureSearchQueryTree {
     fn early_exit(&self) -> bool {
         false
     }
-    fn filter_probe(&self, root: &std::path::Path) -> Result<super::FilterProbe, ToolError> {
-        super::FilterProbe::new(
+    fn filter_probe(&self, root: &std::path::Path) -> Result<FilterProbe, ToolError> {
+        FilterProbe::new(
             root,
             &crate::policy::include::include_globs(&self.include),
             &self.extensions,

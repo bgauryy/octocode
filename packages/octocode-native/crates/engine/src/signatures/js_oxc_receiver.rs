@@ -17,6 +17,7 @@ use super::js_oxc_calls::{dotted_expression_name, ts_type_name, unwrap_expr};
 
 mod class_fields;
 
+use crate::signatures::receiver_fields::Fields;
 use class_fields::class_fields;
 
 struct Binding {
@@ -24,8 +25,6 @@ struct Binding {
     /// Written with a type annotation: reassignment cannot change it.
     declared: bool,
 }
-
-type Fields = HashMap<String, Option<String>>;
 
 pub(super) struct ReceiverScopes {
     scopes: Vec<HashMap<String, Binding>>,

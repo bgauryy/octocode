@@ -116,7 +116,7 @@ External to local is one flow: `artifactSearch` maps a package to its repository
 
 ### 3.13 The Rust layer: local efficiency
 - One native engine runs text search (an in-process regex walker), parsing and structural matching (tree-sitter), minification, redaction, the LSP client pool, the dependency graph, and the GitHub and registry clients. Some LSP operations require an installed language server; see [language servers](OCTOCODE_TOOLS.md#language-servers).
-- MCP loads it in process through napi, so calls are warm. The CLI is a native binary.
+- The CLI and the MCP server are one native binary (`octocode mcp`), so MCP calls are warm: the runtime and its caches live as long as the connection.
 - Concurrent rows share one walk-thread budget, with parse size limits and scan deadlines.
 
 ## 4. Strengths and limits

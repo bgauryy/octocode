@@ -33,6 +33,19 @@ pub enum TryLock {
     Busy(File),
 }
 
+/// `path` opened for locking: created when missing (owner-only on Unix),
+/// never truncated, so every holder of the sidecar locks the same inode.
+pub fn open_lock_file(path: &std::path::Path) -> std::io::Result<File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
 /// Try once to take an exclusive lock on `file`. `Err` when the filesystem
 /// refuses the lock operation itself, as on one without lock support.
 pub fn try_lock(file: File) -> std::io::Result<TryLock> {
@@ -72,12 +85,22 @@ mod tests {
     use std::time::{Duration, Instant};
 
     fn open(path: &std::path::Path) -> std::fs::File {
-        std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(path)
-            .unwrap()
+        open_lock_file(path).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_file_is_owner_only_and_keeps_its_contents() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.lock");
+        std::fs::write(&path, b"held").unwrap();
+        open_lock_file(&path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"held");
+        let created = dir.path().join("b.lock");
+        open_lock_file(&created).unwrap();
+        let mode = std::fs::metadata(&created).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]

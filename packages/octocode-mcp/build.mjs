@@ -1,6 +1,7 @@
-// Bundles the MCP server (dist/index.js) and its library entry (dist/public.js).
+// Bundles the launcher (dist/index.js): resolves the native binary and starts
+// its MCP server.
 import * as esbuild from 'esbuild';
-import { readFileSync } from 'node:fs';
+import { chmodSync, readFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import {
   assertDeclaredRuntimeImports,
@@ -9,39 +10,33 @@ import {
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
 
-const sharedBuildOptions = {
+await rm('dist', { recursive: true, force: true });
+const result = await esbuild.build({
+  entryPoints: ['src/index.ts'],
+  outfile: 'dist/index.js',
   bundle: true,
   platform: 'node',
   target: 'node24',
   format: 'esm',
   minify: true,
   treeShaking: true,
-  // Published runtime dependencies stay external; consumers install them from
-  // this package's manifest, preserving the interface boundary.
+  // Published runtime dependencies stay external; the binary itself comes from
+  // the per-platform package npm installs (`optionalDependencies`).
   external: packageExternals(pkg),
-  define: {
-    __OCTOCODE_BUNDLED__: 'true',
+  define: { __OCTOCODE_BUNDLED__: 'true' },
+  // The bundled native scripts are CommonJS: give them `require`, resolved
+  // from this package, so they find the installed per-platform package.
+  banner: {
+    js: "#!/usr/bin/env node\nimport { createRequire as __octocodeRequire } from 'node:module';\nconst require = __octocodeRequire(import.meta.url);",
   },
-  // Only the executable marker is needed; runtime dependencies stay external.
-  banner: { js: '#!/usr/bin/env node' },
   metafile: true,
   logLevel: 'info',
-};
-
-const entryPoints = [
-  { entryPoints: ['src/index.ts'], outfile: 'dist/index.js' },
-  { entryPoints: ['src/public.ts'], outfile: 'dist/public.js' },
-];
-
-await rm('dist', { recursive: true, force: true });
-const buildResults = await Promise.all(
-  entryPoints.map(entry => esbuild.build({ ...sharedBuildOptions, ...entry }))
-);
+});
 
 assertDeclaredRuntimeImports({
-  metafiles: buildResults.map(result => result.metafile),
+  metafiles: [result.metafile],
   dependencies: pkg.dependencies,
   label: `${pkg.name} bundle`,
 });
-
+chmodSync('dist/index.js', 0o755);
 console.log('✓ esbuild complete');

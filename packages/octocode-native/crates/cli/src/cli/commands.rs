@@ -32,13 +32,13 @@ impl ToolArgs {
         let (source, read) = if path.as_os_str() == "-" {
             (
                 "the query from stdin".to_owned(),
-                super::read_bounded(std::io::stdin(), MAX_QUERY_BYTES),
+                octocode_io::read::read_limited(std::io::stdin(), MAX_QUERY_BYTES),
             )
         } else {
             (
                 format!("--input {}", path.display()),
                 std::fs::File::open(path)
-                    .and_then(|file| super::read_bounded(file, MAX_QUERY_BYTES)),
+                    .and_then(|file| octocode_io::read::read_limited(file, MAX_QUERY_BYTES)),
             )
         };
         let bytes = read
@@ -225,6 +225,8 @@ pub(super) enum Command {
     },
     /// Add the Octocode MCP server to an agent client's configuration.
     Install(super::mcp_install::InstallArgs),
+    /// Run the MCP server over stdio, as an agent client launches it.
+    Mcp,
 
     // ── Hidden commands (not part of the agent surface) ──────────────────────
     /// Serve warm read-only tool calls for one workspace over a private socket.

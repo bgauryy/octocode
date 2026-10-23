@@ -4,7 +4,7 @@ Every tool's fields, defaults, limits, results, and continuations, on MCP and th
 
 ## How every tool call works
 
-The CLI and MCP expose the same contracts. Every tool, `clasify` included, advertises a `queries[]` envelope and returns one row per input position. Native admission also runs one bare query object as one row on CLI, MCP and the direct addon; a bare array is rejected. Use the advertised envelope for tool calls and copy continuations unchanged. A failed row, `clasify` rows included, does not erase successful siblings.
+The CLI and MCP expose the same contracts. Every tool, `clasify` included, advertises a `queries[]` envelope and returns one row per input position. Native admission also runs one bare query object as one row on CLI and MCP; a bare array is rejected. Use the advertised envelope for tool calls and copy continuations unchanged. A failed row, `clasify` rows included, does not erase successful siblings.
 
 ### Base call envelope
 

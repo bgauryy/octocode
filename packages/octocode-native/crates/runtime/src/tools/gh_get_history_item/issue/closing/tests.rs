@@ -23,7 +23,7 @@ fn read_fix_pr_carries_the_patches_of_a_small_fix() {
         ]
     );
     let mut out = json!({});
-    attach_fix_pr(&mut out, &query, Some(&prs), true, false);
+    attach_fix_pr(&mut out, &query, Some(&prs), true);
     assert_eq!(
         out["next"]["readPullRequest"]["query"]["queries"][0]["number"],
         8
@@ -42,7 +42,6 @@ fn read_fix_pr_carries_the_patches_of_a_small_fix() {
             &query,
             Some(&map_closing_pull_requests(&[node])),
             true,
-            false,
         );
         assert_eq!(
             out["next"]["readPullRequest"]["query"]["queries"][0]["sections"],
@@ -58,7 +57,7 @@ fn read_fix_pr_carries_the_patches_of_a_small_fix() {
 
 fn out_for(query: &HistoryItemRequest, prs: &[ClosingPr]) -> Value {
     let mut out = json!({});
-    attach_fix_pr(&mut out, query, Some(prs), true, false);
+    attach_fix_pr(&mut out, query, Some(prs), true);
     out
 }
 

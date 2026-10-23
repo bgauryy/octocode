@@ -7,13 +7,20 @@ struct Counter {
     utf16: bool,
 }
 
+/// UTF-16 units of UTF-8 `bytes`: one per scalar start byte, one more for
+/// each four-byte scalar (a surrogate pair). Exact for any chunk that splits
+/// at scalar boundaries or inside one: continuation bytes count nothing.
+pub fn utf16_units_of_utf8(bytes: &[u8]) -> usize {
+    bytes
+        .iter()
+        .map(|&byte| usize::from(byte & 0xc0 != 0x80) + usize::from(byte >= 0xf0))
+        .sum()
+}
+
 impl Write for Counter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.size += if self.utf16 {
-            bytes
-                .iter()
-                .map(|&byte| usize::from(byte & 0xc0 != 0x80) + usize::from(byte >= 0xf0))
-                .sum::<usize>()
+            utf16_units_of_utf8(bytes)
         } else {
             bytes.len()
         };

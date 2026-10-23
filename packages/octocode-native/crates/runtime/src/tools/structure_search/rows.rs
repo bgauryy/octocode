@@ -1,14 +1,25 @@
 //! Listing rows, the one row shape `tree` and `files` share: how a walked
 //! entry becomes a row, how rows sort, group and cost on a page, their line
 //! counts, and the read a listing's first page leads to.
+use super::cut::RowCost;
+use super::memo;
+use crate::response::result::ToolError;
+use serde_json::{Value, json};
 
-use super::*;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use octocode_contract_types::ErrorCode;
 use octocode_contract_types::StructureSearchQueryFilesSort as Sort;
 use octocode_engine::types::{FileKind, FileSystemEntry};
+
+mod line_counts;
+mod read_lead;
+
+use line_counts::line_count;
+#[cfg(test)]
+pub(super) use line_counts::line_count_reads;
+pub(super) use line_counts::{Lines, count_lines};
+pub(super) use read_lead::read_lead;
 
 /// What a listed entry is: anything that is neither a directory nor a
 /// symlink lists as a file.
@@ -293,77 +304,6 @@ pub(super) fn costs(rows: &[Row], prefix: &str, deferred_detail: bool) -> Vec<Ro
         .collect()
 }
 
-/// `next.read` on a listing's first page (`rows`): the best-ranked file
-/// ([`read_rank`](crate::tools::root_read::read_rank), the ranking
-/// ghStructure shares; any outline-able file ranks last), first among equal
-/// ranks in listing order: of the small, hand-written files, else of the
-/// files of at most [`READ_LEAD_FALLBACK_MAX_BYTES`]. Source and docs are
-/// outlined (`minify:"symbols"`).
-pub(super) fn read_lead(rows: &[Row], root: &std::path::Path) -> Option<Value> {
-    let best = |preferred: bool| {
-        rows.iter()
-            .enumerate()
-            .filter(|(_, row)| {
-                row.kind == EntryKind::File
-                    && if preferred {
-                        row.size <= READ_LEAD_MAX_BYTES && !generated_or_fixture(&row.path)
-                    } else {
-                        row.size <= READ_LEAD_FALLBACK_MAX_BYTES
-                    }
-            })
-            .filter_map(|(index, row)| {
-                let depth = row.path.matches('/').count();
-                let rank = crate::tools::root_read::read_rank(&row.path, depth, &[])
-                    .or_else(|| crate::tools::outlines(&row.path).then_some(RANK_ANY))?;
-                Some(((rank, depth, index), row))
-            })
-            .min_by_key(|(key, _)| *key)
-            .map(|(_, row)| row)
-    };
-    let row = best(true).or_else(|| best(false))?;
-    let path = if row.path.is_empty() || root.is_file() {
-        root.to_path_buf()
-    } else {
-        root.join(&row.path)
-    };
-    let mut query = json!({"path": path.to_string_lossy()});
-    if crate::tools::outlines(&row.path) {
-        query["minify"] = json!("symbols");
-    }
-    Some(crate::response::result::Continuation::new(crate::id::ToolId::LocalFetch, query).build())
-}
-
-/// Rank of an outline-able file no [`read_rank`] tier names: it reads last.
-///
-/// [`read_rank`]: crate::tools::root_read::read_rank
-const RANK_ANY: u8 = 6;
-
-/// Largest file a listing's read lead points at by preference: a lead
-/// over a multi-megabyte generated file would page for many calls.
-pub(super) const READ_LEAD_MAX_BYTES: i64 = 64 * 1024;
-
-/// Largest file a listing's read lead points at at all: past it, the
-/// outline itself would page for many calls, so no lead is offered.
-const READ_LEAD_FALLBACK_MAX_BYTES: i64 = 1024 * 1024;
-
-/// A generated, minified, declaration, or lock file, or one under a test
-/// or fixture directory: a poor first read of an unfamiliar tree.
-pub(super) fn generated_or_fixture(path: &str) -> bool {
-    let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
-    let generated = name.contains(".generated.")
-        || name.contains("_generated")
-        || name.contains(".min.")
-        || name.ends_with(".d.ts")
-        || name.ends_with(".lock");
-    let fixture_dir = path.split('/').rev().skip(1).any(|dir| {
-        matches!(
-            dir,
-            "test" | "tests" | "fixtures" | "__fixtures__" | "__snapshots__"
-        )
-    });
-    generated || fixture_dir
-}
-
 /// Characters the deferred detail fields add to one entry at most:
 /// `, totalLines=<usize>` (33) and `, modified=<ISO 8601 instant>` (35 for
 /// a five-digit year).
@@ -381,10 +321,6 @@ pub(super) fn entry_text(
     line_count: Option<Lines>,
     modified_ms: Option<i64>,
 ) -> String {
-    let mut text = name.to_owned();
-    if kind == EntryKind::Directory {
-        text.push('/');
-    }
     let mut fields = Vec::new();
     if let Some(size) = size {
         fields.push(size.to_string());
@@ -401,187 +337,5 @@ pub(super) fn entry_text(
             crate::civil_date::iso8601_millis(modified)
         ));
     }
-    if !fields.is_empty() {
-        text.push_str(&format!(" ({})", fields.join(", ")));
-    }
-    text
+    crate::tools::root_read::entry_text(name, kind == EntryKind::Directory, &fields)
 }
-
-/// A file's line count as a listing shows it: counted, or why not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Lines {
-    Counted(usize),
-    /// Binary content (the one binary definition: the leading-byte sniff, or
-    /// a NUL anywhere) has no lines to count.
-    Binary,
-    /// The file could not be read (gone, denied, a read error): its count
-    /// is unknown, not zero.
-    Unreadable,
-}
-
-impl Lines {
-    /// The entry field: `totalLines=N`, or the reason there is none.
-    fn field(self) -> String {
-        match self {
-            Self::Counted(lines) => format!("totalLines={lines}"),
-            Self::Binary => "binary".to_owned(),
-            Self::Unreadable => "unreadable".to_owned(),
-        }
-    }
-
-    /// The field a details listing shows: none for a file without lines.
-    fn shown_in_details(self) -> Option<Self> {
-        (self != Self::Counted(0)).then_some(self)
-    }
-
-    /// The line sort's key: counted files by count, most first, then the
-    /// files without a count, then directories.
-    fn rank(lines: Option<Self>) -> (u8, std::cmp::Reverse<usize>) {
-        match lines {
-            Some(Self::Counted(lines)) => (0, std::cmp::Reverse(lines)),
-            Some(Self::Binary) => (1, std::cmp::Reverse(0)),
-            Some(Self::Unreadable) => (2, std::cmp::Reverse(0)),
-            None => (3, std::cmp::Reverse(0)),
-        }
-    }
-}
-
-/// Line-count workers opening files at once. Each validates, opens and
-/// reads files, and kernel time grows with concurrent openers while wall
-/// time levels off: over 2,280 files (warm cache, 12 cores, macOS) 4 workers
-/// took 38-42 ms wall and 0.13 s sys, 12 workers 54-57 ms and 0.55-0.62 s.
-const FILE_OPEN_WORKERS: usize = 4;
-
-/// Workers for counting `entries` files ([`crate::tools::workers::workers`]),
-/// at most [`FILE_OPEN_WORKERS`].
-fn line_count_workers(entries: usize) -> usize {
-    crate::tools::workers::workers(None, entries, Some(FILE_OPEN_WORKERS))
-}
-
-/// The line counts of `files` (`None`: a directory, never counted), on
-/// [`line_count_workers`]: each worker takes the next file until none is
-/// left or `deadline` passes (the first file is always counted, so a cut
-/// walk still advances). With the deadline passed first, also the index of
-/// the first file left uncounted: the counts are a prefix of `files` up to
-/// it.
-pub(super) fn count_lines(
-    files: &[Option<&std::path::Path>],
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-    deadline: Option<std::time::Instant>,
-) -> Result<(Vec<Option<Lines>>, Option<usize>), ToolError> {
-    let workers = line_count_workers(files.len());
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    let first_file = files.iter().position(Option::is_some);
-    let counted = std::thread::scope(|scope| {
-        let tasks = (0..workers)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut counted = Vec::new();
-                    loop {
-                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(file) = files.get(index) else {
-                            return Ok(counted);
-                        };
-                        let Some(path) = file else { continue };
-                        let late = Some(index) != first_file
-                            && deadline
-                                .is_some_and(|at| octocode_engine::scan_budget::walk_now() >= at);
-                        let lines = if late {
-                            None
-                        } else {
-                            Some(line_count(path, paths, cancel)?)
-                        };
-                        counted.push((index, lines));
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-        tasks
-            .into_iter()
-            .map(|task| {
-                task.join().unwrap_or_else(|_| {
-                    Err(ToolError::new(
-                        ErrorCode::ExecutionFailed,
-                        "A line-count worker failed.",
-                    ))
-                })
-            })
-            .collect::<Result<Vec<_>, ToolError>>()
-    })?;
-    let mut lines = vec![None; files.len()];
-    let mut cut = None::<usize>;
-    for (index, count) in counted.into_iter().flatten() {
-        match count {
-            Some(count) => lines[index] = Some(count),
-            None => cut = Some(cut.map_or(index, |at| at.min(index))),
-        }
-    }
-    if let Some(at) = cut {
-        lines.truncate(at);
-    }
-    Ok((lines, cut))
-}
-
-/// The lines of the file at `path`, revalidated against the path policy
-/// right before it is read.
-pub(super) fn line_count(
-    path: &std::path::Path,
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-) -> Result<Lines, ToolError> {
-    use std::io::Read;
-    #[cfg(test)]
-    LINE_COUNT_READS.with(|reads| reads.set(reads.get() + 1));
-    cancel.check().map_err(ToolError::cancelled)?;
-    // Revalidate immediately before reading: discovery authorization is not
-    // permission to follow a changed link or open a special file (a FIFO).
-    let Ok(validated) = paths.validate_read(path) else {
-        return Ok(Lines::Unreadable);
-    };
-    let Ok((mut file, _)) = octocode_engine::text::open_regular(&validated.canonical) else {
-        return Ok(Lines::Unreadable);
-    };
-    let mut buffer = [0_u8; 16 * 1024];
-    // Newlines terminate lines; a non-empty final line without one still counts.
-    let mut lines = 0_usize;
-    let mut last_byte = None;
-    loop {
-        cancel.check().map_err(ToolError::cancelled)?;
-        match file.read(&mut buffer) {
-            Ok(0) => {
-                return Ok(Lines::Counted(
-                    lines + usize::from(last_byte.is_some_and(|b| b != b'\n')),
-                ));
-            }
-            Ok(bytes) => {
-                let read = &buffer[..bytes];
-                if (last_byte.is_none()
-                    && octocode_engine::text::sniff(read)
-                        == octocode_engine::text::BinaryVerdict::Binary)
-                    || read.contains(&0)
-                {
-                    return Ok(Lines::Binary);
-                }
-                lines += read.iter().filter(|byte| **byte == b'\n').count();
-                last_byte = read.last().copied();
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return Ok(Lines::Unreadable),
-        }
-    }
-}
-
-#[cfg(test)]
-thread_local! {
-    static LINE_COUNT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-pub(super) fn line_count_reads() -> usize {
-    LINE_COUNT_READS.with(std::cell::Cell::get)
-}
-
-#[cfg(test)]
-#[path = "rows_tests.rs"]
-mod tests;

@@ -24,8 +24,9 @@ mod resolve;
 mod rust;
 use link::*;
 pub(crate) use paths::normalize;
-pub(super) use paths::{climb, dirname, join, join_within_root};
+pub(super) use paths::{climb, dirname, join, join_within_root, parent};
 use resolve::*;
+pub(super) use rust::rust_module_child_dir;
 use rust::*;
 
 /// What a graph build scans: the root, the pruned directories, the file

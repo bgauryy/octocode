@@ -1,14 +1,29 @@
 //! Recording edges and resolving import specifiers (generic and Python).
 use super::*;
 
-pub(super) fn add_edge(b: &mut BuiltGraph, node: &mut Node, target: &str, kind: &str, line: u32) {
+/// Records one file edge. A repeat of `(target, kind)` keeps the file's
+/// first production evidence line, else its first test-only one
+/// (`test_scoped`), so an edge is test code only when all of its sites are.
+pub(super) fn add_edge(
+    b: &mut BuiltGraph,
+    node: &mut Node,
+    target: &str,
+    kind: &str,
+    line: u32,
+    test_scoped: &dyn Fn(u32) -> bool,
+) {
     // The cap counts distinct (target, kind) edges; a repeat of one only
-    // lowers its evidence line to the file's first.
+    // moves its evidence line.
+    let rank = |line: u32| (test_scoped(line), line);
     let repeat = node
         .edges
         .get_mut(target)
         .and_then(|kinds| kinds.get_mut(kind))
-        .map(|first| *first = (*first).min(line))
+        .map(|first| {
+            if rank(line) < rank(*first) {
+                *first = line;
+            }
+        })
         .is_some();
     if !repeat {
         if b.edge_count >= edge_cap() {

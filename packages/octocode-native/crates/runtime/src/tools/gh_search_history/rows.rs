@@ -1,30 +1,26 @@
 //! Result rows: provider items mapped to the published row shapes.
 use crate::response::result::remove_null_fields;
-use crate::security::scan::{ContentScan, sanitize_provider_text};
+use crate::security::scan::{ContentScan, sanitize_provider_json};
 use crate::tools::gh_shared::commit::{self, person};
 use crate::tools::gh_shared::dates::utc_value as utc;
 use octocode_github::ProviderError;
 use serde_json::{Value, json};
 use std::path::Path;
 
-/// Redacts secrets in the free text of every provider item (titles, bodies,
-/// commit messages) before any row is built from it.
+/// Redacts secrets in every provider item before any row is built from it:
+/// rows window and drop fields (a body is never shown whole), so the gate
+/// that scans the finished rows cannot see the context that names a secret
+/// one field holds and another repeats.
 pub(super) fn sanitize_items(
-    items: &mut [Value],
+    items: &mut Vec<Value>,
     security: &impl ContentScan,
 ) -> Result<(), ProviderError> {
-    let clean = |text: &str| sanitize_provider_text(security, text, Path::new("github-history"));
-    for item in items {
-        for key in ["title", "body"] {
-            if let Some(text) = item.get(key).and_then(Value::as_str) {
-                item[key] = json!(clean(text)?);
-            }
-        }
-        if let Some(text) = item.pointer("/commit/message").and_then(Value::as_str) {
-            item["commit"]["message"] = json!(clean(text)?);
-        }
+    let mut all = Value::Array(std::mem::take(items));
+    let result = sanitize_provider_json(security, &mut all, Path::new("github-history"));
+    if let Value::Array(sanitized) = all {
+        *items = sanitized;
     }
-    Ok(())
+    result
 }
 
 fn labels(v: &Value) -> Vec<String> {

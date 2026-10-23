@@ -1,8 +1,7 @@
 //! One listing page: the pinned ref, the page window, the entries and
 //! their continuations.
 use super::*;
-use crate::response::result::Confidence;
-use crate::tools::root_read::read_rank;
+use crate::tools::root_read::{RANK_ANY, entry_text, read_rank};
 
 /// Pin the listing to one commit: an explicit ref that does not resolve is
 /// an error (like ghGetFileContent), never a silent default-branch listing,
@@ -48,7 +47,7 @@ impl<'a> ListingPage<'a> {
         )
         .clamp(1, max_entries_per_page());
         let total_entries = all.len();
-        let total_pages = total_entries.div_ceil(per_page).max(1);
+        let total_pages = crate::response::page_windows::count_pages(total_entries, per_page);
         let start = current
             .saturating_sub(1)
             .saturating_mul(per_page)
@@ -156,7 +155,6 @@ pub(super) fn clone_lead(query: &GhStructureQueryTree, scope: &Scope, commit_sha
         reference: Some(commit_sha),
     }
     .lead(ToolId::GhCloneRepo)
-    .confidence(Confidence::Exact)
     .build()
 }
 
@@ -198,15 +196,8 @@ pub(super) fn entry_read(
     if crate::tools::outlines(&path) {
         read["minify"] = json!("symbols");
     }
-    Some(
-        crate::response::result::Continuation::new(ToolId::GhGetFileContent, read)
-            .confidence(Confidence::High)
-            .build(),
-    )
+    Some(crate::response::result::Continuation::new(ToolId::GhGetFileContent, read).build())
 }
-
-/// Rank of a file no tier names; only a small listing reads it.
-const RANK_ANY: u8 = 6;
 
 /// `include` entries that are bare words (no glob metacharacter or `/`),
 /// lowercased: a file whose stem equals one is the file the caller named.
@@ -214,7 +205,7 @@ fn bare_words<'a>(include: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     include
         .into_iter()
         .map(str::trim)
-        .filter(|word| !word.is_empty() && !word.contains(['/', '*', '?', '[', '{']))
+        .filter(|word| !word.is_empty() && octocode_engine::search::glob::is_bare_word(word))
         .map(str::to_lowercase)
         .collect()
 }
@@ -242,12 +233,7 @@ pub(super) fn build_structure(
             .into_iter()
             .chain(dates.get(path).cloned())
             .collect::<Vec<_>>();
-        let slash = if file { "" } else { "/" };
-        let text = if fields.is_empty() {
-            format!("{name}{slash}")
-        } else {
-            format!("{name}{slash} ({})", fields.join(", "))
-        };
+        let text = entry_text(name, !file, &fields);
         dirs.entry(parent).or_default().push((name, text));
     }
     let listed = |mut names: Vec<(&str, String)>| {
@@ -330,9 +316,7 @@ pub(super) fn attach_continuations(
 
 /// An exact `ghStructure` call of `query` (a page, retry or ref listing).
 pub(super) fn continuation(query: Value) -> Value {
-    crate::response::result::Continuation::new(ToolId::GhStructure, query)
-        .confidence(Confidence::Exact)
-        .build()
+    crate::response::result::Continuation::new(ToolId::GhStructure, query).build()
 }
 
 pub(super) fn structure_is_empty(value: &Value) -> bool {

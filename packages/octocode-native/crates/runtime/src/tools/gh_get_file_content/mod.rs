@@ -303,7 +303,7 @@ impl crate::response::output::ToolOutput for Output {
             "Verify owner/repo/ref/path."
         }
     }
-    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
+    fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
         // The message names the item; `repair` is the corrected read.
         (code == ErrorCode::InvalidPattern).then_some(crate::response::output::NO_HINT)
     }

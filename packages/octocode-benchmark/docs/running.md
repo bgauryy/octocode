@@ -49,7 +49,7 @@ Then write `results/<campaign>/report.md` as [output.md](outputs.md) describes.
 
 **Rate an MCP version:** `OCTO_MCP_CMD="npx -y octocode-mcp@20.1.1" run_campaign.sh …` runs a
 published version; unset, it runs the local build (`packages/octocode-mcp/dist`) against a
-snapshot of the MCP bundle and native addon taken when the campaign starts. Give each version its own
+snapshot of the MCP launcher and native binary taken when the campaign starts. Give each version its own
 `--octocode-label` and the matrix shows them side by side. **Add an arm:** write
 `prompts/<arm>.md` and its tool flags in `run_arm.sh`.
 

@@ -8,7 +8,6 @@ use crate::tools::source_capture::SourceReader;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
-use std::io::Read;
 use std::path::Path;
 
 pub(crate) struct CapturedAssets {
@@ -125,10 +124,7 @@ fn acquire(
             if before.len() > policy::MAX_IMAGE_BYTES as u64 {
                 return Err(too_large("The image exceeds the per-image byte limit."));
             }
-            let mut bytes = Vec::new();
-            (&file)
-                .take(policy::MAX_IMAGE_BYTES as u64 + 1)
-                .read_to_end(&mut bytes)
+            let read = octocode_io::read::read_limited(&file, policy::MAX_IMAGE_BYTES as u64)
                 .map_err(|_| read_failed())?;
             let after = file.metadata().map_err(|_| read_failed())?;
             if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
@@ -138,9 +134,9 @@ fn acquire(
                     "Retry once the image is stable.",
                 ));
             }
-            if bytes.len() > policy::MAX_IMAGE_BYTES {
+            let Some(bytes) = read else {
                 return Err(too_large("The image grew beyond the per-image byte limit."));
-            }
+            };
             let snapshot = octocode_engine::digest::sha256(&bytes);
             if query["snapshot"]
                 .as_str()

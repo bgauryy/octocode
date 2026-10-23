@@ -72,7 +72,7 @@ pub(super) fn detect_components(c: &mut Ctx) {
                 .get(&file)
                 .map_or(".".into(), |(dir, _, _)| (*dir).to_owned())
         } else {
-            parent_dir(v.key(file)).to_owned()
+            dirname(v.key(file)).to_owned()
         }
     };
     let level = if use_components {
@@ -151,14 +151,14 @@ pub(super) fn detect_misplaced(c: &mut Ctx) {
         {
             continue;
         }
-        let home = parent_dir(key);
+        let home = dirname(key);
         let mut by_dir = BTreeMap::<&str, usize>::new();
         let mut neighbors = v.out[*file as usize].clone();
         neighbors.extend(&v.inc[*file as usize]);
         neighbors.sort_unstable();
         neighbors.dedup();
         for other in &neighbors {
-            *by_dir.entry(parent_dir(v.key(*other))).or_default() += 1;
+            *by_dir.entry(dirname(v.key(*other))).or_default() += 1;
         }
         let same = by_dir.get(home).copied().unwrap_or(0);
         let total = neighbors.len();

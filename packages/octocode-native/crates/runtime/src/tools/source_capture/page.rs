@@ -136,7 +136,7 @@ fn reader_failure(tool: ToolId, data: &Value) -> ClassificationError {
     } else if hints.is_empty() && leads.is_empty() {
         // Re-running a final failure fails the same way: say the code's fix.
         let hint = declared
-            .and_then(|(code, _)| crate::response::rows::error_code_hint(tool, code))
+            .and_then(|(code, _)| crate::response::rows::error_code_hint(tool, code, &Value::Null))
             .unwrap_or(RERUN_HINT);
         hints.push(hint.into());
     }

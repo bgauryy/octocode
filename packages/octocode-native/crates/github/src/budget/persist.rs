@@ -321,12 +321,7 @@ fn open_lock_file(path: &Path) -> Option<std::fs::File> {
     let mut name = path.as_os_str().to_os_string();
     name.push(".lock");
     let name = PathBuf::from(name);
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&name)
-    {
+    match octocode_io::lock::open_lock_file(&name) {
         Ok(file) => Some(file),
         Err(error) => {
             warn_unshared("open the lock file", &name, &error);

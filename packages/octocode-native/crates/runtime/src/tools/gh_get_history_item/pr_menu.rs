@@ -4,7 +4,6 @@ use super::patch::locate::{distinctive_added_lines, parent_windows};
 use super::util::merge;
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, Section, Sections};
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, remove_nulls};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use serde_json::{Map, Value, json};
@@ -48,9 +47,7 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
 
 /// An executable `ghGetHistoryItem` continuation.
 pub(super) fn continuation(q: Value) -> Value {
-    Continuation::new(ToolId::GhGetHistoryItem, q)
-        .confidence(Confidence::Exact)
-        .build()
+    Continuation::new(ToolId::GhGetHistoryItem, q).build()
 }
 
 /// The recovery of a `matchString` that hit no patch line (a pull
@@ -158,11 +155,10 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
         if !review.is_empty() && !covers_all {
             // The query is exact; which files answer the question is a
             // ranking guess (source files by churn, packed to one budget).
-            let mut selected = continuation(merge(
+            let selected = continuation(merge(
                 target.clone(),
                 json!({"include": review, "sections": ["patches"]}),
             ));
-            selected["confidence"] = json!("high");
             next.insert("readSelectedPatches".into(), selected);
             if changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES) {
                 next.insert("readPatches".into(), call(Sections::of([Section::Patches])));
@@ -247,7 +243,6 @@ pub(super) fn read_at_merge(
                 "matchString": lines,
             }),
         )
-        .confidence(Confidence::High)
         .build(),
     )
 }
@@ -266,9 +261,6 @@ pub(super) fn churn(file: &Value) -> u64 {
 pub(super) struct ChangeSides<'a> {
     pub(super) new_ref: Option<&'a str>,
     pub(super) old_ref: Option<&'a str>,
-    /// `high` when `old_ref` is the diff's exact old side; `medium` for a
-    /// PR base, which may have moved past the diff's merge base.
-    pub(super) old_confidence: Confidence,
 }
 
 /// The first selected file GitHub sent without a patch whose text is
@@ -329,7 +321,6 @@ pub(super) fn change_reads(
                 ToolId::GhGetFileContent,
                 json!({"owner": owner, "repo": repo, "path": path, "ref": new_ref}),
             )
-            .confidence(Confidence::High)
             .build(),
         ));
     }
@@ -345,9 +336,7 @@ pub(super) fn change_reads(
         }
         reads.push((
             "readParent",
-            Continuation::new(ToolId::GhGetFileContent, row)
-                .confidence(sides.old_confidence)
-                .build(),
+            Continuation::new(ToolId::GhGetFileContent, row).build(),
         ));
     }
     reads
@@ -360,55 +349,4 @@ pub(super) fn remove_key(value: &mut Value, key: &str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A file GitHub sent without a readable patch (tooLarge, omitted)
-    /// is read at both sides, whole, ahead of the most-changed patched
-    /// file; a binary file or a GraphQL node (no blob sha) never is.
-    #[test]
-    fn change_reads_prefer_the_first_unpatched_text_file() {
-        let sides = ChangeSides {
-            new_ref: Some("head"),
-            old_ref: Some("base"),
-            old_confidence: Confidence::Medium,
-        };
-        let file = |name: &str, additions: u64, patch: Option<&str>| {
-            let mut file = json!({"filename":name,"status":"modified","additions":additions,
-                "deletions":0,"sha":"1111111111111111111111111111111111111111"});
-            if let Some(patch) = patch {
-                file["patch"] = json!(patch);
-            }
-            file
-        };
-        let files = [
-            file("src/big.rs", 900, Some("@@ -1,1 +1,2 @@\n x\n+y")),
-            file("assets/logo.png", 0, None),
-            file("src/huge.rs", 70_000, None),
-        ];
-        let reads = change_reads("o", "r", &files, &sides, |_| true);
-        let paths = reads
-            .iter()
-            .map(|(name, read)| (*name, read["query"]["queries"][0].clone()))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            paths,
-            [
-                (
-                    "readAtCommit",
-                    json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"head"})
-                ),
-                (
-                    "readParent",
-                    json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"base"})
-                ),
-            ]
-        );
-        // Without an unpatched text file the top patched file is read.
-        let reads = change_reads("o", "r", &files[..2], &sides, |_| true);
-        assert_eq!(reads[0].1["query"]["queries"][0]["path"], "src/big.rs");
-        let mut graphql = files[2].clone();
-        graphql.as_object_mut().map(|file| file.remove("sha"));
-        assert!(first_unpatched(&[graphql], |_| true).is_none());
-    }
-}
+mod tests;

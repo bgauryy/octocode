@@ -57,6 +57,9 @@ impl Graph {
         if edge.kind == EdgeKind::Calls {
             out.insert("confidence".into(), json!(edge.confidence.as_str()));
         }
+        if edge.test {
+            out.insert("test".into(), json!(true));
+        }
     }
 
     /// How complete call edges are for `node`'s language: the share of call
@@ -272,11 +275,21 @@ impl Graph {
 pub(super) struct EdgeFilter {
     pub(super) kinds: Vec<EdgeKind>,
     pub(super) weakest: Confidence,
+    /// Admit test edges: traversals do; the production rankings (`hubs`,
+    /// `cycles`, `stats`) do not.
+    pub(super) tests: bool,
 }
 
 impl EdgeFilter {
     pub(super) fn admits(&self, edge: &EdgeRec) -> bool {
         self.kinds.contains(&edge.kind)
             && (edge.kind != EdgeKind::Calls || edge.confidence <= self.weakest)
+            && (self.tests || !edge.test)
+    }
+
+    /// The same filter over production edges only.
+    pub(super) fn production(mut self) -> Self {
+        self.tests = false;
+        self
     }
 }

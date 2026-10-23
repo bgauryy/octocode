@@ -173,7 +173,6 @@ pub(in super::super) fn cap_declaration_content(location: &mut Value) -> Option<
                 ToolId::LocalFetch,
                 json!({"path": path, "ranges": [format!("{from}-{to}")]}),
             )
-            .confidence(Confidence::Exact)
             .build(),
         ),
         _ => None,

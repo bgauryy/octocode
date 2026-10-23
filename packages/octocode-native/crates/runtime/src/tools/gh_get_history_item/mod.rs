@@ -16,7 +16,7 @@
 //! `axis` the pagination axes, `remaining` what a page leaves, `pr_menu`,
 //! `patch_hop` and `promotion` every `next.*`, and `graphql` the PR fast path.
 use crate::response::result::{ToolData, remove_nulls};
-use crate::security::scan::{ContentScan, sanitize_provider_text};
+use crate::security::scan::{ContentScan, sanitize_provider_json, sanitize_provider_text};
 use octocode_github::{
     GitHubProvider, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
     RequestContext,
@@ -221,7 +221,7 @@ pub async fn execute(
             return Err(error);
         }
     };
-    sanitize_all_strings(&mut output.data, security)?;
+    sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?;
     remove_nulls(&mut output.data);
     enforce_response_limit(&output.data, context.budget.max_body_bytes)?;
     Ok(output)
@@ -324,13 +324,4 @@ async fn fetch(
     context.check()?;
     let response = transport.history_item(segments, query, context).await?;
     Ok((response.value, response.has_more))
-}
-
-fn sanitize_all_strings(
-    value: &mut Value,
-    security: &impl ContentScan,
-) -> Result<(), ProviderError> {
-    crate::security::sanitize_json(value, &mut |text, _| {
-        sanitize_provider_text(security, text, Path::new(SCAN_PATH))
-    })
 }

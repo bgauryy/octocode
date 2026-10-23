@@ -7,7 +7,6 @@ from pathlib import Path
 class McpClient:
     def __init__(self, server, env=None, cwd=None):
         child = dict(env if env is not None else os.environ)
-        child.pop('OCTOCODE_ALLOW_CONTRACT_DRIFT', None)
         child.update(server.get('env', {}))
         self.proc = subprocess.Popen([server['command'], *server.get('args', [])], env=child, cwd=cwd,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)

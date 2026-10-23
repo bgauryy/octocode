@@ -340,7 +340,7 @@ pub(crate) fn stale_snapshot(q: &LocalFetchQuery) -> LocalFetchResult {
     LocalFetchResult::error(
         q.path.to_string(),
         ErrorCode::StaleSnapshot,
-        crate::response::pages::STALE_SNAPSHOT_ERROR.into(),
+        crate::response::result::STALE_SNAPSHOT_ERROR.into(),
     )
 }
 

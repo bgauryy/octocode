@@ -37,6 +37,16 @@ impl PageFacts {
         }
     }
 
+    /// The page before the first: the section states its `total_items` and
+    /// that every page of it is still to read (`hasMore`), with none shown.
+    pub(crate) fn unshown(page_size: usize, total_items: usize) -> Self {
+        Self {
+            page: 0,
+            has_more: total_items > 0,
+            ..Self::counted(1, page_size, total_items)
+        }
+    }
+
     /// A page whose total is unknown (a provider that does not count, or a
     /// walk that stops early): only the cursor facts.
     pub(crate) fn open(page: usize, page_size: Option<usize>, has_more: bool) -> Self {
@@ -144,6 +154,7 @@ pub(crate) struct SpanFacts {
     length: usize,
     total: usize,
     states_total: bool,
+    states_next: bool,
     out_of_range: bool,
 }
 
@@ -170,7 +181,18 @@ impl SpanFacts {
             length: length.min(total - offset),
             total,
             states_total: true,
+            states_next: true,
             out_of_range: false,
+        }
+    }
+
+    /// The window of one part of a stream (a file inside a patch page):
+    /// coordinates in that part alone, with no `nextOffset`, because the
+    /// cursor that continues is the stream's, never the part's.
+    pub(crate) fn local(unit: &'static str, offset: usize, length: usize, total: usize) -> Self {
+        Self {
+            states_next: false,
+            ..Self::window(unit, offset, length, total)
         }
     }
 
@@ -207,7 +229,9 @@ impl SpanFacts {
             block.insert("total".into(), json!(self.total));
         }
         block.insert("hasMore".into(), json!(self.has_more()));
-        if let Some(next) = self.next_offset() {
+        if self.states_next
+            && let Some(next) = self.next_offset()
+        {
             block.insert("nextOffset".into(), json!(next));
         }
         if self.out_of_range {

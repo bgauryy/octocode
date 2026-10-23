@@ -1,17 +1,19 @@
 pub mod case_fold;
+pub(crate) mod clip;
 pub(crate) mod file_extension;
 pub(crate) mod source;
 pub mod test_paths;
 pub(crate) mod utf8_offsets;
 
-/// The one extension helper, JS/TS extension set, line index, leading-BOM
-/// rule, bounded source read, regular-file open, and binary sniff.
+/// The one extension helper, JS/TS extension set, long-line clip around a
+/// hit, line index, leading-BOM rule, bounded source read, regular-file open, and binary sniff.
+pub use clip::clip_around;
 pub use file_extension::{JS_EXTENSIONS, JS_TS_EXTENSIONS, extension_of};
 pub use source::{
     BinaryVerdict, Decoded, Decoding, ReadError, Refusal, Source, admit, decode, has_utf16_bom,
-    open_regular, read_source, read_source_from, sniff, sniff_complete,
+    open_regular, read_regular, read_source, read_source_from, sniff, sniff_complete,
 };
-pub use utf8_offsets::{LineIndex, bom_len, line_at, line_starts};
+pub use utf8_offsets::{LineIndex, bom_len, line_at, line_containing, line_starts};
 
 /// `path` as a string with `/` separators on every platform: the one form
 /// a path takes in rows, keys and globs.

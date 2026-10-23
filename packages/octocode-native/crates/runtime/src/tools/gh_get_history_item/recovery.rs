@@ -3,10 +3,10 @@
 //! right item, the refs listing) and, for a ref that is not there, the same
 //! call at the default branch.
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use crate::tools::gh_shared::{
-    DefaultBranchRetry, GhFailure, default_branch_retry, unresolved_refs,
+    DefaultBranchRetry, GhFailure, RenameCheck, canonical_repo, default_branch_retry,
+    renamed_warning, unresolved_refs, with_repo,
 };
 use octocode_github::{
     GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
@@ -16,22 +16,40 @@ use serde_json::{Map, Value, json};
 /// The failure of a history-item read of `query` (its wire row): the
 /// shared history wording ([`crate::tools::gh_shared::history::history_failure`]),
 /// [`recovery`]'s lead and, for a missing ref, [`missing_ref`]'s message
-/// and `atDefaultBranch` retry.
+/// and `atDefaultBranch` retry. A repository renamed since the query was
+/// written is named once on a missing-ref failure ([`renamed_warning`]), and
+/// every lead names it as it is now.
 pub(crate) async fn recover(
     provider: &GitHubProvider,
     query: &Value,
     mut error: ProviderError,
     context: &RequestContext,
 ) -> GhFailure {
+    let missing = error.reason == Some(ProviderErrorReason::RefNotFound);
+    let renamed = if missing {
+        renamed_repository(provider, query, context).await
+    } else {
+        None
+    };
+    let canonical = renamed
+        .as_ref()
+        .and_then(|(_, to)| with_repo(query, &to.0, &to.1).ok());
+    let query = canonical.as_ref().unwrap_or(query);
     let mut next = recovery(error.kind, error.reason, query);
-    if error.reason == Some(ProviderErrorReason::RefNotFound)
-        && let Some((message, retry)) = missing_ref(provider, query, context).await
-    {
+    if missing && let Some((message, retry)) = missing_ref(provider, query, context).await {
         error.message = retry
             .message(message.as_deref().unwrap_or(&error.message))
             .into_boxed_str();
         let (name, lead) = retry.lead();
         next.get_or_insert_with(|| json!({}))[name] = lead;
+    }
+    if let Some((from, to)) = &renamed {
+        error.message = format!(
+            "{} {}",
+            error.message,
+            renamed_warning(&from.0, &from.1, to)
+        )
+        .into_boxed_str();
     }
     let (message, hint) = crate::tools::gh_shared::history::history_failure(&error, false);
     let mut failure = GhFailure::new(error, message);
@@ -40,6 +58,23 @@ pub(crate) async fn recover(
     }
     failure.next = next.map(Box::new);
     failure
+}
+
+/// The repository `query` names as `((owner, repo), canonical)` when GitHub
+/// redirected it to another name (the memoized rename check: free for a
+/// repository GitHub never redirected).
+async fn renamed_repository(
+    provider: &GitHubProvider,
+    query: &Value,
+    context: &RequestContext,
+) -> Option<((String, String), (String, String))> {
+    let text = |name: &str| query.get(name).and_then(Value::as_str);
+    let (owner, repo) = (text("owner")?, text("repo")?);
+    let to = canonical_repo(provider, owner, repo, context, RenameCheck::Redirected)
+        .await
+        .ok()
+        .flatten()?;
+    Some(((owner.to_owned(), repo.to_owned()), to))
 }
 
 /// A history item read at a ref that is not there, named against the
@@ -164,9 +199,7 @@ fn recovery(
         }
     }
     next.insert("operation".into(), json!(operation));
-    let read = Continuation::new(ToolId::GhGetHistoryItem, Value::Object(next))
-        .confidence(Confidence::Exact)
-        .build();
+    let read = Continuation::new(ToolId::GhGetHistoryItem, Value::Object(next)).build();
     Some(Value::Object(Map::from_iter([(name.to_owned(), read)])))
 }
 
@@ -186,146 +219,9 @@ fn find_item(operation: Option<&str>, query: &Value) -> Option<Value> {
         ToolId::GhSearchHistory,
         json!({"operation": search, "owner": owner, "repo": repo}),
     )
-    .confidence(Confidence::High)
     .build();
     Some(Value::Object(Map::from_iter([(name.to_owned(), listing)])))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A missing pull request, issue, or commit SHA lists the repository's
-    /// recent ones; another failure kind (rate limit, auth) gets no lead.
-    #[test]
-    fn missing_items_list_where_the_right_one_is() {
-        for (operation, name) in [
-            ("pullRequest", "findPullRequest"),
-            ("issue", "findIssue"),
-            ("commit", "findCommit"),
-        ] {
-            let query =
-                json!({"operation":operation,"owner":"o","repo":"r","number":9,"ref":"0000000"});
-            let next = recovery(ProviderErrorKind::NotFound, None, &query).expect(operation);
-            assert_eq!(next[name]["tool"], "ghSearchHistory", "{next}");
-            assert_eq!(
-                next[name]["query"]["queries"][0],
-                json!({"operation":operation,"owner":"o","repo":"r"}),
-                "{next}"
-            );
-            assert!(recovery(ProviderErrorKind::RateLimited, None, &query).is_none());
-        }
-        let commit = json!({"operation":"commit","owner":"o","repo":"r","ref":"0000000000000000000000000000000000000000"});
-        let next = recovery(
-            ProviderErrorKind::NotFound,
-            Some(ProviderErrorReason::RefNotFound),
-            &commit,
-        )
-        .expect("commit");
-        assert!(next.get("findCommit").is_some(), "{next}");
-    }
-
-    /// [`super::super::run`] states a missing ref exactly as the runtime
-    /// dispatch did (tests/runtime_gh_default_branch.rs): the message names
-    /// the default branch, `atDefaultBranch` retries there, `viewRefs` stays;
-    /// a comparison names its missing side, and offers no retry that would
-    /// compare the default branch with itself.
-    #[tokio::test]
-    async fn a_missing_ref_is_recovered_inside_the_tool() {
-        use crate::security::scan::ContentScan;
-        use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
-        use octocode_contract_types::ErrorCode;
-        use wiremock::matchers::{method, path, path_regex};
-        use wiremock::{Mock, MockServer, ResponseTemplate};
-
-        struct Passthrough;
-        impl ContentScan for Passthrough {
-            fn sanitize(
-                &self,
-                text: &str,
-                _path: &std::path::Path,
-            ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
-                Ok((text.to_owned(), Vec::new()))
-            }
-        }
-        let server = MockServer::builder().start().await;
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                json!({"default_branch":"master","full_name":"a/b","private":false,"archived":false}),
-            ))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b/commits/main"))
-            .respond_with(
-                ResponseTemplate::new(422)
-                    .set_body_json(json!({"message":"No commit found for SHA: main"})),
-            )
-            .mount(&server)
-            .await;
-        for resolved in ["next", "master"] {
-            Mock::given(method("GET"))
-                .and(path(format!("/api/v3/repos/a/b/commits/{resolved}")))
-                .respond_with(ResponseTemplate::new(200).set_body_string("a".repeat(40)))
-                .mount(&server)
-                .await;
-        }
-        Mock::given(method("GET"))
-            .and(path_regex("^/api/v3/repos/a/b/compare/"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
-            .mount(&server)
-            .await;
-        let provider = one_shot_provider(&server);
-        let fail = async |row: Value| {
-            let request = super::super::HistoryItemRequest::from_row(&row).expect("row");
-            super::super::run(&provider, &request, &row, &default_context(), &Passthrough)
-                .await
-                .expect_err("missing ref")
-        };
-        let lead = |failure: &GhFailure, name: &str| {
-            failure
-                .next
-                .as_deref()
-                .and_then(|next| next.get(name))
-                .cloned()
-                .unwrap_or(Value::Null)
-        };
-
-        let commit = fail(json!({"operation":"commit","owner":"a","repo":"b","ref":"main"})).await;
-        assert_eq!(commit.error.kind, ProviderErrorKind::NotFound);
-        assert!(commit.message.contains("\"main\""), "{}", commit.message);
-        assert!(
-            commit
-                .message
-                .ends_with("; the default branch is \"master\"."),
-            "{}",
-            commit.message
-        );
-        let retry = lead(&commit, "atDefaultBranch");
-        assert_eq!(retry["tool"], "ghGetHistoryItem");
-        assert_eq!(retry["query"]["queries"][0]["ref"], "master");
-        assert_eq!(lead(&commit, "viewRefs")["tool"], "ghStructure");
-
-        let compare =
-            fail(json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"next"}))
-                .await;
-        assert_eq!(
-            compare.message,
-            "Cannot compare main...next in a/b: \"main\" (base) not found; the default branch is \"master\"."
-        );
-        let row = &lead(&compare, "atDefaultBranch")["query"]["queries"][0];
-        assert_eq!(
-            (&row["base"], &row["head"]),
-            (&json!("master"), &json!("next"))
-        );
-        assert_eq!(lead(&compare, "viewRefs")["tool"], "ghStructure");
-
-        let same = fail(
-            json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"master"}),
-        )
-        .await;
-        assert!(lead(&same, "atDefaultBranch").is_null());
-        assert!(!lead(&same, "viewRefs").is_null());
-    }
-}
+mod tests;

@@ -2,7 +2,6 @@
 //! per row, chosen from the provider error and the missing-path walk.
 use super::GhGetFileContentQuery;
 use crate::id::ToolId;
-use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::gh_shared::{
     GhFailure, PathRecovery, RepoPath, parent_dir, provider_hint, provider_message,
@@ -79,7 +78,7 @@ pub(crate) fn failure(
         // exact, and the lead is the whole repair.
         (
             None,
-            Some(json!({ "viewTree": tree_recovery(&at, None, Confidence::Exact) })),
+            Some(json!({ "viewTree": tree_recovery(&at, None, false) })),
         )
     } else if repository_not_found(&error) {
         // Listing a tree of the same repository cannot recover; a search
@@ -134,7 +133,7 @@ fn path_recovery(
         };
         return (
             None,
-            Some(json!({ "viewTree": tree_recovery(&listing, None, Confidence::Low) })),
+            Some(json!({ "viewTree": tree_recovery(&listing, None, true) })),
         );
     };
     let directory = if found.directory.is_empty() {
@@ -152,9 +151,7 @@ fn path_recovery(
         Some(path) => {
             let mut read = query_row(query, &[]);
             read["path"] = json!(path);
-            let read = Continuation::new(ToolId::GhGetFileContent, read)
-                .confidence(Confidence::High)
-                .build();
+            let read = Continuation::new(ToolId::GhGetFileContent, read).build();
             (
                 Some("Only the path's case differs."),
                 Some(json!({ "read": read })),
@@ -162,7 +159,7 @@ fn path_recovery(
         }
         None => (
             None,
-            Some(json!({ "viewTree": tree_recovery(&listing, None, Confidence::Exact) })),
+            Some(json!({ "viewTree": tree_recovery(&listing, None, false) })),
         ),
     }
 }

@@ -102,7 +102,6 @@ export const CASES = [
       symbolName: 'greet',
       line: 6,
       operation: 'references',
-      groupByFile: true,
       contextLines: 2,
     },
     classifiers: [

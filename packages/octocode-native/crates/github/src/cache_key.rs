@@ -12,7 +12,7 @@ fn finish(namespace: &str, digest: Sha256) -> String {
 
 /// A key over named fields, each followed by a NUL so adjacent fields cannot
 /// run together.
-pub(crate) fn fields_key(namespace: &str, fields: &[&str]) -> String {
+pub fn fields_key(namespace: &str, fields: &[&str]) -> String {
     let mut digest = Sha256::new();
     for field in fields {
         digest.update(field.as_bytes());

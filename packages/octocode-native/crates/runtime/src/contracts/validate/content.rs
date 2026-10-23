@@ -65,12 +65,22 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
                         && query.get("selection").is_none(),
                 ),
             ] {
-                add(
-                    classified && transformed,
-                    "content.classified-view",
-                    field,
-                    "clasifyContext requires raw text in line units; omit minify, and omit unit or use unit:lines.",
-                );
+                if !(classified && transformed) {
+                    continue;
+                }
+                // Dropping the field is the exact repair when it changes only
+                // the view: always for minify; for a byte unit only with no
+                // byte offset or length, which would read another window
+                // as lines.
+                let exact = field == "minify"
+                    || (query.get("offset").is_none() && query.get("length").is_none());
+                issues.push(ValidationIssue {
+                    rule_id: "content.classified-view".into(),
+                    path: vec!["queries".into(), index.to_string(), field.into()],
+                    message: "clasifyContext requires raw text in line units; omit minify, and omit unit or use unit:lines.".into(),
+                    schema: exact.then(|| json!({"conflictsWith": ["clasifyContext"]})),
+                    received: None,
+                });
             }
             // Each window control conflicts with fullContent at its own path,
             // so the repair drops exactly the controls and keeps the read.
@@ -134,6 +144,44 @@ mod tests {
             validate(tool, with(json!({"minify":"standard","matchString":"x"})))
                 .expect("a match read stays verbatim");
             validate(tool, with(json!({"unit":"lines"}))).expect("line unit");
+        }
+    }
+
+    /// Dropping a view-only field is the exact repair; dropping a byte unit
+    /// that positions a window would read another window as lines, so that
+    /// refusal offers none.
+    #[test]
+    fn classified_view_refusals_repair_by_dropping_a_view_only_field() {
+        let clasify = json!({"classifiers":["Does it expire keys?"]});
+        for (fields, repaired) in [
+            (
+                json!({"minify":"symbols"}),
+                Some(json!({"path":"a.ts","clasifyContext":clasify})),
+            ),
+            (
+                json!({"unit":"bytes"}),
+                Some(json!({"path":"a.ts","clasifyContext":clasify})),
+            ),
+            (json!({"unit":"bytes","offset":40}), None),
+        ] {
+            let mut query = json!({"path":"a.ts","clasifyContext":clasify});
+            query
+                .as_object_mut()
+                .expect("row")
+                .extend(fields.as_object().expect("fields").clone());
+            let input = json!({"queries":[query]});
+            let error = validate("localFetch", input.clone()).expect_err("refused");
+            let repair =
+                crate::contracts::validate::repair_input(&input, &error.issues, |candidate| {
+                    validate("localFetch", candidate.clone())
+                        .map(drop)
+                        .map_err(|error| error.issues)
+                });
+            assert_eq!(
+                repair.map(|repair| repair.input["queries"][0].clone()),
+                repaired,
+                "{fields}"
+            );
         }
     }
 }

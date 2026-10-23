@@ -34,7 +34,7 @@
     "validate": "claude plugin validate . --strict && claude plugin validate ../../.claude-plugin/marketplace.json --strict"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/client": "^2.3.1",
     "@types/node": "^24.19.2",
     "prettier": "^3.9.10"
   }

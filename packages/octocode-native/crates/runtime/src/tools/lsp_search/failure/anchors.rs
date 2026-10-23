@@ -76,9 +76,7 @@ pub(in super::super) fn attach_recovery_next(value: &mut Value, query: &LspSearc
     let symbol = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty());
     // A directory (a workspaceSymbol scope) is searched, not fetched.
     if let Some(symbol) = symbol.filter(|_| std::path::Path::new(&path).is_dir()) {
-        value["next"]["findText"] = symbol_search_lead(query, symbol, &path)
-            .confidence(Confidence::Exact)
-            .build();
+        value["next"]["findText"] = symbol_search_lead(query, symbol, &path).build();
         return;
     }
     let mut read = json!({ "path": path });
@@ -87,9 +85,8 @@ pub(in super::super) fn attach_recovery_next(value: &mut Value, query: &LspSearc
         read["caseMode"] = json!("sensitive");
         read["contextLines"] = json!(3);
     }
-    value["next"]["read"] = crate::response::result::Continuation::new(ToolId::LocalFetch, read)
-        .confidence(Confidence::Exact)
-        .build();
+    value["next"]["read"] =
+        crate::response::result::Continuation::new(ToolId::LocalFetch, read).build();
 }
 
 /// Lines scanned on each side of `line` for a near-miss name.
@@ -141,11 +138,8 @@ pub(in super::super) fn anchor_recovery(
         .unwrap_or_default();
     let leads = exact
         .iter()
-        .map(|line| (name.to_owned(), *line, Confidence::High))
-        .chain(
-            near.iter()
-                .map(|(word, line)| (word.clone(), *line, Confidence::Medium)),
-        )
+        .map(|line| (name.to_owned(), *line))
+        .chain(near.iter().map(|(word, line)| (word.clone(), *line)))
         .take(crate::response::result::rows_per_call(ToolId::LspSearch))
         .collect::<Vec<_>>();
     if let Some(object) = value["next"].as_object_mut() {
@@ -159,11 +153,10 @@ pub(in super::super) fn anchor_recovery(
     if leads.is_empty() {
         value["next"]["findSimilar"] =
             crate::response::result::Continuation::new(ToolId::LspSearch, workspace_symbol(query))
-                .confidence(Confidence::Medium)
                 .build();
         return;
     }
-    for (index, (symbol, line, confidence)) in leads.iter().enumerate() {
+    for (index, (symbol, line)) in leads.iter().enumerate() {
         let mut retry = lsp_search_query::to_row(query);
         if let Some(object) = retry.as_object_mut() {
             object.insert("symbolName".into(), json!(symbol));
@@ -174,9 +167,8 @@ pub(in super::super) fn anchor_recovery(
             0 => "findSimilar".to_owned(),
             n => format!("findSimilar{}", n + 1),
         };
-        value["next"][key] = crate::response::result::Continuation::new(ToolId::LspSearch, retry)
-            .confidence(*confidence)
-            .build();
+        value["next"][key] =
+            crate::response::result::Continuation::new(ToolId::LspSearch, retry).build();
     }
     // Candidates the leads already carry are not repeated; only lines and
     // names beyond one admitted batch are stated.
@@ -203,6 +195,12 @@ pub(in super::super) fn anchor_recovery(
             .collect::<Vec<_>>()
             .join(", ");
         notes.push(format!("Closest names: {listed}."));
+    }
+    if notes.is_empty() {
+        return;
+    }
+    if !value["hints"].is_array() {
+        value["hints"] = json!([]);
     }
     if let Some(hints) = value["hints"].as_array_mut() {
         hints.extend(notes.into_iter().map(Value::from));
@@ -262,9 +260,7 @@ pub(super) fn order_hint_recovery(
         object.remove("read");
     }
     value["next"]["findSimilar"] =
-        crate::response::result::Continuation::new(ToolId::LspSearch, retry)
-            .confidence(Confidence::High)
-            .build();
+        crate::response::result::Continuation::new(ToolId::LspSearch, retry).build();
     true
 }
 

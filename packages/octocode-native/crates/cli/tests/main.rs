@@ -26,6 +26,7 @@ mod cli_skill;
 mod cli_tool_contract;
 mod config_edit;
 mod config_view;
+mod mcp_server;
 mod system_commands;
 mod warm_server;
 

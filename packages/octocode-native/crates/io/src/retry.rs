@@ -58,6 +58,13 @@ impl StatusClass {
     pub fn is_server(self) -> bool {
         matches!(self, Self::Overloaded | Self::Transient | Self::ServerFault)
     }
+
+    /// Worth another attempt: a rate limit, a provider timeout (408) or any
+    /// 5xx. Every client shares this verdict; each still bounds how often
+    /// it retries.
+    pub fn is_retryable(self) -> bool {
+        self.is_server() || matches!(self, Self::RateLimited | Self::Timeout)
+    }
 }
 
 pub fn classify_status(status: u16) -> StatusClass {
@@ -335,6 +342,16 @@ mod tests {
         }
         assert!(Overloaded.is_server() && Transient.is_server() && ServerFault.is_server());
         assert!(!RateLimited.is_server() && !Timeout.is_server());
+    }
+
+    #[test]
+    fn retryable_statuses_are_decided_once_with_408_retried() {
+        for status in [408, 429, 500, 501, 502, 503, 504, 505, 529, 599] {
+            assert!(classify_status(status).is_retryable(), "{status}");
+        }
+        for status in [200, 204, 301, 304, 400, 401, 403, 404, 410, 422, 451] {
+            assert!(!classify_status(status).is_retryable(), "{status}");
+        }
     }
 
     #[tokio::test]

@@ -21,8 +21,8 @@ import { vi } from 'vitest';
 import { hermeticEnv } from './hermetic-env.js';
 
 // ─── Hermetic env: home, credentials, live flags, network sink ──────────────────────
-// Node's process.env setters update the real environment, so the native addon
-// (reqwest system-proxy) and spawned children see the same isolated env.
+// Node's process.env setters update the real environment, so the native binary
+// and spawned children (reqwest system-proxy) see the same isolated env.
 // Deleting (not blanking, as vitest's `env` would) keeps flags undefined.
 const hermetic = hermeticEnv(process.env, 'test');
 for (const name of Object.keys(process.env)) {

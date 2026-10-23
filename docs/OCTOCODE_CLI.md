@@ -13,8 +13,8 @@ flowchart TD
   L --> B[Platform executable]
   D[Direct binary invocation] --> B
   B --> R[Shared Rust runtime]
-  M["octocode-mcp: Node stdio"] --> A[N-API addon]
-  A --> R
+  M["npx octocode-mcp: Node launcher"] --> B
+  B -- "octocode mcp" --> R
   B --> S[Embedded public skills]
 ```
 
@@ -80,6 +80,7 @@ operation runs.
 | `schema [tool]` | The tool catalog, or one tool's query schema and availability ([schema discovery](#schema-discovery)) |
 | `config` | Config and `.env` paths, loaded key names, warnings; `home`, `get`, `set`, `unset`, `check`, `view` ([`config`](#config--settings-and-keys)) |
 | `auth` | GitHub sign-in: `status`, `login`, `logout` ([`auth`](#auth--github-authentication)) |
+| `mcp` | Serve MCP over stdio, as an agent client launches it ([MCP server](OCTOCODE_MCP.md)); `npx octocode-mcp` runs it |
 | `install` | Add the MCP server to an agent client ([`install`](#install--mcp-client-setup)) |
 | `skill` | Install, check, or remove bundled Agent Skills ([`skill`](#skill--agent-skills)) |
 | `graph` | Build and query a persisted code graph ([`graph`](#graph--persisted-code-graph)) |
@@ -434,6 +435,16 @@ percentile)).
 - Any edge keeps code alive. Only runtime imports between authored files prove
   cycles, hubs, or layering; type-only, dynamic, and Python function-level
   imports never do.
+- Test edges (from test files, or Rust `#[cfg(test)]` items such as `mod
+  tests`) never count toward production detectors, `cycles` or `hubs`;
+  traversals (`deps`, `walk`, `impact`) still follow them. A snapshot from an
+  older format asks for a re-ingest.
+- `dir-cycle` ignores a Rust module and its own child directory (`tree.rs` or
+  `tree/mod.rs` with `tree/child.rs`, and a crate root with its modules): one
+  module tree is no directory coupling.
+- `unused-export` and `export-only-local` judge only languages with
+  named-import linking; files in other languages are counted in a `notes`
+  entry by language instead of being reported clean.
 - Go, JVM and .NET files share package scope, so file-level checks skip them.
   Python libraries skip reachability. Generated, bundled, vendored and unparsed
   files are never subjects.
@@ -619,4 +630,5 @@ Node, npm, network access, or another `octocode` on `PATH`.
   credentials both use; `skill` needs no MCP transport.
 - `@octocodeai/octocode-core` authors schemas and instructions,
   `@octocodeai/config` delivers them, `@octocodeai/octocode-native` validates
-  and runs them, and `octocode` and `octocode-mcp` are thin launchers.
+  and runs them (CLI commands and `octocode mcp`, one binary), and `octocode` and
+  `octocode-mcp` are thin launchers.

@@ -6,7 +6,7 @@ use crate::contracts;
 use crate::execution::Cost;
 use crate::id::{ToolFamily, ToolId};
 use crate::response::outcome::ToolOutcome;
-use crate::response::pager::ResponsePageOptions;
+use crate::response::page_model::ResponsePageOptions;
 use octocode_contract_types::ErrorCode;
 use secrecy::SecretString;
 use serde::Deserialize;

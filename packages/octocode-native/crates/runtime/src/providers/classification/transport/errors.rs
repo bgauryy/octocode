@@ -3,6 +3,7 @@ use crate::providers::classification::CIRCUIT_OPEN;
 use crate::providers::classification::gate::GateDenied;
 use octocode_contract_types::ErrorCode;
 use octocode_io::budget::BudgetStop;
+use octocode_io::retry::{StatusClass, classify_status};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -150,7 +151,8 @@ pub(super) fn status_error(
         300..=399 => "Redirects are disabled; check OCTOCODE_CLASSIFICATION_API_HOST.",
         _ => "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST.",
     };
-    if status.is_server_error() || status == reqwest::StatusCode::REQUEST_TIMEOUT {
+    let class = classify_status(status.as_u16());
+    if class.is_server() || class == StatusClass::Timeout {
         return ClassificationError::new(
             CIRCUIT_OPEN,
             format!("Classification provider returned HTTP {status}; response body omitted."),

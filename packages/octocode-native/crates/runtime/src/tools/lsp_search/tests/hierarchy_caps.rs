@@ -272,3 +272,63 @@ async fn node_capped_walk_does_not_depend_on_server_order() {
     }
     assert_eq!(walked[0], walked[1]);
 }
+
+/// A walk whose last level reached `graphDepth` left those nodes
+/// unexpanded: `next.walkDeeper` reruns it one level deeper, without marking
+/// the answer partial. A walk that ran out of nodes first, or one at the
+/// maximum depth, offers nothing.
+#[tokio::test(flavor = "current_thread")]
+async fn a_walk_at_its_depth_offers_the_next_level() {
+    let (_dir, root, paths) = temp_workspace();
+    let (file, uri) = graph_ts(&root);
+    let mut chain = graph(&[("root", &["child"]), ("child", &["grandchild"])]);
+    chain.uri = Some(uri.clone());
+    let row_at = |depth: u32, walk: &HierarchyWalk| {
+        let q = query(serde_json::json!({
+            "operation": "callers", "mainGoal": "test", "reasoning": "test",
+            "path": file.to_string_lossy(),
+            "symbolName": "root",
+            "line": 1,
+            "graphDepth": depth
+        }));
+        let items = walk
+            .edges
+            .iter()
+            .map(|edge| public_edge(Expansion::IncomingCalls, edge, None))
+            .collect::<Vec<_>>();
+        let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
+        mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, walk)]);
+        row
+    };
+    let walk = |depth: u32| {
+        walk_from(
+            &chain,
+            node_at("root", Some(&uri)),
+            depth,
+            &paths,
+            &crate::execution::cancel::NeverCancel,
+        )
+    };
+
+    let shallow = walk(1).await.expect("walk");
+    let row = row_at(1, &shallow);
+    let deeper = &row["next"]["walkDeeper"]["query"]["queries"][0];
+    assert_eq!(deeper["graphDepth"], 2, "{}", row["next"]);
+    assert_eq!(deeper["symbolName"], "root");
+    assert!(row.get("isPartial").is_none(), "{row}");
+
+    // Depth 3 walks past the grandchild, which has no callers: complete.
+    let whole = walk(3).await.expect("walk");
+    assert_eq!(whole.edges.len(), 2);
+    let row = row_at(3, &whole);
+    assert!(row["next"].get("walkDeeper").is_none(), "{}", row["next"]);
+
+    // The deepest walk the contract allows has no deeper level to offer.
+    let deepest = walk(MAX_HIERARCHY_DEPTH).await.expect("walk");
+    let mut long = deepest;
+    for edge in &mut long.edges {
+        edge.level = MAX_HIERARCHY_DEPTH;
+    }
+    let row = row_at(MAX_HIERARCHY_DEPTH, &long);
+    assert!(row["next"].get("walkDeeper").is_none(), "{}", row["next"]);
+}

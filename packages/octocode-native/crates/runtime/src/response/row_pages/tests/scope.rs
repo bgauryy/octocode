@@ -14,10 +14,8 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
         response_scope: Some(crate::response::cursor::PageScope::Rows),
         ..Default::default()
     };
-    let full = structured.to_string();
     let (first, pagination) = paginate_rows(
         structured.as_object().unwrap().clone(),
-        &full,
         &options,
         Vec::new(),
         &[],
@@ -43,7 +41,6 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
         };
         let (envelope, _) = paginate_rows(
             structured.as_object().unwrap().clone(),
-            &full,
             &options,
             Vec::new(),
             &[],
@@ -63,7 +60,6 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
     };
     let (_, restart) = paginate_rows(
         structured.as_object().unwrap().clone(),
-        &full,
         &stale,
         Vec::new(),
         &[],
@@ -88,10 +84,8 @@ fn rows_offset_past_the_end_restarts_naming_the_requested_page() {
         response_scope: Some(crate::response::cursor::PageScope::Rows),
         ..Default::default()
     };
-    let full = structured.to_string();
     let (_, first) = paginate_rows(
         structured.as_object().unwrap().clone(),
-        &full,
         &options,
         Vec::new(),
         &[],
@@ -104,7 +98,6 @@ fn rows_offset_past_the_end_restarts_naming_the_requested_page() {
     };
     let (envelope, restart) = paginate_rows(
         structured.as_object().unwrap().clone(),
-        &full,
         &past,
         Vec::new(),
         &[],
@@ -139,7 +132,6 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
         response_scope: Some(crate::response::cursor::PageScope::Rows),
         ..Default::default()
     };
-    let full = structured.to_string();
     let mut offset = 0;
     let mut bodies = 0;
     let mut seen = 0;
@@ -149,7 +141,6 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
             response_snapshot: (offset > 0).then(|| {
                 paginate_rows(
                     structured.as_object().unwrap().clone(),
-                    &full,
                     &options,
                     Vec::new(),
                     &[],
@@ -162,7 +153,6 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
         };
         let (envelope, pagination) = paginate_rows(
             structured.as_object().unwrap().clone(),
-            &full,
             &page,
             Vec::new(),
             &[],
@@ -195,15 +185,14 @@ fn rows_scope_never_repeats_a_second_large_array_per_fragment() {
     let structured = json!({"results":[{"index":0,"data":{
         "type":"compare","aheadBy":100,"commits":commits,"files":files
     }}]});
+    let full = structured.to_string();
     let options = ResponsePageOptions {
         response_length: Some(6_000),
         response_scope: Some(crate::response::cursor::PageScope::Rows),
         ..Default::default()
     };
-    let full = structured.to_string();
     let (_, first) = paginate_rows(
         structured.as_object().unwrap().clone(),
-        &full,
         &options,
         Vec::new(),
         &[],
@@ -218,7 +207,6 @@ fn rows_scope_never_repeats_a_second_large_array_per_fragment() {
         };
         let (envelope, _) = paginate_rows(
             structured.as_object().unwrap().clone(),
-            &full,
             &options,
             Vec::new(),
             &[],
@@ -255,10 +243,8 @@ fn rows_scope_does_not_repeat_a_dominant_skeleton_per_item() {
         response_scope: Some(crate::response::cursor::PageScope::Rows),
         ..Default::default()
     };
-    let full = structured.to_string();
     let (first, pagination) = paginate_rows(
         structured.as_object().unwrap().clone(),
-        &full,
         &options,
         Vec::new(),
         &[],

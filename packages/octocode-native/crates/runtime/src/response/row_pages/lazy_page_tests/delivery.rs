@@ -3,10 +3,8 @@ use super::*;
 #[test]
 fn changing_the_row_page_budget_requires_a_restart() {
     let structured = envelope();
-    let full = Value::Object(structured.clone()).to_string();
     let (_, first) = paginate_rows(
         structured.clone(),
-        &full,
         &options(1_000, 0, None),
         Vec::new(),
         &[],
@@ -16,7 +14,6 @@ fn changing_the_row_page_budget_requires_a_restart() {
     for changed_length in [700, 2_000] {
         let (page, pagination) = paginate_rows(
             structured.clone(),
-            &full,
             &options(changed_length, 1, Some(first.snapshot.clone())),
             Vec::new(),
             &[],
@@ -32,10 +29,8 @@ fn changing_the_row_page_budget_requires_a_restart() {
 #[test]
 fn an_earlier_row_plan_version_requires_a_restart() {
     let structured = envelope();
-    let full = Value::Object(structured.clone()).to_string();
     let (_, first) = paginate_rows(
         structured.clone(),
-        &full,
         &options(1_000, 0, None),
         Vec::new(),
         &[],
@@ -47,7 +42,6 @@ fn an_earlier_row_plan_version_requires_a_restart() {
         .replacen("response-rows-v6:", "response-rows-v5:", 1);
     let (page, pagination) = paginate_rows(
         structured,
-        &full,
         &options(1_000, 1, Some(obsolete)),
         Vec::new(),
         &[],

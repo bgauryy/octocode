@@ -14,6 +14,7 @@ use crate::policy::path::PathPolicy;
 use crate::response::exit::ExitClass;
 use crate::tools::ast_graph::types::DiagnosticCode;
 use octocode_contract_types::ErrorCode;
+use octocode_io::shell::quote;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -175,7 +176,7 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
         "deps" | "dependents" | "callers" | "callees" | "walk" => query.traversal(),
         "path" => query.path(),
         "cycles" => {
-            let filter = query.filter(&[EdgeKind::Imports]);
+            let filter = query.filter(&[EdgeKind::Imports]).production();
             let page = cycles(g, &filter, options)?;
             let mut extra = edges_extra(&filter);
             if options.list.as_deref() == Some("cycleNodes") {
@@ -213,6 +214,9 @@ fn edges_extra(filter: &EdgeFilter) -> Map<String, Value> {
         "edges".into(),
         json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
     );
+    if !filter.tests {
+        extra.insert("testEdges".into(), json!("excluded"));
+    }
     extra
 }
 

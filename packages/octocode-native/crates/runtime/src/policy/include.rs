@@ -1,6 +1,9 @@
 //! The one reading of an `include` entry every tool shares: a glob as
 //! written, or a bare word (no glob metacharacter) that matches names
 //! containing it and everything under a directory whose name contains it.
+//! The metacharacter set and the bare-word test are the engine's
+//! (`octocode_engine::search::glob`).
+use octocode_engine::search::glob::{GLOB_META, is_bare_word};
 
 /// The glob an `include` entry stands for: a bare word (no `/`, no glob
 /// metacharacter) becomes `*word*`, names containing it at any depth; any
@@ -12,12 +15,6 @@ pub(crate) fn include_glob(pattern: &str) -> String {
     } else {
         pattern.to_owned()
     }
-}
-
-const GLOB_META: [char; 4] = ['*', '?', '[', '{'];
-
-fn is_bare_word(pattern: &str) -> bool {
-    !pattern.contains('/') && !pattern.contains(GLOB_META)
 }
 
 /// Every `include` entry as a glob. A path without glob metacharacters

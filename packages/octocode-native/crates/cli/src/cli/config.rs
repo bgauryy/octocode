@@ -280,7 +280,7 @@ pub fn unset(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
 }
 
 fn read_stdin_value() -> Result<String, &'static str> {
-    let bytes = super::read_bounded(io::stdin(), 64 * 1024)
+    let bytes = octocode_io::read::read_limited(io::stdin(), 64 * 1024)
         .map_err(|_| "Cannot read value from stdin.")?
         .ok_or("Value exceeds 64 KiB.")?;
     let mut value = String::from_utf8(bytes).map_err(|_| "Cannot read value from stdin.")?;

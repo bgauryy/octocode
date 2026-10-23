@@ -1,5 +1,5 @@
 //! lspSearch output facts for the shared response stages.
-use crate::response::output::{PathAnchor, ToolOutput};
+use crate::response::output::{LIST_FILES_HINT, NO_HINT, PathAnchor, ToolOutput};
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
@@ -10,30 +10,55 @@ pub(crate) struct Output;
 /// the server. The one Timeout tip, on a row and on a request-level failure.
 pub(super) const TIMEOUT_TIP: &str = "Retry once: the first call initialises the language server (~60 s cold start); else astSearch/localSearch + localFetch.";
 
-/// The static tip of a failure code; `None` when the row's leads and
-/// per-call notes say it all (`anchorUnresolved`: `findSimilar`/`read`).
-pub(super) fn failure_hint(query: &super::LspSearchQuery, code: ErrorCode) -> Option<&'static str> {
-    Some(match code {
-        ErrorCode::ServerUnavailable
-            if super::lsp_search_query::operation(query) == "workspaceSymbol"
-                && super::lsp_search_query::path(query).is_none() =>
-        {
+/// The query's `operation` and whether it names a `path`: the two facts the
+/// tips depend on.
+fn shape(query: &Value) -> (&str, bool) {
+    (
+        query.get("operation").and_then(Value::as_str).unwrap_or(""),
+        query.get("path").is_some_and(Value::is_string),
+    )
+}
+
+/// The tip of a failure code, on a failed row and on a request-level
+/// failure alike (the one place lspSearch failure tips are written);
+/// [`NO_HINT`] when the row's leads and per-call notes say it all
+/// (`anchorUnresolved`: `findSimilar`/`read`). A code shared by retryable
+/// and final causes names the row's `retryable` flag; the message names the
+/// cause.
+fn failure_hint(code: ErrorCode, query: &Value) -> &'static str {
+    let (operation, has_path) = shape(query);
+    match code {
+        ErrorCode::InvalidInput => {
+            "Correct the lspSearch fields the error names (see `octocode schema lspSearch`), then retry."
+        }
+        // A stale or cancelled request is retryable; a relation the source
+        // could not establish, or a request the server rejected, is final.
+        ErrorCode::RequestFailed => {
+            "Retry once if retryable; else confirm in source: locate with astSearch/localSearch, then localFetch it."
+        }
+        // A closed connection restarts the server; a memory kill repeats,
+        // and the row's text lead is all that is left.
+        ErrorCode::ServerCrashed => {
+            "Retry once if retryable (it restarts); after a memory kill use the unverified text lead, or astSearch + localFetch."
+        }
+        // The server holds no build of the file (clangd: no compile
+        // command); retrying repeats it, project setup changes it.
+        ErrorCode::MissingConfiguration => {
+            "Configure the server's project (clangd: compile_commands.json, compile_flags.txt or .clangd); the next call reloads it."
+        }
+        ErrorCode::NotAFile | ErrorCode::BinaryFileUnsupported | ErrorCode::PathValidationFailed => {
+            LIST_FILES_HINT
+        }
+        ErrorCode::ServerUnavailable if operation == "workspaceSymbol" && !has_path => {
             "Provide path for a representative workspace source file so Octocode can select its language server."
         }
         // The row's `next.read` (and `next.findText` for a symbol) is the
         // fallback; no static tip repeats it.
-        ErrorCode::ServerUnavailable if super::lsp_search_query::path(query).is_some() => {
-            return None;
-        }
+        ErrorCode::ServerUnavailable if has_path => NO_HINT,
         ErrorCode::ServerUnavailable => {
             "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
         }
-        ErrorCode::CapabilityUnavailable
-            if matches!(
-                super::lsp_search_query::op(query),
-                super::Op::Supertypes | super::Op::Subtypes
-            ) =>
-        {
+        ErrorCode::CapabilityUnavailable if matches!(operation, "supertypes" | "subtypes") => {
             "This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source."
         }
         ErrorCode::CapabilityUnavailable => {
@@ -43,14 +68,15 @@ pub(super) fn failure_hint(query: &super::LspSearchQuery, code: ErrorCode) -> Op
         ErrorCode::FileTooLarge => {
             "Use localSearch or astSearch to locate a bounded region, then read that exact source range."
         }
-        ErrorCode::AnchorUnresolved => return None,
+        ErrorCode::AnchorUnresolved => NO_HINT,
         _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
-    })
+    }
 }
 
-/// The static tip of an empty category; `None` when the row's reason says
-/// it all.
-pub(super) fn empty_hint(category: &str, operation: &str) -> Option<&'static str> {
+/// The tip of an empty category; `None` when the row's reason says it all
+/// (the row's `next.read` is the recovery for `noLocations`).
+fn empty_hint(category: &str, query: &Value) -> Option<&'static str> {
+    let (operation, _) = shape(query);
     Some(match category {
         // The anchor resolved: an empty hierarchy is an answer, not a bad anchor.
         "noLocations" if operation == "subtypes" => {
@@ -59,12 +85,12 @@ pub(super) fn empty_hint(category: &str, operation: &str) -> Option<&'static str
         "noLocations" if operation == "supertypes" => {
             "No base type found: a root type has none. Confirm with the definition."
         }
-        // The row's `next.read` is the recovery; the reason states the count.
         "noLocations" | "locationsWithheld" => return None,
         "noProject" => {
             "Use localSearch or astSearch here, or run lspSearch where its project file (Cargo.toml, package.json) is present."
         }
-        "noDiagnostics" => return None,
+        // An empty diagnostics read is the answer itself.
+        "noDiagnostics" => NO_HINT,
         "diagnosticsNotPublished" => {
             "Retry once the server has analyzed the file, or run the project's type-check/build for authoritative errors."
         }
@@ -85,17 +111,20 @@ impl ToolOutput for Output {
             _ => "Refresh path/symbolName/line from a current astSearch or localSearch hit.",
         }
     }
-    /// An empty diagnostics read is the answer itself: no fallback tip. A
-    /// call that timed out may have been the one that started the language
+    /// A call that timed out may have been the one that started the language
     /// server, whose first answer can take about a minute: retrying is the
-    /// recovery (the shared timeout tip says to narrow the call instead).
-    /// Row tips that depend on the query (`failure_hint`, `empty_hint`) are
-    /// the same table, below.
-    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
-        (code == ErrorCode::Timeout).then_some(TIMEOUT_TIP)
+    /// recovery (the shared timeout tip says to narrow the call instead). The
+    /// tips depend on the query's operation and path.
+    fn error_hint(&self, code: ErrorCode, query: &Value) -> Option<&'static str> {
+        Some(failure_hint(code, query))
     }
-    fn category_hint(&self, category: &str) -> Option<&'static str> {
-        (category == "noDiagnostics").then_some(crate::response::output::NO_HINT)
+    fn category_hint(&self, category: &str, query: &Value) -> Option<&'static str> {
+        empty_hint(category, query)
+    }
+    /// A failed row's retry or read lead runs the next call; the tip says
+    /// why the server needs it.
+    fn hints_beside_leads(&self) -> bool {
+        true
     }
     fn evidence_kind(&self, _query: &Value, data: &Value) -> &'static str {
         match data.pointer("/lsp/source").and_then(Value::as_str) {
@@ -138,14 +167,17 @@ mod tests {
     fn a_timeout_names_the_language_server_cold_start() {
         let lsp = ToolId::LspSearch.output();
         assert!(
-            lsp.error_hint(ErrorCode::Timeout)
+            lsp.error_hint(ErrorCode::Timeout, &json!({}))
                 .is_some_and(|hint| hint.contains("cold start")),
         );
         assert_eq!(
-            lsp.category_hint("noDiagnostics"),
+            lsp.category_hint("noDiagnostics", &json!({})),
             Some(crate::response::output::NO_HINT)
         );
-        assert!(lsp.error_hint(ErrorCode::AnchorUnresolved).is_none());
+        assert_eq!(
+            lsp.error_hint(ErrorCode::AnchorUnresolved, &json!({})),
+            Some(crate::response::output::NO_HINT)
+        );
     }
 
     /// A row's `kind` that repeats the operation asked, or the `empty`

@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-native-linux-arm64-gnu",
-  "description": "Octocode CLI and runtime addon — linux-arm64-gnu",
+  "description": "Octocode native binary — linux-arm64-gnu",
   "version": "20.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
@@ -14,8 +14,7 @@
   ],
   "files": [
     "octocode",
-    "README.md",
-    "octocode-native.linux-arm64-gnu.node"
+    "README.md"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -25,11 +24,5 @@
     "type": "git",
     "url": "https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode-native"
-  },
-  "main": "./octocode-native.linux-arm64-gnu.node",
-  "exports": {
-    ".": "./octocode-native.linux-arm64-gnu.node",
-    "./runtime": "./octocode-native.linux-arm64-gnu.node",
-    "./package.json": "./package.json"
   }
 }

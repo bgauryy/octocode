@@ -1,4 +1,5 @@
 use super::*;
+use crate::response::cursor::PageScope;
 use serde_json::json;
 
 /// The cursor rides `next`: a page whose `next` carries the snapshot and

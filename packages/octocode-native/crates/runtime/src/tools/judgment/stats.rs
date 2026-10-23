@@ -13,7 +13,7 @@
 //! wipe accumulated counters.
 
 use std::collections::BTreeSet;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -131,12 +131,7 @@ fn bump(entry: &mut Map<String, Value>, key: &str, by: u64) {
 }
 
 fn acquire_lock(home: &Path) -> Option<octocode_io::lock::LockedFile> {
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(home.join("stats.json.lock"))
-        .ok()?;
+    let file = octocode_io::lock::open_lock_file(&home.join("stats.json.lock")).ok()?;
     octocode_io::lock::lock_within(file, LOCK_WAIT, LOCK_POLL).ok()
 }
 

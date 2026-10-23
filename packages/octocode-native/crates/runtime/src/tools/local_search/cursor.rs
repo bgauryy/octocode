@@ -1,13 +1,12 @@
 //! Continuations and snapshot identity: the next-page calls a result
 //! names and the fingerprint that proves a cursor still answers its query.
 
-use super::executor::*;
+use super::local_search_query::{self, effective_match_content_length, normalized_query, streamed_layout};
 use super::layout::*;
 use super::types::*;
 use crate::id::ToolId;
 use crate::num::u32_of_usize;
 use crate::policy::prune::DefaultsFlag;
-use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use crate::response::result::ToolError;
 use octocode_contract_types::ErrorCode;
@@ -89,35 +88,6 @@ pub(super) fn changed_since_scan(query: &LocalSearchQuery) -> ToolError {
     stale_snapshot(query)
 }
 
-/// The query as continuations carry it. The window fields (`contextLines`,
-/// `matchContentLength`) stay as the caller sent them: every call derives
-/// their defaults from the view the same way, and so does the snapshot
-/// identity. A streamed layout carries no `pageSize`: its pages are cut by
-/// the budget.
-pub(super) fn normalized_query(q: &LocalSearchQuery, streamed: bool) -> Value {
-    let mut value = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
-    // `LocalSearchQuery` serializes to a JSON object.
-    #[expect(
-        clippy::expect_used,
-        reason = "the request is a JSON object by construction"
-    )]
-    let o = value.as_object_mut().expect("request object");
-    o.retain(|_, v| !v.is_null());
-    o.entry("caseMode").or_insert(json!("smart"));
-    let view = q.result_view;
-    o.entry("multiline").or_insert(json!("off"));
-    o.entry("sort").or_insert(json!("relevance"));
-    o.entry("unique").or_insert(json!("off"));
-    o.entry("matchPage").or_insert(json!(1));
-    o.entry("page").or_insert(json!(1));
-    o.entry("resultView").or_insert(json!("paginated"));
-    if !streamed {
-        o.entry("pageSize")
-            .or_insert(json!(default_page_size(view)));
-    }
-    value
-}
-
 pub(super) fn build_next(
     q: &LocalSearchQuery,
     page: u32,
@@ -167,9 +137,7 @@ pub(super) fn build_next(
     {
         map.insert(
             "nextPage".into(),
-            Continuation::new(ToolId::LocalSearch, n)
-                .confidence(Confidence::Exact)
-                .build(),
+            Continuation::new(ToolId::LocalSearch, n).build(),
         );
     }
     if let Some(next_match_page) = next_match_page {
@@ -177,9 +145,7 @@ pub(super) fn build_next(
         n["matchPage"] = json!(next_match_page);
         map.insert(
             "nextMatchPage".into(),
-            Continuation::new(ToolId::LocalSearch, n)
-                .confidence(Confidence::Exact)
-                .build(),
+            Continuation::new(ToolId::LocalSearch, n).build(),
         );
     }
     (!map.is_empty()).then_some(Value::Object(map))
@@ -321,7 +287,7 @@ pub(super) fn query_key(
         // it, which `extras` decides: that, too, cuts other pages.
         fields.insert(
             "spanColumns".into(),
-            json!(super::layout::shows_span_columns(q)),
+            json!(super::local_search_query::shows_span_columns(q)),
         );
     }
     crate::digest::json_sha256(&canonical_json(
