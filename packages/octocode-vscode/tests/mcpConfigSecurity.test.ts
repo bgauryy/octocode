@@ -197,17 +197,17 @@ describe('MCP Config Token Security', () => {
     it('preserves other servers in config', async () => {
       const dir = await makeTempDir();
       const configPath = path.join(dir, 'mcp.json');
+      const other = { command: 'other-cmd', type: 'stdio', args: ['--flag'] };
       await writeConfig(configPath, {
         mcpServers: {
           [MCP_SERVER_NAME]: { command: 'npx', type: 'stdio', args: [] },
-          other: { command: 'other-cmd', type: 'stdio', args: ['--flag'] },
+          other,
         },
       });
 
       await updateMcpConfigToken(configPath, 'tok');
       const updated = await readJsonFile<McpConfig>(configPath);
-      expect(updated?.mcpServers.other).toBeDefined();
-      expect(updated?.mcpServers.other.command).toBe('other-cmd');
+      expect(updated?.mcpServers.other).toEqual(other);
     });
   });
 });

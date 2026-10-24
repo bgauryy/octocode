@@ -13,8 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMainModule } from './lib/entrypoint.mjs';
+import { ROOT } from './lib/workspaces.mjs';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const BASELINE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'file-length-baseline.json');
 export const MAX_LINES = 400;
 const SOURCE = /\.(?:[cm]?[jt]s|tsx|rs)$/;

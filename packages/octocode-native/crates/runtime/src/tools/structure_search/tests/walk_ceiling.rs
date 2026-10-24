@@ -3,39 +3,36 @@
 use super::super::cut::{Cut, TimeWindow};
 use super::*;
 
-/// An omitted `maxDepth` lists `path`'s children; an `include` filter then
-/// searches every level, and a bare word matches names containing it.
 #[test]
-fn tree_depth_defaults_to_children_and_include_searches_every_level() {
+fn clipped_counts_match_all_reachable_entries_without_counting_the_listing_root() {
     let root = Fixture::new();
-    std::fs::create_dir_all(root.0.join("a/b/c")).expect("dirs");
-    std::fs::write(root.0.join("a/b/c/deep_helper.rs"), "x\n").expect("deep");
-    std::fs::write(root.0.join("top.rs"), "x\n").expect("top");
-    let outline = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
-    assert_eq!(
-        outline["files"],
-        json!([{"dir":".","files":["a/", "top.rs (2)"]}]),
-        "{outline}"
-    );
-    let found = run(
+    for file in ["top.rs", "a/mid.rs", "a/b/low.rs"] {
+        root.write(file, "pub fn item() {}\n");
+    }
+    for operation in ["tree", "files"] {
+        for (kind, expected) in [(None, 5), (Some("file"), 3), (Some("directory"), 2)] {
+            let mut query = json!({
+                "operation": operation, "path": root.0, "maxDepth": 3, "maxEntries": 1
+            });
+            if let Some(kind) = kind {
+                query["entryType"] = json!(kind);
+            }
+            let pages = walk_pages(&root.0, query);
+            assert_eq!(pages[0]["totalAvailable"], expected, "{}", pages[0]);
+            let entries = pages
+                .iter()
+                .flat_map(paths)
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(entries.len(), expected, "{pages:?}");
+        }
+    }
+    let single = run(
         &root.0,
-        json!({"operation":"tree","path":root.0,"include":["helper"]}),
+        json!({"operation":"files","path":root.0.join("top.rs"),"maxEntries":1}),
     )
-    .expect("include");
-    assert!(
-        found["files"]
-            .as_array()
-            .is_some_and(|dirs| dirs.iter().any(|dir| {
-                dir["files"].as_array().is_some_and(|names| {
-                    names.iter().any(|name| {
-                        name.as_str()
-                            .is_some_and(|n| n.starts_with("deep_helper.rs"))
-                    })
-                })
-            })),
-        "{found}"
-    );
-    crate::tools::test_support::checks::assert_absent(&found, "top.rs");
+    .expect("a file root lists itself");
+    assert_eq!(paths(&single), ["./top.rs"]);
+    assert!(single.get("clipped").is_none(), "{single}");
 }
 
 /// Continuation pages reuse the first page's walk while nothing listed
@@ -46,22 +43,24 @@ fn continuation_pages_reuse_the_walk_and_restart_on_change() {
     for i in 0..6 {
         std::fs::write(root.0.join(format!("f{i}.rs")), "x\n").expect("file");
     }
-    let first = run(
+    let first = run_budget(
         &root.0,
-        json!({"operation":"files","path":root.0,"entryType":"f","pageSize":2}),
+        json!({"operation":"files","path":root.0,"entryType": "file"}),
+        1,
     )
     .expect("page 1");
-    let next = first["next"]["nextPage"]["query"]["queries"][0].clone();
-    let second = run(&root.0, next.clone()).expect("page 2");
-    assert_eq!(second["pagination"]["currentPage"], 2, "{second}");
-    let third = run(
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+    let second = run_budget(&root.0, next.clone(), 1).expect("page 2");
+    assert_eq!(second["pagination"]["page"], 2, "{second}");
+    let third = run_budget(
         &root.0,
-        second["next"]["nextPage"]["query"]["queries"][0].clone(),
+        second["next"]["nextPage"]["input"]["queries"][0].clone(),
+        1,
     )
     .expect("page 3");
-    assert_eq!(third["pagination"]["currentPage"], 3, "{third}");
+    assert_eq!(third["pagination"]["page"], 3, "{third}");
     std::fs::write(root.0.join("f5.rs"), "changed size\n").expect("change");
-    let stale = run(&root.0, next).expect("stale page");
+    let stale = run_budget(&root.0, next, 1).expect("stale page");
     assert_eq!(stale["errorCode"], "staleSnapshot", "{stale}");
 }
 
@@ -110,7 +109,7 @@ fn files_at_the_walk_ceiling_page_every_listed_row_and_lead_to_narrow() {
     // `walk_pages` fails on a row listed twice and on paging past its cap.
     let pages = walk_pages(
         &root.0,
-        json!({"operation":"files","path":root.0,"extensions":["ts"],"pageSize":1000}),
+        json!({"operation":"files","path":root.0,"extensions":["ts"]}),
     );
     let mut seen = std::collections::BTreeSet::new();
     for out in &pages {
@@ -134,7 +133,7 @@ fn files_at_the_walk_ceiling_page_every_listed_row_and_lead_to_narrow() {
         );
     }
     let last = pages.last().expect("a page");
-    let narrow = &last["next"]["narrowScope"]["query"]["queries"][0];
+    let narrow = &related(last, "structureSearch")["input"]["queries"][0];
     assert_eq!(narrow["operation"], "tree", "{last}");
     assert_eq!(narrow["maxDepth"], 1, "{last}");
     assert_eq!(seen.len(), 10_000);
@@ -184,8 +183,9 @@ fn a_window_offers_at_most_one_walk_continuation() {
                                 &json!({"operation":"files","path":"."}),
                                 &mut Vec::new(),
                             );
+                            let out = super::super::output::finish(out);
                             let lead = out["next"].get("continueWalk").map(|lead| {
-                                if lead["query"]["queries"][0].get("walkOffset").is_some() {
+                                if lead["input"]["queries"][0].get("walkOffset").is_some() {
                                     "resume"
                                 } else {
                                     "widen"
@@ -293,16 +293,17 @@ fn a_small_ranked_page_of_a_walk_cut_at_the_ceiling_says_the_ranking_is_partial(
     let mut warnings = Vec::new();
     cut.finish(
         &mut out,
-        &json!({"operation":"files","path":".","sort":"size","maxEntries":20}),
+        &json!({"operation":"files","path":".","sort":{"by":"sizeBytes","order":"desc"},"maxEntries":20}),
         &mut warnings,
     );
+    let out = super::super::output::finish(out);
     let warning = warnings.join(" ");
     assert!(
         warning.contains("this sort ranks only the entries walked first"),
         "{warning}"
     );
     assert_eq!(out["terminalLimit"], true, "{out}");
-    assert!(out["next"].get("narrowScope").is_some(), "{out}");
+    assert!(!related(&out, "structureSearch").is_null(), "{out}");
     assert!(out["next"].get("continueWalk").is_some(), "{out}");
     assert_eq!(out["atLeast"], ceiling + 1, "{out}");
 }

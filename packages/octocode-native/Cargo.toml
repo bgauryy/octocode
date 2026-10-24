@@ -54,8 +54,9 @@ wiremock = "0.6"
 
 # ── Shared lint policy ────────────────────────────────────────────────────────
 # The common floor every crate inherits (`[lints] workspace = true`). The
-# engine adds its library-only lints as attributes in `crates/engine/src/lib.rs`
-# (Cargo cannot merge a crate's own `[lints]` with the workspace table).
+# engine adds its library-only stdout/stderr ban as an attribute in
+# `crates/engine/src/lib.rs` (Cargo cannot merge a crate's own `[lints]` with
+# the workspace table). Thresholds and test exemptions live in clippy.toml.
 # The rustc lints below are warn-by-default; `deny` also fails a local
 # `cargo build`, not only CI's `-D warnings`.
 [workspace.lints.rust]
@@ -75,6 +76,24 @@ unimplemented = "deny"
 dbg_macro = "deny"
 # Every `unsafe` block states why it is sound in a `// SAFETY:` comment.
 undocumented_unsafe_blocks = "deny"
+# Suppressions are `#[expect(..., reason = "...")]`: an `expect` that stops
+# firing warns, so stale suppressions surface instead of lingering.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# Structure and API shape. `too_many_lines` uses clippy.toml's threshold.
+manual_let_else = "warn"
+unused_self = "warn"
+option_option = "warn"
+large_stack_arrays = "warn"
+too_many_lines = "warn"
+# Modules are `name.rs` + `name/`, never `name/mod.rs`.
+mod_module_files = "warn"
+# Style: `Self` inside impls, `copied()` over `cloned()` for `Copy` items,
+# method paths over forwarding closures, `;` after unit expressions.
+use_self = "warn"
+cloned_instead_of_copied = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"
 
 [profile.release]
 # Thin LTO recovers nearly all of fat LTO's cross-crate optimization at a

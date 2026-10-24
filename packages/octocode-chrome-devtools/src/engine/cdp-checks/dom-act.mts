@@ -10,9 +10,21 @@ import {
 } from './dom-page-scripts.mjs';
 import { performTrusted } from './dom-pointer.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { Session } from '../cdp-connection.mjs';
+import { errorMessage } from '../error-message.mjs';
+import type {
+  DomConfig,
+  DomContext,
+  DomEffects,
+  DomStep,
+  LocatedStep,
+  StepDetails,
+} from './dom-types.mjs';
 
 /** The state field an action must change, and the value it must reach. */
-function expectation(step) {
+function expectation(
+  step: DomStep
+): { field: string; want: unknown; loose?: boolean } | null {
   if (step.action === 'fill' || step.action === 'type')
     return { field: 'value', want: step.value };
   if (step.action === 'check' || step.action === 'uncheck')
@@ -31,7 +43,11 @@ function expectation(step) {
   return null;
 }
 
-async function readText(cdp, fn, objectId) {
+async function readText(
+  cdp: Session,
+  fn: string,
+  objectId: string | null | undefined
+) {
   const res = objectId
     ? await cdp
         .send('Runtime.callFunctionOn', {
@@ -51,7 +67,12 @@ async function readText(cdp, fn, objectId) {
 }
 
 /** Waits for any of the '|'-separated texts (or the literal text) near the element or in the page. */
-export async function waitForText(cdp, text, { cfg, log }, objectId?) {
+export async function waitForText(
+  cdp: Session,
+  text: string,
+  { cfg, log }: DomContext,
+  objectId?: string | null
+) {
   const wanted = cfg.literalWaitText
     ? [text]
     : text
@@ -73,7 +94,11 @@ export async function waitForText(cdp, text, { cfg, log }, objectId?) {
   return { hit: null, ms: Date.now() - start };
 }
 
-async function stateAfter(cdp, objectId, navigated) {
+async function stateAfter(
+  cdp: Session,
+  objectId: string | null,
+  navigated: string | null
+) {
   const res =
     !navigated && objectId
       ? await cdp
@@ -98,7 +123,7 @@ async function stateAfter(cdp, objectId, navigated) {
   );
 }
 
-function verifyExpectation(step, details) {
+function verifyExpectation(step: DomStep, details: StepDetails) {
   const exp = expectation(step);
   if (!exp) return;
   const got = details.after?.state?.[exp.field];
@@ -111,7 +136,16 @@ function verifyExpectation(step, details) {
   details.expected = { [exp.field]: exp.want, got };
 }
 
-async function settleAndVerify(cdp, step, details, { objectId, effects, cfg }) {
+async function settleAndVerify(
+  cdp: Session,
+  step: DomStep,
+  details: StepDetails,
+  {
+    objectId,
+    effects,
+    cfg,
+  }: { objectId: string | null; effects: DomEffects; cfg: DomConfig }
+) {
   await sleep(cfg.settleMs);
   if (effects.navigatedTo) await waitForPageReady(cdp, 8000);
   details.after = await stateAfter(cdp, objectId, effects.navigatedTo);
@@ -119,19 +153,29 @@ async function settleAndVerify(cdp, step, details, { objectId, effects, cfg }) {
   verifyExpectation(step, details);
 }
 
-async function actPending(cdp, step, details, { objectId, log }) {
+async function actPending(
+  cdp: Session,
+  step: DomStep,
+  details: StepDetails,
+  { objectId, log }: { objectId: string | null; log: DomContext['log'] }
+) {
   details.pending = false;
   try {
     details.operation = await performTrusted(cdp, step, details, objectId);
   } catch (error) {
     details.operation = 'input-failed';
-    details.error = String(error.message ?? error);
+    details.error = errorMessage(error);
     log(`[FINDING] DOM_INPUT_FAILED ${details.error}`);
   }
 }
 
 /** Locates, acts and verifies one step; effects collects navigation, dialog and popup events. */
-export async function runStep(cdp, step, effects, ctx) {
+export async function runStep(
+  cdp: Session,
+  step: DomStep,
+  effects: DomEffects,
+  ctx: DomContext
+): Promise<LocatedStep> {
   const { label, details, objectId } = await locateWhenReady(cdp, step, ctx);
   if (details.pending)
     await actPending(cdp, step, details, { objectId, log: ctx.log });

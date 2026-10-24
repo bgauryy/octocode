@@ -59,7 +59,7 @@ pub trait PathAccess {
 
 impl PathAccess for crate::policy::path::PathPolicy {
     fn validate_read(&self, path: &Path) -> Result<ValidatedRead, Box<PathFailure>> {
-        crate::policy::path::PathPolicy::validate_read(self, path)
+        Self::validate_read(self, path)
             .map(|validated| {
                 let resolved = self
                     .workspace_relative(&validated.canonical)

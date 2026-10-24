@@ -1,6 +1,6 @@
 //! Row helpers the astSearch behavior tests share: run a JSON row, read
 //! match and outline rows, follow page chains.
-use super::{AstResult, AstSearchQuery, execute_ast};
+use super::{AstSearchQuery, execute_ast};
 use crate::execution::cancel::NeverCancel;
 use crate::id::ToolId;
 use crate::response::result::ToolError;
@@ -8,7 +8,7 @@ use crate::tools::test_support::{checks, simple_policy};
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// Tests speak JSON rows, or a continuation's complete input (its one row);
 /// the runtime owns the typed parse.
@@ -17,10 +17,13 @@ pub(super) fn execute_row(
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancellation: &dyn CancellationCheck,
-) -> AstResult {
-    let row = query
-        .get("queries")
-        .map_or(query.clone(), |rows| rows[0].clone());
+) -> Result<Value, ToolError> {
+    let row = if query.get("queries").is_some() || query.get("cursor").is_some() {
+        crate::tools::test_support::opened_input(ToolId::AstSearch, &query)["queries"][0].clone()
+    } else {
+        query
+    };
+    let row = crate::tools::test_support::opened(ToolId::AstSearch, &row);
     let query: AstSearchQuery = serde_json::from_value(row).expect("typed astSearch row");
     execute_ast(&query, paths, security, cancellation, None)
 }
@@ -72,57 +75,45 @@ pub(super) fn run(
     execute_row(query, &paths, &security, &NeverCancel)
 }
 
-/// A row run under `paths`, the result a successful run returns.
-pub(super) fn run_row(
-    query: &serde_json::Value,
-    paths: &PathPolicy,
-    security: &ContentSecurity,
-) -> serde_json::Value {
-    execute_row(query.clone(), paths, security, &NeverCancel).expect("astSearch")
+/// Run a canonical row with a controlled runtime response budget.
+pub(super) fn run_window(
+    root: &std::path::Path,
+    row: Value,
+    window: usize,
+) -> Result<Value, ToolError> {
+    let (paths, security) = simple_policy(root);
+    let row = if row.get("queries").is_some() || row.get("cursor").is_some() {
+        crate::tools::test_support::opened_input(ToolId::AstSearch, &row)["queries"][0].clone()
+    } else {
+        row
+    };
+    let row = crate::tools::test_support::opened(ToolId::AstSearch, &row);
+    let query = serde_json::from_value(row).expect("canonical AST row");
+    execute_ast(&query, &paths, &security, &NeverCancel, Some(window))
 }
 
 /// The localFetch read rows of the one `expandValues` lead, by path. The
 /// lead has one name (never `expandValues2`…) and batches its rows within
 /// localFetch's input limit.
 pub(super) fn value_reads(out: &serde_json::Value) -> Vec<serde_json::Value> {
-    let names = out["next"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(name, _)| name.starts_with("expandValues"))
-        .map(|(name, _)| name.as_str())
-        .collect::<Vec<_>>();
-    assert!(
-        names.len() <= 1 && names.iter().all(|name| *name == "expandValues"),
-        "{out}"
-    );
-    let read = &out["next"]["expandValues"];
-    if read.is_null() {
-        return vec![];
-    }
-    assert_eq!(read["tool"], "localFetch", "{read}");
-    let rows = read["query"]["queries"].as_array().expect("rows").clone();
-    assert!(
-        rows.len() <= crate::response::result::rows_per_call(crate::id::ToolId::LocalFetch),
-        "{read}"
-    );
-    for row in &rows {
-        crate::contracts::validate_query("localFetch", row.clone())
-            .expect("a valid localFetch row");
+    let mut rows = Vec::new();
+    for (name, read) in out["next"].as_object().into_iter().flatten() {
+        if !name.starts_with("expandValues") {
+            continue;
+        }
+        assert_eq!(read["tool"], "localFetch", "{read}");
+        assert_eq!(read["kind"], "continue", "{read}");
+        let batch = read["input"]["queries"].as_array().expect("rows");
+        assert!(batch.len() <= crate::response::result::rows_per_call(ToolId::LocalFetch));
+        for row in batch {
+            crate::contracts::validate_built_query("localFetch", row.clone())
+                .expect("valid reader row");
+            rows.push(row.clone());
+        }
     }
     let mut reads = rows;
     reads.sort_by_key(|row| row["path"].as_str().map(str::to_owned));
     reads
-}
-
-/// The snapshot of a 4-row symbols page of `source`.
-pub(super) fn out_snapshot(root: &std::path::Path, source: &std::path::Path) -> serde_json::Value {
-    let first = run(
-        root,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":4}),
-    )
-    .expect("first page");
-    first["snapshot"].clone()
 }
 
 /// Walks `query` and every page lead of each page (`checks::walk`: each
@@ -134,8 +125,9 @@ pub(super) fn ast_chain(
     query: serde_json::Value,
 ) -> Vec<serde_json::Value> {
     let mut pages = Vec::new();
-    checks::walk("astSearch", json!({ "queries": [query] }), |call| {
-        let row = &call["queries"][0];
+    checks::walker::walk("astSearch", json!({"queries":[query]}), |call| {
+        let input = crate::tools::test_support::opened_input(ToolId::AstSearch, call);
+        let row = &input["queries"][0];
         let out = run(root, row.clone()).expect("page");
         let page = out["next"].get("nextPage");
         let expand = out["next"].get("expandScan");
@@ -173,4 +165,19 @@ pub(super) fn ast_rows(pages: &[serde_json::Value]) -> Vec<String> {
             rows.into_iter().map(move |row| format!("{path} {row}"))
         })
         .collect()
+}
+
+pub(super) fn skipped_call(out: &serde_json::Value) -> Option<&serde_json::Value> {
+    out["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|call| {
+            let row = &call["input"]["queries"][0];
+            call["kind"] == "related"
+                && call["tool"] == "astSearch"
+                && (row["includeHidden"] == true
+                    || row["includeIgnored"] == true
+                    || row["defaultExcludes"] == false)
+        })
 }

@@ -2,7 +2,7 @@
 
 use crate::support::{self, Run as _};
 use serde_json::json;
-use support::{Workspace, call, checks, row_data};
+use support::Workspace;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
@@ -33,32 +33,18 @@ async fn issue_comment_pages_fit_the_response_with_one_cursor() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let outcome = call(
-        &runtime,
-        "ghGetHistoryItem",
-        json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,
-               "sections":["comments"],"pageSize":30,"extras":[]}],"responseLength":12000}),
-    )
-    .await
-    .expect("issue comments");
-    let structured = &outcome.structured_content;
-    assert!(
-        structured
-            .get("responsePagination")
-            .is_none_or(|page| page["hasMore"] != true),
-        "{structured}"
-    );
-    let data = row_data(&outcome);
-    let shown = data["issues"][0]["comments"].as_array().map_or(0, Vec::len);
-    assert!((1..30).contains(&shown), "{shown}: {data}");
-    let next = &data["next"]["nextCommentPage"]["query"]["queries"][0];
-    let (page, size) = (
-        next["page"].as_u64().expect("page"),
-        next["pageSize"].as_u64().expect("size"),
-    );
-    assert_eq!((page - 1) * size, shown as u64, "{data}");
-    // Each comment's whole body restates no window.
-    checks::assert_absent(data, "bodyPagination");
+    let walked = support::walk(&runtime, "ghGetHistoryItem", json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,"sections":["comments"]}],"responseChars":2500}), |output| {
+        output["results"].as_array().into_iter().flatten().flat_map(|row| {
+            assert!(row["status"] != "error", "{output}");
+            row["data"]["issues"].as_array().into_iter().flatten().flat_map(|issue| issue["comments"].as_array().into_iter().flatten()).map(|comment| {
+                let id = comment["id"].as_str().unwrap();
+                assert_eq!(comment["body"], format!("comment {id} {}", "x".repeat(900)));
+                id.to_owned()
+            })
+        }).collect()
+    }).await;
+    assert_eq!(walked.rows.len(), 30);
+    assert!(walked.queries.len() > 1);
     runtime.close().await;
 }
 
@@ -103,7 +89,7 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let first = json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,
-        "sections":["body","comments"],"length":6000,"extras":["stats"]}]});
+        "sections":["body","comments"]}],"responseChars":6000});
     let mut queue = std::collections::VecDeque::from([first]);
     let mut followed = std::collections::HashSet::<String>::new();
     let mut read = std::collections::BTreeMap::<u64, String>::new();
@@ -177,7 +163,7 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
             );
             so_far.push_str(text);
         }
-        if let Some(next) = content["responsePagination"]["next"]["query"].as_object() {
+        if let Some(next) = content["responsePagination"]["next"]["input"].as_object() {
             queue.push_back(serde_json::Value::Object(next.clone()));
         }
         for (_, lead) in data["next"]
@@ -191,7 +177,7 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
                 )
             })
         {
-            queue.push_back(lead["query"].clone());
+            queue.push_back(lead["input"].clone());
         }
     }
     assert_eq!(relisted, 0, "finished comments listed again");
@@ -270,76 +256,24 @@ async fn issue_comment_walk_reads_every_comment_and_counts_the_rest() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let mut query = json!({"operation":"issue","owner":"a","repo":"b","number":7,"sections":["comments"],"extras":[]});
-    let mut ids = Vec::new();
-    let mut calls = 0;
-    loop {
-        calls += 1;
-        assert!(calls <= 20, "walk did not finish");
-        let outcome = call(
-            &runtime,
-            "ghGetHistoryItem",
-            json!({"queries":[query.clone()]}),
-        )
-        .await
-        .expect("comment page");
-        let structured = &outcome.structured_content;
-        assert!(
-            structured.get("responsePagination").is_none(),
-            "{structured}"
-        );
-        let data = row_data(&outcome).clone();
-        let issue = &data["issues"][0];
-        assert!(issue["comments"].is_array(), "call {calls}: {data}");
-        for comment in issue["comments"].as_array().into_iter().flatten() {
-            assert!(comment.get("commentType").is_none(), "{comment}");
-            assert!(comment.get("updatedAt").is_none(), "{comment}");
-            ids.push(comment["id"].as_str().expect("id").to_owned());
-        }
-        let consumed = ids.len() as u64;
-        match data["next"]["nextCommentPage"]["query"]["queries"][0].as_object() {
-            Some(next) => {
-                // The page position is the visible comment pagination, not a
-                // warning line.
-                assert_eq!(
-                    issue["contentPagination"]["comments"]["hasMore"],
-                    json!(true),
-                    "consumed {consumed}: {data}"
-                );
-                assert!(
-                    !data["warnings"].to_string().contains("more comments"),
-                    "consumed {consumed}: {data}"
-                );
-                query = serde_json::Value::Object(next.clone());
-            }
-            None => break,
-        }
-    }
-    let unique = ids.iter().collect::<std::collections::BTreeSet<_>>();
-    assert_eq!((ids.len(), unique.len()), (105, 105));
-    // ~73 KB of comments at a 20k page: budget-filled pages. The resume
-    // grid follows the contract's default pageSize (10 since 2026-10-09),
-    // so page cuts land one call later than at 30.
-    assert!(calls <= 6, "{calls} calls");
-    // A page past the discussion's last states it on the comment page
-    // block: the page, the page count on its grid, and `outOfRange`.
-    let past = call(
-        &runtime,
-        "ghGetHistoryItem",
-        json!({"operation":"issue","owner":"a","repo":"b","number":7,"sections":["comments"],
-            "page":40,"pageSize":10,"extras":[]}),
-    )
-    .await
-    .expect("page past the end");
-    let data = row_data(&past).clone();
-    let block = &data["issues"][0]["contentPagination"]["comments"];
-    assert_eq!(block["outOfRange"], true, "{data}");
-    assert_eq!(
-        (block["currentPage"].clone(), block["totalPages"].clone()),
-        (json!(40), json!(11)),
-        "{data}"
+    let walked = support::walk(&runtime, "ghGetHistoryItem", json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,"sections":["comments"]}],"responseChars":4000}), |output| {
+        output["results"].as_array().into_iter().flatten().flat_map(|row| {
+            assert!(row["status"] != "error", "{output}");
+            row["data"]["issues"].as_array().into_iter().flatten().flat_map(|issue| issue["comments"].as_array().into_iter().flatten()).map(|comment| {
+                let id = comment["id"].as_str().unwrap();
+                assert_eq!(comment["body"], format!("comment {id} {}", "x".repeat(700)));
+                if ["40","90"].contains(&id) { assert_eq!(comment["author"], "github-actions[bot]"); }
+                id.to_owned()
+            })
+        }).collect()
+    }).await;
+    assert_eq!(walked.rows.len(), 105);
+    assert!(
+        walked
+            .queries
+            .iter()
+            .skip(1)
+            .all(|input| input["cursor"].is_string())
     );
-    assert_eq!(block["hasMore"], false, "{data}");
-    assert!(data["issues"][0].get("comments").is_none(), "{data}");
     runtime.close().await;
 }

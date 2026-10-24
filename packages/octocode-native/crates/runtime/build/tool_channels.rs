@@ -2,68 +2,6 @@ use super::super::invalid;
 use serde_json::Value;
 use std::error::Error;
 
-/// Contract `continuationChannels`: which continuation kinds are pages
-/// (`next`) and which are leads (`hints`).
-pub(super) fn render_continuation_channels(contract: &Value) -> Result<String, Box<dyn Error>> {
-    let channels = contract
-        .get("continuationChannels")
-        .ok_or_else(|| invalid("tool contract has no continuationChannels"))?;
-    let text = |key: &str| {
-        channels
-            .get(key)
-            .and_then(Value::as_str)
-            .ok_or_else(|| invalid(format!("continuationChannels.{key} must be a string")))
-    };
-    let list = |pointer: &str| -> Result<String, Box<dyn Error>> {
-        let items = channels
-            .pointer(pointer)
-            .and_then(Value::as_array)
-            .ok_or_else(|| invalid(format!("continuationChannels{pointer} must be a list")))?
-            .iter()
-            .map(|item| {
-                item.as_str()
-                    .map(|name| format!("{name:?}"))
-                    .ok_or_else(|| {
-                        invalid(format!("continuationChannels{pointer} holds a non-string"))
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(format!("&[{}]", items.join(", ")))
-    };
-    Ok(format!(
-        "/// Contract `continuationChannels`: pages stay in `next`, leads and\n\
-         /// prose tips go to `hints`.\n\
-         pub mod continuation_channels {{\n\
-         \x20   pub const PAGES_KEY: &str = {pages:?};\n\
-         \x20   pub const HINTS_KEY: &str = {hints:?};\n\
-         \x20   pub const HINT_TEXT_KEY: &str = {text:?};\n\
-         \x20   pub const PAGE_PREFIXES: &[&str] = {prefixes};\n\
-         \x20   pub const RESUME_PREFIXES: &[&str] = {resume};\n\
-         \x20   pub const RESTART_PREFIXES: &[&str] = {restart};\n\
-         \x20   pub const ENRICHMENT_NAMES: &[&str] = {enrichment};\n\
-         \x20   pub const PAGE_NAMES: &[&str] = {names};\n\
-         \x20   pub const RECOVERY_LEADS: &[&str] = {recovery};\n\
-         \x20   pub const DEFAULT_LEADS: &[&str] = {default_leads};\n\
-         \x20   pub const PAGE_KINDS: &[&str] = {page_kinds};\n\
-         \x20   pub const LEAD_KINDS: &[&str] = {lead_kinds};\n\
-         \x20   pub const LEAD_PRIORITY: &[&str] = {lead_priority};\n\
-         }}\n\n",
-        pages = text("pagesKey")?,
-        hints = text("hintsKey")?,
-        text = text("hintTextKey")?,
-        prefixes = list("/pagePrefixes")?,
-        resume = list("/resumePrefixes")?,
-        restart = list("/restartPrefixes")?,
-        enrichment = list("/enrichmentNames")?,
-        names = list("/pageNames")?,
-        recovery = list("/recoveryLeads")?,
-        default_leads = list("/defaultLeads")?,
-        page_kinds = list("/kinds/pages")?,
-        lead_kinds = list("/kinds/leads")?,
-        lead_priority = list("/leadPriority")?,
-    ))
-}
-
 /// Contract `errorCodes`: every declared `errorCode` with its exit class and
 /// wire spelling, keyed by the generated `ErrorCode` enum (one variant per
 /// declared code: an exhaustive match, so a code the enum and the table

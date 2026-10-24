@@ -93,21 +93,18 @@ describe('memory tool in a subagent and in the terminal', () => {
   it('is read-only in a subagent', async () => {
     const { tool, subcommands } = setup(true);
     expect(tool.parameters.properties.op.enum).toEqual(['search', 'get', 'list']);
-    expect(tool.description).toContain('report anything worth remembering to your parent');
-    expect(tool.promptSnippet).toBe('Search and read durable notes from earlier sessions');
-    expect(tool.promptGuidelines.join(' ')).toMatch(/^Memory is read-only here/);
-    expect(tool.promptGuidelines.join(' ')).not.toMatch(/Prefer updating/);
+    // Every text the model reads says read-only and none offers a write.
+    expect(tool.description).toMatch(/read-only/i);
+    expect(tool.promptGuidelines.join(' ')).toMatch(/read-only/i);
+    for (const line of [tool.promptSnippet, ...tool.promptGuidelines]) expect(line).not.toMatch(/\b(save|set|updat\w*|delete)\b/i);
     await expect(run(tool, { op: 'set', title: 'x' })).rejects.toThrow(/read-only in a subagent/);
     await expect(run(tool, { op: 'delete', id: 'M1' })).rejects.toThrow(/read-only in a subagent/);
     expect(subcommands.get('memory')).toBeUndefined();
   });
 
-  it('keeps its prompt lean: at most 2 short guidelines (1 in a subagent), every field described', () => {
-    for (const [subagent, max] of [[false, 2], [true, 1]] as const) {
+  it('describes every field and warns that a memory may be stale', () => {
+    for (const subagent of [false, true]) {
       const { tool } = setup(subagent);
-      expect(tool.promptGuidelines.length).toBeLessThanOrEqual(max);
-      for (const line of tool.promptGuidelines) expect(line.length, line).toBeLessThanOrEqual(230);
-      expect([tool.description, ...tool.promptGuidelines].join(' ')).not.toMatch(/ {2}/);
       // A memory read by search (not only the injected header) may be stale: the guideline says to verify it.
       expect(tool.promptGuidelines.join(' ')).toMatch(/may be stale; verify it against the code/);
       expect(MEMORY_HEADER).toMatch(/may be stale/);

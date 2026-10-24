@@ -3,9 +3,21 @@ import { readTargetSnapshot } from './snapshot-resource.mjs';
 import { collectRefs } from '../ax-snapshot.mjs';
 import { coreBodyJs } from './dom-page-scripts.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { Payload, Session } from '../cdp-connection.mjs';
+import type {
+  DomConfig,
+  DomContext,
+  DomStep,
+  LocatedStep,
+  SnapshotRef,
+  StepDetails,
+} from './dom-types.mjs';
+
+/** A missed lookup, reported as the step's result. */
+type Miss = { miss: LocatedStep };
 
 // Refs come from the latest page-snapshot.json (or refs added by an earlier [NEW] diff).
-export function resolveRefEntry(cdp, ref) {
+export function resolveRefEntry(cdp: Session, ref: string): SnapshotRef {
   const snap = readTargetSnapshot(cdp);
   if (!snap)
     throw new Error(
@@ -27,7 +39,7 @@ export function resolveRefEntry(cdp, ref) {
   return entry;
 }
 
-const valueOf = res =>
+const valueOf = (res: Payload | null): StepDetails =>
   res?.result?.value ?? {
     found: false,
     error:
@@ -35,12 +47,16 @@ const valueOf = res =>
       'No value returned',
   };
 
-const checkArgs = (step, cfg) =>
+const checkArgs = (step: DomStep, cfg: DomConfig) =>
   [step.action, step.value, cfg.stabilityMs, cfg.mode, step.key]
     .map(v => JSON.stringify(v))
     .join(', ');
 
-async function evaluateCheck(cdp, label, expression) {
+async function evaluateCheck(
+  cdp: Session,
+  label: string,
+  expression: string
+): Promise<LocatedStep> {
   const details = valueOf(
     await cdp.send('Runtime.evaluate', {
       awaitPromise: true,
@@ -56,7 +72,7 @@ async function evaluateCheck(cdp, label, expression) {
   return { label, details, objectId: handle?.result?.objectId ?? null };
 }
 
-function locateBySelector(cdp, step, cfg) {
+function locateBySelector(cdp: Session, step: DomStep, cfg: DomConfig) {
   return evaluateCheck(
     cdp,
     `selector:${step.selector}`,
@@ -74,7 +90,11 @@ function locateBySelector(cdp, step, cfg) {
 }
 
 /** The unique snapshot-free entry for role + name, or the not-found result. */
-async function entryByRoleName(cdp, step, label) {
+async function entryByRoleName(
+  cdp: Session,
+  step: DomStep,
+  label: string
+): Promise<Miss | { miss?: undefined; entry: SnapshotRef }> {
   const candidates = (await collectRefs(cdp, {})).useful.filter(
     n =>
       (!step.role || n.role === step.role) &&
@@ -101,9 +121,14 @@ async function entryByRoleName(cdp, step, label) {
 }
 
 /** The entry's live node, or null when it is gone or detached (logged as a stale ref). */
-async function liveObject(cdp, step, entry, log) {
+async function liveObject(
+  cdp: Session,
+  step: DomStep,
+  entry: SnapshotRef,
+  log: DomContext['log']
+): Promise<{ objectId: string } | null> {
   const recovering = `recovering by role=${JSON.stringify(entry.role)} name=${JSON.stringify(entry.name)}`;
-  let object = null;
+  let object: { objectId?: string } | null = null;
   try {
     ({ object } = await cdp.send('DOM.resolveNode', {
       backendNodeId: entry.backendDOMNodeId,
@@ -112,9 +137,10 @@ async function liveObject(cdp, step, entry, log) {
     // Client-rendered pages replace nodes after the snapshot; recover by role+name.
     log(`[FINDING] STALE_SNAPSHOT_REF ${step.ref}; ${recovering}`);
   }
-  if (!object?.objectId) return null;
+  const objectId = object?.objectId;
+  if (!objectId) return null;
   const connected = await cdp.send('Runtime.callFunctionOn', {
-    objectId: object.objectId,
+    objectId,
     functionDeclaration: 'function() { return this.isConnected; }',
     returnByValue: true,
   });
@@ -123,7 +149,7 @@ async function liveObject(cdp, step, entry, log) {
       connected.exceptionDetails.exception?.description ||
         connected.exceptionDetails.text
     );
-  if (connected.result?.value !== false) return object;
+  if (connected.result?.value !== false) return { objectId };
   log(
     `[FINDING] STALE_SNAPSHOT_REF ${step.ref}; resolved node is detached; ${recovering}`
   );
@@ -131,7 +157,11 @@ async function liveObject(cdp, step, entry, log) {
 }
 
 /** The one current node with the stale entry's role, name and frame, or the not-found result. */
-async function recoverStaleObject(cdp, entry, label) {
+async function recoverStaleObject(
+  cdp: Session,
+  entry: SnapshotRef,
+  label: string
+): Promise<Miss | { miss?: undefined; object: { objectId: string } }> {
   const candidates = (await collectRefs(cdp, {})).useful.filter(
     n =>
       n.role === entry.role &&
@@ -157,7 +187,12 @@ async function recoverStaleObject(cdp, entry, label) {
   return { object };
 }
 
-async function checkObject(cdp, step, objectId, cfg) {
+async function checkObject(
+  cdp: Session,
+  step: DomStep,
+  objectId: string,
+  cfg: DomConfig
+) {
   return valueOf(
     await cdp.send('Runtime.callFunctionOn', {
       objectId,
@@ -174,32 +209,36 @@ async function checkObject(cdp, step, objectId, cfg) {
 }
 
 // Returns { label, details, objectId }; objectId is the element handle for geometry, files, verify.
-export async function locateAndCheck(cdp, step, { cfg, log }) {
+export async function locateAndCheck(
+  cdp: Session,
+  step: DomStep,
+  { cfg, log }: DomContext
+): Promise<LocatedStep> {
   if (!step.ref && !step.role && !step.name)
     return locateBySelector(cdp, step, cfg);
   const label = step.ref
     ? `ref:${step.ref}`
     : `role:${step.role} name:${step.name}`;
-  let entry;
+  let entry: SnapshotRef;
   if (step.ref) entry = resolveRefEntry(cdp, step.ref);
   else {
     const found = await entryByRoleName(cdp, step, label);
     if (found.miss) return found.miss;
     entry = found.entry;
   }
-  let object = await liveObject(cdp, step, entry, log);
-  const recovered = !object;
-  if (recovered) {
+  const live = await liveObject(cdp, step, entry, log);
+  let object = live;
+  if (!object) {
     const recovery = await recoverStaleObject(cdp, entry, label);
     if (recovery.miss) return recovery.miss;
     object = recovery.object;
   }
   const details = await checkObject(cdp, step, object.objectId, cfg);
-  if (recovered) details.recoveredFromStaleRef = true;
+  if (!live) details.recoveredFromStaleRef = true;
   return { label, details, objectId: object.objectId };
 }
 
-function readyToReport(step, d) {
+function readyToReport(step: DomStep, d: StepDetails) {
   if (step.action === 'inspect' || d.ambiguous || d.staleRef) return true;
   if (step.action === 'wait')
     return Boolean(d.found && d.visible && d.waitTextMatches);
@@ -211,9 +250,13 @@ function readyToReport(step, d) {
 }
 
 /** Re-checks the target until it can be reported or acted on, or the wait deadline passes. */
-export async function locateWhenReady(cdp, step, ctx) {
+export async function locateWhenReady(
+  cdp: Session,
+  step: DomStep,
+  ctx: DomContext
+): Promise<LocatedStep> {
   const start = Date.now();
-  let result;
+  let result: LocatedStep;
   let lastProgress = -Infinity;
   do {
     result = await locateAndCheck(cdp, step, ctx);

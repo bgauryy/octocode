@@ -14,7 +14,6 @@ pub(super) fn answered(
 ) -> Value {
     let answers: Map<String, Value> = row.keys.iter().cloned().zip(judged.answers).collect();
     let mut out = json!({
-        "id": row.id,
         "model": judged.model,
         "answers": answers,
         "usage": {
@@ -32,7 +31,7 @@ pub(super) fn answered(
         if let Some(source) = captured.source {
             out["source"] = source;
         }
-        out["hints"] = json!({ "read": captured.read });
+        crate::response::result::attach_calls(&mut out, json!({"read":captured.read}));
     }
     out
 }
@@ -43,13 +42,14 @@ pub(super) fn failed(row: &Row, error: &ClassificationError, captured: Option<&C
         "error": error.message,
     });
     if !error.hints.is_empty() {
-        failure["hints"] = json!({ "text": error.hints });
+        failure["hints"] = json!(error.hints);
     }
-    for (name, lead) in &error.leads {
-        failure["hints"][name] = lead.clone();
-    }
+    crate::response::result::attach_calls(
+        &mut failure,
+        Value::Object(error.leads.iter().cloned().collect()),
+    );
     recovery::add(row, captured, &mut failure);
-    json!({ "id": row.id, "error": failure })
+    failure
 }
 
 pub(super) fn error_kind(error: &ClassificationError) -> FailureKind {

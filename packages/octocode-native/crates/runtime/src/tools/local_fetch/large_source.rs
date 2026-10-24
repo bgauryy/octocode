@@ -11,6 +11,7 @@
 //! on. The window then goes through the normal pipeline, and its positions,
 //! totals, digest, and continuations are mapped back to the whole file.
 
+use crate::tools::source_view::local_fetch_query;
 mod held;
 mod index;
 mod page;
@@ -21,7 +22,7 @@ mod window;
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
 use crate::tools::source_view::*;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadView};
 use ranges::fetch_ranges;
 use std::path::Path;
 use window::{Opened, stream_window};
@@ -30,9 +31,6 @@ use window::{Opened, stream_window};
 pub(super) const MAX_STREAM_SOURCE_BYTES: u64 = 1024 * 1024 * 1024;
 /// Lines held by one streamed window; response pages are sized separately.
 const WINDOW_LINES: usize = 5_000;
-/// Lines the first bare read previews before continuing through bounded
-/// windows (contract `localFetch.semanticPolicy.streamedHeadLines`).
-const STREAMED_HEAD_LINES: usize = crate::id::local_fetch_policy::STREAMED_HEAD_LINES;
 /// Bytes one streamed window holds; a longer window is cut at a line end or,
 /// for a single giant line, mid-line: its byte pages start the window at
 /// their own offset, so the rest of the line is the next window.
@@ -62,7 +60,7 @@ struct Streamed {
 /// A repair for a request a streamed window cannot serve.
 fn unsupported(q: &LocalFetchQuery, len: u64, reason: &str, next: NextCalls) -> LocalFetchResult {
     let mut result = LocalFetchResult::error(
-        q.path.to_string(),
+        local_fetch_query::path(q).to_owned(),
         ErrorCode::LargeSourceWindowOnly,
         format!(
             "This source is {}MB, above the {}MB whole-file read limit, so only bounded line windows are served: {reason}",
@@ -75,23 +73,14 @@ fn unsupported(q: &LocalFetchQuery, len: u64, reason: &str, next: NextCalls) -> 
     result
 }
 
-fn line_chunk_query(q: &LocalFetchQuery, offset: usize) -> LocalFetchQuery {
-    let mut query = q.clone();
-    query.full_content = None;
-    query.minify = None;
-    query.match_string = None;
-    query.regex = None;
-    query.case_mode = None;
-    query.context_lines = None;
-    local_fetch_query::clear_block_selectors(&mut query);
-    query.unit = Some(WindowUnit::Lines);
-    query.offset = if offset == 0 {
-        None
-    } else {
-        Some(wire_count(offset))
-    };
-    query.snapshot = None;
-    query
+fn line_chunk_query(
+    q: &LocalFetchQuery,
+    offset: usize,
+) -> Result<LocalFetchQuery, serde_json::Error> {
+    local_fetch_query::updated(
+        q,
+        serde_json::json!({"view":"content","matchString":null,"regexEngine":null,"caseMode":null,"wholeWord":null,"contextLines":null,"block":null,"ranges":null,"snapshot":null,"readProgress":{"unit":"lines","offset":offset}}),
+    )
 }
 
 /// Serve `q` from a source larger than the whole-file ceiling, streamed
@@ -121,15 +110,11 @@ pub(super) fn fetch_window(
     if !local_fetch_query::match_strings(q).is_empty() {
         return match_needs_whole_file(q, len);
     }
-    if q.full_content == Some(true)
-        || local_fetch_query::minify_mode(q).is_some()
-        || (q.unit == Some(WindowUnit::Bytes) && local_fetch_query::start_line(q).is_none())
-        || local_fetch_query::block(q)
-    {
+    if local_fetch_query::view(q) != ReadView::Content || local_fetch_query::block(q) {
         return unsupported(
             q,
             len,
-            "fullContent, minify, block, and whole-source byte chunks need the whole file. Read line windows, or byte pages within one line range.",
+            "Transformed views and declaration expansion need the whole file.",
             read_bounded(q),
         );
     }
@@ -168,48 +153,11 @@ fn streamed_warning(len: u64) -> String {
 /// A match read needs the whole file: lead to localSearch, which streams
 /// it, and to bounded line windows.
 fn match_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
-    let needles = local_fetch_query::match_strings(q);
-    let is_regex = local_fetch_query::is_regex(q);
-    let engine = if local_fetch_query::is_pcre2(q) {
-        "pcre2"
-    } else {
-        "rust"
-    };
-    // A list matches any entry: one alternation for localSearch.
-    let (needle, is_regex) = match needles.as_slice() {
-        [one] => ((*one).to_owned(), is_regex),
-        many => (
-            many.iter()
-                .map(|n| {
-                    if is_regex {
-                        (*n).to_owned()
-                    } else {
-                        ::regex::escape(n)
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("|"),
-            true,
-        ),
-    };
-    let mut search = serde_json::json!({
-        "path": q.path.to_string(),
-        "matchString": needle,
-        "regex": if is_regex { engine } else { "literal" },
-    });
-    if let Some(mode) = q.case_mode {
-        search["caseMode"] = serde_json::json!(match mode {
-            octocode_contract_types::ReadCaseMode::Sensitive => "sensitive",
-            octocode_contract_types::ReadCaseMode::Smart => "smart",
-            octocode_contract_types::ReadCaseMode::Insensitive => "insensitive",
-        });
-    }
-    if local_fetch_query::whole_word(q) {
-        search["wholeWord"] = serde_json::json!(true);
-    }
     let mut next = read_bounded(q);
-    next.text_search = Some(
-        crate::response::result::Continuation::new(crate::id::ToolId::LocalSearch, search).build(),
+    next.text_search = crate::tools::source_view::extraction::search_lead(
+        q,
+        local_fetch_query::path(q),
+        &local_fetch_query::match_strings(q),
     );
     unsupported(q, len, "matchString needs the whole file.", next)
 }
@@ -217,9 +165,7 @@ fn match_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
 /// Bounded line windows from the first line.
 fn read_bounded(q: &LocalFetchQuery) -> NextCalls {
     NextCalls {
-        read_bounded_lines: Some(FetchCall {
-            query: line_chunk_query(q, 0),
-        }),
+        read_bounded_lines: line_chunk_query(q, 0).ok().map(FetchCall::related),
         ..NextCalls::default()
     }
 }

@@ -39,13 +39,13 @@ fn a_time_cut_listing_resumes_exactly_where_it_stopped() {
             assert_eq!(out["isPartial"], true, "{operation}: {out}");
             assert_eq!(out["partialReasons"], json!(["walkDeadline"]), "{out}");
             assert!(out.get("terminalLimit").is_none(), "{operation}: {out}");
-            assert!(out["next"].get("narrowScope").is_none(), "{out}");
+            assert!(related(&out, "structureSearch").is_null(), "{out}");
             assert!(
                 !out["warnings"].to_string().contains("terminalLimit"),
                 "{operation}: {out}"
             );
             assert!(out.get("status").is_none(), "{operation}: {out}");
-            let resumed = &next["query"]["queries"][0];
+            let resumed = &next["input"]["queries"][0];
             assert!(
                 resumed["walkOffset"].as_u64().is_some_and(|at| at > 0),
                 "{operation}: {next}"
@@ -85,7 +85,7 @@ fn the_ignored_retry_of_a_resumed_window_lists_from_the_start() {
         let mut query = rows(operation, &root.0);
         query["walkOffset"] = json!(1);
         let out = within(&root.0, query, Duration::from_secs(3600));
-        let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
+        let retry = &related(&out, "structureSearch")["input"]["queries"][0];
         assert_eq!(retry["includeIgnored"], true, "{operation}: {out}");
         assert!(retry.get("walkOffset").is_none(), "{operation}: {retry}");
     }
@@ -96,9 +96,9 @@ fn the_ignored_retry_of_a_resumed_window_lists_from_the_start() {
 /// reaches the rest: no row is lost to a sort a cut walk ranks differently.
 #[test]
 fn a_sorted_listing_cut_by_time_resumes_exactly() {
-    for sort in ["name", "size", "modified", "lines"] {
+    for sort in ["name", "sizeBytes", "modifiedAt", "lineCount"] {
         let root = Fixture::new();
-        let mut start = flat_listing("files", &root, json!({"sort": sort}));
+        let mut start = flat_listing("files", &root, json!({"sort": {"by":sort,"order":"desc"}}));
         let whole = {
             let mut all = listed_entries(&run(&root.0, start.clone()).expect("whole"));
             all.sort();
@@ -128,12 +128,12 @@ fn a_walk_cut_before_the_rows_an_earlier_window_listed_skips_the_rest_after_it()
         let first = within(&root.0, start, Duration::from_secs(3600));
         let mut chained = listed_entries(&first);
         assert_eq!(chained.len(), 4, "{operation}: {first}");
-        let widen = first["next"]["continueWalk"]["query"]["queries"][0].clone();
+        let widen = first["next"]["continueWalk"]["input"]["queries"][0].clone();
         assert_eq!(widen["scanOffset"], 4, "{operation}: {first}");
         // The widened walk is cut after two or three entries, before the four
         // rows the first window listed.
         let second = within_checked(&root.0, widen, STEP * 5 / 3, &Slow);
-        let cut = second["next"]["continueWalk"]["query"]["queries"][0].clone();
+        let cut = second["next"]["continueWalk"]["input"]["queries"][0].clone();
         let at = cut["walkOffset"].as_u64().expect("resume position");
         assert!(at < 4, "{operation}: {second}");
         assert!(listed_entries(&second).is_empty(), "{operation}: {second}");
@@ -150,7 +150,7 @@ fn a_walk_cut_before_the_rows_an_earlier_window_listed_skips_the_rest_after_it()
 #[test]
 fn a_sorted_listing_cut_before_the_rows_an_earlier_window_listed_lists_none_and_is_terminal() {
     let root = Fixture::new();
-    let mut query = flat_listing("files", &root, json!({"sort": "name"}));
+    let mut query = flat_listing("files", &root, json!({"sort":{"by":"name","order":"asc"}}));
     query["scanOffset"] = json!(4);
     query["maxEntries"] = json!(8);
     let out = within_checked(&root.0, query.clone(), STEP * 5 / 3, &Slow);
@@ -229,7 +229,7 @@ fn deep_tree() -> Fixture {
 fn first_cut(root: &Fixture, operation: &str) -> (Vec<String>, Value, u64) {
     let query = rows(operation, &root.0);
     let out = within_checked(&root.0, query, STEP * 40, &Slow);
-    let next = out["next"]["continueWalk"]["query"]["queries"][0].clone();
+    let next = out["next"]["continueWalk"]["input"]["queries"][0].clone();
     let at = next["walkOffset"].as_u64().expect("the walk was cut");
     (listed_entries(&out), next, at)
 }
@@ -281,7 +281,7 @@ fn a_resumed_window_of_a_changed_tree_replays_and_lists_every_entry_once() {
             let out = within_checked(&root.0, query.clone(), UNSPENT, &NeverCancel);
             chained.extend(listed_entries(&out));
             match out["next"].get("continueWalk") {
-                Some(next) => query = next["query"]["queries"][0].clone(),
+                Some(next) => query = next["input"]["queries"][0].clone(),
                 None => break,
             }
         }

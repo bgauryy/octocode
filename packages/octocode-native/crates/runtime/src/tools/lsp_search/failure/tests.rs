@@ -1,13 +1,14 @@
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::security::ContentSecurity;
-use crate::tools::local_search::{LocalSearchQuery, execute_local_search};
+use crate::tools::local_search::execute_local_search;
+use octocode_contract_types::LocalSearchQuery;
 
 /// The lexical lead is a call as given: each of its rows runs through
 /// localSearch and finds the whole word, not the word's `\b` spelling.
 fn run_rows(lead: &Value, root: &std::path::Path) -> Vec<usize> {
     let policy = crate::tools::test_support::workspace_policy(root);
-    lead["query"]["queries"]
+    lead["input"]["queries"]
         .as_array()
         .expect("rows")
         .iter()
@@ -39,7 +40,7 @@ fn ignored_recovery_deduplicates_queries_and_reserves_room_for_unfinished_scope(
     let mut repeated = files.clone();
     repeated.extend(files.clone());
     let lead = ignored_text_lead("x", &scope, &repeated, true);
-    let rows = lead["query"]["queries"].as_array().expect("queries");
+    let rows = lead["input"]["queries"].as_array().expect("queries");
     assert_eq!(rows.len(), LISTED_TEXT_FILES);
     for (row, path) in rows.iter().zip(&files) {
         assert_eq!(row["path"], *path);
@@ -53,7 +54,7 @@ fn ignored_recovery_deduplicates_queries_and_reserves_room_for_unfinished_scope(
     let scope = super::super::scope::Scope::new("/r".into(), Vec::new());
     let lead = ignored_text_lead("x", &scope, &["/r".into(), "/r".into()], true);
     assert_eq!(
-        lead["query"]["queries"].as_array().expect("queries").len(),
+        lead["input"]["queries"].as_array().expect("queries").len(),
         1
     );
 }
@@ -80,13 +81,13 @@ fn ignored_recovery_overflow_keeps_out_of_family_and_nested_paths_searchable() {
     );
     let exact = ignored_text_lead("needle", &scope, &files, false);
     assert_eq!(
-        exact["query"]["queries"].as_array().expect("queries").len(),
+        exact["input"]["queries"].as_array().expect("queries").len(),
         5
     );
     assert_eq!(run_rows(&exact, root.path()), vec![1; 5]);
 
     let unfinished = ignored_text_lead("needle", &scope, &files, true);
-    let rows = unfinished["query"]["queries"].as_array().expect("queries");
+    let rows = unfinished["input"]["queries"].as_array().expect("queries");
     assert_eq!(rows.len(), 2);
     assert!(rows[0].get("include").is_none());
     assert_eq!(rows[0]["defaultExcludes"], false);
@@ -99,7 +100,7 @@ fn ignored_recovery_overflow_keeps_out_of_family_and_nested_paths_searchable() {
     files.push(sixth.to_string_lossy().into_owned());
     let complete = ignored_text_lead("needle", &scope, &files, false);
     assert_eq!(
-        complete["query"]["queries"]
+        complete["input"]["queries"]
             .as_array()
             .expect("queries")
             .len(),

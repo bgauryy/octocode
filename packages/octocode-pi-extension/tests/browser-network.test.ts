@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeCtx } from './fake-pi.js';
-import { answered, openFor, paused, PRIVATE_HOSTS, useNetworkHarness } from './browser-network-harness.js';
+import { openFor, PRIVATE_HOSTS, useNetworkHarness } from './browser-network-harness.js';
+import { answered, paused } from './fixtures/cdp-stub.js';
 import { PagePolicy, VERDICTS_MAX } from '../src/browser/network.js';
 import type { HostLookup } from '../src/web/guard.js';
 

@@ -1,8 +1,30 @@
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 
+import type { Session } from '../cdp-connection.mjs';
 import { ACTIONABILITY_HELPERS_JS } from '../dom-actionability.mjs';
 import { flagArgs } from '../cli-flags.mjs';
+import { errorMessage } from '../error-message.mjs';
+
+type NetworkFailure = {
+  requestId?: string;
+  errorText?: string;
+  blockedReason?: string;
+  url?: string;
+  status?: number;
+  statusText?: string;
+};
+type PageCounts = Record<
+  'buttons' | 'inputs' | 'links' | 'forms' | 'scripts' | 'iframes',
+  number
+>;
+type PageSummary = {
+  finalUrl: string;
+  title: string;
+  bodyText: string;
+  counts: PageCounts;
+  failures: NetworkFailure[];
+};
 
 const argv = process.argv.slice(2);
 const { getArg } = flagArgs(argv);
@@ -12,7 +34,7 @@ const WAIT_MS = Math.max(
   Math.min(15000, Number.parseInt(getArg('--wait-ms', '3000'), 10))
 );
 
-function classify({ finalUrl, title, bodyText, counts, failures }) {
+function classify({ title, bodyText, counts, failures }: PageSummary) {
   const text = `${title}\n${bodyText}`.toLowerCase();
   const reasons = [];
   if (
@@ -51,11 +73,11 @@ function classify({ finalUrl, title, bodyText, counts, failures }) {
   return reasons;
 }
 
-export async function run(cdp) {
+export async function run(cdp: Session) {
   await cdp.send('Runtime.enable');
   await cdp.send('Network.enable');
   await cdp.send('Page.enable');
-  const failures = [];
+  const failures: NetworkFailure[] = [];
   cdp.on('Network.loadingFailed', ({ requestId, errorText, blockedReason }) =>
     failures.push({ requestId, errorText, blockedReason })
   );
@@ -93,7 +115,7 @@ export async function run(cdp) {
     counts: payload.counts,
     failures,
   });
-  let screenshotPath = null;
+  let screenshotPath: string | null = null;
   try {
     const shot = await cdp.send('Page.captureScreenshot', {
       format: 'png',
@@ -105,7 +127,7 @@ export async function run(cdp) {
     });
     payload.screenshot = screenshotPath;
   } catch (error) {
-    payload.screenshotError = error.message;
+    payload.screenshotError = errorMessage(error);
   }
   const artifact = join(cdp.outputDir, 'actionability-diagnostics.json');
   writeFileSync(artifact, `${JSON.stringify(payload, null, 2)}\n`, {

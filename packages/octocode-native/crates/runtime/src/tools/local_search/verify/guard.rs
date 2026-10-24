@@ -2,6 +2,7 @@
 //! digest of what was read.
 
 use super::*;
+use crate::tools::local_search::sources::Expected;
 
 /// Security: the engine clips values (matchOnly spans, matchContentLength,
 /// long-line windows) *before* sanitization, so a clipped
@@ -22,7 +23,7 @@ use super::*;
 pub(in crate::tools::local_search) fn guard_clipped_secrets(
     file: &mut octocode_engine::types::TextSearchFile,
     source: &std::path::Path,
-    expected: Option<Option<crate::tools::local_search::sources::Digest>>,
+    expected: Expected,
     shown: std::ops::Range<usize>,
     check: &ValueCheck<'_, impl CancellationCheck>,
 ) -> Result<Verification, String> {
@@ -51,7 +52,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     file: &mut octocode_engine::types::TextSearchFile,
     source: &std::path::Path,
     open: impl FnOnce() -> std::io::Result<R>,
-    expected: Option<Option<crate::tools::local_search::sources::Digest>>,
+    expected: Expected,
     shown: std::ops::Range<usize>,
     check: &ValueCheck<'_, impl CancellationCheck>,
 ) -> Result<Verification, String> {
@@ -60,7 +61,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         match_only,
         cancel,
     } = *check;
-    if expected == Some(None) {
+    if expected == Expected::Stored(None) {
         return Ok(Verification::Changed);
     }
     let end = shown.end.min(file.matches.len());
@@ -81,14 +82,14 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     let read = open().map_err(VerifyReadError::from).and_then(|opened| {
         let mut reader = std::io::BufReader::new(HashingReader {
             inner: opened,
-            hasher: expected.map(|_| Sha256::new()),
+            hasher: matches!(expected, Expected::Stored(_)).then(Sha256::new),
         });
         let read = read_verification_lines(&mut reader, &windows, last_line, cancel)?;
         let digest = drain_digest(reader, cancel)?;
         Ok((read, digest))
     });
     let read = match read {
-        Ok((_, Some(digest))) if expected != Some(Some(digest)) => {
+        Ok((_, Some(digest))) if expected != Expected::Stored(Some(digest)) => {
             return Ok(Verification::Changed);
         }
         Ok((read, _)) if !read.unclassified => read,

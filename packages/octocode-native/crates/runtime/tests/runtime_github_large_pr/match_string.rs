@@ -1,9 +1,6 @@
 //! matchString over pull request patches: matching hunks, patchless files, every file page and zero hits.
 
-use super::{
-    SHA, mount_file_batches, mount_pr, no_continuation, numbered, raw_patch, rest_file, run,
-    run_status,
-};
+use super::{SHA, mount_file_batches, mount_pr, numbered, raw_patch, rest_file, run, run_status};
 use crate::support::{self};
 use serde_json::json;
 use std::time::Duration;
@@ -28,57 +25,22 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     .await;
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": "esbuild",
-               "extras": []}),
+        json!({"sections":["patches"], "matchString": ["esbuild"]}),
     )
     .await;
     let files = &data["pullRequests"][0]["files"];
     assert_eq!(files.as_array().map(Vec::len), Some(1), "{data}");
     let patch = files[0]["patch"].as_str().expect("patch");
-    // The contract's default context lines around each hit
-    // (`limits.defaultReadContextLines`, 3), the rest re-read whole.
-    assert!(
-        patch.starts_with("@@ -198,7 +198,7 @@\n198\t line 198\n"),
-        "{patch}"
+    assert_eq!(
+        patch,
+        "@@ -201,1 +201,1 @@\n201\t-old esbuild\n201\t+new esbuild\n"
     );
-    assert!(
-        patch.contains("\n201\t-old esbuild\n201\t+new esbuild\n"),
-        "{patch}"
-    );
-    assert!(patch.ends_with("204\t line 3\n"), "{patch}");
-    assert!(patch.len() < 600, "{patch}");
-    // The narrowed-view marker selects the continuation; rows omit it.
-    assert!(files[0].get("fullPatchChars").is_none(), "{data}");
-    // A patch read carries the identity it re-proves (number, title, author,
-    // state, the head it read) and no follow-up menu; the summary read dates
-    // the PR.
-    let row = &data["pullRequests"][0];
-    assert!(no_continuation(row), "{row}");
-    for dropped in [
-        "additions",
-        "deletions",
-        "createdAt",
-        "mergedAt",
-        "baseBranch",
-    ] {
-        assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
-    }
-    // Every view names the merge commit beside the head it read.
-    for kept in [
-        "number",
-        "title",
-        "author",
-        "state",
-        "headSha",
-        "mergeCommitSha",
-    ] {
-        assert!(row.get(kept).is_some(), "{kept} dropped: {row}");
-    }
+    assert_eq!(files[0]["fullPatchChars"], big.chars().count());
+    assert_eq!(data["pullRequests"][0]["headSha"], SHA);
     // Without a patch row the read carries the same slim identity header.
     let (status, none) = run_status(
         &server,
-        json!({"sections":["patches"], "matchString": "absent-term",
-               "extras": []}),
+        json!({"sections":["patches"], "matchString": ["absent-term"]}),
     )
     .await;
     let none_row = &none["pullRequests"][0];
@@ -90,59 +52,61 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     // that looks like an ignored filter; its leads run the fix: the same
     // read without the literal, then the file inventory.
     assert_eq!(status, "empty", "{none}");
-    assert!(
-        crate::support::checks::hint(&none, "text").is_null(),
-        "{none}"
-    );
-    let unfiltered =
-        &crate::support::checks::hint(&none, "withoutMatchString")["query"]["queries"][0];
+    assert!(none["hints"].is_null(), "{none}");
+    let unfiltered = &crate::support::checks::related_call(&none, "ghGetHistoryItem", |input| {
+        input["queries"][0].get("matchString").is_none()
+    })["input"]["queries"][0];
     assert!(unfiltered.get("matchString").is_none(), "{none}");
     assert_eq!(unfiltered["sections"], json!(["patches"]), "{none}");
     assert!(unfiltered.get("minify").is_none(), "{none}");
     assert_eq!(
-        crate::support::checks::hint(&none, "readFiles")["query"]["queries"][0]["sections"],
+        support::checks::related_call(
+            &none,
+            "ghGetHistoryItem",
+            |input| input["queries"][0]["sections"] == json!(["files"])
+        )["input"]["queries"][0]["sections"],
         json!(["files"]),
         "{none}"
     );
     support::checks::assert_leads_valid(&none);
     let only_hits = run(
         &server,
-        json!({"sections":["patches"], "matchString": "esbuild",
-               "contextLines": 0, "extras": []}),
+        json!({"sections":["patches"], "matchString": ["esbuild"],
+               "contextLines": {"before":0,"after":0}}),
     )
     .await;
     assert_eq!(
         only_hits["pullRequests"][0]["files"][0]["patch"],
         "@@ -201,1 +201,1 @@\n201\t-old esbuild\n201\t+new esbuild\n"
     );
-    // The grep shows what was asked: the whole patch is not a page (no
-    // `next`, the read is complete), it is an opt-in lead.
-    assert!(
-        only_hits["next"].get("readFullPatches").is_none(),
-        "{only_hits}"
+    let unfiltered = support::checks::related_call(&only_hits, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"] == json!(["patches"])
+            && input["queries"][0].get("matchString").is_none()
+    });
+    assert_eq!(
+        unfiltered["input"]["queries"][0]["include"],
+        json!(["src/big.rs"])
     );
-    assert!(data.get("isPartial").is_none(), "{data}");
     let hinted = run(
         &server,
-        json!({"sections":["patches"], "matchString": "esbuild",
-               "extras": ["hints"]}),
+        json!({"sections":["patches"], "matchString": ["esbuild"]}),
     )
     .await;
     // Distinct optional reads remain available, even for one file.
-    assert!(
-        crate::support::checks::hint(&hinted, "readAtCommit").is_object(),
-        "{hinted}"
+    let source = support::checks::related_call(&hinted, "ghGetFileContent", |input| {
+        input["queries"][0]["ref"] == SHA && input["queries"][0]["path"] == "src/big.rs"
+    });
+    assert_eq!(source["kind"], "related");
+    let whole = support::checks::related_call(&hinted, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"] == json!(["patches"])
+            && input["queries"][0].get("matchString").is_none()
+    });
+    assert_eq!(
+        whole["input"]["queries"][0]["include"],
+        json!(["src/big.rs"])
     );
-    let whole = crate::support::checks::hint(&hinted, "readFullPatches");
-    assert_eq!(whole["tool"], "ghGetHistoryItem", "{hinted}");
-    assert_eq!(whole["query"]["queries"][0]["sections"], json!(["patches"]));
-    assert!(whole["query"]["queries"][0].get("matchString").is_none());
-    // The whole patch is the same read without the grep, numbered.
-    let full = run(
-        &server,
-        json!({"sections":["patches"], "include": ["src/big.rs"], "extras": []}),
-    )
-    .await;
+    // Execute the authored optional expansion and retain every original patch line.
+    let full = run(&server, whole["input"]["queries"][0].clone()).await;
     let whole = full["pullRequests"][0]["files"][0]["patch"]
         .as_str()
         .unwrap_or("");
@@ -169,8 +133,8 @@ async fn match_string_without_content_searches_the_filtered_patches() {
     .await;
     let data = run(
         &server,
-        json!({"matchString": "import", "contextLines": 0,
-               "include":["src/mod/**"], "extras": []}),
+        json!({"matchString": ["import"], "contextLines": {"before":0,"after":0},
+               "include":["src/mod/**"]}),
     )
     .await;
     let files = data["pullRequests"][0]["files"]
@@ -211,8 +175,7 @@ async fn match_string_lists_the_patchless_files_it_could_not_search() {
     .await;
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": "import",
-               "extras": []}),
+        json!({"sections":["patches"], "matchString": ["import"]}),
     )
     .await;
     assert_eq!(data["isPartial"], true, "{data}");
@@ -227,15 +190,8 @@ async fn match_string_lists_the_patchless_files_it_could_not_search() {
     );
     let read = &data["next"]["searchUnpatchedFile"];
     assert_eq!(read["tool"], "ghGetFileContent", "{data}");
-    assert_eq!(read["query"]["queries"][0]["ref"], SHA, "{data}");
-    assert_eq!(
-        read["query"]["queries"][0]["matchString"], "import",
-        "{data}"
-    );
-    assert_eq!(
-        read["query"]["queries"][0]["path"], "src/module.ts",
-        "{data}"
-    );
+    assert_eq!(read["kind"], "continue");
+    assert!(read["input"]["cursor"].is_string());
 }
 
 /// A literal search covers every changed file in one call (not 30
@@ -260,7 +216,7 @@ async fn match_string_covers_every_file_page_in_one_call() {
     }
     let second = (18..36).map(hit).collect::<Vec<_>>();
     mount_file_batches(&server, vec![first, second], Duration::ZERO).await;
-    let data = run(&server, json!({"matchString": "miri", "extras": []})).await;
+    let data = run(&server, json!({"matchString": ["miri"]})).await;
     let files = data["pullRequests"][0]["files"]
         .as_array()
         .cloned()
@@ -301,7 +257,7 @@ async fn include_scopes_a_body_and_patch_read() {
     let flat = run(
         &server,
         json!({"sections":["body","patches"],
-               "include":["src/**"], "extras": []}),
+               "include":["src/**"]}),
     )
     .await;
     assert!(flat["pullRequests"][0].get("body").is_some(), "{flat}");
@@ -333,31 +289,29 @@ async fn match_string_with_zero_hits_says_so() {
         Duration::ZERO,
     )
     .await;
-    let (status, alone) = run_status(
-        &server,
-        json!({"matchString": "absentNeedle", "extras": []}),
-    )
-    .await;
+    let (status, alone) = run_status(&server, json!({"matchString": ["absentNeedle"]})).await;
     assert_eq!(status, "empty", "{alone}");
-    assert!(
-        crate::support::checks::hint(&alone, "text").is_null(),
-        "{alone}"
-    );
-    let unfiltered =
-        &crate::support::checks::hint(&alone, "withoutMatchString")["query"]["queries"][0];
+    assert!(alone["hints"].is_null(), "{alone}");
+    let unfiltered = &crate::support::checks::related_call(&alone, "ghGetHistoryItem", |input| {
+        input["queries"][0].get("matchString").is_none()
+    })["input"]["queries"][0];
     assert!(unfiltered.get("matchString").is_none(), "{alone}");
     assert_eq!(unfiltered["number"], 9, "{alone}");
     // The literal alone searched every patch; the read without it reads them.
     assert_eq!(unfiltered["sections"], json!(["patches"]), "{alone}");
     assert_eq!(
-        crate::support::checks::hint(&alone, "readFiles")["query"]["queries"][0]["sections"],
+        support::checks::related_call(
+            &alone,
+            "ghGetHistoryItem",
+            |input| input["queries"][0]["sections"] == json!(["files"])
+        )["input"]["queries"][0]["sections"],
         json!(["files"]),
         "{alone}"
     );
     support::checks::assert_leads_valid(&alone);
     let with_body = run(
         &server,
-        json!({"sections": ["body", "patches"], "matchString": "absentNeedle", "extras": []}),
+        json!({"sections": ["body", "patches"], "matchString": ["absentNeedle"]}),
     )
     .await;
     assert!(

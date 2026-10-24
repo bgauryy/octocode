@@ -2,6 +2,7 @@
 //! relations and windowed subtypes.
 
 use super::*;
+use octocode_contract_types::LspSearchQuery;
 
 mod hierarchy;
 
@@ -117,8 +118,8 @@ fn fallback_graph_pages(
             let mut pages = Vec::new();
             let mut walker = Walker::new(ToolId::LspSearch.as_str(), json!({"queries":[start]}));
             while let Some(call) = walker.next_query() {
-                let wire = call["queries"][0].clone();
-                let query: crate::tools::lsp_search::LspSearchQuery = serde_json::from_value(wire.clone()).expect("executable query");
+                let wire = crate::tools::test_support::opened_input(crate::id::ToolId::LspSearch, &call)["queries"][0].clone();
+                let query: LspSearchQuery = serde_json::from_value(wire.clone()).expect("executable query");
                 let mut sources = SourceCache::new(&paths);
                 let policy = snippet_policy(&paths);
                 let scope = crate::tools::lsp_search::scope::Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".into()]);
@@ -127,8 +128,8 @@ fn fallback_graph_pages(
                     character: u32::try_from(node["range"]["start"]["character"].as_u64().expect("character")).expect("character"),
                     language_id:Some("typescript"), budget:16_000, response_window:None }.run().await.expect("fallback hierarchy");
                 let row = crate::tools::lsp_search::failure::with_next(&query, row);
-                if let Some(next) = row.pointer("/next/nextPage/query/queries/0") {
-                    let continued: crate::tools::lsp_search::LspSearchQuery = serde_json::from_value(next.clone()).expect("executable nextPage");
+                if let Some(next) = row.pointer("/next/nextPage/input/queries/0") {
+                    let continued: LspSearchQuery = serde_json::from_value(next.clone()).expect("executable nextPage");
                     assert!(lsp_search_query::page(&continued) > lsp_search_query::page(&query), "page cursor must advance");
                 }
                 let published = crate::tools::test_support::published(ToolId::LspSearch, &wire, &row);
@@ -206,7 +207,7 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
     );
     for (page_index, row) in first_window.iter().enumerate() {
         assert_eq!(row["pagination"]["totalItems"], cap, "{row}");
-        assert_eq!(row["pagination"]["currentPage"], page_index + 1, "{row}");
+        assert_eq!(row["pagination"]["page"], page_index + 1, "{row}");
         assert_eq!(row["isPartial"], true, "{row}");
         assert!(row.get("terminalLimit").is_none(), "{row}");
         assert_eq!(
@@ -214,7 +215,7 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
             page_index + 1 == first_window.len(),
             "only the window's last page offers the next window: {row}"
         );
-        if let Some(snapshot) = row.pointer("/next/nextCandidatePage/query/queries/0/snapshot") {
+        if let Some(snapshot) = row.pointer("/next/nextCandidatePage/input/queries/0/snapshot") {
             assert!(
                 snapshot
                     .as_str()
@@ -248,13 +249,15 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
     let last = pages.last().expect("final page");
     assert!(last.get("isPartial").is_none(), "{last}");
     // No page remains; the one lead walks one level deeper from the start.
-    let next = last["next"].as_object().expect("the deeper-walk lead");
-    assert_eq!(
-        next.keys().collect::<Vec<_>>(),
-        ["walkDeeper"],
-        "the route terminates: {last}"
+    assert!(
+        last["next"]
+            .as_object()
+            .is_none_or(serde_json::Map::is_empty),
+        "no remaining required work: {last}"
     );
-    let deeper = &next["walkDeeper"]["query"]["queries"][0];
+    let deeper = &crate::tools::test_support::checks::related_call(last, "lspSearch", |input| {
+        input["queries"][0]["graphDepth"] == 2
+    })["input"]["queries"][0];
     assert_eq!(deeper["graphDepth"], 2, "{last}");
     assert!(
         deeper.get("candidatePage").is_none(),

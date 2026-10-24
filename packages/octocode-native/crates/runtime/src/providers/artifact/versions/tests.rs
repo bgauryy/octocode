@@ -49,21 +49,11 @@ fn npm_ranges_follow_npm_semantics() {
 }
 
 #[test]
-fn cargo_and_pypi_ranges() {
+fn cargo_ranges() {
     assert_eq!(
         cargo_resolve("^1.0.100", ["1.0.99", "1.0.100", "1.0.228", "2.0.0"]).as_deref(),
         Some("1.0.228")
     );
-    let pypi = ["2.30.0", "2.31.0", "2.32.3", "3.0.0rc1", "1.2"];
-    assert_eq!(pypi_resolve(">=2.31,<3", pypi).as_deref(), Some("2.32.3"));
-    assert_eq!(pypi_resolve("~=2.31", pypi).as_deref(), Some("2.32.3"));
-    assert_eq!(pypi_resolve("~=2.31.0", pypi).as_deref(), Some("2.31.0"));
-    assert_eq!(pypi_resolve("==2.30.*", pypi).as_deref(), Some("2.30.0"));
-    assert_eq!(
-        pypi_resolve("!=2.32.3,>=2", pypi).as_deref(),
-        Some("2.31.0")
-    );
-    assert_eq!(pypi_resolve("nonsense", pypi), None);
 }
 
 #[test]

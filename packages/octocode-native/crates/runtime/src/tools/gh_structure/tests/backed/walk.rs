@@ -1,5 +1,10 @@
 //! What a listing walks and names: patterns, the one tree read, build-output names, symlinks.
 use super::*;
+use octocode_github::ProviderErrorKind;
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// ghStructure: `pattern` finds a file by name at any depth in one
 /// call, keeping the dir/files row shape.
@@ -23,7 +28,7 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
     )
     .await;
     let find = |pattern: &str| {
-        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b",
+        json!({"operation":"tree", "owner":"a","repo":"b",
                 "ref":"main","include":[pattern]})
     };
     let out = run(&server, find("**/_exception_handler.py"))
@@ -36,61 +41,33 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
         out.data
     );
     assert_eq!(out.data["summary"]["files"], 1);
-    let bare = run(&server, find("Exception_Handler"))
+    let literal = run(&server, find("Exception_Handler"))
+        .await
+        .expect("literal glob");
+    assert_eq!(literal.data["summary"]["files"], 0);
+    let bare = run(&server, find("**/*exception_handler*"))
         .await
         .expect("bare word");
     assert_eq!(bare.data["summary"]["files"], 2, "{}", bare.data);
     let none = run(&server, find("**/nope.py")).await.expect("no match");
     assert_eq!(none.status, Some("empty"));
-    // The empty status is the fact; the broader listing of the same commit
-    // without the globs shows what the tree holds. The tool's lead keeps the
-    // request brief: the response stage owns it (asserted below).
+    let broaden =
+        crate::tools::test_support::checks::related_call(&none.data, "ghStructure", |_| true);
     assert_eq!(
-        none.data["hints"],
-        json!(["broadenSearch rows: queries[0] drops include"]),
-        "{}",
-        none.data
+        broaden["input"]["queries"],
+        json!([{"operation":"tree","owner":"a","repo":"b","ref":TREE_SHA}])
     );
-    assert_eq!(
-        none.data["next"]["broadenSearch"]["query"]["queries"],
-        json!([{"owner":"a","repo":"b","ref":TREE_SHA,"mainGoal":"test","reasoning":"test"}]),
-        "{}",
-        none.data
-    );
-    // The response stage drops the brief from every broadened row: the
-    // published lead carries none.
-    let mut row = none.data.clone();
-    row["status"] = json!("empty");
-    let published = crate::tools::test_support::published(
-        crate::id::ToolId::GhStructure,
-        &find("**/nope.py"),
-        &row,
-    );
-    let shown = published.to_string();
-    assert!(
-        shown.contains("broadenSearch: Approximate: ghStructure"),
-        "{shown}"
-    );
-    assert!(
-        !shown.contains("mainGoal") && !shown.contains("reasoning"),
-        "{shown}"
-    );
-    // `include` matches relative to `path`: under `starlette` a glob that
-    // repeats it names a `starlette/starlette/…` path.
+    crate::contracts::validate("ghStructure", broaden["input"].clone())
+        .expect("canonical fresh listing");
     let mut under = find("starlette/routing.py");
     under["path"] = json!("starlette");
-    let under = run(&server, under).await.expect("path-anchored glob");
-    assert_eq!(under.status, Some("empty"), "{}", under.data);
-    // The broader listing first rebases that glob onto `path`.
+    let under = run(&server, under)
+        .await
+        .expect("repository-relative glob within scoped tree");
+    assert_eq!(under.data["summary"]["files"], 1);
     assert_eq!(
-        under.data["next"]["broadenSearch"]["query"]["queries"],
-        json!([
-            {"owner":"a","repo":"b","ref":TREE_SHA,"path":"starlette","include":["routing.py"],
-                "mainGoal":"test","reasoning":"test"},
-            {"owner":"a","repo":"b","ref":TREE_SHA,"path":"starlette","mainGoal":"test","reasoning":"test"}
-        ]),
-        "{}",
-        under.data
+        under.data["files"],
+        json!([{"dir":"starlette","files":["routing.py (3)"]}])
     );
     let invalid = run(&server, find("src/[")).await.expect_err("bad glob");
     assert_eq!(invalid.kind, ProviderErrorKind::Validation);
@@ -123,7 +100,7 @@ async fn deep_tree_is_fetched_once_at_the_resolved_commit() {
             .await;
     let out = run(
         &server,
-        json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b",
+        json!({"operation":"tree", "owner":"a","repo":"b",
                 "ref":"main","maxDepth":3}),
     )
     .await
@@ -145,8 +122,9 @@ async fn deep_tree_is_fetched_once_at_the_resolved_commit() {
         [
             "/api/v3/repos/a/b/commits/main".to_owned(),
             format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}"),
+            "/api/graphql".to_owned(),
         ],
-        "no speculative tree request, and no dating request unless extras details asks"
+        "one pinned tree request and its date metadata query"
     );
 }
 
@@ -184,7 +162,7 @@ async fn committed_build_output_names_are_listed_and_walked() {
     let home = crate::tools::test_support::Fixture::new();
     let out = run_at(
         &server,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
+        json!({"operation":"tree","owner":"a","repo":"b",
                 "ref":"main","maxDepth":5,"materialize":true}),
         &home.0,
     )
@@ -237,7 +215,7 @@ async fn committed_build_output_names_are_listed_and_walked() {
     .await;
     let out = run(
         &walked,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
+        json!({"operation":"tree","owner":"a","repo":"b",
                 "ref":"main","maxDepth":5}),
     )
     .await
@@ -285,7 +263,7 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
         .await;
     let root = run(
         &server,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
+        json!({"operation":"tree","owner":"a","repo":"b",
                 "ref":"main"}),
     )
     .await
@@ -299,7 +277,7 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
     assert_eq!(root.data["omitted"], json!(["CHANGELOG.md (symlink)"]));
     let deep = run(
         &server,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
+        json!({"operation":"tree","owner":"a","repo":"b",
                 "ref":"main","maxDepth":2}),
     )
     .await
@@ -307,7 +285,7 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
     assert_eq!(deep.data["omitted"], json!(["CHANGELOG.md (symlink)"]));
     let nested = run(
         &server,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
+        json!({"operation":"tree","owner":"a","repo":"b",
                 "ref":"main","path":"src"}),
     )
     .await

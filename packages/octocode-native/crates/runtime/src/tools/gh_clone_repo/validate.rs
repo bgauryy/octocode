@@ -31,20 +31,11 @@ pub(super) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError>
         ));
     }
     let sparse = Sparse::of(query);
-    if sparse
-        .as_ref()
-        .is_some_and(|sparse| sparse.paths.is_empty())
-    {
-        return Err(CloneError::new(
-            ErrorCode::InvalidInput,
-            "path must name at least one path",
-        ));
-    }
     for path in sparse.as_ref().map_or(&[][..], Sparse::paths) {
         if !is_sparse_path(path) {
             return Err(CloneError::new(
                 ErrorCode::InvalidInput,
-                "path must be a non-empty repo-relative path without traversal",
+                "paths must contain a non-empty repo-relative path without traversal",
             ));
         }
     }
@@ -59,14 +50,14 @@ pub(super) fn is_sparse_path(path: &str) -> bool {
     let drive = path.as_bytes().get(1) == Some(&b':')
         && path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic);
     !path.trim().is_empty()
-        && !path.contains('\\')
+        && !path.contains(['\\', '\r', '\n', '\0'])
         && !path.starts_with('/')
         && !drive
         && path
             .strip_suffix('/')
             .unwrap_or(path)
             .split('/')
-            .all(|segment| !matches!(segment, "." | ".."))
+            .all(|segment| !matches!(segment, "" | "." | ".."))
 }
 
 /// The git web root of `endpoint` that repositories are cloned from:

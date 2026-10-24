@@ -7,115 +7,29 @@ pub(crate) fn attach_diagnostics(
     row: &mut Value,
     diagnostics: crate::response::result::ToolDiagnostics,
 ) {
-    if row.get("meta").is_none()
-        || (diagnostics.codes.is_empty() && diagnostics.hints.is_empty() && !diagnostics.partial)
-    {
+    let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
+        return;
+    };
+    if diagnostics.partial {
+        data.insert("isPartial".into(), json!(true));
+        append(data, "partialReasons", diagnostics.codes);
+    }
+    append(data, "hints", diagnostics.hints);
+}
+
+fn append(data: &mut serde_json::Map<String, Value>, key: &str, values: Vec<String>) {
+    if values.is_empty() {
         return;
     }
-    for (field, values) in [("codes", diagnostics.codes), ("hints", diagnostics.hints)] {
-        if values.is_empty() {
-            continue;
-        }
-        let target = &mut row["meta"]["diagnostics"][field];
-        if !target.is_array() {
-            *target = json!([]);
-        }
-        if let Some(existing) = target.as_array_mut() {
-            for value in values {
-                let value = Value::String(value);
-                if !existing.contains(&value) {
-                    existing.push(value);
-                }
+    let target = data.entry(key).or_insert_with(|| json!([]));
+    if let Some(existing) = target.as_array_mut() {
+        for value in values {
+            let value = Value::String(value);
+            if !existing.contains(&value) {
+                existing.push(value);
             }
         }
     }
-    if diagnostics.partial {
-        row["meta"]["diagnostics"]["partial"] = json!(true);
-    }
-}
-
-/// Budget every hint and lead `why` source fits: the runtime never
-/// clips guidance, so each source is written within it
-/// (`every_hint_source_fits_the_guidance_budget`).
-pub(crate) const MAX_GUIDANCE_CHARS: usize = 120;
-
-/// Row containers whose prose `hints` are agent guidance. `meta` (the
-/// `diagnostics` extra) keeps its own hints and never takes the row's one tip.
-const METADATA_CONTAINERS: &[&str] = &[
-    "data",
-    "diagnostics",
-    "error",
-    "files",
-    "directories",
-    "nodes",
-    "packages",
-    "items",
-];
-
-/// One guidance line: whitespace collapsed and a closing period. Never
-/// clipped: a cut hint loses the recovery it names.
-pub(in super::super) fn concise(value: &str) -> String {
-    let mut text = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    if !text.is_empty() && !matches!(text.chars().last(), Some('.' | '!' | '?' | '…')) {
-        text.push('.');
-    }
-    text
-}
-
-/// Whether the row states a way forward: a hint text or an executable lead.
-pub(crate) fn has_recovery(value: &Value) -> bool {
-    states(value, true)
-}
-
-/// Whether the row states a hint text (leads do not count).
-fn has_hint_text(value: &Value) -> bool {
-    states(value, false)
-}
-
-fn states(value: &Value, leads: bool) -> bool {
-    if let Some(values) = value.as_array() {
-        return values.iter().any(|child| states(child, leads));
-    }
-    let Some(node) = value.as_object() else {
-        return false;
-    };
-    let has_text = |hints: &Value| {
-        hints.as_array().is_some_and(|hints| {
-            hints
-                .iter()
-                .any(|hint| hint.as_str().is_some_and(|text| !text.trim().is_empty()))
-        })
-    };
-    if node.get("hints").is_some_and(has_text)
-        || node
-            .get("hints")
-            .and_then(|hints| hints.get(crate::id::continuation_channels::HINT_TEXT_KEY))
-            .is_some_and(has_text)
-    {
-        return true;
-    }
-    if leads
-        && ["next", "hints"].iter().any(|key| {
-            node.get(*key)
-                .and_then(Value::as_object)
-                .is_some_and(|calls| calls.values().any(crate::response::result::is_call))
-        })
-    {
-        return true;
-    }
-    for (key, child) in node {
-        if METADATA_CONTAINERS.contains(&key.as_str()) && states(child, leads) {
-            return true;
-        }
-        if key == "repositories"
-            && child
-                .as_object()
-                .is_some_and(|repos| repos.values().any(|repo| states(repo, leads)))
-        {
-            return true;
-        }
-    }
-    false
 }
 
 /// Hints are rendered whole only up to the response guidance limit (120
@@ -182,125 +96,4 @@ pub(crate) fn error_code_hint(
             }
         }
     })
-}
-
-/// The `errorCode` of a failed row, as the contract names it.
-fn row_code(row: &Value) -> Option<ErrorCode> {
-    row.pointer("/data/errorCode")
-        .and_then(Value::as_str)
-        .and_then(crate::id::error_codes::parse)
-}
-
-/// The tool's fallback hint on an empty or failed row of `query` that has no
-/// recovery of its own: the code's recovery for a failure, the tool's
-/// fallback for both (an empty answer never ends bare). The continuation
-/// stage calls it again after dropping a lead this surface cannot run or the
-/// contract rejects. A tool that states its hints beside leads
-/// ([`crate::response::output::ToolOutput::hints_beside_leads`]) gets the
-/// code's or category's own hint on a row that carries leads but no hint text.
-pub(crate) fn ensure_recovery(row: &mut Value, tool: ToolId, query: &Value) {
-    let status = row.get("status").and_then(Value::as_str);
-    if !matches!(status, Some("error" | "empty" | "outOfRange")) {
-        return;
-    }
-    let output = tool.output();
-    let with_leads = has_recovery(row);
-    if with_leads && (!output.hints_beside_leads() || has_hint_text(row)) {
-        return;
-    }
-    let stated = if status == Some("error") {
-        // Local tools report a sandbox refusal under its own code
-        // (`outsideAllowedRoots`), so the hint is keyed by code alone.
-        row_code(row).and_then(|code| error_code_hint(tool, code, query))
-    } else {
-        // An empty row that names its own category answers for itself: the
-        // tool's hint for that category (or none), not the generic fallback.
-        row.pointer("/data/category")
-            .and_then(Value::as_str)
-            .and_then(|category| output.category_hint(category, query))
-    };
-    let hint = if with_leads {
-        stated
-    } else {
-        Some(stated.unwrap_or_else(|| output.fallback_hint(query)))
-    };
-    let Some(hint) = hint.filter(|hint| *hint != crate::response::output::NO_HINT) else {
-        return;
-    };
-    let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
-        return;
-    };
-    data.insert("hints".into(), json!([hint]));
-}
-
-fn visit(value: &mut Value, recovery: bool, seen: &mut std::collections::BTreeSet<String>) {
-    if let Some(values) = value.as_array_mut() {
-        for child in values {
-            visit(child, recovery, seen);
-        }
-        return;
-    }
-    let Some(node) = value.as_object_mut() else {
-        return;
-    };
-    let needs_help = matches!(
-        node.get("status").and_then(Value::as_str),
-        Some("error" | "empty" | "outOfRange")
-    ) || recovery;
-    let keys: Vec<String> = node.keys().cloned().collect();
-    for key in keys {
-        if METADATA_CONTAINERS.contains(&key.as_str())
-            && let Some(child) = node.get_mut(&key)
-        {
-            visit(child, needs_help, seen);
-        }
-        if key == "repositories"
-            && let Some(repos) = node.get_mut("repositories").and_then(Value::as_object_mut)
-        {
-            let names: Vec<String> = repos.keys().cloned().collect();
-            for name in names {
-                if let Some(repo) = repos.get_mut(&name) {
-                    visit(repo, needs_help, seen);
-                }
-            }
-        }
-    }
-    if node.contains_key("hints") {
-        let mut hints = Vec::new();
-        if needs_help && let Some(candidates) = node.get("hints").and_then(Value::as_array) {
-            // An ordered list: the first hint is the recovery, later ones are
-            // further findings; each keeps the one-hint budget, and a repeat
-            // anywhere in the row is stated once.
-            let candidates = candidates
-                .iter()
-                .filter_map(Value::as_str)
-                .map(concise)
-                .filter(|hint| !hint.is_empty());
-            for short in candidates {
-                // `hint_budget` sweeps authored literals; this checks each hint
-                // as composed (counts, names, joined sentences) in every row a
-                // test renders. Production never clips.
-                #[cfg(test)]
-                assert!(
-                    short.chars().count() <= MAX_GUIDANCE_CHARS,
-                    "hint over the {MAX_GUIDANCE_CHARS}-char guidance budget as composed: {short}"
-                );
-                if seen.insert(short.clone()) {
-                    hints.push(short);
-                }
-            }
-        }
-        if hints.is_empty() {
-            node.remove("hints");
-        } else {
-            node.insert("hints".into(), json!(hints));
-        }
-    }
-}
-
-/// One concise recovery hint on an empty or failed row (continuation calls
-/// are shaped by the continuation stage).
-pub(crate) fn apply_hint_policy(row: &mut Value, tool: ToolId, query: &Value) {
-    ensure_recovery(row, tool, query);
-    visit(row, false, &mut std::collections::BTreeSet::new());
 }

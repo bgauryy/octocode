@@ -10,7 +10,7 @@ use super::*;
 fn api_refusals_name_what_is_missing() {
     use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
     let tagged = parse_query(serde_json::json!({
-        "owner": "o", "repo": "r", "ref": "nope", "mainGoal": "test", "reasoning": "r"
+        "owner": "o", "repo": "r", "ref": "nope"
     }));
     let api = |kind, status: u16, message: &str| ProviderError {
         status: Some(status),
@@ -27,10 +27,10 @@ fn api_refusals_name_what_is_missing() {
             assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
             assert!(error.message.contains("\"nope\""), "{error:?}");
             assert!(error.hints[0].contains("ghStructure"), "{error:?}");
-            let refs = &error.next.as_ref().expect("refs lead")["viewRefs"];
+            let refs = &error.calls.as_ref().expect("refs lead")["viewRefs"];
             assert_eq!(refs["tool"], "ghStructure", "{error:?}");
             assert_eq!(
-                refs["query"]["queries"][0],
+                refs["input"]["queries"][0],
                 serde_json::json!({"owner": "o", "repo": "r", "operation": "refs"}),
                 "{error:?}"
             );
@@ -44,7 +44,7 @@ fn api_refusals_name_what_is_missing() {
             assert_eq!(error.code, ErrorCode::NotFound);
             assert_eq!(error.message, "Repository not found: o/r");
             assert_eq!(
-                error.next.as_ref().expect("search lead")["findRepository"]["tool"],
+                error.calls.as_ref().expect("search lead")["findRepository"]["tool"],
                 "ghSearchRepo",
                 "{error:?}"
             );
@@ -76,8 +76,8 @@ fn api_refusals_name_what_is_missing() {
 #[tokio::test]
 async fn cache_hit_is_not_served_to_a_caller_without_access() {
     let server = wiremock::MockServer::builder().start().await;
-    let bench = Bench::at(gh_shared_support::mock_endpoint(&server));
-    let provider = gh_shared_support::one_shot_provider(&server);
+    let bench = Bench::at(mock_endpoint(&server));
+    let provider = one_shot_provider(&server);
     answer_commit(&server, "main", ALICE, commit(&bench.fixture.first_commit)).await;
     answer_commit(&server, "main", BOB, not_found()).await;
 
@@ -119,8 +119,8 @@ async fn cache_hit_is_not_served_to_a_caller_without_access() {
 #[tokio::test]
 async fn cache_hit_is_served_after_the_callers_access_check() {
     let server = wiremock::MockServer::builder().start().await;
-    let bench = Bench::at(gh_shared_support::mock_endpoint(&server));
-    let provider = gh_shared_support::one_shot_provider(&server);
+    let bench = Bench::at(mock_endpoint(&server));
+    let provider = one_shot_provider(&server);
     let sha = bench.fixture.first_commit.clone();
     answer_commit(&server, "main", ALICE, commit(&sha)).await;
     answer_commit(&server, "main", BOB, commit(&sha)).await;
@@ -149,8 +149,8 @@ async fn cache_hit_is_served_after_the_callers_access_check() {
 async fn the_default_branch_requires_access() {
     use wiremock::matchers::{method, path};
     let server = wiremock::MockServer::builder().start().await;
-    let bench = Bench::at(gh_shared_support::mock_endpoint(&server));
-    let provider = gh_shared_support::one_shot_provider(&server);
+    let bench = Bench::at(mock_endpoint(&server));
+    let provider = one_shot_provider(&server);
     wiremock::Mock::given(method("GET"))
         .and(path("/api/v3/repos/fixture-owner/fixture-repo"))
         .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
@@ -177,8 +177,8 @@ async fn the_default_branch_requires_access() {
 #[tokio::test]
 async fn access_check_failure_fails_closed() {
     let server = wiremock::MockServer::builder().start().await;
-    let bench = Bench::at(gh_shared_support::mock_endpoint(&server));
-    let provider = gh_shared_support::one_shot_provider(&server);
+    let bench = Bench::at(mock_endpoint(&server));
+    let provider = one_shot_provider(&server);
     let reset = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock")
@@ -224,7 +224,7 @@ async fn an_unreachable_api_refuses_the_row_before_git() {
     )
     .expect("endpoint");
     let bench = Bench::at(endpoint.clone());
-    let provider = gh_shared_support::one_shot_provider_at(endpoint);
+    let provider = one_shot_provider_at(endpoint);
     match clone_as(&bench, &provider, &query(), ALICE).await {
         Ok(served) => panic!("an unreachable API pinned a clone: {served:?}"),
         Err(CloneFailure::Provider(error)) => assert!(

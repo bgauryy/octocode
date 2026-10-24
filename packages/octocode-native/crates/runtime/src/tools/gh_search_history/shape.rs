@@ -4,6 +4,7 @@ use super::{HistoryOperation, HistorySearch, leads, rows};
 use crate::id::ToolId;
 use crate::response::result::remove_null_fields;
 use crate::tools::gh_search_history::gh_search_history_query;
+use crate::tools::gh_shared::commit;
 use crate::tools::gh_shared::{SearchCompleteness, SearchWindow, apply_partial, pick_rows};
 use octocode_github::HistoryPage;
 use serde_json::{Value, json};
@@ -114,17 +115,17 @@ pub(super) fn shape(
             .and_then(Value::as_str)
         && let Some(read) = leads::read_commit(query, sha)
     {
-        value["next"]["readCommit"] = read;
+        value["calls"]["readCommit"] = read;
     }
     if let Some(rows) = value.get("commits").and_then(Value::as_array) {
         if let Some(read) = leads::read_commit_pull_request(query, rows) {
-            value["next"]["readPullRequest"] = read;
+            value["calls"]["readPullRequest"] = read;
         } else if let Some(sha) = value
             .pointer("/commits/0/commitSha")
             .and_then(Value::as_str)
             && let Some(find) = leads::find_commit_pull_request(query, sha)
         {
-            value["next"]["findPullRequest"] = find;
+            value["calls"]["findPullRequest"] = find;
         }
     }
     if !warnings.is_empty() {
@@ -148,7 +149,7 @@ pub(super) fn shape(
         )
     });
     if let Some(next_page) = next_page.flatten() {
-        value["next"]["nextPage"] = leads::next_page(query, next_page, paging.per);
+        value["calls"]["nextPage"] = leads::next_page(query, next_page, paging.per);
     }
     remove_null_fields(&mut value);
     mark_empty(&mut value, paging.more);
@@ -171,7 +172,7 @@ pub(super) fn shape(
         && let Some(check) =
             crate::tools::gh_shared::path_check(&crate::response::result::query_row(&**query, &[]))
     {
-        value["next"]["viewTree"] = check;
+        value["calls"]["viewTree"] = check;
     }
     disclose_provider_limits(&mut value, query, paging, narrow);
     value
@@ -182,10 +183,12 @@ pub(super) fn shape(
 /// `created:` window, or a `created:` qualifier).
 pub(super) fn keeps_created(query: &HistorySearch) -> bool {
     gh_search_history_query::sort(query).as_deref() == Some("created")
-        || gh_search_history_query::since(query).is_some()
-        || gh_search_history_query::until(query).is_some()
-        || gh_search_history_query::qualifiers(query)
-            .is_some_and(|qualifiers| qualifiers.contains("created:"))
+        || query.filters().created.is_some()
+        || query
+            .filters()
+            .excluded
+            .iter()
+            .any(|(key, _)| key == "created")
 }
 
 fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
@@ -228,10 +231,10 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         map.remove("effectiveQuery");
     }
     if let Some(read) = leads::read_pull_request(query, items) {
-        v["next"]["readPullRequest"] = read;
+        v["calls"]["readPullRequest"] = read;
     }
     if let Some(read) = leads::issue_links_read(query) {
-        v["next"]["readIssueLinks"] = read;
+        v["calls"]["readIssueLinks"] = read;
     }
     v
 }
@@ -262,7 +265,7 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         map.remove("effectiveQuery");
     }
     if let Some(read) = leads::read_issue(query, items) {
-        v["next"]["readIssue"] = read;
+        v["calls"]["readIssue"] = read;
     }
     v
 }
@@ -285,7 +288,9 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
                 .to_value();
         return v;
     }
-    let commits = items.into_iter().map(rows::map_commit).collect::<Vec<_>>();
+    // No per-row html_url: it is owner/repo/commit/sha, all already in the
+    // row and its envelope (issue and PR rows omit it too).
+    let commits = items.iter().map(commit::row).collect::<Vec<_>>();
     let mut facts =
         crate::response::pages::PageFacts::open(paging.page, Some(paging.per), paging.more)
             .out_of_range(paging.past_end);
@@ -342,6 +347,6 @@ fn disclose_provider_limits(
     if paging.capped
         && let Some(lead) = narrow
     {
-        value["next"]["narrowScope"] = lead;
+        value["calls"]["narrowScope"] = lead;
     }
 }

@@ -26,21 +26,21 @@ fn an_explicit_language_parses_a_file_whose_extension_selects_no_grammar() {
         std::fs::write(&file, SCRIPT).expect("source");
         let symbols = run(
             &root.0,
-            json!({"operation":"symbols","path":file,"language":"typescript"}),
+            json!({"operation":"symbols","path":file,"parser":"typescript"}),
         )
         .expect("symbols");
         assert_eq!(symbols["symbols"][0]["symbolName"], "hello", "{symbols}");
         assert_eq!(symbols["symbols"][0]["kind"], "function", "{symbols}");
         let matched = run(
             &root.0,
-            json!({"operation":"match","path":file,"language":"typescript","rule":{"kind":"function_declaration"}}),
+            json!({"operation":"match","path":file,"parser":"typescript","rule":{"kind":"function_declaration"}}),
         )
         .expect("match");
         assert_eq!(matched["matchCount"], 1, "{matched}");
         assert!(matched.get("isPartial").is_none(), "{matched}");
         let tree = run(
             &root.0,
-            json!({"operation":"syntaxTree","path":file,"language":"typescript"}),
+            json!({"operation":"syntaxTree","path":file,"parser":"typescript"}),
         )
         .expect("tree");
         assert_eq!(tree["isPartial"], false, "{tree}");
@@ -57,7 +57,7 @@ fn a_file_of_another_grammar_is_a_mismatch_that_names_its_extension() {
     std::fs::write(&file, "def f():\n    pass\n").expect("source");
     let error = run(
         &root.0,
-        json!({"operation":"symbols","path":file,"language":"typescript"}),
+        json!({"operation":"symbols","path":file,"parser":"typescript"}),
     )
     .expect_err("python is not typescript");
     assert_eq!(error.code, ErrorCode::LanguageMismatch);
@@ -81,7 +81,7 @@ fn an_extensionless_file_without_language_names_no_extension() {
     std::fs::write(&file, "foo(1)\n").expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":file,"pattern":"foo($A)"}),
+        json!({"operation":"match","path":file,"rule":{"pattern":"foo($A)"}}),
     )
     .expect("row");
     let message = out["diagnostics"][0]["message"]
@@ -117,14 +117,16 @@ fn match_parses_files_named_by_language_globs() {
     let globs = json!({"typescript":["noext","*.tmpl","*.typescript"]});
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"languageGlobs":globs}),
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"parserGlobs":globs}),
     )
     .expect("match");
     assert_eq!(out["matchCount"], 4, "{out}");
     let paths = matched_paths(&out);
     for name in NAMED_FILES {
         assert!(
-            paths.iter().any(|path| path.ends_with(&format!("/{name}"))),
+            paths.iter().any(|path| std::path::Path::new(path)
+                .file_name()
+                .is_some_and(|file| file == name)),
             "{name}: {out}"
         );
     }
@@ -133,7 +135,7 @@ fn match_parses_files_named_by_language_globs() {
 
     let error = run(
         &root.0,
-        json!({"operation":"match","path":root.0.join("noext"),"rule":{"kind":"function_declaration"},"languageGlobs":globs}),
+        json!({"operation":"match","path":root.0.join("noext"),"rule":{"kind":"function_declaration"},"parserGlobs":globs}),
     )
     .expect_err("a single file takes language");
     assert_eq!(
@@ -168,7 +170,7 @@ fn match_reports_files_skipped_without_a_grammar() {
         warning.contains("(d.tsx.tmpl, e.typescript, noext)"),
         "{warning}"
     );
-    assert!(warning.contains("languageGlobs maps"), "{warning}");
+    assert!(warning.contains("parserGlobs maps"), "{warning}");
     assert!(out.get("isPartial").is_none(), "{out}");
 }
 
@@ -190,7 +192,7 @@ fn match_with_language_does_not_report_files_outside_its_scope() {
             .extend(extra.as_object().expect("extra").clone());
         run(&root.0, row).expect("match")
     };
-    let restricted = query(json!({"language":"typescript"}));
+    let restricted = query(json!({"parser":"typescript"}));
     assert_eq!(restricted["matchCount"], 1, "{restricted}");
     assert!(restricted.get("warnings").is_none(), "{restricted}");
     assert!(restricted.get("isPartial").is_none(), "{restricted}");
@@ -252,7 +254,7 @@ fn symbols_of_a_file_without_a_grammar_are_unsupported_not_empty() {
         .error_hint(ErrorCode::SymbolsUnsupported, &serde_json::Value::Null)
         .expect("hint");
     assert!(
-        hint.contains("language") && hint.contains("languageGlobs"),
+        hint.contains("parser") && hint.contains("parserGlobs"),
         "{hint}"
     );
     assert!(!hint.contains("Broaden"), "{hint}");
@@ -283,10 +285,10 @@ fn symbols_of_a_grammar_without_an_extractor_lead_to_the_fetch_outline() {
         ]),
         "{out}"
     );
-    let read = &out["next"]["read"];
+    let read = crate::tools::test_support::checks::related_call(&out, "localFetch", |_| true);
     assert_eq!(read["tool"], "localFetch", "{out}");
-    let row = read.pointer("/query/queries/0").unwrap_or(&read["query"]);
-    assert_eq!(row["minify"], "symbols", "{out}");
+    let row = read.pointer("/input/queries/0").unwrap_or(&read["input"]);
+    assert_eq!(row["view"], "symbols", "{out}");
     assert!(
         row["path"]
             .as_str()
@@ -311,7 +313,7 @@ fn a_cpp_header_parsed_as_c_suggests_cpp() {
                 diagnostic["code"] == "structural.header.cpp"
                     && diagnostic["message"]
                         .as_str()
-                        .is_some_and(|text| text.contains("language:\"cpp\""))
+                        .is_some_and(|text| text.contains("parser:\"cpp\""))
             })
     };
     let symbols = run(&root.0, json!({"operation":"symbols","path":header})).expect("symbols");
@@ -324,7 +326,7 @@ fn a_cpp_header_parsed_as_c_suggests_cpp() {
     assert!(suggests(&matched), "{matched}");
     let cpp = run(
         &root.0,
-        json!({"operation":"symbols","path":header,"language":"cpp"}),
+        json!({"operation":"symbols","path":header,"parser":"cpp"}),
     )
     .expect("cpp symbols");
     assert!(!suggests(&cpp), "{cpp}");
@@ -342,7 +344,7 @@ fn an_overridden_outline_is_cached_under_the_parser_it_used() {
     let root = Fixture::new();
     let file = root.0.join("cached-script");
     std::fs::write(&file, SCRIPT).expect("source");
-    let row = json!({"operation":"symbols","path":file,"language":"typescript"});
+    let row = json!({"operation":"symbols","path":file,"parser":"typescript"});
     let first = run(&root.0, row.clone()).expect("first symbols");
     let canonical = file.canonicalize().expect("canonical");
     let canonical = canonical.to_string_lossy();
@@ -362,4 +364,30 @@ fn an_overridden_outline_is_cached_under_the_parser_it_used() {
     let other =
         crate::tools::declarations_cache::document(SCRIPT, &canonical, Some(&javascript), || None);
     assert!(other.is_none(), "another override never reuses the entry");
+}
+
+#[test]
+fn fresh_symbol_parser_repair_preserves_scope_without_saved_progress() {
+    let root = Fixture::new();
+    root.write("a.ts", "export function item() {}\n");
+    let error = run(
+        &root.0,
+        json!({
+            "operation":"symbols","path":root.0,"parser":"typescript",
+            "page":2,"snapshot":"old","scanOffset":9,"exclude":["vendor/**"],"includeHidden":true
+        }),
+    )
+    .expect_err("parser on directory");
+    let calls = error.calls.expect("repair");
+    let lead = &calls["repair"];
+    assert_eq!(lead["kind"], "related");
+    crate::contracts::validate("astSearch", lead["input"].clone()).expect("authored repair");
+    let row = &lead["input"]["queries"][0];
+    for field in crate::contracts::state_fields(crate::id::ToolId::AstSearch) {
+        assert!(row.get(field).is_none(), "{field}: {row}");
+    }
+    assert!(row.get("parser").is_none());
+    assert_eq!(row["path"], json!(root.0));
+    assert_eq!(row["exclude"], json!(["vendor/**"]));
+    assert_eq!(row["includeHidden"], true);
 }

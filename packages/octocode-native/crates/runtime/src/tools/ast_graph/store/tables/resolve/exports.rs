@@ -2,19 +2,19 @@
 use super::*;
 
 /// Declarations a name resolves to, and whether a re-export hop was taken.
-pub(in super::super) type Resolved = (Vec<u32>, bool);
+type Resolved = (Vec<u32>, bool);
 
-pub(in super::super) struct ExportResolver<'a> {
-    pub(in super::super) built: &'a BuiltGraph,
-    pub(in super::super) indexes: &'a BTreeMap<&'a str, FileIndex<'a>>,
-    pub(in super::super) star_targets: &'a HashMap<&'a str, Vec<&'a str>>,
+pub(crate) struct ExportResolver<'a> {
+    pub(crate) built: &'a BuiltGraph,
+    pub(crate) indexes: &'a BTreeMap<&'a str, FileIndex<'a>>,
+    pub(crate) star_targets: &'a HashMap<&'a str, Vec<&'a str>>,
     /// file → name → resolution; call sites repeat the same imports. Keyed
     /// in two levels so a hit is looked up by borrowed strings.
-    pub(in super::super) memo: std::cell::RefCell<HashMap<String, HashMap<String, Resolved>>>,
+    pub(crate) memo: std::cell::RefCell<HashMap<String, HashMap<String, Resolved>>>,
 }
 
 impl ExportResolver<'_> {
-    pub(in super::super) fn exported(&self, file: &str, name: &str) -> (Vec<u32>, bool) {
+    pub(crate) fn exported(&self, file: &str, name: &str) -> (Vec<u32>, bool) {
         if let Some(hit) = self
             .memo
             .borrow()
@@ -34,7 +34,7 @@ impl ExportResolver<'_> {
 
     /// Declarations `file` exports under `name`, following named and star
     /// re-exports up to [`MAX_REEXPORT_DEPTH`] hops.
-    pub(in super::super) fn exported_uncached(&self, file: &str, name: &str) -> (Vec<u32>, bool) {
+    fn exported_uncached(&self, file: &str, name: &str) -> (Vec<u32>, bool) {
         let mut pending = vec![(file.to_owned(), name.to_owned(), 0usize)];
         let mut seen = BTreeSet::new();
         let mut found = Vec::new();
@@ -89,7 +89,7 @@ impl ExportResolver<'_> {
 
     /// What `file` exports under `name` (following re-exports), else any
     /// declaration of that name in it: a module-qualified call reaches both.
-    pub(in super::super) fn exported_or_declared(&self, file: &str, name: &str) -> Vec<u32> {
+    pub(crate) fn exported_or_declared(&self, file: &str, name: &str) -> Vec<u32> {
         let (exported, _) = self.exported(file, name);
         if exported.is_empty() {
             self.declared(file, name)
@@ -100,7 +100,7 @@ impl ExportResolver<'_> {
 
     /// Any declaration named `name` in `file` (module-qualified calls such as
     /// Go `pkg.Func` or Rust `module::func` need not be re-exported).
-    pub(in super::super) fn declared(&self, file: &str, name: &str) -> Vec<u32> {
+    fn declared(&self, file: &str, name: &str) -> Vec<u32> {
         self.indexes
             .get(file)
             .and_then(|index| index.by_name.get(name))
@@ -109,7 +109,7 @@ impl ExportResolver<'_> {
     }
 }
 
-pub(in super::super) fn confidence_for(targets: &[u32], strong: Confidence) -> Confidence {
+pub(crate) fn confidence_for(targets: &[u32], strong: Confidence) -> Confidence {
     if targets.len() == 1 {
         strong
     } else {
@@ -118,19 +118,19 @@ pub(in super::super) fn confidence_for(targets: &[u32], strong: Confidence) -> C
 }
 
 /// Per-file import bindings, built once so each call site is O(1).
-pub(in super::super) struct FileBindings<'a> {
+pub(crate) struct FileBindings<'a> {
     /// Local name → `(target file, name exported there)` for linked imports.
-    pub(in super::super) named: HashMap<&'a str, Vec<(&'a str, &'a str)>>,
+    pub(crate) named: HashMap<&'a str, Vec<(&'a str, &'a str)>>,
     /// Namespace/module binding (`ns` in `ns.f`, `pkg` in `pkg.F`) → files.
-    pub(in super::super) modules: HashMap<&'a str, Vec<&'a str>>,
+    pub(crate) modules: HashMap<&'a str, Vec<&'a str>>,
     /// Heads bound to third-party or standard packages.
-    pub(in super::super) external: HashSet<String>,
+    pub(crate) external: HashSet<String>,
     /// Files this file imports (scope for ambiguous names).
-    pub(in super::super) imported_files: HashSet<&'a str>,
+    pub(crate) imported_files: HashSet<&'a str>,
 }
 
 impl<'a> FileBindings<'a> {
-    pub(in super::super) fn new(facts: &'a FileFacts, language: &str) -> Self {
+    pub(crate) fn new(facts: &'a FileFacts, language: &str) -> Self {
         let mut bindings = Self {
             named: HashMap::new(),
             modules: HashMap::new(),

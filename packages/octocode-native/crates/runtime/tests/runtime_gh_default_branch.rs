@@ -36,7 +36,7 @@ fn calls(missing: &str) -> Vec<(&'static str, Value)> {
         ),
         (
             "ghStructure",
-            json!({"owner":"a","repo":"b","ref":missing,"path":"src"}),
+            json!({"operation":"tree","owner":"a","repo":"b","ref":missing,"path":"src"}),
         ),
         (
             "ghStructure",
@@ -69,15 +69,21 @@ async fn a_missing_ref_names_the_default_branch_and_leads_to_it() {
                 message.ends_with(&format!("; the default branch is \"{default}\".")),
                 "{tool}: {message}"
             );
-            let lead = checks::hint(data, "atDefaultBranch");
+            let lead =
+                checks::related_call(data, tool, |input| input["queries"][0].get("ref").is_some());
             assert_eq!(lead["tool"], tool, "{data}");
             let mut expected = query.clone();
             expected["ref"] = json!(default);
-            let row = &lead["query"]["queries"][0];
+            let row = &lead["input"]["queries"][0];
             for (field, value) in expected.as_object().expect("object") {
                 assert_eq!(&row[field], value, "{tool}.{field}: {data}");
             }
-            assert_eq!(checks::hint(data, "viewRefs")["tool"], "ghStructure");
+            assert_eq!(
+                crate::support::checks::related_call(data, "ghStructure", |input| input["queries"]
+                    [0]["operation"]
+                    == "refs")["tool"],
+                "ghStructure"
+            );
         }
         runtime.close().await;
     }
@@ -104,7 +110,7 @@ async fn history_listing_and_clone_lead_to_the_default_branch() {
         ),
         (
             "ghCloneRepo",
-            json!({"owner":"a","repo":"b","ref":"main","path":"src"}),
+            json!({"owner":"a","repo":"b","ref":"main","paths":["src"]}),
         ),
     ] {
         let outcome = call(&runtime, tool, query.clone())
@@ -116,12 +122,18 @@ async fn history_listing_and_clone_lead_to_the_default_branch() {
             message.ends_with("; the default branch is \"master\"."),
             "{tool}: {data}"
         );
-        let lead = checks::hint(data, "atDefaultBranch");
+        let lead =
+            checks::related_call(data, tool, |input| input["queries"][0].get("ref").is_some());
         assert_eq!(lead["tool"], tool, "{data}");
-        let row = &lead["query"]["queries"][0];
+        let row = &lead["input"]["queries"][0];
         assert_eq!(row["ref"], "master", "{data}");
         assert_eq!(row["owner"], "a", "{data}");
-        assert_eq!(checks::hint(data, "viewRefs")["tool"], "ghStructure");
+        assert_eq!(
+            crate::support::checks::related_call(data, "ghStructure", |input| input["queries"][0]
+                ["operation"]
+                == "refs")["tool"],
+            "ghStructure"
+        );
     }
     runtime.close().await;
 }
@@ -150,8 +162,24 @@ async fn without_a_different_default_branch_the_error_is_unchanged() {
             let data = row_data(&outcome);
             let message = data["error"].as_str().unwrap_or_default();
             assert!(!message.contains("default branch"), "{tool}: {data}");
-            assert!(checks::hint(data, "atDefaultBranch").is_null(), "{data}");
-            assert!(!checks::hint(data, "viewRefs").is_null() || tool == "ghGetHistoryItem");
+            assert!(
+                !data["related"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|call| call["input"]["queries"][0].get("ref").is_some()
+                        || call["input"]["queries"][0].get("baseRef").is_some()),
+                "{data}"
+            );
+            assert!(
+                data["related"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|call| call["tool"] == "ghStructure"
+                        && (call["input"]["queries"][0]["operation"] == "refs"))
+                    || tool == "ghGetHistoryItem"
+            );
         }
         runtime.close().await;
     }
@@ -178,29 +206,55 @@ async fn a_comparison_names_its_missing_side_and_leads_to_the_default_branch() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let query = json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"next"});
+    let query =
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"next"});
     let outcome = call(&runtime, "ghGetHistoryItem", query)
         .await
         .expect("error row");
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "notFound", "{data}");
+    let message = data["error"].as_str().expect("error message");
+    for fact in ["main...next", "a/b", "baseRef", "master"] {
+        assert!(message.contains(fact), "missing {fact}: {data}");
+    }
+    let row = &checks::related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0].get("baseRef").is_some()
+    })["input"]["queries"][0];
+    assert_eq!(row["baseRef"], "master", "{data}");
+    assert_eq!(row["headRef"], "next", "{data}");
     assert_eq!(
-        data["error"],
-        "Cannot compare main...next in a/b: \"main\" (base) not found; the default branch is \"master\".",
-        "{data}"
+        crate::support::checks::related_call(
+            data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "refs"
+        )["tool"],
+        "ghStructure"
     );
-    let row = &checks::hint(data, "atDefaultBranch")["query"]["queries"][0];
-    assert_eq!(row["base"], "master", "{data}");
-    assert_eq!(row["head"], "next", "{data}");
-    assert_eq!(checks::hint(data, "viewRefs")["tool"], "ghStructure");
 
     // The other side already is the default branch: no retry to offer.
-    let query = json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"master"});
+    let query =
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"master"});
     let outcome = call(&runtime, "ghGetHistoryItem", query)
         .await
         .expect("error row");
     let data = row_data(&outcome);
-    assert!(checks::hint(data, "atDefaultBranch").is_null(), "{data}");
-    assert!(!checks::hint(data, "viewRefs").is_null(), "{data}");
+    assert!(
+        !data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["input"]["queries"][0].get("ref").is_some()
+                || call["input"]["queries"][0].get("baseRef").is_some()),
+        "{data}"
+    );
+    assert!(
+        data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "ghStructure"
+                && (call["input"]["queries"][0]["operation"] == "refs")),
+        "{data}"
+    );
     runtime.close().await;
 }

@@ -19,7 +19,11 @@ use std::collections::{BTreeSet, HashSet};
 use std::time::Duration;
 
 mod aliases;
-pub(super) use aliases::*;
+#[cfg(test)]
+pub(super) use aliases::may_rename;
+pub(super) use aliases::{
+    ALIAS_SCAN_CAPPED_REASON, AliasSearch, disclose_alias_cap, recover_aliases,
+};
 
 const DEFINITION_ALIAS_SETTLE_MS: u64 = 50;
 /// Definition hops followed past the first answer.

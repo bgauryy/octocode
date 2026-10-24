@@ -2,7 +2,10 @@
 import { readdirSync, statSync, rmSync, existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { flagArgs, validateFlags } from './cli-flags.mjs';
+import { errorMessage } from './error-message.mjs';
 import { octocodeWorkspace } from './engine-io.mjs';
+
+type RunDir = { name: string; path: string; mtimeMs: number };
 
 const argv = process.argv.slice(2);
 const { getArg, hasFlag } = flagArgs(argv);
@@ -32,9 +35,9 @@ if (
   );
   process.exit(2);
 }
-const failures = [];
+const failures: { path: string; error: string }[] = [];
 const DRY_RUN = hasFlag('--dry-run');
-const BASE_OVERRIDE = getArg('--base', null);
+const BASE_OVERRIDE = getArg('--base');
 
 const WORKSPACE_OUTPUT_BASE = octocodeWorkspace();
 const BASE = BASE_OVERRIDE
@@ -48,7 +51,7 @@ if (baseRelative.startsWith('..') || isAbsolute(baseRelative)) {
 const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}(?:-\d+)?$/;
 const PORT_DIR_RE = /^port-\d+$/;
 
-function listDirs(dir) {
+function listDirs(dir: string): RunDir[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
     .filter(d => d.isDirectory())
@@ -59,7 +62,7 @@ function listDirs(dir) {
 }
 
 // Remove anything past max age, then trim survivors down to max count (newest first).
-function prune(dirs, label) {
+function prune(dirs: RunDir[], label: string) {
   const maxAgeMs = MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
   const now = Date.now();
   const expired = dirs.filter(d => now - d.mtimeMs > maxAgeMs);
@@ -69,13 +72,13 @@ function prune(dirs, label) {
   const overCap = fresh.slice(MAX_COUNT);
   const toRemove = [...expired, ...overCap];
 
-  const removed = [];
+  const removed: string[] = [];
   for (const d of toRemove) {
     try {
       if (!DRY_RUN) rmSync(d.path, { recursive: true, force: true });
       removed.push(d.path);
     } catch (error) {
-      failures.push({ path: d.path, error: error.message });
+      failures.push({ path: d.path, error: errorMessage(error) });
     }
   }
   console.error(

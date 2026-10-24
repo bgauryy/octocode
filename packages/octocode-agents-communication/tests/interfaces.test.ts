@@ -7,6 +7,8 @@ import { createCommunicationCli } from '../dist/cli.js';
 import { commandHelp, parseCommandInput } from 'octocode-mcp-cli';
 import type { JsonRecord } from './json-record.ts';
 import { execFileSync, root, tempWorkspace } from './helpers.ts';
+import { readFileSync } from 'node:fs';
+const { catalog } = await import('../dist/runtime.js');
 const entry = join(root, 'bin/octocode-agents-communication.mjs');
 const launch = (args: string[]): JsonRecord => JSON.parse(execFileSync(process.execPath, [entry, '/cli', ...args, '--json'], { encoding: 'utf8', timeout: 10000 }));
 test('MCP and CLI report the published manifest version', () => {
@@ -16,7 +18,8 @@ test('MCP and CLI report the published manifest version', () => {
 });
 test('all canonical operations expose contextual help with no unexplained flags', () => {
   const spec = createCommunicationCli();
-  assert.equal(spec.commands.length, 51);
+  // Every catalog command, with spaces as dashes, plus the two record-type discovery commands the CLI adds.
+  assert.deepEqual(spec.commands.map(command => command.name).toSorted(), [...catalog.catalog().commands.map((command: { name: string }) => command.name.replaceAll(' ', '-')), 'schema-type', 'schema-types'].toSorted());
   for (const command of spec.commands) {
     assert.ok(commandHelp(spec, command).includes(command.description), command.name);
     for (const flag of command.flags) assert.ok(flag.description, `${command.name}.${flag.property}`);
@@ -54,14 +57,14 @@ test('CLI preserves identities and leases across invocations; default MCP borrow
   assert.equal(reply(3).result.isError, undefined);
   assert.equal(launch(['locks', ...bound]).items.length, 1);
   assert.equal(launch(['db-info', ...common]).compatible, true);
-  assert.ok(launch(['db-protocol']).protocol);
-  assert.ok(launch(['schema', 'types', '--compact']).length > 0);
+  assert.equal(launch(['db-protocol']).protocol, readFileSync(join(root, 'docs/DB.md'), 'utf8'));
+  assert.deepEqual(launch(['schema', 'types', '--compact']).map((type: JsonRecord): string => type.type).toSorted(), catalog.catalog().recordTypes.map((type: JsonRecord): string => type.type).toSorted());
   assert.equal(launch(['schema', 'type', 'coordinate.in']).type, 'coordinate.in');
   assert.equal(launch(['schema', 'send_message']).name, 'send_message');
   const large = JSON.parse(execFileSync(process.execPath, [entry, '/cli', 'share_document', '-', ...bound, '--json'], {
     input: JSON.stringify({ name: 'large-evidence', content: 'e'.repeat(300000), reasoning: 'Verify lossless stdin transport' }), encoding: 'utf8', timeout: 10000,
   }));
-  assert.ok(large);
+  assert.deepEqual([large.created, large.document.bytes], [true, 300000]);
   let page = launch(['read_document', '--name', 'large-evidence', '--limit', '16384', ...bound]);
   let content = page.content;
   while (page.next) { page = launch([page.next.command, JSON.stringify(page.next.input), ...bound]); content += page.content; }
@@ -69,7 +72,8 @@ test('CLI preserves identities and leases across invocations; default MCP borrow
   launch(['subscribe', '{"topics":[]}', ...bound]);
   assert.throws(() => launch(['fetch', '{"limit":"10"}', ...bound]));
   // JSON-valued flags are values, never compatibility payloads.
-  assert.ok(launch(['fetch', '--where', '{"name":"reviewer"}', ...bound]).items);
+  const joined = launch(['fetch', '--where', '{"name":"reviewer"}', ...bound]).items;
+  assert.ok(joined.length > 0 && joined.every((row: JsonRecord) => row.data.name === 'reviewer'), JSON.stringify(joined));
   launch(['leave', ...bound]);
 });
 test('CLI waits for delayed stdin chunks and preserves split Unicode', async t => {

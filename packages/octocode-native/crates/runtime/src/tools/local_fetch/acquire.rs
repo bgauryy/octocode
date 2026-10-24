@@ -6,7 +6,7 @@ use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::security::scan::ContentScan;
 use crate::tools::source_view::*;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -28,7 +28,7 @@ pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> 
                 "File too large: {len} bytes (streaming ceiling: {} bytes / 1 GiB). localFetch cannot read this path, even in ranges.",
                 super::large_source::MAX_STREAM_SOURCE_BYTES
             ),
-            "No ranges, matchString, or fullContent lift this ceiling; choose a smaller text source or split it outside localFetch.",
+            "No selection lifts this source-size ceiling; choose a smaller text source or split it outside localFetch.",
         ),
         SourceSizeLimit::InMemoryGrowth => (
             format!(
@@ -39,7 +39,7 @@ pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> 
     };
     let mut result = LocalFetchResult::error(path.to_owned(), ErrorCode::FileTooLarge, message);
     result.source_bytes = Some(len as usize);
-    result.terminal_limit(PartialReason::FullContentSource);
+    result.terminal_limit(PartialReason::SourceSizeLimit);
     result.hints = vec![hint.into()];
     result
 }
@@ -84,9 +84,9 @@ pub(super) fn name_read_file(
     result: &mut LocalFetchResult,
     q: &LocalFetchQuery,
     read: &ValidatedRead,
-) {
+) -> Result<(), octocode_contract_types::error::ConversionError> {
     let named = read.named.as_str();
-    if result.path == q.path.as_str() {
+    if result.path == local_fetch_query::path(q) {
         named.clone_into(&mut result.path);
     }
     if let Some(target) = &read.target
@@ -99,14 +99,15 @@ pub(super) fn name_read_file(
             .warnings
             .push(format!("{named} resolves through a symlink to {target}."));
     }
-    let (Some(next), Ok(path)) = (result.next.as_mut(), named.parse()) else {
-        return;
+    let Some(next) = result.next.as_mut() else {
+        return Ok(());
     };
     for read in next.reads_mut() {
-        if read.query.path == q.path {
-            read.query.path.clone_from(&path);
+        if local_fetch_query::path(&read.query) == local_fetch_query::path(q) {
+            local_fetch_query::set_path(&mut read.query, named)?;
         }
     }
+    Ok(())
 }
 
 /// The validated path, opened, and the handle's stat; a refused path, a
@@ -116,7 +117,7 @@ pub(super) fn resolve_file(
     paths: &impl PathAccess,
 ) -> Result<(ValidatedRead, fs::File, fs::Metadata), Box<LocalFetchResult>> {
     let validated = paths
-        .validate_read(Path::new(q.path.as_str()))
+        .validate_read(Path::new(local_fetch_query::path(q)))
         .map_err(|failure| Box::new(path_failure(q, *failure)))?;
     // Open first, then stat the handle: a path swapped for a FIFO or a
     // directory after the policy check is refused, never blocked on. A failed
@@ -127,7 +128,7 @@ pub(super) fn resolve_file(
             Ok(meta) if meta.is_dir() => not_a_file(q, NotAFile::Directory),
             Ok(meta) if !meta.is_file() => not_a_file(q, NotAFile::Special),
             _ => LocalFetchResult::error(
-                q.path.to_string(),
+                local_fetch_query::path(q).to_owned(),
                 ErrorCode::FileAccessFailed,
                 error.to_string(),
             ),
@@ -165,14 +166,14 @@ pub(super) fn fetch_streamed(
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
-    if q.clasify_context.is_some() {
+    if local_fetch_query::has_classification(q) {
         return unsupported_selection(
             q,
             "Streamed files cannot use inline selection, even with ranges. Read the unfiltered window, then use clasify with bounded state or source ranges.",
             None,
         );
     }
-    if q.selection.is_some() {
+    if local_fetch_query::selection(q).is_some() {
         return stale_snapshot(q);
     }
     let path = &file.canonical;
@@ -186,7 +187,13 @@ pub(super) fn fetch_streamed(
         security,
         cancel,
     );
-    name_read_file(&mut result, q, file);
+    if let Err(error) = name_read_file(&mut result, q, file) {
+        return LocalFetchResult::error(
+            local_fetch_query::path(q).to_owned(),
+            ErrorCode::ExecutionFailed,
+            error.to_string(),
+        );
+    }
     result
 }
 
@@ -195,27 +202,27 @@ pub(super) fn fetch_streamed(
 pub(super) fn not_a_file(q: &LocalFetchQuery, kind: NotAFile) -> LocalFetchResult {
     if kind == NotAFile::Special {
         return LocalFetchResult::error(
-            q.path.to_string(),
+            local_fetch_query::path(q).to_owned(),
             ErrorCode::NotAFile,
             format!(
                 "{} is not a regular file (a FIFO, socket or device); localFetch reads regular files only.",
-                q.path
+                local_fetch_query::path(q)
             ),
         );
     }
     let mut result = LocalFetchResult::error(
-        q.path.to_string(),
+        local_fetch_query::path(q).to_owned(),
         ErrorCode::NotAFile,
         format!(
             "{} is a directory, not a file; list it with structureSearch, then read a file in it.",
-            q.path
+            local_fetch_query::path(q)
         ),
     );
     result.next = Some(NextCalls {
         view_tree: Some(
-            crate::response::result::Continuation::new(
+            crate::response::result::Continuation::related(
                 ToolId::StructureSearch,
-                serde_json::json!({"operation": "tree", "path": q.path.as_str()}),
+                serde_json::json!({"operation": "tree", "path": local_fetch_query::path(q)}),
             )
             .build(),
         ),
@@ -229,7 +236,10 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
     if let Some(kind) = failure.not_a_file {
         return not_a_file(q, kind);
     }
-    let display = failure.safe_path.as_deref().unwrap_or(&q.path);
+    let display = failure
+        .safe_path
+        .as_deref()
+        .unwrap_or(local_fetch_query::path(q));
     let message = if failure.sparse_checkout {
         format!(
             "Path does not exist: {display}. It lies in a sparse checkout, so it may exist outside the checked-out paths: re-clone with a path that covers it, or read it with ghGetFileContent."
@@ -239,7 +249,8 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
     } else {
         failure.message
     };
-    let mut result = LocalFetchResult::error(q.path.to_string(), failure.code, message);
+    let mut result =
+        LocalFetchResult::error(local_fetch_query::path(q).to_owned(), failure.code, message);
     result.resource_missing = failure.resource_missing;
     if failure.resource_missing {
         // The parent's tree shows a mistyped name's siblings; the listing
@@ -247,16 +258,15 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
         // of the one close sibling fixes a mistyped name in one call.
         let next = NextCalls {
             view_tree: failure.view_tree,
-            find_file: failure
-                .search_root
-                .as_deref()
-                .and_then(|root| crate::tools::leads::find_file::find_file(root, q.path.as_str())),
+            find_file: failure.search_root.as_deref().and_then(|root| {
+                crate::tools::leads::find_file::find_file(root, local_fetch_query::path(q))
+            }),
             read: failure
                 .corrected
-                .and_then(|path| path.parse().ok())
-                .map(|path| FetchCall {
-                    query: LocalFetchQuery { path, ..q.clone() },
-                }),
+                .and_then(|path| {
+                    local_fetch_query::updated(q, serde_json::json!({"path":path})).ok()
+                })
+                .map(FetchCall::related),
             ..NextCalls::default()
         };
         result.next = Some(next).filter(|next| !next.is_empty());
@@ -267,7 +277,7 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
 /// The refusal for a binary file: a NUL byte, or a binary head.
 pub(super) fn refuse_binary(q: &LocalFetchQuery, display_path: &str) -> LocalFetchResult {
     let mut result = LocalFetchResult::error(
-        q.path.to_string(),
+        local_fetch_query::path(q).to_owned(),
         ErrorCode::BinaryFileUnsupported,
         format!(
             "Binary file unsupported: {display_path}. Read a text source file, or use structureSearch operation:\"files\" for file metadata."

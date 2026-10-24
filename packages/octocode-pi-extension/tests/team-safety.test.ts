@@ -7,8 +7,8 @@ import { TeamStore } from '../src/team/store.js';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { stub } from './doubles.js';
 import { fakePermission, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
-import { member, repo } from './team-harness.js';
+import { repo, tmp } from './helpers.js';
+import { member } from './team-harness.js';
 
 const open = (cwd: string, db: string) => TeamStore.open(cwd, db);
 /** A host whose messages go nowhere: the team under test only needs somewhere to send them. */
@@ -31,6 +31,38 @@ const setup = async () => {
   main.start(ctx);
   const me = main.join();
   return { Team, cwd, file, env, ctx, log, main, me, fail: (on: boolean) => (failing = on) };
+};
+
+/** A repo with `a.ts` holding `one`, and an edit of it through the file tool guarded by `team`'s reservations. */
+async function soloFile() {
+  const { Team } = await import('../src/team/session.js');
+  const { FileGuard } = await import('../src/files/guard.js');
+  const { registerFileTool } = await import('../src/files/tool.js');
+  const cwd = repo();
+  const target = path.join(cwd, 'a.ts');
+  fs.writeFileSync(target, 'one');
+  const edit = async (team: InstanceType<typeof Team>, from: string, to: string) => {
+    const guard = new FileGuard();
+    guard.reservedBy = (file) => team.reservation(file, file);
+    guard.record(target);
+    const { pi, tools } = fakePi();
+    registerFileTool(pi, guard, fakePermission());
+    const tool = tools.get('file');
+    return tool.execute('c', { queries: [{ reasoning: 'r', type: 'edit', path: 'a.ts', edits: [{ oldText: from, newText: to }] }] }, undefined, undefined, { cwd, hasUI: false });
+  };
+  const solo = (env: { OCTOCODE_AGENT_DB: string }) => {
+    const team = new Team(quietPi(), env);
+    team.start(stub<ExtensionContext>({ cwd, isIdle: () => true }));
+    return team;
+  };
+  return { cwd, target, edit, solo };
+}
+
+const databaseLocked = async () => {
+  const { vi } = await import('vitest');
+  return vi.spyOn(TeamStore.prototype, 'conflict').mockImplementation(() => {
+    throw Object.assign(new Error('database is locked'), { code: 'ERR_SQLITE_ERROR', errstr: 'database is locked' });
+  });
 };
 
 describe('Team safety', () => {
@@ -124,63 +156,6 @@ describe('Team safety', () => {
 });
 
 describe('Team safety', () => {
-  it('lets a solo session that never joined edit when the database is foreign or busy, but still honours peer leases', async () => {
-    const { vi } = await import('vitest');
-    const { Team } = await import('../src/team/session.js');
-    const { FileGuard } = await import('../src/files/guard.js');
-    const { registerFileTool } = await import('../src/files/tool.js');
-    const cwd = repo();
-    const target = path.join(cwd, 'a.ts');
-    fs.writeFileSync(target, 'one');
-    const edit = async (team: InstanceType<typeof Team>, from: string, to: string) => {
-      const guard = new FileGuard();
-      guard.reservedBy = (file) => team.reservation(file, file);
-      guard.record(target);
-      const { pi, tools } = fakePi();
-      registerFileTool(pi, guard, fakePermission());
-      const tool = tools.get('file');
-      return tool.execute('c', { queries: [{ reasoning: 'r', type: 'edit', path: 'a.ts', edits: [{ oldText: from, newText: to }] }] }, undefined, undefined, { cwd, hasUI: false });
-    };
-    // A foreign database: the schema error must not block a session that never collaborated.
-    const foreign = path.join(tmp(), 'other.sqlite');
-    const raw = new DatabaseSync(foreign);
-    raw.exec('CREATE TABLE notes (id INTEGER);');
-    raw.close();
-    const solo = new Team(quietPi(), { OCTOCODE_AGENT_DB: foreign });
-    solo.start(stub<ExtensionContext>({ cwd, isIdle: () => true }));
-    expect(solo.reservation(target, 'a.ts')).toBeUndefined();
-    await edit(solo, 'one', 'two');
-    expect(fs.readFileSync(target, 'utf8')).toBe('two');
-    solo.stop();
-
-    // A healthy database: a solo session still sees a peer's lease, and a busy database does not block it.
-    const { main, env } = await setup();
-    const lone = new Team(quietPi(), env);
-    lone.start(stub<ExtensionContext>({ cwd, isIdle: () => true }));
-    try {
-      const peer = TeamStore.open(cwd, env.OCTOCODE_AGENT_DB);
-      peer.save(member('peer-0002'));
-      expect(peer.lock('peer-0002', [{ path: 'a.ts', kind: 'file', reason: 'busy' }])).toMatchObject({ ok: true });
-      peer.close();
-      expect(lone.reservation(target, 'a.ts')).toContain('reserved by peer-0002');
-      // The model reads the refusal: a control in the file name shows as an escape.
-      expect(lone.reservation(target, 'a\u001b[2J.ts')).toContain('a\\u{1b}[2J.ts is reserved by peer-0002');
-      const spy = vi.spyOn(TeamStore.prototype, 'conflict').mockImplementation(() => {
-        throw Object.assign(new Error('database is locked'), { code: 'ERR_SQLITE_ERROR', errstr: 'database is locked' });
-      });
-      try {
-        expect(lone.reservation(target, 'a.ts')).toBeUndefined();
-        // Joined agents keep failing closed.
-        expect(main.reservation(target, 'a.ts')).toMatch(/Team database unavailable/);
-      } finally {
-        spy.mockRestore();
-      }
-    } finally {
-      lone.stop();
-      main.stop();
-    }
-  });
-
   it('checks reservations again right before the file tool writes or deletes, after the change was prepared', async () => {
     const { FileGuard } = await import('../src/files/guard.js');
     const { registerFileTool } = await import('../src/files/tool.js');
@@ -305,6 +280,58 @@ describe('Team safety', () => {
       child.stop();
       main.stop();
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('Team safety: a solo session that never joined', () => {
+  it('lets a solo session that never joined edit when the team database is foreign', async () => {
+    const { target, edit, solo } = await soloFile();
+    // A foreign database: the schema error must not block a session that never collaborated.
+    const foreign = path.join(tmp(), 'other.sqlite');
+    const raw = new DatabaseSync(foreign);
+    raw.exec('CREATE TABLE notes (id INTEGER);');
+    raw.close();
+    const team = solo({ OCTOCODE_AGENT_DB: foreign });
+    try {
+      expect(team.reservation(target, 'a.ts')).toBeUndefined();
+      await edit(team, 'one', 'two');
+      expect(fs.readFileSync(target, 'utf8')).toBe('two');
+    } finally {
+      team.stop();
+    }
+  });
+
+  it('still shows a solo session a peer\'s lease, with controls in the file name as escapes', async () => {
+    const { cwd, target, solo } = await soloFile();
+    const { main, env } = await setup();
+    const lone = solo(env);
+    try {
+      const peer = TeamStore.open(cwd, env.OCTOCODE_AGENT_DB);
+      peer.save(member('peer-0002'));
+      expect(peer.lock('peer-0002', [{ path: 'a.ts', kind: 'file', reason: 'busy' }])).toMatchObject({ ok: true });
+      peer.close();
+      expect(lone.reservation(target, 'a.ts')).toContain('reserved by peer-0002');
+      // The model reads the refusal: a control in the file name shows as an escape.
+      expect(lone.reservation(target, 'a\u001b[2J.ts')).toContain('a\\u{1b}[2J.ts is reserved by peer-0002');
+    } finally {
+      lone.stop();
+      main.stop();
+    }
+  });
+
+  it('lets a solo session through a busy database while a joined agent fails closed', async () => {
+    const { target, solo } = await soloFile();
+    const { main, env } = await setup();
+    const lone = solo(env);
+    const spy = await databaseLocked();
+    try {
+      expect(lone.reservation(target, 'a.ts')).toBeUndefined();
+      expect(main.reservation(target, 'a.ts')).toMatch(/Team database unavailable/);
+    } finally {
+      spy.mockRestore();
+      lone.stop();
+      main.stop();
     }
   });
 });

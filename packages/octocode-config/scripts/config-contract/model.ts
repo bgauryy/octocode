@@ -47,10 +47,6 @@ export type Contract = {
       description?: string;
     }
   >;
-  removed?: {
-    settings?: Record<string, string>;
-    environment?: Record<string, string>;
-  };
   sections: Record<string, Section>;
 };
 

@@ -126,7 +126,7 @@ fn walk_pages(
         let names = page_names(&row);
         assert!(!names.is_empty(), "page {call} moved: {row}");
         seen.extend(names);
-        let Some(next) = row.pointer("/next/nextPage/query/queries/0") else {
+        let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
             break;
         };
         q = serde_json::from_value(next.clone()).expect("executable continuation");
@@ -147,7 +147,7 @@ fn a_copied_continuation_reaches_every_row_once() {
         .map(|item| item["name"].as_str().expect("name").to_owned())
         .collect::<Vec<_>>();
     let q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "path": "file:///repo", "symbolName": "s"
+        "operation": "workspaceSymbol", "path": "file:///repo", "symbolQuery": "s"
     }));
     for budget in [600, 900, 2_400] {
         let seen = walk_pages(&q, budget, |q, budget| {
@@ -185,14 +185,14 @@ fn a_page_past_the_end_or_of_another_answer_never_skips_rows() {
         .map(|index| serde_json::json!({"name": format!("s{index:02}"), "detail": "x".repeat(80)}))
         .collect::<Vec<_>>();
     let q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "path": "file:///repo", "symbolName": "s"
+        "operation": "workspaceSymbol", "path": "file:///repo", "symbolQuery": "s"
     }));
     let first = with_next(
         &q,
         items_payload(&q, "symbols", serde_json::json!(items), 600),
     );
     let next: LspSearchQuery =
-        serde_json::from_value(first["next"]["nextPage"]["query"]["queries"][0].clone())
+        serde_json::from_value(first["next"]["nextPage"]["input"]["queries"][0].clone())
             .expect("continuation");
     // The answer changed: the digest no longer matches.
     let mut changed = items.clone();
@@ -214,13 +214,13 @@ fn a_forged_snapshot_is_a_stale_snapshot() {
         .map(|index| serde_json::json!({"name": format!("s{index:02}"), "detail": "x".repeat(80)}))
         .collect::<Vec<_>>();
     let q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "path": "file:///repo", "symbolName": "s"
+        "operation": "workspaceSymbol", "path": "file:///repo", "symbolQuery": "s"
     }));
     let second: LspSearchQuery = serde_json::from_value(
         with_next(
             &q,
             items_payload(&q, "symbols", serde_json::json!(items), 600),
-        )["next"]["nextPage"]["query"]["queries"][0]
+        )["next"]["nextPage"]["input"]["queries"][0]
             .clone(),
     )
     .expect("continuation");
@@ -228,8 +228,9 @@ fn a_forged_snapshot_is_a_stale_snapshot() {
     let forged = requery(&second, serde_json::json!({"snapshot": "lsp-v3:forged"}));
     let row = items_payload(&forged, "symbols", serde_json::json!(items), 600);
     assert_eq!(row["errorCode"], "staleSnapshot", "{row}");
-    let restart = &row["next"]["restart"]["query"]["queries"][0];
-    for cursor in crate::response::result::CURSOR_FIELDS {
+    let restart = &crate::tools::test_support::checks::related_call(&row, "lspSearch", |_| true)["input"]
+        ["queries"][0];
+    for cursor in crate::contracts::state_fields(crate::id::ToolId::LspSearch) {
         assert!(restart.get(cursor).is_none(), "{cursor}: {row}");
     }
     assert!(row.get("matches").is_none(), "{row}");
@@ -272,7 +273,7 @@ fn caller_pages_fill_the_budget_with_compact_rows() {
                 .flat_map(|file| file["matches"].as_array().into_iter().flatten())
                 .map(|call| call["symbolName"].as_str().expect("name").to_owned()),
         );
-        let Some(next) = row.pointer("/next/nextPage/query/queries/0") else {
+        let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
             break;
         };
         q = serde_json::from_value(next.clone()).expect("continuation");

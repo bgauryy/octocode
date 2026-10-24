@@ -26,49 +26,25 @@ pub(super) fn location_payload(
 pub(super) fn location_sizes(
     entries: &[Value],
     grouped: bool,
-    compact: bool,
-    context_lines: Option<u32>,
+    context_lines: Option<octocode_engine::types::SearchContext>,
 ) -> Vec<usize> {
     use octocode_engine::json_size::string_body_units;
-    let mut previous_uri: Option<&str> = None;
     entries
         .iter()
         .map(|entry| {
             if grouped {
                 return octocode_engine::json_size::utf16_units(entry).unwrap_or(0) + 1;
             }
-            if !compact {
-                let line = entry
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .map_or(0, string_body_units);
-                let context = context_lines.map_or(0, |lines| 2 * lines as usize * line);
-                return octocode_engine::json_size::utf16_units(&public_location(entry.clone()))
-                    .unwrap_or(0)
-                    + context
-                    + 1;
-            }
-            let uri = entry.get("uri").and_then(Value::as_str);
-            let row = compact_rows_by_file(std::slice::from_ref(entry));
-            let matched = row.first().and_then(|file| file["matches"].get(0));
-            let own = matched.map_or(0, |matched| {
-                octocode_engine::json_size::utf16_units(matched).unwrap_or(0) + 1
+            let line = entry
+                .get("content")
+                .and_then(Value::as_str)
+                .map_or(0, string_body_units);
+            let context = context_lines.map_or(0, |lines| {
+                (lines.before.saturating_add(lines.after)) as usize * line
             });
-            let path = if uri == previous_uri {
-                0
-            } else {
-                row.first()
-                    .and_then(|file| file["path"].as_str())
-                    .map_or(0, |path| {
-                        octocode_engine::json_size::utf16_units(
-                            &json!({"path": path, "matches": []}),
-                        )
-                        .unwrap_or(0)
-                            + 1
-                    })
-            };
-            previous_uri = uri;
-            own + path
+            octocode_engine::json_size::utf16_units(&public_location(entry.clone())).unwrap_or(0)
+                + context
+                + 1
         })
         .collect()
 }
@@ -96,7 +72,7 @@ pub(super) fn reference_totals(row: &mut Value, locations: &[Value]) {
 /// file per request).
 pub(in super::super) async fn apply_context_lines(
     location: &mut Value,
-    context_lines: u32,
+    context_lines: octocode_engine::types::SearchContext,
     sources: &mut SourceCache<'_>,
 ) {
     let Some(path) = location.get("uri").and_then(Value::as_str).map(uri_to_path) else {
@@ -125,9 +101,9 @@ pub(in super::super) async fn apply_context_lines(
     if start_line >= source.line_count() {
         return;
     }
-    let start = start_line.saturating_sub(context_lines as usize);
+    let start = start_line.saturating_sub(context_lines.before as usize);
     let end = selected_end
-        .saturating_add(context_lines as usize)
+        .saturating_add(context_lines.after as usize)
         .saturating_add(1)
         .min(source.line_count());
     location["content"] = json!(source.lines(start, end));
@@ -169,9 +145,9 @@ pub(in super::super) fn cap_declaration_content(location: &mut Value) -> Option<
     });
     let read = match (&path, rest) {
         (Some(path), Some((from, to))) => Some(
-            crate::response::result::Continuation::new(
+            crate::response::result::Continuation::continued(
                 ToolId::LocalFetch,
-                json!({"path": path, "ranges": [format!("{from}-{to}")]}),
+                json!({"path": path, "ranges": [{"startLine":from,"endLine":to}]}),
             )
             .build(),
         ),

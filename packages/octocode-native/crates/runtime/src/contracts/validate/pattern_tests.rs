@@ -68,7 +68,7 @@ fn continuation_queries_reject_non_ecmascript_owners_without_mutating_output() {
     for (owner, accepted) in [("valid_owner", true), ("owneré", false), ("中", false)] {
         let mut output = json!({"results":[{"index":0,"data":{
             "path":"a.ts", "content":"x", "totalLines":1,
-            "next":{"browse":{"tool":"ghStructure","query":{"queries":[{"owner":owner,"repo":"repo"}]}}}
+            "related":[{"kind":"related","tool":"ghStructure","input":{"queries":[{"operation":"tree","owner":owner,"repo":"repo"}]}}]
         }}]});
         let before = serde_json::to_vec(&output).expect("wire bytes");
         let result = super::validate_output_in_place("localFetch", &mut output);

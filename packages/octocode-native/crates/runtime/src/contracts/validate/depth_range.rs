@@ -44,10 +44,5 @@ mod tests {
         assert_eq!(error.issues.len(), 1, "{error:?}");
         assert_eq!(error.issues[0].path, ["queries", "1", "minDepth"]);
         assert!(error.issues[0].message.contains("minDepth 3, maxDepth 1"));
-        let repaired = super::super::repair_input(&input, &error.issues, |_| Ok(()));
-        assert!(
-            repaired.is_none(),
-            "only the caller knows which bound is wrong"
-        );
     }
 }

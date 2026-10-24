@@ -1,7 +1,7 @@
 //! Lazy row-page planning tests.
 
 use super::*;
-use crate::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
+use crate::response::result::PAGES_KEY;
 mod delivery;
 mod split_pages;
 mod split_parts;
@@ -19,8 +19,7 @@ fn envelope_of(count: usize) -> Map<String, Value> {
     json!({"root": "/repo", "results": [
         {"index": 0, "data": {"files": [{"path": "a.rs", "matches": matches.clone()},
                                         {"path": "b.rs", "matches": [huge]}],
-                              "next": {"sidecar": {"tool": "localSearch",
-                                                      "query": {"page": 2}}}}},
+                              "related": [{"kind":"related", "tool": "localSearch", "input": {"queries":[{"path":".","matchString":["sidecar"]}]}}]}},
         {"index": 1, "data": {"content": "small"}},
         {"index": 2, "data": {"files": [{"path": "c.rs", "matches": matches}]}}
     ]})
@@ -31,10 +30,10 @@ fn envelope_of(count: usize) -> Map<String, Value> {
 
 fn options(length: usize, offset: usize, snapshot: Option<String>) -> ResponsePageOptions {
     ResponsePageOptions {
-        response_length: Some(length),
+        response_chars: Some(length),
         response_offset: Some(offset),
         response_snapshot: snapshot,
-        response_scope: Some(crate::response::cursor::PageScope::Rows),
+        paging: true,
         saved: None,
     }
 }
@@ -54,9 +53,7 @@ fn walk(
     (0..first.total_pages)
         .map(|offset| {
             let request = options(length, offset, Some(first.snapshot.clone()));
-            let page = paginate_rows(structured.clone(), &request, Vec::new(), &[], None);
-            assert!(page.1.restart.is_none(), "length {length} page {offset}");
-            page
+            paginate_rows(structured.clone(), &request, Vec::new(), &[], None)
         })
         .collect()
 }

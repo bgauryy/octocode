@@ -172,8 +172,7 @@ fn owned_core_stop_rule_depth_and_interruption_remain_explicit() {
         &json!({"not":{"precedes":{"kind":"expression_statement","stopBy":{"kind":"expression_statement"}}}}),
     )
     .unwrap();
-    let line_index =
-        crate::text::utf8_offsets::LineIndex::tree_sitter("first(); middle(); last();");
+    let line_index = crate::text::LineIndex::tree_sitter("first(); middle(); last();");
     let document = Document {
         line_index: &line_index,
         content: "first(); middle(); last();",

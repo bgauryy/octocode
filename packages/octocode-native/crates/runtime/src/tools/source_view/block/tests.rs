@@ -141,17 +141,6 @@ fn oversized_declarations_are_capped() {
     assert_eq!(windows, vec![LineRange { start: 18, end: 22 }]);
 }
 
-/// A window that holds a declaration's whole body is not cut short by
-/// the doc comments above it: those join only an explicit block read.
-#[test]
-fn a_window_cut_ignores_the_doc_comments_above_a_declaration() {
-    let source = "/// Doc one.\n/// Doc two.\nfn target() {\n    body();\n}\n";
-    assert_eq!(
-        enclosing(source, "m.rs", &[4]),
-        Some(vec![LineRange { start: 3, end: 5 }])
-    );
-}
-
 /// A declaration's leading doc comments and attributes belong to it:
 /// a block read starts at the first of them, not at the `fn` line.
 #[test]

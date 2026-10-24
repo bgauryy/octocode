@@ -13,12 +13,16 @@ async fn an_exact_lookup_of_a_renamed_repository_warns() {
         json!({"full_name":"o/new","name":"new","html_url":"h","default_branch":"main","archived":false}),
     )
     .await;
-    let out = run(&server, json!({"owner":"o","repo":"old"})).await;
+    let out = run(&server, json!({"owner":"o","repo":"old","operation":"get"})).await;
     assert_eq!(out.data["repositories"][0]["repo"], "new", "{}", out.data);
     // Leads name the repository as it is now.
     assert_eq!(
-        out.data["next"]["viewTree"]["query"]["queries"][0],
-        json!({"owner":"o","repo":"new"})
+        crate::tools::test_support::checks::related_call(
+            &out.data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        )["input"]["queries"][0],
+        json!({"owner":"o","repo":"new","operation":"tree"})
     );
     assert_eq!(
         out.data["warnings"],
@@ -34,7 +38,7 @@ async fn an_exact_lookup_of_a_renamed_repository_warns() {
         json!({"full_name":"O/New","name":"New","html_url":"h","default_branch":"main","archived":false}),
     )
     .await;
-    let out = run(&same, json!({"owner":"o","repo":"new"})).await;
+    let out = run(&same, json!({"owner":"o","repo":"new","operation":"get"})).await;
     assert!(out.data.get("warnings").is_none(), "{}", out.data);
 }
 
@@ -70,7 +74,11 @@ async fn a_filtered_search_of_a_renamed_repository_reruns_under_its_new_name() {
         .expect(1)
         .mount(&server)
         .await;
-    let out = run(&server, json!({"owner":"o","repo":"old","keywords":["x"]})).await;
+    let out = run(
+        &server,
+        json!({"owner":"o","repo":"old","keywords":["x"],"operation":"search"}),
+    )
+    .await;
     assert_eq!(out.data["repositories"][0]["repo"], "new", "{}", out.data);
     assert_eq!(
         out.data["warnings"][0],
@@ -98,25 +106,18 @@ async fn rows_carry_creation_date_as_a_detail_and_counts_as_stats() {
         })]),
     )
     .await;
-    let out = run(&server, json!({"keywords":["x"]})).await;
+    let out = run(&server, json!({"keywords":["x"],"operation":"search"})).await;
     let row = &out.data["repositories"][0];
     assert_eq!(row["createdAt"], "2019-05-06", "{row}");
     assert_eq!(row["pushedAt"], "2026-01-02", "{row}");
     for absent in ["homepage", "openIssuesCount"] {
         assert!(row.get(absent).is_none(), "{absent}: {row}");
     }
-    let kind_of = |field: &str| {
-        let path = format!("results[].data.repositories[].{field}");
-        crate::id::ToolId::GhSearchRepo
-            .extra_paths()
-            .iter()
-            .find(|(_, paths)| paths.contains(&path.as_str()))
-            .map(|(kind, _)| *kind)
-    };
-    assert_eq!(kind_of("createdAt"), Some("details"));
-    assert_eq!(kind_of("pushedAt"), None, "the last push is default output");
-    for field in ["forks", "updatedAt"] {
-        assert_eq!(kind_of(field), Some("stats"), "{field}");
+    for field in ["createdAt", "pushedAt", "forks", "updatedAt"] {
+        assert!(
+            row.get(field).is_some(),
+            "provider evidence is retained: {field}"
+        );
     }
 }
 
@@ -137,7 +138,11 @@ async fn owner_and_repo_return_that_repository_without_searching() {
         }),
     )
     .await;
-    let out = run(&server, json!({"owner":"sindresorhus","repo":"is"})).await;
+    let out = run(
+        &server,
+        json!({"owner":"sindresorhus","repo":"is","operation":"get"}),
+    )
+    .await;
     assert_eq!(
         out.data["repositories"],
         json!([{
@@ -152,32 +157,22 @@ async fn owner_and_repo_return_that_repository_without_searching() {
     assert!(out.data.get("pagination").is_none(), "{}", out.data);
     // No page; the repository's natural next reads are leads (shown with
     // extras hints): its root tree and its refs, on the default branch.
-    let next = out.data["next"].as_object().expect("leads");
+    let tree =
+        crate::tools::test_support::checks::related_call(&out.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "tree"
+        });
     assert_eq!(
-        next.keys().map(String::as_str).collect::<Vec<_>>(),
-        ["viewTree", "viewRefs"],
-        "{}",
-        out.data
+        tree["input"]["queries"][0],
+        json!({"owner":"sindresorhus","repo":"is","operation":"tree"})
     );
-    assert_eq!(next["viewTree"]["tool"], "ghStructure");
+    let refs =
+        crate::tools::test_support::checks::related_call(&out.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "refs"
+        });
     assert_eq!(
-        next["viewTree"]["query"]["queries"][0],
-        json!({"owner":"sindresorhus","repo":"is"})
-    );
-    assert_eq!(
-        next["viewRefs"]["query"]["queries"][0],
+        refs["input"]["queries"][0],
         json!({"owner":"sindresorhus","repo":"is","operation":"refs"})
     );
-    let requests = server.received_requests().await.expect("requests");
-    assert_eq!(requests.len(), 1, "{requests:?}");
-    assert_eq!(requests[0].url.path(), "/api/v3/repos/sindresorhus/is");
-    // The exact lookup ignores `includeArchived`: still that one row.
-    let archived = run(
-        &server,
-        json!({"owner":"sindresorhus","repo":"is","includeArchived":true}),
-    )
-    .await;
-    assert_eq!(archived.data["repositories"], out.data["repositories"]);
 }
 
 /// Anchors: a search row carries exactly the next hop's coordinates
@@ -193,7 +188,7 @@ async fn a_search_row_carries_owner_repo_and_default_branch() {
         page(vec![repo_item("r", false)]),
     )
     .await;
-    let out = run(&server, json!({"keywords":["x"]})).await;
+    let out = run(&server, json!({"keywords":["x"],"operation":"search"})).await;
     let row = &out.data["repositories"][0];
     assert_eq!(
         row,

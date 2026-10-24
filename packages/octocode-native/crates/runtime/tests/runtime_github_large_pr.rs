@@ -170,13 +170,7 @@ async fn run_status(server: &MockServer, query: Value) -> (String, Value) {
     query["owner"] = json!("a");
     query["repo"] = json!("b");
     query["number"] = json!(9);
-    // A query without `extras` reads the full view.
-    let extras = match query.as_object_mut().and_then(|row| row.remove("extras")) {
-        Some(kinds) => serde_json::from_value::<Vec<String>>(kinds).expect("extras"),
-        None => support::ALL_EXTRAS.map(str::to_owned).to_vec(),
-    };
-    let extras = extras.iter().map(String::as_str).collect::<Vec<_>>();
-    let row = support::run(&runtime, "ghGetHistoryItem", query, &extras).await;
+    let row = support::run(&runtime, "ghGetHistoryItem", query).await;
     let (status, data) = (row.status().to_owned(), row.data().clone());
     runtime.close().await;
     (status, data)

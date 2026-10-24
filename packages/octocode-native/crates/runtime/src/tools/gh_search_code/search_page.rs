@@ -1,5 +1,5 @@
 //! One merged page across the `extensions` searches, with repeats from earlier pages dropped.
-use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchIn, per_search, query};
+use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, per_search, query};
 use crate::tools::gh_shared::SearchWindow;
 use octocode_github::{CodeSearchRequest, GitHubProvider, ProviderError, RequestContext};
 
@@ -102,51 +102,20 @@ pub(super) async fn search_page(
             query: query::code(query, extension),
             page: 1,
             per_page: per_search,
-            include_fragments: query.match_in != GhSearchCodeQueryMatchIn::Path,
+            include_fragments: query
+                .match_in
+                .contains(&GhSearchCodeQueryMatchInItem::Content),
         })
         .collect::<Vec<_>>();
-    let at = |search: usize, number: usize| CodeSearchRequest {
-        page: number,
-        ..searches[search].clone()
-    };
+    let at = |search: usize, number: usize| page_of(&searches[search], number);
     let merged = searches.len() > 1;
-    // Each GitHub page takes its own window slot, so a row whose uncached
-    // searches cannot all start within the wait cap is refused before the
-    // first is sent, not midway with its slots spent.
-    let refuse = |sends: usize| match provider.transport.code_search_batch_refusal(sends, context) {
-        Some(refusal) => Err(refusal),
-        None => Ok(()),
-    };
     // A later merged page is laid out by every search's page 1 (usually
-    // cached by the walk's first page). Uncached ones are read first; the
-    // pages they lay out are counted unseen, as all uncached.
-    let mut firsts = Vec::new();
-    let mut reserved = false;
-    if merged && current > 1 {
-        for search in &searches {
-            firsts.push(
-                provider
-                    .transport
-                    .cached_code_search(search, context)
-                    .await?,
-            );
-        }
-        let missing = firsts.iter().filter(|first| first.is_none()).count();
-        if missing > 0 {
-            refuse(missing + searches.len())?;
-            reserved = true;
-        }
-        for (search, first) in searches.iter().zip(&mut firsts) {
-            if first.is_none() {
-                *first = Some(
-                    provider
-                        .transport
-                        .search_code_uncached(search, context)
-                        .await?,
-                );
-            }
-        }
-    }
+    // cached by the walk's first page).
+    let (firsts, reserved) = if merged && current > 1 {
+        first_pages(provider, &searches, context).await?
+    } else {
+        (Vec::new(), false)
+    };
     let counts = |firsts: &[Option<octocode_github::CodeSearchPage>]| {
         firsts
             .iter()
@@ -180,31 +149,13 @@ pub(super) async fn search_page(
         );
     }
     if !reserved {
-        refuse(cached.iter().filter(|page| page.is_none()).count())?;
+        refuse(
+            provider,
+            cached.iter().filter(|page| page.is_none()).count(),
+            context,
+        )?;
     }
-    // GitHub's index moves between page reads, so a file can come back on a
-    // later page. The earlier pages of each listed search that are still
-    // cached (no request) say which files the walk already delivered.
-    let mut seen = std::collections::HashSet::new();
-    let mut checked = Vec::with_capacity(units.len());
-    for &(search, number) in &units {
-        // A search's first page here is its lowest: the earlier ones precede it.
-        if checked.contains(&search) {
-            continue;
-        }
-        checked.push(search);
-        for earlier in 1..number {
-            page.earlier_total += 1;
-            if let Ok(Some(listed)) = provider
-                .transport
-                .cached_code_search(&at(search, earlier), context)
-                .await
-            {
-                page.earlier_checked += 1;
-                seen.extend(listed.items.iter().map(repeat_key));
-            }
-        }
-    }
+    let mut seen = listed_earlier(provider, &searches, &units, context, &mut page).await;
     let mut unit_counts = Vec::with_capacity(requests.len());
     for (request, cached) in requests.iter().zip(cached) {
         let data = match cached {
@@ -217,20 +168,7 @@ pub(super) async fn search_page(
             }
         };
         unit_counts.push(data.total_count);
-        page.incomplete |= data.incomplete_results;
-        for organization in data.sso_partial_organizations {
-            if !page.sso_partial.contains(&organization) {
-                page.sso_partial.push(organization);
-            }
-        }
-        page.fetched += data.items.len();
-        for item in data.items {
-            if seen.insert(repeat_key(&item)) {
-                page.items.push(item);
-            } else {
-                page.dropped += 1;
-            }
-        }
+        page.add(data, &mut seen);
     }
     // Merged totals are every search's page-1 count, so each page of the
     // walk states the same layout; one search states its own page's.
@@ -247,6 +185,97 @@ pub(super) async fn search_page(
     Ok(page)
 }
 
+/// `search` at GitHub page `number`.
+fn page_of(search: &CodeSearchRequest, number: usize) -> CodeSearchRequest {
+    CodeSearchRequest {
+        page: number,
+        ..search.clone()
+    }
+}
+
+/// Refuse a row whose `sends` uncached searches cannot all start within the
+/// wait cap: each GitHub page takes its own window slot, so it is refused
+/// before the first is sent, not midway with its slots spent.
+fn refuse(
+    provider: &GitHubProvider,
+    sends: usize,
+    context: &RequestContext,
+) -> Result<(), ProviderError> {
+    match provider.transport.code_search_batch_refusal(sends, context) {
+        Some(refusal) => Err(refusal),
+        None => Ok(()),
+    }
+}
+
+/// Page 1 of every search, which lays out a later merged page. Uncached
+/// ones are read first; the pages they lay out are counted unseen, as all
+/// uncached: `true` when that reserved the row's window slots.
+async fn first_pages(
+    provider: &GitHubProvider,
+    searches: &[CodeSearchRequest],
+    context: &RequestContext,
+) -> Result<(Vec<Option<octocode_github::CodeSearchPage>>, bool), ProviderError> {
+    let mut firsts = Vec::with_capacity(searches.len());
+    for search in searches {
+        firsts.push(
+            provider
+                .transport
+                .cached_code_search(search, context)
+                .await?,
+        );
+    }
+    let missing = firsts.iter().filter(|first| first.is_none()).count();
+    let reserved = missing > 0;
+    if reserved {
+        refuse(provider, missing + searches.len(), context)?;
+    }
+    for (search, first) in searches.iter().zip(&mut firsts) {
+        if first.is_none() {
+            *first = Some(
+                provider
+                    .transport
+                    .search_code_uncached(search, context)
+                    .await?,
+            );
+        }
+    }
+    Ok((firsts, reserved))
+}
+
+/// The files earlier pages already listed. GitHub's index moves between
+/// page reads, so a file can come back on a later page: the earlier pages
+/// of each listed search that are still cached (no request) say which
+/// files the walk already delivered. Counts the pages read on `page`.
+async fn listed_earlier(
+    provider: &GitHubProvider,
+    searches: &[CodeSearchRequest],
+    units: &[(usize, usize)],
+    context: &RequestContext,
+    page: &mut SearchPage,
+) -> std::collections::HashSet<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut checked = Vec::with_capacity(units.len());
+    for &(search, number) in units {
+        // A search's first page here is its lowest: the earlier ones precede it.
+        if checked.contains(&search) {
+            continue;
+        }
+        checked.push(search);
+        for earlier in 1..number {
+            page.earlier_total += 1;
+            if let Ok(Some(listed)) = provider
+                .transport
+                .cached_code_search(&page_of(&searches[search], earlier), context)
+                .await
+            {
+                page.earlier_checked += 1;
+                seen.extend(listed.items.iter().map(repeat_key));
+            }
+        }
+    }
+    seen
+}
+
 /// A file's identity across pages: its repository and path (its blob `sha`
 /// changes with the index state, so it is not part of it).
 fn repeat_key(item: &octocode_github::CodeSearchItem) -> (String, String) {
@@ -254,6 +283,28 @@ fn repeat_key(item: &octocode_github::CodeSearchItem) -> (String, String) {
 }
 
 impl SearchPage {
+    /// Take one GitHub page's files, less those `seen` already lists.
+    fn add(
+        &mut self,
+        data: octocode_github::CodeSearchPage,
+        seen: &mut std::collections::HashSet<(String, String)>,
+    ) {
+        self.incomplete |= data.incomplete_results;
+        for organization in data.sso_partial_organizations {
+            if !self.sso_partial.contains(&organization) {
+                self.sso_partial.push(organization);
+            }
+        }
+        self.fetched += data.items.len();
+        for item in data.items {
+            if seen.insert(repeat_key(&item)) {
+                self.items.push(item);
+            } else {
+                self.dropped += 1;
+            }
+        }
+    }
+
     /// What a paged page says about overlap: the repeats this page dropped,
     /// with how many earlier pages the check could read. That GitHub's
     /// totals are estimates is static and lives in the tool description.

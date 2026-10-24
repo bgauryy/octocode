@@ -18,7 +18,7 @@ futures-util = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

@@ -1,6 +1,9 @@
 //! Secret redaction of a scan's shown values, and its replay on later pages.
 
 use super::*;
+use crate::security::cut::strip_clip_markers;
+use crate::tools::local_search::sources::Expected;
+use octocode_contract_types::LocalSearchQuery;
 
 /// Make paths relative to `output_root` and redact secrets in every value.
 /// A match on an interior base64 body line of a private key would leak the
@@ -49,11 +52,11 @@ pub(in crate::tools::local_search) fn redact_scan(
     });
     for (file_index, outcome) in outcomes.into_iter().enumerate() {
         let FileRedaction {
-            key_file,
+            key_scan,
             changes,
             path,
         } = outcome?;
-        if let Some(digest) = key_file {
+        if let Some(KeyScan { digest }) = key_scan {
             record.key_files.push((file_index, digest));
         }
         for (match_index, line, column, value) in changes {
@@ -66,12 +69,18 @@ pub(in crate::tools::local_search) fn redact_scan(
 
 /// What redacting one file changed.
 struct FileRedaction {
-    /// Its key-block scan, with the digest of the bytes it read.
-    key_file: Option<Option<crate::tools::local_search::sources::Digest>>,
+    /// Its key-block scan, when its snippets looked like key material.
+    key_scan: Option<KeyScan>,
     /// The values replaced: match index, line, column, new value.
     changes: Vec<(usize, u32, u32, String)>,
     /// The file's row path.
     path: String,
+}
+
+/// A key-block scan of one file.
+struct KeyScan {
+    /// The digest of the bytes it read; `None` when the read failed.
+    digest: Option<crate::tools::local_search::sources::Digest>,
 }
 
 /// Make one file's path relative to the output root and redact secrets in
@@ -100,16 +109,16 @@ fn redact_file(
         Ok(())
     })?;
     let source_path = output_root.join(&file.path);
-    let mut key_file = None;
+    let mut key_scan = None;
     let key_source = if key_material {
         validate_matched(paths, &source_path)?;
         let bytes = read_key_scan_bytes(&source_path);
         let digest = bytes
             .as_ref()
             .map(|bytes| <[u8; 32]>::from(Sha256::digest(bytes)));
-        key_file = Some(digest);
-        if let (Some(digest), Some(expected)) = (digest, expected_digest(&source_path))
-            && expected != Some(digest)
+        key_scan = Some(KeyScan { digest });
+        if let (Some(digest), Expected::Stored(stored)) = (digest, expected_digest(&source_path))
+            && stored != Some(digest)
         {
             return Err(changed_since_scan(query));
         }
@@ -170,7 +179,7 @@ fn redact_file(
         },
     )?;
     Ok(FileRedaction {
-        key_file,
+        key_scan,
         changes,
         path: file.path.clone(),
     })
@@ -276,8 +285,8 @@ fn replay_redaction(
             return Ok(None);
         };
         let digest = <[u8; 32]>::from(Sha256::digest(&bytes));
-        if let Some(expected) = expected_digest(&source_path)
-            && expected != Some(digest)
+        if let Expected::Stored(stored) = expected_digest(&source_path)
+            && stored != Some(digest)
         {
             return Err(changed_since_scan(query));
         }

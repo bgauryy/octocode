@@ -24,17 +24,17 @@ async fn a_page_past_the_window_repairs_to_the_last_real_page() {
     let server = MockServer::builder().start().await;
     mount_counted_search(&server, 150).await;
     let provider = one_shot_provider(&server);
-    let query: GhSearchCodeQuery = serde_json::from_value(json!({
-        "owner":"a","repo":"b","keywords":["needle"],"pageSize":20,"page":60,"fields":["path"]
-    }))
+    let query: GhSearchCodeQuery = serde_json::from_value(
+        json!({"owner":"a","repo":"b","keywords":["needle"],"page":60,"fields":["path"]}),
+    )
     .expect("query");
     let context = default_context();
     let Err(failure) = super::super::run(&provider, &query, Ok(&context), &Passthrough).await
     else {
         panic!("a page past the window is a failure");
     };
-    let next = failure.next.expect("repair");
-    assert_eq!(next["repair"]["query"]["queries"][0]["page"], 8, "{next}");
+    let next = failure.calls.expect("repair");
+    assert_eq!(next["repair"]["input"]["queries"][0]["page"], 3, "{next}");
 }
 
 /// Code search serves a page only while its last result lies inside the
@@ -47,7 +47,7 @@ async fn the_code_search_window_ends_at_its_last_whole_page() {
     let provider = one_shot_provider(&server);
     let at = |page: usize| -> GhSearchCodeQuery {
         serde_json::from_value(json!({
-            "owner":"a","repo":"b","keywords":["needle"],"pageSize":3,"page":page,"fields":["path"]
+            "owner":"a","repo":"b","keywords":["needle"],"page":page,"fields":["path"]
         }))
         .expect("query")
     };
@@ -56,26 +56,22 @@ async fn the_code_search_window_ends_at_its_last_whole_page() {
         .await
         .expect("first page");
     assert_eq!(
-        first.data["pagination"]["totalItems"], 999,
+        first.data["pagination"]["totalItems"], 1000,
         "{}",
         first.data
     );
-    assert_eq!(
-        first.data["pagination"]["totalPages"], 333,
-        "{}",
-        first.data
-    );
-    let last = execute(&provider, &at(333), &context, &Passthrough)
+    assert_eq!(first.data["pagination"]["totalPages"], 20, "{}", first.data);
+    let last = execute(&provider, &at(20), &context, &Passthrough)
         .await
         .expect("last page");
     assert!(last.data["next"]["nextPage"].is_null(), "{}", last.data);
     assert_eq!(last.data["terminalLimit"], true, "{}", last.data);
-    let Err(failure) = super::super::run(&provider, &at(334), Ok(&context), &Passthrough).await
+    let Err(failure) = super::super::run(&provider, &at(21), Ok(&context), &Passthrough).await
     else {
         panic!("a page past the window is a failure");
     };
-    let next = failure.next.expect("repair");
-    assert_eq!(next["repair"]["query"]["queries"][0]["page"], 333, "{next}");
+    let next = failure.calls.expect("repair");
+    assert_eq!(next["repair"]["input"]["queries"][0]["page"], 20, "{next}");
 }
 
 /// A merged multi-`extensions` page is page N of each extension's own
@@ -91,7 +87,7 @@ async fn a_multi_extension_window_is_each_searchs_own() {
     let at = |page: usize| -> GhSearchCodeQuery {
         serde_json::from_value(json!({
             "owner":"a","repo":"b","keywords":["needle"],"extensions":["rs","ts","go"],
-            "pageSize":50,"page":page,"fields":["path"]
+            "page":page,"fields":["path"]
         }))
         .expect("query")
     };
@@ -107,8 +103,8 @@ async fn a_multi_extension_window_is_each_searchs_own() {
         failure.message,
         "Page 59 is past GitHub's search window: at pageSize 50, page 58 is the last, reaching the first 2958 results."
     );
-    let next = failure.next.expect("repair");
-    assert_eq!(next["repair"]["query"]["queries"][0]["page"], 58, "{next}");
+    let next = failure.calls.expect("repair");
+    assert_eq!(next["repair"]["input"]["queries"][0]["page"], 58, "{next}");
 }
 
 /// `fields:["path","matchCount"]` states each file's hit count without
@@ -202,7 +198,7 @@ fn merged_pages_list_every_github_page_once_and_fill_each_page() {
 async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
     let server = MockServer::builder().start().await;
     for page in 1..=4 {
-        let items = (0..3)
+        let items = (0..25)
             .map(|file| {
                 let name = format!("p{page}_{file}.ts");
                 json!({"name":name,"path":name,"sha":"1","html_url":"https://x",
@@ -217,7 +213,7 @@ async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
             ))
             .and(wiremock::matchers::query_param("page", page.to_string()))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "total_count":12,"incomplete_results":false,"items":items
+                "total_count":100,"incomplete_results":false,"items":items
             })))
             .mount(&server)
             .await;
@@ -241,8 +237,8 @@ async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
     let mut listed = Vec::new();
     for page in 1.. {
         let query: GhSearchCodeQuery = serde_json::from_value(json!({
-            "owner":"a","repo":"b","keywords":["needle"],"matchIn":"path",
-            "extensions":["ts","rs"],"pageSize":6,"page":page
+            "owner":"a","repo":"b","keywords":["needle"],"matchIn":["path"],
+            "extensions":["ts","rs"],"page":page
         }))
         .expect("query");
         let out = execute(&provider, &query, &default_context(), &Passthrough)
@@ -256,12 +252,12 @@ async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
             break;
         }
     }
-    assert_eq!(sizes, [3, 6, 3]);
+    assert_eq!(sizes, [25, 50, 25]);
     let mut unique = listed.clone();
     unique.sort_unstable();
     unique.dedup();
-    assert_eq!(unique.len(), 12, "{listed:?}");
-    assert_eq!(listed.len(), 12, "{listed:?}");
+    assert_eq!(unique.len(), 100, "{listed:?}");
+    assert_eq!(listed.len(), 100, "{listed:?}");
     let searches = server.received_requests().await.unwrap_or_default().len();
     assert_eq!(searches, 5, "4 .ts pages and one .rs page");
 }

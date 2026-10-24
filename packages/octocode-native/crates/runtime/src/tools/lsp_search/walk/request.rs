@@ -17,16 +17,22 @@ use crate::tools::lsp_search::anchor::Position;
 use crate::tools::lsp_search::failure::{IMPORTER_REQUEST_FAILED, LspFailure, RequestFailures};
 use crate::tools::lsp_search::importers::Importers;
 use crate::tools::lsp_search::locations::snapshot_changed;
-use crate::tools::lsp_search::render::{into_items, symbol_kind_name};
+use crate::tools::lsp_search::render::{into_items, symbol_kind_name, uri_to_path};
 use crate::tools::lsp_search::scope::Scope;
 use crate::tools::lsp_search::source::{SourceCache, item_uri_is_authorized};
 use crate::tools::lsp_search::{LspSearchQuery, Op, cancellable, lsp_search_query};
 use octocode_engine::lsp::client::NativeLspClient;
+use octocode_engine::lsp::symbol_kind;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
 /// LSP `SymbolKind`s of a type: class, enum, interface, struct.
-const TYPE_KINDS: [u64; 4] = [5, 10, 11, 23];
+const TYPE_KINDS: [u64; 4] = [
+    symbol_kind::CLASS as u64,
+    symbol_kind::ENUM as u64,
+    symbol_kind::INTERFACE as u64,
+    symbol_kind::STRUCT as u64,
+];
 
 /// The label of `callers` on a type: a call hierarchy has no calls into a
 /// type, so a server answers with the symbols that use it (construct it,
@@ -192,7 +198,10 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     for (_, walk) in &mut walks {
         failures.append(&mut walk.failures);
     }
-    let (items, failures) = expansion_outcome(items, failures)?;
+    let (mut items, failures) = expansion_outcome(items, failures)?;
+    if lsp_search_query::op(query) == Op::Callers {
+        production_first(&mut items, &scope.root);
+    }
     let walks = walks
         .iter()
         .map(|(expansion, walk)| (*expansion, walk))
@@ -227,6 +236,33 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     Ok((row, verified))
 }
 
+/// Order callers level by level, production files before test files
+/// (`is_test_path`, relative to the scope root), keeping the walk's order
+/// within each: every edge stays, and the first page leads with the
+/// callers that ship.
+fn production_first(items: &mut [Value], root: &str) {
+    items.sort_by_cached_key(|item| {
+        let level = item.get("level").and_then(Value::as_u64).unwrap_or(1);
+        let file = [
+            &format!("/{CALLER_PATH}"),
+            "/from/path",
+            "/to/path",
+            "/path",
+        ]
+        .into_iter()
+        .find_map(|pointer| item.pointer(pointer).and_then(Value::as_str))
+        .map(uri_to_path)
+        .unwrap_or_default();
+        let relative = std::path::Path::new(&file)
+            .strip_prefix(root)
+            .map_or(file.clone(), |path| path.to_string_lossy().into_owned());
+        (
+            level,
+            octocode_engine::text::test_paths::is_test_path(&relative),
+        )
+    });
+}
+
 /// Every file a walk's answer covers: the anchor, each listed node and call
 /// site file, the verified importers, and the candidates the server showed
 /// to name another declaration.
@@ -250,4 +286,53 @@ fn answer_files(anchor: &str, items: &[Value], importers: Option<&Importers>) ->
         files.extend(importers.covered());
     }
     files
+}
+
+#[cfg(test)]
+mod tests {
+    use super::production_first;
+    use serde_json::json;
+
+    /// Callers in test files follow the production callers of their level;
+    /// every edge stays, in walk order within each group.
+    #[test]
+    fn production_callers_lead_each_level() {
+        let edge = |path: &str, level: u64| json!({"from": {"path": path}, "level": level});
+        let mut items = vec![
+            edge("/r/src/a.ts", 1),
+            edge("/r/tests/a.test.ts", 1),
+            edge("/r/src/b.spec.ts", 1),
+            edge("/r/src/c.ts", 1),
+            json!({"to": {"path": "/r/src/d.ts"}, "callerPath": "/r/src/e.ts", "level": 1}),
+            edge("/r/src/f.ts", 2),
+        ];
+        production_first(&mut items, "/r");
+        let order = items
+            .iter()
+            .map(|item| {
+                item.pointer("/callerPath")
+                    .or_else(|| item.pointer("/from/path"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            order,
+            [
+                "/r/src/a.ts",
+                "/r/src/c.ts",
+                "/r/src/e.ts",
+                "/r/tests/a.test.ts",
+                "/r/src/b.spec.ts",
+                "/r/src/f.ts"
+            ]
+        );
+        // A root that is itself under a test directory does not mark all.
+        let mut nested = vec![
+            edge("/t/tests/repo/b.test.ts", 1),
+            edge("/t/tests/repo/a.ts", 1),
+        ];
+        production_first(&mut nested, "/t/tests/repo");
+        assert_eq!(nested[0]["from"]["path"], "/t/tests/repo/a.ts");
+    }
 }

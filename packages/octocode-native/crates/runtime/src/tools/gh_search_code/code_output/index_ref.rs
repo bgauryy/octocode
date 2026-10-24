@@ -3,8 +3,8 @@ use super::requested_ref;
 use crate::id::ToolId;
 use crate::response::paging::push_warnings;
 use crate::response::result::Continuation;
-use crate::tools::gh_search_code::GhSearchCodeQuery;
-use crate::tools::gh_shared::{RepoPath, ensure_next};
+use crate::tools::gh_shared::{RepoPath, ensure_calls};
+use octocode_contract_types::GhSearchCodeQuery;
 use octocode_github::ProviderError;
 use octocode_github::{ProviderErrorKind, RequestContext};
 use serde_json::{Value, json};
@@ -53,19 +53,23 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
         owner,
         repo: repo.as_str(),
         path: if moved.is_empty() {
-            query.path.as_deref().map_or("", |path| path.as_str())
+            query
+                .path_prefix
+                .as_deref()
+                .map_or("", |path| path.as_str())
         } else {
             ""
         },
         reference: Some(at_ref.as_deref().unwrap_or(reference)),
     };
     let mut listing = at.row();
+    listing["operation"] = json!("tree");
     if !moved.is_empty() {
         listing["include"] = json!(moved);
     }
-    let lead = Continuation::new(ToolId::GhStructure, listing).build();
-    ensure_next(value);
-    if let Some(next) = value.get_mut("next").and_then(Value::as_object_mut) {
+    let lead = Continuation::related(ToolId::GhStructure, listing).build();
+    ensure_calls(value);
+    if let Some(next) = value.get_mut("calls").and_then(Value::as_object_mut) {
         next.shift_insert(0, "viewRepo".to_owned(), lead);
     }
     Ok(())

@@ -1,5 +1,35 @@
 //! The sections one history-item read returns.
-use super::{GhGetHistoryItemQuery, Section, gh_get_history_item_query};
+use super::{GhGetHistoryItemQuery, gh_get_history_item_query};
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Section {
+    Body,
+    Files,
+    Patches,
+    Comments,
+    ReviewComments,
+    Reviews,
+    Commits,
+    CommitFiles,
+}
+impl Section {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Body => "body",
+            Self::Files => "files",
+            Self::Patches => "patches",
+            Self::Comments => "comments",
+            Self::ReviewComments => "reviewComments",
+            Self::Reviews => "reviews",
+            Self::Commits => "commits",
+            Self::CommitFiles => "commitFiles",
+        }
+    }
+}
+impl std::fmt::Display for Section {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
 use serde_json::Value;
 
 /// The sections one read returns: the generated `sections`, with the one
@@ -31,19 +61,17 @@ impl Sections {
     }
     /// The sections named.
     pub(crate) fn of(sections: impl IntoIterator<Item = Section>) -> Self {
-        sections
-            .into_iter()
-            .fold(Self::default(), |set, section| set.with(section))
+        sections.into_iter().fold(Self::default(), Self::with)
     }
     /// The sections `query` reads.
     pub(super) fn resolve(query: &GhGetHistoryItemQuery) -> Self {
-        let named = match query {
-            GhGetHistoryItemQuery::PullRequest { sections, .. }
-            | GhGetHistoryItemQuery::Issue { sections, .. }
-            | GhGetHistoryItemQuery::Commit { sections, .. }
-            | GhGetHistoryItemQuery::Compare { sections, .. } => Self::of(sections.iter().copied()),
-        };
-        if named.is_empty() && gh_get_history_item_query::match_string(query).is_some() {
+        let names = gh_get_history_item_query::section_names(query);
+        let named = Self::of(
+            Self::ORDER
+                .into_iter()
+                .filter(|s| names.iter().any(|name| name == s.name())),
+        );
+        if named.is_empty() && gh_get_history_item_query::match_strings(query).is_some() {
             Self::of([Section::Patches])
         } else {
             named

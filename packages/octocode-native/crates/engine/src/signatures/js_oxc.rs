@@ -17,12 +17,12 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::deep_stack::{job_cancelled, run_on_deep_stack_with_timeout, with_thread_allocator};
-use crate::text::file_extension::JS_TS_EXTENSIONS;
+use crate::text::JS_TS_EXTENSIONS;
 
 use super::{
     extractor::AST_EXECUTION_TIMEOUT,
     js_oxc_calls::collect_program_calls,
-    js_oxc_commonjs as commonjs,
+    js_oxc_commonjs,
     js_oxc_references::{CountTarget, value_reference_counts},
     js_oxc_shared::SpanPositions,
 };
@@ -36,14 +36,10 @@ mod walk;
 use outline::{module_outline, push_heritage_edges};
 use walk::{collect_member_functions, collect_program};
 
-// LSP SymbolKind codes come from `lsp::symbol_kind`. `TYPE_ALIAS` is
-// module-private: LSP has no type-alias kind, and the tree never leaves this
-// module, so declarations name it `type`.
-mod kind {
-    pub use crate::lsp::symbol_kind::*;
-    /// Outside the LSP range (1..=26): never confused with a spec kind.
-    pub const TYPE_ALIAS: u8 = 0;
-}
+/// The kind of a TypeScript type alias, module-private: LSP has no type-alias
+/// kind, and the tree never leaves this module, so declarations name it
+/// `type`. Outside the LSP range (1..=26): never confused with a spec kind.
+const TYPE_ALIAS_KIND: u8 = 0;
 
 #[derive(Serialize)]
 struct DocumentSymbol {
@@ -102,8 +98,7 @@ fn source_type_for(ext: &str, file_path: &str, content: &str) -> SourceType {
 /// Cheap pre-check so non-JS/TS files never pay for the content copy and the
 /// big-stack worker thread; graph scans call this for every file in a repo.
 fn is_oxc_path(file_path: &str) -> bool {
-    JS_TS_EXTENSIONS
-        .contains(&crate::text::file_extension::extension_of(file_path, true, "ts").as_str())
+    JS_TS_EXTENSIONS.contains(&crate::text::extension_of(file_path, true, "ts").as_str())
 }
 
 /// Run an oxc `job` on the deep-stack pool under the AST timeout. `None` for
@@ -135,7 +130,7 @@ fn with_js_program<const TOKENS: bool, R>(
     file_path: &str,
     f: impl for<'a> FnOnce(String, oxc_parser::ParserReturn<'a>) -> Option<R>,
 ) -> Option<R> {
-    let ext = crate::text::file_extension::extension_of(file_path, true, "ts");
+    let ext = crate::text::extension_of(file_path, true, "ts");
     if !JS_TS_EXTENSIONS.contains(&ext.as_str()) {
         return None;
     }
@@ -199,8 +194,8 @@ fn extract_graph_facts_with_metadata_inner(
         }
         // OXC tokens make this an absence check, not a binding claim. Candidate
         // loaders still require the full native scope inventory, including escapes.
-        let common_js = if commonjs::may_contain_loader(&parser_ret.tokens, content) {
-            commonjs::collect_common_js_loads(&parser_ret.program, &line_index)
+        let common_js = if js_oxc_commonjs::may_contain_loader(&parser_ret.tokens, content) {
+            js_oxc_commonjs::collect_common_js_loads(&parser_ret.program, &line_index)
         } else {
             Vec::new()
         };

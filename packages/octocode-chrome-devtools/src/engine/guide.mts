@@ -2,18 +2,18 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateFlags } from './cli-flags.mjs';
-import { guideTopics as topics } from './cli-catalog.mjs';
+import { chromeGuideTopics } from './chrome-contract.mjs';
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
   console.log(
     'Usage: skill [topic] [--offset N] [--length N]\nTopics: ' +
-      topics.join(', ') +
+      chromeGuideTopics.join(', ') +
       '\nReads package-owned guidance, with lossless artifact continuations.'
   );
 } else {
   const topic =
     args[0] && !args[0].startsWith('--') ? args.shift() : 'operating';
-  if (!topics.some(item => item === topic)) {
+  if (!chromeGuideTopics.some(item => item === topic)) {
     console.error('Unknown guide topic ' + topic);
     process.exitCode = 2;
   } else {

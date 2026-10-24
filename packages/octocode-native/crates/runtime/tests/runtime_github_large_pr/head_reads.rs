@@ -1,6 +1,7 @@
 //! Head-text reads: match context past or clipped by a hunk, large blobs and merge-side code picks.
 
 use super::{SHA, mount_file_batches, mount_pr, rest_file, run, run_status};
+use crate::support;
 use serde_json::json;
 use std::time::Duration;
 use wiremock::matchers::{method, path, query_param};
@@ -42,11 +43,21 @@ async fn read_at_merge_picks_the_code_file_of_the_whole_pr_not_the_first_window(
         added("pkg/client/types.go", Some("@@ -0,0 +1 @@\n+type T int"), 1),
     ];
     mount_file_batches(&server, vec![files], Duration::ZERO).await;
-    let data = run(
-        &server,
-        json!({"sections":["patches"], "extras": ["hints"]}),
+    use base64::Engine as _;
+    let merge = "fedcba9876543210fedcba9876543210fedcba98";
+    Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/pkg%2Fclient%2Fclient.go"))
+        .and(query_param("ref",merge))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","encoding":"base64","path":"pkg/client/client.go","content":base64::engine::general_purpose::STANDARD.encode("package client\nfunc Alpha() {}\nfunc Beta() {}\n")})))
+        .expect(1).mount(&server).await;
+    let workspace = crate::support::Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let result = crate::support::run(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["patches"]}),
     )
     .await;
+    let data = result.data();
     let shown = data["pullRequests"][0]["files"]
         .as_array()
         .expect("patch rows")
@@ -54,16 +65,15 @@ async fn read_at_merge_picks_the_code_file_of_the_whole_pr_not_the_first_window(
         .filter_map(|file| file["path"].as_str())
         .collect::<Vec<_>>();
     assert!(!shown.contains(&"pkg/client/client.go"), "{data}");
-    let read = &crate::support::checks::hint(&data, "readAtMerge")["query"]["queries"][0];
-    for (field, value) in [
-        ("ref", json!("fedcba9876543210fedcba9876543210fedcba98")),
-        ("path", json!("pkg/client/client.go")),
-        // The merge commit is searched for the added code, not read
-        // at `headSha` line numbers.
-        ("matchString", json!(["func Alpha() {}"])),
-    ] {
-        assert_eq!(read[field], value, "{field}: {data}");
-    }
+    let read = support::checks::related_call(data, "ghGetFileContent", |input| {
+        input["queries"][0]["ref"] == merge && input["queries"][0]["path"] == "pkg/client/client.go"
+    });
+    assert_eq!(read["kind"], "related");
+    let source = crate::support::run(&runtime, "ghGetFileContent", read["input"].clone()).await;
+    assert_eq!(source.status(), "success", "{}", source.data());
+    assert!(source.data().to_string().contains("func Alpha() {}"));
+    server.verify().await;
+    runtime.close().await;
 }
 
 /// A hunk with GitHub's 3 context lines around a hit at line 53 of a
@@ -110,7 +120,7 @@ async fn match_context_past_the_hunk_reads_the_head_text() {
         .await;
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": "needle", "contextLines": 10, "extras": []}),
+        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10}}),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -164,7 +174,7 @@ async fn a_head_file_past_one_megabyte_is_read_through_its_blob() {
         .await;
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": "needle", "contextLines": 10, "extras": []}),
+        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10}}),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -180,7 +190,7 @@ async fn a_head_file_past_one_megabyte_is_read_through_its_blob() {
 /// A later file page widens its own hits: the head reads name the files
 /// this page shows, never the first page's again.
 #[tokio::test]
-async fn a_later_match_page_reads_the_head_text_of_its_own_files() {
+async fn a_scoped_match_reads_only_its_selected_head_file() {
     use base64::Engine as _;
     let server = MockServer::builder().start().await;
     mount_pr(&server, 2).await;
@@ -208,8 +218,8 @@ async fn a_later_match_page_reads_the_head_text_of_its_own_files() {
     }
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": "needle", "contextLines": 10,
-            "pageSize": 1, "page": 2, "extras": []}),
+        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10},
+            "include":["src/b.rs"]}),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -233,17 +243,14 @@ async fn match_context_clipped_by_the_hunk_is_flagged_with_a_head_read() {
     .await;
     let (_, data) = run_status(
         &server,
-        json!({"sections":["patches"], "matchString": "needle", "contextLines": 10, "extras": []}),
+        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10}}),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
     assert_eq!(file["contextClipped"], true, "{data}");
     let read = &data["next"]["expandContext"];
     assert_eq!(read["tool"], "ghGetFileContent", "{data}");
-    let row = &read["query"]["queries"][0];
-    assert_eq!(row["ref"], SHA, "{data}");
-    assert_eq!(row["path"], "src/a.rs", "{data}");
-    assert_eq!(row["ranges"], json!(["43-63"]), "{data}");
+    assert!(read["input"]["cursor"].is_string(), "{data}");
     assert!(
         data["partialReasons"]
             .to_string()
@@ -275,21 +282,20 @@ async fn history_b_merged_match_string_read_offers_the_source_side_only() {
     .await;
     let data = run(
         &server,
-        json!({"matchString": "needle", "contextLines": 1, "extras": ["hints"]}),
+        json!({"matchString": ["needle"], "contextLines": {"before":1,"after":1}}),
     )
     .await;
-    let lead = |name: &str| {
-        let hint = crate::support::checks::hint(&data, name);
-        data.get("next")
-            .and_then(|next| next.get(name))
-            .cloned()
-            .or_else(|| (!hint.is_null()).then_some(hint))
-    };
-    let at_commit = lead("readAtCommit").expect("readAtCommit lead");
-    let row = &at_commit["query"]["queries"][0];
-    assert_eq!(row["ref"], SHA, "{data}");
-    assert_eq!(row["path"], "src/hit.rs", "{data}");
-    assert!(lead("readAtMerge").is_none(), "{data}");
+    let at_commit = support::checks::related_call(&data, "ghGetFileContent", |input| {
+        input["queries"][0]["ref"] == SHA && input["queries"][0]["path"] == "src/hit.rs"
+    });
+    assert_eq!(at_commit["kind"], "related");
+    assert!(
+        support::checks::find_related_call(&data, "ghGetFileContent", |input| {
+            input["queries"][0]["ref"] == "fedcba9876543210fedcba9876543210fedcba98"
+        })
+        .is_none(),
+        "{data}"
+    );
     // The hit row counts the hits it shows.
     assert_eq!(
         data["pullRequests"][0]["files"][0]["matchCount"], 2,

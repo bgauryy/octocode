@@ -1,7 +1,8 @@
 use super::{MAX_SOURCE_BYTES, acquire};
 use crate::execution::cancel::CancellationCheck;
-use crate::tools::source_view::{LocalFetchQuery, LocalFetchResult, PathAccess, stale_snapshot};
-use octocode_contract_types::ErrorCode;
+use crate::tools::source_view::local_fetch_query;
+use crate::tools::source_view::{LocalFetchResult, PathAccess, stale_snapshot};
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -18,7 +19,7 @@ pub(crate) fn capture_text(
 ) -> Result<CapturedText, Box<LocalFetchResult>> {
     let failure = |code: ErrorCode, message: String| {
         Box::new(LocalFetchResult::error(
-            query.path.to_string(),
+            local_fetch_query::path(query).to_owned(),
             code,
             message,
         ))
@@ -45,7 +46,10 @@ pub(crate) fn capture_text(
         Ok(bytes) => bytes,
         Err(octocode_engine::text::ReadError::TooLarge(_)) => return Err(too_large()),
         Err(octocode_engine::text::ReadError::Io(error)) => {
-            return Err(Box::new(acquire::read_failure(&query.path, error)));
+            return Err(Box::new(acquire::read_failure(
+                local_fetch_query::path(query),
+                error,
+            )));
         }
         Err(error @ octocode_engine::text::ReadError::NotRegular) => {
             return Err(failure(ErrorCode::FileReadFailed, error.to_string()));
@@ -57,8 +61,8 @@ pub(crate) fn capture_text(
     if admitted.as_ref().err() == Some(&octocode_engine::text::Refusal::Binary) {
         return Err(Box::new(acquire::refuse_binary(query, &validated.display)));
     }
-    if let Some(expected) = query.snapshot.as_deref()
-        && **expected != snapshot
+    if let Some(expected) = local_fetch_query::snapshot(query)
+        && expected != snapshot
     {
         return Err(Box::new(stale_snapshot(query)));
     }
@@ -134,7 +138,7 @@ mod tests {
         std::fs::write(&file, source).expect("write");
         let paths = super::super::tests::Paths(root.path().into());
         let mut query = super::super::tests::q(&file);
-        query.ranges = vec!["2-2".parse().expect("range")];
+        local_fetch_query::set_line_span(&mut query, 2, 2).expect("range");
         let captured = capture_text(&query, &paths, &NeverCancel).expect("capture");
         assert_eq!(captured.text, source);
         assert_eq!(captured.canonical, file.canonicalize().expect("canonical"));
@@ -142,7 +146,7 @@ mod tests {
             captured.snapshot,
             octocode_engine::digest::sha256(source.as_bytes())
         );
-        query.snapshot = Some(captured.snapshot.parse().expect("snapshot"));
+        local_fetch_query::set_snapshot(&mut query, Some(&captured.snapshot)).expect("snapshot");
         assert!(capture_text(&query, &paths, &NeverCancel).is_ok());
         std::fs::write(&file, "changed").expect("change");
         assert_eq!(

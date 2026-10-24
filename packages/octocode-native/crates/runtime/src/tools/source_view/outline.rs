@@ -1,4 +1,4 @@
-//! The `minify:"symbols"` view: a file's declaration outline.
+//! The `view:"symbols"` view: a file's declaration outline.
 
 use super::prepare::*;
 use crate::security::scan::ContentScan;

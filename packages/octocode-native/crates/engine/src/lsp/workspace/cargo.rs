@@ -1,6 +1,6 @@
 //! Cargo workspace membership for language-server root discovery.
 
-use super::{CARGO_MANIFEST, normalize_lexically};
+use super::{CARGO_MANIFEST, lexical};
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
@@ -20,7 +20,7 @@ pub fn declares_cargo_workspace(directory: &Path) -> bool {
 /// The workspace that includes this package, respecting exclusions,
 /// explicit workspace paths, and implicit members reached by path dependencies.
 pub fn cargo_workspace_root(package_dir: &Path) -> Option<PathBuf> {
-    let package = normalize_lexically(package_dir);
+    let package = lexical(package_dir);
     let package_manifest = manifest(&package)?;
     if package_manifest
         .get("workspace")
@@ -33,7 +33,7 @@ pub fn cargo_workspace_root(package_dir: &Path) -> Option<PathBuf> {
         .and_then(|value| value.get("workspace"))
         .and_then(toml::Value::as_str)
     {
-        Some(explicit) => normalize_lexically(&package.join(explicit)),
+        Some(explicit) => lexical(&package.join(explicit)),
         None => package
             .parent()?
             .ancestors()
@@ -56,7 +56,7 @@ fn patterns<'a>(workspace: &'a toml::Table, key: &str) -> impl Iterator<Item = &
 
 fn matches(root: &Path, pattern: &str, candidate: &Path) -> bool {
     let literal_root = PathBuf::from(globset::escape(&root.to_string_lossy()));
-    globset::GlobBuilder::new(&normalize_lexically(&literal_root.join(pattern)).to_string_lossy())
+    globset::GlobBuilder::new(&lexical(&literal_root.join(pattern)).to_string_lossy())
         .literal_separator(true)
         .backslash_escape(false)
         .build()
@@ -72,12 +72,12 @@ fn contains_package(
     // Cargo's excludes are literal directory prefixes. A literal members
     // entry takes precedence; an expanded glob or implicit dependency does not.
     let explicit = |path: &Path| {
-        patterns(workspace, "members").any(|member| normalize_lexically(&root.join(member)) == path)
+        patterns(workspace, "members").any(|member| lexical(&root.join(member)) == path)
     };
     let excluded = |path: &Path| {
         !explicit(path)
             && patterns(workspace, "exclude")
-                .any(|excluded| path.starts_with(normalize_lexically(&root.join(excluded))))
+                .any(|excluded| path.starts_with(lexical(&root.join(excluded))))
     };
     if excluded(package) {
         return false;
@@ -111,7 +111,7 @@ fn contains_package(
             .get("package")
             .and_then(|value| value.get("workspace"))
             .and_then(toml::Value::as_str)
-            && normalize_lexically(&directory.join(explicit)) != root
+            && lexical(&directory.join(explicit)) != root
         {
             continue;
         }
@@ -145,7 +145,7 @@ fn contains_package(
                         .and_then(toml::Value::as_str)
                     {
                         let base = if inherited { root } else { &directory };
-                        let path = normalize_lexically(&base.join(path));
+                        let path = lexical(&base.join(path));
                         if path.starts_with(root) {
                             pending.push(path);
                         }

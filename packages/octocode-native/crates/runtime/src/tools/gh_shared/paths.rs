@@ -74,7 +74,17 @@ impl<'a> RepoPath<'a> {
 
     /// A lead to `tool` (ghStructure, ghCloneRepo) that starts here.
     pub(crate) fn lead(&self, tool: ToolId) -> Continuation {
-        Continuation::new(tool, self.row())
+        let mut row = self.row();
+        match tool {
+            ToolId::GhStructure => row["operation"] = json!("tree"),
+            ToolId::GhCloneRepo => {
+                if let Some(path) = row.as_object_mut().and_then(|r| r.remove("path")) {
+                    row["paths"] = json!([path]);
+                }
+            }
+            _ => {}
+        }
+        Continuation::related(tool, row)
     }
 }
 
@@ -215,19 +225,15 @@ pub(crate) fn listing_path(path: &str) -> Result<String, ProviderError> {
 /// A ghStructure listing of `path` at the caller's ref (and depth, when the
 /// caller set one): a fresh query from page 1, not a page of the failed call.
 /// `approximate` marks a listing of a guessed directory.
-pub(crate) fn tree_recovery(at: &RepoPath<'_>, max_depth: Option<i64>, approximate: bool) -> Value {
-    let mut tree_query = json!({"owner": at.owner, "repo": at.repo, "path": repo_path(at.path)});
+pub(crate) fn tree_recovery(at: &RepoPath<'_>, max_depth: Option<i64>) -> Value {
+    let mut tree_query =
+        json!({"operation":"tree","owner": at.owner, "repo": at.repo, "path": repo_path(at.path)});
     if let Some(reference) = at.reference {
         tree_query["ref"] = json!(reference);
     }
     if let Some(depth) = max_depth {
         tree_query["maxDepth"] = json!(depth);
     }
-    let listing = Continuation::new(ToolId::GhStructure, tree_query);
-    if approximate {
-        listing.approximate()
-    } else {
-        listing
-    }
-    .build()
+    let listing = Continuation::related(ToolId::GhStructure, tree_query);
+    listing.build()
 }

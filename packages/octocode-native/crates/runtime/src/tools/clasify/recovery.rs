@@ -30,11 +30,8 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
                 .then(|| source_capture::read_lead(tool, &source["query"], None))
         })
         .filter(|_| !too_large);
-    if failure["hints"].is_null() {
-        failure["hints"] = json!({});
-    }
     if let Some(read) = &read {
-        failure["hints"]["read"] = read.clone();
+        crate::response::result::attach_calls(failure, json!({"read":read}));
     }
     if acquisition {
         return;
@@ -49,7 +46,7 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
     if row.assets.is_some() {
         tips.push(json!(notice("imageInspection")));
     }
-    if let Some(existing) = failure["hints"]["text"].as_array() {
+    if let Some(existing) = failure["hints"].as_array() {
         tips.extend(
             existing
                 .iter()
@@ -58,7 +55,7 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
                 .collect::<Vec<_>>(),
         );
     }
-    failure["hints"]["text"] = json!(tips);
+    failure["hints"] = json!(tips);
 }
 
 /// Whether the same read can answer differently when repeated: not after a
@@ -76,144 +73,91 @@ pub(super) fn rereadable(failure: &Value) -> bool {
 mod tests {
     use super::*;
 
-    fn row(input: Input, assets: Option<Value>) -> Row {
+    fn source_row() -> Row {
         Row {
-            id: "q0".into(),
+            context: None,
             model: None,
             keys: vec![],
             questions: vec![],
-            input,
-            assets,
+            input: Input::Judge(Target::Source(
+                json!({"tool":"localFetch","query":{"path":"source.rs","ranges":[{"startLine":8,"endLine":12}]}}),
+            )),
+            assets: None,
             long_context: false,
         }
     }
 
     #[test]
-    fn captured_read_wins_and_existing_error_guidance_survives() {
-        let row = row(
-            Input::Judge(Target::Source(json!({"tool":"ghGetFileContent","query":{
-                "owner":"o","repo":"r","path":"a.rs","ref":"main"
-            }}))),
-            None,
-        );
-        let captured = Captured {
-            state: json!({"content":"PRIVATE_SOURCE_BODY"}),
-            read: json!({"tool":"ghGetFileContent","query":{"queries":[{
-                "owner":"o","repo":"r","path":"a.rs","ref":"immutable-commit","ranges":["8-12"]
-            }]}}),
+    fn failed_judgment_retains_exact_captured_read_and_provider_guidance_without_source_body() {
+        let row = source_row();
+        let Input::Judge(Target::Source(source)) = &row.input else {
+            unreachable!()
+        };
+        let capture = Captured {
+            state: json!({"content":"PRIVATE SOURCE BODY"}),
+            read: source_capture::read_lead(
+                ToolId::LocalFetch,
+                &source["query"],
+                Some("frozen-snapshot"),
+            ),
             source: None,
         };
-        let mut failure = json!({"errorCode":"classificationProviderError","hints":{
-            "text":["Provider repair tip."],"retry":{"tool":"clasify","query":{}}
-        }});
-        add(&row, Some(&captured), &mut failure);
-        assert_eq!(failure["hints"]["read"], captured.read);
-        assert_eq!(failure["hints"]["text"][1], "Provider repair tip.");
-        assert_eq!(failure["hints"]["retry"]["tool"], "clasify");
-        assert!(!failure.to_string().contains("PRIVATE_SOURCE_BODY"));
+        let mut failure =
+            json!({"errorCode":"classificationProviderError","hints":["Provider guidance."]});
+        add(&row, Some(&capture), &mut failure);
+        assert_eq!(failure["next"]["read"], capture.read);
+        assert_eq!(failure["next"]["read"]["kind"], "continue");
+        assert_eq!(
+            failure["next"]["read"]["input"]["queries"][0]["snapshot"],
+            "frozen-snapshot"
+        );
+        assert!(
+            failure["hints"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("Provider guidance."))
+        );
+        assert!(!failure.to_string().contains("PRIVATE SOURCE BODY"));
         let once = failure.clone();
-        add(&row, Some(&captured), &mut failure);
+        add(&row, Some(&capture), &mut failure);
         assert_eq!(failure, once);
     }
 
     #[test]
-    fn acquisition_failure_keeps_the_requested_scope_without_claiming_a_snapshot() {
-        for (tool, query) in [
-            ("localFetch", json!({"path":"a.rs","ranges":["8-12"]})),
-            (
-                "ghGetFileContent",
-                json!({"owner":"o","repo":"r","path":"a.rs","ref":"release","ranges":["8-12"]}),
-            ),
-        ] {
-            let row = row(
-                Input::Judge(Target::Source(json!({"tool":tool,"query":query}))),
-                None,
-            );
-            let mut failure = json!({"errorCode":"classificationSourceUnavailable"});
-            add(&row, None, &mut failure);
-            let read = &failure["hints"]["read"];
-            assert_eq!(read["tool"], tool);
-            assert_eq!(read["query"]["queries"][0]["ranges"], query["ranges"]);
-            assert_eq!(read["query"]["queries"][0]["ref"], query["ref"]);
-            assert!(read["query"]["queries"][0].get("snapshot").is_none());
-        }
-    }
-
-    #[test]
-    fn a_reader_failure_is_not_worded_as_classification_and_offers_no_dead_read() {
+    fn acquisition_failure_offers_fresh_scoped_retry_only_when_repeat_can_succeed() {
+        let row = source_row();
+        let Input::Judge(Target::Source(source)) = &row.input else {
+            unreachable!()
+        };
+        let mut failure = json!({"errorCode":"classificationContextUnavailable"});
+        add(&row, None, &mut failure);
+        assert_eq!(failure["related"][0]["kind"], "related");
+        assert_eq!(
+            failure["related"][0]["input"]["queries"][0],
+            source["query"]
+        );
+        assert!(failure.get("next").is_none());
         for code in [
             "pathNotFound",
             "outsideAllowedRoots",
-            "largeSourceWindowOnly",
+            "classificationContextTooLarge",
         ] {
-            let row = row(
-                Input::Judge(Target::Source(
-                    json!({"tool":"localFetch","query":{"path":"nope/missing.rs","ranges":["1-5"]}}),
-                )),
-                None,
-            );
-            let mut failure = json!({"errorCode":code,"error":"missing","hints":{
-                "text":["Run the same read directly to inspect it."]
-            }});
+            let mut failure = json!({"errorCode":code});
             add(&row, None, &mut failure);
-            assert!(failure["hints"].get("read").is_none(), "{code}: {failure}");
-            assert!(
-                !failure.to_string().contains("Classification failed"),
-                "{code}: {failure}"
-            );
-            assert_eq!(failure["hints"]["text"].as_array().map(Vec::len), Some(1));
+            assert!(failure.get("next").is_none(), "{failure}");
+            assert!(failure.get("related").is_none(), "{failure}");
         }
     }
 
-    /// A selection too large to judge leads to judging it in parts, never
-    /// to a read of the whole selection.
     #[test]
-    fn a_too_large_selection_offers_no_read_of_itself() {
-        let source = json!({"tool":"localFetch","query":{"path":"big.rs","fullContent":true}});
-        let row = row(Input::Judge(Target::Source(source)), None);
-        let mut failure = json!({"errorCode":"classificationContextTooLarge","error":"big"});
-        add(&row, None, &mut failure);
-        assert!(failure["hints"].get("read").is_none(), "{failure}");
-        let captured = Captured {
-            state: json!({}),
-            read: json!({"tool":"localFetch","query":{"queries":[{"path":"big.rs"}]}}),
-            source: None,
-        };
-        let mut failure = json!({"errorCode":"classificationContextTooLarge","error":"big"});
-        add(&row, Some(&captured), &mut failure);
-        assert!(failure["hints"].get("read").is_none(), "{failure}");
-    }
-
-    #[test]
-    fn image_failure_routes_to_image_tools_without_fabricating_a_text_read() {
-        let row = row(
-            Input::Judge(Target::State(json!({}))),
-            Some(json!({"screen":{
-                "type":"image","source":{"tool":"localFetch","query":{"path":"screen.png"}}
-            }})),
-        );
+    fn literal_content_and_model_discovery_do_not_fabricate_source_reads() {
+        let mut row = source_row();
+        row.input = Input::Judge(Target::Content(json!("literal")));
         let mut failure = json!({"errorCode":"classificationProviderError"});
         add(&row, None, &mut failure);
-        assert!(failure["hints"].get("read").is_none());
-        assert!(
-            failure["hints"]["text"]
-                .to_string()
-                .contains("image-capable tool")
-        );
-        assert!(
-            failure["hints"]["text"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|tip| tip.as_str().unwrap().len() <= 120)
-        );
-    }
-
-    #[test]
-    fn model_discovery_failure_has_no_evidence_to_inspect() {
-        let row = row(Input::Models, None);
-        let mut failure =
-            json!({"errorCode":"classificationProviderError","hints":{"text":["Retry later."]}});
+        assert!(failure.get("next").is_none());
+        assert!(failure.get("related").is_none());
+        row.input = Input::Models;
         let before = failure.clone();
         add(&row, None, &mut failure);
         assert_eq!(failure, before);

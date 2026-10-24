@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { vi } from 'vitest';
 import { INTERNAL_MESSAGE_TYPE } from '../src/shared/messages.js';
 import type { Member } from '../src/team/model.js';
@@ -7,19 +5,11 @@ import { Team } from '../src/team/session.js';
 import { TeamStore } from '../src/team/store.js';
 import { registerCollab } from '../src/team/tools.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
 
 /** A member row of this process; `extra` overrides any field. */
 export const member = (id: string, extra: Partial<Member> = {}): Member => ({
   id, role: id.replace(/-[0-9a-f]{6}$/, ''), pid: process.pid, status: 'idle', joinedAt: 1_000, updatedAt: Date.now(), toolCalls: 0, input: 0, cacheRead: 0, output: 0, cost: 0, unpriced: false, ...extra,
 });
-
-/** A fresh folder with a `.git` directory: its own team workspace. */
-export const repo = () => {
-  const dir = tmp();
-  fs.mkdirSync(path.join(dir, '.git'));
-  return dir;
-};
 
 /** Read what is pending and acknowledge it, as a recipient does after injecting it. */
 export const take = (store: TeamStore, id: string) => {

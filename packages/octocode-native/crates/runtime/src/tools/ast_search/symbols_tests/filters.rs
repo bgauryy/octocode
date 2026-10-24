@@ -11,19 +11,18 @@ fn a_bad_language_glob_is_refused_with_its_declared_code() {
     files(&root.0, 1);
     let (paths, _) = simple_policy(&root.0);
     let canonical = &root.0.canonicalize().expect("root");
-    for (globs, code) in [
-        (json!({"cpp": ["["]}), ErrorCode::InvalidGlob),
-        (
-            json!({"no-such-grammar": ["*.x"]}),
-            ErrorCode::LanguageUnsupported,
-        ),
-    ] {
-        let q = query(&root.0, json!({"languageGlobs": globs}));
-        let Err(error) = outline_directory(&q, canonical.as_path(), &paths, &NeverCancel) else {
-            panic!("{code}: the scan must be refused");
-        };
-        assert_eq!(error.code, code, "{}", error.message);
-    }
+    assert!(
+        crate::contracts::validate_query(
+            "astSearch",
+            json!({"operation":"symbols","path":root.0,"parserGlobs":{"no-such-grammar":["*.x"]}})
+        )
+        .is_err()
+    );
+    let q = query(&root.0, json!({"parserGlobs":{"cpp":["["]}}));
+    let error = outline_directory(&q, canonical.as_path(), &paths, &NeverCancel)
+        .err()
+        .expect("invalid glob refuses the scan");
+    assert_eq!(error.code, ErrorCode::InvalidGlob, "{}", error.message);
 }
 
 /// Only declarations whose name can match `symbolName` leave the scan; every
@@ -32,7 +31,10 @@ fn a_bad_language_glob_is_refused_with_its_declared_code() {
 fn a_name_search_retains_only_matching_declarations() {
     let root = Fixture::new();
     files(&root.0, 30);
-    let held = scan(&query(&root.0, json!({"symbolName":"Disposable"})), &root.0);
+    let held = scan(
+        &query(&root.0, json!({"symbolFilter":{"terms":["Disposable"]}})),
+        &root.0,
+    );
     assert_eq!(rows(&held), 1, "rows held while scanning");
     assert_eq!(held.files.len(), 1, "files held while scanning");
     assert_eq!(held.scanned, 30, "every parsed file is counted");
@@ -43,7 +45,7 @@ fn a_name_search_retains_only_matching_declarations() {
 fn a_kind_search_retains_only_the_asked_kinds() {
     let root = Fixture::new();
     files(&root.0, 30);
-    let held = scan(&query(&root.0, json!({"kinds":["class"]})), &root.0);
+    let held = scan(&query(&root.0, json!({"symbolKinds":["class"]})), &root.0);
     assert_eq!(rows(&held), 31, "30 Widget classes and Disposable");
     assert_eq!(held.scanned, 30);
 }
@@ -60,13 +62,16 @@ fn a_kind_and_name_search_holds_only_equal_names_of_other_kinds() {
     let exact = scan(
         &query(
             &root.0,
-            json!({"kinds":["function"],"symbolName":"Disposable"}),
+            json!({"symbolKinds":["function"],"symbolFilter":{"terms":["Disposable"]}}),
         ),
         &root.0,
     );
     assert_eq!((rows(&exact), off_kind(&exact)), (0, 1));
     let substring = scan(
-        &query(&root.0, json!({"kinds":["function"],"symbolName":"Dispos"})),
+        &query(
+            &root.0,
+            json!({"symbolKinds":["function"],"symbolFilter":{"terms":["Dispos"]}}),
+        ),
         &root.0,
     );
     assert_eq!((rows(&substring), off_kind(&substring)), (0, 0));
@@ -79,7 +84,10 @@ fn a_kind_and_name_search_holds_only_equal_names_of_other_kinds() {
 fn an_empty_name_search_does_not_blame_files_it_scanned() {
     let root = Fixture::new();
     files(&root.0, 5);
-    let out = empty_outline(&root.0, json!({"symbolName":"zzNoSuchSymbol"}));
+    let out = empty_outline(
+        &root.0,
+        json!({"symbolFilter":{"terms":["zzNoSuchSymbol"]}}),
+    );
     assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(out["filesScanned"], 5, "{out}");
     checks::assert_absent(&out["hints"], "skipped paths");
@@ -94,7 +102,7 @@ fn an_empty_name_search_counts_only_the_hidden_files() {
     files(&root.0, 5);
     std::fs::create_dir_all(root.0.join(".cfg")).expect("dir");
     root.write(".cfg/hidden.ts", "export const zzNeedle = 1;\n");
-    let out = empty_outline(&root.0, json!({"symbolName":"zzNeedle"}));
+    let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["zzNeedle"]}}));
     assert_eq!(out["status"], "empty", "{out}");
     let hints = out["hints"].to_string();
     assert!(hints.contains("1 outlinable file"), "{hints}");
@@ -110,7 +118,7 @@ fn a_name_search_finds_a_body_less_trait_method() {
         "judge.rs",
         "pub trait Judge {\n    fn identity(&self) -> u8;\n    fn project(&self) {}\n}\n",
     );
-    let out = empty_outline(&root.0, json!({"symbolName":"identity"}));
+    let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["identity"]}}));
     assert_ne!(out["status"], "empty", "{out}");
     assert!(
         out.to_string().contains("\"symbolName\":\"identity\""),

@@ -28,12 +28,17 @@ assignment stays outside the question text.
 `QUESTION_DIR` selects the question catalog, `QUESTION_REPO_MAP` its repository manifest,
 and `ANSWER_DIR` the private judge rubrics. `render_question.py` substitutes repository
 tokens; `codex_runner.py` materializes only the selected tracked files into each local lab.
-`mcp_probe.py` checks the live schema gates and denies evaluator paths before research.
+`mcp_probe.py` checks the live `classification` schema gates and denies evaluator paths
+before research. Its local and classifier-source probes use valid current input shapes so
+a malformed request cannot stand in for a scope denial; disabled source tools must report
+the explicit disabled-tool reason.
 
 Use `with_credentials.mjs -- <command> ...` to resolve canonical Octocode credentials into
 the child environment without saving them. `BENCH_CLASSIFICATION_TRACE=1` records JEV HTTP
 attempt metadata through `classification_proxy.mjs`; failed or unreported usage stays unknown.
-Run summaries preserve invalid attempts, goals adoption and provider usage. Pass
+Run summaries preserve invalid attempts, requested classification, selection coverage and
+provider usage. Opaque cursor replay does not reveal whether classification ran. Historical
+goal/ranking records retain their original interpretation. Pass
 `--question-set` to the summary and matrix commands to keep corpora separate.
 
 The flow and its rules: [`../docs/running.md`](running.md).

@@ -38,7 +38,7 @@ use serde_json::{Value, json};
 use shared::{CancelOnDrop, FailOnExit, Outbound, Shared, cancel_message, closed_error};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex};
 use tasks::{read_loop, write_loop};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
@@ -94,9 +94,9 @@ impl JsonRpcConnection {
     {
         let (outbound, outbound_rx) = mpsc::channel(WRITER_QUEUE_FRAMES);
         let shared = Arc::new(Shared {
-            pending: StdMutex::new(Some(HashMap::new())),
+            pending: Mutex::new(Some(HashMap::new())),
             failed: AtomicBool::new(false),
-            failure_reason: StdMutex::new(None),
+            failure_reason: Mutex::new(None),
             outbound,
             push_diagnostics: PushDiagnosticsStore::new(),
             partial_results: PartialResultStore::default(),
@@ -135,7 +135,7 @@ impl JsonRpcConnection {
     /// memory cap: every pending and later request fails with `reason` as
     /// [`crate::error::ErrorKind::ResourceExhausted`]. Idempotent; the first
     /// reason wins.
-    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))] // Wired on macOS and Linux only.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) fn fail_resource_exhausted(&self, reason: &str) {
         self.shared.fail_with(Error::resource_exhausted(reason));
     }

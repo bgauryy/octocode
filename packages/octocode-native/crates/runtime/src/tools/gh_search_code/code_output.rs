@@ -1,5 +1,5 @@
 use super::leads::{declaration_read, hits_read, line_read, read_top_match, scoped_fragment_read};
-use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchIn};
+use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
 use crate::security::scan::ContentScan;
 use octocode_github::{CodeSearchItem, ProviderError};
 use serde_json::{Value, json};
@@ -29,8 +29,10 @@ pub(super) struct PageReads {
 /// Content classification needs the normal hit evidence even when the host
 /// requests only paths. Ordinary path projections still avoid line reads.
 fn reads_lines(query: &GhSearchCodeQuery) -> bool {
-    query.match_in == GhSearchCodeQueryMatchIn::File
-        && (query.clasify_context.is_some()
+    query
+        .match_in
+        .contains(&GhSearchCodeQueryMatchInItem::Content)
+        && (query.classification.is_some()
             || query.fields.is_empty()
             || picks(query, "lines")
             || picks(query, "matchCount"))
@@ -79,12 +81,6 @@ pub(super) fn shape_files(
                     declaration,
                     resume_after,
                 } => {
-                    if !query
-                        .extras
-                        .contains(&octocode_contract_types::ExtraKind::Details)
-                    {
-                        row.shift_remove("matches");
-                    }
                     row.insert("lines".into(), json!(lines));
                     // A file states its count when it has unlisted hits, or
                     // when a `fields` pick asks for it.
@@ -180,12 +176,11 @@ pub(super) fn merge_identical(items: &mut Vec<Value>) {
     for item in items.drain(..) {
         let evidence = item
             .as_object()
-            .filter(|row| row.contains_key("lines") || row.contains_key("matches"))
-            .and_then(|row| {
-                let mut evidence = row.clone();
-                evidence.shift_remove("path")?;
-                serde_json::to_string(&evidence).ok()
-            });
+            .filter(|row| {
+                (row.contains_key("lines") || row.contains_key("matches"))
+                    && row.contains_key("path")
+            })
+            .and_then(|row| serde_json::to_string(&Evidence(row)).ok());
         let Some(evidence) = evidence else {
             kept.push(item);
             continue;
@@ -216,6 +211,16 @@ pub(super) fn merge_identical(items: &mut Vec<Value>) {
     *items = kept;
 }
 
+/// A row's listed evidence: its fields but `path`, rendered exactly as the
+/// row would be without that entry, so no copy of the row is made.
+struct Evidence<'a>(&'a serde_json::Map<String, Value>);
+
+impl serde::Serialize for Evidence<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.0.iter().filter(|(key, _)| *key != "path"))
+    }
+}
+
 pub(super) fn files(
     items: &[CodeSearchItem],
     query: &GhSearchCodeQuery,
@@ -224,8 +229,9 @@ pub(super) fn files(
     let GhSearchCodeQuery {
         match_in, keywords, ..
     } = query;
-    let path_only = *match_in == GhSearchCodeQueryMatchIn::Path;
-    let terms = super::ranking::terms(keywords)?;
+    let path_only = !match_in.contains(&GhSearchCodeQueryMatchInItem::Content);
+    let terms =
+        super::ranking::terms(&keywords.iter().map(ToString::to_string).collect::<Vec<_>>())?;
     let mut groups: Vec<super::ranking::Group> = Vec::new();
     let mut group_indices = HashMap::new();
     for item in items {

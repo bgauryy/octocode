@@ -21,49 +21,23 @@ async fn malformed_remote_regex_keeps_original_error_and_required_file_path() {
         .mount(&server).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    for extras in [json!([]), json!(["diagnostics"])] {
-        let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","ref":sha,"matchString":"(","regex":"rust","extras":extras})).await.expect("error row");
-        assert_eq!(row_status(&out), "error", "{}", out.structured_content);
+    for patterns in [json!(["("]), json!(["^example", "source("])] {
+        let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","ref":sha,"matchString":patterns,"regexEngine":"rust"})).await.expect("error row");
+        assert_eq!(row_status(&out), "error");
         let data = row_data(&out);
-        assert_ne!(data["errorCode"], "outputContractViolation", "{data}");
-        assert_eq!(data["path"], "README.md", "{data}");
+        assert_eq!(data["errorCode"], "invalidPattern", "{data}");
+        assert_eq!(data["path"], "README.md");
         assert!(
             data["error"]
                 .as_str()
-                .is_some_and(|error| error.contains("Invalid regex pattern")),
+                .is_some_and(|message| message.contains("regex") || message.contains("pattern")),
             "{data}"
         );
+        assert!(
+            checks::leads(data).is_empty(),
+            "invalid patterns have no guessed repair: {data}"
+        );
     }
-    // A list with one unclosed call: the error names the item, and the one
-    // lead is the same GitHub read with that item escaped; no static text.
-    let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","ref":sha,"matchString":["^example","source("],"regex":"rust"})).await.expect("error row");
-    let data = row_data(&out);
-    assert_eq!(data["errorCode"], "invalidPattern", "{data}");
-    assert!(
-        data["error"].to_string().contains("matchString[1]"),
-        "{data}"
-    );
-    let repair = &crate::support::checks::hint(data, "repair");
-    assert_eq!(repair["tool"], "ghGetFileContent", "{data}");
-    let row = &repair["query"]["queries"][0];
-    assert_eq!(
-        row["matchString"],
-        json!(["^example", "source\\("]),
-        "{data}"
-    );
-    assert_eq!(
-        (
-            row["owner"].as_str(),
-            row["repo"].as_str(),
-            row["ref"].as_str()
-        ),
-        (Some("a"), Some("b"), Some(sha)),
-        "{data}"
-    );
-    assert!(
-        crate::support::checks::hint(data, "text").is_null(),
-        "{data}"
-    );
     runtime.close().await;
 }
 
@@ -161,38 +135,21 @@ async fn anonymous_rate_limit_advises_authentication() {
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "rateLimited", "{data}");
     assert!(
-        crate::support::checks::hint(data, "text")[0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("auth login")),
+        data["hints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|hint| hint
+                .as_str()
+                .is_some_and(|text| text.contains("auth login"))),
         "{data}"
     );
     runtime.close().await;
 }
 
-/// Every hint string anywhere in a row.
-fn all_hints(value: &serde_json::Value) -> Vec<String> {
-    let mut out = Vec::new();
-    match value {
-        serde_json::Value::Object(map) => {
-            for (key, child) in map {
-                if key == "hints"
-                    && let Some(hints) = child.as_array()
-                {
-                    out.extend(hints.iter().filter_map(|h| h.as_str().map(str::to_owned)));
-                }
-                out.extend(all_hints(child));
-            }
-        }
-        serde_json::Value::Array(items) => items.iter().for_each(|v| out.extend(all_hints(v))),
-        _ => {}
-    }
-    out
-}
-
-/// Authentication and binary-file hints arrive whole, never cut
-/// mid-sentence with an ellipsis.
+/// Errors without saved work preserve their reason and complete recovery guidance.
 #[tokio::test]
-async fn github_recovery_hints_are_never_cut_mid_sentence() {
+async fn github_errors_without_continuations_preserve_reason_and_recovery() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
@@ -212,30 +169,54 @@ async fn github_recovery_hints_are_never_cut_mid_sentence() {
         })))
         .mount(&server)
         .await;
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    for query in [
-        json!({"owner":"a","repo":"b","path":"README.md","ref":"locked","extras":[]}),
-        json!({"owner":"a","repo":"b","path":"img.png","ref":sha,"extras":[]}),
+    for (query, code, guidance) in [
+        (
+            json!({"owner":"a","repo":"b","path":"README.md","ref":"locked"}),
+            "authentication",
+            "auth login",
+        ),
+        (
+            json!({"owner":"a","repo":"b","path":"img.png","ref":sha}),
+            "invalidInput",
+            "Binary content",
+        ),
     ] {
-        let outcome = call(&runtime, "ghGetFileContent", query)
+        let workspace = Workspace::new();
+        let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+        let outcome = call(&runtime, "ghGetFileContent", query.clone())
             .await
-            .expect("error row");
+            .unwrap_or_else(|error| panic!("{query}: {error:?}"));
         let data = row_data(&outcome);
-        let hints = all_hints(data);
-        assert!(!hints.is_empty(), "{data}");
+        assert_eq!(data["errorCode"], code, "{data}");
+        assert!(data.get("next").is_none(), "{data}");
+        assert!(
+            outcome
+                .structured_content
+                .get("responsePagination")
+                .is_none(),
+            "{}",
+            outcome.structured_content
+        );
+        let hints = data["hints"].as_array().expect("recovery hints");
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.as_str().is_some_and(|text| text.contains(guidance))),
+            "{data}"
+        );
         for hint in hints {
-            assert!(!hint.contains('…'), "truncated hint {hint:?} in {data}");
+            assert!(
+                !hint.as_str().expect("text").contains('…'),
+                "truncated hint {hint:?} in {data}"
+            );
         }
+        runtime.close().await;
     }
-    runtime.close().await;
 }
 
-/// A failed read's provider status, retry flag, request id and
-/// documentation link are support diagnostics (`diagnostics` extra): a
-/// default row drops them; `extras: ["diagnostics"]` keeps them.
+/// Provider diagnostics survive the same stable error shape on every call.
 #[tokio::test]
-async fn gh_file_error_keeps_provider_diagnostics_for_the_diagnostics_extra() {
+async fn gh_file_error_preserves_provider_diagnostics() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
@@ -252,26 +233,26 @@ async fn gh_file_error_keeps_provider_diagnostics_for_the_diagnostics_extra() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    for debug in [false, true] {
-        let extras = if debug {
-            json!(["diagnostics"])
-        } else {
-            json!([])
-        };
-        let outcome = call(
-            &runtime,
-            "ghGetFileContent",
-            json!({"owner":"a","repo":"b","path":"src/missing.rs","ref":sha,"extras":extras}),
-        )
-        .await
-        .expect("error row");
-        let data = row_data(&outcome);
-        assert_eq!(data["errorCode"], "notFound", "{data}");
-        assert_eq!(data.get("httpStatus").is_some(), debug, "{data}");
-        // A 404 is not retryable, so no mode states `retryable`.
-        assert!(data.get("retryable").is_none(), "{data}");
-        assert_eq!(data.get("requestId").is_some(), debug, "{data}");
-        assert_eq!(data.get("documentationUrl").is_some(), debug, "{data}");
-    }
+    let outcome = call(
+        &runtime,
+        "ghGetFileContent",
+        json!({"owner":"a","repo":"b","path":"src/missing.rs","ref":sha}),
+    )
+    .await
+    .expect("error row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "notFound", "{data}");
+    assert_eq!(data["httpStatus"], 404, "{data}");
+    assert!(
+        data.get("retryable").is_none(),
+        "404 is not retryable: {data}"
+    );
+    assert_eq!(data["requestId"], "R1", "{data}");
+    assert!(
+        data["documentationUrl"]
+            .as_str()
+            .is_some_and(|url| url.contains("get-repository-content")),
+        "{data}"
+    );
     runtime.close().await;
 }

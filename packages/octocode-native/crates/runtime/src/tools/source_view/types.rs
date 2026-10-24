@@ -1,10 +1,6 @@
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit, ReadView};
 use serde::{Deserialize, Serialize};
-
-pub use octocode_contract_types::{
-    LocalFetchQuery, MatchString, MinifyMode, ReadCaseMode, ReadRegex, WindowUnit,
-};
 
 pub(crate) mod local_fetch_query;
 mod next_calls;
@@ -17,16 +13,7 @@ pub use result::{LocalFetchResult, ReadStatus};
 
 /// Default line-page safety ceiling. The byte budget bounds ordinary pages;
 /// short-line files can fill it without an additional fixed row limit.
-pub const DEFAULT_LINE_CHUNK: usize = crate::contracts::query_limits::local_fetch::LENGTH_MAXIMUM;
-
-/// Lines an unanchored read of a view longer than one line page returns
-/// before paging on (contract `localFetch.semanticPolicy.headLines`).
-pub const HEAD_LINES: usize = crate::id::local_fetch_policy::HEAD_LINES;
-
-/// Encodes an engine `usize` as a positive wire integer.
-pub(crate) fn wire_positive(value: usize) -> Option<std::num::NonZeroU64> {
-    std::num::NonZeroU64::new(u64::try_from(value).unwrap_or(u64::MAX))
-}
+pub const DEFAULT_LINE_CHUNK: usize = crate::id::local_fetch_policy::MAX_PAGE_LINES;
 
 /// Encodes an engine `usize` as a non-negative wire integer.
 pub(crate) fn wire_count(value: usize) -> i64 {
@@ -46,10 +33,10 @@ pub struct LineRange {
 /// One window of the selected view; `result::PaginationWire` writes it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pagination {
-    pub unit: WindowUnit,
+    pub unit: ReadProgressUnit,
     pub offset: usize,
     pub length: usize,
-    /// The requested window, in `unit`; never sent (the caller set it).
+    /// The execution window in `unit`; never sent as an input field.
     pub window: usize,
     pub total_lines: usize,
     pub total_bytes: usize,
@@ -66,18 +53,6 @@ pub struct Pagination {
 /// holds read as one span from the first start to the last end.
 pub fn line_read(q: &LocalFetchQuery, ranges: &[LineRange]) -> Option<LocalFetchQuery> {
     let (first, last) = (ranges.first()?, ranges.last()?);
-    let mut query = q.clone();
-    local_fetch_query::clear_block_selectors(&mut query);
-    query.match_string = None;
-    query.regex = None;
-    query.case_mode = None;
-    query.whole_word = None;
-    query.context_lines = None;
-    query.full_content = None;
-    query.offset = None;
-    query.unit = None;
-    query.length = None;
-    query.snapshot = None;
     let span = [LineRange {
         start: first.start,
         end: last.end,
@@ -87,11 +62,18 @@ pub fn line_read(q: &LocalFetchQuery, ranges: &[LineRange]) -> Option<LocalFetch
     } else {
         ranges
     };
-    query.ranges = ranges
-        .iter()
-        .filter_map(|range| format!("{}-{}", range.start, range.end).parse().ok())
-        .collect();
-    Some(query)
+    local_fetch_query::updated(
+        q,
+        serde_json::json!({
+            "view": "content", "matchString": null, "regexEngine": null,
+            "caseMode": null, "wholeWord": null, "contextLines": null,
+            "block": null, "readProgress": null, "snapshot": null,
+            "ranges": ranges.iter().map(|range| serde_json::json!({
+                "startLine": range.start, "endLine": range.end
+            })).collect::<Vec<_>>()
+        }),
+    )
+    .ok()
 }
 
 /// `wanted` minus every line in `shown`: the sorted, disjoint ranges of
@@ -125,9 +107,9 @@ pub fn uncovered(wanted: &[LineRange], shown: &[LineRange]) -> Vec<LineRange> {
 }
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MinifyFallback {
-    pub requested: MinifyMode,
-    pub applied: MinifyMode,
+pub struct ViewFallback {
+    pub requested: ReadView,
+    pub applied: ReadView,
     pub reason: String,
 }
 /// Why a row does not cover its requested scope beyond what pagination
@@ -135,8 +117,8 @@ pub struct MinifyFallback {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PartialReason {
-    #[serde(rename = "fullContentSourceSizeLimit")]
-    FullContentSource,
+    #[serde(rename = "sourceSizeLimit")]
+    SourceSizeLimit,
     #[serde(rename = "securitySelectedViewSizeLimit")]
     SecuritySelectedView,
     /// A regex scan stopped at its in-process match limit: the selection is a
@@ -159,13 +141,12 @@ pub struct DeclaredBlock {
 pub struct SourceFacts {
     /// The file's modification time (ISO 8601), when the caller has one.
     pub modified: Option<String>,
-    /// The row's share of the response window (`response::read_share`):
-    /// the read fills it and its row fits it; a whole-file view larger than
-    /// it returns its first page and `next.continueWindow`.
+    /// Target content budget for this reader page. Remaining source is
+    /// reachable through `next.continueWindow`; the response pager handles
+    /// envelope overhead and evidence that exceeds this target.
     pub window: Option<usize>,
-    /// Chars the caller's row adds around this reader's row (a GitHub
-    /// read's repository identity and its calls' owner, repo and ref): the
-    /// page fits `window` less them.
+    /// Estimated identity overhead beside the reader content, used when
+    /// choosing its page size.
     pub beside: usize,
     /// The bytes begin inside the file, past its first line (a streamed
     /// window): a U+FEFF leading them is text, not the file's byte-order
@@ -190,11 +171,17 @@ impl ByteOrigin {
     /// `q`, a byte read of the view, as the same read of the window.
     pub(super) fn within(self, q: &LocalFetchQuery) -> LocalFetchQuery {
         let mut window = q.clone();
-        if window.unit == Some(WindowUnit::Bytes) {
+        if local_fetch_query::unit(&window) == ReadProgressUnit::Bytes {
             let offset = local_fetch_query::offset(q)
                 .unwrap_or(0)
                 .saturating_sub(self.base);
-            window.offset = Some(wire_count(offset));
+            local_fetch_query::set_progress(
+                &mut window,
+                Some(octocode_contract_types::ReadProgress {
+                    unit: ReadProgressUnit::Bytes,
+                    offset: wire_count(offset),
+                }),
+            );
         }
         window
     }
@@ -256,10 +243,7 @@ impl ExtractionError {
 #[cfg(test)]
 /// Minimal valid wire query; tests override the fields they exercise.
 pub(crate) fn test_local_fetch_query() -> LocalFetchQuery {
-    serde_json::from_value(
-        serde_json::json!({"path": "_", "mainGoal": "test", "reasoning": "test"}),
-    )
-    .expect("minimal localFetch query")
+    serde_json::from_value(serde_json::json!({"path": "_"})).expect("minimal localFetch query")
 }
 
 #[cfg(test)]

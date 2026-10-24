@@ -43,6 +43,8 @@ Python picks the first installed server in that order. Pyright-family servers ar
 
 rust-analyzer starts headless: whenever the resolved server is rust-analyzer, `initializationOptions` default to `cargo.buildScripts.enable:false`, `procMacro.enable:false`, `checkOnSave:false`, `cachePriming.enable:false`, and `cargo.targetDir:true`, so it runs no `build.rs`, proc-macro, or `cargo check` from the repository. User-supplied options merge on top and win key by key. `lspSearch` `rustContext` opts back in to build scripts and proc-macros.
 
+Server startup clears the inherited environment and forwards the OS path/home variables plus `RUSTUP_HOME`, `CARGO_HOME`, and `RUSTUP_TOOLCHAIN`. Rust discovery and startup therefore use the same toolchain even with a custom home. Explicit server `env` entries override these values; credential variables are not inherited. Changing a forwarded toolchain setting gives the CLI a separate warm server.
+
 clangd, jdtls, and Metals also start headless, on every launch path, with user arguments and options winning:
 
 - **clangd** gets `--background-index=false` (no `.cache/clangd/` index written into the repository), `--clang-tidy=false`, `--log=error`, and `--pch-storage=memory`. A flag the user already passes, by name, is not added again.
@@ -52,7 +54,7 @@ clangd, jdtls, and Metals also start headless, on every launch path, with user a
 
 TypeScript and JavaScript routing is documented once, in [TypeScript backends](../../../../docs/OCTOCODE_TOOLS.md#typescript-backends). Engine specifics:
 
-- The install tree that supplies the bundled `tsgo` (`@typescript/native-preview`, a dependency of `octocode-mcp` and `octocode`, pinned exactly because it is a nightly prerelease) and any `typescript-language-server` installed there (it is not a runtime dependency, so installs usually take it from `PATH`) is found from the loaded module (`lsp/module_path.rs`: the N-API addon or the CLI binary), not from `current_exe()`, which is `node` under MCP.
+- The install tree that supplies the bundled `tsgo` (`@typescript/native-preview`, a dependency of `octocode-mcp` and `octocode`, pinned exactly because it is a nightly prerelease) and any `typescript-language-server` installed there (it is not a runtime dependency, so installs usually take it from `PATH`) is found from the running native executable (`lsp/module_path.rs`, `current_exe()`) for both CLI and MCP.
 - A workspace's own `tsgo` is used only with `lsp.trustProjectConfig`. Its `typescript-language-server` is also used when the workspace is the directory Octocode started in, or inside it; a start directory that is `/` or the home directory trusts nothing under it. An untrusted checkout (a clone, say) never supplies either.
 - When the chosen `tsgo` fails to start, the request falls back to `typescript-language-server` and the answer says so; an `lsp-servers.json` entry gets no substitute.
 - tsgo answers independent requests in parallel, so importer verification sends up to 8 files at once to it; `typescript-language-server` gets one request at a time.
@@ -98,7 +100,7 @@ A configuration maps file extensions to launch specs:
 
 ## Pool ownership
 
-`packages/octocode-native/crates/engine/src/lsp/pool.rs` owns the complete pool lifecycle. One key identifies the server command, arguments, workspace, initialization options, and effective environment.
+`packages/octocode-native/crates/engine/src/lsp/pool/` owns the complete pool lifecycle. One key identifies the server command, arguments, workspace, initialization options, and effective environment.
 
 - Concurrent starts and health checks deduplicate.
 - Active requests prevent idle shutdown.

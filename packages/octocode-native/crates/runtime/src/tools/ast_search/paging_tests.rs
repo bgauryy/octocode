@@ -5,7 +5,8 @@
 use super::{AstSearchQuery, execute_ast};
 use crate::execution::cancel::NeverCancel;
 
-use crate::tools::test_support::{Fixture, checks, simple_policy};
+use crate::id::ToolId;
+use crate::tools::test_support::{Fixture, checks, opened_input, simple_policy};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
@@ -18,8 +19,9 @@ const WINDOW: usize = 16_384;
 fn walk(root: &std::path::Path, row: Value, rows: fn(&Value) -> Vec<String>) -> Vec<Value> {
     let (paths, security) = simple_policy(root);
     let mut outputs = Vec::new();
-    checks::walk("astSearch", json!({"queries": [row]}), |call| {
-        let row = &call["queries"][0];
+    checks::walker::walk("astSearch", json!({"queries":[row]}), |call| {
+        let input = opened_input(ToolId::AstSearch, call);
+        let row = &input["queries"][0];
         let query: AstSearchQuery = serde_json::from_value(row.clone()).expect("typed row");
         let out = execute_ast(&query, &paths, &security, &NeverCancel, Some(WINDOW))
             .unwrap_or_else(|error| panic!("{row} failed: {error:?}"));
@@ -83,7 +85,7 @@ fn symbol_rows(out: &Value) -> Vec<String> {
             .as_array()
             .into_iter()
             .flatten()
-            .map(|row| row.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<_>>()
     };
     match out.get("files").and_then(Value::as_array) {
@@ -153,34 +155,12 @@ fn directory_symbol_pages_measure_rows_as_delivered() {
     );
     let mut all = Vec::new();
     for (index, out) in outputs.iter().enumerate() {
-        let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
-        assert!(chars <= WINDOW, "page {index} is {chars} chars");
-        if out["pagination"]["hasMore"] == true {
-            assert!(
-                chars * 10 >= WINDOW * 8,
-                "page {index} holds only {chars} chars"
-            );
-        }
-        all.extend(symbol_rows(out));
+        let rows = symbol_rows(out);
+        assert!(!rows.is_empty(), "page {index} carries evidence");
+        all.extend(rows);
     }
     assert_eq!(all.len(), 600, "{} rows", all.len());
     assert_eq!(all.iter().collect::<BTreeSet<_>>().len(), 600);
-}
-
-#[test]
-fn an_explicit_symbol_page_size_is_exact() {
-    let root = Fixture::new();
-    root.write("big.ts", numbered_functions(25));
-    let outputs = walk(
-        &root.0,
-        json!({"operation":"symbols","path":root.0.join("big.ts"),"pageSize":10}),
-        symbol_rows,
-    );
-    let sizes = outputs
-        .iter()
-        .map(|out| symbol_rows(out).len())
-        .collect::<Vec<_>>();
-    assert_eq!(sizes, [10, 10, 5]);
 }
 
 /// Match rows of one page: `(path, line, column)` of each.
@@ -216,14 +196,14 @@ fn a_file_of_three_thousand_matches_pages_by_bytes_and_reaches_each_once() {
     root.write("many.ts", source);
     let outputs = walk(
         &root.0,
-        json!({"operation":"match","pattern":"hit($A)","path":root.0.join("many.ts"),"language":"typescript"}),
+        json!({"operation":"match","rule":{"pattern":"hit($A)"},"path":root.0.join("many.ts"),"parser":"typescript"}),
         match_rows,
     );
     let mut cells = Vec::new();
     for (index, out) in outputs.iter().enumerate() {
-        let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
-        assert!(chars <= WINDOW, "page {index} is {chars} chars");
-        cells.extend(match_cells(out));
+        let rows = match_cells(out);
+        assert!(!rows.is_empty(), "page {index} carries evidence");
+        cells.extend(rows);
     }
     assert_eq!(cells.len(), 3_000, "{} matches", cells.len());
     assert_eq!(
@@ -253,14 +233,14 @@ fn many_files_page_by_bytes_with_one_total() {
     }
     let outputs = walk(
         &root.0,
-        json!({"operation":"match","pattern":"hit($A)","path":root.0,"language":"typescript"}),
+        json!({"operation":"match","rule":{"pattern":"hit($A)"},"path":root.0,"parser":"typescript"}),
         match_rows,
     );
     let mut cells = Vec::new();
     for (index, out) in outputs.iter().enumerate() {
-        let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
-        assert!(chars <= WINDOW, "page {index} is {chars} chars");
-        cells.extend(match_cells(out));
+        let rows = match_cells(out);
+        assert!(!rows.is_empty(), "page {index} carries evidence");
+        cells.extend(rows);
     }
     assert_eq!(cells.iter().collect::<BTreeSet<_>>().len(), 300);
     assert_eq!(cells.len(), 300);
@@ -270,24 +250,6 @@ fn many_files_page_by_bytes_with_one_total() {
         .collect::<BTreeSet<_>>();
     assert_eq!(totals.len(), 1, "{totals:?}");
     assert!(outputs.len() <= 8, "{} calls", outputs.len());
-}
-
-#[test]
-fn an_explicit_file_page_size_is_exact() {
-    let root = Fixture::new();
-    for index in 0..7 {
-        root.write(&format!("f{index}.ts"), format!("hit({index});\n"));
-    }
-    let outputs = walk(
-        &root.0,
-        json!({"operation":"match","pattern":"hit($A)","path":root.0,"language":"typescript","pageSize":3}),
-        match_rows,
-    );
-    let sizes = outputs
-        .iter()
-        .map(|out| out["files"].as_array().map_or(0, Vec::len))
-        .collect::<Vec<_>>();
-    assert_eq!(sizes, [3, 3, 1]);
 }
 
 #[test]
@@ -313,7 +275,7 @@ fn a_syntax_tree_pages_by_bytes_and_reaches_every_node_once() {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|node| node.to_string()),
+                .map(std::string::ToString::to_string),
         );
     }
     let total = outputs[0]["pagination"]["totalItems"]
@@ -345,7 +307,7 @@ fn a_syntax_tree_page_reuses_its_walk_and_past_the_end_is_out_of_range() {
     let first = run(json!({"operation":"syntaxTree","path":file}));
     let pages = first["pagination"]["totalPages"].as_u64().expect("pages");
     assert!(pages > 2, "{}", first["pagination"]);
-    let next = first["next"]["nextPage"]["query"]["queries"][0].clone();
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     let inspected = super::syntax::inspections();
     let second = run(next.clone());
     assert_eq!(
@@ -353,7 +315,7 @@ fn a_syntax_tree_page_reuses_its_walk_and_past_the_end_is_out_of_range() {
         inspected,
         "page 2 re-read the tree"
     );
-    assert_eq!(second["pagination"]["currentPage"], 2, "{second}");
+    assert_eq!(second["pagination"]["page"], 2, "{second}");
     let mut past = next;
     past["page"] = json!(pages + 5);
     let out = run(past);

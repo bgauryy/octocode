@@ -70,7 +70,7 @@ fn fixture(extension: &str, config: &FileTypeConfig, group: Option<&str>) -> Str
             panic!("no comment fixture for group: {group}")
         }
     });
-    let body = if crate::text::file_extension::JS_TS_EXTENSIONS.contains(&extension) {
+    let body = if crate::text::JS_TS_EXTENSIONS.contains(&extension) {
         format!("export function {MARKER}() {{\n  return \"{LITERAL}\";\n}}\n")
     } else if matches!(extension, "css" | "scss" | "less" | "sass") {
         format!(".{MARKER} {{\n  content: \"{LITERAL}\";\n}}\n")

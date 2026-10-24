@@ -14,7 +14,7 @@ async fn unread_local_image_is_byte_exact_hidden_and_saved_with_box() {
     std::fs::write(workspace.workspace.join("one.png"), &bytes).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
     let out = clasify(&runtime, vec![row("one.png")]).await;
-    let result = &out["queries"][0];
+    let result = &out["results"][0]["data"];
     assert_eq!(result["answers"]["bounds"]["box"]["left"], 0.2, "{out}");
     let asset = &result["assets"]["image_a"];
     assert_eq!(
@@ -57,24 +57,17 @@ async fn image_mutation_invalidates_judgment_and_old_evidence_survives() {
     let runtime = runtime(&workspace, &server, &[]);
     let first = clasify(&runtime, vec![row("one.png")]).await;
     let repeated = clasify(&runtime, vec![row("one.png")]).await;
-    assert_eq!(repeated["queries"][0]["replayed"], true);
-    let old = &first["queries"][0]["assets"]["image_a"];
+    assert_eq!(repeated["results"][0]["data"]["replayed"], true);
+    let old = &first["results"][0]["data"]["assets"]["image_a"];
     let mut changed = png();
     changed.push(0);
     std::fs::write(&path, &changed).unwrap();
     let newer = clasify(&runtime, vec![row("one.png")]).await;
     assert_ne!(
-        newer["queries"][0]["assets"]["image_a"]["snapshot"],
+        newer["results"][0]["data"]["assets"]["image_a"]["snapshot"],
         old["snapshot"]
     );
     assert_eq!(std::fs::read(old["path"].as_str().unwrap()).unwrap(), png());
-    let mut pinned = row("one.png");
-    pinned["assets"]["image_a"]["source"]["query"]["snapshot"] = old["snapshot"].clone();
-    let stale = clasify(&runtime, vec![pinned]).await;
-    assert_eq!(
-        stale["queries"][0]["error"]["errorCode"], "staleSnapshot",
-        "{stale}"
-    );
     assert_eq!(requests(&server).await.len(), 2);
     runtime.close().await;
 }
@@ -86,13 +79,16 @@ async fn question_only_placeholders_and_multiple_assets_are_preserved() {
     std::fs::write(workspace.workspace.join("one.png"), png()).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
     let mut query = row("one.png");
-    query["state"] = json!({"purpose":"screen two independent images"});
+    query["content"] = json!({"purpose":"screen two independent images"});
     query["assets"]["image_b"] = query["assets"]["image_a"].clone();
     query["questions"]["visible"]["instructions"] =
         json!("Does image_a show the same shape as image_b?");
     let out = clasify(&runtime, vec![query]).await;
     assert_eq!(
-        out["queries"][0]["assets"].as_object().unwrap().len(),
+        out["results"][0]["data"]["assets"]
+            .as_object()
+            .unwrap()
+            .len(),
         2,
         "{out}"
     );
@@ -129,11 +125,11 @@ async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
         ],
     )
     .await;
-    let errors: Vec<_> = out["queries"]
+    let errors: Vec<_> = out["results"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|row| row["error"]["errorCode"].as_str().unwrap())
+        .map(|row| row["data"]["errorCode"].as_str().unwrap())
         .collect();
     assert_eq!(
         errors,

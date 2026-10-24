@@ -56,7 +56,7 @@ export function allowedType(contentType) {
 
 function fileNameFor(finalUrl, type, sha) {
   let stem = 'asset';
-  try { stem = decodeURIComponent(basename(new URL(finalUrl).pathname)) || 'asset'; } catch {}
+  try { stem = decodeURIComponent(basename(new URL(finalUrl).pathname)) || 'asset'; } catch { /* keep the default stem */ }
   stem = stem.replace(/\.[A-Za-z0-9]{1,5}$/, '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'asset';
   return `${sha.slice(0, 10)}-${stem}${TYPES[type]}`;
 }

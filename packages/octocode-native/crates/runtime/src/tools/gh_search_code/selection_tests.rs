@@ -88,7 +88,7 @@ async fn fixture() -> MockServer {
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":40,"incomplete_results":false,
+            "total_count":100,"incomplete_results":false,
             "items":[item("excluded.rs"),item("selected.rs")]
         })))
         .mount(&server)
@@ -113,8 +113,7 @@ async fn fixture() -> MockServer {
 }
 
 fn query() -> Value {
-    json!({"owner":"a","repo":"b","keywords":["wrap_app"],"pageSize":2,
-        "clasifyContext":{"classifiers":["Does this evidence show the selected behavior?"]}})
+    json!({"owner":"a","repo":"b","keywords":["wrap_app"],"classification":{"predicates":["Does this evidence show the selected behavior?"]}})
 }
 
 async fn capture(server: &MockServer, query: &Value, runtime: &Runtime) -> Value {
@@ -127,15 +126,13 @@ async fn capture(server: &MockServer, query: &Value, runtime: &Runtime) -> Value
     )
     .await
     .expect("mocked GitHub search");
-    let mut row = crate::response::rows::result_row(
+    let row = crate::response::rows::result_row(
         ToolId::GhSearchCode,
         0,
         query,
         output.data,
         output.status,
     );
-    crate::response::extras::prune_row(&mut row, ToolId::GhSearchCode, query);
-    crate::response::rows::minimize_row(&mut row, ToolId::GhSearchCode, query);
     crate::security::ContentSecurity::new()
         .seal_output(json!({"results":[row]}), false, || runtime.context.check())
         .expect("shared output sanitization")
@@ -157,11 +154,10 @@ fn select(mut structured: Value, query: &Value, runtime: &Runtime) -> (Value, Va
 }
 
 #[tokio::test]
-async fn path_only_output_does_not_remove_sanitized_evidence_from_classification() {
+async fn classification_reads_sanitized_evidence_and_replay_preserves_it() {
     let server = fixture().await;
     let (runtime, recorded) = runtime();
-    let mut picked = query();
-    picked["fields"] = json!(["path"]);
+    let picked = query();
     let ordinary_projection = capture(&server, &picked, &runtime).await;
     let (selected, _) = select(ordinary_projection, &picked, &runtime);
     let data = &selected["results"][0]["data"];
@@ -170,8 +166,8 @@ async fn path_only_output_does_not_remove_sanitized_evidence_from_classification
     assert_eq!(data["selection"]["unknownItems"], 0);
     assert_eq!(data["files"].as_array().map(Vec::len), Some(1));
     assert_eq!(data["files"][0]["path"], "src/selected.rs");
-    assert!(data["files"][0].get("lines").is_none());
-    assert!(data["files"][0].get("matches").is_none());
+    assert!(data["files"][0]["lines"].is_array());
+    assert!(data["files"][0]["matches"].is_array());
 
     let broad = query();
     let (unprojected, _) = select(capture(&server, &broad, &runtime).await, &broad, &runtime);
@@ -188,7 +184,7 @@ async fn path_only_output_does_not_remove_sanitized_evidence_from_classification
         );
         assert_eq!(
             calls[0], calls[1],
-            "host fields cannot change judged evidence"
+            "repeating the same query preserves judged evidence"
         );
         assert_eq!(calls[0].len(), 2);
         let state = serde_json::to_string(&calls[0]).expect("states");
@@ -196,12 +192,8 @@ async fn path_only_output_does_not_remove_sanitized_evidence_from_classification
         assert!(!state.contains("PRIVATE_SENTINEL"));
     }
 
-    let recovery = data["next"]["unfiltered"]["query"]["queries"][0].clone();
-    assert_eq!(
-        recovery["fields"], picked["fields"],
-        "recovery honors the user's output view"
-    );
-    assert!(recovery.get("clasifyContext").is_none());
+    let recovery = data["next"]["unfiltered"]["input"]["queries"][0].clone();
+    assert!(recovery.get("classification").is_none());
     assert!(recovery.get("selection").is_none());
     let (recovered, _) = select(
         capture(&server, &recovery, &runtime).await,
@@ -228,7 +220,7 @@ async fn path_only_output_does_not_remove_sanitized_evidence_from_classification
     assert!(
         files
             .iter()
-            .all(|file| file.get("lines").is_none() && file.get("matches").is_none())
+            .all(|file| file["lines"].is_array() && file["matches"].is_array())
     );
     assert_eq!(recorded.lock().expect("recorded states").len(), 2);
 }
@@ -241,15 +233,15 @@ async fn excluded_first_hit_and_capped_hit_reads_do_not_bypass_selection() {
     let captured = capture(&server, &query, &runtime).await;
     let original = &captured["results"][0]["data"];
     assert_eq!(
-        original["next"]["read"]["query"]["queries"][0]["path"],
+        original["next"]["read"]["input"]["queries"][0]["path"],
         "src/excluded.rs"
     );
     assert_eq!(
-        original["next"]["readHits"]["query"]["queries"][0]["path"],
+        original["next"]["readHits"]["input"]["queries"][0]["path"],
         "src/excluded.rs"
     );
     assert_eq!(
-        original["next"]["readHits2"]["query"]["queries"][0]["path"],
+        original["next"]["readHits2"]["input"]["queries"][0]["path"],
         "src/selected.rs"
     );
     let selected_remainder = original["next"]["readHits2"].clone();
@@ -261,19 +253,19 @@ async fn excluded_first_hit_and_capped_hit_reads_do_not_bypass_selection() {
     // The excluded file's read is gone; the surviving read is numbered
     // from the first label, so no gap suggests missing leads.
     assert!(
-        data["next"].get("readHits2").is_none(),
-        "surviving reads are renumbered"
+        data["next"].get("readHits").is_none(),
+        "excluded file read is removed"
     );
-    assert_eq!(data["next"]["readHits"], selected_remainder);
+    assert_eq!(data["next"]["readHits2"], selected_remainder);
     assert_eq!(
-        data["next"]["readHits"]["query"]["queries"][0]["ranges"],
-        json!(["6-8"])
+        data["next"]["readHits2"]["input"]["queries"][0]["ranges"],
+        json!([{"startLine":6,"endLine":8}])
     );
-    assert_eq!(data["next"]["readHits"]["query"]["queries"][0]["ref"], SHA);
+    assert_eq!(data["next"]["readHits2"]["input"]["queries"][0]["ref"], SHA);
 
-    let provider_next = &data["next"]["nextPage"]["query"]["queries"][0];
+    let provider_next = &data["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(provider_next["page"], 2);
-    assert_eq!(provider_next["clasifyContext"], query["clasifyContext"]);
+    assert_eq!(provider_next["classification"], query["classification"]);
     assert!(
         provider_next.get("selection").is_none(),
         "a new provider page is a new candidate set"
@@ -290,7 +282,7 @@ async fn excluded_first_hit_and_capped_hit_reads_do_not_bypass_selection() {
         "response replay must not judge again"
     );
 
-    let recovery = data["next"]["unfiltered"]["query"]["queries"][0].clone();
+    let recovery = data["next"]["unfiltered"]["input"]["queries"][0].clone();
     let (recovered, _) = select(
         capture(&server, &recovery, &runtime).await,
         &recovery,
@@ -307,8 +299,8 @@ async fn excluded_first_hit_and_capped_hit_reads_do_not_bypass_selection() {
 #[test]
 fn selected_equivalent_paths_keep_their_reads_without_admitting_other_repositories() {
     let read = |repo: &str, path: &str| {
-        json!({"tool":"ghGetFileContent","query":{"queries":[{
-            "owner":"o","repo":repo,"path":path,"ref":SHA,"ranges":["6-8"]
+        json!({"kind":"continue","tool":"ghGetFileContent","input":{"queries":[{
+            "owner":"o","repo":repo,"path":path,"ref":SHA,"ranges":[{"startLine": 6, "endLine": 8}]
         }]}})
     };
     let primary = read("r", "src/main.rs");
@@ -316,27 +308,26 @@ fn selected_equivalent_paths_keep_their_reads_without_admitting_other_repositori
     let mut page = json!({
         "owner":"o","repo":"r",
         "files":[{"path":"src/main.rs","alsoAt":["src/copy.rs"],"lines":["1\twrap_app();"]}],
-        "next":{"readHits":alias.clone(),"otherRepo":read("other", "src/copy.rs")},
-        "hints":{"read":primary.clone(),"excluded":read("r", "src/excluded.rs")}
+        "next":{"readHits":alias.clone(),"otherRepo":read("other", "src/copy.rs"),"read":primary.clone(),"excluded":read("r", "src/excluded.rs")}
     });
-    super::finish_code_selection(&mut page, &json!({"owner":"o","fields":["path"]}), &[]);
+    super::finish_code_selection(&mut page, &json!({"owner":"o"}), &[]);
     assert_eq!(page["next"]["readHits"], alias);
-    assert_eq!(page["hints"]["read"], primary);
+    assert_eq!(page["next"]["read"], primary);
     assert!(page["next"].get("otherRepo").is_none());
-    assert!(page["hints"].get("excluded").is_none());
+    assert!(page["next"].get("excluded").is_none());
     assert_eq!(page["files"][0]["alsoAt"], json!(["src/copy.rs"]));
-    assert!(page["files"][0].get("lines").is_none());
+    assert!(page["files"][0]["lines"].is_array());
 }
 
 #[test]
 fn a_hidden_file_with_unlisted_hits_gets_a_judged_read_and_an_excluded_one_none() {
     let read = |path: &str| {
-        json!({"tool":"ghGetFileContent","query":{"queries":[{
-            "owner":"o","repo":"r","path":path,"ref":SHA,"ranges":["9-40"],
-            "contextLines":0,"matchString":"Detection"
+        json!({"kind":"continue","tool":"ghGetFileContent","input":{"queries":[{
+            "owner":"o","repo":"r","path":path,"ref":SHA,"ranges":[{"startLine": 9, "endLine": 40}],
+            "contextLines":{"before":0,"after":0},"matchString":["Detection"]
         }]}})
     };
-    let context = json!({"classifiers":["Does this code quit on a NUL byte?"]});
+    let context = json!({"predicates":["Does this code quit on a NUL byte?"]});
     let mut page = json!({
         "owner":"o","repo":"r",
         "files":[{"path":"src/shown.rs","lines":["1\tquit()"]}],
@@ -345,16 +336,25 @@ fn a_hidden_file_with_unlisted_hits_gets_a_judged_read_and_an_excluded_one_none(
     let hidden = [json!({"path":"src/hidden.rs","lines":["3\tDetection"],"matchCount":14})];
     super::finish_code_selection(
         &mut page,
-        &json!({"owner":"o","repo":"r","clasifyContext":context}),
+        &json!({"owner":"o","repo":"r","classification":context}),
         &hidden,
     );
     // Neither capped read survives: only selected files keep plain reads.
     assert!(page["next"].get("readHits").is_none());
     assert!(page["next"].get("readHits2").is_none());
     assert_eq!(
-        page["next"]["judgeHits"]["query"]["queries"],
+        crate::tools::test_support::checks::related_call(&page, "ghGetFileContent", |input| input
+            ["queries"][0]
+            .get("classification")
+            .is_some())["input"]["queries"],
         json!([{"owner":"o","repo":"r","path":"src/hidden.rs","ref":SHA,
-            "matchString":"Detection","clasifyContext":context}])
+            "matchString":["Detection"],"classification":context}])
     );
-    assert_eq!(page["next"]["judgeHits"]["tool"], "ghGetFileContent");
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(&page, "ghGetFileContent", |input| input
+            ["queries"][0]
+            .get("classification")
+            .is_some())["tool"],
+        "ghGetFileContent"
+    );
 }

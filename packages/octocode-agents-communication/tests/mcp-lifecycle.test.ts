@@ -7,6 +7,8 @@ import { binary, tempWorkspace, fastHeartbeatEnv, waitFor, only, isChildFailure 
 import type { TestContext } from 'node:test';
 import type { JsonRecord } from './json-record.ts';
 
+const { catalog } = await import('../dist/runtime.js');
+
 function fixture(t: TestContext) {
   const workspace = tempWorkspace(t, 'communication-mcp-lifecycle-');
   const database = join(workspace, 'communication.sqlite');
@@ -106,7 +108,7 @@ test('built entry exposes managed stdio MCP with discovery, calls and EOF cleanu
   const frames=execFileSync(binary,['mcp','--managed','--name','launcher-check','--vendor','generic','--tools','messaging',...f.flags],{input:requests,encoding:'utf8',timeout:10000,stdio:['pipe','pipe','pipe']}).trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
   assert.equal(frames.length,4,'Notifications emit no stdout frame');
   assert.deepEqual(frames[0].result.capabilities,{tools:{}});
-  assert.deepEqual(frames[1].result.tools.map((tool: JsonRecord)=>tool.name),['peers','set_status','send_message','notify_all','inbox','complete','fetch']);
+  assert.deepEqual(frames[1].result.tools.map((tool: JsonRecord)=>tool.name),catalog.selectedTools('messaging').map((tool: JsonRecord)=>tool.name));
   for(const frame of frames)assert.equal(frame.jsonrpc,'2.0');
   for(const frame of frames.slice(2))assert.equal(frame.result.isError,undefined);
   assert.equal(f.call('peers').items.length,0,'EOF releases the managed identity');

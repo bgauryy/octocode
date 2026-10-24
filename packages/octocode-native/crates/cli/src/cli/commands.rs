@@ -1,18 +1,14 @@
 //! The `Command` enum: one sub-command per native tool plus system commands.
 //!
-//! Every tool is invoked by its canonical name with a JSON query, or with the
-//! flags and positionals `flags.rs` builds from the contract (one long flag per
-//! field, short letters from rg/grep/fd/ast-grep/gh). `schema` is the single
-//! discovery command.
+//! Every tool accepts one canonical JSON envelope. `schema` is the discovery command.
 use clap::{ArgMatches, Args, FromArgMatches, Subcommand};
 use octocode_native::id::ToolId;
 
-/// Shared arguments for every tool sub-command: positionals (one JSON query,
-/// or the tool's positional fields) and a JSON query file.
+/// One JSON envelope, supplied directly or through a file.
 #[derive(Args, Debug)]
 pub(super) struct ToolArgs {
-    /// A JSON query ('{…}' or '{"queries":[…]}'), or the tool's positional fields (see Usage).
-    #[arg(value_name = "ARGS", num_args = 0.., action = clap::ArgAction::Append)]
+    /// A canonical JSON envelope: {"queries":[…]} or {"cursor":"…"}.
+    #[arg(value_name = "JSON", num_args = 0..=1, conflicts_with = "input")]
     pub args: Vec<String>,
     /// Read the JSON query from a file, or from stdin with `-`.
     #[arg(long, value_name = "FILE|-")]
@@ -57,7 +53,7 @@ impl ToolArgs {
     /// The positional JSON query: one argument that starts with `{`.
     pub fn json_arg(&self) -> Option<&str> {
         match self.args.as_slice() {
-            [only] if only.trim_start().starts_with('{') => Some(only),
+            [only] => Some(only),
             _ => None,
         }
     }
@@ -69,17 +65,15 @@ impl ToolArgs {
 pub(super) struct ToolCommand {
     pub name: &'static str,
     pub args: ToolArgs,
-    /// The query the flags and positionals built; `None` for the JSON form.
-    pub flags: Result<Option<serde_json::Value>, String>,
 }
 
 /// `(name, about)` for every tool in the embedded contract: its
-/// `shortDescription`, led by the beta gate for a beta tool. Both come from
+/// `title`, led by the beta gate for a beta tool. Both come from
 /// generated constants, so building the argument parser never parses the
 /// multi-megabyte contract.
 fn contract_tools() -> impl Iterator<Item = (&'static str, String)> {
     ToolId::ALL.into_iter().map(|tool| {
-        let about = tool.short_description();
+        let about = tool.title();
         let about = if tool.is_beta() {
             let beta = octocode_native::config::field::LOCAL_BETA;
             format!(
@@ -116,15 +110,8 @@ impl FromArgMatches for ToolCommand {
                 format!("unrecognized subcommand '{name}'"),
             ));
         };
-        // Read without taking: flags::query needs the positionals' places.
         let args = ToolArgs::from_arg_matches(&sub_matches)?;
-        let positionals: &[String] = if args.json_arg().is_some() {
-            &[]
-        } else {
-            &args.args
-        };
-        let flags = super::flags::query(name, &sub_matches, positionals);
-        Ok(Self { name, args, flags })
+        Ok(Self { name, args })
     }
 
     fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::Error> {
@@ -136,19 +123,15 @@ impl FromArgMatches for ToolCommand {
 impl Subcommand for ToolCommand {
     fn augment_subcommands(command: clap::Command) -> clap::Command {
         contract_tools().fold(command, |command, (name, about)| {
-            command.subcommand(super::flags::augment(
-                ToolArgs::augment_args(clap::Command::new(name)).about(about),
-                name,
-            ))
+            command.subcommand(ToolArgs::augment_args(clap::Command::new(name)).about(about))
         })
     }
 
     fn augment_subcommands_for_update(command: clap::Command) -> clap::Command {
         contract_tools().fold(command, |command, (name, about)| {
-            command.subcommand(super::flags::augment(
+            command.subcommand(
                 ToolArgs::augment_args_for_update(clap::Command::new(name)).about(about),
-                name,
-            ))
+            )
         })
     }
 
@@ -184,12 +167,12 @@ pub(super) enum Command {
     Tool(ToolCommand),
 
     // ── System commands ──────────────────────────────────────────────────────
-    /// List tools or query fields; --view full shows the complete reference.
+    /// List tools or a tool's query fields; --view full lists every tool's fields.
     #[command(long_about = SCHEMA_HELP)]
     Schema {
         /// Tool name, e.g. `localSearch`. Omit to list every enabled tool.
         tool: Option<String>,
-        /// View: query (default for a tool), variants, or full (also the catalog).
+        /// View: query (default for a tool) or variants; full for the catalog.
         #[arg(long, value_parser = ["query", "variants", "full"])]
         view: Option<String>,
         /// Narrow the query view to one branch by a const field, e.g. `operation=symbols`.
@@ -245,14 +228,13 @@ pub(super) enum Command {
 }
 
 const SCHEMA_HELP: &str =
-    "Discover tools and query fields. Full reference remains available on demand.
+    "Discover tools and query fields: a tool's query view is the whole row it takes.
 
   octocode schema                         enabled tools and purposes
   octocode schema <tool>                  compact query schema
   octocode schema <tool> --select operation=symbols
                                           one operation's query schema
   octocode schema <tool> --view variants  required fields and examples
-  octocode schema <tool> --view full      complete tool contract
   octocode schema --view full             fields, instructions and grammars
 
 JSON: indented on a terminal, one line on a pipe.";
@@ -300,6 +282,34 @@ pub(super) enum ConfigCommand {
 #[cfg(test)]
 mod tests {
     use super::ToolArgs;
+    use clap::CommandFactory;
+
+    #[test]
+    fn tool_calls_have_one_json_language() {
+        for tool in octocode_native::id::ToolId::ALL {
+            for json in [r#"{"queries":[{}]}"#, r#"{"cursor":"issued"}"#] {
+                assert!(
+                    super::super::Args::command()
+                        .try_get_matches_from(["octocode", tool.as_str(), json])
+                        .is_ok()
+                );
+            }
+            for legacy in [
+                vec!["-n"],
+                vec!["--path", "."],
+                vec!["pattern", "."],
+                vec!["--input", "query.json", "{}"],
+            ] {
+                let mut args = vec!["octocode", tool.as_str()];
+                args.extend(legacy);
+                assert!(
+                    super::super::Args::command()
+                        .try_get_matches_from(args)
+                        .is_err()
+                );
+            }
+        }
+    }
 
     /// A query file saved with a UTF-8 byte-order mark reads as its JSON.
     #[test]

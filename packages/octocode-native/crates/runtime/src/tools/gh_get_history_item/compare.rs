@@ -6,11 +6,12 @@ use super::patch_hop::{DiffCursors, attach_diff_continuations};
 use super::pr_menu::{base_public_query, remove_key};
 use super::util::{str_at, usize_at};
 use super::window::COMPARE_FILE_LIMIT;
-use super::{HistoryItemRequest, ItemOperation, Section, fetch, validation};
+use super::{HistoryItemRequest, ItemOperation, fetch, validation};
 use crate::id::ToolId;
 use crate::response::paging::push_warnings;
 use crate::response::result::{Continuation, ToolData};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_get_history_item::sections::Section;
 use octocode_github::{GitHubProvider, GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
@@ -43,7 +44,7 @@ pub(super) async fn compare(
     // (which neither scopes) are paged apart, from their first page.
     let files_asked = !named
         && (!gh_get_history_item_query::include_patterns(query).is_empty()
-            || gh_get_history_item_query::match_string(query).is_some());
+            || gh_get_history_item_query::match_strings(query).is_some());
     let wants_commits = !window
         && if named {
             sections.has(Section::Commits)
@@ -192,15 +193,15 @@ pub(super) async fn compare(
     })
 }
 
-/// The same comparison with `base` and `head` exchanged, from its first page.
+/// The same comparison with `baseRef` and `headRef` exchanged, from its first page.
 fn swapped_refs(query: &HistoryItemRequest) -> Value {
     let mut swapped = base_public_query(query, ItemOperation::Compare);
     for key in ["page", "offset"] {
         remove_key(&mut swapped, key);
     }
-    swapped["base"] = json!(gh_get_history_item_query::head(query));
-    swapped["head"] = json!(gh_get_history_item_query::base(query));
-    Continuation::new(ToolId::GhGetHistoryItem, swapped).build()
+    swapped["baseRef"] = json!(gh_get_history_item_query::head(query));
+    swapped["headRef"] = json!(gh_get_history_item_query::base(query));
+    Continuation::related(ToolId::GhGetHistoryItem, swapped).build()
 }
 
 /// One comparison page as GitHub answers it, with both ends pinned to

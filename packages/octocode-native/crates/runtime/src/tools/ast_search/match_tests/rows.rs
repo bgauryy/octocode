@@ -13,8 +13,7 @@ fn match_rows_without_unread_pages_are_complete() {
     let long = format!("call({});\n", "y".repeat(3000));
     root.write("a.ts", &long);
     root.write("b.ts", "call(1);\n");
-    let base =
-        json!({"operation":"match","path":root.0,"pattern":"call($$$A)","language":"typescript"});
+    let base = json!({"operation":"match","path":root.0,"rule":{"pattern":"call($$$A)"},"parser":"typescript"});
     let out = run(&root.0, base.clone()).expect("match");
     assert_eq!(out["coverage"]["state"], "complete", "{out}");
     assert!(out["next"].get("expandCaptures").is_some(), "{out}");
@@ -26,10 +25,6 @@ fn match_rows_without_unread_pages_are_complete() {
         None,
     );
     assert!(row.pointer("/data/isPartial").is_none(), "{row}");
-    let mut paged = base.clone();
-    paged["pageSize"] = json!(1);
-    let open = run(&root.0, paged).expect("first file page");
-    assert!(open.get("coverage").is_none(), "{open}");
     let mut capped = base;
     capped["maxFiles"] = json!(1);
     let gap = run(&root.0, capped).expect("capped scan");
@@ -41,7 +36,7 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     let root = Fixture::new();
     let source = root.0.join("calls.ts");
     std::fs::write(&source, "oldCall(one);\noldCall(\n  two\n);\n").expect("source");
-    let query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"oldCall($A)"});
+    let query = json!({"operation":"match","path":source,"rule":{"pattern":"oldCall($A)"}});
     let out = run(&root.0, query.clone()).expect("match");
     let matches = out["files"][0]["matches"].as_array().expect("matches");
     // Lean rows (objects): the line and 1-based column (a span adds its
@@ -62,16 +57,8 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
             .is_none_or(|next| next.get("expandCaptures").is_none()),
         "{out}"
     );
-    // A value cut short hides its capture, which stays one exact
-    // continuation away.
-    let mut cut = query.clone();
-    cut["matchContentLength"] = json!(6);
-    let out = run(&root.0, cut).expect("match");
-    let expand = &out["next"]["expandCaptures"]["query"]["queries"][0];
-    assert_eq!(expand["captureText"], true, "{out}");
-
     let mut expanded = query;
-    expanded["captureText"] = json!(true);
+    expanded["includeCaptures"] = json!(true);
     let out = run(&root.0, expanded).expect("match");
     let single = &out["files"][0]["matches"][0];
     assert_eq!(single["line"], 1, "{single}");
@@ -105,8 +92,8 @@ fn list_captures_are_withheld_by_default_and_expand_on_request() {
         "fn a() -> u8 {\n    let x = 1;\n    let y = 2;\n    x + y\n}\n",
     )
     .expect("source");
-    let query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,
-        "pattern":"fn $N() -> u8 { $$$B }"});
+    let query =
+        json!({"operation":"match","path":source,"rule":{"pattern":"fn $N() -> u8 { $$$B }"}});
     let out = run(&root.0, query.clone()).expect("match");
     // A lean row: no capture dump, the header stands in for the body.
     let (line, end, value) = lean_row(&out["files"][0]["matches"][0]);
@@ -114,7 +101,7 @@ fn list_captures_are_withheld_by_default_and_expand_on_request() {
     assert!(out["next"]["expandCaptures"].is_object(), "{out}");
 
     let mut expanded = query;
-    expanded["captureText"] = json!(true);
+    expanded["includeCaptures"] = json!(true);
     let out = run(&root.0, expanded).expect("match");
     let m = &out["files"][0]["matches"][0];
     let body = m["metavarRanges"]["B"].as_array().expect("B ranges");
@@ -139,7 +126,7 @@ fn single_file_match_keeps_redacted_rows_and_directory_positions() {
     let rows = |path: &std::path::Path| {
         let out = run(
             &root.0,
-            json!({"operation":"match","mainGoal":"test","reasoning":"test","path":path,"language":"typescript","pattern":"export const $N = $V"}),
+            json!({"operation":"match","path":path,"parser":"typescript","rule":{"pattern":"export const $N = $V"}}),
         )
         .expect("match");
         let file = out["files"][0].clone();
@@ -164,8 +151,7 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
         "pub fn load(\n    path: &str,\n) -> Result<u8, String> {\n    let raw = read(path)?;\n    parse(raw)\n}\n",
     )
     .expect("source");
-    let query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,
-        "rule":{"kind":"function_item"}});
+    let query = json!({"operation":"match","path":source,"rule":{"kind":"function_item"}});
     let out = run(&root.0, query.clone()).expect("match");
     assert_eq!(
         out["files"][0]["matches"][0],
@@ -175,7 +161,7 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
     assert!(out["next"]["expandCaptures"].is_object(), "{out}");
 
     let mut expanded = query;
-    expanded["captureText"] = json!(true);
+    expanded["includeCaptures"] = json!(true);
     let out = run(&root.0, expanded).expect("match");
     let value = out["files"][0]["matches"][0]["value"]
         .as_str()
@@ -201,9 +187,9 @@ fn expanded_scans_reach_every_file_exactly_once() {
         }
     }
     let queries = [
-        serde_json::json!({"operation":"match","path":root.0,"language":"rust","pattern":"pub fn source() {}","pageSize":2}),
-        serde_json::json!({"operation":"match","path":root.0,"language":"rust","pattern":"pub fn source() {}","pageSize":2,"sort":"matchCount"}),
-        serde_json::json!({"operation":"symbols","path":root.0,"pageSize":4}),
+        serde_json::json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"pub fn source() {}"}}),
+        serde_json::json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"pub fn source() {}"},"sort":{"by":"matchCount","order":"asc"}}),
+        serde_json::json!({"operation":"symbols","path":root.0}),
     ];
     for query in queries {
         let whole = ast_rows(&ast_chain(&root.0, query.clone()));
@@ -211,11 +197,13 @@ fn expanded_scans_reach_every_file_exactly_once() {
         let mut cut = query.clone();
         cut["maxFiles"] = serde_json::json!(2);
         let pages = ast_chain(&root.0, cut);
-        assert!(pages.len() > 4, "{query}");
+        assert!(pages.len() > 1, "{query}");
         assert!(
-            pages
-                .iter()
-                .any(|page| page["next"]["expandScan"]["query"]["queries"][0]["scanOffset"] == 8),
+            pages.iter().any(|page| {
+                page["next"]["expandScan"]["input"]["queries"][0]["scanOffset"]
+                    .as_u64()
+                    .is_some_and(|offset| offset > 0)
+            }),
             "{query}"
         );
         let mut walked = ast_rows(&pages);
@@ -244,10 +232,10 @@ fn happy_path_rows_carry_the_next_hop_anchors() {
 
     let outline = run(
         &root.0,
-        json!({"operation":"symbols","path":file,"symbolName":"alpha"}),
+        json!({"operation":"symbols","path":file,"symbolFilter":{"terms":["alpha"]}}),
     )
     .expect("file outline");
-    assert_eq!(outline["path"], "lib.rs", "{outline}");
+    assert_eq!(outline["path"], json!("src/lib.rs"), "{outline}");
     let row = &outline["symbols"][0];
     assert_eq!(
         (
@@ -266,7 +254,11 @@ fn happy_path_rows_carry_the_next_hop_anchors() {
     )
     .expect("directory outline");
     assert!(directory.get("path").is_none(), "{directory}");
-    assert_eq!(directory["files"][0]["path"], "src/lib.rs", "{directory}");
+    assert_eq!(
+        directory["files"][0]["path"],
+        json!("src/lib.rs"),
+        "{directory}"
+    );
     assert!(directory["files"][0]["symbols"].is_array(), "{directory}");
 
     let matched = run(

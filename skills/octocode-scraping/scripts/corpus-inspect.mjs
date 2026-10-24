@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { paginate } from './lib/pagination.mjs';
 import { fileURLToPath } from 'node:url';
 import { resolve, join } from 'node:path';
-import { readJson as readJsonFile, readJsonl as readJsonlFile, takeArg, requireSession } from './lib/bridge.mjs';
+import { readJson, readJsonl, takeArg, requireSession } from './lib/bridge.mjs';
 
 function usage(code = 2) {
   console.error('Usage: corpus-inspect.mjs --session-dir <dir> [--workflow <type>] [--limit <n>] [--view <list>] [--cursor-<list> <n>]');
@@ -18,12 +18,10 @@ const dir = resolve(sessionDir);
 const limit = Number(take('--limit') || 20);
 const workflow = take('--workflow');
 requireSession(dir);
-const readJson = (rel, fallback = null) => readJsonFile(dir, rel, fallback);
-const readJsonl = (rel) => readJsonlFile(dir, rel);
-const agent = await readJson('AGENT_INDEX.json', {});
-const roster = await readJson('page-map.json', { pages: [] });
-const workflows = await readJson('graph/workflows.json', { workflows: [] });
-const topLinks = await readJsonl('indexes/top-links.jsonl');
+const agent = await readJson(dir, 'AGENT_INDEX.json', {});
+const roster = await readJson(dir, 'page-map.json', { pages: [] });
+const workflows = await readJson(dir, 'graph/workflows.json', { workflows: [] });
+const topLinks = await readJsonl(dir, 'indexes/top-links.jsonl');
 const workflowRows = workflow ? workflows.workflows.filter((w) => w.workflowType === workflow) : workflows.workflows;
 const paging = await paginate({ lists: { pageRows: roster.pages || [], workflows: workflowRows, topLinks, warnings: agent.warnings || [] }, files: ["AGENT_INDEX.json", "page-map.json", "graph/workflows.json", "indexes/top-links.jsonl"].map(p => join(dir, p)), dir, args, script: fileURLToPath(import.meta.url), defaultLimit: limit });
 const out = {

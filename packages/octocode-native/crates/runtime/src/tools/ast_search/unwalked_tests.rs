@@ -18,8 +18,17 @@ fn leads(out: &Value) -> Vec<(String, Value)> {
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(key, _)| key.starts_with("narrowScope"))
-        .map(|(key, lead)| (key.clone(), lead.clone()))
+        .filter(|(_, call)| call["kind"] == "continue" && call["tool"] == "astSearch")
+        .map(|(name, call)| (name.clone(), call.clone()))
+        .chain(
+            out["related"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|call| call["tool"] == "structureSearch")
+                .enumerate()
+                .map(|(index, call)| (index.to_string(), call.clone())),
+        )
         .collect()
 }
 
@@ -60,7 +69,7 @@ fn reached_unsorted(root: &std::path::Path, row: &Value, calls: &mut Vec<Value>)
     let mut files = names(&out);
     for (key, lead) in leads(&out) {
         if lead["tool"] == "astSearch" {
-            let next = &lead["query"]["queries"][0];
+            let next = &lead["input"]["queries"][0];
             assert!(next.get("snapshot").is_none(), "{key}: {lead}");
             files.extend(reached_unsorted(root, next, calls));
         }
@@ -115,11 +124,7 @@ fn every_file() -> Vec<String> {
 }
 
 fn match_row(root: &std::path::Path, extra: Value) -> Value {
-    let mut row = json!({
-        "operation":"match",
-        "path":root.to_string_lossy(),
-        "pattern":"export const $A = $B",
-    });
+    let mut row = json!({"operation":"match","path":root.to_string_lossy(),"rule":{"pattern":"export const $A = $B"}});
     row.as_object_mut()
         .expect("object")
         .extend(extra.as_object().expect("object").clone());
@@ -136,7 +141,7 @@ fn symbols_row(root: &std::path::Path, extra: Value) -> Value {
 
 /// The path of a lead's query, relative to `root`.
 fn lead_path(root: &std::path::Path, lead: &Value) -> String {
-    let path = lead["query"]["queries"][0]["path"].as_str().expect("path");
+    let path = lead["input"]["queries"][0]["path"].as_str().expect("path");
     std::path::Path::new(path)
         .strip_prefix(root.canonicalize().expect("root"))
         .map_or_else(

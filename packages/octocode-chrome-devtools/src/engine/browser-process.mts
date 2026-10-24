@@ -52,13 +52,13 @@ export function findChrome() {
 
 // The OS pid of the browser process serving this CDP endpoint.
 export async function browserPid(
-  wsUrl,
+  wsUrl: unknown,
   timeoutMs = 3000
 ): Promise<number | null> {
   if (typeof wsUrl !== 'string' || !wsUrl) return null;
   return new Promise<number | null>(resolvePid => {
-    let socket;
-    const done = pid => {
+    let socket: WebSocket | undefined;
+    const done = (pid: number | null) => {
       clearTimeout(timer);
       try {
         socket?.close();
@@ -74,19 +74,19 @@ export async function browserPid(
       done(null);
       return;
     }
-    socket.addEventListener('open', () =>
-      socket.send(
-        JSON.stringify({ id: 1, method: 'SystemInfo.getProcessInfo' })
-      )
+    // A const keeps the narrowed socket for the listeners below.
+    const ws = socket;
+    ws.addEventListener('open', () =>
+      ws.send(JSON.stringify({ id: 1, method: 'SystemInfo.getProcessInfo' }))
     );
-    socket.addEventListener('error', () => done(null));
-    socket.addEventListener('close', () => done(null));
-    socket.addEventListener('message', event => {
+    ws.addEventListener('error', () => done(null));
+    ws.addEventListener('close', () => done(null));
+    ws.addEventListener('message', event => {
       try {
         const message = JSON.parse(String(event.data));
         if (message.id !== 1) return;
         const browser = message.result?.processInfo?.find(
-          info => info.type === 'browser'
+          (info: { type?: unknown }) => info.type === 'browser'
         );
         done(Number.isSafeInteger(browser?.id) ? browser.id : null);
       } catch {
@@ -96,7 +96,7 @@ export async function browserPid(
   });
 }
 
-function readCommand(pidText) {
+function readCommand(pidText: string) {
   if (platform() === 'darwin' || platform() === 'linux')
     return execFileSync('ps', ['-p', pidText, '-o', 'command='], {
       encoding: 'utf8',
@@ -116,7 +116,7 @@ function readCommand(pidText) {
 }
 
 /** The command line of a running process; empty when unknown. */
-export function getProcessCommand(pid) {
+export function getProcessCommand(pid: unknown) {
   const pidText = String(pid);
   if (!/^\d+$/.test(pidText)) return '';
   try {
@@ -127,7 +127,7 @@ export function getProcessCommand(pid) {
 }
 
 /** Waits until pid is gone; false when it is still alive after timeoutMs. */
-export async function waitForExit(pid, timeoutMs = 3000) {
+export async function waitForExit(pid: number, timeoutMs = 3000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -141,7 +141,7 @@ export async function waitForExit(pid, timeoutMs = 3000) {
 }
 
 /** Removes a profile folder, retrying while Chrome releases its files. */
-export async function removeDirWithRetry(dir) {
+export async function removeDirWithRetry(dir: string) {
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       rmSync(dir, { recursive: true, force: true });

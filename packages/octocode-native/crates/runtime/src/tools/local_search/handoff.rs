@@ -7,6 +7,8 @@ use super::types::*;
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use crate::id::ToolId;
 use crate::response::result::Continuation;
+use octocode_contract_types::LocalSearchQuery;
+use octocode_engine::types::SearchContext;
 use serde_json::{Value, json};
 
 /// The searched symbol's declaration among the shown hits.
@@ -30,9 +32,9 @@ pub(super) fn declaration_read(
     start: u32,
     end: u32,
 ) -> Value {
-    Continuation::new(
+    Continuation::related(
         ToolId::LocalFetch,
-        json!({"path": joined_path(query, root, file), "ranges": [format!("{start}-{end}")]}),
+        json!({"path": joined_path(query, root, file), "ranges": [{"startLine":start,"endLine":end}]}),
     )
     .build()
 }
@@ -46,20 +48,18 @@ pub(super) fn is_long_line_hit(hit: &SearchMatch) -> bool {
 /// Whether a value of `bytes` UTF-8 bytes passes one localFetch line page
 /// ([`LINE_PAGE_BYTES`], also counted in bytes).
 ///
-/// [`LINE_PAGE_BYTES`]: crate::tools::source_view::LINE_PAGE_BYTES
+/// [`LINE_PAGE_BYTES`]: crate::tools::source_view::pagination::LINE_PAGE_BYTES
 pub(super) fn passes_line_page(bytes: usize) -> bool {
-    bytes > crate::tools::source_view::LINE_PAGE_BYTES
+    bytes > crate::tools::source_view::pagination::LINE_PAGE_BYTES
 }
 
 /// A byte window of the hit's line, starting at the hit.
 pub(super) fn long_line_read(path: &str, hit: &SearchMatch) -> Value {
-    Continuation::new(
+    Continuation::continued(
         ToolId::LocalFetch,
         json!({
             "path": path,
-            "ranges": [format!("{0}-{0}", hit.line)],
-            "unit": "bytes",
-            "offset": hit.byte_offset,
+            "ranges": [{"startLine":hit.line,"endLine":hit.line}],
         }),
     )
     .build()
@@ -73,9 +73,9 @@ pub(super) fn joined_path(
     file: &SearchFile,
 ) -> String {
     if root.is_file() {
-        query.path.to_string()
+        local_search_query::path(query).to_string()
     } else {
-        std::path::Path::new(query.path.as_str())
+        std::path::Path::new(local_search_query::path(query))
             .join(&file.path)
             .to_string_lossy()
             .into_owned()
@@ -87,7 +87,7 @@ pub(super) const READ_HANDOFF_MAX_HITS: usize = 20;
 
 /// A range end past any file: localFetch clamps it to the last line, so the
 /// read runs from its start to the end of the file, paged.
-pub(super) const READ_TO_END_LINE: usize = 1_000_000;
+pub(super) const READ_TO_END_LINE: usize = u32::MAX as usize;
 
 /// Lines a handed-off read shows on each side of a hit.
 pub(super) const READ_HANDOFF_CONTEXT: u32 = 6;
@@ -136,24 +136,20 @@ pub(super) fn read_handoff(
     if windows.len() <= RANGES_MAX_ITEMS {
         let ranges = windows
             .iter()
-            .map(|(start, end)| format!("{start}-{end}"))
+            .map(|(start, end)| json!({"startLine":start,"endLine":end}))
             .collect::<Vec<_>>();
         return Some(
-            Continuation::new(ToolId::LocalFetch, json!({"path": path, "ranges": ranges})).build(),
+            Continuation::related(ToolId::LocalFetch, json!({"path": path, "ranges": ranges}))
+                .build(),
         );
     }
     let mut read = json!({
         "path": path,
-        "matchString": local_search_query::pattern(query),
-        "contextLines": READ_HANDOFF_CONTEXT,
+        "matchString": [local_search_query::pattern(query)],
+        "contextLines": {"before":READ_HANDOFF_CONTEXT,"after":READ_HANDOFF_CONTEXT},
     });
-    if local_search_query::regex_mode(query) != LocalSearchQueryRegex::Literal
-        && regex::escape(local_search_query::pattern(query)) != local_search_query::pattern(query)
-    {
-        read["regex"] = json!("rust");
-    }
-    if query.case_mode != LocalSearchQueryCaseMode::Insensitive {
-        read["caseMode"] = json!(query.case_mode);
-    }
-    Some(Continuation::new(ToolId::LocalFetch, read).build())
+    read["regexEngine"] = json!(local_search_query::regex_mode(query));
+    read["caseMode"] = json!(local_search_query::case_mode(query));
+    read["wholeWord"] = json!(local_search_query::whole_word(query).unwrap_or(false));
+    Some(Continuation::related(ToolId::LocalFetch, read).build())
 }

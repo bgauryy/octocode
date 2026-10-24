@@ -6,14 +6,13 @@ import { registerFileTool } from '../src/files/tool.js';
 import { registerHooks } from '../src/hooks/register.js';
 import { fingerprint, projectConfigFiles, saveDecision } from '../src/shared/trust.js';
 import { fakeCtx, fakePermission, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 beforeEach(() => vi.stubEnv('OCTOCODE_HOME', tmp()));
 afterEach(() => vi.unstubAllEnvs());
 
 async function setup() {
-  const cwd = fs.realpathSync(tmp());
-  fs.mkdirSync(path.join(cwd, '.git'));
+  const cwd = fs.realpathSync(repo());
   fs.mkdirSync(path.join(cwd, '.codex'));
   fs.writeFileSync(path.join(cwd, '.codex/hooks.json'), JSON.stringify({ hooks: { PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'node post.cjs' }] }] } }));
   fs.writeFileSync(path.join(cwd, 'post.cjs'), "let input=''; process.stdin.on('data', chunk => input += chunk).on('end', () => require('node:fs').appendFileSync(JSON.parse(input).tool_input.file_path, '[hook]'));\n");

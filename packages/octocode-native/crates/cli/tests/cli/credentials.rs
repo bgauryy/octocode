@@ -4,9 +4,7 @@ use super::*;
 fn clasify_missing_key_is_actionable() {
     let workspace = Workspace::new();
     let query = serde_json::json!({"queries":[{
-        "id":"decision",
-        "mainGoal": "test", "reasoning":"Choose the next inspection.",
-        "state":{"fact":"present"},
+        "operation":"evaluate","content":{"fact":"present"},
         "questions":{"relevant":{"type":"noul","instructions":"Is it relevant?"}}
     }]});
     let output = workspace
@@ -41,8 +39,7 @@ fn clasify_with_every_resource_failed_exits_by_failure_class() {
     let workspace = Workspace::new();
     let run = |question: serde_json::Value| {
         let query = serde_json::json!({"queries":[{
-            "mainGoal": "test", "reasoning":"Exercise failure exit codes.",
-            "state":{"fact":"present"},
+            "operation":"evaluate","content":{"fact":"present"},
             "questions":{"q":question}
         }]});
         workspace
@@ -71,9 +68,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
     )
     .unwrap();
     let query = serde_json::json!({"queries":[{
-        "id":"decision",
-        "mainGoal": "test", "reasoning":"Exercise the opt-out.",
-        "state":{"fact":"present"},
+        "operation":"evaluate","content":{"fact":"present"},
         "questions":{"relevant":{"type":"noul","instructions":"Is it relevant?"}}
     }]})
     .to_string();

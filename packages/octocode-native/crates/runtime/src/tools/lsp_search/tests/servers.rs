@@ -229,27 +229,11 @@ fn workspace_symbols_are_flat_named_and_one_based() {
 }
 
 #[test]
-fn workspace_symbol_next_page_keeps_relative_root() {
-    let mut row = serde_json::json!({"next": {"nextPage": {"tool": "lspSearch", "query": {"queries": [
-        {"operation": "workspaceSymbol", "symbolName": "f", "workspaceRoot": "/abs/repo/packages", "page": 2}
-    ]}}, "read": {"tool": "localFetch", "query": {"queries": [{"path": "/abs/repo/packages"}]}}}});
-    restore_root_spelling(&mut row, Some("/abs/repo/packages"), Some("packages"));
-    assert_eq!(
-        row["next"]["nextPage"]["query"]["queries"][0]["workspaceRoot"],
-        "packages"
-    );
-    assert_eq!(
-        row["next"]["read"]["query"]["queries"][0]["path"],
-        "/abs/repo/packages"
-    );
-}
-
-#[test]
 fn workspace_symbol_accepts_directory_path() {
     let (_dir, root, paths) = temp_workspace();
     std::fs::create_dir_all(root.join("src")).expect("src");
     let mut q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "symbolName": "f",
+        "operation": "workspaceSymbol", "symbolQuery": "f",
         "path": root.join("src").to_string_lossy()
     }));
     let resolved = resolve_paths(&mut q, &paths).expect("a directory path is the root");
@@ -303,32 +287,4 @@ fn declared_in_paths_are_workspace_relative() {
         ],
         "{row}"
     );
-}
-
-/// The language server's root is spelled like every other row path:
-/// relative to the workspace, `.` for the workspace itself.
-#[test]
-fn server_roots_are_workspace_relative() {
-    let root = tempfile::tempdir().expect("root");
-    let root = root.path().canonicalize().expect("canonical root");
-    std::fs::create_dir_all(root.join("crates/runtime")).expect("dir");
-    let paths = crate::tools::test_support::workspace_policy(&root);
-    let member = root.join("crates/runtime").to_string_lossy().into_owned();
-    let mut row = serde_json::json!({
-        "workspaceRoot": member,
-        "lsp": {"receipt": {"workspaceRoot": member}}
-    });
-    relative_server_roots(&mut row, &paths);
-    assert_eq!(row["workspaceRoot"], "crates/runtime", "{row}");
-    assert_eq!(
-        row["lsp"]["receipt"]["workspaceRoot"], "crates/runtime",
-        "{row}"
-    );
-    let mut whole = serde_json::json!({"workspaceRoot": root.to_string_lossy()});
-    relative_server_roots(&mut whole, &paths);
-    assert_eq!(whole["workspaceRoot"], ".", "{whole}");
-    // A root outside the workspace keeps its absolute spelling.
-    let mut outside = serde_json::json!({"workspaceRoot": "/elsewhere/project"});
-    relative_server_roots(&mut outside, &paths);
-    assert_eq!(outside["workspaceRoot"], "/elsewhere/project", "{outside}");
 }

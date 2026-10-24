@@ -334,3 +334,8 @@ impl KnownTags {
         Box::pin(async move { exists })
     }
 }
+
+/// A request budget no artifact test exhausts.
+pub(crate) fn test_budget() -> octocode_io::budget::RequestBudget {
+    octocode_io::budget::RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000)
+}

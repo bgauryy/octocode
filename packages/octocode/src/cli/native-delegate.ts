@@ -20,6 +20,10 @@ export class NativeLaunchError extends Error {
   override name = 'NativeLaunchError';
 }
 
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function resolveNativeBin(
   env: NodeJS.ProcessEnv = process.env
 ): NativeBin {
@@ -34,7 +38,7 @@ export function resolveNativeBin(
   try {
     return { bin: resolver.resolveNativeBinaryPath() };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) };
+    return { error: errorMessage(error) };
   }
 }
 
@@ -46,9 +50,8 @@ export async function delegateToNative(
   try {
     return await launcher.runForwardingSignals(bin, argv, { env });
   } catch (error) {
-    const cause = error instanceof Error ? error.message : String(error);
     throw new NativeLaunchError(
-      `The native Octocode binary could not start (${bin}): ${cause}`,
+      `The native Octocode binary could not start (${bin}): ${errorMessage(error)}`,
       { cause: error }
     );
   }

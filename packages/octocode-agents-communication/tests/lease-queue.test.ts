@@ -27,7 +27,7 @@ test('a conflict suggests queueing; a queued waiter is granted on unlock and wok
   assert.deepEqual(conflict.next, { command: 'lock', input: { path: 'a.ts', reasoning: conflict.next.input.reasoning, wait: true } });
   const queued = f.call(conflict.next.command, conflict.next.input, b);
   assert.equal(queued.queued, true);
-  assert.match(f.mail(a)[0], /b is queued for a\.ts/);
+  assert.match(f.mail(a)[0], /^SBAR\nSituation: b is queued for a\.ts/);
   assert.equal(f.holder('a.ts'), 'a');
   assert.equal(f.call('unlock', { leaseId: lease.id }, a).released, true);
   assert.equal(f.holder('a.ts'), 'b');
@@ -134,9 +134,9 @@ test('waiting on a reservation checks for deadlock through the reserving wait', 
   assert.match(refused.guidance, /would deadlock/);
 });
 
-test('leave, a direct lock and own overlapping leases end or refuse waits', t => {
+test('leave, a direct lock and own overlapping leases end or refuse waits; an owner that leaves hands its lease to the waiter', t => {
   const f = fixture(t), a = f.join('a'), b = f.join('b');
-  const held = f.call('lock', { path: 'a.ts' }, a).lease;
+  f.call('lock', { path: 'a.ts' }, a);
   f.call('lock', { path: 'a.ts', wait: true }, b);
   f.call('leave', {}, b);
   assert.equal(only(f.db.prepare('SELECT count(*) n FROM lease_waits').get()).n, 0);
@@ -145,5 +145,7 @@ test('leave, a direct lock and own overlapping leases end or refuse waits', t =>
   f.call('lock', { path: 'b.ts' }, c);
   assert.equal(only(f.db.prepare('SELECT count(*) n FROM lease_waits').get()).n, 1, 'an unrelated lock keeps the wait');
   assert.match(f.call('lock', { path: 'a.ts', wait: true }, a).guidance, /You hold an overlapping lease/);
-  f.call('unlock', { leaseId: held.id }, a);
+  f.call('leave', {}, a);
+  assert.equal(f.holder('a.ts'), 'c', 'the owner leaving grants its lease to the waiter');
+  assert.match(f.mail(c).at(-1) ?? '', /^Delta update\nChanges:\n- Lease granted: a\.ts \(lease \d+\)/);
 });

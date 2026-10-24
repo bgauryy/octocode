@@ -21,6 +21,27 @@ afterEach(() => {
   guard.stub = undefined;
 });
 
+it('names the Octocode tools this session has for reading the saved page, clasify first', async () => {
+  vi.stubEnv('OCTOCODE_HOME', tmp());
+  const base = await serve((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('y'.repeat(30_000));
+  });
+  const call = async (active: string[]) => text(await webTool(active).execute('id', { url: `${base}/`, maxChars: 1_000 }));
+  const all = await call(['mcp__octocode__clasify', 'mcp__octocode__localSearch', 'mcp__octocode__localFetch']);
+  expect(all.indexOf('mcp__octocode__clasify')).toBeLessThan(all.indexOf('mcp__octocode__localSearch'));
+  expect(all).toContain('matchString:["^#{1,3} "], regexEngine:"rust"');
+  expect(all).toContain('mcp__octocode__localFetch');
+  const saved = /is in (\/\S+):/.exec(all)![1]!;
+  expect(fs.readFileSync(saved, 'utf8')).toBe('y'.repeat(30_000));
+  // Without the classification provider the local tools remain; without Octocode tools the generic wording stands.
+  const local = await call(['mcp__octocode__localSearch', 'mcp__octocode__localFetch']);
+  expect(local).toContain('matchString:["^#{1,3} "], regexEngine:"rust"');
+  expect(local).not.toContain('mcp__octocode__clasify');
+  expect(await call(['read', 'bash'])).toMatch(/is in \S+: search it or read it by line range\]$/);
+});
+
+
 describe('web tool', () => {
   it('rejects ambiguous or empty requests before making a network call', async () => {
     const tool = webTool();
@@ -42,22 +63,6 @@ describe('web tool', () => {
     const tool = webTool();
     expect(text(await tool.execute('id', { url: `${base}/` }))).toBe('hello from the page');
     await expect(tool.execute('id', {})).rejects.toThrow('Provide url or query.');
-  });
-
-  it('names the Octocode tools this session has for reading the saved page, clasify first', async () => {
-    vi.stubEnv('OCTOCODE_HOME', tmp());
-    const base = await serve((_req, res) => {
-      res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end('y'.repeat(30_000));
-    });
-    const call = async (active: string[]) => text(await webTool(active).execute('id', { url: `${base}/`, maxChars: 1_000 }));
-    const all = await call(['mcp__octocode__clasify', 'mcp__octocode__localSearch', 'mcp__octocode__localFetch']);
-    expect(all).toMatch(/is in \/\S+: screen a bounded unread selection with mcp__octocode__clasify \(source \{tool:"localFetch", query:\{path:<this file>, ranges:<observed line ranges>\}\}, a noul question about one stated fact; typed answers only, read deciding evidence\); search literal text with mcp__octocode__localSearch \(headings: regex "\^#\{1,3\} "\); read line ranges with mcp__octocode__localFetch\]$/);
-    const saved = /is in (\/\S+):/.exec(all)![1]!;
-    expect(fs.readFileSync(saved, 'utf8')).toBe('y'.repeat(30_000));
-    // Without the classification provider the local tools remain; without Octocode tools the generic wording stands.
-    expect(await call(['mcp__octocode__localSearch', 'mcp__octocode__localFetch'])).toMatch(/is in \/\S+: search literal text with mcp__octocode__localSearch \(headings: regex "\^#\{1,3\} "\); read line ranges with mcp__octocode__localFetch\]$/);
-    expect(await call(['read', 'bash'])).toMatch(/is in \S+: search it or read it by line range\]$/);
   });
 
   it('returns 20 KB of a page by default, more with maxChars, and says how to get the rest', async () => {

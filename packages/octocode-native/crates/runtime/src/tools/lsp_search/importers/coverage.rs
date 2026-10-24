@@ -33,6 +33,12 @@ impl Importers {
             .is_none_or(|window| window.verified_owner(file))
     }
 
+    /// Whether the name at `site` binds another declaration: a verified
+    /// importer's answer that lists it does not make it a reference.
+    pub(in super::super) fn binds_elsewhere(&self, site: &Site) -> bool {
+        self.elsewhere.contains(site)
+    }
+
     /// The candidate digest, salted into this request's location snapshot so
     /// a changed candidate list stales the window's later location pages.
     pub(in super::super) fn digest(&self) -> Option<&str> {
@@ -111,9 +117,10 @@ impl Importers {
     /// rest unverified: its lead is over the scope, which holds the files it
     /// found and those it did not reach, and without evidence the row is
     /// partial and says the scan did not finish. Nested repositories the scan
-    /// did not enter are counted, and the lead reaches into each of them (a
-    /// row with no name to search names them instead); they are no evidence
-    /// on their own, so they never make the row partial.
+    /// did not enter (only one holding the anchor is kept, see
+    /// `verified_anchors`) are counted, and the lead reaches into each of
+    /// them (a row with no name to search names them instead); they are no
+    /// evidence on their own, so they never make the row partial.
     pub(super) fn disclose_ignored(&self, row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
         let ignored = &self.ignored;
         if !ignored.nested_repositories.is_empty() {
@@ -160,7 +167,10 @@ impl Importers {
                 .into_owned()
         });
         let listed = spelled.iter().cloned().chain(nested).collect::<Vec<_>>();
-        row["next"]["includeSkipped"] = ignored_text_lead(name, scope, &listed, ignored.unfinished);
+        crate::response::result::attach_related(
+            row,
+            ignored_text_lead(name, scope, &listed, ignored.unfinished),
+        );
         if evidence.is_empty() {
             if ignored.unfinished {
                 crate::response::paging::mark_partial(row, IGNORED_REASON, &[]);
@@ -186,7 +196,7 @@ impl Importers {
             ));
         }
         let more = if ignored.unfinished {
-            " The scan for gitignored files stopped at its time bound, so more may exist."
+            " The scan for gitignored files did not finish, so more may exist."
         } else {
             ""
         };

@@ -6,7 +6,7 @@ use super::pool_client::PoolClient;
 use crate::error::Error;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 use tokio::task::AbortHandle;
 use tokio::time::{Duration, Instant};
@@ -78,7 +78,7 @@ pub(super) fn restart_backoff_delay(failures: u32) -> Duration {
 }
 
 pub(super) struct InFlight<C> {
-    pub(super) result: StdMutex<Option<SharedResult<C>>>,
+    pub(super) result: Mutex<Option<SharedResult<C>>>,
     pub(super) notify: Notify,
     pub(super) cancelled: AtomicBool,
 }
@@ -86,7 +86,7 @@ pub(super) struct InFlight<C> {
 impl<C: Clone> InFlight<C> {
     pub(super) fn new() -> Self {
         Self {
-            result: StdMutex::new(None),
+            result: Mutex::new(None),
             notify: Notify::new(),
             cancelled: AtomicBool::new(false),
         }

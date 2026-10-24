@@ -6,7 +6,8 @@ use super::prepare::*;
 use super::types::*;
 use super::view::single_line_query;
 use crate::security::scan::ContentScan;
-use octocode_contract_types::ErrorCode;
+use crate::tools::source_view::local_fetch_query;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit};
 
 /// One returned page after the secret scan.
 pub(super) struct ScannedPage {
@@ -51,10 +52,10 @@ pub(super) fn scan_page(
         budget,
         source_lines,
     } = *cut;
-    if q.full_content != Some(true) {
+    {
         let raw = page_within(selected, page_q, budget, source_lines);
         let literal = placeholders(&raw.text);
-        let windowed = if raw.pagination.unit == WindowUnit::Lines {
+        let windowed = if raw.pagination.unit == ReadProgressUnit::Lines {
             sanitize_line_page(selected, raw, source_path, security).unwrap_or(None)
         } else {
             sanitize_byte_page(selected, raw, source_path, security).unwrap_or(None)
@@ -84,7 +85,7 @@ pub(super) fn scan_page(
         }
         Err((code, message)) => {
             return Err(Box::new(LocalFetchResult::error(
-                q.path.to_string(),
+                local_fetch_query::path(q).to_owned(),
                 code,
                 message,
             )));
@@ -123,7 +124,7 @@ fn security_limit(
     first_line: Option<usize>,
 ) -> LocalFetchResult {
     let mut result = LocalFetchResult::error(
-        q.path.to_string(),
+        local_fetch_query::path(q).to_owned(),
         code,
         "The selected content view exceeds the secret scanner size limit. Byte windows cannot safely split unscanned content. Select a smaller source-line range.".into(),
     );
@@ -137,9 +138,7 @@ fn security_limit(
     {
         let line = first_line.or(local_fetch_query::start_line(q)).unwrap_or(1);
         result.next = Some(NextCalls {
-            read_bounded_lines: Some(FetchCall {
-                query: single_line_query(q, line),
-            }),
+            read_bounded_lines: single_line_query(q, line).map(FetchCall::related),
             ..NextCalls::default()
         });
     }
@@ -181,7 +180,10 @@ pub(super) fn warn_unmatchable(
     ext: &super::extraction::Extraction,
     warnings: &mut Vec<String>,
 ) {
-    if !source.match_redacted || q.match_string.is_none() || local_fetch_query::has_ranges(q) {
+    if !source.match_redacted
+        || !local_fetch_query::has_matches(q)
+        || local_fetch_query::has_ranges(q)
+    {
         return;
     }
     let mut shown = match (&ext.source_lines, ext.start, ext.end) {

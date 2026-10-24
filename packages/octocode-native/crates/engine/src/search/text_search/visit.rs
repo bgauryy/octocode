@@ -246,7 +246,7 @@ impl WalkScope<'_> {
         let path = dent.path();
         // Keep successful files, but report incomplete coverage when
         // opening or matching fails. A skipped file proves no absence.
-        let (file, meta) = match crate::text::source::open_regular(path) {
+        let (file, meta) = match crate::text::open_regular(path) {
             Ok(opened) => opened,
             Err(error) => {
                 self.state

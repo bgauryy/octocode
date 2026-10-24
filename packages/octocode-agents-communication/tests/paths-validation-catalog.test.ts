@@ -1,21 +1,14 @@
 import { test } from 'node:test';
-import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { contract, expand, golden, runtime } from './golden-support.ts';
+import { tempWorkspace } from './helpers.ts';
 import type { JsonRecord } from './json-record.ts';
 
-const { catalog, jsonText, paths, timing, unicode16, validation, workspace, VERSION, ValidationError } = runtime;
+const { catalog, paths, timing, unicode16, validation, workspace, VERSION, ValidationError } = runtime;
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
-
-const scratch = (t: TestContext) => {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'paths-validation-catalog-')));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  return directory;
-};
 
 test('version is the package version', () => {
   assert.equal(VERSION, JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
@@ -90,7 +83,7 @@ test('folding never uses the runtime case or normalization tables', () => {
 // ---- physical path resolution ------------------------------------------------------------------------------------
 
 test('resolvePath follows symlinks like the recorded reference output', t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'paths-validation-catalog-', { real: true });
   mkdirSync(join(directory, 'real/sub'), { recursive: true });
   writeFileSync(join(directory, 'real/file.txt'), 'x');
   symlinkSync('real', join(directory, 'rel-link'));
@@ -106,7 +99,7 @@ test('resolvePath follows symlinks like the recorded reference output', t => {
 });
 
 test('realpath equals the recorded reference resolve, strict and not', t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'paths-validation-catalog-', { real: true });
   mkdirSync(join(directory, 'a/b'), { recursive: true });
   symlinkSync('a/b', join(directory, 'link'));
   assert.deepEqual(contract(directory, golden.realpath.cases.map(([path, strict]: [string, boolean]) => paths.realpath(directory + '/' + path, strict))), golden.realpath.expected);
@@ -116,7 +109,7 @@ test('realpath equals the recorded reference resolve, strict and not', t => {
 // ---- coordination scope --------------------------------------------------------------------------------------------
 
 test('coordinationScope equals the recorded reference output for plain directories, repositories and worktrees', t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'paths-validation-catalog-', { real: true });
   const plain = join(directory, 'plain/deep');
   const main = join(directory, 'main');
   const worktree = join(directory, 'wt');
@@ -139,7 +132,7 @@ test('coordinationScope equals the recorded reference output for plain directori
 });
 
 test('Git metadata files are bounded, regular and well formed', t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'paths-validation-catalog-', { real: true });
   const file = join(directory, '.git');
   writeFileSync(file, 'gitdir: ' + 'x'.repeat(5000));
   assert.throws(() => workspace.metadataPath(file, 'gitdir:'), /exceeds 4096 bytes/);
@@ -221,19 +214,26 @@ test('every catalog pattern compiles as a JavaScript RegExp with the u flag', ()
 
 // ---- catalog ---------------------------------------------------------------------------------------------------
 
-const same = (actual: unknown, expected: unknown) => assert.equal(jsonText.dumps(actual, { sortKeys: true }), jsonText.dumps(expected, { sortKeys: true }));
-
-test('the catalog, tool selection, help and skill text equal the recorded reference output', () => {
-  const expected = golden.catalog;
+test('tool selection, help and accessors derive from the one catalog, and the skill text is the packaged OPERATING.md', () => {
+  const dump = catalog.catalog();
   const names = (tools: JsonRecord[]) => tools.map((tool: JsonRecord) => tool.name);
-  assert.deepEqual(names(catalog.selectedTools('messaging')), expected.messaging);
-  assert.deepEqual(names(catalog.selectedTools('peers,fetch')), expected.custom);
-  assert.deepEqual(names(catalog.selectedTools()), expected.all);
-  assert.equal(catalog.deliveryBatchLimit(), expected.batch);
-  assert.deepEqual({ ...catalog.help() }, { ...expected.help, implementation: 'TypeScript' });
-  same(catalog.definition('lock_many'), expected.definition);
-  same(catalog.recordType('event'), expected.record);
-  assert.equal(catalog.catalog().database.schemaSha256, runtime.database.schema().schemaSha256);
+  const all = names(catalog.selectedTools());
+  assert.deepEqual(all, names(dump.tools));
+  const commands = new Set(dump.commands.map((command: JsonRecord) => command.name));
+  assert.deepEqual(all.filter(name => !commands.has(name)), [], 'every tool is a command');
+  // A custom selection returns exactly its tools, in catalog order whatever the selection order.
+  assert.deepEqual(names(catalog.selectedTools('fetch,peers')), all.filter(name => name === 'peers' || name === 'fetch'));
+  // Each profile help() names is a strict superset of the one before it, and every profile is a subset of all tools.
+  const profiles = Object.keys(catalog.help().toolProfiles).map(profile => new Set(names(catalog.selectedTools(profile))));
+  assert.deepEqual(Object.keys(catalog.help().toolProfiles), ['messaging', 'review', 'editing']);
+  for (const [index, profile] of profiles.entries()) {
+    assert.ok([...profile].every(name => all.includes(name)), `profile ${index} selects only catalog tools`);
+    if (index) assert.ok(profile.size > profiles[index - 1].size && [...profiles[index - 1]].every(name => profile.has(name)), `profile ${index} extends the one before`);
+  }
+  assert.deepEqual(catalog.help().commands, dump.commands.map((command: JsonRecord) => command.name));
+  for (const command of dump.commands) assert.deepEqual(catalog.definition(command.name), command, command.name);
+  for (const type of dump.recordTypes) assert.deepEqual(catalog.recordType(type.type), type, type.type);
+  assert.equal(dump.database.schemaSha256, runtime.database.schema().schemaSha256);
   // The skill text is the packaged OPERATING.md; a vendor-specific copy starts at its title, a worker without lock tools drops the lease section.
   const operating = readFileSync(new URL('../OPERATING.md', import.meta.url), 'utf8');
   assert.equal(catalog.skillInstructions(), operating);

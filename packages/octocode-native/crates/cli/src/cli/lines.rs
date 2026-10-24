@@ -15,8 +15,8 @@
 mod follow;
 mod hits;
 mod listing;
+pub(super) use follow::all_rows_failed;
 use follow::field_notes;
-pub(super) use follow::{all_rows_failed, follow_ups};
 use hits::{hits, value_lines};
 use listing::{declarations, is_working_directory, listing, locations, single_row, words};
 use octocode_native::id::ToolId;
@@ -28,16 +28,12 @@ pub(super) struct Lines {
     pub notes: String,
 }
 
-/// Whether hits carry context lines, so a hit's value is numbered source
-/// (`N\ttext`): the query asked for context, or `clasifyContext` judges hits
-/// with its default context. A batch never reaches the line format.
+/// Explicit context determines whether hit values carry source-line prefixes.
 fn context_requested(query: &Value) -> bool {
-    let row = query["queries"].get(0).unwrap_or(query);
-    let keys = ["contextLines", "contextBefore", "contextAfter"];
-    // `clasifyContext` judges hits with context unless a context field is set.
-    keys.into_iter()
-        .any(|key| row[key].as_u64().is_some_and(|n| n > 0))
-        || (row.get("clasifyContext").is_some() && keys.iter().all(|key| row.get(*key).is_none()))
+    let context = &query["queries"][0]["contextLines"];
+    ["before", "after"]
+        .into_iter()
+        .any(|key| context[key].as_u64().is_some_and(|n| n > 0))
 }
 
 /// The line format of a single-row `localSearch`, `astSearch`, `lspSearch`
@@ -50,10 +46,30 @@ pub(super) fn render(
     query: &Value,
     cwd: Option<&std::path::Path>,
 ) -> Option<Lines> {
+    let (display, calls) = follow::separate_calls(tool, structured)?;
+    let mut lines = render_data(tool, &display, query, cwd)?;
+    for call in calls {
+        if !lines.notes.is_empty() {
+            lines.notes.push('\n');
+        }
+        lines.notes.push_str(&format!("# {call}"));
+    }
+    Some(lines)
+}
+
+fn render_data(
+    tool: ToolId,
+    structured: &Value,
+    query: &Value,
+    cwd: Option<&std::path::Path>,
+) -> Option<Lines> {
     match tool {
         ToolId::StructureSearch => return listing(structured, query, cwd),
         ToolId::LocalSearch | ToolId::AstSearch | ToolId::LspSearch => {}
         _ => return None,
+    }
+    if tool == ToolId::LocalSearch && query.get("cursor").is_some() {
+        return None;
     }
     let row = single_row(structured)?;
     let data = row.get("data")?.as_object()?;
@@ -77,7 +93,7 @@ pub(super) fn render(
         data.get("path").and_then(Value::as_str),
     ) {
         let mut out = Vec::new();
-        declarations(path, symbols, None, &mut out)?;
+        declarations(path, symbols, false, &mut out)?;
         let mut data = data.clone();
         data.shift_remove("symbols");
         return Some(Lines {
@@ -102,7 +118,7 @@ pub(super) fn render(
         let mut rest = file.clone();
         rest.shift_remove("path");
         if let Some(Value::Array(symbols)) = rest.shift_remove("symbols") {
-            declarations(path, &symbols, None, &mut out)?;
+            declarations(path, &symbols, false, &mut out)?;
             if !rest.is_empty() {
                 file_notes.push(format!("file {path}: {}", words(&rest)));
             }
@@ -112,7 +128,7 @@ pub(super) fn render(
         let count = ["matchCount", "matchedLineCount"]
             .into_iter()
             .find_map(|key| rest.get(key).and_then(Value::as_u64).map(|n| (key, n)));
-        // `lspSearch groupByFile`: the start line of every site in the file.
+        // `lspSearch view:files`: the start line of every site in the file.
         let site_lines = rest
             .get("lines")
             .filter(|_| tool == ToolId::LspSearch)
@@ -121,12 +137,12 @@ pub(super) fn render(
             (Some(Value::Array(matches)), _, _)
                 if matches.iter().all(|item| item.get("value").is_some()) =>
             {
-                hits(path, &matches, numbered, &mut out)?
+                hits(path, &matches, numbered, &mut out)?;
             }
             // `lspSearch` call rows (`callers`, `callees`): the calling or
             // called declaration, its call sites in `[ … ]`.
             (Some(Value::Array(matches)), _, _) if tool == ToolId::LspSearch => {
-                declarations(path, &matches, None, &mut out)?
+                declarations(path, &matches, false, &mut out)?;
             }
             // A `path:N` line per site, as sites print without grouping; the
             // count is the number of lines.
@@ -179,7 +195,7 @@ fn notes(
     notes.extend(field_notes("", &data));
     notes.extend(file_notes);
     // Row and envelope fields beside `data` (`rowPart`, `responsePagination`,
-    // `warnings`, `shared`, …), so a cut response is never silent.
+    // `warnings`, …), so a cut response is never silent.
     let row_rest: Map<String, Value> = row
         .iter()
         .filter(|(key, _)| !matches!(key.as_str(), "index" | "status" | "data"))
@@ -200,7 +216,6 @@ fn notes(
     {
         notes.push(format!("root: {root} (paths are relative to it)"));
     }
-    notes.extend(follow_ups(structured));
     notes
         .iter()
         .map(|line| format!("# {line}"))

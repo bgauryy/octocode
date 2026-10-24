@@ -2,9 +2,8 @@ use crate::cache::CacheClass;
 use crate::id::ToolId;
 use crate::response::result::ToolError;
 use crate::{execution::cancel::CancellationCheck, policy::path::PathPolicy};
-pub use octocode_contract_types::AstSearchQuerySymbols;
-use octocode_contract_types::ErrorCode;
-use serde_json::json;
+use octocode_contract_types::{AstSearchQuerySymbols, ErrorCode};
+use serde_json::{Value, json};
 
 mod directory;
 mod empty_outline;
@@ -31,21 +30,21 @@ use select::select;
 
 /// Engine-unit views over the generated `symbols` query.
 pub(crate) mod ast_search_query_symbols {
-    use super::AstSearchQuerySymbols;
     use super::names::{NameEntry, NameFilter};
-    use crate::id::ToolId;
     use crate::num::u32_of;
+    use octocode_contract_types::AstSearchQuerySymbols;
     use std::collections::BTreeMap;
     pub(crate) fn language(query: &AstSearchQuerySymbols) -> Option<String> {
-        query.language.as_ref().map(ToString::to_string)
+        query.parser.as_ref().map(ToString::to_string)
     }
     pub(crate) fn language_globs(
         query: &AstSearchQuerySymbols,
-    ) -> Option<&BTreeMap<String, Vec<String>>> {
-        (!query.language_globs.is_empty()).then_some(&query.language_globs)
+    ) -> Option<BTreeMap<String, Vec<String>>> {
+        query.parser_globs.as_ref().map(super::super::parser_globs)
     }
-    pub(crate) fn kinds(query: &AstSearchQuerySymbols) -> Option<&Vec<String>> {
-        (!query.kinds.is_empty()).then_some(&query.kinds)
+    pub(crate) fn kinds(query: &AstSearchQuerySymbols) -> Option<Vec<String>> {
+        (!query.symbol_kinds.is_empty())
+            .then(|| query.symbol_kinds.iter().map(ToString::to_string).collect())
     }
     pub(crate) fn exclude(query: &AstSearchQuerySymbols) -> Option<Vec<String>> {
         (!query.exclude.is_empty()).then(|| query.exclude.clone())
@@ -53,23 +52,14 @@ pub(crate) mod ast_search_query_symbols {
     /// The caller's file scan cap; unset scans the scope within the scan
     /// time budget.
     pub(crate) fn max_files(query: &AstSearchQuerySymbols) -> Option<u32> {
-        query.max_files.map(u32_of)
+        query.max_files.map(|value| u32_of(value.get()))
     }
     /// Leading files (walk order) an earlier window outlined.
     pub(crate) fn scan_offset(query: &AstSearchQuerySymbols) -> u32 {
         query.scan_offset.map_or(0, |offset| u32_of(offset.get()))
     }
     pub(crate) fn page(query: &AstSearchQuerySymbols) -> u32 {
-        u32_of(query.page)
-    }
-    /// The caller's symbols per page, at most the contract's `pageSize`
-    /// maximum (the type keeps it non-zero); unset fills the response window.
-    pub(crate) fn page_size(query: &AstSearchQuerySymbols) -> Option<usize> {
-        crate::response::paging::page_size(
-            ToolId::AstSearch,
-            Some("symbols"),
-            query.page_size.map(|size| size.get()),
-        )
+        u32_of(query.page.get())
     }
     pub(crate) fn snapshot(query: &AstSearchQuerySymbols) -> Option<&str> {
         query.snapshot.as_deref().map(String::as_str)
@@ -78,15 +68,14 @@ pub(crate) mod ast_search_query_symbols {
     /// equals some declaration name matches only equal names; otherwise it
     /// matches as a substring. All-lowercase text ignores case.
     pub(super) fn name_filter(query: &AstSearchQuerySymbols) -> Option<NameFilter> {
-        use octocode_contract_types::AstSearchQuerySymbolsSymbolName;
-        let entries = match query.symbol_name.as_ref()? {
-            AstSearchQuerySymbolsSymbolName::String(name) => vec![name.to_string()],
-            AstSearchQuerySymbolsSymbolName::Array(names) => {
-                names.iter().map(ToString::to_string).collect()
-            }
-        };
+        let filter = query.symbol_filter.as_ref()?;
         Some(NameFilter {
-            entries: entries.into_iter().map(NameEntry::new).collect(),
+            entries: filter
+                .terms
+                .iter()
+                .map(|term| NameEntry::new(term.to_string(), filter.case_mode, filter.mode))
+                .collect(),
+            mode: filter.mode,
         })
     }
 }
@@ -96,10 +85,19 @@ pub fn execute_symbols(
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
-) -> super::AstResult {
+) -> Result<Value, ToolError> {
+    run_symbols(q, paths, cancel, response_window).map(super::output::finish)
+}
+
+fn run_symbols(
+    q: &AstSearchQuerySymbols,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    response_window: Option<usize>,
+) -> Result<Value, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
     if let Some(unknown) = q
-        .kinds
+        .symbol_kinds
         .iter()
         .find(|kind| !octocode_engine::signatures::DECLARATION_KINDS.contains(&kind.as_str()))
     {
@@ -118,12 +116,13 @@ pub fn execute_symbols(
         .map_err(|error| super::errors::io_error(q.path.as_str(), error))?;
     check_language_scope(q, &p.canonical, meta.is_file())?;
     if meta.is_file() {
-        let outline = match outline_file(q, &p.canonical)? {
+        let row_paths = super::RowPaths::new(paths, &p.canonical, true);
+        let display_path = row_paths.delivered(&p.canonical.to_string_lossy());
+        let outline = match outline_file(q, &p.canonical, &display_path)? {
             Ok(outline) => outline,
             Err(terminal) => return Ok(terminal),
         };
         let set = select(q, &p.canonical, outline, cancel)?;
-        let row_paths = super::RowPaths::new(paths, &p.canonical, true);
         return Ok(render_page(q, &set, row_paths, response_window));
     }
     let row_paths = super::RowPaths::new(paths, &p.canonical, false);
@@ -168,7 +167,7 @@ pub fn execute_symbols(
     Ok(page)
 }
 
-/// `language` names one file's grammar; `languageGlobs` maps a directory's.
+/// `parser` names one file's grammar; `parserGlobs` maps a directory's.
 fn check_language_scope(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
@@ -177,7 +176,7 @@ fn check_language_scope(
     if is_file && ast_search_query_symbols::language_globs(q).is_some() {
         return Err(ToolError::new(
             ErrorCode::LanguageDirectoryRequired,
-            "languageGlobs is for directory symbols. Use language for a single file.",
+            "parserGlobs is for directory symbols. Use parser for a single file.",
         ));
     }
     if is_file {
@@ -186,7 +185,7 @@ fn check_language_scope(
             ast_search_query_symbols::language(q).as_deref(),
         );
     }
-    if q.language.is_none() {
+    if q.parser.is_none() {
         return Ok(());
     }
     let mut error = ToolError::new(
@@ -197,10 +196,10 @@ fn check_language_scope(
     // the same query without language is the exact repair.
     if let Ok(mut repaired) = serde_json::to_value(q) {
         if let Some(object) = repaired.as_object_mut() {
-            object.remove("language");
+            object.remove("parser");
         }
-        error.next = Some(Box::new(json!({
-            "repair": crate::response::result::Continuation::new(ToolId::AstSearch, repaired).build()
+        error.calls = Some(Box::new(json!({
+            "repair": crate::response::result::restart_query(ToolId::AstSearch, &repaired)
         })));
     }
     Err(error)

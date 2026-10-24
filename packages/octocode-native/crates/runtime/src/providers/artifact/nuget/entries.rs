@@ -1,6 +1,7 @@
 //! NuGet catalog rows: the artifact a catalog entry describes and NuGet version order.
 use super::super::util::{object_for, required, safe_url, string};
-use super::super::{ArtifactError, ArtifactItem, ArtifactType};
+use super::super::{ArtifactError, ArtifactItem};
+use octocode_contract_types::ArtifactType;
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
 use url::Url;

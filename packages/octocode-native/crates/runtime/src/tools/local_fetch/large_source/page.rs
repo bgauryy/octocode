@@ -4,7 +4,9 @@
 use super::window::WindowSpan;
 use super::{Streamed, WINDOW_LINES, line_chunk_query};
 use crate::num::usize_of;
+use crate::tools::source_view::local_fetch_query;
 use crate::tools::source_view::*;
+use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 /// An offset past the end of the read's `read_total` `unit`s (lines, or the
 /// bytes of its lines): nothing returned, in the shape an in-memory read
@@ -13,18 +15,18 @@ use crate::tools::source_view::*;
 pub(super) fn past_end_row(
     q: &LocalFetchQuery,
     streamed: &Streamed,
-    unit: WindowUnit,
+    unit: ReadProgressUnit,
     read_total: usize,
     len: u64,
 ) -> LocalFetchResult {
     let next = past_end(q);
     let offset = local_fetch_query::offset(q).unwrap_or(0);
     let (total_lines, total_bytes) = match unit {
-        WindowUnit::Lines => (read_total, usize_of(len)),
-        WindowUnit::Bytes => (streamed.last + 1 - streamed.first, read_total),
+        ReadProgressUnit::Lines => (read_total, usize_of(len)),
+        ReadProgressUnit::Bytes => (streamed.last + 1 - streamed.first, read_total),
     };
     LocalFetchResult {
-        path: q.path.to_string(),
+        path: local_fetch_query::path(q).to_owned(),
         source_sha256: Some(streamed.digest.clone()),
         content: Some(String::new()),
         total_lines: Some(streamed.total_lines),
@@ -36,7 +38,7 @@ pub(super) fn past_end_row(
             unit,
             offset,
             length: 0,
-            window: local_fetch_query::window_length(q).unwrap_or(WINDOW_LINES),
+            window: WINDOW_LINES,
             total_lines,
             total_bytes,
             has_more: false,
@@ -83,41 +85,47 @@ pub(super) fn continue_window(
     streamed: &Streamed,
     span: WindowSpan,
     next_offset: Option<usize>,
-) {
+) -> Result<(), String> {
     let chunked = span.chunked;
-    let snapshot = streamed.digest.parse().ok();
+    let snapshot = streamed.digest.as_str();
     let inner = result
         .next
         .as_mut()
         .and_then(|next| next.continue_window.as_mut());
     if let Some(inner) = inner
-        && inner.query.unit == Some(WindowUnit::Bytes)
+        && local_fetch_query::unit(&inner.query) == ReadProgressUnit::Bytes
     {
-        inner.query.path = q.path.clone();
+        local_fetch_query::set_path(&mut inner.query, local_fetch_query::path(q))
+            .map_err(|error| error.to_string())?;
         local_fetch_query::set_line_span(
             &mut inner.query,
             span.first,
             span.last.min(streamed.total_lines),
-        );
-        inner.query.snapshot = snapshot;
-        return;
+        )
+        .map_err(|error| error.to_string())?;
+        local_fetch_query::set_snapshot(&mut inner.query, Some(snapshot))
+            .map_err(|error| error.to_string())?;
+        return Ok(());
     }
-    let read = next_offset.map(|offset| {
-        let mut query = if chunked {
-            line_chunk_query(q, offset)
-        } else {
-            let mut query = q.clone();
-            if query.unit == Some(WindowUnit::Bytes) {
-                // The long line is done: line pages resume after it.
-                query.unit = None;
-                query.length = None;
-            }
-            query.offset = Some(wire_count(offset));
-            query
-        };
-        query.snapshot = snapshot;
-        FetchCall { query }
-    });
+    let read = next_offset
+        .map(|offset| {
+            let mut query = if chunked {
+                line_chunk_query(q, offset).map_err(|error| error.to_string())?
+            } else {
+                q.clone()
+            };
+            local_fetch_query::set_progress(
+                &mut query,
+                Some(octocode_contract_types::ReadProgress {
+                    unit: ReadProgressUnit::Lines,
+                    offset: wire_count(offset),
+                }),
+            );
+            local_fetch_query::set_snapshot(&mut query, Some(snapshot))
+                .map_err(|error| error.to_string())?;
+            Ok::<_, String>(FetchCall::continued(query))
+        })
+        .transpose()?;
     match (result.next.as_mut(), read) {
         (Some(next), read) => next.continue_window = read,
         (None, Some(read)) => {
@@ -128,6 +136,7 @@ pub(super) fn continue_window(
         }
         (None, None) => {}
     }
+    Ok(())
 }
 
 /// The first and last file lines a page served.

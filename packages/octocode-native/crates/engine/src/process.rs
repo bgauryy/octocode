@@ -8,12 +8,13 @@
 //! there is no RSS or CPU reader, and teardown falls back to the process
 //! group.
 
-use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 
 mod job;
 mod metrics;
+// The Linux `/proc` readers; the synthetic-tree tests run them on every host.
+#[cfg(any(test, target_os = "linux"))]
 mod proc_table;
 mod teardown;
 
@@ -39,6 +40,7 @@ pub use teardown::{kill_tree, kill_tree_blocking};
 
 /// Upper bound on the processes one tree walk visits, so a fork bomb cannot
 /// make the walk itself unbounded.
+#[cfg(any(test, unix))]
 const MAX_TREE_PROCESSES: usize = 4_096;
 
 /// Every descendant of `root` (not `root` itself), breadth-first. Parent links
@@ -56,9 +58,9 @@ pub(crate) fn descendants(root: u32) -> Vec<u32> {
 /// snapshot on Linux). Pure over the lookup, so cycles (a self-parented or
 /// looping table), duplicates, and the [`MAX_TREE_PROCESSES`] bound are
 /// covered by tests on every host. `root` is never reported.
-#[cfg_attr(not(unix), allow(dead_code))] // No process-tree reader off Unix.
+#[cfg(any(test, unix))]
 fn walk_descendants(root: u32, mut children_of: impl FnMut(u32) -> Vec<u32>) -> Vec<u32> {
-    let mut seen = HashSet::from([root]);
+    let mut seen = std::collections::HashSet::from([root]);
     let mut found = Vec::new();
     let mut frontier = std::collections::VecDeque::from([root]);
     while let Some(parent) = frontier.pop_front() {

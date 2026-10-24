@@ -90,7 +90,7 @@ fn a_truncated_snapshot_is_never_fresh() {
             exclude_dir: vec!["gen".into()],
             ..Default::default()
         },
-        &policy(dir.0.as_path()),
+        &workspace_policy(dir.0.as_path()),
         &ContentSecurity::new(),
         &NeverCancel,
         None,

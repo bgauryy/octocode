@@ -8,8 +8,8 @@ use crate::response::result::Continuation;
 use serde_json::{Value, json};
 
 /// A discovery page's facts, from the shared page facts: the page, its size,
-/// whether a reachable page follows and the registry's total when it counts
-/// one, and the next page, which carries the whole query plus the cursor a
+/// whether a reachable page follows and the registry's matched total when
+/// it counts one, and the next page, which carries the whole query plus the cursor a
 /// token-paged registry issued for it (`next_state`). A registry total
 /// past the reachable rows is no page count: the first page states the
 /// reach once (a static notice) and the last reachable page ends the row at
@@ -39,9 +39,10 @@ pub(super) fn discovery_page(
     let reach = last
         .saturating_mul(artifact_search_query::page_size(query) as u64)
         .min(reachable_end(artifact_type).unwrap_or(u64::MAX));
-    // `totalItems` counts the rows the pages reach; the registry's total
-    // past them stays in the warning.
-    let facts = match total.and_then(|total| usize::try_from(total.min(reach)).ok()) {
+    // `totalItems` is the registry's matched total, whatever the page
+    // size; the rows paging reaches (the contract's page maximum × the page
+    // size, or the registry's own window) are the warning's.
+    let facts = match total.and_then(|total| usize::try_from(total).ok()) {
         Some(total) => facts.with_items(total),
         None => facts,
     };
@@ -66,7 +67,8 @@ pub(super) fn discovery_page(
         return;
     }
     if let Ok(next_query) = serde_json::to_value(next_query) {
-        data["next"]["nextPage"] = Continuation::new(ToolId::ArtifactSearch, next_query).build();
+        data["calls"]["nextPage"] =
+            Continuation::continued(ToolId::ArtifactSearch, next_query).build();
     }
     if let Some(total) = capped_total {
         paging::mark_partial(data, "providerResultCap", &[]);
@@ -100,18 +102,4 @@ pub(crate) fn last_reachable_page(query: &ArtifactSearchQuery) -> u64 {
         }
     }
     low
-}
-
-/// A repaired row's `page` past the deepest page its query reaches,
-/// lowered to that page: the schema's `maximum` admits pages no search of
-/// this size reaches. Any other row (no discovery query, or a reachable
-/// page) stays as it is.
-pub(crate) fn settle_repaired_row(row: &mut Value) {
-    let Ok(query) = serde_json::from_value::<ArtifactSearchQuery>(row.clone()) else {
-        return;
-    };
-    let last = last_reachable_page(&query);
-    if artifact_search_query::page(&query) > last {
-        row["page"] = json!(last);
-    }
 }

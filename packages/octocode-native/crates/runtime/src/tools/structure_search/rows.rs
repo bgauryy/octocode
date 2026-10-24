@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use octocode_contract_types::StructureSearchQueryFilesSort as Sort;
+use octocode_contract_types::StructureSearchQueryFilesSort;
 use octocode_engine::types::{FileKind, FileSystemEntry};
 
 mod line_counts;
@@ -185,14 +185,24 @@ pub(super) fn rows_of(
 }
 
 /// Rank rows by `sort`; path order is the walk order (the sort is stable).
-pub(super) fn sort_rows(rows: &mut [Row], sort: Sort) {
-    rows.sort_by(|a, b| match sort {
-        Sort::Lines => Lines::rank(a.lines).cmp(&Lines::rank(b.lines)),
-        Sort::Size => b.size.cmp(&a.size),
-        Sort::Name => a.name.cmp(&b.name),
-        // Component-wise, the walk order: `a/x` before `a-b/x`.
-        Sort::Path => std::path::Path::new(&a.path).cmp(std::path::Path::new(&b.path)),
-        Sort::Modified => b.modified.total_cmp(&a.modified),
+pub(super) fn sort_rows(rows: &mut [Row], sort: &StructureSearchQueryFilesSort) {
+    use octocode_contract_types::{SortOrder, StructureSearchQueryFilesSortVariant0By as Key};
+    let StructureSearchQueryFilesSort::Variant0 { by, order } = sort else {
+        return;
+    };
+    rows.sort_by(|a, b| {
+        let compared = match by {
+            Key::LineCount => Lines::rank(b.lines).cmp(&Lines::rank(a.lines)),
+            Key::SizeBytes => a.size.cmp(&b.size),
+            Key::Name => a.name.cmp(&b.name),
+            Key::Path => a.path.cmp(&b.path),
+            Key::ModifiedAt => a.modified.total_cmp(&b.modified),
+        };
+        if *order == SortOrder::Desc {
+            compared.reverse()
+        } else {
+            compared
+        }
     });
 }
 
@@ -201,8 +211,8 @@ pub(super) fn sort_rows(rows: &mut [Row], sort: Sort) {
 /// then each directory once, in walk order (the sort is stable). Other sorts
 /// keep their rank order exactly; each page groups its own adjacent rows
 /// ([`dir_groups`]).
-pub(super) fn group(rows: &mut Vec<Row>, sort: Sort) {
-    if sort == Sort::Path {
+pub(super) fn group(rows: &mut Vec<Row>, sort: &StructureSearchQueryFilesSort) {
+    if super::files::is_traversal(sort) {
         rows.sort_by(|a, b| std::path::Path::new(&a.dir).cmp(std::path::Path::new(&b.dir)));
     }
     drop_grouped_dirs(rows);

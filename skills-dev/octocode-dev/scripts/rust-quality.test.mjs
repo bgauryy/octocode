@@ -99,18 +99,20 @@ test('every fuzz target is a bin of the fuzz workspace with a committed seed cor
   assert.match(readFileSync(path.join(NATIVE, 'Cargo.toml'), 'utf8'), /exclude = \["fuzz"\]/);
 });
 
-test('miri runs one bounded nightly invocation per selection', () => {
-  const runs = miriInvocations(manifest, {});
+test('miri runs one bounded nightly invocation per manifest selection', () => {
+  const runs = miriInvocations(manifest, { targetDir: 'miri-target' });
   assert.equal(runs.length, manifest.miri.runs.length);
-  const [io, engine] = runs;
-  assert.deepEqual(io.args.slice(0, 7), [`+${manifest.toolchains.nightly.channel}`, 'miri', 'test', '--locked', '-p', 'octocode-io', '--lib']);
-  assert.ok(io.args.includes('--exact'));
-  assert.equal(io.env.MIRIFLAGS, '-Zmiri-many-seeds=0..8');
-  assert.deepEqual(engine.args.slice(-7), [
-    'text::utf8_offsets::tests', '--skip', 'proptests::', '--skip', 'a_minified_single_line_stays_linear',
-    '--skip', 'checkpointed_columns_match_a_naive_scan_everywhere',
-  ]);
-  assert.deepEqual(engine.env, {});
+  for (const [i, run] of manifest.miri.runs.entries()) {
+    const { command, args, env } = runs[i];
+    assert.equal(command, 'cargo');
+    assert.deepEqual(args.slice(0, 8), [`+${manifest.toolchains.nightly.channel}`, 'miri', 'test', '--locked', '-p', run.package, '--lib', '--'], run.package);
+    const selection = args.slice(8);
+    if (run.exact) assert.deepEqual(selection.slice(0, run.exact.length + 1), ['--exact', ...run.exact], run.package);
+    else assert.equal(selection[0], run.filter, run.package);
+    const skips = selection.slice(run.exact ? run.exact.length + 1 : 1);
+    assert.deepEqual(skips, (run.skip ?? []).flatMap(name => ['--skip', name]), run.package);
+    assert.deepEqual(env, { ...run.env, ...(run.miriflags && { MIRIFLAGS: run.miriflags }), CARGO_TARGET_DIR: 'miri-target' }, run.package);
+  }
 });
 
 test('every selected miri test still exists in its crate', () => {

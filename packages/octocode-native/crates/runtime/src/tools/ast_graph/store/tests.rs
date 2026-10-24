@@ -1,7 +1,8 @@
 use super::*;
+use crate::tools::test_support::{Fixture, workspace_policy};
 
 use crate::execution::cancel::NeverCancel;
-use crate::tools::ast_graph::test_support::{Fixture, write_under};
+use crate::tools::ast_graph::test_support::write_under;
 
 mod detectors;
 mod impact;
@@ -40,10 +41,6 @@ fn fixture() -> Fixture {
     dir
 }
 
-fn policy(root: &Path) -> PathPolicy {
-    crate::tools::test_support::workspace_policy(root)
-}
-
 fn ingest_fixture(dir: &Path, keep: Option<usize>) -> GraphOutput {
     let options = IngestOptions {
         path: dir.join("app"),
@@ -53,7 +50,7 @@ fn ingest_fixture(dir: &Path, keep: Option<usize>) -> GraphOutput {
     };
     ingest(
         &options,
-        &policy(dir),
+        &workspace_policy(dir),
         &ContentSecurity::new(),
         &NeverCancel,
         None,
@@ -73,7 +70,7 @@ fn ask(
         ..Default::default()
     };
     tweak(&mut options);
-    query(&options, &policy(dir))
+    query(&options, &workspace_policy(dir))
 }
 
 fn ids(out: &GraphOutput) -> Vec<String> {
@@ -144,7 +141,7 @@ fn ingest_root(dir: &Path, root: &Path, keep: Option<usize>, force: bool) -> Gra
             force,
             ..Default::default()
         },
-        &policy(dir),
+        &workspace_policy(dir),
         &ContentSecurity::new(),
         &NeverCancel,
         None,

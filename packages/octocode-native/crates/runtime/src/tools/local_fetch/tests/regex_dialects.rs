@@ -2,59 +2,59 @@
 
 use super::*;
 
-/// `regex:"rust"` is the Rust regex engine, the one `localSearch` runs: what it
-/// refuses (backreferences, lookaround) is `invalidPattern` with the parser's
-/// reason, and `next.repair` retries the same read as `regex:"pcre2"`, the
-/// engine that owns them. It never needs a worker or an ECMAScript fallback.
 #[test]
-fn rust_regex_refuses_backreferences_and_lookaround_and_repairs_to_pcre2() {
-    let t = Fixture::new();
-    let p = t.0.join("regex.txt");
-    fs::write(&p, "needle one\nhello aa\n").expect("fixture");
-    let paths = Paths(t.0.clone());
-    for (pattern, reason) in [
-        (r"(\w)\1", "backreferences are not supported"),
-        ("(?<=needle )one", "look-around"),
-    ] {
-        let result = fetch(
+fn regex_engines_are_explicit_and_errors_never_rewrite_the_request() {
+    let root = Fixture::new();
+    let file = root.0.join("regex.txt");
+    fs::write(&file, "needle one\nhello aa\n").expect("fixture");
+    let paths = Paths(root.0.clone());
+    for pattern in [r"(\w)\1", "(?<=needle )one"] {
+        let request = qj(
+            &file,
+            serde_json::json!({"matchString":[pattern],"regexEngine":"rust"}),
+        );
+        let invalid = fetch(&request, &paths);
+        assert_eq!(
+            invalid.error_code,
+            Some(ErrorCode::InvalidPattern),
+            "{invalid:?}"
+        );
+        assert!(
+            invalid
+                .error
+                .as_ref()
+                .is_some_and(|error| error.contains("matchString")),
+            "{invalid:?}"
+        );
+        assert!(
+            invalid.next.is_none(),
+            "an invalid regex must not infer another request: {invalid:?}"
+        );
+        let explicit = qj(
+            &file,
+            serde_json::json!({"matchString":[pattern],"regexEngine":"pcre2"}),
+        );
+        let found = fetch(&explicit, &paths);
+        assert!(found.error_code.is_none(), "{found:?}");
+        assert!(
+            found.content.as_ref().is_some_and(|text| !text.is_empty()),
+            "{found:?}"
+        );
+    }
+    for engine in ["rust", "pcre2"] {
+        let invalid = fetch(
             &qj(
-                &p,
-                serde_json::json!({"matchString": pattern, "regex": "rust"}),
+                &file,
+                serde_json::json!({"matchString":["hello", "route("],"regexEngine":engine}),
             ),
             &paths,
         );
         assert_eq!(
-            result.error_code,
+            invalid.error_code,
             Some(ErrorCode::InvalidPattern),
-            "{pattern}: {result:?}"
+            "{invalid:?}"
         );
-        let error = result.error.clone().unwrap_or_default();
-        assert!(
-            error.starts_with(&format!(
-                "Invalid regex pattern: matchString \"{}\": ",
-                pattern.replace('\\', "\\\\")
-            )) && error.contains(reason),
-            "{error}"
-        );
-        let repaired = result
-            .next
-            .as_ref()
-            .and_then(|next| next.repair.as_ref())
-            .expect("repair lead")
-            .query
-            .clone();
-        assert_eq!(
-            repaired.regex,
-            Some(octocode_contract_types::ReadRegex::Pcre2)
-        );
-        assert_eq!(
-            local_fetch_query::match_strings(&repaired),
-            vec![pattern],
-            "kept as written"
-        );
-        let fixed = fetch(&repaired, &paths);
-        assert_eq!(fixed.error_code, None, "{pattern}: {fixed:?}");
-        assert!(fixed.content.is_some_and(|c| !c.is_empty()), "{pattern}");
+        assert!(invalid.next.is_none(), "{invalid:?}");
     }
 }
 
@@ -75,7 +75,7 @@ fn rust_regex_verdict_does_not_depend_on_file_size() {
         fetch(
             &qj(
                 file,
-                serde_json::json!({"matchString": pattern, "regex": "rust", "contextLines": 0}),
+                serde_json::json!({"matchString": [pattern], "regexEngine": "rust", "contextLines":{"before":0,"after":0}}),
             ),
             &paths,
         )
@@ -95,18 +95,25 @@ fn rust_regex_verdict_does_not_depend_on_file_size() {
 /// selects every matching line (never a silent prefix of them).
 #[test]
 fn regex_read_selects_every_match_past_ten_thousand() {
-    use octocode_contract_types::ReadRegex;
+    use octocode_contract_types::RegexEngine;
     let t = Fixture::new();
     let p = t.0.join("many.txt");
     let source: String = (1..=12_000).map(|i| format!("hit {i}\n")).collect();
     fs::write(&p, &source).expect("fixture");
-    for engine in [ReadRegex::Rust, ReadRegex::Pcre2] {
+    for engine in [RegexEngine::Rust, RegexEngine::Pcre2] {
         let mut request = q(&p);
-        request.match_string = Some(MatchString::String(
-            "hit [0-9]+".parse().expect("match string"),
-        ));
-        request.regex = Some(engine);
-        request.context_lines = Some(0);
+        amend(
+            &mut request,
+            serde_json::json!({"matchString":["hit [0-9]+"]}),
+        );
+        amend(
+            &mut request,
+            serde_json::json!({"regexEngine":Some(engine)}),
+        );
+        amend(
+            &mut request,
+            serde_json::json!({"contextLines":{"before":0,"after":0}}),
+        );
         let result = fetch(&request, &Paths(t.0.clone()));
         assert_eq!(result.error, None, "{engine:?}");
         assert_eq!(result.selected_match_count, Some(12_000), "{engine:?}");
@@ -123,7 +130,7 @@ fn regex_read_selects_every_match_past_ten_thousand() {
 /// every match of the same pattern in the same file.
 #[test]
 fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
-    use octocode_contract_types::ReadRegex;
+    use octocode_contract_types::RegexEngine;
     let t = Fixture::new();
     let p = t.0.join("dense.txt");
     let mut source = String::new();
@@ -132,11 +139,17 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
         source.push('\n');
     }
     fs::write(&p, &source).expect("fixture");
-    for engine in [ReadRegex::Rust, ReadRegex::Pcre2] {
+    for engine in [RegexEngine::Rust, RegexEngine::Pcre2] {
         let mut request = q(&p);
-        request.match_string = Some(MatchString::String("x".parse().expect("match string")));
-        request.regex = Some(engine);
-        request.context_lines = Some(0);
+        amend(&mut request, serde_json::json!({"matchString":["x"]}));
+        amend(
+            &mut request,
+            serde_json::json!({"regexEngine":Some(engine)}),
+        );
+        amend(
+            &mut request,
+            serde_json::json!({"contextLines":{"before":0,"after":0}}),
+        );
         let result = fetch(&request, &Paths(t.0.clone()));
         assert_eq!(result.error, None, "{engine:?}");
         assert_eq!(result.is_partial, Some(true), "{engine:?}");
@@ -156,8 +169,8 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
             .and_then(|next| next.text_search.clone())
             .expect("findText lead");
         assert_eq!(lead["tool"], "localSearch", "{lead}");
-        let row = &lead["query"]["queries"][0];
-        assert_eq!(row["matchString"], "x", "{lead}");
+        let row = &lead["input"]["queries"][0];
+        assert_eq!(row["matchString"], serde_json::json!(["x"]), "{lead}");
         assert_eq!(row["path"], p.to_string_lossy().as_ref(), "{lead}");
     }
 }
@@ -166,7 +179,7 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
 /// page continuation (the response moves it to `hints.findText`).
 #[test]
 fn paged_regex_read_past_the_match_limit_keeps_its_search_lead() {
-    use octocode_contract_types::ReadRegex;
+    use octocode_contract_types::RegexEngine;
     let t = Fixture::new();
     let p = t.0.join("hits.txt");
     let source: String = (1..=crate::tools::source_view::extraction::MAX_REGEX_MATCHES + 5)
@@ -174,8 +187,11 @@ fn paged_regex_read_past_the_match_limit_keeps_its_search_lead() {
         .collect();
     fs::write(&p, &source).expect("fixture");
     let mut request = q(&p);
-    request.match_string = Some(MatchString::String("hit".parse().expect("match string")));
-    request.regex = Some(ReadRegex::Rust);
+    amend(&mut request, serde_json::json!({"matchString":["hit"]}));
+    amend(
+        &mut request,
+        serde_json::json!({"regexEngine":Some(RegexEngine::Rust)}),
+    );
     let result = execute_local_fetch(
         &request,
         &Paths(t.0.clone()),
@@ -210,22 +226,15 @@ fn invalid_regex_items_are_named_by_index() {
         let list = fetch(
             &qj(
                 &p,
-                serde_json::json!({"matchString": ["pass", "def post("], "regex": engine}),
+                serde_json::json!({"matchString": ["pass", "def post("], "regexEngine": engine}),
             ),
             &paths,
         );
         assert_eq!(list.error_code, Some(ErrorCode::InvalidPattern), "{list:?}");
-        // The repair keeps the item that compiles and escapes the one that
-        // does not, in the same engine.
-        let repair = &list.next.as_ref().expect("repair lead").repair;
-        let repaired = repair.as_ref().expect("repair").query.clone();
-        assert_eq!(
-            local_fetch_query::match_strings(&repaired),
-            vec!["pass", "def post\\("],
-            "{engine}"
+        assert!(
+            list.next.is_none(),
+            "invalid input has no guessed repair: {list:?}"
         );
-        let fixed = fetch(&repaired, &paths);
-        assert_eq!(fixed.error_code, None, "{engine}: {fixed:?}");
         let error = list.error.unwrap_or_default();
         assert!(
             error.starts_with("Invalid regex pattern: matchString[1] \"def post(\": "),
@@ -234,7 +243,7 @@ fn invalid_regex_items_are_named_by_index() {
         let one = fetch(
             &qj(
                 &p,
-                serde_json::json!({"matchString": "def post(", "regex": engine}),
+                serde_json::json!({"matchString": ["def post("], "regexEngine": engine}),
             ),
             &paths,
         );
@@ -258,11 +267,14 @@ fn invalid_regex_items_are_named_by_index() {
 fn context_lines_without_match_string_is_refused_by_the_contract() {
     let refused = crate::contracts::prepare_many_and_validate(
         "localFetch",
-        serde_json::json!({"queries":[{"path":"a.rs","ranges":["1-1"],"contextLines":5}]}),
+        serde_json::json!({"queries":[{"path":"a.rs","ranges":[{"startLine":1,"endLine":1}],"contextLines":{"before":5,"after":5}}]}),
     )
     .expect_err("contextLines without matchString");
     assert!(
-        format!("{refused:?}").contains("contextLines"),
+        refused.issues.iter().any(|issue| issue
+            .path
+            .last()
+            .is_some_and(|field| field == "matchString")),
         "{refused:?}"
     );
 }

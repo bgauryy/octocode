@@ -144,7 +144,6 @@ export function registerSessionsCommand(pi: ExtensionAPI, commands: Subcommands,
       if (action === ACTIONS.forget) return forget(ctx, index, row, current);
     },
   });
-  commands.alias(pi, 'sessions');
 }
 
 /** `select` returns the chosen text, so every line must differ: a repeat (same id tail) gets ` #2`, ` #3`, … */

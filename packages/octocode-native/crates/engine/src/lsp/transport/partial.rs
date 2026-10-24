@@ -4,7 +4,7 @@
 use crate::error::{Error, Result};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Mutex as StdMutex;
+use std::sync::Mutex;
 
 /// Cap on the retained partial-result bytes for one token.
 const MAX_PARTIAL_RESULT_BYTES: usize = 16 * 1024 * 1024;
@@ -18,7 +18,7 @@ struct PartialResultBuffer {
 
 #[derive(Default)]
 pub(super) struct PartialResultStore {
-    buffers: StdMutex<HashMap<String, PartialResultBuffer>>,
+    buffers: Mutex<HashMap<String, PartialResultBuffer>>,
 }
 
 impl PartialResultStore {

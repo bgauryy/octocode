@@ -3,7 +3,6 @@
 use super::HistoryItemRequest;
 use super::inventory::*;
 use super::util::{str_at, usize_at};
-use crate::num::usize_of;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use globset::{GlobBuilder, GlobMatcher};
 use serde_json::Value;
@@ -11,7 +10,7 @@ use serde_json::Value;
 /// Changed-file selection shared by the provider scan and output shaping.
 #[derive(Clone, Copy)]
 pub(super) struct FileFilter<'a> {
-    pub(super) needle: Option<&'a str>,
+    pub(super) needle: Option<&'a super::matcher::Matcher>,
     pub(super) scope: Option<&'a FileScope>,
 }
 
@@ -42,6 +41,8 @@ pub(super) struct FilteredPage {
     pub(super) dropped: usize,
     /// Files in scope.
     pub(super) in_scope: usize,
+    /// Changed files loaded before the filter.
+    pub(super) loaded: usize,
 }
 
 impl FileFilter<'_> {
@@ -56,6 +57,7 @@ impl FileFilter<'_> {
         query: &HistoryItemRequest,
         patches: bool,
     ) -> FilteredPage {
+        let loaded = files.len();
         let Filtered {
             kept,
             unsearched,
@@ -75,6 +77,7 @@ impl FileFilter<'_> {
             unsearched,
             dropped,
             in_scope,
+            loaded,
         }
     }
 
@@ -111,14 +114,20 @@ impl FileFilter<'_> {
     /// alone never keeps a file, whose whole patch would answer nothing.
     pub(super) fn matches(&self, file: &Value) -> bool {
         self.scope.is_none_or(|scope| scope.matches(file))
-            && self.needle.is_none_or(|n| {
-                str_at(file, "/patch").is_some_and(|v| super::text::contains_folded(v, n))
-            })
+            && self
+                .needle
+                .is_none_or(|n| str_at(file, "/patch").is_some_and(|v| n.matches(v)))
     }
 }
 
 /// The per-call count of changed files a `matchString` dropped: in scope,
 /// searched, and holding no hit.
+/// An `include` scope that kept some of the changed files: the item's
+/// `changedFilesCount` counts them all.
+pub(super) fn include_kept_warning(kept: usize, loaded: usize) -> String {
+    format!("include kept {kept} of {loaded} changed files.")
+}
+
 pub(super) fn match_dropped_warning(dropped: usize, listed: usize) -> String {
     format!("matchString dropped {dropped} of {listed} changed files: no patch line holds it.")
 }
@@ -127,55 +136,30 @@ pub(super) fn match_dropped_warning(dropped: usize, listed: usize) -> String {
 /// search. It searches each file's diff text (never its path), so the
 /// function context git prints after a hunk's `@@ … @@` counts as text: a
 /// hit there is not a changed line.
-pub(super) fn match_removed_all_warning(needle: &str, listed: usize) -> String {
+pub(super) fn match_removed_all_warning(
+    needle: &octocode_contract_types::TextMatchTerms,
+    listed: usize,
+) -> String {
+    let terms = needle.iter().map(ToString::to_string).collect::<Vec<_>>();
     format!(
-        "matchString matched 0 of {listed} changed files (it searched {needle:?} in each file's diff text, hunk-header context included); drop matchString to list the files."
+        "matchString matched 0 of {listed} changed files (it searched {terms:?} in each file's diff text, hunk-header context included); drop matchString to list the files."
     )
 }
 
-/// One `include` entry.
-pub(super) enum PathPattern {
-    /// A plain path: that file, or every file under that directory.
-    Scope(String),
-    /// A glob over the whole path, or over the file name when it has no `/`.
-    Glob {
-        matcher: GlobMatcher,
-        file_name: bool,
-    },
-}
+/// An authored glob over a repository-relative changed-file path.
+pub(super) struct PathPattern(GlobMatcher);
 
 impl PathPattern {
     pub(super) fn parse(pattern: &str) -> Result<Self, String> {
-        if !pattern.contains(octocode_engine::search::glob::GLOB_META) {
-            return Ok(Self::Scope(pattern.to_owned()));
-        }
         GlobBuilder::new(pattern)
             .literal_separator(true)
             .build()
-            .map(|glob| Self::Glob {
-                matcher: glob.compile_matcher(),
-                file_name: !pattern.contains('/'),
-            })
+            .map(|glob| Self(glob.compile_matcher()))
             .map_err(|error| format!("include: invalid glob {pattern:?}: {error}"))
     }
 
     pub(super) fn matches(&self, path: &str) -> bool {
-        match self {
-            Self::Scope(scope) => {
-                path == scope
-                    || path
-                        .strip_prefix(scope.trim_end_matches('/'))
-                        .is_some_and(|rest| rest.starts_with('/'))
-            }
-            Self::Glob { matcher, file_name } => {
-                let subject = if *file_name {
-                    path.rsplit('/').next().unwrap_or(path)
-                } else {
-                    path
-                };
-                matcher.is_match(subject)
-            }
-        }
+        self.0.is_match(path)
     }
 }
 
@@ -196,21 +180,8 @@ impl FileScope {
             .into_iter()
             .map(PathPattern::parse)
             .collect::<Result<Vec<_>, _>>()?;
-        let (status, min_changes) = match &query.query {
-            octocode_contract_types::GhGetHistoryItemQuery::PullRequest {
-                status,
-                min_changes,
-                ..
-            } => (
-                status
-                    .iter()
-                    .flat_map(|status| status.iter())
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>(),
-                min_changes.map(|n| usize_of(n.get())),
-            ),
-            _ => (Vec::new(), None),
-        };
+        let status = gh_get_history_item_query::file_status(query);
+        let min_changes = gh_get_history_item_query::min_changes(query);
         if paths.is_empty() && status.is_empty() && min_changes.is_none() {
             return Ok(None);
         }

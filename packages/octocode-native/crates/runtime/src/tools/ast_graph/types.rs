@@ -1,6 +1,5 @@
+use octocode_engine::graph::FileGraphNode;
 use std::collections::{BTreeMap, BTreeSet};
-
-pub(crate) type RawFacts = octocode_engine::graph::GraphFactsDocument;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Declaration {
@@ -103,7 +102,6 @@ impl FileFacts {
             .any(|[start, end]| (*start..=*end).contains(&line))
     }
 }
-pub(crate) type Node = octocode_engine::graph::FileGraphNode;
 
 /// What a build diagnostic reports. Variants are in the order of their
 /// codes, so diagnostics sort as their stored text does.
@@ -181,7 +179,7 @@ pub(crate) enum ImportOutcome {
 pub(crate) struct BuiltGraph {
     pub root: std::path::PathBuf,
     pub facts: BTreeMap<String, FileFacts>,
-    pub nodes: BTreeMap<String, Node>,
+    pub nodes: BTreeMap<String, FileGraphNode>,
     pub files_skipped: u32,
     /// The file scan stopped at `maxFiles`.
     pub truncated: bool,

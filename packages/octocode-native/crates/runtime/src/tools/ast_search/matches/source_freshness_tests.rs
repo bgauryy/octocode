@@ -1,15 +1,26 @@
-use super::super::test_rows::run_row;
 use super::*;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::Value;
+use serde_json::json;
+
+fn run_row(row: &Value, paths: &PathPolicy, security: &crate::security::ContentSecurity) -> Value {
+    let query = serde_json::from_value(row.clone()).expect("canonical match");
+    super::super::execute_ast(
+        &query,
+        paths,
+        security,
+        &crate::execution::cancel::NeverCancel,
+        Some(1),
+    )
+    .expect("budgeted source page")
+}
 
 fn query(path: &std::path::Path, rule: bool) -> Value {
-    let mut query =
-        json!({"operation":"match", "path":path, "captureText":true, "matchPageSize":1});
+    let mut query = json!({"operation":"match","path":path,"includeCaptures":true});
     if rule {
         query["rule"] = json!({"kind":"call_expression"});
     } else {
-        query["pattern"] = json!("target($A)");
+        query["rule"] = json!({"pattern":"target($A)"});
     }
     query
 }
@@ -38,7 +49,7 @@ fn copied_match_pages_reject_same_count_source_edits() {
                     file.as_path()
                 };
                 let first = run_row(&query(scope, rule), &paths, &security);
-                let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+                let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
                 assert!(next.is_object(), "{first}");
                 let copied = run_row(&next, &paths, &security);
                 assert_eq!(copied["files"][0]["matches"][0]["value"], "target(\"v1\")");
@@ -85,7 +96,7 @@ fn same_runtime_match_memo_rejects_restored_mtime_edits() {
             if cfg!(unix) {
                 assert!(SCANS.holds(snapshot), "settled scan must exercise the memo");
             }
-            let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+            let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
             let copied = run_row(&next, &paths, &security);
             assert_eq!(copied["files"][0]["matches"][0]["value"], "target(\"v1\")");
             let modified = std::fs::metadata(&file)

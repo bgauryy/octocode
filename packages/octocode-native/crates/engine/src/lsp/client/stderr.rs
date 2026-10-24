@@ -1,7 +1,7 @@
 //! The server's stderr drain into a bounded ring of capped lines.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::ChildStderr;
 use tokio::task::JoinHandle;
@@ -14,7 +14,7 @@ const STDERR_LINE_MAX_BYTES: usize = STDERR_LINE_MAX_CHARS * 4;
 
 pub(super) fn spawn_stderr_reader(
     stderr: ChildStderr,
-    stderr_lines: Arc<StdMutex<VecDeque<String>>>,
+    stderr_lines: Arc<Mutex<VecDeque<String>>>,
 ) -> JoinHandle<()> {
     tokio::spawn(drain_stderr(stderr, stderr_lines))
 }
@@ -25,7 +25,7 @@ pub(super) fn spawn_stderr_reader(
 /// [`STDERR_LINE_MAX_BYTES`] and decoded lossily.
 pub(super) async fn drain_stderr<R: AsyncRead + Unpin>(
     stderr: R,
-    stderr_lines: Arc<StdMutex<VecDeque<String>>>,
+    stderr_lines: Arc<Mutex<VecDeque<String>>>,
 ) {
     let mut reader = BufReader::new(stderr);
     let mut line = Vec::with_capacity(256);
@@ -78,7 +78,7 @@ pub(super) async fn read_capped_line<R: AsyncBufRead + Unpin>(
     Ok((consumed, truncated))
 }
 
-pub(super) fn push_stderr_line(stderr_lines: &Arc<StdMutex<VecDeque<String>>>, line: String) {
+pub(super) fn push_stderr_line(stderr_lines: &Arc<Mutex<VecDeque<String>>>, line: String) {
     let mut lines = stderr_lines
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

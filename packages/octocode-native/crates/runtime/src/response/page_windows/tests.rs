@@ -1,31 +1,6 @@
 use super::*;
 
 #[test]
-fn a_terminal_row_uses_serialized_cost_and_keeps_the_envelope_reserve() {
-    let row = serde_json::json!({"files": [{"path": "日本語.rs", "matches": [
-        {"line": 7, "value": "quoted \"source\"\n😀"}
-    ]}]});
-    let needed = octocode_engine::json_size::utf16_units(&row).unwrap_or(0) + ROW_SKELETON_CHARS;
-    assert!(terminal_row_fits(Some(needed), &row));
-    assert!(!terminal_row_fits(Some(needed - 1), &row));
-    assert!(!terminal_row_fits(Some(0), &row));
-    assert!(!terminal_row_fits(None, &row));
-}
-
-/// Asking for optional row extras leaves the page cut unchanged, so a
-/// walk's pages and snapshots do not depend on them.
-#[test]
-fn extras_do_not_change_the_page_budget() {
-    let plain = serde_json::json!({"path": "src", "matchString": "x"});
-    let mut extras = plain.clone();
-    extras["extras"] = serde_json::json!(["hints", "details", "stats", "receipts"]);
-    assert_eq!(
-        page_budget(Some(40_000), &plain),
-        page_budget(Some(40_000), &extras)
-    );
-}
-
-#[test]
 fn a_character_budget_fills_each_page_and_never_exceeds_it() {
     let sizes = [400, 400, 400, 900, 100, 100, 5_000, 10];
     let windows = Paging::Chars(1_000).windows(&sizes);
@@ -116,7 +91,7 @@ fn windows_survive_items_larger_than_any_budget() {
         Paging::Count(1),
     ] {
         let windows = paging.windows(&sizes);
-        let covered: usize = windows.iter().map(|w| w.len()).sum();
+        let covered: usize = windows.iter().map(std::iter::ExactSizeIterator::len).sum();
         assert_eq!(covered, sizes.len(), "{paging:?}");
         assert!(windows.iter().all(|w| !w.is_empty()), "{paging:?}");
     }
@@ -169,7 +144,10 @@ fn configured_windows_reduce_hops_without_changing_explicit_counts() {
     let large = Paging::of(None, page_budget(Some(50_000), &query)).windows(&sizes);
     assert!(large.len() < small.len());
     assert_eq!(
-        large.iter().map(|window| window.len()).sum::<usize>(),
+        large
+            .iter()
+            .map(std::iter::ExactSizeIterator::len)
+            .sum::<usize>(),
         sizes.len()
     );
     for budget in [24_000, 50_000] {
@@ -181,18 +159,6 @@ fn configured_windows_reduce_hops_without_changing_explicit_counts() {
                 .all(|window| window.len() == 17)
         );
     }
-}
-
-#[test]
-fn reserve_ignores_free_text_and_cursor_fields() {
-    let first =
-        serde_json::json!({"mainGoal": "g", "reasoning": "r", "path": "src", "matchString": "x"});
-    let later = serde_json::json!({"mainGoal": "a much longer goal", "reasoning": "reworded",
-            "path": "src", "matchString": "x", "page": 7, "snapshot": "lexical-live-v2:abc",
-            "selection": "saved-order-added-after-the-first-page"});
-    assert_eq!(reserve_chars(&first, 2), reserve_chars(&later, 2));
-    let wider = serde_json::json!({"path": "src", "matchString": "a longer search"});
-    assert!(reserve_chars(&wider, 2) > reserve_chars(&first, 2));
 }
 
 /// One selection for both cuts: the page's range, the page count and the
@@ -223,7 +189,7 @@ fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
         assert_eq!(block["outOfRange"], true, "{block}");
         assert_eq!(block["hasMore"], false, "{block}");
         assert_eq!(block["totalPages"], 3, "{block}");
-        assert_eq!(block["currentPage"], 4, "{block}");
+        assert_eq!(block["page"], 4, "{block}");
     }
     for paging in [Paging::Count(2), Paging::Chars(1_000)] {
         let first = select(paging, &[], 1);
@@ -232,82 +198,5 @@ fn select_cuts_counted_and_sized_pages_with_one_past_end_rule() {
         assert!(first.facts.to_value().get("outOfRange").is_none());
         let second = select(paging, &[], 2);
         assert_eq!(second.facts.to_value()["outOfRange"], true);
-    }
-}
-
-/// Each field a continuation respells ([`RESPELLED_FIELDS`]) costs the same
-/// in any spelling: page 1 with an absolute path and page 2 with the
-/// workspace-relative one are cut from one budget, so no row falls between
-/// them. That holds past the fixed reserve ([`RESPELLED_CHARS`]) and for
-/// text the window counts in UTF-16 units.
-#[test]
-fn every_respelled_field_costs_the_same_in_any_spelling() {
-    let deep = |chars: usize| {
-        let segment = format!("/{}", "d".repeat(59));
-        let mut path = segment.repeat(chars.div_ceil(60));
-        path.truncate(chars);
-        path
-    };
-    let spellings = [
-        "/private/var/folders/nf/tf_qg9k56l97qnkcc2b_w5z40000gn/T/.tmpSS5f3Z/work/outline/src"
-            .to_owned(),
-        "outline/src".to_owned(),
-        ".".to_owned(),
-        deep(300),
-        deep(1_000),
-        deep(1_000)[1..].to_owned(),
-        "/work/日本語/パッケージ/源代码/😀/src".to_owned(),
-        "日本語/パッケージ/源代码/😀/src".repeat(12),
-    ];
-    assert!(
-        spellings
-            .iter()
-            .any(|path| path.len() > RESPELLED_CHARS * 2)
-    );
-    for field in RESPELLED_FIELDS {
-        let spelled = |path: &str| {
-            let mut query = serde_json::json!({"matchString": "x"});
-            query[field] = serde_json::json!(path);
-            query
-        };
-        let absolute = spelled(&spellings[0]);
-        let reserve = reserve_chars(&absolute, 2);
-        let budget = page_budget(Some(20_000), &absolute);
-        for path in &spellings {
-            let query = spelled(path);
-            // The reserve itself, so the `window / 2` floor of a small
-            // window cannot hide a difference.
-            assert_eq!(reserve_chars(&query, 2), reserve, "{field}: {path}");
-            assert_eq!(page_budget(Some(20_000), &query), budget, "{field}: {path}");
-            assert_eq!(
-                page_budget(Some(4_000), &query),
-                page_budget(Some(4_000), &absolute)
-            );
-        }
-        // A respelled field still has room reserved: it is copied into
-        // each continuation.
-        let without = serde_json::json!({"matchString": "x"});
-        assert!(page_budget(Some(20_000), &without) > budget, "{field}");
-    }
-}
-
-/// A walk's page budget measures only fields that select rows: every
-/// cursor, intent field and `clasifyContext` is left out, so a
-/// continuation is cut like the first page.
-#[test]
-fn every_cursor_and_intent_field_leaves_the_budget_unchanged() {
-    let first = serde_json::json!({"path": "src", "matchString": "x"});
-    for field in CURSOR_FIELDS
-        .iter()
-        .chain(&INTENT_FIELDS)
-        .chain(&["clasifyContext"])
-    {
-        let mut later = first.clone();
-        later[*field] = serde_json::json!("a-value-that-would-cost-chars-if-measured");
-        assert_eq!(
-            reserve_chars(&first, 2),
-            reserve_chars(&later, 2),
-            "{field}"
-        );
     }
 }

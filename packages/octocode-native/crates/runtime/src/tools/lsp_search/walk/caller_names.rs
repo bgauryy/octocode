@@ -9,11 +9,12 @@ use crate::tools::lsp_search::failure::LspFailure;
 use crate::tools::lsp_search::render::{decode_uri_path, uri_to_path};
 use crate::tools::lsp_search::source::SourceCache;
 use octocode_engine::lsp::client::NativeLspClient;
+use octocode_engine::lsp::symbol_kind;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
 /// LSP `SymbolKind`s of a whole file or module caller.
-const MODULE_KINDS: [u64; 2] = [1, 2];
+const MODULE_KINDS: [u64; 2] = [symbol_kind::FILE as u64, symbol_kind::MODULE as u64];
 
 /// A caller the server reports as a whole module or file (tsserver does for
 /// calls inside a top-level callback: `describe(() => …)`, `it(…)`) split
@@ -125,7 +126,7 @@ pub(super) async fn name_module_callers(
 const MAX_NARROW_SOURCE_BYTES: usize = 4 * 1024 * 1024;
 
 /// LSP `SymbolKind` of a class.
-const CLASS_KIND: u64 = 5;
+const CLASS_KIND: u64 = symbol_kind::CLASS as u64;
 
 /// Declarations of the files class callers name, per walk: each file is
 /// read once through the request's policy-checked, bounded source cache,

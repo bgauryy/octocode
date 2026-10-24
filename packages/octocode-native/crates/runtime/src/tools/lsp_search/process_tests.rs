@@ -11,7 +11,7 @@ use crate::id::ToolId;
 use crate::tools::lsp_search::lsp_search_query;
 use crate::tools::test_support::checks::{Page, Walker, assert_absent, paths_in};
 use crate::tools::test_support::{Fixture, assert_row_contract, node_available, require_node};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LspSearchQuery};
 use octocode_engine::error::ErrorKind;
 use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::lsp::pool::{LspClientPool, LspPoolOptions};
@@ -109,18 +109,15 @@ fn lists_path(row: &serde_json::Value, name: &str) -> bool {
 /// `published` without its `next.retry` lead, which reruns this same call
 /// (checked here, with the output's other leads), so a page walk must not
 /// follow it.
-fn without_rerun(
-    mut published: serde_json::Value,
-    query: &super::LspSearchQuery,
-) -> serde_json::Value {
+fn without_rerun(mut published: serde_json::Value, query: &LspSearchQuery) -> serde_json::Value {
     crate::tools::test_support::checks::assert_leads_valid(&published);
     if let Some(next) = published
         .pointer_mut("/results/0/data/next")
         .and_then(serde_json::Value::as_object_mut)
     {
         if let Some(retry) = next.remove("retry") {
-            let rerun: super::LspSearchQuery =
-                serde_json::from_value(retry["query"]["queries"][0].clone()).expect("retry query");
+            let rerun: LspSearchQuery =
+                serde_json::from_value(crate::tools::test_support::opened_input(ToolId::LspSearch, &retry["input"])["queries"][0].clone()).expect("retry query");
             assert_eq!(
                 lsp_search_query::to_row(&rerun),
                 lsp_search_query::to_row(query),

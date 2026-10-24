@@ -12,7 +12,7 @@ fn ranges_read_several_windows_in_one_row() {
     // Unordered, overlapping, and past-the-end ranges merge and clamp.
     let req = qj(
         &p,
-        serde_json::json!({"ranges": ["20-21", "2-3", "3-4", "29-40"]}),
+        serde_json::json!({"ranges":[{"startLine":20,"endLine":21}, {"startLine":2,"endLine":3}, {"startLine":3,"endLine":4}, {"startLine":29,"endLine":40}]}),
     );
     let r = fetch(&req, &paths);
     assert_eq!(r.error, None, "{r:?}");
@@ -36,21 +36,26 @@ fn ranges_read_several_windows_in_one_row() {
         r.warnings
     );
     // One range reads that span.
-    let old = qj(&p, serde_json::json!({"ranges": ["2-3"]}));
+    let old = qj(
+        &p,
+        serde_json::json!({"ranges":[{"startLine":2,"endLine":3}]}),
+    );
     assert_eq!(fetch(&old, &paths).content.as_deref(), Some("l2\nl3\n"));
     // Ranges wholly past the end are an error, not an empty success.
-    let past = qj(&p, serde_json::json!({"ranges": ["40-41"]}));
+    let past = qj(
+        &p,
+        serde_json::json!({"ranges":[{"startLine":40,"endLine":41}]}),
+    );
     assert!(fetch(&past, &paths).error.is_some());
-    // A reversed range reads the same span and says how it was read.
-    let reversed = fetch(&qj(&p, serde_json::json!({"ranges": ["3-2"]})), &paths);
-    assert_eq!(reversed.content.as_deref(), Some("l2\nl3\n"));
+    // Ordering is checked before execution, never repaired into another selection.
     assert!(
-        reversed
-            .warnings
-            .iter()
-            .any(|w| w.contains("\"3-2\" is reversed")),
-        "{:?}",
-        reversed.warnings
+        crate::contracts::validate_query(
+            "localFetch",
+            serde_json::json!({
+                "path":p,"ranges":[{"startLine":3,"endLine":2}]
+            })
+        )
+        .is_err()
     );
 }
 
@@ -64,7 +69,10 @@ fn block_reads_through_the_enclosing_declaration() {
         )
         .expect("fixture");
     let paths = Paths(t.0.clone());
-    let ranged = qj(&p, serde_json::json!({"ranges": ["8-9"], "block": true}));
+    let ranged = qj(
+        &p,
+        serde_json::json!({"ranges":[{"startLine":8,"endLine":9}], "block": true}),
+    );
     let r = fetch(&ranged, &paths);
     assert_eq!(
         r.source_line_ranges,
@@ -73,7 +81,7 @@ fn block_reads_through_the_enclosing_declaration() {
     );
     let matched = qj(
         &p,
-        serde_json::json!({"matchString": ["return a", "return 1"], "contextLines": 0, "block": true}),
+        serde_json::json!({"matchString": ["return a", "return 1"], "contextLines":{"before":0,"after":0}, "block": true}),
     );
     let r = fetch(&matched, &paths);
     assert_eq!(
@@ -87,12 +95,9 @@ fn block_reads_through_the_enclosing_declaration() {
     assert_eq!(r.matched_lines, vec![5, 10]);
 }
 
-/// A default match window that stops inside its declaration shows a short
-/// rest inline; an explicit `contextLines` is exactly that many lines (as
-/// `rg -C N`). A long rest stays unshown with no automatic reread lead:
-/// `block` or `ranges` reads it when the caller needs it.
+/// Context is exact; declaration expansion requires block:true.
 #[test]
-fn a_cut_declaration_inlines_a_short_rest_and_offers_no_reread_of_a_long_one() {
+fn match_context_is_exact_and_blocks_are_explicit() {
     let t = Fixture::new();
     let p = t.0.join("m.py");
     let small: String = (2..=10).map(|i| format!("    s{i} = {i}\n")).collect();
@@ -108,11 +113,11 @@ fn a_cut_declaration_inlines_a_short_rest_and_offers_no_reread_of_a_long_one() {
     )
     .expect("fixture");
     let paths = Paths(t.0.clone());
-    let short = qj(&p, serde_json::json!({"matchString": "needle_small"}));
+    let short = qj(&p, serde_json::json!({"matchString": ["needle_small"]}));
     let r = fetch(&short, &paths);
     assert_eq!(
         r.source_line_ranges,
-        vec![LineRange { start: 1, end: 10 }],
+        vec![LineRange { start: 3, end: 3 }],
         "{r:?}"
     );
     assert_eq!(r.matched_lines, vec![3]);
@@ -120,7 +125,7 @@ fn a_cut_declaration_inlines_a_short_rest_and_offers_no_reread_of_a_long_one() {
     // The caller's own window is kept exactly.
     let exact_two = qj(
         &p,
-        serde_json::json!({"matchString": "needle_small", "contextLines": 2}),
+        serde_json::json!({"matchString": ["needle_small"], "contextLines":{"before":2,"after":2}}),
     );
     let r = fetch(&exact_two, &paths);
     assert_eq!(
@@ -130,7 +135,7 @@ fn a_cut_declaration_inlines_a_short_rest_and_offers_no_reread_of_a_long_one() {
     );
     let long = qj(
         &p,
-        serde_json::json!({"matchString": "needle_big", "contextLines": 2}),
+        serde_json::json!({"matchString": ["needle_big"], "contextLines":{"before":2,"after":2}}),
     );
     let r = fetch(&long, &paths);
     assert_eq!(
@@ -144,14 +149,14 @@ fn a_cut_declaration_inlines_a_short_rest_and_offers_no_reread_of_a_long_one() {
     // `block` reads the declaration the window cut.
     let block = qj(
         &p,
-        serde_json::json!({"matchString": "needle_big", "contextLines": 2, "block": true}),
+        serde_json::json!({"matchString": ["needle_big"], "contextLines":{"before":2,"after":2}, "block": true}),
     );
     let r = fetch(&block, &paths);
     assert_eq!(r.source_line_ranges, vec![LineRange { start: 12, end: 52 }]);
     // Exact-line reads ask for no more.
     let exact = qj(
         &p,
-        serde_json::json!({"matchString": "needle_small", "contextLines": 0}),
+        serde_json::json!({"matchString": ["needle_small"], "contextLines":{"before":0,"after":0}}),
     );
     let r = fetch(&exact, &paths);
     assert_eq!(r.source_line_ranges, vec![LineRange { start: 3, end: 3 }]);
@@ -166,12 +171,19 @@ fn a_cut_ranges_read_offers_no_reread_lead() {
     let body: String = (2..=40).map(|i| format!("    x{i} = {i}\n")).collect();
     fs::write(&p, format!("def big():\n{body}    return 0\n")).expect("fixture");
     let paths = Paths(t.0.clone());
-    for ranges in [vec!["1-10"], vec!["10-20"], vec!["3-5", "30-33"]] {
+    for ranges in [
+        serde_json::json!([{"startLine":1,"endLine":10}]),
+        serde_json::json!([{"startLine":10,"endLine":20}]),
+        serde_json::json!([{"startLine":3,"endLine":5},{"startLine":30,"endLine":33}]),
+    ] {
         let r = fetch(&qj(&p, serde_json::json!({ "ranges": ranges })), &paths);
         assert!(r.next.is_none(), "{ranges:?}: {r:?}");
     }
     // A read that covers its declaration offers nothing more.
-    let whole = qj(&p, serde_json::json!({"ranges": ["1-41"]}));
+    let whole = qj(
+        &p,
+        serde_json::json!({"ranges":[{"startLine":1,"endLine":41}]}),
+    );
     let r = fetch(&whole, &paths);
     assert!(r.next.is_none(), "{r:?}");
 }
@@ -195,7 +207,7 @@ fn a_large_source_match_does_not_parse_to_inline_a_cut_declaration() {
     let r = fetch(
         &qj(
             &p,
-            serde_json::json!({"matchString": "needle_small", "contextLines": 2}),
+            serde_json::json!({"matchString": ["needle_small"], "contextLines":{"before":2,"after":2}}),
         ),
         &Paths(t.0.clone()),
     );
@@ -214,7 +226,10 @@ fn an_oversized_block_continues_through_the_declaration_end() {
     // def at line 1, 450 body lines (2-451), return at 452.
     fs::write(&p, format!("def big():\n{body}    return 0\n")).expect("fixture");
     let paths = Paths(t.0.clone());
-    let ranged = qj(&p, serde_json::json!({"ranges": ["10-12"], "block": true}));
+    let ranged = qj(
+        &p,
+        serde_json::json!({"ranges":[{"startLine":10,"endLine":12}], "block": true}),
+    );
     let r = fetch(&ranged, &paths);
     assert_eq!(
         r.source_line_ranges,
@@ -228,12 +243,11 @@ fn an_oversized_block_continues_through_the_declaration_end() {
         .and_then(|next| next.continue_block)
         .expect("next.continueBlock");
     assert_eq!(
-        rest.query
-            .ranges
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
-        vec!["410-452".to_owned()],
+        local_fetch_query::line_ranges(&rest.query),
+        vec![LineRange {
+            start: 410,
+            end: 452
+        }],
         "{rest:?}"
     );
     assert!(
@@ -252,7 +266,7 @@ fn an_oversized_block_continues_through_the_declaration_end() {
     // window; the declaration's unread rest is a page of this read.
     let matched = qj(
         &p,
-        serde_json::json!({"matchString": "x200 = 200", "contextLines": 1, "block": true}),
+        serde_json::json!({"matchString": ["x200 = 200"], "contextLines":{"before":1,"after":1}, "block": true}),
     );
     let r = fetch(&matched, &paths);
     assert_eq!(
@@ -266,14 +280,20 @@ fn an_oversized_block_continues_through_the_declaration_end() {
         .next
         .and_then(|next| next.continue_block)
         .expect("next.continueBlock");
-    let ranges: Vec<&str> = whole
-        .query
-        .ranges
-        .iter()
-        .map(|range| range.as_str())
-        .collect();
-    assert_eq!(ranges, ["1-200", "204-452"], "{whole:?}");
-    assert!(whole.query.match_string.is_none() && !local_fetch_query::block(&whole.query));
+    assert_eq!(
+        local_fetch_query::line_ranges(&whole.query),
+        vec![
+            LineRange { start: 1, end: 200 },
+            LineRange {
+                start: 204,
+                end: 452
+            }
+        ],
+        "{whole:?}"
+    );
+    assert!(
+        !local_fetch_query::has_matches(&whole.query) && !local_fetch_query::block(&whole.query)
+    );
 }
 
 /// With a declaration hit present, a call-site hit keeps its window
@@ -286,7 +306,7 @@ fn block_reports_widened_declarations() {
     let result = fetch(
         &qj(
             &p,
-            serde_json::json!({"matchString": "first", "block": true, "contextLines": 0}),
+            serde_json::json!({"matchString": ["first"], "block": true, "contextLines":{"before":0,"after":0}}),
         ),
         &Paths(t.0.clone()),
     );

@@ -8,8 +8,8 @@ use super::*;
 #[tokio::test]
 async fn checkouts_are_keyed_by_the_commit_the_ref_names_now() {
     let server = wiremock::MockServer::builder().start().await;
-    let bench = Bench::committing(gh_shared_support::mock_endpoint(&server));
-    let provider = gh_shared_support::one_shot_provider(&server);
+    let bench = Bench::committing(mock_endpoint(&server));
+    let provider = one_shot_provider(&server);
     let first = bench.fixture.first_commit.clone();
     answer_commit(&server, "main", ALICE, commit(&first)).await;
     answer_commit(&server, &first, ALICE, commit(&first)).await;
@@ -52,8 +52,8 @@ async fn checkouts_are_keyed_by_the_commit_the_ref_names_now() {
 async fn the_default_branch_and_canonical_name_pin_the_checkout() {
     use wiremock::matchers::{method, path};
     let server = wiremock::MockServer::builder().start().await;
-    let bench = Bench::at(gh_shared_support::mock_endpoint(&server));
-    let provider = gh_shared_support::one_shot_provider(&server);
+    let bench = Bench::at(mock_endpoint(&server));
+    let provider = one_shot_provider(&server);
     let redirect = |to: &str| {
         wiremock::ResponseTemplate::new(301).insert_header(
             "location",
@@ -107,8 +107,8 @@ async fn the_default_branch_and_canonical_name_pin_the_checkout() {
 async fn owner_and_repo_case_variants_share_one_checkout() {
     use wiremock::matchers::{method, path};
     let server = wiremock::MockServer::builder().start().await;
-    let bench = Bench::at(gh_shared_support::mock_endpoint(&server));
-    let provider = gh_shared_support::one_shot_provider(&server);
+    let bench = Bench::at(mock_endpoint(&server));
+    let provider = one_shot_provider(&server);
     let first = bench.fixture.first_commit.clone();
     answer_commit(&server, "main", ALICE, commit(&first)).await;
     wiremock::Mock::given(method("GET"))

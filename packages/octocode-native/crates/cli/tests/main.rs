@@ -7,7 +7,7 @@
 //! all tests in one parallel harness. Run one file with
 //! `cargo dev-test -- <module>::` (`.cargo/config.toml`): the `test:rust`
 //! selection, so it reuses that build instead of compiling another copy.
-#![allow(
+#![expect(
     clippy::expect_used,
     clippy::unwrap_used,
     clippy::panic,

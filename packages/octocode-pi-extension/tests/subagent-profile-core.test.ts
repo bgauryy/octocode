@@ -14,21 +14,21 @@ const allowed = (tools: string | undefined) => (tools ?? '').split(',');
 describe('core tools of a subagent profile', () => {
   it('adds sendMessage, coordinate, read and archive to an allowlist, once, and passes them as --tools', () => {
     const parsed = profile('tools: edit,bash');
-    expect(allowed(parsed.tools)).toEqual(['edit', 'bash', 'read', 'sendMessage', 'coordinate', 'archive']);
+    expect(CORE_TOOLS.length).toBeGreaterThan(0);
+    expect(allowed(parsed.tools)).toEqual(['edit', 'bash', ...CORE_TOOLS]);
     const args = parseArgs(buildAgentArgs(parsed, undefined, '/ext/index.js', tmp(), SESSION));
-    expect(args.tools).toEqual(['edit', 'bash', 'read', 'sendMessage', 'coordinate', 'archive']);
+    expect(args.tools).toEqual(['edit', 'bash', ...CORE_TOOLS]);
     // A name already listed is not repeated.
-    expect(allowed(profile('tools: read,grep').tools)).toEqual(['read', 'grep', 'sendMessage', 'coordinate', 'archive']);
-    expect(CORE_TOOLS).toEqual(['read', 'sendMessage', 'coordinate', 'archive']);
+    expect(allowed(profile('tools: read,grep').tools)).toEqual(['read', 'grep', ...CORE_TOOLS.filter((name) => name !== 'read')]);
   });
 
   it('counts a pattern that already matches a core tool, and adds the rest', () => {
     expect(profile('tools: "*"').tools).toBe('*');
-    expect(allowed(profile('tools: "send*,edit"').tools)).toEqual(['send*', 'edit', 'read', 'coordinate', 'archive']);
+    expect(allowed(profile('tools: "send*,edit"').tools)).toEqual(['send*', 'edit', ...CORE_TOOLS.filter((name) => !name.startsWith('send'))]);
   });
 
   it('gives an empty allowlist the core tools: it still reaches its parent', () => {
-    expect(allowed(profile('tools: ","').tools)).toEqual(['read', 'sendMessage', 'coordinate', 'archive']);
+    expect(allowed(profile('tools: ","').tools)).toEqual([...CORE_TOOLS]);
   });
 
   it('leaves a profile without tools alone: Pi\'s default selection already has them and --tools would replace it', () => {

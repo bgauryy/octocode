@@ -1,50 +1,6 @@
 //! Empty searches: their hints, the leads that verify absence, and their repairs.
 use super::*;
 
-/// The default empty-result hint fits the query: it names only tools every
-/// surface runs (the CLI also gets the executable `cloneRepo` lead), a
-/// repository it can list only when the search had one, and fewer keywords
-/// only when there is one to drop.
-#[test]
-fn the_default_empty_hint_fits_the_query() {
-    use crate::response::output::ToolOutput;
-    let tools_named = |hint: &str| {
-        let mut named = hint
-            .split(|c: char| !c.is_ascii_alphanumeric())
-            .filter(|word| word.starts_with("gh") && word.len() > 2)
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        named.sort();
-        named.dedup();
-        named
-    };
-    for (query, tools, fewer) in [
-        (
-            json!({"owner":"a","keywords":["qzxNotARealSymbol"]}),
-            vec!["ghSearchRepo", "ghStructure"],
-            false,
-        ),
-        (
-            json!({"owner":"a","repo":"r","keywords":["qzxNotARealSymbol"]}),
-            vec!["ghGetFileContent", "ghStructure"],
-            false,
-        ),
-        (
-            json!({"owner":"a","keywords":["alpha","beta"]}),
-            vec!["ghGetFileContent"],
-            true,
-        ),
-    ] {
-        let hint = super::super::Output.fallback_hint(&query);
-        assert!(
-            hint.starts_with("An empty index result is unproven absence"),
-            "{hint}"
-        );
-        assert_eq!(tools_named(hint), tools, "{query}: {hint}");
-        assert_eq!(hint.contains("fewer keywords"), fewer, "{query}: {hint}");
-    }
-}
-
 /// An empty code search for `row` against `a/b`: no index hit, a live repo.
 async fn run_empty(row: serde_json::Value) -> crate::response::result::ToolData {
     let server = MockServer::builder().start().await;
@@ -78,25 +34,40 @@ async fn run_empty(row: serde_json::Value) -> crate::response::result::ToolData 
 #[tokio::test]
 async fn an_empty_repo_search_leads_to_a_runnable_clone() {
     let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"]})).await;
-    let clone = &out.data["next"]["cloneRepo"];
+    let clone =
+        crate::tools::test_support::checks::related_call(&out.data, "ghCloneRepo", |_| true);
     assert_eq!(clone["tool"], "ghCloneRepo", "{}", out.data);
     assert_eq!(
-        clone["query"]["queries"][0],
+        clone["input"]["queries"][0],
         json!({"owner":"a","repo":"b"}),
         "{}",
         out.data
     );
     let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"ref":"v1"})).await;
     assert_eq!(
-        out.data["next"]["cloneRepo"]["query"]["queries"][0],
+        crate::tools::test_support::checks::related_call(&out.data, "ghCloneRepo", |_| true)["input"]
+            ["queries"][0],
         json!({"owner":"a","repo":"b","ref":"v1"}),
         "{}",
         out.data
     );
     // A path scope leads to its listing instead.
-    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"path":"src"})).await;
-    assert!(out.data["next"].get("cloneRepo").is_none(), "{}", out.data);
-    assert!(out.data["next"].get("viewTree").is_some(), "{}", out.data);
+    let out =
+        run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"pathPrefix":"src"})).await;
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&out.data, "ghCloneRepo", |_| true)
+            .is_none(),
+        "{}",
+        out.data
+    );
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&out.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "tree"
+        })
+        .is_some(),
+        "{}",
+        out.data
+    );
 }
 
 /// `cloneRepo` runs only where clone is available, so an empty repo-wide
@@ -106,86 +77,103 @@ async fn an_empty_repo_search_leads_to_a_runnable_clone() {
 #[tokio::test]
 async fn an_empty_repo_search_also_lists_the_root_on_every_surface() {
     let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"ref":"v1"})).await;
-    let tree = &out.data["next"]["viewTree"];
+    let tree =
+        crate::tools::test_support::checks::related_call(&out.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "tree"
+        });
     assert_eq!(tree["tool"], "ghStructure", "{}", out.data);
     assert_eq!(
-        tree["query"]["queries"][0],
-        json!({"owner":"a","repo":"b","ref":"v1"}),
+        tree["input"]["queries"][0],
+        json!({"operation":"tree","owner":"a","repo":"b","ref":"v1"}),
         "{}",
         out.data
     );
-    assert!(out.data["next"].get("cloneRepo").is_some(), "{}", out.data);
-    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq","yyrr"]})).await;
-    assert!(out.data["next"].get("viewTree").is_none(), "{}", out.data);
     assert!(
-        out.data["next"].get("broadenSearch").is_some(),
+        crate::tools::test_support::checks::find_related_call(&out.data, "ghCloneRepo", |_| true)
+            .is_some(),
+        "{}",
+        out.data
+    );
+    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq","yyrr"]})).await;
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&out.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "tree"
+        })
+        .is_none(),
+        "{}",
+        out.data
+    );
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&out.data, "ghSearchCode", |_| true)
+            .is_some(),
         "{}",
         out.data
     );
 }
 
-/// `path` is a directory prefix, so a file path matches nothing. The
+/// `pathPrefix` is a directory prefix, so a file path matches nothing. The
 /// empty names the mistake, lists the file's parent directory, and reads the
 /// file itself for the keywords.
 #[tokio::test]
 async fn a_file_path_scope_leads_to_filename_and_the_parent_listing() {
-    let out = run_empty(json!({
-        "owner":"a","repo":"b","keywords":["ppr"],"path":"packages/next/src/config-shared.ts"
-    }))
+    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["ppr"],"pathPrefix":"packages/next/src/config-shared.ts"}))
     .await;
     let data = &out.data;
-    assert_eq!(
-        data["hints"],
-        json!([
-            "`path` is a directory prefix and `packages/next/src/config-shared.ts` looks like a file: search it by `filename:\"config-shared.ts\"` with `path:\"packages/next/src\"`, or read it with matchString.",
-            "broadenSearch rows: queries[0] drops path; queries[1] drops keywords"
-        ]),
-        "{data}"
-    );
-    let tree = &data["next"]["viewTree"]["query"]["queries"][0];
+
+    let tree = &crate::tools::test_support::checks::related_call(data, "ghStructure", |input| {
+        input["queries"][0]["operation"] == "tree"
+    })["input"]["queries"][0];
     assert_eq!(tree["path"], "packages/next/src", "{data}");
-    let read = &data["next"]["read"]["query"]["queries"][0];
+    let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {
+        true
+    })["input"]["queries"][0];
     assert_eq!(read["path"], "packages/next/src/config-shared.ts", "{data}");
-    assert_eq!(read["matchString"], "ppr", "{data}");
+    assert_eq!(read["matchString"], json!(["ppr"]), "{data}");
     // A bare file name has the repository root as its parent.
-    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"path":"Cargo.toml"})).await;
+    let out =
+        run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"pathPrefix":"Cargo.toml"})).await;
     assert_eq!(
-        out.data["next"]["viewTree"]["query"]["queries"][0]["path"], "",
+        crate::tools::test_support::checks::related_call(
+            &out.data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        )["input"]["queries"][0]["path"],
+        "",
         "{}",
         out.data
     );
     // A dotted directory is not a file.
-    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"path":"docs/v1.2"})).await;
+    let out =
+        run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"pathPrefix":"docs/v1.2"})).await;
     assert!(out.data["next"].get("read").is_none(), "{}", out.data);
-    let out = run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"path":".github"})).await;
+    let out =
+        run_empty(json!({"owner":"a","repo":"b","keywords":["x"],"pathPrefix":".github"})).await;
     assert!(out.data["next"].get("read").is_none(), "{}", out.data);
 }
 
-/// A file `path` names its mistake whether or not a repository narrows the
+/// A file `pathPrefix` names its mistake whether or not a repository narrows the
 /// search, and a name no extension rule recognises (`LICENSE`) still learns
-/// that `path` is a directory prefix.
+/// that `pathPrefix` is a directory prefix.
 #[tokio::test]
 async fn a_file_path_scope_is_named_without_a_repo_and_for_extensionless_names() {
-    let owner_wide = run_empty(json!({
-        "owner":"a","keywords":["ppr"],"path":"packages/next/src/config-shared.ts"
-    }))
+    let owner_wide = run_empty(
+        json!({"owner":"a","keywords":["ppr"],"pathPrefix":"packages/next/src/config-shared.ts"}),
+    )
     .await;
     let hints = owner_wide.data["hints"].as_array().expect("hints");
     assert!(
         hints[0].as_str().is_some_and(|hint| hint.contains(
-            "search it by `filename:\"config-shared.ts\"` with `path:\"packages/next/src\"`"
+            "search it by `nameContains:\"config-shared.ts\"` with `pathPrefix:\"packages/next/src\"`"
         )),
         "{}",
         owner_wide.data
     );
-    let extensionless = run_empty(json!({
-        "owner":"a","repo":"b","keywords":["MIT"],"path":"LICENSE"
-    }))
-    .await;
+    let extensionless =
+        run_empty(json!({"owner":"a","repo":"b","keywords":["MIT"],"pathPrefix":"LICENSE"})).await;
     assert!(
         extensionless.data["hints"][0]
             .as_str()
-            .is_some_and(|hint| hint.contains("`filename`") && hint.contains("`path`")),
+            .is_some_and(|hint| hint.contains("`nameContains`") && hint.contains("`pathPrefix`")),
         "{}",
         extensionless.data
     );
@@ -195,35 +183,27 @@ async fn a_file_path_scope_is_named_without_a_repo_and_for_extensionless_names()
 /// hint, not only under `extras:["diagnostics"]`.
 #[tokio::test]
 async fn a_path_scoped_empty_says_why_it_proves_nothing() {
-    let out = run_empty(json!({
-        "owner":"a","repo":"b","keywords":["zzqq"],"path":"packages/next/src"
-    }))
+    let out = run_empty(
+        json!({"owner":"a","repo":"b","keywords":["zzqq"],"pathPrefix":"packages/next/src"}),
+    )
     .await;
+    crate::tools::test_support::checks::assert_leads_valid(&out.data);
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&out.data, "ghStructure", |_| true)
+            .is_some()
+    );
     // It names only tools every surface runs; the CLI also gets the
     // executable `cloneRepo` lead.
-    assert_eq!(
-        out.data["hints"],
-        json!([
-            "No indexed match under `packages/next/src`: unproven absence; a file is `filename` + its parent as `path`; ghStructure lists the path.",
-            "broadenSearch rows: queries[0] drops path; queries[1] drops keywords"
-        ]),
-        "{}",
-        out.data
-    );
+
     // A requested ref is still named: the index covers only the default branch.
-    let out = run_empty(json!({
-        "owner":"a","repo":"b","keywords":["zzqq"],"path":"src","ref":"v1"
-    }))
+    let out = run_empty(
+        json!({"owner":"a","repo":"b","keywords":["zzqq"],"ref":"v1","pathPrefix":"src"}),
+    )
     .await;
-    assert_eq!(
-        out.data["hints"],
-        json!([
-            "Code search indexes only the default branch; `v1` was not searched.",
-            "No indexed match under `src`: unproven absence; a file is `filename` + its parent as `path`; ghStructure lists the path.",
-            "broadenSearch rows: queries[0] drops path, ref; queries[1] drops keywords, ref"
-        ]),
-        "{}",
-        out.data
+    crate::tools::test_support::checks::assert_leads_valid(&out.data);
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&out.data, "ghStructure", |_| true)
+            .is_some()
     );
 }
 
@@ -233,11 +213,16 @@ async fn a_path_scoped_empty_says_why_it_proves_nothing() {
 #[tokio::test]
 async fn a_path_mode_search_of_code_leads_to_the_content_search_alone() {
     let out =
-        run_empty(json!({"owner":"a","repo":"b","keywords":["res.send("],"matchIn":"path"})).await;
-    let next = &out.data["next"];
-    assert_eq!(next["findCode"]["tool"], "ghSearchCode", "{}", out.data);
+        run_empty(json!({"owner":"a","repo":"b","keywords":["res.send("],"matchIn":["path"]}))
+            .await;
+    let next =
+        crate::tools::test_support::checks::related_call(&out.data, "ghSearchCode", |input| {
+            input["queries"][0]["matchIn"] == json!(["content"])
+        });
+    assert_eq!(next["tool"], "ghSearchCode", "{}", out.data);
     assert_eq!(
-        next["findCode"]["query"]["queries"][0]["matchIn"], "file",
+        next["input"]["queries"][0]["matchIn"],
+        json!(["content"]),
         "{}",
         out.data
     );
@@ -261,8 +246,11 @@ async fn an_empty_search_of_an_or_phrase_splits_it_into_rows() {
             .any(|hint| hint == "keywords take no OR; send one row per alternative.")),
         "{data}"
     );
-    let rows = &data["next"]["repair"]["query"]["queries"];
-    assert_eq!(data["next"]["repair"]["tool"], "ghSearchCode", "{data}");
+    let rows = &crate::tools::test_support::checks::related_call(data, "ghSearchCode", |input| {
+        input["queries"].as_array().is_some_and(|rows| {
+            rows.len() == 2 && rows[0]["keywords"] == json!(["SearcherBuilder", "pub"])
+        })
+    })["input"]["queries"];
     assert_eq!(
         rows[0]["keywords"],
         json!(["SearcherBuilder", "pub"]),

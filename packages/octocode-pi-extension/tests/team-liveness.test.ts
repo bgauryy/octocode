@@ -6,8 +6,8 @@ import { LEASE_MS } from '../src/team/roster.js';
 import { leaseAge } from '../src/team/routing.js';
 import { Team } from '../src/team/session.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
-import { agent, closeTeams, fakeClock, member, openStore, repo, teamMail, trackTeam } from './team-harness.js';
+import { repo, tmp } from './helpers.js';
+import { agent, closeTeams, fakeClock, member, openStore, teamMail, trackTeam } from './team-harness.js';
 
 afterEach(closeTeams);
 

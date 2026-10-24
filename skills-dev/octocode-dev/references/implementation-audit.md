@@ -16,13 +16,13 @@ Load when tracing a tool's inputs and data flow through the native runtime. This
 Trace one real call per variant: `$OCTO <tool> '<json>'` → `contracts/prepare.rs` → `runtime/dispatch.rs` → `tools/<tool>/` → provider/engine → `response/` → render. Record for each hop: what it adds, what it copies, what it discards.
 
 - Redundant hops: re-parsing JSON, cloning whole payloads, converting shapes twice, building data the output drops.
-- Provider/API: count requests per query (`extras:["stats","diagnostics"]` or tests; an `extras` kind may add a request, as `receipts` does on `ghGetFileContent`); flag N+1 loops, missing batching (GraphQL), refetch of data already in the response, and unbounded fan-out.
+- Provider/API: count requests per query with provider instrumentation or tests; flag N+1 loops, missing batching (GraphQL), refetch of data already in the response, and unbounded fan-out.
 - Errors: row-isolated, typed, actionable; no panic/unwrap on external input; no masking (`unwrap_or_default` on a failed fetch).
 
 ## Efficiency and algorithms
 
 - Complexity on real corpora: quadratic scans over files/matches, sort-then-filter where filter-then-sort works, repeated regex compilation, reading whole files for a window.
-- Streaming and bounds: reads, pipes, and child processes are bounded (OOM, zombie LSP servers, ReDoS via backtracking `regex:"pcre2"` patterns).
+- Streaming and bounds: reads, pipes, and child processes are bounded (OOM, zombie LSP servers, ReDoS via backtracking `regexEngine:"pcre2"` patterns).
 - Parallelism only where measured; claims need `octocode-eval-benchmark` or a release-profile timing.
 
 ## Caching

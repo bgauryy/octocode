@@ -335,13 +335,20 @@ describe('ENV_TOKEN_VARS', () => {
   });
 });
 
+/** The value at a dotted settings path. */
+function valueAt(config: unknown, path: string): unknown {
+  let node = config;
+  for (const key of path.split('.'))
+    node = typeof node === 'object' && node !== null ? Reflect.get(node, key) : undefined;
+  return node;
+}
+
 describe('DEFAULT_CONFIG', () => {
-  it('has sensible defaults', () => {
-    expect(DEFAULT_CONFIG.github.apiUrl).toBe('https://api.github.com');
-    expect(DEFAULT_CONFIG.local.enabled).toBe(true);
-    expect(DEFAULT_CONFIG.local.beta).toBe(false);
-    expect(DEFAULT_CONFIG.network.allowPrivateRegistry).toBe(false);
-    expect(DEFAULT_CONFIG.output.redactEmails).toBe(false);
+  it('holds the default each declared setting names', () => {
+    for (const field of CONFIG_FIELDS)
+      expect(valueAt(DEFAULT_CONFIG, field.path) ?? null, field.path).toEqual(
+        field.defaultValue ?? null
+      );
   });
 
   it('an optional path setting defaults to unset', () => {

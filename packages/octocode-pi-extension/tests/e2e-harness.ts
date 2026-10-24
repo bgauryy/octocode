@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createFauxCore, fauxAssistantMessage, type fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from '@earendil-works/pi-ai';
+import { createFauxCore, type fauxAssistantMessage, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from '@earendil-works/pi-ai';
 import { createAgentSession, createMcpExtension, createToolSearchExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory } from '@earendil-works/pi-coding-agent';
+import { E2E_ENTRY } from './helpers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ENTRY = path.join(HERE, '..', process.env['OCTOCODE_E2E_ENTRY'] === 'dist' ? 'dist/index.js' : 'src/index.ts');
-const octocode: ExtensionFactory = (await import(ENTRY)).default;
+const octocode: ExtensionFactory = (await import(E2E_ENTRY)).default;
 
 // Hermetic: a run from inside a Pi subagent inherits its identity and settings, which change the prompt, tools and limits.
 for (const key of ['OCTOCODE_SUBAGENT', 'OCTOCODE_BROWSER_VISIBLE', 'OCTOCODE_PARENT_ID', 'OCTOCODE_AGENT_ID', 'OCTOCODE_AGENT_GOAL', 'OCTOCODE_AGENT_COLLABORATE', 'OCTOCODE_MAX_SUBAGENTS', 'OCTOCODE_HOME', 'OCTOCODE_AGENT_DB', 'OCTOCODE_MEMORY_AUTO', 'OCTOCODE_MCP']) {
@@ -122,6 +122,3 @@ export async function startSession(mcpServers: Record<string, unknown>, options:
 
 /** An mcp.json `octocode` entry that keeps the server off (a file entry wins over Octocode's registration). */
 export const OCTOCODE_OFF = { octocode: { command: 'false', enabled: false } };
-
-export const calls = (...toolCalls: ReturnType<typeof fauxToolCall>[]) => () => fauxAssistantMessage(toolCalls, { stopReason: 'toolUse' });
-export const say = (text: string) => () => fauxAssistantMessage(text);

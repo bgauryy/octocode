@@ -5,7 +5,7 @@ use super::*;
 /// With no language server, the lexical check of a named symbol: a
 /// whole-word, case-sensitive localSearch over the workspace (else the
 /// file's directory).
-pub(super) fn attach_text_search(value: &mut Value, query: &LspSearchQuery, approximate: bool) {
+pub(super) fn attach_text_search(value: &mut Value, query: &LspSearchQuery) {
     let Some(symbol) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
     else {
         return;
@@ -24,12 +24,7 @@ pub(super) fn attach_text_search(value: &mut Value, query: &LspSearchQuery, appr
         return;
     };
     let lead = symbol_search_lead(query, symbol, &scope);
-    value["next"]["findText"] = if approximate {
-        lead.approximate()
-    } else {
-        lead
-    }
-    .build();
+    crate::response::result::attach_related(value, lead.build());
 }
 
 pub(in super::super) fn empty(
@@ -67,7 +62,7 @@ pub(in super::super) fn empty(
                 // lead, and the tip states what running it costs.
                 let rerun = includes.outside.is_empty();
                 if rerun {
-                    row["next"]["includeBuildScripts"] = build_scripts_rerun(query);
+                    crate::response::result::attach_related(&mut row, build_scripts_rerun(query));
                 }
                 tips.push(build_script_tip(rerun));
             }
@@ -92,13 +87,13 @@ pub(in super::super) const BUILD_SCRIPTS_COST: &str =
 
 /// rust-analyzer runs without build scripts by default, so in a package
 /// with one, a name the script generates (`include!(concat!(env!("OUT_DIR"),
-/// …))`) has no location until they run. With the `includeBuildScripts`
-/// rerun offered, the note names it and states its cost; without it, the
+/// …))`) has no location until they run. With an executable rerun offered,
+/// the note names its setting and cost; without it, the
 /// note names the flag.
 pub(super) fn build_script_tip(rerun_offered: bool) -> String {
     if rerun_offered {
         format!(
-            "A name a build script generates (include! of OUT_DIR) has no location until build scripts run; the includeBuildScripts rerun {BUILD_SCRIPTS_COST}."
+            "A name a build script generates (include! of OUT_DIR) has no location until build scripts run; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}."
         )
     } else {
         format!(
@@ -118,23 +113,24 @@ pub(in super::super) fn build_scripts_rerun(query: &LspSearchQuery) -> Value {
     let mut rerun = lsp_search_query::to_row(query);
     if let Some(fields) = rerun.as_object_mut() {
         fields.retain(|key, value| {
-            !value.is_null() && !crate::response::result::CURSOR_FIELDS.contains(&key.as_str())
+            !value.is_null() && !crate::contracts::state_fields(ToolId::LspSearch).contains(key)
         });
     }
-    let mut context = lsp_search_query::rust_context(query).unwrap_or_else(|| json!({}));
+    let mut context =
+        lsp_search_query::rust_context(query).map_or_else(|| json!({}), |context| json!(context));
     context["buildScripts"] = json!(true);
     rerun["rustContext"] = context;
-    crate::response::result::Continuation::new(crate::id::ToolId::LspSearch, rerun).build()
+    crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, rerun).build()
 }
 
 /// Whether the request already runs build scripts (`rustContext.buildScripts`).
 pub(in super::super) fn runs_build_scripts(query: &LspSearchQuery) -> bool {
-    lsp_search_query::rust_context(query).is_some_and(|context| context["buildScripts"] == true)
+    lsp_search_query::rust_context(query).is_some_and(|context| context.build_scripts == Some(true))
 }
 
 /// An exact, executable `lspSearch` continuation.
 pub(in super::super) fn continuation(query: Value) -> Value {
-    crate::response::result::Continuation::new(ToolId::LspSearch, query).build()
+    crate::response::result::Continuation::continued(ToolId::LspSearch, query).build()
 }
 
 /// Name the row's coverage state where the row reports coverage details
@@ -225,7 +221,12 @@ pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &V
     );
     crate::response::paging::mark_partial(row, ANCHOR_LINE_ERROR, &[warning]);
     if let Some(path) = row.get("path").and_then(Value::as_str) {
-        row["next"]["diagnostics"] = continuation(json!({"operation": "diagnostic", "path": path}));
+        let call = crate::response::result::Continuation::related(
+            ToolId::LspSearch,
+            json!({"operation": "diagnostic", "path": path}),
+        )
+        .build();
+        crate::response::result::attach_related(row, call);
     }
 }
 

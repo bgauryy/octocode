@@ -2,15 +2,19 @@
 // next step can use them without a new full snapshot.
 import { writeFileSync } from 'fs';
 import { join } from 'path';
+import type { Session } from '../cdp-connection.mjs';
+import type { RefUnit, SnapshotRef } from './dom-types.mjs';
 import {
   readTargetSnapshot,
   recordTargetSnapshot,
 } from './snapshot-resource.mjs';
 
-function targetSnapshotData(cdp) {
+function targetSnapshotData(cdp: Session): {
+  refs: Record<string, SnapshotRef>;
+} {
   const snap = readTargetSnapshot(cdp);
   const data =
-    snap?.data?.targetId === cdp.targetInfo.id
+    snap && snap.data?.targetId === cdp.targetInfo.id
       ? snap.data
       : {
           targetId: cdp.targetInfo.id,
@@ -22,13 +26,6 @@ function targetSnapshotData(cdp) {
   return data;
 }
 
-type SnapshotRef = {
-  backendDOMNodeId: number;
-  role?: string;
-  name?: string;
-  frame?: string;
-};
-
 /** Names a node by its existing ref, or adds the next free ref for it. */
 function refNamer(refs: Record<string, SnapshotRef>) {
   let next =
@@ -36,7 +33,7 @@ function refNamer(refs: Record<string, SnapshotRef>) {
   const known = new Map(
     Object.entries(refs).map(([k, v]) => [v.backendDOMNodeId, k])
   );
-  return u => {
+  return (u: RefUnit) => {
     let ref = known.get(u.backendDOMNodeId);
     if (!ref) {
       ref = `e${next++}`;
@@ -51,7 +48,7 @@ function refNamer(refs: Record<string, SnapshotRef>) {
   };
 }
 
-function newRefLine(ref, u) {
+function newRefLine(ref: string, u: RefUnit) {
   const role =
     u.role === 'heading' ? (u.level ? `h${u.level}` : 'heading') : u.role;
   return `[NEW] [${ref}] ${role}${u.name ? ` "${u.name}"` : ''}`;
@@ -61,7 +58,11 @@ function newRefLine(ref, u) {
  * Compares the useful refs before and after the steps, records the added ones in
  * page-snapshot.json, and returns { added, gone, lines }; null when nothing changed.
  */
-export function recordNewRefs(cdp, before, after) {
+export function recordNewRefs(
+  cdp: Session,
+  before: RefUnit[],
+  after: RefUnit[]
+) {
   const had = new Set(before.map(u => u.backendDOMNodeId));
   const added = after.filter(u => !had.has(u.backendDOMNodeId));
   const nowIds = new Set(after.map(u => u.backendDOMNodeId));

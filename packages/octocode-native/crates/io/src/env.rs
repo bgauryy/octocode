@@ -4,17 +4,10 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::path::PathBuf;
 
 /// Every environment entry, invalid UTF-8 replaced rather than rejected.
 pub fn vars_lossy() -> BTreeMap<String, String> {
     lossy_pairs(std::env::vars_os())
-}
-
-/// The user's home directory (`HOME`, `USERPROFILE` on Windows): the one
-/// owner of that read outside the engine's own policed lookups.
-pub fn home_dir() -> Option<PathBuf> {
-    std::env::home_dir()
 }
 
 /// The lossy conversion over any `(name, value)` source; testable without
@@ -60,14 +53,6 @@ mod tests {
             live.iter().all(|(name, _)| map.contains_key(name)),
             "every UTF-8 entry is reported"
         );
-    }
-
-    #[test]
-    fn home_dir_is_the_home_variable() {
-        let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
-            return;
-        };
-        assert_eq!(home_dir(), Some(PathBuf::from(home)));
     }
 
     #[test]

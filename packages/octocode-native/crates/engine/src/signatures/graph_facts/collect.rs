@@ -20,7 +20,7 @@ use crate::signatures::nodes::{
     call_callee, compact_identifier, declaration, declaration_extent, import_specifier,
     is_call_node, is_exported_declaration, is_import_node, last_name_leaf, node_text,
 };
-use crate::text::file_extension::{JS_TS_EXTENSIONS, extension_of};
+use crate::text::{JS_TS_EXTENSIONS, extension_of};
 
 /// Caller label of calls outside any declaration (matches the OXC lane).
 const MODULE_CALLER: &str = "module";

@@ -2,10 +2,35 @@
 // (an isolated iframe target, or a same-process frame selected by its owner element).
 import { pageOwner } from '../target-owner.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { Handler, Payload } from '../cdp-connection.mjs';
+import type {
+  DisposableScope,
+  FrameScopes,
+  FrameSelector,
+  PlanScope,
+} from './plan-types.mjs';
+
+/** The Target.TargetInfo fields the frame lookup reads. */
+type TargetRow = {
+  targetId: string;
+  type: string;
+  url: string;
+  parentId?: string;
+};
+/** What a scoped session targets: a TargetInfo, or `{ targetId: null, type: 'session' }`. */
+type ScopeTarget = { targetId: string | null; type: string };
+type FrameTree = {
+  frame: { id: string; url: string };
+  childFrames?: FrameTree[];
+};
 
 /** A connection view that routes commands and events through one flattened session. */
-export function scopedSession(cdp, target, sessionId) {
-  const listeners = new Map();
+export function scopedSession(
+  cdp: PlanScope,
+  target: ScopeTarget,
+  sessionId: string
+): DisposableScope {
+  const listeners = new Map<Handler, { event: string; wrapped: Handler }>();
   return {
     ...cdp,
     targetInfo: { ...target, id: target.targetId, sessionId },
@@ -30,17 +55,17 @@ export function scopedSession(cdp, target, sessionId) {
         ? cdp.send('Page.bringToFront', {}, sessionId)
         : cdp.foreground();
     },
-    send(method, params = {}, childSession) {
+    send(method: string, params: Payload = {}, childSession?: string) {
       return cdp.send(method, params, childSession ?? sessionId);
     },
-    on(event, fn) {
+    on(event: string, fn: Handler) {
       // The handler's result is kept: the connection reports rejected async handlers.
-      const wrapped = (params, meta: { sessionId?: string } = {}) =>
+      const wrapped = (params: unknown, meta: { sessionId?: string } = {}) =>
         meta.sessionId === sessionId ? fn(params, meta) : undefined;
       listeners.set(fn, { event, wrapped });
       cdp.on(event, wrapped);
     },
-    off(event, fn) {
+    off(event: string, fn: Handler) {
       const entry = listeners.get(fn);
       if (entry) {
         cdp.off(event, entry.wrapped);
@@ -55,7 +80,11 @@ export function scopedSession(cdp, target, sessionId) {
   };
 }
 
-function inlineScope(cdp, frameTree, executionContextId) {
+function inlineScope(
+  cdp: PlanScope,
+  frameTree: FrameTree,
+  executionContextId: number
+): DisposableScope {
   return {
     ...cdp,
     targetInfo: {
@@ -63,7 +92,7 @@ function inlineScope(cdp, frameTree, executionContextId) {
       frameId: frameTree.frame.id,
       url: frameTree.frame.url,
     },
-    send(method, params = {}, sessionId) {
+    send(method: string, params: Payload = {}, sessionId?: string) {
       if (sessionId) return cdp.send(method, params, sessionId);
       if (method === 'Runtime.evaluate')
         params = { ...params, contextId: executionContextId };
@@ -76,7 +105,7 @@ function inlineScope(cdp, frameTree, executionContextId) {
   };
 }
 
-const findFrame = (tree, frameId) =>
+const findFrame = (tree: FrameTree, frameId: string): FrameTree | undefined =>
   tree.frame.id === frameId
     ? tree
     : (tree.childFrames || [])
@@ -84,7 +113,7 @@ const findFrame = (tree, frameId) =>
         .find(Boolean);
 
 // A same-process frame, evaluated in an isolated world of the main connection.
-async function selectorFrameScope(cdp, selector) {
+async function selectorFrameScope(cdp: PlanScope, selector: string) {
   await cdp.send('DOM.enable');
   await cdp.send('Page.enable');
   const { root } = await cdp.send('DOM.getDocument');
@@ -99,7 +128,7 @@ async function selectorFrameScope(cdp, selector) {
   const { node } = await cdp.send('DOM.describeNode', { nodeId: nodeIds[0] });
   if (!node.frameId)
     throw new Error('Frame selector did not match a frame owner');
-  const { frameTree } = await cdp.send('Page.getFrameTree');
+  const frameTree: FrameTree = (await cdp.send('Page.getFrameTree')).frameTree;
   const selected = findFrame(frameTree, node.frameId);
   if (!selected)
     throw new Error(
@@ -113,8 +142,8 @@ async function selectorFrameScope(cdp, selector) {
 }
 
 /** The attached target and every target nested below it. */
-function relatedTargets(targetInfos, rootId) {
-  const related = new Set([rootId]);
+function relatedTargets(targetInfos: TargetRow[], rootId: string) {
+  const related = new Set<string | undefined>([rootId]);
   for (let changed = true; changed;) {
     changed = false;
     for (const target of targetInfos)
@@ -126,8 +155,9 @@ function relatedTargets(targetInfos, rootId) {
   return related;
 }
 
-async function matchingFrames(cdp, frame) {
-  const { targetInfos } = await cdp.send('Target.getTargets');
+async function matchingFrames(cdp: PlanScope, frame: FrameSelector) {
+  const targetInfos: TargetRow[] = (await cdp.send('Target.getTargets'))
+    .targetInfos;
   const related = relatedTargets(targetInfos, cdp.targetInfo.id);
   const matches = targetInfos.filter(
     t =>
@@ -143,8 +173,13 @@ async function matchingFrames(cdp, frame) {
   return matches;
 }
 
-async function attachFrame(cdp, target, scopes) {
-  if (scopes.has(target.targetId)) return scopes.get(target.targetId).scope;
+async function attachFrame(
+  cdp: PlanScope,
+  target: TargetRow,
+  scopes: FrameScopes
+) {
+  const attached = scopes.get(target.targetId);
+  if (attached) return attached.scope;
   const { sessionId } = await cdp.send('Target.attachToTarget', {
     targetId: target.targetId,
     flatten: true,
@@ -155,7 +190,15 @@ async function attachFrame(cdp, target, scopes) {
 }
 
 /** The scope for a step's frame; isolated iframe targets are polled until timeoutMs and attached once. */
-export async function frameScope(cdp, frame, { timeoutMs, scopes, log }) {
+export async function frameScope(
+  cdp: PlanScope,
+  frame: FrameSelector,
+  {
+    timeoutMs,
+    scopes,
+    log,
+  }: { timeoutMs: number; scopes: FrameScopes; log: (line: string) => void }
+): Promise<DisposableScope> {
   if (frame.selector) return selectorFrameScope(cdp, frame.selector);
   const started = Date.now();
   let nextProgress = 0;

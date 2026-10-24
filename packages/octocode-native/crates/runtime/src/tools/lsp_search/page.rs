@@ -50,7 +50,6 @@ pub(super) async fn execute_page(
     if unpinned_later_page(&query) {
         return Ok(unpinned_page_row(&query));
     }
-    let original_root = lsp_search_query::workspace_root(&query).map(str::to_owned);
     let path = match resolve_paths(&mut query, paths) {
         Ok(path) => path,
         Err(failure) => return failure::path_failure(&query, paths, failure),
@@ -67,11 +66,6 @@ pub(super) async fn execute_page(
     .await
     {
         Ok(mut row) | Err(Exit::Row(mut row)) => {
-            restore_root_spelling(
-                &mut row,
-                lsp_search_query::workspace_root(&query),
-                original_root.as_deref(),
-            );
             failure::stamp_coverage(&mut row);
             Ok(row)
         }
@@ -84,30 +78,22 @@ pub(super) async fn execute_page(
     }
 }
 
-/// A later page that names neither the snapshot of the page before it nor
-/// a `pageSize`: its boundaries would follow the response window shared by
-/// the batch, so the same `page` could address different rows.
-/// The refusal of a later page with no snapshot and no `pageSize`, led
-/// back to the walk's first page (`next.restart`), whose `next.nextPage`
-/// carries the snapshot.
+/// A saved page requires its source snapshot. Reacquisition is explicit related work.
 pub(super) fn unpinned_page_row(query: &LspSearchQuery) -> Value {
     json!({
         "status": "error",
         "errorCode": ErrorCode::InvalidInput,
-        "error": "page > 1 needs the snapshot its next page carries, or an explicit pageSize: without either, pages are cut from this call's response window, which depends on the other rows of the batch.",
-        "next": {
-            "restart": crate::response::result::restart_query(
+        "error": "A saved LSP page requires its snapshot; restart the request to acquire a new answer.",
+        "related": [crate::response::result::restart_query(
                 crate::id::ToolId::LspSearch,
                 &lsp_search_query::to_row(query),
-            )
-        }
+            )]
     })
 }
 
 pub(super) fn unpinned_later_page(query: &LspSearchQuery) -> bool {
     lsp_search_query::page(query).is_some_and(|page| page > 1)
         && lsp_search_query::snapshot(query).is_none()
-        && lsp_search_query::page_size(query).is_none()
 }
 
 pub(super) async fn run_page(
@@ -153,6 +139,11 @@ pub(super) async fn run_target(
         paths,
         language_id,
     );
+    // Importer recovery reads the scope's ignored-file index after the
+    // server answers: its walk starts now, alongside the server's work.
+    if importers::applies(language_id, lsp_search_query::operation(query)) && !target.root_only {
+        scope.warm_ignored_index(paths);
+    }
     // Read the anchor document once (bounded, regular files only). The same
     // text is sent in didOpen, resolves the anchor, and serves same-file
     // context windows; a bad document or anchor costs no server start.
@@ -220,7 +211,6 @@ pub(super) async fn run_target(
         &scope,
         anchor.resolved_symbol,
     );
-    receipt::relative_server_roots(&mut result, paths);
     if matches!(lsp_search_query::op(query), Op::References | Op::Callers) {
         locations::attach_read_lead(&mut result);
     }

@@ -47,7 +47,7 @@ struct Resource {
 #[derive(Clone, Serialize, Deserialize)]
 struct Session {
     id: String,
-    query_id: String,
+    context: Option<String>,
     questions: Value,
     keys: Vec<String>,
     model: Option<String>,
@@ -97,17 +97,13 @@ fn decode(value: &str) -> Option<(&str, usize)> {
 /// read's own leads by name, as the hint lines a failed row publishes.
 fn error_value(error: &ClassificationError) -> Value {
     let mut value = json!({"errorCode": error.code, "error": error.message});
-    let hints: Vec<String> = error
-        .hints
-        .iter()
-        .cloned()
-        .chain(error.leads.iter().filter_map(|(name, lead)| {
-            crate::response::result::call_line(lead).map(|line| format!("{name}: {line}"))
-        }))
-        .collect();
-    if !hints.is_empty() {
-        value["hints"] = json!(hints);
+    if !error.hints.is_empty() {
+        value["hints"] = json!(error.hints);
     }
+    crate::response::result::attach_calls(
+        &mut value,
+        Value::Object(error.leads.iter().cloned().collect()),
+    );
     value
 }
 
@@ -133,12 +129,10 @@ pub(super) fn run(
             .map_err(|_| unavailable("The call stopped while waiting for the assessment transaction; nothing was judged."))?;
         let _process_lock = runtime.sessions.transaction_lock(&key, context)?;
         let mut session = runtime.sessions.current(&key, context)?.ok_or_else(|| unavailable("The frozen assessment plan is missing, expired, or belongs to another access context; no source or provider was called."))?;
-        session.query_id.clone_from(&row.id);
         dispatcher
             .validate_retained_github_identity(session.github_identity.as_deref(), context)?;
         if let Some(saved) = session.batches.get(ordinal) {
             let mut output = saved.clone();
-            output["id"] = json!(row.id);
             output["usage"] = serde_json::to_value(ClassificationUsage::default().output())
                 .unwrap_or(Value::Null);
             output["replayed"] = json!(true);
@@ -203,7 +197,10 @@ pub(super) fn run(
     {
         let reason = "The complete plan requires more than one bounded assessment batch. No inference ran because this runtime ends after the call. Use persistent storage or a long-lived MCP runtime.";
         let mut outcome = terminal(&mut session, reason, ClassificationUsage::default());
-        outcome.output["error"] = error_value(&unavailable(reason));
+        let error = unavailable(reason);
+        outcome.output["errorCode"] = json!(error.code);
+        outcome.output["error"] = json!(error.message);
+        outcome.output["hints"] = json!(error.hints);
         return Ok(outcome);
     }
     // The batch saves the whole frozen plan before any provider request

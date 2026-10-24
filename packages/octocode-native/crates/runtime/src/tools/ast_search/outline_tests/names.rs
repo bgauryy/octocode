@@ -19,13 +19,13 @@ fn symbols_name_list_returns_the_union_and_a_string_is_one_entry() {
     };
     let list = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"symbolName":["complete","try_read_output"]}),
+        json!({"operation":"symbols","path":source,"symbolFilter":{"terms":["complete","try_read_output"]}}),
     )
     .expect("list");
     assert_eq!(names(&list), ["complete", "try_read_output"], "{list}");
     let single = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"symbolName":"complete"}),
+        json!({"operation":"symbols","path":source,"symbolFilter":{"terms":["complete"]}}),
     )
     .expect("single");
     assert_eq!(names(&single), ["complete"], "{single}");
@@ -41,9 +41,8 @@ fn symbols_list_entries_prefer_exact_names_and_lowercase_ignores_case() {
     )
     .expect("source");
     let names = |query: serde_json::Value| {
-        let mut row =
-            json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source});
-        row["symbolName"] = query;
+        let mut row = json!({"operation":"symbols","path":source});
+        row["symbolFilter"] = json!({"terms":query});
         let out = run(&root.0, row).expect("symbols");
         outline_names(&out["symbols"])
             .into_iter()
@@ -54,11 +53,11 @@ fn symbols_list_entries_prefer_exact_names_and_lowercase_ignores_case() {
     // only it; an entry without one still matches as a substring.
     assert_eq!(names(json!(["get", "parse"])), ["get", "parse_x"]);
     // One string is a one-entry list: exact first, else a substring family.
-    assert_eq!(names(json!("get")), ["get"]);
-    assert_eq!(names(json!("ge")), ["get", "aget", "get_or_create"]);
+    assert_eq!(names(json!(["get"])), ["get"]);
+    assert_eq!(names(json!(["ge"])), ["get", "aget", "get_or_create"]);
     // All-lowercase text ignores case; any capital makes it exact-case.
-    assert_eq!(names(json!("native")), ["Native"]);
-    assert!(names(json!("NATIVE")).is_empty());
+    assert_eq!(names(json!(["native"])), ["Native"]);
+    assert!(names(json!(["NATIVE"])).is_empty());
 }
 
 /// An exact `symbolName` match says what it left out: the declarations that
@@ -78,9 +77,9 @@ fn get_or_create() {}
     )
     .expect("source");
     let run_row = |row: serde_json::Value| run(&root.0, row).expect("symbols");
-    let base = json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source});
+    let base = json!({"operation":"symbols","path":source});
     let mut exact_row = base.clone();
-    exact_row["symbolName"] = json!("get");
+    exact_row["symbolFilter"] = json!({"terms":["get"]});
     let exact = run_row(exact_row.clone());
     let warning = exact["warnings"][0].as_str().unwrap_or_default();
     assert!(
@@ -89,12 +88,9 @@ fn get_or_create() {}
         ),
         "{exact}"
     );
-    let broaden = &exact["next"]["broadenSearch"]["query"]["queries"][0];
-    assert_eq!(
-        broaden["symbolName"],
-        json!(["get", "aget", "get_or_create"]),
-        "{exact}"
-    );
+    let broaden = &crate::tools::test_support::checks::related_call(&exact, "astSearch", |_| true)
+        ["input"]["queries"][0];
+    assert_eq!(broaden["symbolFilter"]["terms"], json!(["get"]), "{exact}");
     let broadened = run_row(broaden.clone());
     assert_eq!(
         outline_names(&broadened["symbols"]),
@@ -102,20 +98,9 @@ fn get_or_create() {}
         "{broadened}"
     );
     assert!(broadened.get("warnings").is_none(), "{broadened}");
-    // A later page of the exact result neither repeats the notice nor the
-    // lead.
-    exact_row["pageSize"] = json!(1);
-    exact_row["page"] = json!(1);
-    std::fs::write(&source, "fn get() {}\nfn get() {}\nfn aget() {}\n").expect("source");
-    let first = run_row(exact_row.clone());
-    assert!(first["warnings"][0].as_str().is_some(), "{first}");
-    let second = run_row(first["next"]["nextPage"]["query"]["queries"][0].clone());
-    assert_eq!(second["pagination"]["currentPage"], 2, "{second}");
-    assert!(second.get("warnings").is_none(), "{second}");
-    assert!(second["next"].get("broadenSearch").is_none(), "{second}");
     // A substring search hides nothing, so it says nothing.
     let mut substring = base;
-    substring["symbolName"] = json!("ge");
+    substring["symbolFilter"] = json!({"terms":["ge"],"mode":"substring"});
     assert!(run_row(substring).get("warnings").is_none());
 }
 
@@ -133,7 +118,7 @@ fn kinds_that_leave_out_an_exact_name_say_so_instead_of_matching_substrings() {
         "struct Engine;\nimpl Engine {\n    fn decide(&self) {}\n}\nstruct Other;\nimpl Other {\n    fn decide(&self) {}\n}\nfn matcher_options_decide_the_match_count() {}\n",
     )
     .expect("source");
-    let row = |path: &std::path::Path, kinds: serde_json::Value| json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":path,"symbolName":"decide","kinds":kinds});
+    let row = |path: &std::path::Path, kinds: serde_json::Value| json!({"operation":"symbols","path":path,"symbolFilter":{"terms":["decide"]},"symbolKinds":kinds});
     for path in [source.as_path(), root.0.as_path()] {
         let out = run(&root.0, row(path, json!(["function"]))).expect("symbols");
         // A file outline lists `symbols`; a directory groups them in `files`.
@@ -159,9 +144,15 @@ fn kinds_that_leave_out_an_exact_name_say_so_instead_of_matching_substrings() {
             warnings.contains("matcher_options_decide_the_match_count"),
             "{out}"
         );
-        let broaden = &out["next"]["broadenSearch"]["query"]["queries"][0];
-        assert_eq!(broaden["kinds"], json!(["function", "method"]), "{out}");
-        assert_eq!(broaden["symbolName"], json!("decide"), "{out}");
+        let broaden =
+            &crate::tools::test_support::checks::related_call(&out, "astSearch", |_| true)["input"]
+                ["queries"][0];
+        assert_eq!(
+            broaden["symbolKinds"],
+            json!(["function", "method"]),
+            "{out}"
+        );
+        assert_eq!(broaden["symbolFilter"]["terms"], json!(["decide"]), "{out}");
         let broadened = run(&root.0, broaden.clone()).expect("broadened");
         assert_eq!(listed(&broadened), ["decide", "decide"], "{broadened}");
         assert!(
@@ -172,8 +163,12 @@ fn kinds_that_leave_out_an_exact_name_say_so_instead_of_matching_substrings() {
         );
         // The second suppressed-name lead follows the kinds lead.
         assert_eq!(
-            out["next"]["broadenSearch2"]["query"]["queries"][0]["symbolName"],
-            json!(["decide", "matcher_options_decide_the_match_count"]),
+            crate::tools::test_support::checks::related_call(
+                &out,
+                "astSearch",
+                |input| input["queries"][0]["symbolFilter"]["mode"] == "substring"
+            )["input"]["queries"][0]["symbolFilter"]["terms"],
+            json!(["decide"]),
             "{out}"
         );
     }
@@ -190,15 +185,13 @@ fn a_single_named_declaration_leads_to_its_callers() {
     let root = Fixture::new();
     let source = root.0.join("lead.rs");
     std::fs::write(&source, "struct S;\n\nfn helper() {}\nfn helper_two() {}\n").expect("source");
-    let symbols = |name: serde_json::Value| {
+    let symbols = |terms: serde_json::Value| {
         run(
             &root.0,
-            json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"symbolName":name}),
+            json!({"operation":"symbols","path":source,"symbolFilter":{"terms":terms}}),
         )
         .expect("symbols")
     };
-    // A string names an identifier exactly like a one-entry list.
-    assert_eq!(symbols(json!("helper")), symbols(json!(["helper"])));
     let one = symbols(json!(["helper"]));
     // Offered only where a language server runs for the file.
     if crate::tools::leads::lsp::verify_query(
@@ -212,28 +205,35 @@ fn a_single_named_declaration_leads_to_its_callers() {
         assert!(one["next"].get("findCallers").is_none(), "{one}");
         return;
     }
-    let lead = &one["next"]["findCallers"];
+    let lead = crate::tools::test_support::checks::related_call(&one, "lspSearch", |input| {
+        input["queries"][0]["operation"] == "callers"
+    });
     assert_eq!(lead["tool"], "lspSearch", "{one}");
     // A function's usual next question is its call sites.
-    assert_eq!(lead["query"]["queries"][0]["operation"], "callers", "{one}");
-    assert_eq!(lead["query"]["queries"][0]["symbolName"], "helper", "{one}");
-    assert_eq!(lead["query"]["queries"][0]["line"], 3, "{one}");
-    let uri = lead["query"]["queries"][0]["path"].as_str().expect("uri");
+    assert_eq!(lead["input"]["queries"][0]["operation"], "callers", "{one}");
+    assert_eq!(lead["input"]["queries"][0]["symbolName"], "helper", "{one}");
+    assert_eq!(lead["input"]["queries"][0]["line"], 3, "{one}");
+    let uri = lead["input"]["queries"][0]["path"].as_str().expect("uri");
     assert!(
         std::path::Path::new(uri).is_absolute() && uri.ends_with("lead.rs"),
         "{uri}"
     );
     // Several declarations, or no name filter, name no single symbol.
-    for many in [symbols(json!("help")), symbols(json!(null))] {
+    for many in [
+        symbols(json!(["help"])),
+        run(&root.0, json!({"operation":"symbols","path":source})).expect("unfiltered"),
+    ] {
         assert!(many["next"].get("callers").is_none(), "{many}");
     }
     // A directory scope resolves the row's file for the lead.
     let dir = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"symbolName":["helper"]}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["helper"]}}),
     )
     .expect("directory symbols");
-    let uri = dir["next"]["findCallers"]["query"]["queries"][0]["path"]
+    let uri = crate::tools::test_support::checks::related_call(&dir, "lspSearch", |input| {
+        input["queries"][0]["operation"] == "callers"
+    })["input"]["queries"][0]["path"]
         .as_str()
         .expect("directory path");
     assert_eq!(
@@ -253,7 +253,7 @@ fn directory_symbols_by_name_parse_only_files_that_spell_the_name() {
     root.write("c.rs", "fn Helper_case() {}\n");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"symbolName":"helper"}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["helper"]}}),
     )
     .expect("symbols");
     assert_eq!(out["isPartial"], false, "{out}");
@@ -269,7 +269,7 @@ fn directory_symbols_by_name_parse_only_files_that_spell_the_name() {
     // All-lowercase text ignores case in the byte prefilter too.
     let folded = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"symbolName":"helper_case"}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["helper_case"]}}),
     )
     .expect("folded");
     assert_eq!(
@@ -298,11 +298,11 @@ fn a_single_file_outline_leads_to_its_top_declaration() {
         &NeverCancel,
     )
     .expect("symbols");
-    let read = &outline["next"]["read"];
+    let read = crate::tools::test_support::checks::related_call(&outline, "localFetch", |_| true);
     assert_eq!(read["tool"], "localFetch", "{outline}");
     assert_eq!(
-        read["query"]["queries"][0]["ranges"],
-        json!(["1-3"]),
+        read["input"]["queries"][0]["ranges"],
+        json!([{"startLine":1,"endLine":3}]),
         "{outline}"
     );
     let listing = execute_row(

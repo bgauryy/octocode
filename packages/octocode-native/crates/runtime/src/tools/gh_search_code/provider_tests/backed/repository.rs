@@ -1,5 +1,10 @@
 //! The searched repository: renamed ones followed, an inaccessible one stated.
 use super::*;
+use octocode_github::ProviderErrorKind;
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::matchers::{method, path, query_param_contains};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// A renamed repository is followed, as ghSearchHistory does: the same
 /// search (every filter) runs against the canonical name and says so,
@@ -21,12 +26,11 @@ async fn renamed_repository_is_followed_with_every_filter() {
     empty_code_search(&server, true).await;
     renamed_to_c_d(&server).await;
     let out = run(
-            &server,
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],
-                   "extensions":["rs"],"path":"src","pageSize":10}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["needle"],"extensions":["rs"],"pathPrefix":"src"}),
+    )
+    .await
+    .expect("search");
     let data = &out.data;
     assert_ne!(out.status, Some("empty"), "{data}");
     assert_eq!(data["files"][0]["path"], "src/lib.rs", "{data}");
@@ -86,8 +90,8 @@ async fn an_unsearchable_renamed_repository_is_followed() {
     renamed_to_c_d(&server).await;
     let out = run(
         &server,
-        json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
-               "keywords":["needle"],"matchIn":"path"}),
+        json!({"owner":"a","repo":"b",
+               "keywords":["needle"],"matchIn":["path"]}),
     )
     .await
     .expect("search");
@@ -116,11 +120,11 @@ async fn inaccessible_repository_drops_the_incomplete_retry() {
     // A missing repository is a not-found failure (never an empty,
     // partial search a retry could fix) that names repository access.
     let error = run(
-            &server,
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
-        )
-        .await
-        .expect_err("missing repository");
+        &server,
+        json!({ "owner":"a","repo":"b","keywords":["needle"]}),
+    )
+    .await
+    .expect_err("missing repository");
     assert_eq!(error.kind, ProviderErrorKind::NotFound);
     assert_eq!(
         error.reason,

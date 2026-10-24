@@ -10,7 +10,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// A comparison's patch window past the first carries files only: the
 /// commit list rode the first window with its own page cursor.
 #[tokio::test]
-async fn compare_patch_windows_do_not_resend_the_commit_list() {
+async fn patch_selection_does_not_include_unrequested_commits() {
     let server = MockServer::builder().start().await;
     mount_capped_compare(&server).await;
     let workspace = Workspace::new();
@@ -18,8 +18,8 @@ async fn compare_patch_windows_do_not_resend_the_commit_list() {
     let hop = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2",
-               "pageSize":100,"sections":["patches"],"offset":5,"extras":[]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2",
+               "sections":["patches"]}),
     )
     .await
     .expect("compare hop");
@@ -53,8 +53,8 @@ async fn compare_patch_view_reads_head_and_merge_base() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":BASE_SHA,"head":HEAD_SHA,
-               "sections":["patches"],"extras":["hints"]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":BASE_SHA,"headRef":HEAD_SHA,
+               "sections":["patches"]}),
     )
     .await
     .expect("compare patches");
@@ -63,17 +63,32 @@ async fn compare_patch_view_reads_head_and_merge_base() {
         data["files"][0]["patch"], "@@ -5,1 +7,1 @@\n5\t-x\n7\t+y",
         "{data}"
     );
-    assert_eq!(
-        crate::support::checks::hint(data, "readAtCommit")["query"]["queries"][0]["ref"],
-        HEAD_SHA,
-        "{data}"
-    );
-    let parent = &crate::support::checks::hint(data, "readParent")["query"]["queries"][0];
-    assert_eq!(
-        parent["ref"], "3333333ccccccccccccccccccccccccccccccccc",
-        "{data}"
-    );
-    assert_eq!(parent["ranges"], json!(["1-15"]), "{data}");
+    use base64::Engine as _;
+    for (pinned, marker) in [
+        (HEAD_SHA, "new"),
+        ("3333333ccccccccccccccccccccccccccccccccc", "old"),
+    ] {
+        let content = (1..=20)
+            .map(|line| format!("{marker} line {line}\n"))
+            .collect::<String>();
+        Mock::given(method("GET")).and(wiremock::matchers::path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
+            .and(wiremock::matchers::query_param("ref",pinned))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":"src/a.rs","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(content)})))
+            .expect(1).mount(&server).await;
+        let lead = support::checks::related_call(data, "ghGetFileContent", |input| {
+            input["queries"][0]["ref"] == pinned
+        });
+        let read = call(&runtime, "ghGetFileContent", lead["input"].clone())
+            .await
+            .expect("pinned side read");
+        assert!(
+            row_data(&read)
+                .to_string()
+                .contains(&format!("{marker} line 7")),
+            "{}",
+            read.structured_content
+        );
+    }
     runtime.close().await;
 }
 
@@ -103,8 +118,8 @@ async fn compare_match_string_keeps_only_hit_files() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":BASE_SHA,"head":HEAD_SHA,
-               "sections":["patches"],"matchString":"needle","contextLines":0,"extras":[]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":BASE_SHA,"headRef":HEAD_SHA,
+               "sections":["patches"],"matchString": ["needle"],"contextLines": {"before":0,"after":0}}),
     )
     .await
     .expect("compare grep");
@@ -112,7 +127,7 @@ async fn compare_match_string_keeps_only_hit_files() {
     let files = data["files"].as_array().expect("files");
     assert_eq!(files.len(), 1, "{data}");
     assert_eq!(files[0]["path"], "src/a.rs", "{data}");
-    assert!(files[0].get("fullPatchChars").is_none(), "{data}");
+
     let patch = files[0]["patch"].as_str().expect("patch");
     assert!(
         patch.contains("needle") && !patch.contains("\n a\n"),

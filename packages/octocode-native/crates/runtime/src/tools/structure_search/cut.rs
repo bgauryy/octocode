@@ -14,25 +14,13 @@ pub(super) struct RowCost {
     pub(super) continues: bool,
 }
 
-/// Row ranges of each page: `page_size` rows each when the caller sets it,
-/// else as many rows as fit `budget` serialized chars (at least one per
+/// Row ranges of each page: as many rows as fit `budget` serialized chars (at least one per
 /// page). Costs come from snapshot-bound data, so every page of one snapshot
 /// cuts at the same rows. An empty listing has no pages.
-pub(super) fn page_ranges(
-    costs: &[RowCost],
-    page_size: Option<usize>,
-    budget: usize,
-) -> Vec<std::ops::Range<usize>> {
+pub(super) fn page_ranges(costs: &[RowCost], budget: usize) -> Vec<std::ops::Range<usize>> {
     let total = costs.len();
     if total == 0 {
         return Vec::new();
-    }
-    if let Some(size) = page_size {
-        let size = size.max(1);
-        return (0..total)
-            .step_by(size)
-            .map(|start| start..start.saturating_add(size).min(total))
-            .collect();
     }
     let mut pages = Vec::new();
     let mut start = 0;
@@ -167,8 +155,11 @@ impl Cut {
         if self.has_more()
             && let Some(next_page) = self.next_page()
         {
-            out["next"]["nextPage"] =
-                continuation(query, json!({"page": next_page, "snapshot": self.snapshot}));
+            out["calls"]["nextPage"] = continuation(
+                query,
+                json!({"page": next_page, "snapshot": self.snapshot}),
+                true,
+            );
         }
         if self.terminal() {
             let past = if self.page_ceiling() {
@@ -214,10 +205,10 @@ impl Cut {
                 )
             };
             warnings.push(format!("terminalLimit: {past} are on no page."));
-            out["next"]["narrowScope"] = narrow_scope(query);
+            out["calls"]["narrowScope"] = narrow_scope(query);
         }
         if let Some((name, changes)) = self.walk_lead() {
-            out["next"][name] = continuation(query, changes);
+            out["calls"][name] = continuation(query, changes, true);
         }
         // A time cut something continues is no terminal limit: the page
         // names the entry and the continuation that reaches the rest.

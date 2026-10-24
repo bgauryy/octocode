@@ -4,11 +4,11 @@ import {parseArgs} from 'node:util';
 import {fileURLToPath} from 'node:url';
 
 import {checkHostWrite} from './lease-check.js';
+import {isObject} from '../runtime/validation.js';
 // Structured edit tools and the input field naming the file each one writes.
 const EDIT_TOOLS: Record<string, string> = {Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path'};
 const deny = (reason: string) => ({hookSpecificOutput: {hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason}});
 const options = Object.fromEntries(['binary', 'workspace', 'database', 'session', 'host-session'].map(name => [name, {type: 'string'}]));
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 async function input(): Promise<unknown> {
   const chunks: Buffer[] = []; let bytes = 0;
   const timer = setTimeout(() => process.stdin.destroy(Error('Hook input timed out')), 1500);
@@ -41,12 +41,12 @@ function configuration(values: Values) {
 async function guard(values: Values) {
   const event = await input();
   // A broad host matcher must not unexpectedly gate read, shell, or custom tools.
-  if (!isRecord(event) || event.hook_event_name !== 'PreToolUse' || typeof event.tool_name !== 'string' || !Object.hasOwn(EDIT_TOOLS, event.tool_name)) return {};
+  if (!isObject(event) || event.hook_event_name !== 'PreToolUse' || typeof event.tool_name !== 'string' || !Object.hasOwn(EDIT_TOOLS, event.tool_name)) return {};
   validate(values);
   if (event.session_id !== values['host-session']) throw Error('Wrong native session');
   if (typeof event.cwd !== 'string') throw Error('Missing hook working directory');
   const pathField = EDIT_TOOLS[event.tool_name]!;
-  const covered = await checkHostWrite(values, {vendorSession: event.session_id, cwd: event.cwd, path: isRecord(event.tool_input) ? event.tool_input[pathField] : undefined});
+  const covered = await checkHostWrite(values, {vendorSession: event.session_id, cwd: event.cwd, path: isObject(event.tool_input) ? event.tool_input[pathField] : undefined});
   if (!covered) return deny('File edit blocked: acquire or renew your own covering communication lease, then retry.');
   // No permissionDecision:allow: leave ordinary host permission checks intact.
   return {};

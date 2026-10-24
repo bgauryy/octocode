@@ -10,26 +10,10 @@ use super::*;
 /// prose is stated once. A comment mention is no missed use.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unloaded_includes_flag_unanswered_files() {
-    let dir = tempfile::tempdir().expect("dir");
+    let dir = include_fixture();
     let root = dir.path().canonicalize().expect("root");
-    let package = root.join("pkg");
-    std::fs::create_dir_all(package.join("src")).expect("src");
-    std::fs::create_dir_all(root.join("contract")).expect("contract");
-    std::fs::write(package.join("Cargo.toml"), "[package]\nname = \"p\"\n").expect("manifest");
-    std::fs::write(package.join("build.rs"), "fn main() {}\n").expect("build.rs");
-    std::fs::write(
-        package.join("src/user.rs"),
-        "fn u(q: &R) { q.include_diff(); }\n",
-    )
-    .expect("user");
-    std::fs::write(
-        package.join("src/notes.rs"),
-        "/// include_diff is documented here.\nfn n() { let _ = \"include_diff\"; }\n",
-    )
-    .expect("notes");
     let method = "impl R { fn include_diff(&self) -> bool { true } }\n";
     let generated = format!("include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\n{method}");
-    let outside = format!("include!(\"../../contract/types.rs\");\n{method}");
 
     let first = rust_row(&root, &generated, json!({}), &["lib.rs"]).await;
     assert_eq!(
@@ -41,10 +25,9 @@ async fn unloaded_includes_flag_unanswered_files() {
     // and risk; the lead carries the call, so the prose does not repeat it.
     let notice = first["notices"][0].as_str().unwrap_or_default();
     assert!(
-        notice.contains("includeBuildScripts") && notice.contains("repository code"),
+        notice.contains("rustContext.buildScripts") && notice.contains("repository code"),
         "{first}"
     );
-    assert!(!notice.contains("buildScripts:true"), "{first}");
     assert_eq!(
         first["notices"].as_array().map(Vec::len),
         Some(1),
@@ -55,7 +38,9 @@ async fn unloaded_includes_flag_unanswered_files() {
         first["coverage"]["textOnlyFiles"], 1,
         "comments and strings are no uses: {first}"
     );
-    let rerun = &first["next"]["includeBuildScripts"]["query"]["queries"][0];
+    let rerun = &crate::tools::test_support::checks::related_call(&first, "lspSearch", |input| {
+        input["queries"][0]["rustContext"]["buildScripts"] == true
+    })["input"]["queries"][0];
     assert_eq!(
         rerun["rustContext"],
         json!({"buildScripts": true}),
@@ -63,22 +48,26 @@ async fn unloaded_includes_flag_unanswered_files() {
     );
     assert_eq!(rerun["symbolName"], "include_diff", "{first}");
 
-    let later_fields = json!({"page": 2, "pageSize": 10});
+    let later_fields = json!({"page": 2, });
     let later = rust_row(&root, &generated, later_fields.clone(), &["lib.rs"]).await;
     assert_eq!(
         later["partialReasons"],
         json!([BUILD_SCRIPTS_REASON]),
         "{later}"
     );
-    // The response stage says a notice on the first page only.
     let shaped =
         crate::response::rows::result_row(ToolId::LspSearch, 0, &later_fields, later.clone(), None);
-    assert!(
-        shaped["data"].get("notices").is_none() && shaped["data"].get("warnings").is_none(),
-        "stated once, on page 1: {shaped}"
+    assert_eq!(
+        shaped["data"], later,
+        "row assembly preserves producer coverage guidance"
     );
     assert!(
-        later["next"].get("includeBuildScripts").is_none(),
+        !later["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
         "{later}"
     );
 
@@ -99,6 +88,14 @@ async fn unloaded_includes_flag_unanswered_files() {
     .await;
     assert!(ran.get("isPartial").is_none(), "{ran}");
     assert_eq!(ran["coverage"]["textOnlyFiles"], 1, "{ran}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn outside_includes_keep_partial_coverage_without_build_script_reruns() {
+    let dir = include_fixture();
+    let root = dir.path().canonicalize().expect("root");
+    let method = "impl R { fn include_diff(&self) -> bool { true } }\n";
+    let outside = format!("include!(\"../../contract/types.rs\");\n{method}");
 
     // No build context loads a file outside the package: the rerun
     // stays partial, with the lexical lead and no rerun of its own.
@@ -121,11 +118,20 @@ async fn unloaded_includes_flag_unanswered_files() {
         "{outside_row}"
     );
     assert!(
-        outside_row["next"].get("findText").is_some(),
+        outside_row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "localSearch"),
         "{outside_row}"
     );
     assert!(
-        outside_row["next"].get("includeBuildScripts").is_none(),
+        !outside_row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
         "{outside_row}"
     );
 
@@ -140,9 +146,21 @@ async fn unloaded_includes_flag_unanswered_files() {
         json!([OUTSIDE_INCLUDE_REASON, BUILD_SCRIPTS_REASON]),
         "{both_row}"
     );
-    assert!(both_row["next"].get("findText").is_some(), "{both_row}");
     assert!(
-        both_row["next"].get("includeBuildScripts").is_none(),
+        both_row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "localSearch"),
+        "{both_row}"
+    );
+    assert!(
+        !both_row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
         "{both_row}"
     );
     assert!(
@@ -168,4 +186,25 @@ async fn unloaded_includes_flag_unanswered_files() {
     let plain = rust_row(&root, method, json!({}), &["lib.rs"]).await;
     assert!(plain.get("isPartial").is_none(), "{plain}");
     assert_eq!(plain["coverage"]["textOnlyFiles"], 1, "{plain}");
+}
+
+fn include_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let package = root.join("pkg");
+    std::fs::create_dir_all(package.join("src")).expect("src");
+    std::fs::create_dir_all(root.join("contract")).expect("contract");
+    std::fs::write(package.join("Cargo.toml"), "[package]\nname = \"p\"\n").expect("manifest");
+    std::fs::write(package.join("build.rs"), "fn main() {}\n").expect("build.rs");
+    std::fs::write(
+        package.join("src/user.rs"),
+        "fn u(q: &R) { q.include_diff(); }\n",
+    )
+    .expect("user");
+    std::fs::write(
+        package.join("src/notes.rs"),
+        "/// include_diff is documented here.\nfn n() { let _ = \"include_diff\"; }\n",
+    )
+    .expect("notes");
+    dir
 }

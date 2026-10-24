@@ -1,38 +1,23 @@
-type MoveOptions = {
-  minSteps?: number;
-  maxSteps?: number;
-  stepsDivisor?: number;
-  wobbleMax?: number;
-  overshootChance?: number;
-  overshootPx?: number;
-  burstSize?: number;
-  burstPauseMs?: number;
-  stepDelayMs?: number;
-};
-type ClickOptions = {
-  isInput?: boolean;
-  aimDelayMs?: number;
-  holdMs?: number;
-  button?: string;
-};
-type TypingOptions = {
-  instant?: boolean;
-  wpmBase?: number;
-  wpmVariance?: number;
-  mistakeChance?: number;
-  burstSize?: number;
-  burstPauseMs?: number;
-};
-type ScrollOptions = { steps?: number; stepDelayMs?: number };
+import type { Session } from './cdp-connection.mjs';
+import type {
+  ClickOptions,
+  InputEvent,
+  KeyDefinition,
+  MoveOptions,
+  Point,
+  ScrollOptions,
+  TypingOptions,
+} from './human-input-types.mjs';
+
 // Trusted CDP mouse, keyboard, and scroll sequences with configurable timing.
-function rand(min, max) {
+function rand(min: number, max: number) {
   return min + Math.random() * (max - min);
 }
-function randInt(min, max) {
+function randInt(min: number, max: number) {
   return Math.floor(rand(min, max + 1));
 }
 
-function bezierPoint(p0, p1, p2, p3, t) {
+function bezierPoint(p0: Point, p1: Point, p2: Point, p3: Point, t: number) {
   const u = 1 - t;
   return {
     x:
@@ -48,11 +33,11 @@ function bezierPoint(p0, p1, p2, p3, t) {
   };
 }
 
-function easeInOut(t) {
+function easeInOut(t: number) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
-function randomControlPoints(start, end) {
+function randomControlPoints(start: Point, end: Point) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const dist = Math.hypot(dx, dy) || 1;
@@ -67,7 +52,7 @@ function randomControlPoints(start, end) {
 }
 
 /** One trusted pointer move with no button held. */
-function mouseMove(x, y, delayMs) {
+function mouseMove(x: number, y: number, delayMs: number): InputEvent {
   return {
     method: 'Input.dispatchMouseEvent',
     params: { type: 'mouseMoved', x, y, button: 'none', buttons: 0 },
@@ -77,12 +62,12 @@ function mouseMove(x, y, delayMs) {
 
 /** Bezier-curve mouse movement from (startX, startY) to (endX, endY): array of {method, params, delayMs}. */
 function buildMouseMoveEvents(
-  startX,
-  startY,
-  endX,
-  endY,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
   opts: MoveOptions = {}
-) {
+): InputEvent[] {
   const {
     minSteps = 8,
     maxSteps = 40,
@@ -106,7 +91,7 @@ function buildMouseMoveEvents(
   const end = { x: endX, y: endY };
   const [cp1, cp2] = randomControlPoints(start, end);
 
-  const events = [];
+  const events: InputEvent[] = [];
   let burst = 0;
   const burstMax = randInt(burstSize[0], burstSize[1]);
 
@@ -150,14 +135,18 @@ function buildMouseMoveEvents(
 }
 
 /** mouseDown -> wait -> mouseUp at (x, y): array of {method, params, delayMs}. */
-function buildClickEvents(x, y, opts: ClickOptions = {}) {
+function buildClickEvents(
+  x: number,
+  y: number,
+  opts: ClickOptions = {}
+): InputEvent[] {
   const {
     isInput = false,
     aimDelayMs = isInput ? [60, 180] : [30, 100],
     holdMs = isInput ? [60, 120] : [30, 80],
     button = 'left',
   } = opts;
-  const press = (type, buttons, delayMs) => ({
+  const press = (type: string, buttons: number, delayMs: number) => ({
     method: 'Input.dispatchMouseEvent',
     params: { type, x, y, button, buttons, clickCount: 1, modifiers: 0 },
     delayMs,
@@ -168,7 +157,7 @@ function buildClickEvents(x, y, opts: ClickOptions = {}) {
   ];
 }
 
-const NAMED_KEYS = {
+const NAMED_KEYS: Partial<Record<string, [number, string, string?]>> = {
   Enter: [13, 'Enter', '\r'],
   Tab: [9, 'Tab'],
   Escape: [27, 'Escape'],
@@ -184,7 +173,7 @@ const NAMED_KEYS = {
   PageUp: [33, 'PageUp'],
   PageDown: [34, 'PageDown'],
 };
-const MODIFIERS = {
+const MODIFIERS: Partial<Record<string, [number, number, string]>> = {
   Alt: [1, 18, 'AltLeft'],
   Control: [2, 17, 'ControlLeft'],
   Meta: [4, 91, 'MetaLeft'],
@@ -192,7 +181,7 @@ const MODIFIERS = {
 };
 
 /** CDP key fields for a named key (Enter, ArrowDown…) or one character. */
-function keyDefinition(key) {
+function keyDefinition(key: string): KeyDefinition {
   const named =
     NAMED_KEYS[
       key === ' '
@@ -210,7 +199,8 @@ function keyDefinition(key) {
       windowsVirtualKeyCode: named[0],
       text: named[2],
     };
-  if ([...key].length !== 1)
+  // One key event per code point, as the typing loops below iterate text.
+  if (Array.from(key).length !== 1)
     throw new Error(
       `Unknown key ${JSON.stringify(key)}; use a character or one of ${Object.keys(NAMED_KEYS).join(', ')}`
     );
@@ -226,7 +216,7 @@ function keyDefinition(key) {
 }
 
 /** The key identity fields every key event repeats. */
-function keyFields(def) {
+function keyFields(def: KeyDefinition) {
   return {
     key: def.key,
     code: def.code,
@@ -235,18 +225,18 @@ function keyFields(def) {
 }
 
 /** Press a key or combo ("Enter", "Control+A", "Shift+Tab"): array of {method, params, delayMs}. */
-export function buildKeyPressEvents(combo) {
+export function buildKeyPressEvents(combo: unknown): InputEvent[] {
   const parts = String(combo).split('+').filter(Boolean);
   const main = parts.pop() ?? '';
   const mods = parts.map(m => {
     const d = MODIFIERS[m === 'Ctrl' ? 'Control' : m === 'Cmd' ? 'Meta' : m];
     if (!d) throw new Error(`Unknown modifier ${m}`);
-    return [m, d];
+    return [m, d] as const;
   });
   const modifiers = mods.reduce((s, [, d]) => s | d[0], 0);
   const def = keyDefinition(main);
   const printable = def.text && !(modifiers & (1 | 2 | 4));
-  const ev = (type, p, delayMs = 15) => ({
+  const ev = (type: string, p: Record<string, unknown>, delayMs = 15) => ({
     method: 'Input.dispatchKeyEvent',
     params: { type, modifiers, ...p },
     delayMs,
@@ -272,8 +262,8 @@ export function buildKeyPressEvents(combo) {
   ];
 }
 
-function charKeyEvents(ch, delayMs) {
-  let def;
+function charKeyEvents(ch: string, delayMs: number): InputEvent[] {
+  let def: KeyDefinition | null;
   try {
     def = keyDefinition(ch);
   } catch {
@@ -302,9 +292,12 @@ function charKeyEvents(ch, delayMs) {
 }
 
 /** WPM-paced typing with occasional typo+backspace correction: array of {method, params, delayMs}. */
-export function buildTypingEvents(text, opts: TypingOptions = {}) {
+export function buildTypingEvents(
+  text: string,
+  opts: TypingOptions = {}
+): InputEvent[] {
   if (opts.instant)
-    return [...text].flatMap(ch =>
+    return Array.from(text).flatMap(ch =>
       charKeyEvents(ch, 0).map(event => ({ ...event, delayMs: 0 }))
     );
   const {
@@ -320,7 +313,7 @@ export function buildTypingEvents(text, opts: TypingOptions = {}) {
     return (60000 / wpm / 5) * rand(0.7, 1.5);
   };
 
-  const events = [];
+  const events: InputEvent[] = [];
   let burst = 0;
   const burstMax = randInt(burstSize[0], burstSize[1]);
 
@@ -353,10 +346,15 @@ export function buildTypingEvents(text, opts: TypingOptions = {}) {
 }
 
 /** Wheel-based scroll at (x, y) by deltaY: array of {method, params, delayMs}. */
-export function buildScrollEvents(x, y, deltaY, opts: ScrollOptions = {}) {
+export function buildScrollEvents(
+  x: number,
+  y: number,
+  deltaY: number,
+  opts: ScrollOptions = {}
+): InputEvent[] {
   const { steps = Math.ceil(Math.abs(deltaY) / 100), stepDelayMs = [30, 80] } =
     opts;
-  const events = [];
+  const events: InputEvent[] = [];
   const perStep = deltaY / steps;
   for (let i = 0; i < steps; i++) {
     const jitter = (Math.random() - 0.5) * 20;
@@ -371,9 +369,9 @@ export function buildScrollEvents(x, y, deltaY, opts: ScrollOptions = {}) {
 
 /** Move from the current mouse point, then click in the middle of an element's bounding rect (from a prior getBoundingClientRect() read), slightly randomized. */
 export function buildElementClickSequence(
-  currentMouseX,
-  currentMouseY,
-  elementRect,
+  currentMouseX: number,
+  currentMouseY: number,
+  elementRect: { x: number; y: number; width: number; height: number },
   isInput = false
 ) {
   const targetX = Math.round(
@@ -389,7 +387,7 @@ export function buildElementClickSequence(
 }
 
 /** Execute a built event sequence against a live cdp session, awaiting each event's delay. */
-export async function runEventSequence(cdp, events) {
+export async function runEventSequence(cdp: Session, events: InputEvent[]) {
   for (const ev of events) {
     await cdp.send(ev.method, ev.params);
     if (ev.delayMs > 0) await new Promise(r => setTimeout(r, ev.delayMs));

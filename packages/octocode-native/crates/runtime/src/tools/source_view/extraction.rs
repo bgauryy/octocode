@@ -1,19 +1,25 @@
-use super::types::{ExtractionError, LineRange, LocalFetchQuery, NextCalls, line_read, uncovered};
-use crate::tools::source_view::types::local_fetch_query;
-use octocode_contract_types::ErrorCode;
+use super::types::{ExtractionError, LineRange, NextCalls, line_read, uncovered};
+use crate::tools::source_view::local_fetch_query;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
-mod byte_windows;
 mod matches;
 mod search_lead;
 mod spans;
 
-use matches::match_extract;
-pub(super) use search_lead::search_lead;
+pub(crate) fn match_spans(
+    q: &LocalFetchQuery,
+    content: &str,
+) -> Result<super::types::RegexSpans, ExtractionError> {
+    spans::match_spans(q, content, &local_fetch_query::match_strings(q))
+}
+
 #[cfg(test)]
-pub(crate) use {
-    byte_windows::byte_windows,
-    spans::{MAX_REGEX_MATCHES, RUST_REGEX_RUNS, literal_ranges},
-};
+mod canonical_tests;
+
+use matches::match_extract;
+pub(crate) use search_lead::search_lead;
+#[cfg(test)]
+pub(crate) use spans::{MAX_REGEX_MATCHES, RUST_REGEX_RUNS, literal_ranges};
 
 pub struct Extraction {
     pub text: String,
@@ -35,7 +41,7 @@ pub struct Extraction {
 }
 
 fn follow_up(query: LocalFetchQuery) -> Option<super::types::FetchCall> {
-    Some(super::types::FetchCall { query })
+    Some(super::types::FetchCall::continued(query))
 }
 
 /// View-line sentinel for an omission marker (source lines are 1-based).
@@ -189,16 +195,16 @@ fn windows_text(lines: &[&str], windows: &[LineRange]) -> (String, Vec<usize>) {
     for r in windows {
         if let Some(prev) = prev_end.filter(|prev| r.start > prev + 1) {
             if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n')
+                text.push('\n');
             }
             text.push_str(&omission_marker(prev + 1, r.start - 1));
-            selected.push(OMISSION_LINE)
+            selected.push(OMISSION_LINE);
         }
         for line in r.start..=r.end {
             text.push_str(lines[line - 1]);
-            selected.push(line)
+            selected.push(line);
         }
-        prev_end = Some(r.end)
+        prev_end = Some(r.end);
     }
     (text, selected)
 }

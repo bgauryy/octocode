@@ -26,6 +26,11 @@ path = "tests/main.rs"
 name = "page_replay"
 harness = false
 
+# Output gate and validation cost per response page (prints tables).
+[[bench]]
+name = "output_stages"
+harness = false
+
 [features]
 # Dev-loop feature unification, enabled by `build:dev` and `test:rust` but never
 # by release builds. wiremock and tempfile (dev-dependencies) turn these features
@@ -112,3 +117,6 @@ workspace = true
 # These exist only to unify features under `dev-unify`; no code uses them.
 [package.metadata.cargo-shear]
 ignored = ["hyper", "hyper-util", "bitflags", "fastrand", "slab"]
+# build.rs mounts build/{config,tool}_gen.rs by #[path]; their child modules
+# resolve from build/, which cargo-shear does not follow.
+ignored-paths = ["build/*.rs"]

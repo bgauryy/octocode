@@ -11,7 +11,7 @@ use super::matching::{
 use super::metavars::meta_from_node;
 use super::recovery::Recovery;
 use crate::structural::language::Expando;
-use crate::text::utf8_offsets::LineIndex;
+use crate::text::LineIndex;
 
 mod compile;
 mod node_match;
@@ -133,7 +133,7 @@ impl CompiledPattern {
             }
             // Direct patterns and pattern rules share capture equality semantics.
             let mut captures = CaptureEnv::default();
-            if self.matches_special(special, candidate, content, &mut captures)
+            if special.matches(candidate, content, &mut captures)
                 && seen.insert((candidate.start_byte(), candidate.end_byte()))
             {
                 found.push(candidate, || {
@@ -159,7 +159,7 @@ impl CompiledPattern {
         deadline: Instant,
     ) -> Result<bool, ExecutionError> {
         if let Some(special) = &self.special {
-            return Ok(self.matches_special(special, candidate, content, captures));
+            return Ok(special.matches(candidate, content, captures));
         }
 
         let Some(root) = self.root() else {
@@ -179,22 +179,19 @@ impl CompiledPattern {
             &mut budget,
         )
     }
+}
 
-    fn matches_special(
-        &self,
-        special: &SpecialPattern,
-        candidate: Node<'_>,
-        content: &str,
-        captures: &mut CaptureEnv,
-    ) -> bool {
-        match special {
-            SpecialPattern::JsxTagName { capture } => {
+impl SpecialPattern {
+    /// Whether `candidate` matches this pattern, capturing its parts.
+    fn matches(&self, candidate: Node<'_>, content: &str, captures: &mut CaptureEnv) -> bool {
+        match self {
+            Self::JsxTagName { capture } => {
                 let Some(tag_name) = jsx_tag_name_node(candidate) else {
                     return false;
                 };
                 captures.capture_one(capture, node_text(tag_name, content), raw_range(tag_name))
             }
-            SpecialPattern::KeyValuePair {
+            Self::KeyValuePair {
                 key_capture,
                 value_capture,
             } => {

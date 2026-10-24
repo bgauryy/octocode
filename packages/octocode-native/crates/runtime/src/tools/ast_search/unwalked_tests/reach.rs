@@ -32,12 +32,11 @@ fn leads_reach_every_unread_file(build: Build) {
         .map(|(_, lead)| lead_path(&root.0, lead))
         .collect();
     assert_eq!(paths, ["c", "e", ""], "{first}");
-    let keys: Vec<_> = found.iter().map(|(key, _)| key.as_str()).collect();
-    assert_eq!(keys, ["narrowScope", "narrowScope2", "narrowScope3"]);
+    assert!(found.iter().all(|(_, call)| call["kind"] == "continue"));
     // A scope of a directory's own files leaves its subdirectories out and
     // reads only what the scan did not.
     let files_only = |index: usize| -> BTreeSet<String> {
-        let row = found[index].1["query"]["queries"][0].clone();
+        let row = found[index].1["input"]["queries"][0].clone();
         assert_eq!(row["exclude"], json!(["/*/"]), "{row}");
         listed(&run(&root.0, &row))
     };
@@ -103,7 +102,7 @@ fn an_anchored_glob_gets_no_narrowed_scope() {
         let extra = if glob == "include" {
             json!({"include":["/a/**", "/b/**", "/c/**", "/e/**", "/*.ts"]})
         } else {
-            json!({"languageGlobs":{"typescript":["/**/*.ts"]}})
+            json!({"parserGlobs":{"typescript":["/**/*.ts"]}})
         };
         let out = run(&root.0, &build(&root.0, extra));
         assert_eq!(out["terminalLimit"], json!(true), "{out}");
@@ -136,7 +135,7 @@ fn scopes_past_the_lead_cap_are_counted_and_listed() {
 /// reaches is not a lead.
 #[test]
 fn a_narrowed_scope_rebases_max_depth() {
-    let query = json!({"operation":"match","path":"/r","pattern":"x","maxDepth":3});
+    let query = json!({"operation":"match","path":"/r","rule":{"pattern":"x"},"maxDepth":3});
     let reach = |depth, files_only| unwalked::Reach {
         dir: format!("/r/{depth}"),
         depth,
@@ -145,7 +144,7 @@ fn a_narrowed_scope_rebases_max_depth() {
     };
     let depth_of = |reach: &unwalked::Reach| {
         unwalked::narrowed(&query, reach)
-            .map(|lead| lead["query"]["queries"][0]["maxDepth"].clone())
+            .map(|lead| lead["input"]["queries"][0]["maxDepth"].clone())
     };
     assert_eq!(depth_of(&reach(0, true)), Some(json!(3)));
     assert_eq!(depth_of(&reach(2, false)), Some(json!(1)));

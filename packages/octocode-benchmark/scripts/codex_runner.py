@@ -56,8 +56,8 @@ def semantic_gates(server, env):
     disabled = {name.strip() for name in effective.get('DISABLE_TOOLS', '').split(',') if name.strip()}
     clasify = (credential and effective.get('OCTOCODE_BETA') == 'true'
                and (not selected or 'clasify' in selected) and 'clasify' not in disabled)
-    classifiers = credential and effective.get('OCTOCODE_RANKING_ENABLED') == 'true'
-    return clasify, classifiers
+    # Readers expose classification whenever a provider credential exists, even with clasify hidden.
+    return clasify, credential
 
 
 @contextmanager

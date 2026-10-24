@@ -2,8 +2,8 @@
 // the binary owns the protocol, the tools and the configuration. Resolution
 // and signal-forwarding are the CLI launcher's (one source for both packages).
 import {
-  NativeLaunchError,
   delegateToNative,
+  errorMessage,
   resolveNativeBin,
 } from '../../octocode/src/cli/native-delegate.js';
 import { failStartup } from './startup-failure.js';
@@ -17,11 +17,7 @@ if ('error' in resolved) {
       process.exitCode = code;
     },
     (error: unknown) => {
-      const message =
-        error instanceof NativeLaunchError || error instanceof Error
-          ? error.message
-          : String(error);
-      failStartup(`Server initialization failed: ${message}`);
+      failStartup(`Server initialization failed: ${errorMessage(error)}`);
     }
   );
 }

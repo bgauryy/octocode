@@ -1,8 +1,7 @@
 use super::*;
 use crate::security::scan::ContentScan;
 use crate::tools::source_view::pagination::{LINE_PAGE_BYTES, LineBudget, page_within};
-use crate::tools::source_view::types::{LocalFetchQuery, wire_count};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
 #[test]
 fn offsets_track_unchanged_text_and_snap_into_placeholders() {
@@ -49,67 +48,43 @@ impl ContentScan for SecretScan {
 /// secret, so no page is left empty and the walk reaches every byte
 /// once; an offset inside the secret returns the placeholder.
 #[test]
-fn a_secret_across_byte_pages_shows_on_the_page_it_starts_on() {
-    let secret = format!("SECRET{}", "s".repeat(70));
-    let view = format!("{}{secret} {}\n", "a".repeat(25), "b".repeat(25));
-    let secret_at = view.find("SECRET").expect("secret");
+fn a_secret_across_byte_pages_shows_one_complete_placeholder() {
+    let secret = format!("SECRET{}", "s".repeat(20_000));
+    let view = format!("{}{secret} {}\n", "a".repeat(20_000), "b".repeat(20_000));
     let path = std::path::Path::new("v.txt");
-    let query = |offset: usize| -> LocalFetchQuery {
-        serde_json::from_value(serde_json::json!({
-            "path": "v.txt", "unit": "bytes", "offset": offset, "length": 20
-        }))
+    let query = |offset| {
+        serde_json::from_value::<LocalFetchQuery>(
+            serde_json::json!({"path":"v.txt","readProgress":{"unit":"bytes","offset":offset}}),
+        )
         .expect("query")
     };
     let mut offset = 0;
-    let mut pages = Vec::new();
+    let mut joined = String::new();
+    let mut pages = 0;
     loop {
-        let raw = page_within(
-            &view,
-            &query(offset),
-            LineBudget::bytes(LINE_PAGE_BYTES),
-            None,
-        );
+        let raw = page_within(&view, &query(offset), LineBudget::bytes(4096), None);
         let (page, _) = sanitize_byte_page(&view, raw, path, &SecretScan)
             .expect("scan")
             .expect("page");
         assert_eq!(page.pagination.offset, offset);
-        assert!(!page.text.is_empty(), "{offset}: an empty page");
-        assert!(!page.text.contains("SECRET"), "{offset}: {}", page.text);
-        pages.push((offset, page.text.clone()));
+        assert!(!page.text.is_empty());
+        assert!(!page.text.contains("SECRET"));
+        joined.push_str(&page.text);
+        pages += 1;
         match page.pagination.next_offset {
-            Some(next) => offset = next,
+            Some(next) => {
+                assert!(next > offset);
+                offset = next;
+            }
             None => break,
         }
     }
-    // The secret starts on the second page, which ends after it.
-    assert_eq!(pages[1].0, 20);
+    assert!(pages > 2);
     assert_eq!(
-        pages[1].1,
-        format!("{}[REDACTED-X]", "a".repeat(secret_at - 20))
+        joined,
+        SecretScan.sanitize(&view, path).expect("whole scan").0
     );
-    assert_eq!(pages[2].0, secret_at + secret.len());
-    assert_eq!(
-        pages
-            .iter()
-            .map(|(_, text)| text.as_str())
-            .collect::<String>(),
-        SecretScan.sanitize(&view, path).expect("scan").0
-    );
-    // An offset inside the secret starts at its placeholder.
-    let raw = page_within(
-        &view,
-        &query(secret_at + 30),
-        LineBudget::bytes(LINE_PAGE_BYTES),
-        None,
-    );
-    let (inside, _) = sanitize_byte_page(&view, raw, path, &SecretScan)
-        .expect("scan")
-        .expect("page");
-    assert_eq!(inside.text, "[REDACTED-X]");
-    assert_eq!(
-        inside.pagination.next_offset,
-        Some(secret_at + secret.len())
-    );
+    assert_eq!(joined.matches("[REDACTED-X]").count(), 1);
 }
 
 /// Redacts `SECRET` and counts the bytes it scanned.
@@ -180,7 +155,14 @@ fn a_line_page_scan_matches_the_whole_view_split() {
         );
         assert!(scan.0.get() <= raw.text.len() + 2 * (PAGE_SCAN_MARGIN_BYTES + 400));
         match raw.pagination.next_offset {
-            Some(next) => query.offset = Some(wire_count(next)),
+            Some(_) => {
+                query =
+                    crate::tools::source_view::pagination::continuation(&query, &raw.pagination)
+                        .expect("next")
+                        .continue_window
+                        .expect("window")
+                        .query;
+            }
             None => break,
         }
     }

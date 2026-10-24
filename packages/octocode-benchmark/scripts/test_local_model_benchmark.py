@@ -1,10 +1,11 @@
+import json
 import tempfile
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
-from local_model_benchmark import native_call, prepare_trial_context, research_trial, scoped_arguments
+from local_model_benchmark import capture_schemas, native_call, prepare_trial_context, research_trial, scoped_arguments
 
 
 class LocalModelBoundaries(unittest.TestCase):
@@ -29,7 +30,7 @@ class LocalModelBoundaries(unittest.TestCase):
             for args in ({'queries': [{'path': '../private'}]},
                          {'queries': [{'entrypoints': [str(root.parent)]}]},
                          {'selection': {'source': '/etc/passwd'}},
-                         {'queries': [{'clasifyContext': {}}]}):
+                         {'queries': [{'classification': {'predicates': ['relevant']}}]}):
                 with self.subTest(args=args), self.assertRaises(ValueError):
                     scoped_arguments(args, root)
 
@@ -53,6 +54,32 @@ class LocalModelBoundaries(unittest.TestCase):
             with self.subTest(code=code), patch('local_model_benchmark.subprocess.run', return_value=process):
                 receipt = native_call(Path('/native'), 'localSearch', {'queries': [{'path': '.'}]}, Path('/tmp'))
             self.assertEqual(receipt['ok'], expected)
+
+    def test_page_budget_only_changes_fresh_requests(self):
+        process = SimpleNamespace(returncode=0, stdout='{"results":[{"index":0,"data":{}}]}', stderr='')
+        for authored, expected in [
+            ({'queries': [{'path': 'source.rs'}]}, {'queries': [{'path': 'source.rs'}], 'responseChars': 5000}),
+            ({'cursor': 'opaque-server-handle'}, {'cursor': 'opaque-server-handle'}),
+        ]:
+            with self.subTest(authored=authored), patch('local_model_benchmark.subprocess.run', return_value=process) as run:
+                receipt = native_call(Path('/native'), 'localFetch', authored, Path('/tmp'))
+                self.assertTrue(receipt['ok'], receipt)
+                self.assertEqual(json.loads(run.call_args.args[0][2]), expected)
+                self.assertEqual(receipt['arguments'], authored)
+
+    def test_schema_capture_keeps_exact_fresh_and_resume_variants(self):
+        admission = {'anyOf': [
+            {'type': 'object', 'properties': {'queries': {'type': 'array'}, 'responseChars': {'type': 'integer', 'maximum': 100000, 'default': 12000}}, 'required': ['queries'], 'additionalProperties': False},
+            {'type': 'object', 'properties': {'cursor': {'type': 'string'}}, 'required': ['cursor'], 'additionalProperties': False},
+        ]}
+        schema = {'description': 'Read source', 'inputSchema': admission, 'querySchema': {'type': 'object'}}
+        process = SimpleNamespace(stdout=json.dumps(schema))
+        with tempfile.TemporaryDirectory() as folder, patch('local_model_benchmark.subprocess.run', return_value=process):
+            tools = capture_schemas(Path('/native'), Path(folder))
+        expected = json.loads(json.dumps(admission))
+        expected['anyOf'][0]['properties']['responseChars'].update(maximum=5000, default=5000)
+        for tool in tools:
+            self.assertEqual(tool['function']['parameters'], expected)
 
     def test_incomplete_generation_does_not_become_a_successful_answer(self):
         exchange = {'arguments': {}, 'wallSeconds': 1, 'result': {'structuredContent':

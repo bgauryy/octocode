@@ -1,5 +1,5 @@
 /** Filesystem resolution and the protocol's frozen caseless lease namespace. */
-import { lstatSync, readlinkSync } from 'node:fs';
+import { lstatSync, readlinkSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, parse, sep } from 'node:path';
 import { ValidationError } from './errors.js';
 import { normalizePathComponent } from './unicode16.js';
@@ -22,6 +22,32 @@ function append(left: string, part: string): string {
 
 function missing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+/** Whether `path` names a directory (following symlinks); false when it does not exist. */
+export function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+export function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function lexists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Absolute location of `path` below `base`, following symlinks physically; missing components are kept as written. */

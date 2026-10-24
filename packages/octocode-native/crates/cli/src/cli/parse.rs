@@ -155,28 +155,16 @@ pub(super) fn is_help(error: &clap::Error) -> bool {
 /// config warnings.
 pub(super) fn hide_unavailable_tools(mut command: clap::Command) -> clap::Command {
     use octocode_native::config::{acquire_config_input, resolve_config};
-    let (Ok(cwd), Some(home)) = (std::env::current_dir(), octocode_io::env::home_dir()) else {
+    let (Ok(cwd), Some(home)) = (std::env::current_dir(), std::env::home_dir()) else {
         return command;
     };
     let surface = RuntimeSurface::Cli;
     let input = acquire_config_input(octocode_io::env::vars_lossy(), cwd, home, surface);
     let config = resolve_config(&input);
     let availability = ToolAvailability::resolve(&config, surface);
-    let selection = octocode_native::execution::availability::classification_key(&config).is_some();
     for tool in ToolId::ALL {
         if !availability.is_available(tool.as_str()) {
             command = command.mut_subcommand(tool.as_str(), |sub| sub.hide(true));
-        }
-        // A classification key enables the selection flags (clasifyContext).
-        if selection {
-            for field in super::flags::selection_only(tool.as_str())
-                .into_iter()
-                .filter(|field| !super::flags::is_copied(field))
-            {
-                command = command.mut_subcommand(tool.as_str(), |sub| {
-                    sub.mut_arg(super::flags::field_id(field), |arg| arg.hide(false))
-                });
-            }
         }
     }
     command
@@ -187,35 +175,12 @@ pub(super) fn hide_unavailable_tools(mut command: clap::Command) -> clap::Comman
 /// root help with every available tool's flag examples, all from the
 /// embedded CLI presentation.
 pub(super) fn help_command() -> clap::Command {
-    let command =
-        ToolId::ALL
-            .into_iter()
-            .fold(hide_unavailable_tools(Args::command()), |command, tool| {
-                match octocode_native::contracts::cli_tool_help(tool.as_str()) {
-                    Some(help) => command.mut_subcommand(tool.as_str(), |sub| sub.after_help(help)),
-                    None => command,
-                }
-            });
-    with_examples(command)
-}
-
-/// The root help ends with each available tool's flag examples from the
-/// embedded CLI presentation, so a first call needs no `<tool> --help`.
-pub(super) fn with_examples(command: clap::Command) -> clap::Command {
-    let examples: Vec<String> = command
-        .get_subcommands()
-        .filter(|sub| !sub.is_hide_set() && ToolId::from_name(sub.get_name()).is_some())
-        .filter_map(|sub| super::flags::spec(sub.get_name()))
-        .flat_map(|spec| spec["examples"].as_array().into_iter().flatten())
-        .filter_map(Value::as_str)
-        .map(|example| format!("  {example}"))
-        .collect();
-    if examples.is_empty() {
-        return command;
-    }
-    let after = command
-        .get_after_help()
-        .map(ToString::to_string)
-        .unwrap_or_default();
-    command.after_help(format!("Examples:\n{}\n\n{after}", examples.join("\n")))
+    ToolId::ALL
+        .into_iter()
+        .fold(hide_unavailable_tools(Args::command()), |command, tool| {
+            match octocode_native::contracts::cli_tool_help(tool.as_str()) {
+                Some(help) => command.mut_subcommand(tool.as_str(), |sub| sub.after_help(help)),
+                None => command,
+            }
+        })
 }

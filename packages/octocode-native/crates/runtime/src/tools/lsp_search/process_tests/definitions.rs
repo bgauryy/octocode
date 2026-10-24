@@ -36,8 +36,7 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
         let path = root.join("a.ts").to_string_lossy().into_owned();
         let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
         let query = serde_json::from_value(json!({
-            "operation":"definition", "mainGoal":"test", "reasoning":"test",
-            "path":uri, "symbolName":"x", "line":1
+            "operation":"definition", "path":uri, "symbolName":"x", "line":1
         }))
         .expect("query");
         tokio::runtime::Runtime::new().expect("rt").block_on(async {
@@ -133,8 +132,7 @@ fn a_definition_outside_the_read_roots_is_reported_withheld() {
             let client = NativeLspClient::new(config(&root, &script, None));
             client.start().await.expect("server starts");
             let query = serde_json::from_value(json!({
-                "operation": "definition", "mainGoal": "test", "reasoning": "test",
-                "path": path, "symbolName": "a", "line": 1
+                "operation": "definition", "path": path, "symbolName": "a", "line": 1
             }))
             .expect("query");
             let mut sources = SourceCache::new(&paths);

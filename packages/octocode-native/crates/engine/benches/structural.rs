@@ -1,4 +1,7 @@
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![expect(
+    clippy::expect_used,
+    reason = "benchmark setup fails loudly on a broken fixture"
+)]
 //! Micro-benchmarks for the structural (AST) search hot path.
 //!
 //! `structuralSearchDetailed` is the synchronous public entry point that drives

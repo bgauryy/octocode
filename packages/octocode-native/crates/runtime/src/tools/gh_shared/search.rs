@@ -124,9 +124,9 @@ pub(crate) fn with_search_repair(
         return failure;
     };
     failure.hints.clear();
-    let mut next = failure.next.take().unwrap_or_else(|| Box::new(json!({})));
+    let mut next = failure.calls.take().unwrap_or_else(|| Box::new(json!({})));
     next[name] = lead;
-    failure.next = Some(next);
+    failure.calls = Some(next);
     failure
 }
 
@@ -147,14 +147,14 @@ pub(crate) fn add_next(
     else {
         return;
     };
-    value["next"] = json!({"nextPage": page_replay(tool, query, next_page)});
+    value["calls"] = json!({"nextPage": page_replay(tool, query, next_page)});
 }
 
 /// The same query at `page`: an exact replay.
 fn page_replay(tool: ToolId, query: &impl serde::Serialize, page: usize) -> Value {
     let mut row = query_row(query, &[]);
     row["page"] = json!(page);
-    Continuation::new(tool, row).build()
+    Continuation::continued(tool, row).build()
 }
 
 /// The listing that checks an empty search's `path` scope (a path that is
@@ -162,7 +162,7 @@ fn page_replay(tool: ToolId, query: &impl serde::Serialize, page: usize) -> Valu
 /// when one is set. `None` without `owner`, `repo` and a `path`.
 pub(crate) fn path_check(row: &Value) -> Option<Value> {
     let (owner, repo) = (row["owner"].as_str()?, row["repo"].as_str()?);
-    let path = row["path"].as_str()?.trim_matches('/');
+    let path = row["pathPrefix"].as_str()?.trim_matches('/');
     if path.is_empty() {
         return None;
     }
@@ -230,6 +230,6 @@ pub(crate) fn apply_partial(
     }
     if incomplete {
         mark_partial(value, "providerIncompleteResults", &[]);
-        value["next"]["retry"] = page_replay(tool, query, page);
+        value["calls"]["retry"] = page_replay(tool, query, page);
     }
 }

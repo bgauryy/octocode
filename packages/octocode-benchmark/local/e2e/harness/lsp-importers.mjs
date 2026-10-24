@@ -2,13 +2,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  ROOT,
-  checks,
-  rowData,
-  startServer,
-  writeResults,
-} from './mcp-client.mjs';
+import { ROOT } from './paths.mjs';
+import { checks, startServer, writeResults } from './mcp-client.mjs';
+import { rowData, sourceLines } from './responses.mjs';
 
 const { check, summary } = checks('lsp-importers');
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-lsp-importers-')));
@@ -40,14 +36,13 @@ try {
     },
     timeoutMs: 60_000,
   });
-  // coverage.importerScan / verifiedImporterFiles are verbose (stats) fields, listed only under extras:["stats"].
   const entry = await client.call('lspSearch', {
     path: source,
     symbolName: name,
     line: 1,
     operation: 'references',
     includeDeclaration: false,
-    extras: ['stats'],
+    view: 'files',
   });
   const data = rowData(entry);
   check(
@@ -61,11 +56,15 @@ try {
   check(
     'call after five comment mentions is included',
     // A hit row is an object `{line, column, value}`, not a packed "7:…" string.
-    consumer?.matches?.some(ref => ref?.line === 7 && /lateImporterTarget\(\)/.test(ref.value ?? '')),
+    consumer?.lines?.includes(7),
     JSON.stringify(data)
   );
+  if (consumer) {
+    const read = await client.call('localFetch', { path: consumer.path, ranges: [{ startLine: 7, endLine: 7 }] });
+    check('returned reference coordinate reads the actual invocation', !read.isError && !read.rowErrors && sourceLines(rowData(read)).some(([line, text]) => line === 7 && text === 'lateImporterTarget();'), read.text);
+  }
   check(
-    'recovery records a complete scan with a verified importer (extras stats)',
+    'recovery records a complete scan with a verified importer',
     data?.coverage?.importerScan === 'complete' && data?.coverage?.verifiedImporterFiles >= 1,
     JSON.stringify(data?.coverage)
   );

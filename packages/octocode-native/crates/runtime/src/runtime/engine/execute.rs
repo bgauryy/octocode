@@ -61,7 +61,7 @@ impl ToolRuntime {
     }
 
     /// Run one admitted call and answer in `channel`. Every interface
-    /// (CLI, warm server, N-API/MCP) executes through here; a rejected call
+    /// (CLI, warm server, MCP) executes through here; a rejected call
     /// projects once through [`super::super::error::tool_error_result`].
     pub async fn execute(
         &self,
@@ -70,7 +70,6 @@ impl ToolRuntime {
         input: Value,
         channel: Channel,
     ) -> Result<ToolOutcome, RuntimeError> {
-        let input = contracts::normalize_input(&tool, input);
         self.execute_channel(admission, tool, input, channel == Channel::Mcp)
             .await
     }
@@ -89,7 +88,7 @@ impl ToolRuntime {
             Err(error) => {
                 if error.code == ErrorCode::MissingConfiguration
                     && let Some(id) = ToolId::from_name(&tool)
-                    && let Err(invalid) = self.admit_queries(id, &input)
+                    && let Err(invalid) = self.admit_queries(id, &input, false)
                     && invalid.code == ErrorCode::InvalidInput
                 {
                     return Err(invalid);
@@ -98,36 +97,60 @@ impl ToolRuntime {
             }
         };
         let clasify = id.is_clasify();
-        // Parse response-paging options before contract validation.
-        let mut options = ResponsePageOptions::deserialize(&input).unwrap_or_default();
-        let access = page_replay_key(&tool, mcp, &[], &[], admission.github_credential());
+        let access = page_replay_key("", mcp, &[], &[], admission.github_credential());
+        let opened = if let Some(token) = input.get("cursor").and_then(Value::as_str) {
+            contracts::validate(&tool, input.clone())
+                .map_err(|error| super::admission::invalid_input_error(&tool, &input, error))?;
+            Some(
+                self.cursors
+                    .open(id, token, access)
+                    .ok_or_else(super::page_replay::snapshot_expired)?,
+            )
+        } else {
+            None
+        };
+        let resume_identity = opened
+            .as_ref()
+            .and_then(|opened| opened.github_identity().map(str::to_owned));
+        let saved = opened.as_ref().map(super::cursors::Opened::member);
+        let normalized_input = saved.map_or(&input, |member| &member.input);
+        let mut options = ResponsePageOptions::deserialize(normalized_input).unwrap_or_default();
+        let mut cursor_set = None;
         let (queries, rejected_rows, row_indices, response_query, replay_key, replayed) =
-            if options.response_snapshot.is_some() {
-                let (key, replay) = self.open_saved(&tool, &input, &mut options, access)?;
+            if let Some(super::cursors::Member {
+                work: super::cursors::SavedWork::ResponsePage(cursor),
+                ..
+            }) = saved
+            {
+                let replay = self
+                    .page_replays
+                    .get(cursor)
+                    .filter(|replay| replay.access == access)
+                    .ok_or_else(super::page_replay::snapshot_expired)?;
+                options.open(cursor);
+                cursor_set = opened.as_ref().map(super::cursors::Opened::pending);
                 (
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
                     replay.response_query.clone(),
-                    key,
+                    cursor.key,
                     Some(replay),
                 )
             } else {
-                if clasify && options.response_scope.is_none() {
-                    options.response_scope = Some(crate::response::cursor::PageScope::Rows);
-                }
                 let AdmittedRows {
                     queries,
                     rejected: rejected_rows,
-                } = self.admit_queries(id, &input)?;
-                let response_query = match queries.as_slice() {
-                    [query] => (**query).clone(),
-                    queries => {
-                        json!({"queries": queries.iter().map(|query| &**query).collect::<Vec<_>>()})
-                    }
-                };
-                let rejected_at: Vec<usize> =
-                    rejected_rows.iter().map(|(index, _)| *index).collect();
+                } = self.admit_queries(id, normalized_input, saved.is_some())?;
+                let mut response_query =
+                    json!({"queries": queries.iter().map(|query| &**query).collect::<Vec<_>>()});
+                if let Some(chars) = normalized_input.get("responseChars") {
+                    response_query["responseChars"] = chars.clone();
+                }
+                let rejected_at = rejected_rows
+                    .iter()
+                    .map(|(index, _)| *index)
+                    .collect::<Vec<_>>();
                 let row_indices =
                     super::super::row_indices::admitted_indices(queries.len(), &rejected_at);
                 let key = page_replay_key(
@@ -166,6 +189,9 @@ impl ToolRuntime {
             replays: (self.page_replays.clone(), replay_key),
             section_sessions: self.section_sessions.clone(),
             access,
+            cursor_set,
+            cursors: self.cursors.clone(),
+            resume_identity,
         };
         self.requests
             .execute_blocking_admitted(admission.with_cost(cost), move |context| {
@@ -183,7 +209,7 @@ impl ToolRuntime {
     /// memo serves (no dispatch, no source check) or for local rows the local
     /// runner serves that each read one regular file of at most
     /// [`LIGHT_FILE_BYTES`] and judge nothing. Anything else may walk a tree,
-    /// or wait on a provider (a `clasifyContext` or `selection` row asks the
+    /// or wait on a provider (a `classification` or `selection` row asks the
     /// classification provider) or a language server.
     pub(super) fn request_cost(
         &self,
@@ -195,7 +221,7 @@ impl ToolRuntime {
             return Cost::Light;
         }
         let light_row = |row: &Value| {
-            let judged = row.get("clasifyContext").is_some() || row.get("selection").is_some();
+            let judged = row.get("classification").is_some() || row.get("selection").is_some();
             !judged
                 && row["path"].as_str().is_some_and(|path| {
                     std::fs::metadata(self.paths.expand_and_resolve(std::path::Path::new(path)))

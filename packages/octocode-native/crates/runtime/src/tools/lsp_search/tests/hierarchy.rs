@@ -12,8 +12,7 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
     assert!(items.is_empty() && failures.is_empty());
 
     let q = query(serde_json::json!({
-        "operation": "callers", "mainGoal": "test", "reasoning": "test",
-        "path": "file:///repo/a.ts",
+        "operation": "callers", "path": "file:///repo/a.ts",
         "symbolName": "foo", "line": 1,
         "graphDepth": 3
     }));
@@ -35,8 +34,6 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
             .is_some_and(|w| w.contains("deeper level"))
     );
     assert_eq!(row["next"]["retry"]["tool"], "lspSearch");
-    // The runtime envelope copies the caller's reasoning into continuations.
-    row["next"]["retry"]["query"]["queries"][0]["reasoning"] = serde_json::json!("retry");
     crate::contracts::validate_output("lspSearch", &public_row(&row))
         .expect("partial hierarchy row satisfies the output contract");
 
@@ -74,9 +71,10 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
             .is_some_and(|w| w.starts_with("4×") && w.contains("timeout"))),
         "{listed:?}"
     );
-    assert!(
-        crate::response::extras::all_paths(crate::id::ToolId::LspSearch)
-            .contains(&"results[].data.expansionFailures")
+    let public = public_row(&row);
+    assert_eq!(
+        public["results"][0]["data"]["expansionFailures"],
+        row["expansionFailures"]
     );
 }
 
@@ -86,8 +84,7 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
 #[test]
 fn a_partial_walk_retries_only_a_transient_failure() {
     let q = query(serde_json::json!({
-        "operation": "subtypes", "mainGoal": "test", "reasoning": "test",
-        "path": "file:///repo/a.ts", "symbolName": "Base", "line": 1
+        "operation": "subtypes", "path": "file:///repo/a.ts", "symbolName": "Base", "line": 1
     }));
     let items = serde_json::json!([{"name": "Child"}]);
     let unestablished = LspFailure::unestablished("No resolved immediate heritage");

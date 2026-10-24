@@ -5,36 +5,31 @@ use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::{Value, json};
 
-/// The astSearch calls a result's (or error's) `next` leads name. A lead
-/// for another tool must still validate against that tool's contract.
-fn leads(next: Option<&Value>) -> Vec<(String, Value)> {
-    let mut found = Vec::new();
-    for (name, call) in next.and_then(Value::as_object).into_iter().flatten() {
-        let tool = call["tool"].as_str().expect("a lead names its tool");
-        if tool == "astSearch" {
-            found.push((name.clone(), call["query"].clone()));
-        } else {
-            crate::contracts::validate(tool, call["query"].clone()).unwrap_or_else(|error| {
-                panic!(
-                    "lead {name} for {tool} invalid {}: {:?}",
-                    call["query"], error.issues
-                )
-            });
-        }
-    }
-    found
+fn leads(out: &Value) -> Vec<(String, Value)> {
+    crate::tools::test_support::checks::leads(out)
+        .into_iter()
+        .filter_map(|lead| {
+            if lead.tool == "astSearch" {
+                Some((lead.name, lead.query))
+            } else {
+                crate::contracts::validate_built(&lead.tool, lead.query)
+                    .unwrap_or_else(|error| panic!("related {} invalid: {error:?}", lead.tool));
+                None
+            }
+        })
+        .collect()
 }
 
 /// Runs `row`, then follows every lead it names (and theirs) to `depth`,
 /// asserting each validates and succeeds. Returns the calls it ran.
 fn follow(root: &std::path::Path, row: Value, depth: usize) -> usize {
     let (paths, security) = simple_policy(root);
-    let mut pending = vec![("start".to_owned(), json!({"queries": [row]}))];
+    let mut pending = vec![("start".to_owned(), json!({"queries":[row]}))];
     let mut ran = 0;
     for _ in 0..=depth {
         let mut next_pending = Vec::new();
         for (name, input) in pending.drain(..) {
-            crate::contracts::validate("astSearch", input.clone())
+            crate::contracts::validate_built("astSearch", input.clone())
                 .unwrap_or_else(|error| panic!("lead {name} invalid {input}: {:?}", error.issues));
             for row in input["queries"].as_array().expect("rows") {
                 let query: AstSearchQuery = serde_json::from_value(row.clone()).expect("typed row");
@@ -42,7 +37,7 @@ fn follow(root: &std::path::Path, row: Value, depth: usize) -> usize {
                 match execute_ast(&query, &paths, &security, &NeverCancel, None) {
                     Ok(out) => {
                         assert!(out.get("errorCode").is_none(), "{name} -> {out}");
-                        next_pending.extend(leads(out.get("next")));
+                        next_pending.extend(leads(&out));
                     }
                     Err(error) => {
                         panic!("lead {name} {row} failed: {error:?}")
@@ -64,7 +59,7 @@ fn empty_language_lead_runs() {
     root.write("b.ts", "hit(2);\n");
     let ran = follow(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"python","pattern":"hit($A)"}),
+        json!({"operation":"match","path":root.0,"parser":"python","rule":{"pattern":"hit($A)"}}),
         2,
     );
     assert!(ran >= 1);
@@ -87,9 +82,10 @@ fn per_file_inference_covers_more_grammars_than_a_repair_batch() {
         std::fs::write(root.0.join(name), source).expect("source");
     }
     let (paths, security) = simple_policy(&root.0);
-    let query: AstSearchQuery =
-        serde_json::from_value(json!({"operation":"match","path":root.0,"pattern":"hit($A)"}))
-            .expect("row");
+    let query: AstSearchQuery = serde_json::from_value(
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}}),
+    )
+    .expect("row");
     let out =
         execute_ast(&query, &paths, &security, &NeverCancel, None).expect("per-file inference");
     assert_eq!(out["matchCount"], 8, "{out}");
@@ -115,15 +111,15 @@ fn every_lead_of_a_battery_of_calls_validates_and_runs() {
     let dir = root.0.to_string_lossy().into_owned();
     let file = root.0.join("f0.ts").to_string_lossy().into_owned();
     let rows = [
-        json!({"operation":"match","path":dir,"language":"typescript","pattern":"hit($A)","pageSize":2,"matchPageSize":3}),
-        json!({"operation":"match","path":dir,"language":"typescript","pattern":"hit($A)","maxFiles":2}),
-        json!({"operation":"match","path":dir,"language":"typescript","pattern":"hit($A)","captureText":false,"matchContentLength":4}),
-        json!({"operation":"match","path":dir,"language":"typescript","pattern":"nothing($A)"}),
-        json!({"operation":"match","path":dir,"language":"typescript","rule":{"pattern":"hit($A)"},"pageSize":1}),
-        json!({"operation":"symbols","path":dir,"pageSize":3}),
-        json!({"operation":"symbols","path":dir,"symbolName":"C1","maxFiles":2}),
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"},"maxFiles":2}),
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"},"includeCaptures":false}),
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"nothing($A)"}}),
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
+        json!({"operation":"symbols","path":dir}),
+        json!({"operation":"symbols","path":dir,"symbolFilter":{"terms":["C1"]},"maxFiles":2}),
         json!({"operation":"symbols","path":file}),
-        json!({"operation":"syntaxTree","path":file,"pageSize":5}),
+        json!({"operation":"syntaxTree","path":file}),
     ];
     for row in rows {
         follow(&root.0, row, 3);
@@ -145,7 +141,8 @@ fn leads_over_skipped_files_validate_and_find_them() {
         )
         .expect("source");
     }
-    let row = json!({"operation":"match","path":root.0,"language":"python","pattern":"hit($A)"});
+    let row =
+        json!({"operation":"match","path":root.0,"parser":"python","rule":{"pattern":"hit($A)"}});
     let ran = follow(&root.0, row, 2);
     assert!(ran >= 2, "the empty call and its lead both ran");
 }
@@ -172,14 +169,14 @@ fn skipped_hint_respects_the_query_include() {
     root.write("app.js", "function f() {}\n");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"include":[".github/**"],"language":"python",
-               "pattern":"class $N(Exception): $$$B"}),
+        json!({"operation":"match","path":root.0,"include":[".github/**"],"parser":"python","rule":{"pattern":"class $N(Exception): $$$B"}}),
     );
     let hint = out["hints"].to_string();
     assert!(hint.contains("hidden .github/"), "{hint}");
     assert!(!hint.contains(".spin"), "{hint}");
     assert!(out["next"].get("repair").is_none(), "{out}");
-    let lead = &out["next"]["includeSkipped"]["query"]["queries"][0];
+    let lead = &super::test_rows::skipped_call(&out)
+        .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"))["input"]["queries"][0];
     assert_eq!(lead["includeHidden"], json!(true), "{out}");
     assert_eq!(lead["include"], json!([".github/**"]), "{out}");
 }
@@ -195,18 +192,18 @@ fn skipped_files_outside_the_include_are_not_named() {
     root.write("src/b.js", "function b() {}\n");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"include":["src/**"],"language":"python","pattern":"def $N(): pass"}),
+        json!({"operation":"match","path":root.0,"include":["src/**"],"parser":"python","rule":{"pattern":"def $N(): pass"}}),
     );
     let hint = out["hints"][0].as_str().expect("hint");
     assert!(!hint.contains("skipped as"), "{hint}");
-    assert!(out["next"].get("includeSkipped").is_none(), "{out}");
+    assert!(super::test_rows::skipped_call(&out).is_none(), "{out}");
 }
 
 /// An empty match states what it searched as `filesScanned`, for a pattern
 /// and for a rule alike, with no hint repeating it (why a compiled query
-/// can match nothing is the tool description's); the shape is one
-/// `viewSyntax` lead away, even when the anchor prefilter skipped every file
-/// unparsed.
+/// can match nothing is the tool description's). No file spells the
+/// query's anchor (the prefilter skipped every one unparsed), so no file is
+/// a near miss: no syntax tree of an unrelated file is offered.
 #[test]
 fn an_empty_match_reports_the_files_it_parsed() {
     let root = Fixture::new();
@@ -214,10 +211,10 @@ fn an_empty_match_reports_the_files_it_parsed() {
         std::fs::write(root.0.join(name), "export const a = 1;\n").expect("source");
     }
     for query in [
-        json!({"pattern":"zzNoSuch($$$A)"}),
+        json!({"rule":{"pattern":"zzNoSuch($$$A)"}}),
         json!({"rule":{"pattern":"zzNoSuch($$$A)"}}),
     ] {
-        let mut row = json!({"operation":"match","path":root.0,"language":"typescript"});
+        let mut row = json!({"operation":"match","path":root.0,"parser":"typescript"});
         row.as_object_mut()
             .expect("object")
             .extend(query.as_object().expect("object").clone());
@@ -225,15 +222,40 @@ fn an_empty_match_reports_the_files_it_parsed() {
         assert_eq!(out["status"], "empty", "{out}");
         assert_eq!(out["filesScanned"], json!(3), "{out}");
         assert!(out.get("hints").is_none(), "{out}");
-        let tree = &out["next"]["viewSyntax"]["query"]["queries"][0];
-        assert_eq!(tree["operation"], "syntaxTree", "{out}");
-        assert!(
-            tree["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with("a.ts")),
-            "{out}"
-        );
+        assert!(out["next"].get("viewSyntax").is_none(), "{out}");
     }
+}
+
+/// The live miss (2026-10-24): `fn failure(..) -> $R {..}` over a directory
+/// with no function of that name led to page 1 of an unrelated file whose
+/// comment spelled `failure`. A declaration pattern with no declaration
+/// of its kind and name offers the rule listing its kind instead.
+#[test]
+fn an_empty_declaration_without_a_near_miss_broadens_to_its_kind() {
+    let root = Fixture::new();
+    root.write(
+        "a.rs",
+        "// failure modes
+fn other() -> u8 { 1 }
+",
+    );
+    root.write(
+        "b.rs",
+        "fn second(x: u8) -> u8 { x }
+",
+    );
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"fn failure($$$ARGS) -> $R { $$$BODY }"}}),
+    );
+    assert_eq!(out["status"], "empty", "{out}");
+    assert!(out["next"].get("viewSyntax").is_none(), "{out}");
+    let broaden = &crate::tools::test_support::checks::related_call(&out, "astSearch", |_| true)["input"]
+        ["queries"][0];
+    assert_eq!(broaden["rule"], json!({"kind":"function_item"}), "{out}");
+    assert!(broaden.get("pattern").is_none(), "{out}");
+    let listed = run(&root.0, broaden.clone());
+    assert_eq!(listed["matchCount"], 2, "{listed}");
 }
 
 /// An empty declaration pattern's syntax-tree lead opens a file holding a
@@ -246,10 +268,12 @@ fn an_empty_declaration_match_leads_to_a_tree_of_that_kind() {
     root.write("b.rs", "// one\nfn helper() -> u8 { 1 }\n");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"pattern":"fn $N() -> u128 { $$$ }"}),
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"fn $N() -> u128 { $$$ }"}}),
     );
     assert_eq!(out["status"], "empty", "{out}");
-    let tree = &out["next"]["viewSyntax"]["query"]["queries"][0];
+    let tree = &crate::tools::test_support::checks::related_call(&out, "astSearch", |input| {
+        input["queries"][0]["operation"] == "syntaxTree"
+    })["input"]["queries"][0];
     assert!(
         tree["path"]
             .as_str()
@@ -267,8 +291,7 @@ fn a_match_with_hits_names_the_skipped_walks_and_leads_to_them() {
     let root = Fixture::new();
     root.write("a.ts", "hit(1);\n");
     root.write("dist/b.ts", "hit(2);\n");
-    let request =
-        json!({"operation":"match","path":root.0,"language":"typescript","pattern":"hit($A)"});
+    let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
     let out = run(&root.0, request);
     assert_eq!(out["matchCount"], json!(1), "{out}");
     let hints = out["hints"].to_string();
@@ -276,14 +299,15 @@ fn a_match_with_hits_names_the_skipped_walks_and_leads_to_them() {
         hints.contains("1 typescript file behind skipped paths (dist/)"),
         "{hints}"
     );
-    let lead = &out["next"]["includeSkipped"];
+    let lead = &super::test_rows::skipped_call(&out)
+        .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"));
     assert_eq!(lead["tool"], "astSearch", "{out}");
-    let retry = &lead["query"]["queries"][0];
+    let retry = &lead["input"]["queries"][0];
     assert_eq!(retry["defaultExcludes"], json!(false), "{out}");
     let found = run(&root.0, retry.clone());
     assert_eq!(found["matchCount"], json!(2), "{found}");
     assert!(found.get("warnings").is_none(), "{found}");
-    assert!(found["next"].get("includeSkipped").is_none(), "{found}");
+    assert!(super::test_rows::skipped_call(&found).is_none(), "{found}");
 }
 
 /// Nothing skipped, nothing said: no notice and no lead beside the hits.
@@ -294,9 +318,9 @@ fn a_match_with_hits_and_nothing_skipped_has_no_skipped_notice() {
     root.write("dist/readme.md", "hit(2);\n");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"typescript","pattern":"hit($A)"}),
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
     );
     assert_eq!(out["matchCount"], json!(1), "{out}");
     assert!(out.get("warnings").is_none(), "{out}");
-    assert!(out["next"].get("includeSkipped").is_none(), "{out}");
+    assert!(super::test_rows::skipped_call(&out).is_none(), "{out}");
 }

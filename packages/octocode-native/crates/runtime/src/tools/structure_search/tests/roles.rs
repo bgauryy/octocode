@@ -16,7 +16,7 @@ fn sample(field: &str) -> Value {
         "access" => json!("executable"),
         "defaultExcludes" => json!(false),
         "empty" => json!(true),
-        "entryType" => json!("d"),
+        "entryType" => json!("directory"),
         "exclude" => json!(["sub"]),
         "extensions" => json!(["md"]),
         "include" => json!(["*.rs"]),
@@ -26,8 +26,8 @@ fn sample(field: &str) -> Value {
         "minDepth" => json!(2),
         "nameRegex" => json!("^b"),
         "permissions" => json!("600"),
-        "size" => json!({"greater": "1k"}),
-        "time" => json!({"modifiedBefore": "1d"}),
+        "sizeBytes" => json!({"min":1024}),
+        "modifiedAt" | "accessedAt" => json!({"to":"2020-01-01T00:00:00Z"}),
         other => {
             panic!("core gave {other} a listing role: apply it to the walk, then name a value here")
         }
@@ -36,17 +36,14 @@ fn sample(field: &str) -> Value {
 
 /// The operations whose query variant declares `field`.
 fn operations_of(field: &str) -> Vec<&'static str> {
-    let contract = crate::contracts::tool_contract(crate::id::ToolId::StructureSearch)
-        .expect("structureSearch contract");
-    contract["querySchema"]["anyOf"]
-        .as_array()
-        .expect("query variants")
-        .iter()
-        .filter(|variant| variant["properties"].get(field).is_some())
-        .map(|variant| {
-            variant["properties"]["operation"]["const"]
-                .as_str()
-                .expect("operation")
+    ["tree", "files"]
+        .into_iter()
+        .filter(|operation| {
+            crate::contracts::validate_query(
+                "structureSearch",
+                json!({"operation":operation,"path":".",field:sample(field)}),
+            )
+            .is_ok()
         })
         .collect()
 }
@@ -114,6 +111,9 @@ fn the_walk_identity_is_the_listing_fields_and_no_window_field() {
     let root = std::path::Path::new("/listed");
     let identity = |operation: &str, changes: Value| {
         let mut row = json!({"operation": operation, "path": "."});
+        if operation == "tree" {
+            row["maxDepth"] = json!(3);
+        }
         for (field, value) in changes.as_object().expect("changes") {
             row[field] = value.clone();
         }
@@ -139,14 +139,10 @@ fn the_walk_identity_is_the_listing_fields_and_no_window_field() {
     }
     for (field, value) in [
         ("page", json!(2)),
-        ("pageSize", json!(5)),
         ("snapshot", json!("a".repeat(64))),
         ("scanOffset", json!(3)),
         ("walkOffset", json!(4)),
         ("maxEntries", json!(7)),
-        ("extras", json!(["details"])),
-        ("mainGoal", json!("goal")),
-        ("reasoning", json!("why")),
     ] {
         for operation in ["tree", "files"] {
             assert_eq!(
@@ -158,6 +154,6 @@ fn the_walk_identity_is_the_listing_fields_and_no_window_field() {
     }
     assert_eq!(
         identity("files", json!({})),
-        identity("files", json!({"sort": "size"}))
+        identity("files", json!({"sort":{"by":"sizeBytes","order":"desc"}}))
     );
 }

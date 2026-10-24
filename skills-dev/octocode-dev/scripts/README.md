@@ -20,7 +20,7 @@ Root automation for the Octocode monorepo. Call a script directly only for a fla
 | [check-research-guidance.mjs](check-research-guidance.mjs) | Validates every `octocode` example in `skills/octocode-research` (JSON `{tool,query}` blocks and CLI lines) against the live tool schemas; needs the built CLI. | Last step of `dev.mjs verify`; `node skills-dev/octocode-dev/scripts/check-research-guidance.mjs [--self-test]` |
 
 | [artifact-freshness.mjs](artifact-freshness.mjs) | Checks the embedded version and contract fingerprint of staged native artifacts. | Imported by workspace health; tests: [artifact-freshness.test.mjs](artifact-freshness.test.mjs) |
-| [brew-formula.mjs](brew-formula.mjs) | Renders the Homebrew formula from published npm platform payloads. | `node skills-dev/octocode-dev/scripts/dev.mjs brew:formula [version] [--out FILE]` |
+| [brew-formula.mjs](brew-formula.mjs) | Renders the Homebrew formula from published npm platform payloads. | `node skills-dev/octocode-dev/scripts/dev.mjs brew:formula [version] [--out FILE]`; [smoke-query regression](brew-formula.test.mjs) executes the generated request against the built CLI during `dev.mjs verify` |
 | [rust-quality.mjs](rust-quality.mjs) | Opt-in Rust quality tools from `packages/octocode-native/dev-tools.json`: pinned-version inventory, `pins <tool...>` (the `name@version` list every CI install reads), libFuzzer campaigns, the selected Miri tests, cargo-llvm-lines. Never installs anything. | `dev.mjs rust:tools`, `fuzz:smoke`, `fuzz`, `miri`, `llvm-lines`; tests: [rust-quality.test.mjs](rust-quality.test.mjs) |
 
 Shared script support: [entry-point detection](lib/entrypoint.mjs) preserves invocation through installed skill symlinks.

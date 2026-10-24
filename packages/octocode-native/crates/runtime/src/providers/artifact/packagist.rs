@@ -4,11 +4,9 @@ use super::util::{
     commit_sha, coordinate_path, date_prefix, keyword_rows, keyword_url, license, object_for,
     parse_url, repository_url, required, safe_url, string, total,
 };
-use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactType,
-};
-use crate::providers::artifact::types::artifact_search_query;
+use super::{ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState};
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType};
 use serde_json::Value;
 
 fn composer(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
@@ -126,8 +124,9 @@ fn packagist_entries<'a>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::query::exact_query;
     use super::super::test_http::RouteHttp;
-    use super::super::types::{exact_query, test_budget};
+    use super::super::test_http::test_budget;
     use super::*;
 
     use serde_json::json;

@@ -38,7 +38,8 @@ mod diagnostics;
 mod hierarchy;
 mod lookups;
 mod references;
-pub(super) use diagnostics::*;
+use diagnostics::{RUST_MACRO_NOTE, anchor_diagnostics};
+pub(super) use diagnostics::{dedupe_diagnostics, diagnostic_items, disabled_macro_diagnostics};
 use lookups::*;
 
 /// Label for references found from a verified importer anchor.
@@ -133,8 +134,10 @@ fn mark_scan_answer(
         &[heritage::describe_unread(&unread)],
     );
     if let Some(base) = lsp_search_query::symbol_name(query) {
-        row["next"]["findText"] =
-            text_search_lead(base, &scope.root, &scope.include, Some(&unread)).build();
+        crate::response::result::attach_related(
+            row,
+            text_search_lead(base, &scope.root, &scope.include, Some(&unread)).build(),
+        );
     }
 }
 

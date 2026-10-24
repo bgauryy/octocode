@@ -20,7 +20,8 @@ fn root_help_lists_only_available_tools() {
     assert!(own.status.success(), "{}", stderr(&own));
     // JSON only: no positional fields to point at, no trailing space.
     let own = stdout(&own);
-    assert!(own.contains("Usage: octocode clasify [OPTIONS]\n"), "{own}");
+    assert!(own.contains("{\"queries\":[…]}"), "{own}");
+    assert!(own.contains("{\"cursor\":\"…\"}"), "{own}");
     assert!(!own.contains("positional fields"), "{own}");
 }
 
@@ -94,7 +95,7 @@ fn help_lists_only_the_minimal_command_surface() {
 }
 
 #[test]
-fn tool_help_uses_canonical_core_short_descriptions() {
+fn tool_help_uses_canonical_core_titles() {
     let workspace = Workspace::new();
     let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
     let root = all_tools_enabled(workspace.cli().arg("--help"))
@@ -139,13 +140,11 @@ fn tool_help_uses_canonical_core_short_descriptions() {
         .filter(|tool| tool["disabled"] != true)
     {
         let name = tool["name"].as_str().expect("tool name");
-        let description = tool["shortDescription"]
-            .as_str()
-            .expect("core short description");
-        assert!(!description.is_empty());
+        let title = tool["title"].as_str().expect("core title");
+        assert!(!title.is_empty());
         assert!(
-            root_text.contains(description),
-            "missing canonical {name} description in root help"
+            root_text.contains(title),
+            "missing canonical {name} title in root help"
         );
         for flag in ["-h", "--help"] {
             let output = workspace
@@ -158,7 +157,7 @@ fn tool_help_uses_canonical_core_short_descriptions() {
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ");
-            assert!(text.contains(description), "{name} {flag}: {text}");
+            assert!(text.contains(title), "{name} {flag}: {text}");
             assert_eq!(
                 text.contains("Beta, disabled by default (set OCTOCODE_BETA=true"),
                 tool["beta"] == true,

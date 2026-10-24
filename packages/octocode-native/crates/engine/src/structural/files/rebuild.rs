@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use super::file_scan::read_source;
-use crate::error::{Error, Result as EngineResult};
+use crate::error::{Error, Result};
 use crate::structural::types::{StructuralDetailedMatch, StructuralDiagnostic};
 use crate::text::{Decoding, admit};
 
@@ -45,7 +45,7 @@ pub fn file_matches(
     rule: Option<&serde_json::Value>,
     source_sha256: &str,
     max_file_bytes: u64,
-) -> EngineResult<Rebuilt> {
+) -> Result<Rebuilt> {
     std::panic::catch_unwind(|| {
         let Ok(bytes) = read_source(path, max_file_bytes) else {
             return Rebuilt::Changed;

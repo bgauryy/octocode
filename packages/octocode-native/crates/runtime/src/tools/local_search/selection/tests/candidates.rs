@@ -2,6 +2,7 @@
 //! windows, and an exact glob.
 
 use super::*;
+use octocode_contract_types::LocalSearchQuery;
 
 /// A candidate names the declaration around each hit, so a predicate
 /// about scope can be judged.
@@ -29,8 +30,8 @@ fn candidates_carry_the_enclosing_declaration() {
     )
     .expect("a");
     let query: LocalSearchQuery = serde_json::from_value(json!({"path": root.path(),
-            "matchString": "needle", "contextLines": 0,
-            "clasifyContext": {"classifiers": ["Is this test code?"]}}))
+            "matchString": ["needle"], "contextLines": {"before":0,"after":0},
+            "classification": {"predicates": ["Is this test code?"]}}))
     .expect("query");
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let judge = std::sync::Arc::new(Capture(std::sync::Mutex::new(Vec::new())));

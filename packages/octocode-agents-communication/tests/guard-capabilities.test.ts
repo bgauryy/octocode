@@ -10,7 +10,7 @@ test('message hook previews report absent guard separately from consumable host 
     const result = spawnSync(binary, ['host-config', '--vendor', vendor, '--workspace', workspace, '--database', database], {encoding: 'utf8'});
     assert.equal(result.status, 0, result.stderr);
     const config = JSON.parse(result.stdout), guard = JSON.parse(result.stderr);
-    assert.ok(config.hooks);
+    assert.match(JSON.stringify(config.hooks), /host-hook/, 'every preview wires the host-hook command');
     assert.equal(config.leaseGuard, undefined, 'No unsupported keys leak into native host settings');
     assert.equal(guard.type, 'leaseGuard');
     assert.equal(guard.vendor, vendor);

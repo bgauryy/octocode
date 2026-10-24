@@ -1,21 +1,19 @@
 //! `operation:"refs"` (branches and tags) and `operation:"languages"`.
 use super::*;
 use crate::response::paging::push_warnings;
-use octocode_contract_types::ExtraKind;
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{NamedRef, RefKind, RefMatch};
 
-/// Refs per page when `pageSize` is omitted (contract
-/// `ghStructure.semanticPolicy.refsPageSize`, GitHub's page maximum).
+/// Refs per provider page, set by the core refs-page policy and bounded
+/// by GitHub's protocol maximum.
 const DEFAULT_REFS_PER_PAGE: usize = crate::id::gh_structure_policy::REFS_PAGE_SIZE;
 const _: () = assert!(DEFAULT_REFS_PER_PAGE <= MAX_PER_PAGE);
 
-/// The default branch and its head commit, and one page of tag names,
-/// newest version first ([`super::tag_order`]); with
-/// `extras: ["details"]` also the same page of branches (`{name: sha}`),
-/// read only when asked. A page continues while a listed kind has more, so
-/// every listed tag (and branch) is named exactly once. A tag name is
-/// itself a ref, so tags carry no SHA. With `ref`: that ref's commit and its `refKind` only.
+/// The default branch and its head commit, one page of branches
+/// (`{name: sha}`), and tags ordered newest version first ([`super::tag_order`]).
+/// Saved cursor progress continues while either list has more. Tags carry
+/// names because each name is already a ref. With `ref`, return only that
+/// ref's commit and `refKind`.
 pub(super) async fn refs(
     provider: &GitHubProvider,
     query: &GhStructureQueryRefs,
@@ -75,22 +73,10 @@ pub(super) async fn refs(
         return Ok(ToolData::from(value));
     }
     let page = query.page.map_or(1, crate::num::usize_of);
-    let requested = query.page_size.map_or(DEFAULT_REFS_PER_PAGE, |size| {
-        crate::num::usize_of(size.get())
-    });
-    let per_page = requested.clamp(1, MAX_PER_PAGE);
-    let with_branches = query.extras.contains(&ExtraKind::Details);
+    let per_page = DEFAULT_REFS_PER_PAGE;
     let transport = &provider.transport;
-    let branches = async {
-        if with_branches {
-            transport
-                .repository_refs(owner, repo, RefKind::Branches, page, per_page, context)
-                .await
-                .map(Some)
-        } else {
-            Ok(None)
-        }
-    };
+    let branches =
+        transport.repository_refs(owner, repo, RefKind::Branches, page, per_page, context);
     let (default_branch, head, branches, tags) = tokio::try_join!(
         default_branch(provider, owner, repo, context),
         provider.resolve_reference(owner, repo, None, false, context),
@@ -122,35 +108,10 @@ pub(super) async fn refs(
     if let Some(warning) = renamed_warning {
         push_warning_front(&mut value, warning);
     }
-    // The rows a lead or the next page copies: from page 1, and with the
-    // size GitHub reads, so a clamped `pageSize` warns on this call only.
+    // Copy the semantic request before adding the next saved page position.
     let mut continued = query_row(query, &["page"]);
-    if requested > per_page {
-        push_warnings(
-            &mut value,
-            [format!(
-                "pageSize {requested} reads as {MAX_PER_PAGE}, GitHub's ref page."
-            )],
-        );
-        continued["pageSize"] = json!(per_page);
-    }
-    // A page past the last lists no ref of any listed kind: the shared
-    // response stage words it and restarts from page 1.
-    let past_end = page > 1
-        && tags.names.is_empty()
-        && branches
-            .as_ref()
-            .is_none_or(|branches| branches.refs.is_empty());
-    if !with_branches && !past_end {
-        // Branches are read only when asked, from their first page: the
-        // lead adds the extra that asks for them to the caller's own.
-        let mut listed = continued.clone();
-        let mut extras = query.extras.clone();
-        extras.push(ExtraKind::Details);
-        listed["extras"] = json!(extras);
-        value["next"]["viewRefs"] = continuation(listed);
-    }
-    if let Some(branches) = &branches {
+    let past_end = page > 1 && tags.names.is_empty() && branches.refs.is_empty();
+    {
         // `{name: sha}`: one key per branch instead of repeated `name`/`sha` keys.
         value["branches"] = Value::Object(
             branches
@@ -160,7 +121,7 @@ pub(super) async fn refs(
                 .collect(),
         );
     }
-    let more = tags.has_more || branches.as_ref().is_some_and(|branches| branches.has_more);
+    let more = tags.has_more || branches.has_more;
     let pages = crate::response::pages::PageFacts::open(page, Some(per_page), more && !past_end);
     if past_end {
         value["pagination"] = pages.out_of_range(true).to_value();
@@ -173,14 +134,15 @@ pub(super) async fn refs(
             "page",
             page + 1,
         ) {
-            // `pageSize` rides along only when the caller set it.
+            // The central continuation store seals this private page position.
             continued["page"] = json!(next_page);
-            value["next"]["nextPage"] = continuation(continued);
+            value["calls"]["nextPage"] = continuation(continued);
         }
     } else if page > 1 {
         // The last page of a paged listing says it is the last.
         value["pagination"] = pages.to_value();
     }
+    crate::tools::gh_shared::finish_calls(&mut value);
     Ok(ToolData::from(value))
 }
 
@@ -257,5 +219,6 @@ pub(super) async fn languages(
     {
         push_warning_front(&mut value, warning);
     }
+    crate::tools::gh_shared::finish_calls(&mut value);
     Ok(ToolData::from(value))
 }

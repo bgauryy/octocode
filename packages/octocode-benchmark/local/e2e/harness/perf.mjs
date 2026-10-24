@@ -6,7 +6,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { REPOS, ROOT, checks, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, ROOT } from './paths.mjs';
+import { checks, startServer, writeResults } from './mcp-client.mjs';
+import { rowData } from './responses.mjs';
 
 const { check, summary } = checks('perf');
 const client = await startServer({ env: { OCTOCODE_BETA: '1' } });

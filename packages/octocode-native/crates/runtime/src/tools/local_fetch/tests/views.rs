@@ -1,8 +1,9 @@
 //! Standard and minified views cite and page in source lines.
 
 use super::*;
+use octocode_contract_types::ReadProgressUnit;
 
-/// `minify:"standard"` keeps the citation gutter: every kept line opens
+/// `view:"compact"` keeps the citation gutter: every kept line opens
 /// with its own source line number and a tab; comments and blank lines
 /// the view drops leave gaps in the numbers, never a wrong number.
 #[test]
@@ -16,7 +17,7 @@ fn standard_view_lines_cite_their_source_lines() {
         )
         .expect("fixture");
     let read = |fields: serde_json::Value| fetch(&qj(&p, fields), &paths).content.expect("content");
-    let content = read(serde_json::json!({"minify":"standard"}));
+    let content = read(serde_json::json!({"view":"compact"}));
     let source = fs::read_to_string(&p).expect("source");
     let squash = |text: &str| {
         text.chars()
@@ -39,7 +40,7 @@ fn standard_view_lines_cite_their_source_lines() {
     assert_eq!(numbers.first(), Some(&3), "{content:?}");
     assert!(numbers.contains(&8), "{content:?}");
     // A line window keeps the window's own numbers.
-    let window = read(serde_json::json!({"minify":"standard","ranges": ["7-9"]}));
+    let window = read(serde_json::json!({"view":"compact","ranges":[{"startLine":7,"endLine":9}]}));
     assert!(window.starts_with("7\t"), "{window:?}");
     assert!(
         window.lines().last().is_some_and(|l| l.starts_with("9\t")),
@@ -60,7 +61,7 @@ fn minified_views_page_in_raw_source_lines() {
     // A kept view over the response window is cut to a bounded first page.
     // Every page re-minifies the whole file, so the view stays near the
     // window (a quarter over, for the bytes minifying trims from each line).
-    let window = 2 * crate::tools::source_view::LINE_PAGE_BYTES;
+    let window = 2 * crate::tools::source_view::pagination::LINE_PAGE_BYTES;
     let kept_line = |group: usize| format!("{}\texport const value{group} = {group};\n", group * 3);
     let (mut groups, mut kept_bytes) = (0, 0);
     while kept_bytes <= window + window / 4 {
@@ -73,19 +74,16 @@ fn minified_views_page_in_raw_source_lines() {
     fs::write(&p, &source).expect("fixture");
     let raw_total = groups * 3;
     let kept: Vec<usize> = (1..=groups).map(|n| n * 3).collect();
-    for first in [
-        // A line page that is no multiple of the three-line group cuts groups.
-        serde_json::json!({"minify":"standard","unit":"lines","length":100}),
-        serde_json::json!({"minify":"standard","fullContent":true}),
-    ] {
+    for budget in [800, window] {
+        let first = serde_json::json!({"view":"compact"});
         let mut query = qj(&p, first.clone());
         let (mut expected_offset, mut shown, mut pages) = (0, Vec::new(), 0);
         for _ in 0..1_000 {
             pages += 1;
-            let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(window), None);
+            let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(budget), None);
             assert_eq!(page.total_lines, Some(raw_total), "{first}");
             let pagination = page.pagination.clone().expect("paged");
-            assert_eq!(pagination.unit, WindowUnit::Lines, "{first}");
+            assert_eq!(pagination.unit, ReadProgressUnit::Lines, "{first}");
             assert_eq!(pagination.total_lines, raw_total, "{first} {pagination:?}");
             assert_eq!(pagination.offset, expected_offset, "{first} {pagination:?}");
             let span = pagination.offset + 1..=pagination.offset + pagination.length;
@@ -120,7 +118,7 @@ fn minified_views_page_in_raw_source_lines() {
     }
 }
 
-/// `minify:"standard"` pages in the lines a raw read of the same selection
+/// `view:"compact"` pages in the lines a raw read of the same selection
 /// pages in: the extracted lines of a `ranges` read, as the source lines
 /// of a whole-file read.
 #[test]
@@ -140,7 +138,7 @@ fn a_standard_view_of_ranges_pages_in_the_extracted_lines() {
     let r = fetch(
         &qj(
             &p,
-            serde_json::json!({"ranges": ["13-20"], "minify": "standard", "offset": 2, "length": 3}),
+            serde_json::json!({"ranges":[{"startLine":13,"endLine":20}], "view": "compact", "readProgress":{"unit":"lines","offset":2}}),
         ),
         &Paths(t.0.clone()),
     );
@@ -170,7 +168,7 @@ fn a_minified_read_of_only_comments_leads_to_the_read_as_is() {
     fs::write(&p, &source).expect("fixture");
     let query = qj(
         &p,
-        serde_json::json!({"minify":"standard","ranges":["1-4"]}),
+        serde_json::json!({"view":"compact","ranges":[{"startLine":1,"endLine":4}]}),
     );
     let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
     assert_eq!(page.status, ReadStatus::Empty, "{page:?}");
@@ -178,7 +176,7 @@ fn a_minified_read_of_only_comments_leads_to_the_read_as_is() {
     assert!(
         page.hints
             .iter()
-            .any(|hint| hint.contains("minify removed")),
+            .any(|hint| hint.contains("compact view removed")),
         "{:?}",
         page.hints
     );
@@ -187,7 +185,10 @@ fn a_minified_read_of_only_comments_leads_to_the_read_as_is() {
         .as_ref()
         .and_then(|next| next.read.clone())
         .expect("read");
-    assert_eq!(read.query.minify, None);
+    assert_eq!(
+        local_fetch_query::view(&read.query),
+        octocode_contract_types::ReadView::Content
+    );
     let raw = execute_local_fetch(&read.query, &paths, &Safe, &NeverCancel, None, None);
     assert!(
         raw.content

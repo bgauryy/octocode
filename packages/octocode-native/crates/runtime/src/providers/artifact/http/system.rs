@@ -308,3 +308,6 @@ fn transport_error(_error: impl fmt::Display) -> ArtifactError {
         "Artifact registry request failed. Retry later.",
     )
 }
+
+#[cfg(test)]
+mod tests;

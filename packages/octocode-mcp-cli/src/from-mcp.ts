@@ -134,20 +134,12 @@ function asProtocol(client: Client): McpClientLike {
   };
 }
 
-function uniqueToken(name: string, used: Set<string>): { token: string; aliased: boolean } {
+function uniqueToken(name: string, used: Set<string>): string {
   const first = commandToken(name);
-  if (!used.has(first.token)) {
-    used.add(first.token);
-    return first;
-  }
-  let index = 2;
-  let token = `${first.token}-${index}`;
-  while (used.has(token)) {
-    index += 1;
-    token = `${first.token}-${index}`;
-  }
+  let token = first;
+  for (let index = 2; used.has(token); index += 1) token = `${first}-${index}`;
   used.add(token);
-  return { token, aliased: true };
+  return token;
 }
 
 export async function cliFromMcp(client: Client | McpClientLike): Promise<CliSpec> {
@@ -176,19 +168,19 @@ async function cliFromProtocol(client: McpClientLike): Promise<CliSpec> {
 
   const used = new Set<string>();
   const commands = tools.map(tool => {
-    const named = uniqueToken(tool.name, used);
+    const token = uniqueToken(tool.name, used);
     const inputSchema = tool.inputSchema ?? { type: 'object', properties: {} };
     const annotations = annotationsOf(tool.annotations);
     const title = stringField(tool.title) ?? stringField(annotations?.title);
     return defineCommand({
-      name: named.token,
+      name: token,
       description: tool.description ?? '',
       ...(title ? { title } : {}),
       source: 'mcp',
       inputSchema,
       ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
       ...(annotations ? { annotations } : {}),
-      ...(named.token !== tool.name ? { mcpName: tool.name } : {}),
+      ...(token !== tool.name ? { mcpName: tool.name } : {}),
       run: input => callNamedTool(client, tool.name, input),
     });
   });

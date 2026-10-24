@@ -74,7 +74,7 @@ pub(in crate::tools::gh_get_history_item) fn distinctive_added_lines(patch: &str
 /// diff numbers it. A pure addition (`-a,0`) has no old-side lines. A whole
 /// hunk that opens with the diff's context but ends with less reaches the
 /// end of the file, so its span is not padded past it.
-pub(in crate::tools::gh_get_history_item) fn parent_windows(patch: &str) -> Vec<String> {
+pub(in crate::tools::gh_get_history_item) fn parent_windows(patch: &str) -> Vec<(usize, usize)> {
     let mark = '-';
     let mut spans: Vec<(usize, usize)> = Vec::new();
     let mut lines = patch.lines().peekable();
@@ -119,7 +119,4 @@ pub(in crate::tools::gh_get_history_item) fn parent_windows(patch: &str) -> Vec<
         spans.remove(closest);
     }
     spans
-        .into_iter()
-        .map(|(start, end)| format!("{start}-{end}"))
-        .collect()
 }

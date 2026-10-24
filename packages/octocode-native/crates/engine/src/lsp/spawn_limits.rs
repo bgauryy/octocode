@@ -24,11 +24,12 @@
 use std::sync::Arc;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::time::Duration;
 use tokio::process::Command;
 
 /// How often the RSS watchdog samples a language-server tree.
-#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))] // Wired on macOS and Linux only.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const MEMORY_WATCHDOG_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Floor of the default cap (4 GiB): large enough for heavyweight servers
@@ -138,7 +139,7 @@ pub(crate) fn apply_pre_spawn_cap(command: &mut Command, cap_bytes: u64) {
 pub(crate) fn apply_pre_spawn_cap(_command: &mut Command, _cap_bytes: u64) {}
 
 /// Error text for a server killed by the memory watchdog.
-#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))] // Wired on macOS and Linux only.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn memory_cap_exceeded_message(rss_bytes: u64, cap_bytes: u64) -> String {
     format!(
         "language server exceeded memory cap ({} MiB resident > {} MiB); it was killed.",

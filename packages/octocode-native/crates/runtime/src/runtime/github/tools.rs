@@ -13,7 +13,10 @@ use crate::{
         gh_search_repo, gh_structure,
     },
 };
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{
+    ErrorCode, GhCloneRepoQuery, GhGetFileContentQuery, GhSearchCodeQuery, GhSearchRepoQuery,
+    GhStructureQuery,
+};
 use octocode_github::{ProviderError, RequestContext};
 use serde_json::Value;
 
@@ -42,19 +45,19 @@ impl GitHubServices {
         let request = request.map_err(Clone::clone);
         let row = match tool {
             GitHubTool::GhSearchRepo => {
-                let query = typed!(gh_search_repo::GhSearchRepoQuery);
+                let query = typed!(GhSearchRepoQuery);
                 tool_row(gh_search_repo::run(&self.provider, &query, request).await)
             }
             GitHubTool::GhSearchCode => {
-                let query = typed!(gh_search_code::GhSearchCodeQuery);
+                let query = typed!(GhSearchCodeQuery);
                 tool_row(gh_search_code::run(&self.provider, &query, request, security).await)
             }
             GitHubTool::GhStructure => {
-                let query = typed!(gh_structure::GhStructureQuery);
+                let query = typed!(GhStructureQuery);
                 tool_row(gh_structure::run(&self.provider, &query, request, &self.home).await)
             }
             GitHubTool::GhGetFileContent => {
-                let query = typed!(gh_get_file_content::GhGetFileContentQuery);
+                let query = typed!(GhGetFileContentQuery);
                 let shaping = gh_get_file_content::Shaping {
                     security: security.clone(),
                     memo: self.sanitized_views.clone(),
@@ -78,7 +81,7 @@ impl GitHubServices {
                 }
             }
             GitHubTool::GhCloneRepo => {
-                let query = typed!(gh_clone_repo::GhCloneRepoQuery);
+                let query = typed!(GhCloneRepoQuery);
                 self.run_clone(&query, request, context, paths).await
             }
             GitHubTool::GhGetHistoryItem => match request {
@@ -119,7 +122,7 @@ impl GitHubServices {
     /// root and derives the clone, lock, stage and git-home dirs.
     async fn run_clone(
         &self,
-        query: &gh_clone_repo::GhCloneRepoQuery,
+        query: &GhCloneRepoQuery,
         request: Result<&RequestContext, ProviderError>,
         context: &ExecutionContext,
         paths: &PathPolicy,
@@ -155,7 +158,7 @@ impl GitHubServices {
                     error.code,
                     error.message,
                     error.hints,
-                    error.next.map(|next| *next),
+                    error.calls.map(|calls| *calls),
                     upstream,
                 )
             }
@@ -179,7 +182,7 @@ impl GitHubServices {
         context.check()?;
         Ok(match result {
             Ok(data) => crate::runtime::dispatch::value_result(data),
-            Err(failure) => history_error(*failure.error, true, failure.next),
+            Err(failure) => history_error(*failure.error, true, failure.calls),
         })
     }
 }

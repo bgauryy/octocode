@@ -229,14 +229,17 @@ const CODE_EXTENSIONS: &[&str] = &[
 fn basename(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or("")
 }
-fn extension(name: &str) -> &str {
-    name.rfind('.')
-        .filter(|&i| i > 0)
-        .map_or("", |i| &name[i..])
-}
+/// Whether `name`'s extension is one of `values` (each with its dot), in
+/// any case. A bare dotfile (`.env`) is a name with no extension.
 fn extension_is(name: &str, values: &[&str]) -> bool {
-    let ext = extension(name);
-    values.iter().any(|value| ext.eq_ignore_ascii_case(value))
+    let bare_dotfile = name
+        .strip_prefix('.')
+        .is_some_and(|rest| !rest.contains('.'));
+    let ext = octocode_engine::text::extension_of(name, true, "");
+    !bare_dotfile
+        && values
+            .iter()
+            .any(|value| value.strip_prefix('.') == Some(ext.as_str()))
 }
 fn wrapped_pattern(name: &str, stem: &str) -> bool {
     name == stem || name.starts_with(&format!("{stem}."))
@@ -278,13 +281,7 @@ fn is_doc(name: &str) -> bool {
     if extension_is(name, CODE_EXTENSIONS) || extension_is(name, CONFIG_EXTENSIONS) {
         return false;
     }
-    let ext = extension(name);
-    let stem = if ext.is_empty() {
-        name
-    } else {
-        &name[..name.len() - ext.len()]
-    };
-    let lowered = stem.to_ascii_lowercase();
+    let lowered = name.to_ascii_lowercase();
     let stem = lowered.split('.').next().unwrap_or(&lowered);
     let base = stem.split(['-', '_', '.']).next().unwrap_or(stem);
     DOC_NAMES.contains(&stem) || DOC_NAMES.contains(&base)

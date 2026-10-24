@@ -9,20 +9,20 @@ impl ToolId {
     #[must_use]
     pub(crate) fn output(self) -> &'static dyn ToolOutput {
         match self {
-            ToolId::LocalSearch => &crate::tools::local_search::Output,
-            ToolId::LocalFetch => &crate::tools::local_fetch::Output,
-            ToolId::StructureSearch => &crate::tools::structure_search::Output,
-            ToolId::AstSearch => &crate::tools::ast_search::Output,
-            ToolId::LspSearch => &crate::tools::lsp_search::Output,
-            ToolId::GhSearchRepo => &crate::tools::gh_search_repo::Output,
-            ToolId::GhSearchCode => &crate::tools::gh_search_code::Output,
-            ToolId::GhStructure => &crate::tools::gh_structure::Output,
-            ToolId::GhGetFileContent => &crate::tools::gh_get_file_content::Output,
-            ToolId::GhCloneRepo => &crate::tools::gh_clone_repo::Output,
-            ToolId::GhSearchHistory => &crate::tools::gh_search_history::Output,
-            ToolId::GhGetHistoryItem => &crate::tools::gh_get_history_item::Output,
-            ToolId::ArtifactSearch => &crate::tools::artifact_search::Output,
-            ToolId::Clasify => &crate::tools::clasify::Output,
+            Self::LocalSearch => &crate::tools::local_search::Output,
+            Self::LocalFetch => &crate::tools::local_fetch::Output,
+            Self::StructureSearch => &crate::tools::structure_search::Output,
+            Self::AstSearch => &crate::tools::ast_search::Output,
+            Self::LspSearch => &crate::tools::lsp_search::Output,
+            Self::GhSearchRepo => &crate::tools::gh_search_repo::Output,
+            Self::GhSearchCode => &crate::tools::gh_search_code::Output,
+            Self::GhStructure => &crate::tools::gh_structure::Output,
+            Self::GhGetFileContent => &crate::tools::gh_get_file_content::Output,
+            Self::GhCloneRepo => &crate::tools::gh_clone_repo::Output,
+            Self::GhSearchHistory => &crate::tools::gh_search_history::Output,
+            Self::GhGetHistoryItem => &crate::tools::gh_get_history_item::Output,
+            Self::ArtifactSearch => &crate::tools::artifact_search::Output,
+            Self::Clasify => &crate::tools::clasify::Output,
         }
     }
 }

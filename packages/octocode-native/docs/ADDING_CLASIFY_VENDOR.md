@@ -2,7 +2,7 @@
 
 The classification transport, batching, cache, endpoint gate, and source capture are vendor-agnostic. One provider (Jev) is built in and no setting selects it. A second vendor needs one new trait implementation and a setting that chooses between the two; nothing else changes.
 
-Reference implementation: [`jev.rs`](../crates/runtime/src/providers/classification/jev.rs). The trait and each method's contract: [`mod.rs`](../crates/runtime/src/providers/classification/mod.rs).
+Reference implementation: [`jev.rs`](../crates/runtime/src/providers/classification/jev.rs). The trait and each method's contract: [`classification.rs`](../crates/runtime/src/providers/classification.rs).
 
 ## 1. Implement the provider
 
@@ -18,11 +18,11 @@ Create `crates/runtime/src/providers/classification/<vendor>.rs` with a static v
 
 Validation failures are `ProviderContractError`s: `request: true` marks a request-side violation, and vendor names never reach the public error codes.
 
-Register it with `pub mod <vendor>;` in `providers/classification/mod.rs`.
+Register it with `pub mod <vendor>;` in `providers/classification.rs`.
 
 ## 2. Add a selection setting
 
-`provider()` in `mod.rs` returns the one built-in provider. Declare an `enum` field (for example `classification.vendor`) with both vendor ids in `packages/octocode-config/config-contract.json`, then run `yarn workspace @octocodeai/config generate:config-contract`. The native build generates a Rust enum for it; `provider()` matches on that enum with no default arm, so an unknown value is impossible by construction. Don't reuse `classification.type`: it stays under `removed` in the contract. Adding a setting: [ADDING_CONFIG.md](../../../skills-dev/octocode-dev/docs/ADDING_CONFIG.md).
+`provider()` in `classification.rs` returns the one built-in provider. Declare an `enum` field (for example `classification.vendor`) with both vendor ids in `packages/octocode-config/config-contract.json`, then run `yarn workspace @octocodeai/config generate:config-contract`. The native build generates a Rust enum for it; `provider()` matches on that enum with no default arm, so an unknown value is impossible by construction. Don't reuse `classification.type`: it stays under `removed` in the contract. Adding a setting: [ADDING_CONFIG.md](../../../skills-dev/octocode-dev/docs/ADDING_CONFIG.md).
 
 ## 3. Test it
 
@@ -37,4 +37,4 @@ Add an integration test that runs `clasify` against a mock of the vendor API; `c
 | Judgment cache | `tools/judgment/cache.rs` |
 | Per-endpoint concurrency gate | `providers/classification/gate.rs` |
 | Source capture (files, GitHub, URLs, images) | `tools/source_capture/` |
-| The `clasify` tool | `tools/clasify/mod.rs` |
+| The `clasify` tool | `tools/clasify.rs` |

@@ -27,7 +27,7 @@ pub(in crate::tools::gh_get_history_item) struct PatchPage {
     pub(in crate::tools::gh_get_history_item) stream: SpanFacts,
     /// Files this window starts whose `matchString` context the hunks cut
     /// short (no head text), with the new-side windows they wanted.
-    pub(in crate::tools::gh_get_history_item) clipped: Vec<(String, Vec<String>)>,
+    pub(in crate::tools::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
 }
 
 /// Shape a page of changed files. Patches are packed whole, in file order,
@@ -74,15 +74,12 @@ pub(in crate::tools::gh_get_history_item) fn shape_patch_page_reserving(
     let offset = gh_get_history_item_query::char_offset(query)
         .unwrap_or(0)
         .min(total);
-    let window = match (needle(query), gh_get_history_item_query::char_length(query)) {
+    let window = match needle(query) {
         // A literal search returns many short hit runs: their row headers
         // are small, so the hits may fill the page share without the fixed
         // metadata reserve.
-        (Some(_), None) => literal_patch_window(query.auto_page_chars),
-        _ => patch_window(
-            gh_get_history_item_query::char_length(query),
-            query.auto_page_chars,
-        ),
+        Some(_) => literal_patch_window(query.auto_page_chars),
+        _ => patch_window(query.auto_page_chars),
     };
     let window = window.saturating_sub(reserve).max(window / 4).max(1);
     // The first window also lists every patch-less file of the page as a
@@ -92,7 +89,7 @@ pub(in crate::tools::gh_get_history_item) fn shape_patch_page_reserving(
     let window = if offset == 0 {
         let share = match needle(query) {
             Some(_) => literal_patch_window(query.auto_page_chars),
-            None => patch_window(None, query.auto_page_chars),
+            None => patch_window(query.auto_page_chars),
         };
         let used = reserve + patchless_rows_chars(&files, &views, &lengths);
         window.min(share.saturating_sub(used).max(share / 4)).max(1)
@@ -144,7 +141,7 @@ struct PatchViews {
     /// Hit-line starts of each narrowed view.
     hits: Vec<Option<Vec<usize>>>,
     /// New-side windows each view's context could not reach.
-    clipped: Vec<Vec<String>>,
+    clipped: Vec<Vec<(usize, usize)>>,
     /// The earlier file of the page whose view is identical (a README
     /// copied to four packages), by index: the repeat references it.
     same_as: Vec<Option<usize>>,

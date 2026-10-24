@@ -1,6 +1,10 @@
 import { writeFileSync, appendFileSync } from 'fs';
 import { join } from 'path';
+import type { Session } from '../cdp-connection.mjs';
+import type { RunnerSession } from '../cdp-runner-session.mjs';
+import { errorMessage } from '../error-message.mjs';
 import { observeFrameEvents } from '../frame-events.mjs';
+import type { MonitorEvent, NetworkRecord } from './live-har-format.mjs';
 import {
   LONG_TASK_OBSERVER_JS,
   collectPerformanceSnapshot,
@@ -17,8 +21,42 @@ const MAX_STDOUT_ITEMS = Number.parseInt(
 );
 const MONITOR_URL = process.env.MONITOR_URL || '';
 
+/** The runner adds its run-folder helpers; a bare session runs the monitor without them. */
+type MonitorSession = Session &
+  Partial<Pick<RunnerSession, 'upsertResourceMap' | 'writeSessionMetadata'>>;
+
+/** Prints and records page exceptions and console errors/warnings. */
+function watchPageErrors(
+  cdp: MonitorSession,
+  pushEvent: (event: MonitorEvent) => void
+) {
+  cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
+    const message =
+      exceptionDetails.exception?.description ?? exceptionDetails.text;
+    const frame = exceptionDetails.stackTrace?.callFrames?.[0];
+    console.log(`[EXCEPTION] ${String(message).split('\n')[0]}`);
+    if (frame)
+      console.log(
+        `[EXCEPTION_LOCATION] ${frame.url}:${frame.lineNumber}:${frame.columnNumber}`
+      );
+    pushEvent({ kind: 'exception', message, frame });
+  });
+
+  cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
+    if (!['error', 'warning'].includes(type)) return;
+    const message = args
+      .map(
+        (a: { value?: unknown; description?: string }) =>
+          a.value ?? a.description ?? '[object]'
+      )
+      .join(' ');
+    console.log(`[CONSOLE:${type.toUpperCase()}] ${message}`);
+    pushEvent({ kind: 'console', type, message });
+  });
+}
+
 export async function run(
-  cdp,
+  cdp: MonitorSession,
   {
     onReady,
     monitorMs = MONITOR_MS,
@@ -28,7 +66,7 @@ export async function run(
   if (!Number.isSafeInteger(monitorMs) || monitorMs < 0)
     throw new Error('Invalid monitorMs');
   const captureStartedAt = Date.now();
-  let actionError = null;
+  let actionError: string | null = null;
   await cdp.send('Runtime.enable');
   await cdp.send('Network.enable');
   await cdp.send('Log.enable');
@@ -36,16 +74,16 @@ export async function run(
 
   await cdp.send('Runtime.evaluate', { expression: LONG_TASK_OBSERVER_JS });
 
-  const records = new Map();
-  const requestKey = (requestId, meta) =>
+  const records = new Map<string, NetworkRecord>();
+  const requestKey = (requestId: string, meta: { sessionId?: string }) =>
     JSON.stringify([meta.sessionId || null, requestId]);
   let hop = 0;
-  const events = [];
+  const events: MonitorEvent[] = [];
   let slowPrinted = 0;
   const eventsPath = join(cdp.outputDir, 'events.ndjson');
   writeFileSync(eventsPath, '', { mode: 0o600, flag: 'wx' });
   console.log(`[ARTIFACT] EVENTS ${eventsPath}`);
-  const pushEvent = event => {
+  const pushEvent = (event: MonitorEvent) => {
     const safeEvent = { at: new Date().toISOString(), ...event };
     events.push(safeEvent);
     appendFileSync(eventsPath, JSON.stringify(safeEvent) + '\n');
@@ -64,7 +102,7 @@ export async function run(
         frameId,
         redirectResponse,
       },
-      meta: Record<string, any> = {}
+      meta: { sessionId?: string } = {}
     ) => {
       const prior = records.get(requestKey(requestId, meta));
       if (prior && redirectResponse) {
@@ -136,9 +174,11 @@ export async function run(
     'Network.loadingFailed',
     (
       { requestId, errorText, blockedReason },
-      meta: Record<string, any> = {}
+      meta: { sessionId?: string } = {}
     ) => {
-      const record = records.get(requestKey(requestId, meta)) ?? {
+      const record: NetworkRecord = records.get(
+        requestKey(requestId, meta)
+      ) ?? {
         requestId,
         start: Date.now(),
         url: 'unknown',
@@ -164,26 +204,7 @@ export async function run(
     }
   );
 
-  cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
-    const message =
-      exceptionDetails.exception?.description ?? exceptionDetails.text;
-    const frame = exceptionDetails.stackTrace?.callFrames?.[0];
-    console.log(`[EXCEPTION] ${String(message).split('\n')[0]}`);
-    if (frame)
-      console.log(
-        `[EXCEPTION_LOCATION] ${frame.url}:${frame.lineNumber}:${frame.columnNumber}`
-      );
-    pushEvent({ kind: 'exception', message, frame });
-  });
-
-  cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
-    if (!['error', 'warning'].includes(type)) return;
-    const message = args
-      .map(a => a.value ?? a.description ?? '[object]')
-      .join(' ');
-    console.log(`[CONSOLE:${type.toUpperCase()}] ${message}`);
-    pushEvent({ kind: 'console', type, message });
-  });
+  watchPageErrors(cdp, pushEvent);
 
   const frameEvents = await observeFrameEvents(cdp, [
     'Network',
@@ -198,9 +219,9 @@ export async function run(
     try {
       await onReady();
     } catch (error) {
-      actionError = error.message;
+      actionError = errorMessage(error);
       process.exitCode = 1;
-      console.log(`[FINDING] MONITORED_ACTION_ERROR ${error.message}`);
+      console.log(`[FINDING] MONITORED_ACTION_ERROR ${actionError}`);
     }
   }
   const progress = setInterval(

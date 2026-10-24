@@ -4,13 +4,11 @@ use super::*;
 #[test]
 fn pr_next_menu_carries_required_defaults_and_drops_cursors() {
     let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
-        "sections":["body"],"offset":100,"page":2,
-        "reasoning":"r"
-    }))
+        "operation":"pullRequest", "owner":"o","repo":"r","number":5,
+        "sections":["body"],"offset":100,"page":2}))
     .expect("query");
     let menu = pr_next_menu(&query, &["src/a.rs".into()], &json!({}));
-    let reviews = &menu["readFiles"]["query"]["queries"][0];
+    let reviews = &menu["readFiles"]["input"]["queries"][0];
     // pageSize has no contract default; an omitted one stays omitted.
     assert!(reviews.get("pageSize").is_none(), "{reviews}");
     // Menu reads use the flat spelling; text is verbatim, so no `minify`.
@@ -20,15 +18,13 @@ fn pr_next_menu_carries_required_defaults_and_drops_cursors() {
     for key in ["offset", "page"] {
         assert!(reviews.get(key).is_none(), "{key} leaked: {reviews}");
     }
-    assert_eq!(reviews["mainGoal"], "test");
-    assert_eq!(reviews["reasoning"], "r");
     assert!(menu.get("readBody").is_none());
 }
 
 #[test]
 fn pr_next_menu_omits_entries_the_row_already_answers() {
     let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
+        "operation":"pullRequest", "owner":"o","repo":"r","number":1
     }))
     .expect("query");
     let names = |menu: &Value| {
@@ -42,7 +38,7 @@ fn pr_next_menu_omits_entries_the_row_already_answers() {
     let menu = pr_next_menu(&query, &[], &small);
     assert_eq!(names(&menu), ["readPatches", "readDiscussion"]);
     assert_eq!(
-        menu["readPatches"]["query"]["queries"][0]["sections"],
+        menu["readPatches"]["input"]["queries"][0]["sections"],
         json!(["patches"])
     );
     // A body rides the file list of a large diff.
@@ -51,12 +47,12 @@ fn pr_next_menu_omits_entries_the_row_already_answers() {
     let menu = pr_next_menu(&query, &[], &large);
     assert_eq!(names(&menu), ["readFiles", "readDiscussion"]);
     assert_eq!(
-        menu["readFiles"]["query"]["queries"][0]["sections"],
+        menu["readFiles"]["input"]["queries"][0]["sections"],
         json!(["body", "files"])
     );
     // Provably no comments: the discussion read asks for reviews only.
     assert_eq!(
-        menu["readDiscussion"]["query"]["queries"][0]["sections"],
+        menu["readDiscussion"]["input"]["queries"][0]["sections"],
         json!(["reviews"])
     );
     // No changed files and a body: the body read stands alone.
@@ -73,7 +69,7 @@ fn pr_next_menu_omits_entries_the_row_already_answers() {
 #[test]
 fn menus_hold_at_most_two_entries_and_inventory_reviews_many_files() {
     let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"r","owner":"o","repo":"r","number":1
+        "operation":"pullRequest", "owner":"o","repo":"r","number":1
     }))
     .expect("query");
     let merged = json!({"body":"x".repeat(900),"changed_files":656,"additions":282_700,
@@ -88,17 +84,17 @@ fn menus_hold_at_most_two_entries_and_inventory_reviews_many_files() {
     let review = vec!["src/a.rs".to_owned(), "src/b.rs".to_owned()];
     let inventory = json!({"changed_files":30,"additions":900,"deletions":10});
     let inventory_read: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"r","owner":"o","repo":"r","number":1,
+        "operation":"pullRequest", "owner":"o","repo":"r","number":1,
         "sections":["files"]
     }))
     .expect("inventory query");
     let menu = pr_next_menu(&inventory_read, &review, &inventory);
     assert_eq!(
-        menu["readSelectedPatches"]["query"]["queries"][0]["sections"],
+        menu["readSelectedPatches"]["input"]["queries"][0]["sections"],
         json!(["patches"])
     );
     assert_eq!(
-        menu["readSelectedPatches"]["query"]["queries"][0]["include"],
+        menu["readSelectedPatches"]["input"]["queries"][0]["include"],
         json!(["src/a.rs", "src/b.rs"])
     );
     assert!(menu["readSelectedPatches"].get("confidence").is_none());
@@ -111,12 +107,12 @@ fn menus_hold_at_most_two_entries_and_inventory_reviews_many_files() {
     let two = json!({"body":"","changed_files":2,"additions":900,"deletions":10});
     let menu = pr_next_menu(&inventory_read, &review, &two);
     assert_eq!(
-        menu["readPatches"]["query"]["queries"][0]["sections"],
+        menu["readPatches"]["input"]["queries"][0]["sections"],
         json!(["patches"]),
         "{menu}"
     );
     assert!(
-        menu["readPatches"]["query"]["queries"][0]
+        menu["readPatches"]["input"]["queries"][0]
             .get("include")
             .is_none(),
         "{menu}"

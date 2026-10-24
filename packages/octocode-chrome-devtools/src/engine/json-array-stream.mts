@@ -1,27 +1,45 @@
 import { createReadStream } from 'node:fs';
 
+/** One open array or object while scanning; `key` is the member name an object's next value takes. */
+type Frame = {
+  type: '[' | '{';
+  path: string;
+  index: number;
+  expect: string;
+  selected: boolean;
+  key: string;
+};
+/** A complete JSON literal: true, false, null or a number. */
+const PRIMITIVE =
+  /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/;
+/** A selected row's byte range and its index in the selected array. */
+export type RowRange = { offset: number; length: number; index: number };
+
 // Validate the JSON envelope and yield byte ranges of one selected array's rows.
 // Unselected string values are skipped; memory follows nesting and key size.
-export async function* arrayRanges(file, pointer = '') {
-  const encode = key => key.replace(/~/g, '~0').replace(/\//g, '~1');
+export async function* arrayRanges(
+  file: string,
+  pointer = ''
+): AsyncGenerator<RowRange> {
+  const encode = (key: string) => key.replace(/~/g, '~0').replace(/\//g, '~1');
   if (pointer && (!pointer.startsWith('/') || /~(?![01])/u.test(pointer)))
     throw new Error('Invalid JSON pointer');
-  const stack = [];
+  const stack: Frame[] = [];
   let rootDone = false,
     found = false,
-    active,
-    ready;
+    active: { offset: number; depth: number; index: number } | null = null,
+    ready: RowRange | null = null;
   let mode = '',
     start = 0,
-    keyBytes = null,
+    keyBytes: number[] | null = null,
     escaped = false,
     hex = 0,
     primitive = '',
     position = 0;
-  const error = () => {
+  const error: () => never = () => {
     throw new Error(`Invalid JSON near byte ${position}`);
   };
-  const finish = end => {
+  const finish = (end: number) => {
     const parent = stack.at(-1);
     if (parent) {
       parent.expect = 'comma';
@@ -60,7 +78,8 @@ export async function* arrayRanges(file, pointer = '') {
       return;
     }
     if (parent?.type === '{' && ['key', 'first'].includes(parent.expect)) {
-      if (type !== 'string') error();
+      // A string opened where a key is expected always records its bytes, so `key` is set.
+      if (type !== 'string' || key === undefined) error();
       parent.key = key;
       parent.expect = 'colon';
       return;
@@ -86,6 +105,7 @@ export async function* arrayRanges(file, pointer = '') {
         index: 0,
         expect: 'first',
         selected: type === '[' && path === pointer,
+        key: '',
       });
     else finish(end);
   };
@@ -127,12 +147,7 @@ export async function* arrayRanges(file, pointer = '') {
             primitive += String.fromCharCode(b);
             continue;
           }
-          if (
-            !/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/.test(
-              primitive
-            )
-          )
-            error();
+          if (!PRIMITIVE.test(primitive)) error();
           mode = '';
           token('primitive', position);
           if (ready) {
@@ -167,12 +182,7 @@ export async function* arrayRanges(file, pointer = '') {
     }
   }
   if (mode === 'primitive') {
-    if (
-      !/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/.test(
-        primitive
-      )
-    )
-      error();
+    if (!PRIMITIVE.test(primitive)) error();
     token('primitive', position);
   }
   if (mode === 'string' || stack.length || !rootDone) error();

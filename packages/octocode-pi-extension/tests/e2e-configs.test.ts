@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fauxAssistantMessage, fauxToolCall, type TranscriptContext } from '@earendil-works/pi-ai';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { calls, FIXTURE, OCTOCODE_OFF, say, startSession, type Reply } from './e2e-harness.js';
+import { FIXTURE, OCTOCODE_OFF, startSession, type Reply } from './e2e-harness.js';
+import { calls, say } from './helpers.js';
 
 describe('with the user\'s own octocode server in mcp.json', () => {
   let s: Awaited<ReturnType<typeof startSession>>;
@@ -197,7 +198,7 @@ describe('a subagent session with visible browser and MCP enabled', () => {
     expect(turn.systemPrompt).toContain('reserve files');
     const appPath = path.join(s.cwd, 'app.ts');
     const turns = await s.run('read', [
-      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ path: appPath, fullContent: true }] })),
+      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ path: appPath }] })),
       say('done'),
     ]);
     const results = turns.at(-1)!.lastResults;

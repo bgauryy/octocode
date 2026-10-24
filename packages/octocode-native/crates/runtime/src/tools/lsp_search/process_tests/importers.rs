@@ -3,6 +3,7 @@
 
 use super::*;
 
+mod identity;
 mod pages;
 mod recovery;
 mod windows;
@@ -155,7 +156,7 @@ fn write_importer(root: &Path, name: &str) {
 
 /// The single query row of a continuation.
 fn next_row(row: &serde_json::Value, name: &str) -> Option<serde_json::Value> {
-    row.pointer(&format!("/next/{name}/query/queries/0"))
+    row.pointer(&format!("/next/{name}/input/queries/0"))
         .cloned()
 }
 
@@ -174,6 +175,7 @@ async fn walk_pages(
     root: &Path,
     execution: &crate::tools::lsp_search::LspExecutionConfig,
     start: serde_json::Value,
+    budget: Option<usize>,
 ) -> (Vec<Walked>, Vec<(String, serde_json::Value)>) {
     let paths = crate::tools::test_support::workspace_policy(root);
     let mut pages = Vec::new();
@@ -183,7 +185,8 @@ async fn walk_pages(
         serde_json::json!({ "queries": [start] }),
     );
     while let Some(call) = walker.next_query() {
-        let row = call["queries"][0].clone();
+        let row =
+            crate::tools::test_support::opened_input(crate::id::ToolId::LspSearch, &call)["queries"][0].clone();
         let importer_page = row
             .get("importerPage")
             .and_then(serde_json::Value::as_u64)
@@ -195,7 +198,7 @@ async fn walk_pages(
             pool,
             &paths,
             execution,
-            None,
+            budget,
         )
         .await
         .expect("page");
@@ -226,27 +229,25 @@ async fn walk_pages(
 
 /// `(file name, line, column)` of every reference row on a page.
 fn reference_rows(row: &serde_json::Value) -> Vec<(String, u64, u64)> {
-    let mut rows = Vec::new();
-    for file in row
-        .pointer("/files")
-        .and_then(serde_json::Value::as_array)
+    row["matches"]
+        .as_array()
         .into_iter()
         .flatten()
-    {
-        let name = Path::new(file["path"].as_str().expect("path"))
-            .file_name()
-            .expect("file name")
-            .to_string_lossy()
-            .into_owned();
-        for site in file["matches"].as_array().expect("matches") {
-            rows.push((
-                name.clone(),
-                site["line"].as_u64().expect("line"),
-                site["column"].as_u64().expect("column"),
-            ));
-        }
-    }
-    rows
+        .map(|site| {
+            let name = Path::new(site["path"].as_str().expect("path"))
+                .file_name()
+                .expect("file name")
+                .to_string_lossy()
+                .into_owned();
+            (
+                name,
+                site["displayRange"]["startLine"].as_u64().expect("line"),
+                site["displayRange"]["startCharacter"]
+                    .as_u64()
+                    .expect("column"),
+            )
+        })
+        .collect()
 }
 
 /// Walks `operation` over a workspace whose first window imports `target`,
@@ -256,9 +257,8 @@ async fn walk_across_silent_windows(operation: &str, silent: usize) -> (Fixture,
     let pool = fake_server_pool();
     let start = serde_json::json!({
         "operation": operation, "path": root.join("a.ts").to_string_lossy(),
-        "symbolName": "target", "line": 1, "pageSize": 100,
-        "workspaceRoot": root.to_string_lossy()
+        "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
     });
-    let (pages, _) = walk_pages(&pool, &root, &execution, start).await;
+    let (pages, _) = walk_pages(&pool, &root, &execution, start, None).await;
     (dir, pages)
 }

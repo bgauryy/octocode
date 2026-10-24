@@ -1,6 +1,6 @@
 //! Cargo workspaces: dependency aliases, manifest refresh and cross-crate
 //! Rust paths.
-use super::*;
+use crate::tools::test_support::Fixture;
 
 fn cargo_fixture() -> Fixture {
     let root = Fixture::new();

@@ -3,66 +3,52 @@
 use super::*;
 
 pub(super) fn set_path(query: &mut LspSearchQuery, path: String) {
+    macro_rules! assign {
+        ($field:expr) => {
+            if let Ok(value) = path.clone().try_into() {
+                *$field = value;
+            }
+        };
+    }
     match query {
-        LspSearchQuery::AnchoredLocations(query) => {
-            if let Ok(path) = path.try_into() {
-                query.path = path;
-            }
-        }
-        LspSearchQuery::AnchoredReferences(query) => {
-            if let Ok(path) = path.try_into() {
-                query.path = path;
-            }
-        }
-        LspSearchQuery::AnchoredCallers(query) => {
-            if let Ok(path) = path.try_into() {
-                query.path = path;
-            }
-        }
-        LspSearchQuery::AnchoredHierarchy(query) => {
-            if let Ok(path) = path.try_into() {
-                query.path = path;
-            }
-        }
-        LspSearchQuery::AnchoredSubtypes(query) => {
-            if let Ok(path) = path.try_into() {
-                query.path = path;
-            }
-        }
-        LspSearchQuery::AnchoredHover(query) => {
-            if let Ok(path) = path.try_into() {
-                query.path = path;
-            }
-        }
-        LspSearchQuery::Document(query) => {
-            if let Ok(path) = path.try_into() {
-                query.path = path;
-            }
-        }
-        LspSearchQuery::WorkspacePath(query) => {
-            if let Ok(path) = path.try_into() {
-                query.path = path;
-            }
-        }
-        LspSearchQuery::WorkspaceRoot(query) => query.path = Some(path),
+        LspSearchQuery::Variant0(q) => assign!(&mut q.path),
+        LspSearchQuery::Variant1(q) => assign!(&mut q.path),
+        LspSearchQuery::Variant2(q) => assign!(&mut q.path),
+        LspSearchQuery::Variant3(q) => assign!(&mut q.path),
+        LspSearchQuery::Variant4(q) => assign!(&mut q.path),
+        LspSearchQuery::Variant5(q) => assign!(&mut q.path),
+        LspSearchQuery::Variant6(q) => assign!(&mut q.path),
+        LspSearchQuery::Variant7(q) => assign!(&mut q.path),
+        LspSearchQuery::Variant8 { path: field, .. } => assign!(field),
+        LspSearchQuery::Variant9 { path: field, .. } => assign!(field),
+        LspSearchQuery::Variant10 { .. } => {}
     }
 }
 
 pub(super) fn set_workspace_root(query: &mut LspSearchQuery, root: String) {
+    macro_rules! optional {
+        ($field:expr) => {
+            if let Ok(value) = root.clone().try_into() {
+                *$field = Some(value);
+            }
+        };
+    }
     match query {
-        LspSearchQuery::WorkspaceRoot(query) => {
+        LspSearchQuery::Variant0(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::Variant1(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::Variant2(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::Variant3(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::Variant4(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::Variant5(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::Variant6(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::Variant7(q) => optional!(&mut q.workspace_root),
+        LspSearchQuery::Variant8 { workspace_root, .. } => optional!(workspace_root),
+        LspSearchQuery::Variant9 { workspace_root, .. } => optional!(workspace_root),
+        LspSearchQuery::Variant10 { workspace_root, .. } => {
             if let Ok(root) = root.try_into() {
-                query.workspace_root = root;
+                *workspace_root = root;
             }
         }
-        LspSearchQuery::AnchoredLocations(query) => query.workspace_root = Some(root),
-        LspSearchQuery::AnchoredReferences(query) => query.workspace_root = Some(root),
-        LspSearchQuery::AnchoredCallers(query) => query.workspace_root = Some(root),
-        LspSearchQuery::AnchoredHierarchy(query) => query.workspace_root = Some(root),
-        LspSearchQuery::AnchoredSubtypes(query) => query.workspace_root = Some(root),
-        LspSearchQuery::AnchoredHover(query) => query.workspace_root = Some(root),
-        LspSearchQuery::Document(query) => query.workspace_root = Some(root),
-        LspSearchQuery::WorkspacePath(query) => query.workspace_root = Some(root),
     }
 }
 
@@ -138,36 +124,4 @@ pub(super) fn directory_as_workspace_root(
     }
     set_path(query, directory.clone());
     Some(directory)
-}
-
-/// Continuations repeat the caller's spelling of `workspaceRoot` (a
-/// workspace-relative root stays relative), not the canonical path the
-/// request resolved it to; both name the same root and snapshot.
-pub(super) fn restore_root_spelling(
-    row: &mut Value,
-    canonical: Option<&str>,
-    original: Option<&str>,
-) {
-    let (Some(canonical), Some(original)) = (canonical, original) else {
-        return;
-    };
-    if canonical == original {
-        return;
-    }
-    let Some(next) = row.get_mut("next").and_then(Value::as_object_mut) else {
-        return;
-    };
-    for call in next.values_mut() {
-        if call.get("tool").and_then(Value::as_str) != Some(crate::id::ToolId::LspSearch.as_str()) {
-            continue;
-        }
-        let rows = call
-            .pointer_mut("/query/queries")
-            .and_then(Value::as_array_mut);
-        for query in rows.into_iter().flatten() {
-            if query.get("workspaceRoot").and_then(Value::as_str) == Some(canonical) {
-                query["workspaceRoot"] = Value::from(original);
-            }
-        }
-    }
 }

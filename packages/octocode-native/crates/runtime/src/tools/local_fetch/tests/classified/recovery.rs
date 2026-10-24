@@ -2,6 +2,7 @@
 //! a changed one.
 
 use super::*;
+use octocode_contract_types::LocalFetchQuery;
 
 #[test]
 fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
@@ -10,9 +11,9 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
     fs::write(&path, "original evidence\n").expect("fixture");
     let paths = Paths(temp.0.clone());
     let mut query = q(&path);
-    query.clasify_context = Some(
-        serde_json::from_value(serde_json::json!({"classifiers":["Does this explain ownership?"]}))
-            .expect("context"),
+    amend(
+        &mut query,
+        serde_json::json!({"classification":serde_json::json!({"predicates":["Does this explain ownership?"]})}),
     );
     let first = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
     assert!(first.content.as_deref().unwrap_or_default().is_empty());
@@ -23,8 +24,8 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
         .unfiltered
         .expect("unfiltered")
         .query;
-    assert!(recovery.clasify_context.is_none());
-    assert!(recovery.selection.is_none());
+    assert!(!local_fetch_query::has_classification(&recovery));
+    assert!(local_fetch_query::selection(&recovery).is_none());
     let recovered = execute_local_fetch(&recovery, &paths, &Safe, &NeverCancel, None, None);
     assert_eq!(recovered.error_code, None);
     assert_eq!(recovered.content.as_deref(), Some("original evidence\n"));
@@ -32,7 +33,7 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
     let changed = execute_local_fetch(&recovery, &paths, &Safe, &NeverCancel, None, None);
     assert_eq!(changed.error_code, Some(ErrorCode::StaleSnapshot));
     assert_eq!(
-        recovery.snapshot.as_ref().map(|value| value.as_str()),
+        local_fetch_query::snapshot(&recovery),
         Some(captured.as_str())
     );
 }
@@ -49,8 +50,7 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
     let query = qj(
         &path,
         serde_json::json!({
-            "fullContent": true,
-            "clasifyContext": {"classifiers": ["Find direct evidence"]}
+            "classification": {"predicates": ["Find direct evidence"]}
         }),
     );
     let executor = tokio::runtime::Runtime::new().expect("runtime");
@@ -69,9 +69,12 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
         (next.unfiltered.expect("whole view").query, original),
     ];
     for (recovery, expected) in &recoveries {
-        assert!(recovery.clasify_context.is_none() && recovery.selection.is_none());
+        assert!(
+            !local_fetch_query::has_classification(recovery)
+                && local_fetch_query::selection(recovery).is_none()
+        );
         assert_eq!(
-            recovery.snapshot.as_ref().map(|snapshot| snapshot.as_str()),
+            local_fetch_query::snapshot(recovery),
             Some(captured.as_str())
         );
         let unchanged = fetch(recovery, &paths);
@@ -105,35 +108,24 @@ fn unread_block_and_whole_line_recovery_reject_source_drift() {
         .skip(400)
         .map(|line| format!("{line}\n"))
         .collect::<String>();
-    let long_line = format!("{}needle{}\n", "a".repeat(4_000), "b".repeat(4_000));
-    let cases = [
-        (
-            "block.rs",
-            block.replace("let value_425 = 425;", "let changed_evidence = 425;"),
-            block,
-            serde_json::json!({"ranges": ["1-1"], "block": true, "length": 400}),
-            "continueBlock",
-            rest,
-        ),
-        (
-            "long.txt",
-            long_line.replacen('a', "changed_evidence", 1),
-            long_line.clone(),
-            serde_json::json!({"matchString": "needle"}),
-            "wholeLines",
-            long_line,
-        ),
-    ];
+    let cases = [(
+        "block.rs",
+        block.replace("let value_425 = 425;", "let changed_evidence = 425;"),
+        block,
+        serde_json::json!({"ranges":[{"startLine":1,"endLine":1}],"block":true}),
+        "continueBlock",
+        rest,
+    )];
     for (name, changed, original, fields, kind, expected) in cases {
         let path = temp.0.join(name);
         fs::write(&path, &original).expect("fixture");
         let first = fetch(&qj(&path, fields), &paths);
         let next = serde_json::to_value(first.next.expect("unread evidence")).expect("next");
         let recovery: LocalFetchQuery =
-            serde_json::from_value(next[kind]["query"]["queries"][0].clone()).expect("recovery");
+            serde_json::from_value(next[kind]["input"]["queries"][0].clone()).expect("recovery");
         let captured = octocode_engine::digest::sha256(original.as_bytes());
         assert_eq!(
-            recovery.snapshot.as_ref().map(|snapshot| snapshot.as_str()),
+            local_fetch_query::snapshot(&recovery),
             Some(captured.as_str()),
             "{kind} pins the source bytes"
         );
@@ -161,9 +153,10 @@ fn context_full_content_bounded_continuation_replays_its_selection() {
     let file = t.0.join("bounded-goals.txt");
     fs::write(&file, "let value = 1;\n".repeat(1_500)).expect("fixture");
     let mut full = q(&file);
-    full.full_content = Some(true);
-    full.clasify_context = Some(
-        serde_json::from_value(serde_json::json!({"classifiers":["find value"]})).expect("context"),
+
+    amend(
+        &mut full,
+        serde_json::json!({"classification":serde_json::json!({"predicates":["find value"]})}),
     );
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = selection_runtime(executor.handle().clone());
@@ -182,11 +175,7 @@ fn context_full_content_bounded_continuation_replays_its_selection() {
         .continue_window
         .expect("page")
         .query;
-    assert_eq!(
-        next.full_content, None,
-        "fullContent is bounded by the output page"
-    );
-    assert!(next.selection.is_some());
+    assert!(local_fetch_query::selection(&next).is_some());
     let second = execute_local_fetch(
         &next,
         &paths,

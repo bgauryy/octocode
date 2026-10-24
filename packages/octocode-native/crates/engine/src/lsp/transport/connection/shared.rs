@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Duration, Instant};
 
@@ -28,11 +28,11 @@ pub(super) struct Outbound {
 pub(super) struct Shared {
     /// `None` once the connection has failed: new requests are refused and
     /// every waiter has already been failed.
-    pub(super) pending: StdMutex<Option<HashMap<u64, PendingSender>>>,
+    pub(super) pending: Mutex<Option<HashMap<u64, PendingSender>>>,
     pub(super) failed: AtomicBool,
     /// Why the connection failed (the first reason wins), so requests made
     /// after the failure report it instead of a generic "closed".
-    pub(super) failure_reason: StdMutex<Option<Error>>,
+    pub(super) failure_reason: Mutex<Option<Error>>,
     pub(super) outbound: mpsc::Sender<Outbound>,
     pub(super) push_diagnostics: Arc<PushDiagnosticsStore>,
     pub(super) partial_results: PartialResultStore,

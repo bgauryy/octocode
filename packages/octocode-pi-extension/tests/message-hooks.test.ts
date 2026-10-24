@@ -11,7 +11,7 @@ import { INTERNAL_MESSAGE_TYPE } from '../src/shared/messages.js';
 import { registerCollab } from '../src/team/tools.js';
 import { TeamStore } from '../src/team/store.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 type Command = { type: 'command'; command: string; timeout?: number; failClosed?: boolean };
 const group = (command: string, matcher = '', extra: Partial<Command> = {}) => [{ matcher, hooks: [{ type: 'command', command, ...extra }] }];
@@ -19,8 +19,7 @@ const outbound = (extra: Partial<MessageEnvelope> = {}): MessageEnvelope => ({ c
 const inbound = (extra: Partial<MessageEnvelope> = {}): MessageEnvelope => outbound({ direction: 'inbound', id: 'm-1', ...extra });
 
 function project(hooks: unknown): string {
-  const cwd = tmp('octocode-message-hooks-');
-  fs.mkdirSync(path.join(cwd, '.git'));
+  const cwd = repo('octocode-message-hooks-');
   fs.mkdirSync(path.join(cwd, '.codex'));
   fs.writeFileSync(path.join(cwd, '.codex', 'hooks.json'), JSON.stringify({ hooks }));
   saveDecision(cwd, fingerprint(projectConfigFiles(cwd)), true);

@@ -1,10 +1,20 @@
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fauxAssistantMessage, type fauxToolCall } from '@earendil-works/pi-ai';
 import { PhotonImage } from '@silvia-odwyer/photon-node';
 import type { Fetched } from '../src/web/fetch.js';
 
 const created: string[] = [];
+
+/** The extension entry the e2e suites load: the source, or the build (`dist/index.js`) with `OCTOCODE_E2E_ENTRY=dist`. */
+export const E2E_ENTRY = path.join(import.meta.dirname, '..', process.env['OCTOCODE_E2E_ENTRY'] === 'dist' ? 'dist/index.js' : 'src/index.ts');
+
+/** A scripted model reply that calls these tools. */
+export const calls = (...toolCalls: ReturnType<typeof fauxToolCall>[]) => () => fauxAssistantMessage(toolCalls, { stopReason: 'toolUse' });
+/** A scripted model reply that says `text`. */
+export const say = (text: string) => () => fauxAssistantMessage(text);
 
 /** A fresh temporary directory, removed when the test process exits. */
 export function tmp(prefix = 'octocode-pi-'): string {
@@ -16,6 +26,19 @@ export function tmp(prefix = 'octocode-pi-'): string {
 process.once('exit', () => {
   for (const dir of created) fs.rmSync(dir, { recursive: true, force: true });
 });
+
+/** A fresh temporary directory marked as a repository root by an empty `.git`. */
+export function repo(prefix?: string): string {
+  const dir = tmp(prefix);
+  fs.mkdirSync(path.join(dir, '.git'));
+  return dir;
+}
+
+/** The pid of a process that has exited. */
+export const deadPid = (): number => spawnSync(process.execPath, ['-e', '0']).pid;
+
+/** Runs git in `cwd` and returns its trimmed output. */
+export const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
 /** Resolves once `check` holds, polling every 20 ms; rejects after `ms`. */
 export async function until(check: () => boolean, ms = 5_000): Promise<void> {

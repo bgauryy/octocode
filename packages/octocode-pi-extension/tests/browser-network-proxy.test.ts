@@ -1,7 +1,8 @@
 import http from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addressOf } from './doubles.js';
-import { answered, navigates, openFor, paused, useNetworkHarness } from './browser-network-harness.js';
+import { navigates, openFor, useNetworkHarness } from './browser-network-harness.js';
+import { answered, paused } from './fixtures/cdp-stub.js';
 import type { PermissionMode } from '../src/permission/mode.js';
 import type { HostLookup } from '../src/web/guard.js';
 

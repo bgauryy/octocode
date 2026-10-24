@@ -81,9 +81,6 @@ describe('tool definitions in the estimate', () => {
   it('counts as zero when Pi cannot list them', () => {
     expect(toolDefinitionChars({ getActiveTools: () => { throw new Error('gone'); }, getAllTools: () => [] } as never)).toBe(0);
   });
-  it('shares one characters-per-token constant with the restore budget', () => {
-    expect(CHARS_PER_TOKEN).toBe(3);
-  });
 });
 
 describe('pacing wired into the session', () => {

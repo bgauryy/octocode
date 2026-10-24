@@ -10,7 +10,7 @@ pub(super) struct EmbeddedFile {
     pub bytes: &'static [u8],
     #[cfg_attr(
         not(unix),
-        allow(dead_code, reason = "Only Unix applies executable permission bits")
+        expect(dead_code, reason = "only Unix applies executable permission bits")
     )]
     pub executable: bool,
 }

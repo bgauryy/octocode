@@ -11,7 +11,7 @@ async fn an_issue_lists_its_closing_pull_requests_from_graphql() {
         &server,
         "/api/v3/repos/a/b/issues/42",
         200,
-        json!({"number": 42, "title": "t", "state": "closed", "body": "x".repeat(30),
+        json!({"number": 42, "title": "t", "state": "closed", "body": "x".repeat(30_000),
             "user": {"login": "amy"}, "labels": [], "comments": 0,
             "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z"}),
     )
@@ -35,7 +35,7 @@ async fn an_issue_lists_its_closing_pull_requests_from_graphql() {
         .expect(0)
         .mount(&server)
         .await;
-    let issue = |offset: u64| json!({"operation":"issue","owner":"a","repo":"b","number":42,"offset":offset,"length":10});
+    let issue = |offset: u64| json!({"operation":"issue","owner":"a","repo":"b","number":42,"offset":offset});
     let first = read(&server, issue(0)).await;
     assert_eq!(
         first.data.pointer("/issues/0/closedBy"),
@@ -46,15 +46,13 @@ async fn an_issue_lists_its_closing_pull_requests_from_graphql() {
         "{}",
         first.data
     );
-    assert_eq!(
-        first
-            .data
-            .pointer("/next/readPullRequest/query/queries/0/number"),
-        Some(&json!(6)),
-        "{}",
-        first.data
+    let linked = crate::tools::test_support::checks::related_call(
+        &first.data,
+        "ghGetHistoryItem",
+        |input| input["queries"][0]["operation"] == "pullRequest",
     );
-    let later = read(&server, issue(10)).await;
+    assert_eq!(linked["input"]["queries"][0]["number"], 6);
+    let later = read(&server, issue(12_000)).await;
     assert_eq!(
         later.data.pointer("/issues/0/closedBy"),
         None,

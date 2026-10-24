@@ -1,6 +1,20 @@
 // Shared accessibility-tree ref collection (page-snapshot, dom-operations diff, annotated screenshots).
 // Library: checks import it relatively; task scripts import .octocode/octocode-chrome-devtools/tmp/helpers/ax-snapshot.mjs
-// (cdp-sandbox stages it there); never run as a CLI.
+// (cdp-sandbox stages it there); never run as a CLI. Staged standalone: type imports only.
+import type { Session } from './cdp-connection.mjs';
+import type {
+  AxNode,
+  CollectOptions,
+  FrameTree,
+  RefRegion,
+  RefUnit,
+  SnapshotDocument,
+} from './cdp-checks/dom-types.mjs';
+
+type StackItem =
+  | { node: AxNode | undefined; inControl: boolean; exit?: undefined }
+  | { exit: true; region: RefRegion }
+  | { exit: true; clickable: true; at: number };
 
 const INTERACTIVE_ROLES = new Set([
   'button',
@@ -46,14 +60,19 @@ const CLICKABLE_SKIP_ROLES = new Set([
 ]);
 const MAX_NAME = 80;
 
-export const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-export const flat = s =>
+export const clip = (s: string, n: number) =>
+  s.length > n ? `${s.slice(0, n - 1)}…` : s;
+export const flat = (s?: string | number | null) =>
   String(s ?? '')
     .trim()
     .replace(/\s+/g, ' ');
 
-async function fullTree(cdp, params) {
-  let { nodes } = await cdp.send('Accessibility.getFullAXTree', params);
+async function fullTree(
+  cdp: Session,
+  params: { depth?: number; frameId?: string }
+): Promise<AxNode[]> {
+  let nodes: AxNode[] = (await cdp.send('Accessibility.getFullAXTree', params))
+    .nodes;
   if (nodes.length < 10 && !params.frameId) {
     // The AX tree can lag a tick behind readyState right after navigation; one bounded retry.
     await new Promise(r => setTimeout(r, 500));
@@ -64,13 +83,13 @@ async function fullTree(cdp, params) {
 }
 
 // Main-frame AX nodes plus same-process child frames, each frame's ids prefixed so they cannot collide.
-async function axForest(cdp, depth, findings) {
+async function axForest(cdp: Session, depth: number, findings: string[]) {
   const params = depth > 0 ? { depth } : {};
   const main = await fullTree(cdp, params);
-  const frames = []; // { ownerBackendId, nodes }
+  const frames: { ownerBackendId: number; nodes: AxNode[] }[] = [];
   const tree = await cdp.send('Page.getFrameTree').catch(() => null);
-  const children = [];
-  const walk = ft => {
+  const children: FrameTree['frame'][] = [];
+  const walk = (ft: FrameTree | undefined) => {
     for (const c of ft?.childFrames ?? []) {
       children.push(c.frame);
       walk(c);
@@ -98,7 +117,7 @@ async function axForest(cdp, depth, findings) {
           ...params,
           frameId: frame.id,
         })
-      ).nodes.map(n => ({
+      ).nodes.map((n: AxNode) => ({
         ...n,
         nodeId: `f${i}:${n.nodeId}`,
         childIds: (n.childIds ?? []).map(c => `f${i}:${c}`),
@@ -114,21 +133,32 @@ async function axForest(cdp, depth, findings) {
   return { main, frames };
 }
 
+// AX `level` is an integer property; anything else reads as no level.
+function headingLevel(property?: { value?: { value?: unknown } }) {
+  const level = property?.value?.value;
+  return typeof level === 'number' ? level : undefined;
+}
+
 // backendNodeId -> { pointerStart, handler, bounds } from one DOMSnapshot over all documents.
-async function layoutInfo(cdp) {
-  const { documents, strings } = await cdp.send('DOMSnapshot.captureSnapshot', {
+async function layoutInfo(cdp: Session) {
+  const snapshot = await cdp.send('DOMSnapshot.captureSnapshot', {
     computedStyles: ['cursor'],
   });
-  const info = new Map();
+  const documents: SnapshotDocument[] = snapshot.documents;
+  const strings: string[] = snapshot.strings;
+  const info = new Map<
+    number,
+    { pointerStart: boolean; handler: boolean; bounds: number[] | undefined }
+  >();
   for (const doc of documents) {
     const { nodes, layout } = doc;
-    const cursorOf = new Map();
-    const boundsOf = new Map();
+    const cursorOf = new Map<number, string>();
+    const boundsOf = new Map<number, number[]>();
     layout.nodeIndex.forEach((nodeIdx, i) => {
       cursorOf.set(nodeIdx, strings[layout.styles[i]?.[0]] ?? '');
       boundsOf.set(nodeIdx, layout.bounds[i]);
     });
-    const parentCursor = idx => {
+    const parentCursor = (idx: number) => {
       for (let p = nodes.parentIndex[idx]; p >= 0; p = nodes.parentIndex[p])
         if (cursorOf.has(p)) return cursorOf.get(p);
       return '';
@@ -165,16 +195,21 @@ async function layoutInfo(cdp) {
  * clickable (default true), depth.
  */
 export async function collectRefs(
-  cdp,
-  { rootBackendId = null, viewport = null, clickable = true, depth = -1 } = {}
+  cdp: Session,
+  {
+    rootBackendId = null,
+    viewport = null,
+    clickable = true,
+    depth = -1,
+  }: CollectOptions = {}
 ) {
   await cdp.send('Accessibility.enable');
   await cdp.send('DOM.enable');
-  const findings = [];
+  const findings: string[] = [];
   const { main, frames } = await axForest(cdp, depth, findings);
   const all = [...main, ...frames.flatMap(f => f.nodes)];
   const byId = new Map(all.map(n => [n.nodeId, n]));
-  const frameRoots = new Map();
+  const frameRoots = new Map<number, AxNode[]>();
   for (const f of frames) {
     const childIds = new Set(f.nodes.flatMap(n => n.childIds));
     frameRoots.set(
@@ -184,7 +219,7 @@ export async function collectRefs(
   }
   const layout =
     clickable || viewport ? await layoutInfo(cdp).catch(() => null) : null;
-  const inViewport = id => {
+  const inViewport = (id: number) => {
     if (!viewport) return true;
     const b = layout?.get(id)?.bounds;
     if (!b) return false;
@@ -199,7 +234,7 @@ export async function collectRefs(
     );
   };
 
-  let starts;
+  let starts: AxNode[];
   if (rootBackendId) {
     let start = all.find(n => n.backendDOMNodeId === rootBackendId);
     if (!start) {
@@ -209,7 +244,9 @@ export async function collectRefs(
           fetchRelatives: false,
         })
         .catch(() => null);
-      start = partial?.nodes?.map(n => byId.get(n.nodeId)).find(Boolean);
+      start = partial?.nodes
+        ?.map((n: AxNode) => byId.get(n.nodeId))
+        .find(Boolean);
     }
     if (!start)
       throw new Error(
@@ -221,24 +258,17 @@ export async function collectRefs(
     starts = main.filter(n => !childIds.has(n.nodeId));
   }
 
-  const useful = [];
-  const regions = [];
-  const stack: {
-    node?: any;
-    inControl?: boolean;
-    exit?: boolean;
-    region?: { end: number };
-    clickable?: boolean;
-    at?: number;
-  }[] = [...starts].reverse().map(node => ({ node, inControl: false }));
-  const visited = new Set();
-  while (stack.length) {
-    const item = stack.pop();
+  const useful: (RefUnit | null)[] = [];
+  const regions: RefRegion[] = [];
+  const stack: StackItem[] = [...starts]
+    .reverse()
+    .map(node => ({ node, inControl: false }));
+  const visited = new Set<string>();
+  for (let item = stack.pop(); item; item = stack.pop()) {
     if (item.exit) {
-      if (item.region) item.region.end = useful.length;
+      if ('region' in item) item.region.end = useful.length;
       // A clickable wrapper around real controls adds nothing: the controls are the targets.
-      if (
-        item.clickable &&
+      else if (
         useful
           .slice(item.at + 1)
           .some(u => u && u.interactive && u.role !== 'clickable')
@@ -269,7 +299,7 @@ export async function collectRefs(
       if (interactive || (name && ['heading', 'img'].includes(role))) {
         const level =
           role === 'heading'
-            ? node.properties?.find(p => p.name === 'level')?.value?.value
+            ? headingLevel(node.properties?.find(p => p.name === 'level'))
             : undefined;
         useful.push({
           role,
@@ -331,9 +361,18 @@ export async function collectRefs(
       stack.push({ node: child, inControl });
   }
 
-  // Drop wrappers removed above and re-index region spans.
-  const keep = [];
-  const remap = [];
+  return {
+    useful: dropRemoved(useful, regions),
+    regions,
+    totalNodes: all.length,
+    findings,
+  };
+}
+
+// Drop wrappers removed by collectRefs and re-index region spans.
+function dropRemoved(useful: (RefUnit | null)[], regions: RefRegion[]) {
+  const keep: RefUnit[] = [];
+  const remap: number[] = [];
   useful.forEach(u => {
     remap.push(keep.length);
     if (u) keep.push(u);
@@ -343,5 +382,5 @@ export async function collectRefs(
     r.start = remap[r.start];
     r.end = remap[r.end];
   }
-  return { useful: keep, regions, totalNodes: all.length, findings };
+  return keep;
 }

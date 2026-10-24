@@ -5,7 +5,7 @@ use crate::minify::strategies::{
     minify_brace_code, minify_code_core, minify_css_quality, minify_embedded_web,
     minify_general_core, minify_javascript_core, minify_json_readable_inner, minify_markdown_core,
 };
-use crate::text::file_extension::extension_of;
+use crate::text::extension_of;
 
 #[must_use]
 pub fn apply_content_view_minification(content: &str, file_path: &str) -> String {
@@ -72,7 +72,7 @@ pub(crate) fn apply_content_view_minification_inner(content: &str, file_path: &s
         // JS/TS: comment-strip + whitespace tighten preserves declarations,
         // identifier uses, and per-line structure (file:line citation). Any
         // optimizing/mangling minification is reserved for the full-minify API.
-        if crate::text::file_extension::JS_TS_EXTENSIONS.contains(&ext.as_str()) {
+        if crate::text::JS_TS_EXTENSIONS.contains(&ext.as_str()) {
             return minify_javascript_core(content);
         }
 

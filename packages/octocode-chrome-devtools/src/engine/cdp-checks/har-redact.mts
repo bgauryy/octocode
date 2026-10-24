@@ -10,6 +10,14 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
 import { flagArgs, validateFlags } from '../cli-flags.mjs';
 import { octocodeWorkspace } from '../engine-io.mjs';
+import type {
+  HarEntry,
+  HarFile,
+  HarHeader,
+  HarParam,
+  HarPostData,
+} from './har-types.mjs';
+import type { JsonScalar } from './measure-types.mjs';
 
 const argv = process.argv.slice(2);
 const { getArg, hasFlag } = flagArgs(argv);
@@ -31,8 +39,7 @@ if (!inPath) throw new Error('An input HAR file is required');
 const workspaceOutputBase = octocodeWorkspace();
 const defaultName = basename(inPath).replace(/\.har$/i, '') + '.redacted.har';
 const outPath = resolve(
-  getArg(
-    '--out',
+  getArg('--out') ??
     join(
       workspaceOutputBase,
       'octocode-chrome-devtools',
@@ -40,7 +47,6 @@ const outPath = resolve(
       'redacted-har',
       defaultName
     )
-  )
 );
 const outRelative = relative(workspaceOutputBase, outPath);
 if (outRelative.startsWith('..') || isAbsolute(outRelative)) {
@@ -52,9 +58,9 @@ const SECRET_HEADER =
   /^(cookie|set-cookie|authorization|proxy-authorization|x-api-key|x-auth-token|x-csrf-token)$/i;
 const SECRET_QUERY = /token|key|secret|session|auth|password|signature|jwt/i;
 
-function redactUrl(raw) {
+function redactUrl(raw: JsonScalar | undefined) {
   try {
-    const url = new URL(raw);
+    const url = new URL(String(raw));
     url.username = '';
     url.password = '';
     url.hash = '';
@@ -67,7 +73,7 @@ function redactUrl(raw) {
   }
 }
 
-function redactHeaders(headers = []) {
+function redactHeaders(headers: HarHeader[]) {
   return headers.map(h => {
     const name = h.name || h.Name || '';
     if (SECRET_HEADER.test(name) || SECRET_QUERY.test(name))
@@ -81,14 +87,14 @@ function redactHeaders(headers = []) {
   });
 }
 
-function redactCookies(list = []) {
+function redactCookies(list: HarParam[]) {
   return list.map(c => ({
     ...c,
     value: '[REDACTED]',
   }));
 }
 
-function redactPostData(postData) {
+function redactPostData(postData: HarPostData | undefined) {
   if (!postData) return postData;
   if (stripBodies)
     return { mimeType: postData.mimeType, text: '', comment: 'body stripped' };
@@ -104,8 +110,8 @@ function redactPostData(postData) {
   };
 }
 
-const har = JSON.parse(readFileSync(inPath, 'utf8'));
-const entries = har?.log?.entries || [];
+const har: HarFile | null = JSON.parse(readFileSync(inPath, 'utf8'));
+const entries: HarEntry[] = har?.log?.entries || [];
 let redactedHeaderCount = 0;
 let redactedCookieCount = 0;
 

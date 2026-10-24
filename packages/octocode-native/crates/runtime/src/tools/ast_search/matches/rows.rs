@@ -16,13 +16,10 @@ pub(super) struct MatchRow {
     /// multi-line match cut to its header (signature) followed by `…`, or
     /// capture text the value does not show.
     pub(super) withheld: bool,
-    /// The shown text was cut at `matchContentLength`.
+    /// The shown text was cut at the core match-text budget.
     pub(super) shown_cut: bool,
     /// The match's 1-based start and end lines.
     pub(super) lines: (u64, u64),
-    /// The whole value's characters when they exceed `matchContentLength`,
-    /// so the shown or the `captureText` value is cut.
-    pub(super) cut: Option<usize>,
 }
 
 pub(super) fn match_value(
@@ -31,8 +28,6 @@ pub(super) fn match_value(
     content_length: usize,
 ) -> MatchRow {
     let lines = (u64::from(m.start_line), u64::from(m.end_line));
-    let whole_chars = m.text.chars().count();
-    let cut = (whole_chars > content_length).then_some(whole_chars);
     let header = m.header.as_deref().filter(|_| !capture_text);
     let (text, shown_cut) = match header {
         Some(header) => bounded_match(&format!("{header} …"), content_length),
@@ -64,7 +59,6 @@ pub(super) fn match_value(
             withheld,
             shown_cut,
             lines,
-            cut,
         };
     }
     use crate::num::one_based_column;
@@ -118,12 +112,11 @@ pub(super) fn match_value(
         withheld: false,
         shown_cut,
         lines,
-        cut,
     }
 }
 
 /// Exact source text bounded to `limit` Unicode scalars
-/// (`matchContentLength`), including the trailing ellipsis when cut, and
+/// (the core match-text budget), including the trailing ellipsis when cut, and
 /// whether it was cut.
 pub(super) fn bounded_match(text: &str, limit: usize) -> (String, bool) {
     if text.chars().count() > limit {
@@ -148,7 +141,7 @@ pub(super) fn continuation_with(q: MatchQuery<'_>, changes: Value, snapshot: &st
     let mut query = q.to_value();
     query["snapshot"] = json!(snapshot);
     let query = crate::response::result::with_changes(query, &changes);
-    crate::response::result::Continuation::new(ToolId::AstSearch, query).build()
+    crate::response::result::Continuation::continued(ToolId::AstSearch, query).build()
 }
 
 pub(super) fn diag(d: &StructuralDiagnostic) -> Value {

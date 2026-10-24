@@ -7,6 +7,8 @@ import { spawnSync } from 'node:child_process';
 import { build } from '../build.mjs';
 import { stageSkills } from '../../../packages/octocode/scripts/stage-skills.mjs';
 
+const byText = (a, b) => a.localeCompare(b);
+
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'skills-common-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -23,7 +25,14 @@ test('discovers consumers in every collection, checks without writing, and repai
   const root = fixture(t);
   const first = build({ root, check: true });
   assert.equal(first.skills, 3);
-  assert.equal(first.stale.length, 57);
+  // A fresh install is missing every shared file it selects, identically in each collection.
+  assert.equal(first.stale.length, first.copies);
+  const perSkill = ['skills', 'skills-beta', 'skills-dev'].map(collection =>
+    first.stale.filter(file => file.startsWith(`${collection}/example/`)).map(file => file.slice(collection.length + 9)).toSorted(byText));
+  assert.equal(perSkill.flat().length, first.stale.length);
+  assert.deepEqual(perSkill[1], perSkill[0]);
+  assert.deepEqual(perSkill[2], perSkill[0]);
+  for (const file of ['scripts/render-report.mjs', 'scripts/lib/entrypoint.mjs', 'references/report-output.md']) assert.ok(perSkill[0].includes(file), file);
   const renderer = join(root, 'skills/example/scripts/render-report.mjs');
   assert.equal(existsSync(renderer), false);
   build({ root });
@@ -77,7 +86,7 @@ test('a nested reference selects only its shared guide and its transitive depend
   writeFileSync(join(dir, 'references/nested/task.md'), '[Tools](../octocode-usage.md#discover-and-invoke)\n');
   const expected = ['octocode-usage.md', 'configuration.md', 'evidence.md', 'protocol-catalog.md'];
   const first = build({ root, check: true });
-  assert.deepEqual(first.stale.sort(), expected.map(name => `skills-dev/example/references/${name}`).sort());
+  assert.deepEqual(first.stale.toSorted(byText), expected.map(name => `skills-dev/example/references/${name}`).toSorted(byText));
   assert.equal(existsSync(join(dir, 'references/octocode-usage.md')), false);
   build({ root });
   for (const name of expected) assert.equal(existsSync(join(dir, 'references', name)), true);

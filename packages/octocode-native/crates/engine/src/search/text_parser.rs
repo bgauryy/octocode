@@ -1,5 +1,6 @@
 //! Assembles match and context lines into per-file snippets.
-use crate::text::clip::{MATCH_TAIL_CHARS, clip_around, truncate_unicode};
+use crate::text::clip::{MATCH_TAIL_CHARS, truncate_unicode};
+use crate::text::clip_around;
 use crate::types::SearchContext;
 use std::collections::HashMap;
 

@@ -12,7 +12,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { packageRoot, readJson, repoRoot } from '../scripts/build.ts';
+import { readJson } from '../../octocode/scripts/build-plugin.mjs';
+import { packageRoot, repoRoot } from '../scripts/build.ts';
 
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 const names = (root: string) =>

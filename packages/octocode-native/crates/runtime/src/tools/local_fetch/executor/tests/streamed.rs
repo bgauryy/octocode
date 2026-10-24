@@ -1,6 +1,7 @@
 //! Sources past the whole-file ceiling served as streamed line windows.
 
 use super::*;
+use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 /// A bare read of a source past the whole-file ceiling states the span it
 /// returned (not the window it held) and a line pagination in file lines.
@@ -22,7 +23,7 @@ fn a_streamed_bare_read_states_the_span_it_returned() {
         first.warnings
     );
     let page = first.pagination.as_ref().expect("pagination");
-    assert_eq!(page.unit, WindowUnit::Lines, "{page:?}");
+    assert_eq!(page.unit, ReadProgressUnit::Lines, "{page:?}");
     assert_eq!(page.offset, 0, "{page:?}");
     assert_eq!(page.length, returned, "{page:?}");
     assert_eq!(page.total_lines, lines, "{page:?}");
@@ -54,17 +55,16 @@ fn oversized_text_source_is_served_as_streamed_line_windows() {
         .as_ref()
         .and_then(|n| n.continue_window.clone())
         .expect("continueWindow");
-    assert!(next.query.snapshot.is_some());
+    assert!(local_fetch_query::snapshot(&next.query).is_some());
     let second = query(next.query);
     assert_eq!(second.status, ReadStatus::Success, "{second:?}");
     assert_eq!(second.start_line, first.end_line.map(|line| line + 1));
 
     // A wide explicit window pages within itself and advances.
-    let wide = query(LocalFetchQuery {
-        path: path.to_string_lossy().parse().expect("path"),
-        ranges: vec![format!("{}-{}", 1, 3_000).parse().expect("range")],
-        ..test_local_fetch_query()
-    });
+    let wide = query(qj(
+        &path,
+        serde_json::json!({"ranges":[{"startLine":1,"endLine":3000}]}),
+    ));
     let inner = wide
         .next
         .as_ref()
@@ -79,11 +79,10 @@ fn oversized_text_source_is_served_as_streamed_line_windows() {
         "pages advance"
     );
 
-    let tail = query(LocalFetchQuery {
-        path: path.to_string_lossy().parse().expect("path"),
-        ranges: vec![format!("{}-{}", lines, lines).parse().expect("range")],
-        ..test_local_fetch_query()
-    });
+    let tail = query(qj(
+        &path,
+        serde_json::json!({"ranges":[{"startLine":lines,"endLine":lines}]}),
+    ));
     assert_eq!(tail.start_line, Some(lines), "{tail:?}");
     assert!(
         tail.content
@@ -92,11 +91,7 @@ fn oversized_text_source_is_served_as_streamed_line_windows() {
     );
     assert!(tail.next.is_none());
 
-    let matched = query(LocalFetchQuery {
-        path: path.to_string_lossy().parse().expect("path"),
-        match_string: Some(MatchString::String("line 7 ".parse().expect("match"))),
-        ..test_local_fetch_query()
-    });
+    let matched = query(qj(&path, serde_json::json!({"matchString":["line 7 "]})));
     assert_eq!(matched.error_code, Some(ErrorCode::LargeSourceWindowOnly));
     // The localSearch is an executable lead, and the tip stays short.
     let search = matched
@@ -105,7 +100,10 @@ fn oversized_text_source_is_served_as_streamed_line_windows() {
         .and_then(|next| next.text_search.clone())
         .expect("findText lead");
     assert_eq!(search["tool"], "localSearch", "{search}");
-    assert_eq!(search["query"]["queries"][0]["matchString"], "line 7 ");
+    assert_eq!(
+        search["input"]["queries"][0]["matchString"],
+        serde_json::json!(["line 7 "])
+    );
     assert!(
         matched.hints.iter().all(|hint| hint.len() <= 120),
         "{matched:?}"
@@ -123,15 +121,10 @@ fn oversized_source_serves_several_ranges_in_one_read() {
     let (path, lines) = big_log(&dir, payload_line);
     let far = lines - 2;
     let result = fetch(
-        &LocalFetchQuery {
-            path: path.to_string_lossy().parse().expect("path"),
-            ranges: vec![
-                format!("{far}-{}", far + 1).parse().expect("range"),
-                "1-2".parse().expect("range"),
-                "2-3".parse().expect("range"),
-            ],
-            ..test_local_fetch_query()
-        },
+        &qj(
+            &path,
+            serde_json::json!({"ranges":[{"startLine":far,"endLine":far+1},{"startLine":1,"endLine":2},{"startLine":2,"endLine":3}]}),
+        ),
         &Paths(dir.clone()),
     );
     assert_eq!(result.status, ReadStatus::Success, "{result:?}");
@@ -169,11 +162,10 @@ fn a_streamed_range_pages_evenly_across_window_boundaries() {
         format!("{n:08} payload payload payload payload\n")
     });
     let (start, end) = (100usize, 6_000usize);
-    let mut query = LocalFetchQuery {
-        path: path.to_string_lossy().parse().expect("path"),
-        ranges: vec![format!("{start}-{end}").parse().expect("range")],
-        ..test_local_fetch_query()
-    };
+    let mut query = qj(
+        &path,
+        serde_json::json!({"ranges":[{"startLine":start,"endLine":end}]}),
+    );
     let mut next_line = start;
     let mut sizes = Vec::new();
     for page_index in 0.. {
@@ -220,12 +212,7 @@ fn oversized_source_line_chunks_continue_past_a_paged_chunk() {
     let temp = Fixture::new();
     let dir = temp.0.clone();
     let (path, _) = big_log(&dir, payload_line);
-    let mut query = LocalFetchQuery {
-        path: path.to_string_lossy().parse().expect("path"),
-        unit: Some(WindowUnit::Lines),
-        length: crate::tools::source_view::types::wire_positive(1_000),
-        ..test_local_fetch_query()
-    };
+    let mut query = q(&path);
     let mut next_line = 1usize;
     for _ in 0..12 {
         let page = fetch(&query, &Paths(dir.clone()));

@@ -1,8 +1,9 @@
 //! A Maven version's own POM: its source link, runtime dependencies and properties.
+use super::super::ArtifactError;
 use super::super::http::RegistryClient;
 use super::super::util::parse_url;
-use super::super::{ArtifactError, ArtifactType};
 use super::patterns;
+use octocode_contract_types::ArtifactType;
 
 /// What a version's own POM declares.
 pub(super) struct Pom {

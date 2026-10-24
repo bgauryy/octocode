@@ -132,8 +132,10 @@ impl Operation<'_, '_> {
                 )],
             );
             if let Some(name) = lsp_search_query::symbol_name(query) {
-                row["next"]["findText"] =
-                    text_search_lead(name, &self.scope.root, &self.scope.include, None).build();
+                crate::response::result::attach_related(
+                    &mut row,
+                    text_search_lead(name, &self.scope.root, &self.scope.include, None).build(),
+                );
             }
         }
         Ok(row)

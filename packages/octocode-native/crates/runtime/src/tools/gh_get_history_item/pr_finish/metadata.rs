@@ -1,33 +1,9 @@
 //! The pull-request metadata row, and the slim header of a section read.
 use crate::response::result::remove_nulls;
-use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_get_history_item::HistoryItemRequest;
 use crate::tools::gh_get_history_item::util::{nonzero, str_at, string};
-use crate::tools::gh_get_history_item::{HistoryItemRequest, Section};
 use crate::tools::gh_shared::dates::{utc_date, utc_value};
-use octocode_contract_types::ExtraKind;
 use serde_json::{Value, json};
-
-/// A section read (or a later page) is read for its sections; the summary
-/// read owns the rest of the header. It keeps what names the PR and the
-/// commits code is read at: `number`, `title`, `author`, `state`, `headSha`
-/// and a merged PR's `mergeCommitSha`.
-/// The first page of a file inventory also keeps `changedFilesCount`: the
-/// denominator of the list it opens, which a one-page list would not state.
-pub(in crate::tools::gh_get_history_item) fn slim_row(row: &mut Value, query: &HistoryItemRequest) {
-    let Some(fields) = row.as_object_mut() else {
-        return;
-    };
-    let wants = query.sections();
-    let inventory = wants.lists_files()
-        && !wants.has(Section::Patches)
-        && !gh_get_history_item_query::later_page(query);
-    fields.retain(|key, _| {
-        matches!(
-            key.as_str(),
-            "number" | "title" | "author" | "state" | "headSha" | "mergeCommitSha"
-        ) || (inventory && key == "changedFilesCount")
-    });
-}
 
 /// Characters a PR summary's `bodyPreview` shows.
 const BODY_PREVIEW_CHARS: usize = 300;
@@ -105,8 +81,7 @@ pub(in crate::tools::gh_get_history_item) fn pr_metadata(
     {
         row["bodyPreview"] = json!(preview);
     }
-    if gh_get_history_item_query::wants(query, ExtraKind::Details) {
-        // Details keep the provider's timestamps whole.
+    {
         if let Some(updated) = raw.get("updated_at").filter(|v| v.is_string()) {
             row["updatedAt"] = utc_value(Some(updated));
         }

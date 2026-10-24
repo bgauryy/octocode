@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildReport } from '../scripts/render-report.mjs';
+import { buildReport } from '../scripts/lib/report/render.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'report-images-'));

@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::text::lexical as normalize_lexically;
+use crate::text::lexical;
 use std::path::{Path, PathBuf};
 
 mod cargo;
@@ -132,7 +132,7 @@ pub fn cargo_package_includes(file: &Path, limit: usize) -> Option<PackageInclud
                 || !entry.path().join(CARGO_MANIFEST).is_file()
         })
         .build();
-    let anchor = crate::text::lexical(file);
+    let anchor = lexical(file);
     let mut includes = PackageIncludes::default();
     let mut visited = 0;
     for entry in walker.flatten() {
@@ -158,7 +158,7 @@ pub fn cargo_package_includes(file: &Path, limit: usize) -> Option<PackageInclud
                     }
                 }
                 IncludeArgument::Literal(target) => {
-                    let target = crate::text::lexical(&path.parent().unwrap_or(path).join(target));
+                    let target = lexical(&path.parent().unwrap_or(path).join(target));
                     if !target.starts_with(&package) && !includes.outside.contains(&target) {
                         includes.outside.push(target);
                     }
@@ -205,12 +205,12 @@ fn declares_module(path: &Path, text: &str, anchor: &Path) -> bool {
             continue;
         };
         let named = match pending {
-            Some(target) => crate::text::lexical(&directory.join(target)) == anchor,
+            Some(target) => lexical(&directory.join(target)) == anchor,
             None => std::iter::once(directory.to_path_buf())
                 .chain(stem_directory.clone())
                 .any(|base| {
-                    crate::text::lexical(&base.join(format!("{name}.rs"))) == anchor
-                        || crate::text::lexical(&base.join(name).join("mod.rs")) == anchor
+                    lexical(&base.join(format!("{name}.rs"))) == anchor
+                        || lexical(&base.join(name).join("mod.rs")) == anchor
                 }),
         };
         if named {

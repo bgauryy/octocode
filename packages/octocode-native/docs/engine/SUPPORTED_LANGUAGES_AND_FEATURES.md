@@ -3,7 +3,7 @@
 Which languages each native capability covers. Tool fields and behavior are in the [tools reference](../../../../docs/OCTOCODE_TOOLS.md); which evidence to choose is in [Text, AST, graph, and LSP](../../../../docs/OCTOCODE_TOOLS.md#text-ast-graph-and-lsp-choose-the-evidence-you-need). The shipped build prints its grammar inventory:
 
 ```bash
-npx octocode schema | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).grammars))"
+npx octocode schema --view full | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).grammars))"
 ```
 
 ## Language matrix

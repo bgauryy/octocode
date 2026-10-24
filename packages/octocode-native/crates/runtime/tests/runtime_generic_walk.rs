@@ -3,11 +3,11 @@
 //! page lead is followed verbatim, no call repeats, and every row arrives
 //! exactly once with the union equal to the unpaged rows.
 
-use crate::support::{self, ALL_EXTRAS, Workspace};
+use crate::support::{self, Workspace};
 use serde_json::{Value, json};
 
 fn fixture(workspace: &Workspace) {
-    for index in 0..6 {
+    for index in 0..60 {
         workspace.write(
             &format!("src/mod{index}.rs"),
             format!("pub fn helper{index}() -> u32 {{\n    {index}\n}}\n\npub fn caller{index}() -> u32 {{\n    helper{index}()\n}}\n"),
@@ -20,7 +20,7 @@ fn data(output: &Value) -> Value {
     let mut data = output["results"][0]["data"].clone();
     if let Some(map) = data.as_object_mut() {
         map.remove("next");
-        map.remove("hints");
+        map.remove("related");
     }
     data
 }
@@ -73,22 +73,25 @@ async fn local_page_channels_walk_exactly_once() {
     let cases: [(&str, Value, Rows); 2] = [
         (
             "localSearch",
-            json!({"path":"src","matchString":"helper","pageSize":1}),
+            json!({"queries":[{"path":"src","matchString":["helper"]}],"responseChars":1000}),
             search_rows,
         ),
         (
             "structureSearch",
-            json!({"operation":"files","path":"src","pageSize":2}),
+            json!({"queries":[{"operation":"files","path":"src"}],"responseChars":600}),
             listed_rows,
         ),
     ];
     for (tool, seed, rows) in cases {
         let mut unpaged = seed.clone();
-        unpaged.as_object_mut().expect("seed").remove("pageSize");
-        let whole = support::run(&runtime, tool, unpaged, &ALL_EXTRAS).await;
+        unpaged
+            .as_object_mut()
+            .expect("seed")
+            .remove("responseChars");
+        let whole = support::run(&runtime, tool, unpaged).await;
         let mut expected = rows(&whole.structured_content);
         expected.sort();
-        assert!(expected.len() >= 6, "{tool}: {}", whole.structured_content);
+        assert!(expected.len() >= 60, "{tool}: {}", whole.structured_content);
         let walk = support::walk(&runtime, tool, support::envelope(seed), rows).await;
         assert!(walk.queries.len() >= 3, "{tool} pages: {:?}", walk.queries);
         let mut walked = walk.rows;

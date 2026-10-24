@@ -157,7 +157,7 @@ fn plan_5_impact_defaults_to_depth_three_and_passes_through_barrels() {
         out.value["summary"]
     );
     let deep = ask(dir.0.as_path(), "impact", Some("src/a.ts"), |o| {
-        o.depth = Some(10)
+        o.depth = Some(10);
     });
     assert!(impacted(&deep).iter().any(|(f, _)| f == "src/c4.ts"));
 }
@@ -204,7 +204,7 @@ fn dependents_include_importers_through_a_reexporting_module() {
     assert_eq!(through["edgeLine"], 1, "{through}");
     // An explicit edge filter walks exactly the edges it names.
     let imports = ask(root, "dependents", Some("src/a.ts"), |o| {
-        o.edges = vec!["imports".into()]
+        o.edges = vec!["imports".into()];
     });
     assert_eq!(ids(&imports), vec!["src/index.ts"], "{}", imports.value);
 }

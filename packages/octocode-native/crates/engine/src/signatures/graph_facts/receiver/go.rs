@@ -1,94 +1,92 @@
 //! Go receiver bindings.
 use super::*;
 
-impl<'t> ReceiverTypes<'t> {
-    pub(super) fn go_bindings(&self, up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
-        let node = up.node;
-        match node.kind() {
-            "parameter_declaration" | "variadic_parameter_declaration" => {
-                let Some(owner) = up.nth(2) else {
-                    return;
-                };
-                if !matches!(
-                    owner.kind(),
-                    "function_declaration" | "method_declaration" | "func_literal"
-                ) {
-                    return;
-                }
-                let ty = (node.kind() == "parameter_declaration")
-                    .then(|| node.child_by_field_name("type"))
-                    .flatten()
-                    .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Go));
-                let mut cursor = node.walk();
-                for name in node.children_by_field_name("name", &mut cursor) {
-                    push(
-                        out,
-                        name,
-                        ty.clone(),
-                        node.end_byte(),
-                        owner.end_byte(),
-                        content,
-                    );
-                }
+pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
+    let node = up.node;
+    match node.kind() {
+        "parameter_declaration" | "variadic_parameter_declaration" => {
+            let Some(owner) = up.nth(2) else {
+                return;
+            };
+            if !matches!(
+                owner.kind(),
+                "function_declaration" | "method_declaration" | "func_literal"
+            ) {
+                return;
             }
-            "short_var_declaration" => {
-                let (Some(left), Some(right)) = (
-                    node.child_by_field_name("left"),
-                    node.child_by_field_name("right"),
-                ) else {
-                    return;
+            let ty = (node.kind() == "parameter_declaration")
+                .then(|| node.child_by_field_name("type"))
+                .flatten()
+                .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Go));
+            let mut cursor = node.walk();
+            for name in node.children_by_field_name("name", &mut cursor) {
+                push(
+                    out,
+                    name,
+                    ty.clone(),
+                    node.end_byte(),
+                    owner.end_byte(),
+                    content,
+                );
+            }
+        }
+        "short_var_declaration" => {
+            let (Some(left), Some(right)) = (
+                node.child_by_field_name("left"),
+                node.child_by_field_name("right"),
+            ) else {
+                return;
+            };
+            let until = go_scope_end(up);
+            let lefts = named_children(left);
+            let rights = named_children(right);
+            for (index, name) in lefts.iter().enumerate() {
+                let ty = if lefts.len() == rights.len() {
+                    go_constructor(rights[index], false, content)
+                } else if index == 0 && rights.len() == 1 {
+                    go_constructor(rights[0], true, content)
+                } else {
+                    None
                 };
-                let until = go_scope_end(up);
-                let lefts = named_children(left);
-                let rights = named_children(right);
-                for (index, name) in lefts.iter().enumerate() {
-                    let ty = if lefts.len() == rights.len() {
-                        go_constructor(rights[index], false, content)
-                    } else if index == 0 && rights.len() == 1 {
-                        go_constructor(rights[0], true, content)
+                bind_pattern(*name, ty, node.end_byte(), until, content, out);
+            }
+        }
+        "var_spec" => {
+            let until = go_scope_end(up);
+            let declared = node
+                .child_by_field_name("type")
+                .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Go));
+            let values = node
+                .child_by_field_name("value")
+                .map(named_children)
+                .unwrap_or_default();
+            let mut cursor = node.walk();
+            let names: Vec<_> = node.children_by_field_name("name", &mut cursor).collect();
+            for (index, name) in names.iter().enumerate() {
+                let ty = declared.clone().or_else(|| {
+                    if values.len() == names.len() {
+                        go_constructor(values[index], false, content)
+                    } else if index == 0 && values.len() == 1 {
+                        go_constructor(values[0], true, content)
                     } else {
                         None
-                    };
-                    bind_pattern(*name, ty, node.end_byte(), until, content, out);
-                }
+                    }
+                });
+                push(out, *name, ty, node.end_byte(), until, content);
             }
-            "var_spec" => {
-                let until = go_scope_end(up);
-                let declared = node
-                    .child_by_field_name("type")
-                    .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Go));
-                let values = node
-                    .child_by_field_name("value")
-                    .map(named_children)
-                    .unwrap_or_default();
-                let mut cursor = node.walk();
-                let names: Vec<_> = node.children_by_field_name("name", &mut cursor).collect();
-                for (index, name) in names.iter().enumerate() {
-                    let ty = declared.clone().or_else(|| {
-                        if values.len() == names.len() {
-                            go_constructor(values[index], false, content)
-                        } else if index == 0 && values.len() == 1 {
-                            go_constructor(values[0], true, content)
-                        } else {
-                            None
-                        }
-                    });
-                    push(out, *name, ty, node.end_byte(), until, content);
-                }
-            }
-            "range_clause" => {
-                if let Some(left) = node.child_by_field_name("left") {
-                    let until = up.nth(1).unwrap_or(node).end_byte();
-                    bind_pattern(left, None, node.end_byte(), until, content, out);
-                }
-            }
-            "type_switch_statement" => {
-                if let Some(alias) = node.child_by_field_name("alias") {
-                    bind_pattern(alias, None, alias.end_byte(), node.end_byte(), content, out);
-                }
-            }
-            _ => {}
         }
+        "range_clause" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                let until = up.nth(1).unwrap_or(node).end_byte();
+                bind_pattern(left, None, node.end_byte(), until, content, out);
+            }
+        }
+        "type_switch_statement" => {
+            if let Some(alias) = node.child_by_field_name("alias") {
+                bind_pattern(alias, None, alias.end_byte(), node.end_byte(), content, out);
+            }
+        }
+        _ => {}
     }
 }
 

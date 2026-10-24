@@ -6,17 +6,17 @@ use super::head_sources::head_sources;
 use super::load::PrLoads;
 use crate::tools::gh_get_history_item::axis::Axis;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
-use crate::tools::gh_get_history_item::pr_finish::{pr_metadata, slim_row};
+use crate::tools::gh_get_history_item::pr_finish::pr_metadata;
 use crate::tools::gh_get_history_item::pr_menu::{INVENTORY_ALL_PATCHES_FILES, pr_next_menu};
 use crate::tools::gh_get_history_item::pr_sections::{
     CommentSection, shape_pr_comments, shape_pr_commits, shape_pr_reviews,
 };
 use crate::tools::gh_get_history_item::remaining::{BodyWindows, Remainder};
+use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_get_history_item::text::paginate_text;
 use crate::tools::gh_get_history_item::util::map_comments;
 use crate::tools::gh_get_history_item::window::{Loaded, reconcile_collection_total};
-use crate::tools::gh_get_history_item::{HistoryItemRequest, Section, Sections};
-use octocode_contract_types::ExtraKind;
+use crate::tools::gh_get_history_item::{HistoryItemRequest, Sections};
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
 
@@ -28,10 +28,10 @@ fn read_menu(
     query: &HistoryItemRequest,
     review: &[String],
     raw: &Value,
-    slim: bool,
+    focused: bool,
     file_read: bool,
 ) -> Option<Value> {
-    if !slim {
+    if !focused {
         return Some(pr_next_menu(query, review, raw));
     }
     let first_inventory = file_read
@@ -84,13 +84,7 @@ pub(super) async fn shape_pr(
         commits,
     } = loads;
     let patches = wants.has(Section::Patches);
-    let slim = (gh_get_history_item_query::later_page(query)
-        || gh_get_history_item_query::has_sections(query))
-        && !gh_get_history_item_query::wants(query, ExtraKind::Details);
     let mut row = pr_metadata(&raw, query);
-    if slim {
-        slim_row(&mut row, query);
-    }
     let mut pagination = Map::new();
     let mut remainder = Remainder::default();
     if wants.has(Section::Body) {
@@ -162,10 +156,15 @@ pub(super) async fn shape_pr(
             row["commitsCount"] = raw["commits"].clone();
         }
     }
-    let menu = read_menu(query, &file_outcome.review, &raw, slim, wants.lists_files());
-    if slim && patches {
-        drop_named_header(&mut row);
-    }
+    let focused = gh_get_history_item_query::has_sections(query)
+        || gh_get_history_item_query::later_page(query);
+    let menu = read_menu(
+        query,
+        &file_outcome.review,
+        &raw,
+        focused,
+        wants.lists_files(),
+    );
     if !pagination.is_empty() {
         row["contentPagination"] = Value::Object(pagination);
     }
@@ -187,29 +186,9 @@ fn shape_body(
     query: &HistoryItemRequest,
 ) {
     let body = raw.get("body").and_then(Value::as_str).unwrap_or("");
-    let (text, page) = paginate_text(
-        body,
-        gh_get_history_item_query::char_offset(query),
-        gh_get_history_item_query::char_length(query),
-    );
+    let (text, page) = paginate_text(body, gh_get_history_item_query::char_offset(query), None);
     row["body"] = json!(text);
     pagination.insert(Axis::Body.key().into(), page);
-}
-
-/// Patch rows are the evidence of a section patch read: it re-proves the
-/// PR's name (number, title, author), state, and the head it read. The
-/// metadata read dates the PR (createdAt); a read without patch rows keeps
-/// it.
-fn drop_named_header(row: &mut Value) {
-    let patch_rows = row["files"]
-        .as_array()
-        .is_some_and(|files| !files.is_empty() && files.iter().all(Value::is_object));
-    if patch_rows
-        && row.get("headSha").is_some()
-        && let Some(fields) = row.as_object_mut()
-    {
-        fields.remove("createdAt");
-    }
 }
 
 /// The inline review comments (`reviewComments`) and the discussion

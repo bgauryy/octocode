@@ -17,7 +17,7 @@ fn github_rows_page_by_the_calls_response_window() {
 }
 
 #[test]
-fn authentication_errors_explain_canonical_login_and_environment_precedence() {
+fn authentication_errors_preserve_typed_failure_and_status() {
     let error = || ProviderError {
         kind: ProviderErrorKind::Authentication,
         message: "Bad credentials".into(),
@@ -29,7 +29,7 @@ fn authentication_errors_explain_canonical_login_and_environment_precedence() {
         reason: None,
         sso_url: None,
     };
-    for (tool, result) in [
+    for (_tool, result) in [
         (ToolId::GhSearchCode, search_row(error())),
         (ToolId::GhSearchHistory, history_error(error(), true, None)),
         (
@@ -42,11 +42,10 @@ fn authentication_errors_explain_canonical_login_and_environment_precedence() {
         ),
         (ToolId::GhCloneRepo, provider_error(error())),
     ] {
-        let rendered = staged(tool, &result).to_string();
-        assert!(rendered.contains("octocode auth login"), "{rendered}");
-        assert!(rendered.contains("GH_TOKEN"), "{rendered}");
-        assert!(rendered.contains("invalid env token"), "{rendered}");
-        assert!(!rendered.contains("octocode login"), "{rendered}");
+        assert_eq!(result.failure, Some(FailureKind::Authentication));
+        assert_eq!(result.data["errorCode"], "authentication");
+        assert_eq!(result.data["httpStatus"], 401);
+        assert!(result.data["error"].is_string());
     }
 }
 
@@ -241,7 +240,11 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
     // The error names the ref and the `viewRefs` lead lists the refs:
     // the lead is the fix, so no hint text beside it.
     assert!(data.get("hints").is_none(), "{data}");
-    assert!(data["next"]["viewRefs"].is_object(), "{data}");
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]["queries"]
+            [0]["operation"],
+        "refs"
+    );
 
     // The commits-endpoint flavor (422) maps the same way.
     let error = ProviderError {
@@ -298,11 +301,13 @@ fn file_error_directory_and_binary_get_accurate_recovery() {
         "{data}"
     );
     assert_eq!(
-        data["next"]["viewTree"]["query"]["queries"][0]["path"],
+        crate::tools::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]["queries"]
+            [0]["path"],
         "src"
     );
     assert_eq!(
-        data["next"]["viewTree"]["query"]["queries"][0]["ref"],
+        crate::tools::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]["queries"]
+            [0]["ref"],
         "main"
     );
 

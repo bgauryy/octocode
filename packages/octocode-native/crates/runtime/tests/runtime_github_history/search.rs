@@ -129,7 +129,7 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
                 "title": "Add concurrency buffering",
                 "state": "open",
                 "user": {"login": "bob"},
-                "head": {"sha": "def456", "ref": "feat/buf"},
+                "head": {"sha": "def4567def4567def4567def4567def4567def4567", "ref": "feat/buf"},
                 "base": {"sha": "main", "ref": "main"}
             }
         ])))
@@ -161,7 +161,7 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
 }
 
 #[tokio::test]
-async fn history_rest_page_ceiling_retains_current_items_without_invalid_continuation() {
+async fn history_rest_continuations_execute_the_next_provider_page() {
     for operation in ["pullRequest", "commit"] {
         let server = MockServer::builder().start().await;
         mount_repo_metadata(&server).await;
@@ -180,13 +180,13 @@ async fn history_rest_page_ceiling_retains_current_items_without_invalid_continu
         };
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/{endpoint}")))
-            .and(query_param("page", "1000"))
+            .and(query_param("page", "1"))
             .respond_with(
                 ResponseTemplate::new(200)
                     .insert_header(
                         "Link",
                         format!(
-                            "<{}/api/v3/repos/a/b/{endpoint}?page=1001>; rel=\"next\"",
+                            "<{}/api/v3/repos/a/b/{endpoint}?page=2>; rel=\"next\"",
                             server.uri()
                         ),
                     )
@@ -194,12 +194,19 @@ async fn history_rest_page_ceiling_retains_current_items_without_invalid_continu
             )
             .mount(&server)
             .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/{endpoint}")))
+            .and(query_param("page", "2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .expect(1)
+            .mount(&server)
+            .await;
         let workspace = Workspace::new();
         let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
         let outcome = call(
             &runtime,
             "ghSearchHistory",
-            json!({"operation": operation, "owner": "a", "repo": "b", "page": 1000, "pageSize": 1}),
+            json!({"operation": operation, "owner": "a", "repo": "b"}),
         )
         .await
         .expect("current page");
@@ -209,7 +216,13 @@ async fn history_rest_page_ceiling_retains_current_items_without_invalid_continu
             1,
             "{data}"
         );
-        assert_eq!(data["terminalLimit"], true, "{data}");
+        let next = &data["next"]["nextPage"];
+        assert_eq!(next["kind"], "continue");
+        let end = call(&runtime, "ghSearchHistory", next["input"].clone())
+            .await
+            .expect("provider next page");
+        let data = row_data(&end);
+        assert_eq!(data[field].as_array().map(Vec::len), Some(0), "{data}");
         assert!(data.pointer("/next/nextPage").is_none(), "{data}");
         runtime.close().await;
     }
@@ -323,7 +336,7 @@ async fn gh_search_history_commit_list_forwards_committer() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "commit", "owner": "a", "repo": "b", "qualifiers": "committer:web-flow"}),
+        json!({"operation": "commit", "owner": "a", "repo": "b", "filters": {"committer":{"include":["web-flow"]}}}),
     )
     .await
     .expect("commit list");

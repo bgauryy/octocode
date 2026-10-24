@@ -21,7 +21,7 @@
     "build": "echo 'Source-only benchmark package; no build artifacts required'",
     "lint": "python3 -c \"import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]\" scripts/*.py local/*.py dashboard/*.py && bash -n scripts/run_arm.sh && bash -n scripts/run_campaign.sh && bash -n scripts/judge_pair.sh && bash -n scripts/preflight.sh && bash -n scripts/ghc && bash -n scripts/guard/gh && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
     "typecheck": "echo 'No TypeScript sources; see lint'",
-    "test": "python3 -m unittest discover -s scripts -p 'test_*.py' && node --test scripts/*.test.mjs",
+    "test": "python3 -m unittest discover -s scripts -p 'test_*.py' && node --test scripts/*.test.mjs local/e2e/harness/*.test.mjs local/e2e/harness/*/*.test.mjs",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "type": "module"

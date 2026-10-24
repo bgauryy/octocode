@@ -31,13 +31,10 @@ pub(crate) fn probe_command_succeeds(
     let Ok(mut child) = probe.spawn() else {
         return false;
     };
-    let mut job = match crate::process::Job::attach(&child, None) {
-        Ok(job) => job,
-        Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return false;
-        }
+    let Ok(mut job) = crate::process::Job::attach(&child, None) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return false;
     };
     let deadline = std::time::Instant::now() + timeout;
     let completed = loop {

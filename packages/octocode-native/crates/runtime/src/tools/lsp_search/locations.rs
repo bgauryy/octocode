@@ -8,7 +8,6 @@
 //! an emitted `startLine` feeds back unchanged as the one-based `line`
 //! input.
 
-use super::LspSearchQuery;
 use super::failure::{empty, offer_next_page};
 use super::render::{
     Pages, document_symbol_rows, flatten_document_symbol, into_items, page_window, paginate,
@@ -16,16 +15,28 @@ use super::render::{
 };
 use super::source::SourceCache;
 use crate::id::ToolId;
-use crate::response::page_windows::{Paging, select};
 use crate::tools::lsp_search::lsp_search_query;
+use octocode_contract_types::LspSearchQuery;
 use serde_json::{Value, json};
 
 mod rows;
 mod shaping;
 mod snapshots;
-pub(super) use rows::*;
-pub(super) use shaping::*;
-pub(super) use snapshots::*;
+pub(super) use rows::{attach_read_lead, group_by_file};
+use rows::{location_sort_key, without_project};
+#[cfg(test)]
+pub(super) use shaping::MAX_DECLARATION_CONTENT_LINES;
+use shaping::{DECLARATION_CLIPPED, location_payload, location_sizes};
+pub(super) use shaping::{
+    RECOVERED_ALIAS, apply_context_lines, cap_declaration_content, compact_location,
+    public_location,
+};
+use snapshots::salted_snapshot;
+#[cfg(test)]
+pub(super) use snapshots::semantic_snapshot;
+pub(super) use snapshots::{
+    items_payload, salted_items_payload, snapshot_changed, snapshot_mismatch,
+};
 
 /// One-based public `displayRange` of a zero-based LSP range.
 pub(super) fn public_range(range: &Value) -> Option<Value> {
@@ -106,7 +117,7 @@ pub(super) async fn salted_locations(
     snippets: Vec<impl serde::Serialize>,
     salt: Option<&str>,
     budget: usize,
-    response_window: Option<usize>,
+    _response_window: Option<usize>,
 ) -> Value {
     // Defense in depth: the engine already refused unauthorized snippet
     // reads; any location still naming an unauthorized path is dropped.
@@ -152,66 +163,23 @@ pub(super) async fn salted_locations(
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query);
     }
-    // groupByFile summarizes per file INSTEAD of returning every location, so
+    // The files view summarizes per file, so
     // the page unit becomes a file summary.
-    let grouped = lsp_search_query::group_by_file(query) == Some(true);
-    // A reference list without an explicit row form pages locations as usual
-    // but prints each page as compact `line:col text` rows per file.
-    let compact = kind == "references"
-        && lsp_search_query::group_by_file(query).is_none()
-        && lsp_search_query::context_lines(query).is_none();
+    let grouped = lsp_search_query::view(query) == "files";
     let entries = if grouped {
         group_by_file(&locations)
     } else {
         locations.clone()
     };
-    let sizes = location_sizes(
-        &entries,
-        grouped,
-        compact,
-        lsp_search_query::context_lines(query),
-    );
-    let mut budget = budget;
-    // Only context-free compact references are already held in their public
-    // form. Detailed extras and source-context reads keep the conservative cut.
-    if compact
-        && lsp_search_query::page_size(query).is_none()
-        && lsp_search_query::to_row(query)
-            .get("extras")
-            .and_then(Value::as_array)
-            .is_none_or(Vec::is_empty)
-    {
-        let full_budget = sizes
-            .iter()
-            .fold(0usize, |sum, size| sum.saturating_add(*size));
-        // Avoid materializing an oversized candidate just to measure it.
-        if full_budget > budget && response_window.is_some_and(|window| full_budget <= window) {
-            let pagination = select(Paging::Chars(full_budget), &sizes, 1)
-                .facts
-                .to_value();
-            let full = location_payload(
-                kind,
-                provider,
-                "files",
-                json!(compact_rows_by_file(&entries)),
-                &locations,
-                pagination,
-            );
-            if crate::response::page_windows::terminal_row_fits(response_window, &full) {
-                budget = budget.max(full_budget);
-            }
-        }
-    }
+    let sizes = location_sizes(&entries, grouped, lsp_search_query::context_lines(query));
     let (page, pagination, next_page) = paginate(
         &entries,
         lsp_search_query::page(query).unwrap_or(1),
-        &Pages::of(query, budget, &sizes, &snapshot),
+        &Pages::of(budget, &sizes, &snapshot),
     );
     let mut declaration_reads: Vec<Value> = Vec::new();
     let (key, rows) = if grouped {
         ("files", json!(page))
-    } else if compact {
-        ("files", json!(compact_rows_by_file(&page)))
     } else {
         // Context lines are read for this page only, not the whole set.
         let mut page = page;

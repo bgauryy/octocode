@@ -42,3 +42,23 @@ async fn mount_capped_compare(server: &MockServer) {
             .await;
     }
 }
+
+fn file_paths(files: &serde_json::Value) -> Vec<String> {
+    files
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|row| match row {
+            serde_json::Value::String(row) => vec![row.rsplit(' ').next().unwrap().to_owned()],
+            serde_json::Value::Object(groups) => groups
+                .iter()
+                .flat_map(|(dir, rows)| {
+                    rows.as_array().into_iter().flatten().map(move |row| {
+                        format!("{dir}{}", row.as_str().unwrap().rsplit(' ').next().unwrap())
+                    })
+                })
+                .collect(),
+            other => panic!("Invalid inventory row {other}"),
+        })
+        .collect()
+}

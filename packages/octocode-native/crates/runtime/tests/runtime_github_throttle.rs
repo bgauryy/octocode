@@ -48,8 +48,8 @@ async fn a_rate_limited_row_offers_a_retry_and_the_batch_exits_rate_limited() {
             "t".into(),
             "ghSearchRepo".into(),
             crate::support::envelope(json!({"queries":[
-                {"keywords":["good"],"extras":[]},
-                {"keywords":["limited"],"extras":[]}]})),
+                {"operation":"search","keywords":["good"]},
+                {"operation":"search","keywords":["limited"]}]})),
         )
         .await
         .expect("batch");
@@ -67,8 +67,15 @@ async fn a_rate_limited_row_offers_a_retry_and_the_batch_exits_rate_limited() {
     );
     let retry = &limited["data"]["next"]["retry"];
     assert_eq!(retry["tool"], "ghSearchRepo", "{limited}");
-    assert_eq!(retry["retryAfterSeconds"], 1, "{limited}");
-    assert_eq!(retry["query"]["queries"][0]["keywords"], json!(["limited"]));
+    assert_eq!(
+        limited["data"]["rateLimit"]["retryAfterSeconds"], 1,
+        "{limited}"
+    );
+    assert!(retry["input"]["cursor"].is_string(), "{retry}");
+    let again = call(&runtime, "ghSearchRepo", retry["input"].clone())
+        .await
+        .expect("issued retry");
+    assert_eq!(row_data(&again)["errorCode"], "rateLimited");
     assert_eq!(
         outcome.exit_class(),
         ExitClass::Failed(FailureKind::RateLimited)
@@ -96,7 +103,7 @@ async fn a_server_outage_row_states_the_provider_delay_and_offers_a_retry() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"keywords":["x"],"extras":[]}),
+        json!({"operation":"search","keywords":["x"]}),
     )
     .await
     .expect("row");
@@ -105,7 +112,6 @@ async fn a_server_outage_row_states_the_provider_delay_and_offers_a_retry() {
     assert_eq!(data["retryable"], true, "{data}");
     assert_eq!(data["rateLimit"]["retryAfterSeconds"], 30, "{data}");
     assert_eq!(data["next"]["retry"]["tool"], "ghSearchRepo", "{data}");
-    assert_eq!(data["next"]["retry"]["retryAfterSeconds"], 30, "{data}");
     runtime.close().await;
 }
 
@@ -125,7 +131,7 @@ async fn a_permanent_failure_offers_no_retry() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"keywords":["x"],"extras":[]}),
+        json!({"operation":"search","keywords":["x"]}),
     )
     .await
     .expect("row");
@@ -151,7 +157,7 @@ async fn a_401_keeps_githubs_message_beside_the_login_hint() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"keywords":["x"],"extras":[]}),
+        json!({"operation":"search","keywords":["x"]}),
     )
     .await
     .expect("row");
@@ -186,7 +192,7 @@ async fn a_saml_sso_403_surfaces_the_authorization_url() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"keywords":["x"],"extras":[]}),
+        json!({"operation":"search","keywords":["x"]}),
     )
     .await
     .expect("row");
@@ -228,7 +234,7 @@ async fn an_empty_code_search_reads_the_repository_once_and_offers_two_variants(
     let outcome = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"path":"src","extras":["hints"]}),
+        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"pathPrefix":"src"}),
     )
     .await
     .expect("empty search");
@@ -241,12 +247,11 @@ async fn an_empty_code_search_reads_the_repository_once_and_offers_two_variants(
         .filter(|request| request.url.path() == "/api/v3/repos/o/r")
         .count();
     assert_eq!(repo_reads, 1, "GET /repos/o/r once: {data}");
-    let hint = crate::support::checks::hint(data, "broadenSearch");
-    let variants = data
-        .pointer("/next/broadenSearch/query/queries")
-        .or_else(|| hint.pointer("/query/queries"))
-        .and_then(|rows| rows.as_array())
-        .unwrap_or_else(|| panic!("a broadenSearch lead: {data}"));
+    let hint = crate::support::checks::find_related_call(data, "ghSearchCode", |_| true)
+        .unwrap_or(&serde_json::Value::Null);
+    let variants = hint["input"]["queries"]
+        .as_array()
+        .expect("broader requests");
     assert_eq!(variants.len(), 2, "{data}");
 }
 

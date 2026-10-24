@@ -39,7 +39,7 @@ pub struct ToolError {
     pub hints: Vec<String>,
     /// Leads out of the error, e.g. a missing path's nearest existing parent.
     /// Boxed to keep the error small in `Result`s.
-    pub next: Option<Box<Value>>,
+    pub calls: Option<Box<Value>>,
     /// The coverage receipt of a classified row whose selection failed.
     pub selection: Option<Box<octocode_contract_types::Selection>>,
 }
@@ -50,7 +50,7 @@ impl ToolError {
             code,
             message: message.into(),
             hints: Vec::new(),
-            next: None,
+            calls: None,
             selection: None,
         }
     }
@@ -77,7 +77,7 @@ impl ToolError {
     /// (`response::pages::restart_stale`); a tool never words it.
     pub(crate) fn stale_snapshot(restart: Value) -> Self {
         Self {
-            next: Some(Box::new(serde_json::json!({ "restart": restart }))),
+            calls: Some(Box::new(serde_json::json!({ "restart": restart }))),
             ..Self::new(ErrorCode::StaleSnapshot, STALE_SNAPSHOT_ERROR)
         }
     }
@@ -104,7 +104,7 @@ impl ToolError {
         let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
         let mut out = Self::policy(error);
         if missing && let Some(next) = missing_path_lead(paths, requested) {
-            out.next = Some(Box::new(next));
+            out.calls = Some(Box::new(next));
         }
         out
     }
@@ -118,7 +118,7 @@ pub(crate) fn missing_path_lead(
     requested: &str,
 ) -> Option<serde_json::Value> {
     let parent = paths.nearest_existing_dir(requested)?;
-    let lead = Continuation::new(
+    let lead = Continuation::related(
         ToolId::StructureSearch,
         serde_json::json!({"operation": "tree", "path": parent}),
     )

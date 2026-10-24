@@ -9,8 +9,8 @@ use std::time::Instant;
 use tree_sitter::Node;
 
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
-use crate::text::file_extension::extension_of;
-use crate::text::utf8_offsets::LineIndex;
+use crate::text::LineIndex;
+use crate::text::extension_of;
 
 use super::octo::parse_tree_with_deadline;
 use super::types::StructuralDiagnostic;
@@ -77,6 +77,82 @@ fn diagnostic(
     StructuralDiagnostic::new(code, severity, stage, message).with_path(path)
 }
 
+/// A failed inspection: no nodes, one error diagnostic.
+fn failed(
+    code: &str,
+    stage: &str,
+    message: impl Into<String>,
+    path: &str,
+) -> SyntaxTreeInspectResult {
+    SyntaxTreeInspectResult {
+        nodes: Vec::new(),
+        total_nodes: 0,
+        next_offset: None,
+        status: "error".to_owned(),
+        diagnostics: vec![diagnostic(code, "error", stage, message, path)],
+    }
+}
+
+/// The node the walk starts at: the file root, or the node covering the
+/// requested 1-based `line` with the note a blank line earns. A line past
+/// the end of the file fails the inspection.
+fn walk_root<'tree>(
+    tree: &'tree tree_sitter::Tree,
+    content: &str,
+    line: Option<u32>,
+    named_only: bool,
+    file_path: &str,
+) -> Result<(Node<'tree>, Option<StructuralDiagnostic>), SyntaxTreeInspectResult> {
+    let Some(line) = line else {
+        return Ok((tree.root_node(), None));
+    };
+    match line_node(tree.root_node(), content, line, named_only) {
+        Some(LineRoot::Covering(node)) => Ok((node, None)),
+        Some(LineRoot::Blank { node, note }) => Ok((
+            node,
+            Some(diagnostic(
+                "syntaxTree.options.lineBlank",
+                "warning",
+                "options",
+                note,
+                file_path,
+            )),
+        )),
+        None => Err(failed(
+            "syntaxTree.options.lineOutOfRange",
+            "options",
+            format!("line {line} is past the end of the file"),
+            file_path,
+        )),
+    }
+}
+
+/// The page row of `node`: its `(id, parent id)`, the grammar `field` it
+/// fills, its kind and its span (1-based lines, UTF-16 columns, bytes).
+fn page_node(
+    node: Node<'_>,
+    field: Option<&str>,
+    (id, parent_id): (u32, Option<u32>),
+    content: &str,
+    line_index: &LineIndex,
+) -> SyntaxTreeNode {
+    let start = line_index.byte_to_position(content, node.start_byte() as u32);
+    let end = line_index.byte_to_position(content, node.end_byte() as u32);
+    SyntaxTreeNode {
+        id,
+        parent_id,
+        kind: node.kind().to_owned(),
+        field: field.map(str::to_owned),
+        named: node.is_named(),
+        start_line: start.0 + 1,
+        start_column: start.1,
+        end_line: end.0 + 1,
+        end_column: end.1,
+        start_byte: node.start_byte().min(u32::MAX as usize) as u32,
+        end_byte: node.end_byte().min(u32::MAX as usize) as u32,
+    }
+}
+
 /// Inspect a bounded preorder view of the syntax tree, parsed with the
 /// grammar of `extension` (default: the path's own). IDs are assigned only to
 /// emitted nodes, so `named_only` pages remain contiguous and parent IDs
@@ -109,19 +185,12 @@ fn inspect_bounded(
     let offset = options.node_offset.unwrap_or(0) as usize;
     let requested_limit = options.node_limit.unwrap_or(DEFAULT_NODE_LIMIT as u32) as usize;
     if requested_limit == 0 {
-        return SyntaxTreeInspectResult {
-            nodes: Vec::new(),
-            total_nodes: 0,
-            next_offset: None,
-            status: "error".to_owned(),
-            diagnostics: vec![diagnostic(
-                "syntaxTree.options.invalidLimit",
-                "error",
-                "options",
-                "nodeLimit must be greater than zero",
-                file_path,
-            )],
-        };
+        return failed(
+            "syntaxTree.options.invalidLimit",
+            "options",
+            "nodeLimit must be greater than zero",
+            file_path,
+        );
     }
     let limit = requested_limit.min(MAX_NODE_LIMIT);
     let ext = extension
@@ -129,92 +198,36 @@ fn inspect_bounded(
         .unwrap_or_else(|| extension_of(file_path, true, "txt"));
 
     if content.len() > crate::signatures::MAX_PARSE_SIZE {
-        return SyntaxTreeInspectResult {
-            nodes: Vec::new(),
-            total_nodes: 0,
-            next_offset: None,
-            status: "error".to_owned(),
-            diagnostics: vec![diagnostic(
-                "syntaxTree.content.tooLarge",
-                "error",
-                "parse",
-                format!(
-                    "Syntax-tree content exceeds {} byte limit",
-                    crate::signatures::MAX_PARSE_SIZE
-                ),
-                file_path,
-            )],
-        };
+        return failed(
+            "syntaxTree.content.tooLarge",
+            "parse",
+            format!(
+                "Syntax-tree content exceeds {} byte limit",
+                crate::signatures::MAX_PARSE_SIZE
+            ),
+            file_path,
+        );
     }
 
     let Some(entry) = languages::find_entry(&ext) else {
-        return SyntaxTreeInspectResult {
-            nodes: Vec::new(),
-            total_nodes: 0,
-            next_offset: None,
-            status: "error".to_owned(),
-            diagnostics: vec![diagnostic(
-                "syntaxTree.language.unsupported",
-                "error",
-                "parse",
-                format!("No registered tree-sitter grammar for .{ext} files"),
-                file_path,
-            )],
-        };
+        return failed(
+            "syntaxTree.language.unsupported",
+            "parse",
+            format!("No registered tree-sitter grammar for .{ext} files"),
+            file_path,
+        );
     };
 
     let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
     let tree = match parse_tree_with_deadline(&entry.language, content, deadline) {
         Ok(tree) => tree,
-        Err(error) => {
-            return SyntaxTreeInspectResult {
-                nodes: Vec::new(),
-                total_nodes: 0,
-                next_offset: None,
-                status: "error".to_owned(),
-                diagnostics: vec![diagnostic(
-                    error.code,
-                    "error",
-                    error.stage,
-                    error.message,
-                    file_path,
-                )],
-            };
-        }
+        Err(error) => return failed(error.code, error.stage, error.message, file_path),
     };
 
     let line_index = LineIndex::tree_sitter(content);
-    let mut line_note = None;
-    let root = match options.line {
-        None => tree.root_node(),
-        Some(line) => match line_node(tree.root_node(), content, line, named_only) {
-            Some(LineRoot::Covering(node)) => node,
-            Some(LineRoot::Blank { node, note }) => {
-                line_note = Some(diagnostic(
-                    "syntaxTree.options.lineBlank",
-                    "warning",
-                    "options",
-                    note,
-                    file_path,
-                ));
-                node
-            }
-            None => {
-                return SyntaxTreeInspectResult {
-                    nodes: Vec::new(),
-                    total_nodes: 0,
-                    next_offset: None,
-                    status: "error".to_owned(),
-                    diagnostics: vec![diagnostic(
-                        "syntaxTree.options.lineOutOfRange",
-                        "error",
-                        "options",
-                        format!("line {line} is past the end of the file"),
-                        file_path,
-                    )],
-                };
-            }
-        },
+    let (root, line_note) = match walk_root(&tree, content, options.line, named_only, file_path) {
+        Ok(root) => root,
+        Err(failure) => return failure,
     };
     let mut pending = vec![Pending {
         node: root,
@@ -279,21 +292,13 @@ fn inspect_bounded(
             }
             let id = next_id as u32;
             if (window_start..window_end).contains(&next_id) {
-                let start = line_index.byte_to_position(content, node.start_byte() as u32);
-                let end = line_index.byte_to_position(content, node.end_byte() as u32);
-                page_nodes.push(SyntaxTreeNode {
-                    id,
-                    parent_id: included_parent,
-                    kind: node.kind().to_owned(),
-                    field: field.map(str::to_owned),
-                    named: node.is_named(),
-                    start_line: start.0 + 1,
-                    start_column: start.1,
-                    end_line: end.0 + 1,
-                    end_column: end.1,
-                    start_byte: node.start_byte().min(u32::MAX as usize) as u32,
-                    end_byte: node.end_byte().min(u32::MAX as usize) as u32,
-                });
+                page_nodes.push(page_node(
+                    node,
+                    field,
+                    (id, included_parent),
+                    content,
+                    &line_index,
+                ));
             }
             next_id += 1;
             Some(id)

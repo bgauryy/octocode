@@ -278,7 +278,7 @@ export function forkLineage(sessions: Pick<ExtensionContext['sessionManager'], '
 }
 
 /** A message's text, without thinking, tool calls or images. */
-const messageText = (content: unknown): string => (typeof content === 'string' ? content : Array.isArray(content) ? content.flatMap((part) => (isRecord(part) && part['type'] === 'text' && typeof part['text'] === 'string' ? [part['text']] : [])).join('\n\n') : '');
+const messageText = (content: unknown): string => contentText(content, { separator: '\n\n' });
 
 /**
  * The current session's record (`shared/archive.ts`) from its branch: its first user message is its goal, its last user

@@ -1,20 +1,5 @@
 use super::*;
 
-/// A lossy lead's note names what it drops, in the caller's row, once:
-/// no static caution about what a drop may change.
-#[test]
-fn a_lossy_lead_note_names_only_the_dropped_paths() {
-    let lead = RepairLead {
-        lead: Value::Null,
-        dropped: vec!["queries.0.limit".into(), "bogusTop".into()],
-        approximate: Vec::new(),
-    };
-    assert_eq!(
-        lead.note(Some(2)).as_deref(),
-        Some("The repair lead drops queries[2].limit, bogusTop.")
-    );
-}
-
 /// Clasify evidence may be redacted in place; a credential-looking value
 /// in a resource read's `query` would run redacted, so it is rejected.
 #[test]
@@ -22,15 +7,15 @@ fn a_secret_in_a_clasify_source_is_rejected_and_in_state_redacted() {
     let token = format!("ghp_{}", "a".repeat(36));
     let security = crate::security::ContentSecurity::new();
     let policy = InputPolicy::ClasifyEvidence {
-        state_limit: 32_000,
+        content_limit: 32_000,
     };
     let state = security
-        .check_input(json!({"state":{"held":token}}), policy)
+        .check_input(json!({"content":{"held":token}}), policy)
         .expect("held state is redacted in place");
     assert!(!state.to_string().contains(&token), "{state:?}");
     let issues = security
         .check_input(
-            json!({"source":{"tool":"localFetch","query":{"path":token}}}),
+            json!({"source":{"tool":"localFetch","input":{"path":token}}}),
             policy,
         )
         .expect_err("a source locator cannot be silently redacted");
@@ -38,7 +23,7 @@ fn a_secret_in_a_clasify_source_is_rejected_and_in_state_redacted() {
         .iter()
         .map(|issue| issue.path.join("."))
         .collect::<Vec<_>>();
-    assert_eq!(paths, ["source.query.path"], "{issues:?}");
+    assert_eq!(paths, ["source.input.path"], "{issues:?}");
     assert!(
         issues
             .iter()

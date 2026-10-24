@@ -1,6 +1,7 @@
 //! Release-source labels, source leads and repair leads.
 use super::{github_repo_dir, label_release_source, source_leads, source_warning};
-use crate::providers::artifact::{ArtifactItem, ArtifactType};
+use crate::providers::artifact::ArtifactItem;
+use octocode_contract_types::ArtifactType;
 use serde_json::json;
 
 fn item(artifact_type: ArtifactType, repository: &str) -> ArtifactItem {
@@ -21,8 +22,8 @@ fn a_row_without_a_release_ref_leads_to_the_default_branch_only() {
     let leads = leads_of(&item(ArtifactType::Pypi, "https://github.com/psf/requests"));
     assert_eq!(leads.keys().collect::<Vec<_>>(), vec!["viewRepo"]);
     assert_eq!(
-        leads["viewRepo"]["query"]["queries"][0],
-        json!({"owner":"psf","repo":"requests"})
+        leads["viewRepo"]["input"]["queries"][0],
+        json!({"operation":"tree","owner":"psf","repo":"requests"})
     );
     // The row labels the default branch; the lead does not repeat it.
     assert!(leads["viewRepo"].get("verification").is_none());
@@ -36,14 +37,14 @@ fn the_release_lead_leads_to_the_package_directory() {
     let leads = leads_of(&row);
     assert_eq!(leads.keys().collect::<Vec<_>>(), vec!["viewReleaseSource"]);
     assert_eq!(
-        leads["viewReleaseSource"]["query"]["queries"][0],
-        json!({"owner":"o","repo":"r","ref":"v1.2.3"})
+        leads["viewReleaseSource"]["input"]["queries"][0],
+        json!({"operation":"tree","owner":"o","repo":"r","ref":"v1.2.3"})
     );
     // The package directory is the registry's, never the built entry's.
     row.repository_directory = Some("packages/x".into());
     row.source_attested = true;
     let lead = &leads_of(&row)["viewReleaseSource"];
-    assert_eq!(lead["query"]["queries"][0]["path"], "packages/x");
+    assert_eq!(lead["input"]["queries"][0]["path"], "packages/x");
 }
 
 /// The row is the one source of the release ref's label: no lead at
@@ -67,10 +68,10 @@ fn a_repository_url_naming_the_versions_tag_pins_the_release_lead() {
     );
     row.version = Some("8.1.4".into());
     let leads = leads_of(&row);
-    let tree = &leads["viewReleaseSource"]["query"]["queries"][0];
+    let tree = &leads["viewReleaseSource"]["input"]["queries"][0];
     assert_eq!(
         tree,
-        &json!({"owner":"rails","repo":"rails","ref":"v8.1.4"})
+        &json!({"operation":"tree","owner":"rails","repo":"rails","ref":"v8.1.4"})
     );
     row.repository = Some("https://github.com/rails/rails/tree/main".into());
     assert_eq!(leads_of(&row).keys().collect::<Vec<_>>(), vec!["viewRepo"]);
@@ -88,7 +89,7 @@ fn a_default_branch_source_warns_that_it_may_be_another_version() {
         ArtifactType::Npm,
         "https://github.com/DefinitelyTyped/DefinitelyTyped",
     );
-    row.name = "@types/node".into();
+    row.package_name = "@types/node".into();
     row.version = Some("20.19.43".into());
     row.repository_directory = Some("types/node".into());
     label_release_source(&mut row, true);

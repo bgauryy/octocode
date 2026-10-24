@@ -2,6 +2,7 @@
 //! mid-request, acquire/stop cleanup, prewarm, memory policy, tsgo→tsserver fallback.
 
 use super::*;
+use octocode_contract_types::LspSearchQuery;
 
 fn execution_config(
     root: &Path,
@@ -73,8 +74,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
         "operation": "hover", "path": root.join("a.ts").to_string_lossy(),
         "symbolName": "a", "line": 1
     });
-    let query: crate::tools::lsp_search::LspSearchQuery =
-        serde_json::from_value(query_row.clone()).expect("query");
+    let query: LspSearchQuery = serde_json::from_value(query_row.clone()).expect("query");
     let expected_retry = lsp_search_query::to_row(&query);
     let paths = crate::tools::test_support::workspace_policy(&root);
     let runtime = tokio::runtime::Runtime::new().expect("rt");
@@ -99,7 +99,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
     );
     assert_eq!(first["lsp"]["serverAvailable"], true, "{first}");
     assert_eq!(first["isPartial"], true, "{first}");
-    let retry = first["next"]["retry"]["query"]["queries"][0].clone();
+    let retry = first["next"]["retry"]["input"]["queries"][0].clone();
     assert_eq!(retry, expected_retry, "{first}");
     let pids = std::fs::read_to_string(root.join("pids.txt")).expect("server pid");
     assert_eq!(
@@ -286,8 +286,7 @@ fn a_tsgo_that_fails_to_start_falls_back_to_tsserver_and_says_so() {
     let path = root.join("a.ts").to_string_lossy().into_owned();
     let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
     let query: crate::tools::lsp_search::LspSearchQuery = serde_json::from_value(json!({
-        "operation":"hover", "mainGoal":"test", "reasoning":"test",
-        "path":uri, "symbolName":"a", "line":1
+        "operation":"hover", "path":uri, "symbolName":"a", "line":1
     }))
     .expect("query");
     let target = |fallback| Target {

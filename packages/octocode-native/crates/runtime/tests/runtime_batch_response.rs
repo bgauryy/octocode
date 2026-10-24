@@ -1,227 +1,195 @@
-use crate::support::{self, Run as _};
+use crate::support::{self, Run as _, Workspace};
 use octocode_contract_types::ErrorCode;
+use serde_json::{Value, json};
 
-use serde_json::json;
-use support::Workspace;
-
-fn search(root: &str, extra: serde_json::Value) -> serde_json::Value {
-    let mut query =
-        json!({"path":root,"matchString":"needle","mainGoal": "test", "reasoning":"Find needles."});
-    for (key, value) in extra.as_object().unwrap() {
-        query[key] = value.clone();
-    }
+fn search(root: &str, extra: Value) -> Value {
+    let mut query = json!({"path":root,"matchString":["needle"]});
+    query
+        .as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
     query
 }
 
 #[tokio::test]
-async fn invalid_rows_become_error_rows_while_valid_rows_execute() {
+async fn invalid_rows_are_isolated_without_guessing_a_repair() {
     let workspace = Workspace::new();
-    let file = workspace.write("src/a.txt", "needle\n");
-    let root = file.parent().unwrap().to_string_lossy().into_owned();
+    workspace.write("src/a.txt", "needle\n");
     let runtime = workspace.runtime(&[]);
-    let input = json!({"queries":[
-        search(&root, json!({})),
-        search(&root, json!({"serchText":"typo"})),
-        search(&root, json!({"resultView":"files"}))
-    ]});
+    let input = json!({"queries":[search("src",json!({})),search("src",json!({"serchText":"typo"})),search("src",json!({"view":"files"}))]});
     let outcome = runtime
         .run("isolate".into(), "localSearch".into(), input)
         .await
-        .expect("a partially invalid batch still executes");
+        .expect("partly valid batch");
     let rows = outcome.structured_content["results"].as_array().unwrap();
-    assert_eq!(rows.len(), 3, "{}", outcome.structured_content);
+    assert_eq!(rows.len(), 3);
     for (index, row) in rows.iter().enumerate() {
         assert_eq!(row["index"], index);
     }
     assert_ne!(rows[0]["status"], "error");
+    assert_ne!(rows[2]["status"], "error");
     assert_eq!(rows[1]["status"], "error");
     assert_eq!(rows[1]["data"]["errorCode"], "invalidInput");
-    // The error names the field; the one lead is the row without it.
-    let error = rows[1]["data"]["error"].as_str().unwrap_or_default();
+    let error = rows[1]["data"]["error"].as_str().unwrap();
     assert!(
         error.contains("queries[1]") && error.contains("serchText"),
-        "{}",
-        rows[1]
+        "{error}"
     );
-    let hints = rows[1]["data"]["hints"].as_array().expect("string hints");
-    let repair = crate::support::checks::hint(&rows[1]["data"], "repair");
-    assert_eq!(hints.len(), 2, "{}", rows[1]);
-    assert_eq!(repair["tool"], "localSearch", "{}", rows[1]);
-    // Dropping a field the caller set reads more broadly: the note says so.
     assert!(
-        crate::support::checks::hint(&rows[1]["data"], "text")
-            .to_string()
-            .contains("serchText"),
-        "{}",
+        support::checks::leads(&rows[1]).is_empty(),
+        "invalid input must not become a guessed call: {}",
         rows[1]
     );
-    let repaired = &repair["query"]["queries"];
-    assert_eq!(repaired.as_array().map(Vec::len), Some(1), "{}", rows[1]);
-    assert_eq!(repaired[0]["matchString"], "needle", "{}", rows[1]);
-    assert!(repaired[0].get("serchText").is_none(), "{}", rows[1]);
-    assert_ne!(rows[2]["status"], "error");
     assert!(!outcome.all_failed);
-    octocode_native::contracts::validate_output("localSearch", &outcome.structured_content)
-        .expect("isolated batch output contract");
+    support::checks::assert_output_contract("localSearch", &outcome.structured_content);
     runtime.close().await;
 }
 
 #[tokio::test]
-async fn an_all_invalid_or_envelope_invalid_batch_still_fails_as_a_whole() {
+async fn all_invalid_rows_and_invalid_envelopes_fail_before_execution() {
     let workspace = Workspace::new();
-    let file = workspace.write("src/a.txt", "needle\n");
-    let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
-    let all_invalid = json!({"queries":[
-        search(&root, json!({"bogus":1})),
-        search(&root, json!({"alsoBogus":2}))
-    ]});
-    let error = runtime
-        .run("all-invalid".into(), "localSearch".into(), all_invalid)
-        .await
-        .expect_err("no valid row to run");
-    assert_eq!(error.code, ErrorCode::InvalidInput);
-    let too_many = json!({"queries": (0..6).map(|_| search(&root, json!({}))).collect::<Vec<_>>()});
-    let error = runtime
-        .run("too-many".into(), "localSearch".into(), too_many)
-        .await
-        .expect_err("envelope limits are not row-scoped");
-    assert_eq!(error.code, ErrorCode::InvalidInput);
-    runtime.close().await;
-}
-
-fn assert_whole_row_page(envelope: &serde_json::Value) {
-    let rows = envelope["results"]
-        .as_array()
-        .expect("rows page keeps results");
-    assert!(!rows.is_empty(), "{envelope}");
-    assert!(envelope.get("responseWindow").is_none());
-    for row in rows {
-        assert!(row["index"].is_number() && row["data"].is_object(), "{row}");
-    }
-    octocode_native::contracts::validate_output("localSearch", envelope)
-        .expect("row page output contract");
-}
-
-#[tokio::test]
-async fn oversized_cli_output_pages_by_whole_rows_with_an_executable_continuation() {
-    let workspace = Workspace::new();
-    let mut file = None;
-    for index in 0..20 {
-        file = Some(workspace.write(&format!("src/f{index}.txt"), "needle ".repeat(400) + "\n"));
-    }
-    let root = file
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    let runtime = workspace.runtime_with(
-        &[],
-        octocode_native::execution::RuntimeLimits {
-            auto_page_chars: 4000,
-            ..support::FIXTURE_LIMITS
-        },
-    );
-    let first = runtime
-        .run(
-            "auto-page".into(),
-            "localSearch".into(),
-            json!({"queries":[search(&root, json!({"pageSize":20,"matchContentLength":2000}))]}),
-        )
-        .await
-        .unwrap();
-    let envelope = &first.structured_content;
-    assert_whole_row_page(envelope);
-    let pagination = &envelope["responsePagination"];
-    assert_eq!(pagination["scope"], "rows", "{pagination}");
-    assert_eq!(pagination["hasMore"], true);
-    let files_on_first = envelope["results"][0]["data"]["files"]
-        .as_array()
-        .unwrap()
-        .len();
-    assert!(
-        (1..20).contains(&files_on_first),
-        "one row split across pages"
-    );
-    assert_eq!(envelope["results"][0]["rowPart"]["part"], 1);
-    let next = pagination["next"]["query"].clone();
-    support::assert_cursor_only(&next);
-    assert_eq!(support::cursor_offset(pagination), 1);
-    let mut files_seen = files_on_first;
-    let mut next = Some(next);
-    let mut pages = 1;
-    while let Some(query) = next.take() {
-        let page = runtime
-            .run(format!("auto-page-{pages}"), "localSearch".into(), query)
+    for input in [
+        json!({"queries":[search(".",json!({"bogus":1})),search(".",json!({"alsoBogus":2}))]}),
+        json!({"queries":(0..6).map(|_|search(".",json!({}))).collect::<Vec<_>>()}),
+        json!({"queries":[search(".",json!({}))],"responseScope":"rows"}),
+    ] {
+        let error = runtime
+            .run("invalid".into(), "localSearch".into(), input)
             .await
-            .expect("continuation executes unchanged");
-        assert_whole_row_page(&page.structured_content);
-        files_seen += page.structured_content["results"][0]["data"]["files"]
-            .as_array()
-            .unwrap()
-            .len();
-        pages += 1;
-        next = page.structured_content["responsePagination"]["next"]
-            .get("query")
-            .cloned();
-        assert!(pages < 50, "paging terminates");
+            .expect_err("strict request");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
     }
-    assert_eq!(
-        files_seen, 20,
-        "every file appears exactly once across pages"
+    runtime.close().await;
+}
+
+fn match_ids(output: &Value) -> Vec<String> {
+    output["results"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|row| {
+            row["data"]["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|file| {
+                    file["matches"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|hit| format!("{}:{}", file["path"], hit["line"]))
+                })
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn automatic_pages_reach_all_matches_once_on_both_transports() {
+    use octocode_native::runtime::Channel;
+    for channel in [Channel::Cli, Channel::Mcp] {
+        let workspace = Workspace::new();
+        for index in 0..20 {
+            workspace.write(
+                &format!("src/f{index}.txt"),
+                format!("needle {}\n", "wide evidence ".repeat(100)),
+            );
+        }
+        let runtime = workspace.runtime_with(
+            &[],
+            octocode_native::execution::RuntimeLimits {
+                auto_page_chars: 4000,
+                ..support::FIXTURE_LIMITS
+            },
+        );
+        let input = json!({"queries":[search("src",json!({}))]});
+        let mut walker = support::checks::Walker::new("localSearch", input);
+        while let Some(input) = walker.next_query() {
+            let admission = runtime.admit("page".into()).expect("admission");
+            let outcome = runtime
+                .execute(admission, "localSearch".into(), input, channel)
+                .await
+                .expect("page");
+            let output = outcome.structured_content.into_value();
+            assert!(
+                !output["results"]
+                    .as_array()
+                    .expect("indexed results")
+                    .is_empty()
+            );
+            if let Some(pagination) = output.get("responsePagination") {
+                assert!(pagination["page"].as_u64().is_some());
+                if let Some(next) = pagination.get("next") {
+                    support::assert_cursor_only(&next["input"]);
+                }
+            }
+            walker.accept(support::checks::Page {
+                rows: match_ids(&output),
+                output,
+            });
+        }
+        let walk = walker.finish();
+        assert!(walk.queries.len() > 1);
+        assert_eq!(walk.rows.len(), 20);
+        runtime.close().await;
+    }
+}
+
+#[tokio::test]
+async fn small_results_need_no_response_page() {
+    let workspace = Workspace::new();
+    workspace.write("one.txt", "needle\n");
+    let runtime = workspace.runtime(&[]);
+    let output = support::run(&runtime, "localSearch", search("one.txt", json!({}))).await;
+    assert!(
+        output
+            .structured_content
+            .get("responsePagination")
+            .is_none()
     );
+    assert_eq!(match_ids(&output.structured_content).len(), 1);
     runtime.close().await;
 }
 
 #[tokio::test]
-async fn small_output_is_not_paginated_and_mcp_auto_pages_by_whole_rows() {
+async fn a_paged_partial_batch_counts_rejected_rows_in_its_rendered_size_once() {
     let workspace = Workspace::new();
-    let file = workspace.write("src/a.txt", "needle\n");
-    let root = file.parent().unwrap().to_string_lossy().into_owned();
-    let runtime = workspace.runtime_with(
-        &[],
-        octocode_native::execution::RuntimeLimits {
-            auto_page_chars: 2000,
-            ..support::FIXTURE_LIMITS
-        },
+    workspace.write(
+        "large.txt",
+        (0..100)
+            .map(|index| format!("needle evidence {index}\n"))
+            .collect::<String>(),
     );
-    let small = runtime
-        .run(
-            "small".into(),
-            "localSearch".into(),
-            json!({"queries":[search(&root, json!({}))]}),
-        )
-        .await
-        .unwrap();
-    assert!(small.structured_content.get("responsePagination").is_none());
-    assert!(
-        small.structured_content["results"]
+    let runtime = workspace.runtime(&[]);
+    let mut next = Some(
+        json!({"queries":[search("large.txt",json!({})),search("large.txt",json!({"unknown":"x".repeat(200)}))],"responseChars":800}),
+    );
+    let mut rejected = 0;
+    let mut pages = 0;
+    while let Some(input) = next.take() {
+        let output = runtime
+            .run("batch-page".into(), "localSearch".into(), input)
+            .await
+            .expect("isolated batch")
+            .structured_content;
+        support::checks::assert_output_contract("localSearch", &output);
+        let pagination = &output["responsePagination"];
+        let chars = output.to_string().encode_utf16().count();
+        assert_eq!(pagination["returnedChars"], chars);
+        if chars > 800 {
+            assert_eq!(pagination["oversized"], true);
+        }
+        rejected += output["results"]
             .as_array()
             .unwrap()
-            .len()
-            == 1
-    );
-
-    for index in 0..20 {
-        workspace.write(&format!("src/big{index}.txt"), "needle ".repeat(400) + "\n");
+            .iter()
+            .filter(|row| row["index"] == 1)
+            .count();
+        next = pagination.pointer("/next/input").cloned();
+        pages += 1;
+        assert!(pages < 200);
     }
-    let mcp = runtime
-        .run_mcp(
-            "mcp-auto".into(),
-            "localSearch".into(),
-            json!({"queries":[search(&root, json!({"pageSize":20,"matchContentLength":2000}))]}),
-        )
-        .await
-        .unwrap();
-    let text = mcp["content"][0]["text"].as_str().unwrap();
-    assert!(text.encode_utf16().count() < 2600, "text page is bounded");
-    let structured = &mcp["structuredContent"];
-    // Implicit pages are whole rows: structuredContent-only clients see the
-    // page instead of an emptied results array.
-    assert!(!structured["results"].as_array().unwrap().is_empty());
-    assert_eq!(structured["responsePagination"]["scope"], "rows");
-    assert_eq!(structured["responsePagination"]["hasMore"], true);
-    support::assert_cursor_only(&structured["responsePagination"]["next"]["query"]);
+    assert_eq!(rejected, 1);
+    assert!(pages > 1);
     runtime.close().await;
 }

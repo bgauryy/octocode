@@ -1,5 +1,6 @@
 use super::*;
-use crate::tools::ast_graph::test_support::{Fixture, known};
+use crate::tools::ast_graph::test_support::known;
+use crate::tools::test_support::Fixture;
 
 #[test]
 fn indexing_keeps_python_and_include_roots_after_the_sixty_fourth() {

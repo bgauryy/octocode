@@ -12,23 +12,26 @@ import { fakeCtx, fakePi } from './fake-pi.js';
 import { tmp, until } from './helpers.js';
 
 describe('bash deadline', () => {
-  it('honours the timeout a call asks for, longer or shorter, up to an hour, and fills a missing one with 15 minutes', () => {
-    expect(DEFAULT_BASH_TIMEOUT).toBe(900);
-    expect(MAX_FOREGROUND_TIMEOUT).toBe(3600);
-    expect(effectiveTimeout(undefined)).toEqual({ seconds: 900, clamped: false });
+  it('honours the timeout a call asks for, longer or shorter, up to the foreground cap, and fills a missing one with the default', () => {
+    expect(DEFAULT_BASH_TIMEOUT).toBeLessThan(MAX_FOREGROUND_TIMEOUT);
+    const fallback = { seconds: DEFAULT_BASH_TIMEOUT, clamped: false };
+    expect(effectiveTimeout(undefined)).toEqual(fallback);
     expect(effectiveTimeout(30)).toEqual({ seconds: 30, clamped: false });
-    expect(effectiveTimeout(3_600)).toEqual({ seconds: 3_600, clamped: false });
-    expect(effectiveTimeout(0)).toEqual({ seconds: 900, clamped: false });
-    expect(effectiveTimeout(-1)).toEqual({ seconds: 900, clamped: false });
-    expect(effectiveTimeout(Number.NaN)).toEqual({ seconds: 900, clamped: false });
+    expect(effectiveTimeout(MAX_FOREGROUND_TIMEOUT)).toEqual({ seconds: MAX_FOREGROUND_TIMEOUT, clamped: false });
+    expect(effectiveTimeout(0)).toEqual(fallback);
+    expect(effectiveTimeout(-1)).toEqual(fallback);
+    expect(effectiveTimeout(Number.NaN)).toEqual(fallback);
   });
 
-  it('clamps a longer foreground timeout to an hour and says so', () => {
-    expect(effectiveTimeout(3_601)).toEqual({ seconds: 3_600, clamped: true });
-    expect(effectiveTimeout(1e6)).toEqual({ seconds: 3_600, clamped: true });
-    expect(effectiveTimeout(Number.POSITIVE_INFINITY)).toEqual({ seconds: 900, clamped: false });
+  it('clamps a longer foreground timeout to the cap and says so', () => {
+    expect(effectiveTimeout(MAX_FOREGROUND_TIMEOUT + 1)).toEqual({ seconds: MAX_FOREGROUND_TIMEOUT, clamped: true });
+    expect(effectiveTimeout(1e6)).toEqual({ seconds: MAX_FOREGROUND_TIMEOUT, clamped: true });
+    expect(effectiveTimeout(Number.POSITIVE_INFINITY)).toEqual({ seconds: DEFAULT_BASH_TIMEOUT, clamped: false });
   });
 });
+
+/** The note a clamped foreground call carries. */
+const CLAMPED = `(timeout clamped to ${MAX_FOREGROUND_TIMEOUT} s; use background: true for longer)`;
 
 describe('bash tool', () => {
   const setup = (shell: ShellSettings = {}) => {
@@ -46,7 +49,7 @@ describe('bash tool', () => {
     expect(tool.name).toBe('bash');
     expect(Object.keys(tool.parameters.properties)).toEqual(['command', 'timeout', 'background']);
     expect(tool.promptGuidelines).toEqual([]);
-    expect(tool.parameters.properties.timeout.description).toContain('foreground default 900s');
+    expect(tool.parameters.properties.timeout.description).toContain(`foreground default ${DEFAULT_BASH_TIMEOUT}s`);
     expect(tool.parameters.properties.background.description).toContain('long builds');
     // Pi's bash output, or a background start: codemode scripts get structuredContent only when this is declared.
     const variants = tool.outputSchema.anyOf.map((variant: { properties: object }) => Object.keys(variant.properties));
@@ -83,10 +86,10 @@ describe('bash tool', () => {
   it('carries the clamp note on a command that failed for another reason: a non-zero exit, and an abort', async () => {
     const { tool, ctx } = setup();
     const failed = await tool.execute('t1', { command: 'echo oops; exit 3', timeout: 1_000_000 }, undefined, undefined, ctx);
-    expect(failed.content[0].text).toMatch(/oops[\s\S]*exited with code 3[\s\S]*\(timeout clamped to 3600 s; use background: true for longer\)/);
+    expect(failed.content[0].text).toMatch(new RegExp(String.raw`oops[\s\S]*exited with code 3[\s\S]*${CLAMPED.replace(/[()]/g, '\\$&')}`));
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 300);
-    await expect(tool.execute('t2', { command: 'echo started; sleep 30', timeout: 1_000_000 }, controller.signal, undefined, ctx)).rejects.toThrow(/aborted[\s\S]*\(timeout clamped to 3600 s; use background: true for longer\)/);
+    await expect(tool.execute('t2', { command: 'echo started; sleep 30', timeout: 1_000_000 }, controller.signal, undefined, ctx)).rejects.toThrow(new RegExp(String.raw`aborted[\s\S]*${CLAMPED.replace(/[()]/g, '\\$&')}`));
     const plain = new AbortController();
     setTimeout(() => plain.abort(), 300);
     const message = await tool.execute('t3', { command: 'sleep 30', timeout: 60 }, plain.signal, undefined, ctx).catch((error: Error) => error.message);
@@ -98,10 +101,10 @@ describe('bash tool', () => {
     const { tool, ctx } = setup();
     const clamped = await tool.execute('t1', { command: 'echo done', timeout: 1_000_000 }, undefined, undefined, ctx);
     expect(clamped.content[0].text).toContain('done');
-    expect(clamped.content[0].text).toContain('(timeout clamped to 3600 s; use background: true for longer)');
-    const plain = await tool.execute('t2', { command: 'echo done', timeout: 3_600 }, undefined, undefined, ctx);
+    expect(clamped.content[0].text).toContain(CLAMPED);
+    const plain = await tool.execute('t2', { command: 'echo done', timeout: MAX_FOREGROUND_TIMEOUT }, undefined, undefined, ctx);
     expect(plain.content[0].text).not.toMatch(/clamped/);
-    expect(tool.parameters.properties.timeout.description).toContain('at most 3600s');
+    expect(tool.parameters.properties.timeout.description).toContain(`at most ${MAX_FOREGROUND_TIMEOUT}s`);
     expect(tool.parameters.properties.timeout).not.toHaveProperty('maximum');
   });
 

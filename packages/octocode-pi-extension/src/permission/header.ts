@@ -1,5 +1,5 @@
 import { sameSecret } from '../shared/env.js';
-import { isRecord, stringList } from '../shared/util.js';
+import { isRecord, parseJson, stringList } from '../shared/util.js';
 import { auditLine } from './effect.js';
 import { ACTION_CLASSES, ASK_REASONS, type ActionClass, type AskReason } from './mode.js';
 
@@ -44,12 +44,7 @@ export function splitHeader(title: string, nonce: string): { title: string; head
   const end = title.indexOf('\n');
   const line = end < 0 ? title : title.slice(0, end);
   const rest = end < 0 ? '' : title.slice(end + 1);
-  let raw: unknown;
-  try {
-    raw = JSON.parse(line.slice(HEADER_PREFIX.length));
-  } catch {
-    return { title };
-  }
+  const raw = parseJson(line.slice(HEADER_PREFIX.length));
   if (!isRecord(raw) || !sameSecret(nonce, raw['nonce'])) return { title };
   const action = ACTION_CLASSES.find((each) => each === raw['action']);
   const also = subset(raw['also'], ACTION_CLASSES);

@@ -19,7 +19,10 @@ pub struct SecretPattern {
 }
 
 /// Secret patterns in evaluation order; a pattern's index is its identity.
-pub static PATTERNS: &[SecretPattern] = &join::<{ total(&SLICES) }>(&SLICES);
+pub static PATTERNS: &[SecretPattern] = &join::<PATTERN_COUNT>(&SLICES);
+
+/// How many patterns [`PATTERNS`] holds.
+pub(crate) const PATTERN_COUNT: usize = total(&SLICES);
 
 /// The slices of [`PATTERNS`], in evaluation order.
 const SLICES: [&[SecretPattern]; 8] = [

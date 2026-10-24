@@ -83,6 +83,32 @@ class SummaryTest(unittest.TestCase):
         calls = [{"cmd": 'localSearch {"queries":[{"goals":["relevant"]}]}'}]
         self.assertEqual(campaign.semantic_calls(calls)["goal_queries"], 1)
 
+    def test_current_classification_counts_without_guessing_opaque_cursor_state(self):
+        calls = [
+            {"cmd": 'localFetch {"queries":[{"path":"source.rs","classification":{"predicates":["owns validation"]}}]}'},
+            {"cmd": 'localFetch {"cursor":"opaque"}'},
+        ]
+        result = campaign.semantic_calls(calls)
+        self.assertEqual(result["goal_queries"], 1)
+        self.assertEqual(result["initial_goal_queries"], 1)
+        self.assertEqual(result["ranking_replay_queries"], 0)
+        self.assertEqual(result["tool_calls"], {"localFetch": 2})
+
+    def test_current_selection_receipt_preserves_partition_and_unknown_usage(self):
+        selection = {"status": "partial", "scope": "selectedView", "unit": "chunks",
+                     "totalItems": 3, "selectedItems": 1, "excludedItems": 1, "unknownItems": 1,
+                     "failures": [{"candidate": 2, "errorCode": "providerUnavailable", "error": "offline"}],
+                     "usage": {"calls": 2, "knownUsageCalls": 1, "unknownUsageCalls": 1,
+                               "inputTokens": 10, "outputTokens": 2, "replayedEvaluations": 0}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "transcript.jsonl"
+            path.write_text(json.dumps({"type": "item.completed", "item": {
+                "type": "mcp_tool_call", "tool": "localFetch", "result": {
+                    "structured_content": {"results": [{"data": {"selection": selection}}]}}}}))
+            result = campaign.codex_receipts(path)
+        self.assertEqual(result["selection_receipts"], [{"tool": "localFetch", **selection}])
+        self.assertEqual(result["ranking_receipts"], [])
+
     def test_two_mcp_arms_never_collapse_and_other_corpus_is_excluded(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

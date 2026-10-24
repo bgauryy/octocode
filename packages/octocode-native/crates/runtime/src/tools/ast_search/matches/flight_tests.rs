@@ -1,7 +1,9 @@
+use super::memo::{SCAN_FLIGHT, flight_key};
 use super::scan::DIRECTORY_SCANS;
 use super::*;
 use crate::tools::test_support::{Fixture, simple_policy};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{AstSearchQuery, ErrorCode};
+use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -22,7 +24,7 @@ impl CancellationCheck for Flag {
 const HELD_TURN_BOUND: Duration = Duration::from_secs(60);
 
 /// A row as the tool reads it.
-fn typed(row: &serde_json::Value) -> super::super::AstSearchQuery {
+fn typed(row: &serde_json::Value) -> AstSearchQuery {
     serde_json::from_value(row.clone()).expect("typed row")
 }
 
@@ -37,17 +39,17 @@ fn identical_rows_running_at_once_share_one_scan() {
         root.write(&format!("f{index:02}.rs"), "fn f() { x.unwrap(); }\n");
     }
     let (paths, _) = simple_policy(&root.0);
-    let query = json!({"operation":"match","path":root.0,"pattern":"$X.unwrap()","resultView":"countMatches"});
+    let query = json!({"operation":"match","path":root.0,"rule":{"pattern":"$X.unwrap()"},"view":"countMatches"});
     let row = typed(&query);
-    let super::super::AstSearchQuery::MatchPattern(pattern) = &row else {
-        panic!("a pattern row");
+    let AstSearchQuery::MatchView(summary) = &row else {
+        panic!("a count view row");
     };
-    let q = MatchQuery::Pattern(pattern);
+    let q = MatchQuery::Summary(summary);
     let canonical = root.0.canonicalize().expect("canonical");
     let scans = || {
         DIRECTORY_SCANS
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .filter(|scanned| **scanned == canonical)
             .count()
@@ -82,11 +84,11 @@ fn a_cancelled_row_stops_waiting_for_another_requests_scan() {
     let root = Fixture::new();
     std::fs::write(root.0.join("source.ts"), "target(1);\n").expect("source");
     let (paths, _) = simple_policy(&root.0);
-    let row = typed(&json!({"operation":"match", "path":root.0, "pattern":"target($A)"}));
-    let super::super::AstSearchQuery::MatchPattern(query) = &row else {
+    let row = typed(&json!({"operation":"match","path":root.0,"rule":{"pattern":"target($A)"}}));
+    let AstSearchQuery::Match0(query) = &row else {
         panic!("a pattern row");
     };
-    let q = MatchQuery::Pattern(query);
+    let q = MatchQuery::Content(query);
     let holder = SCAN_FLIGHT.join(flight_key(q, &scan_key(q, &paths)));
     let held = holder.blocking_turn();
     let cancel = Flag(AtomicBool::new(false));

@@ -1,39 +1,8 @@
-//! Executable continuations: anchored replays, identity handoffs and
-//! terminal fits that keep controls and cursor identity.
-
 use super::*;
+use serde_json::json;
 
 #[test]
-fn local_search_identity_continuations_validate_as_anchored_queries() {
-    // The shape localSearch emits as next.references / next.callers for a
-    // declaration hit: uri + symbolName + line, nothing else.
-    for operation in ["references", "callers"] {
-        let continuation = serde_json::json!({
-            "mainGoal": "Who uses run_and_clear_commit_hooks?",
-            "reasoning": "Declaration hit from localSearch.",
-            "operation": operation,
-            "path": "/repo/django/db/backends/base/base.py",
-            "symbolName": "run_and_clear_commit_hooks",
-            "line": 749
-        });
-        let validated = crate::contracts::validate_query("lspSearch", continuation)
-            .unwrap_or_else(|error| panic!("{operation}: {error:?}"));
-        let parsed: LspSearchQuery = serde_json::from_value(validated).expect("typed query");
-        assert_eq!(
-            lsp_search_query::anchor_line(&parsed),
-            Some(749),
-            "{operation}"
-        );
-        assert_eq!(lsp_search_query::operation(&parsed), operation);
-        assert_eq!(
-            lsp_search_query::symbol_name(&parsed),
-            Some("run_and_clear_commit_hooks")
-        );
-    }
-}
-
-#[test]
-fn anchored_operation_shapes_preserve_controls_and_replay() {
+fn every_operation_retains_its_canonical_controls_and_saved_progress() {
     for operation in [
         "definition",
         "typeDefinition",
@@ -45,277 +14,138 @@ fn anchored_operation_shapes_preserve_controls_and_replay() {
         "subtypes",
         "hover",
     ] {
-        let mut row = serde_json::json!({
-            "operation": operation, "path": "/repo/a.ts", "symbolName": "run", "line": 7,
-            "orderHint": 2, "page": 3, "pageSize": 4, "snapshot": "stable", "workspaceRoot": "/repo"
-        });
-        let locations = matches!(
-            operation,
-            "definition" | "typeDefinition" | "implementation" | "references"
-        );
-        let hierarchy = matches!(operation, "callers" | "callees" | "supertypes" | "subtypes");
-        let importer = matches!(operation, "references" | "callers");
-        if locations {
-            row["groupByFile"] = true.into();
-            row["contextLines"] = 2.into();
-        }
-        if hierarchy {
-            row["graphDepth"] = 3.into();
-        }
-        if importer {
-            row["importerPage"] = 4.into();
+        let mut row = json!({"operation":operation,"path":"/repo/a.ts","symbolName":"run","line":7,"occurrence":2,"workspaceRoot":"/repo"});
+        if matches!(operation, "callers" | "callees" | "supertypes" | "subtypes") {
+            row["graphDepth"] = json!(3);
         }
         if operation == "references" {
-            row["includeDeclaration"] = false.into();
+            row["includeDeclaration"] = json!(false);
         }
-        if operation == "subtypes" {
-            row["candidatePage"] = 5.into();
-        }
-        let mut parsed = query(row);
+        let normalized =
+            crate::contracts::validate_query("lspSearch", row.clone()).expect("first call");
+        let mut parsed = query(normalized);
         assert_eq!(lsp_search_query::operation(&parsed), operation);
-        assert_eq!(lsp_search_query::path(&parsed), Some("/repo/a.ts"));
-        assert_eq!(lsp_search_query::workspace_root(&parsed), Some("/repo"));
-        assert_eq!(lsp_search_query::symbol_name(&parsed), Some("run"));
-        assert_eq!(lsp_search_query::anchor_line(&parsed), Some(7));
-        assert_eq!(lsp_search_query::order_hint(&parsed), Some(2));
-        assert_eq!(lsp_search_query::page(&parsed), Some(3));
-        assert_eq!(lsp_search_query::page_size(&parsed), Some(4));
-        assert_eq!(lsp_search_query::snapshot(&parsed), Some("stable"));
-        assert_eq!(
-            lsp_search_query::group_by_file(&parsed),
-            locations.then_some(true)
-        );
-        assert_eq!(
-            lsp_search_query::context_lines(&parsed),
-            locations.then_some(2)
-        );
-        assert_eq!(
-            lsp_search_query::graph_depth(&parsed),
-            hierarchy.then_some(3)
-        );
-        assert_eq!(
-            lsp_search_query::include_declaration(&parsed),
-            (operation == "references").then_some(false)
-        );
-        assert_eq!(
-            lsp_search_query::importer_page(&parsed),
-            if importer { 4 } else { 1 }
-        );
-        assert_eq!(
-            lsp_search_query::candidate_page(&parsed),
-            if operation == "subtypes" { 5 } else { 1 }
-        );
-        set_path(&mut parsed, "/canonical/a.ts".to_owned());
-        set_workspace_root(&mut parsed, "/canonical".to_owned());
+        assert_eq!(lsp_search_query::occurrence(&parsed), Some(2));
+        set_path(&mut parsed, "/canonical/a.ts".into());
+        set_workspace_root(&mut parsed, "/canonical".into());
         assert_eq!(lsp_search_query::path(&parsed), Some("/canonical/a.ts"));
         assert_eq!(
             lsp_search_query::workspace_root(&parsed),
             Some("/canonical")
         );
-        assert_eq!(query(lsp_search_query::to_row(&parsed)), parsed);
+        let mut saved = lsp_search_query::to_row(&parsed);
+        saved["page"] = json!(3);
+        saved["snapshot"] = json!("lsp-v3:saved");
+        assert!(crate::contracts::validate_query("lspSearch", saved.clone()).is_err());
+        let built = crate::contracts::validate_built_query("lspSearch", saved.clone())
+            .expect("trusted saved progress");
+        assert_eq!(query(built), query(saved));
+        for alias in [
+            "orderHint",
+            "pageSize",
+            "extras",
+            "mainGoal",
+            "reasoning",
+            "groupByFile",
+        ] {
+            let mut bad = row.clone();
+            bad[alias] = json!(1);
+            assert!(
+                crate::contracts::validate_query("lspSearch", bad).is_err(),
+                "{operation}: {alias}"
+            );
+        }
+    }
+    for row in [
+        json!({"operation":"documentSymbols","path":"a.ts"}),
+        json!({"operation":"diagnostic","path":"a.ts"}),
+        json!({"operation":"workspaceSymbol","path":"src","symbolQuery":"run"}),
+        json!({"operation":"workspaceSymbol","workspaceRoot":".","symbolQuery":"run"}),
+    ] {
+        let parsed =
+            query(crate::contracts::validate_query("lspSearch", row.clone()).expect("operation"));
+        assert_eq!(lsp_search_query::operation(&parsed), row["operation"]);
+        if row["operation"] == "workspaceSymbol" {
+            assert_eq!(lsp_search_query::symbol_query(&parsed), Some("run"));
+            assert_eq!(lsp_search_query::symbol_name(&parsed), None);
+        }
     }
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn compact_reference_terminal_fit_preserves_controls_and_cursor_identity() {
-    use serde_json::{Value, json};
-    async fn walk(
-        paths: &crate::policy::path::PathPolicy,
-        initial: &LspSearchQuery,
-        snippets: &[Value],
-        windows: &[usize],
-    ) -> Vec<Value> {
-        use crate::tools::test_support::checks::{Page, Walker};
-        let tool = crate::id::ToolId::LspSearch;
-        let mut walker = Walker::new(
-            tool.as_str(),
-            json!({"queries":[lsp_search_query::to_row(initial)]}),
-        );
-        let mut pages = Vec::new();
-        while let Some(call) = walker.next_query() {
-            let query: LspSearchQuery =
-                serde_json::from_value(call["queries"][0].clone()).expect("executable nextPage");
-            let window = windows[pages.len().min(windows.len() - 1)];
-            let budget = crate::response::page_windows::page_budget(
-                Some(window),
-                &lsp_search_query::to_row(&query),
-            );
+#[test]
+fn content_and_files_views_have_distinct_context_admission() {
+    let base = json!({"operation":"references","path":"a.ts","symbolName":"run","line":1});
+    let mut detailed = base.clone();
+    detailed["view"] = json!("content");
+    detailed["contextLines"] = json!({"before":2,"after":5});
+    let parsed =
+        query(crate::contracts::validate_query("lspSearch", detailed.clone()).expect("context"));
+    assert_eq!(lsp_search_query::view(&parsed), "content");
+    let context = lsp_search_query::context_lines(&parsed).expect("context");
+    assert_eq!((context.before, context.after), (2, 5));
+    detailed["view"] = json!("files");
+    assert!(crate::contracts::validate_query("lspSearch", detailed).is_err());
+    let mut grouped = base;
+    grouped["view"] = json!("files");
+    let parsed = query(crate::contracts::validate_query("lspSearch", grouped).expect("grouped"));
+    assert_eq!(lsp_search_query::view(&parsed), "files");
+    assert!(lsp_search_query::context_lines(&parsed).is_none());
+}
+
+#[tokio::test]
+async fn reference_pages_reach_every_location_once_and_preserve_the_saved_request() {
+    let (_dir, root, paths) = temp_workspace();
+    let file = root.join("a.ts");
+    std::fs::write(&file, "const run = 1; // 普通😀\n".repeat(90)).expect("source");
+    let uri = octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri");
+    let found = (0..90).map(|line| json!({"uri":uri,"content":"const run = 1; // 普通😀","range":{"start":{"line":line,"character":6},"end":{"line":line,"character":9}}})).collect::<Vec<_>>();
+    let initial = query(crate::contracts::validate_query("lspSearch", json!({"operation":"references","path":file,"symbolName":"run","line":1,"occurrence":0,"includeDeclaration":false,"contextLines":{"before":0,"after":0}})).expect("first query"));
+    for budget in [700, 2500, 16000] {
+        let mut current = initial.clone();
+        let mut lines = Vec::new();
+        let mut pages = 0;
+        loop {
             let row = locations(
-                &query,
-                &mut SourceCache::new(paths),
+                &current,
+                &mut SourceCache::new(&paths),
                 "references",
                 "referencesProvider",
-                snippets.to_vec(),
+                found.clone(),
                 budget,
-                Some(window),
+                None,
             )
             .await;
-            let row = with_next(&query, row);
-            walker.accept(Page {
-                output: crate::tools::test_support::published(
-                    tool,
-                    &lsp_search_query::to_row(&query),
-                    &row,
-                ),
-                rows: identities(std::slice::from_ref(&row))
+            pages += 1;
+            lines.extend(
+                row["matches"]
+                    .as_array()
+                    .expect("locations")
                     .iter()
-                    .map(u64::to_string)
-                    .collect(),
-            });
-            pages.push(row);
-            assert!(pages.len() <= snippets.len(), "finite exact-once walk");
+                    .map(|item| {
+                        item["displayRange"]["startLine"]
+                            .as_u64()
+                            .expect("source line")
+                    }),
+            );
+            crate::tools::test_support::assert_row_contract(
+                ToolId::LspSearch,
+                &lsp_search_query::to_row(&current),
+                &row,
+            );
+            let Some(call) = row.pointer("/next/nextPage") else {
+                break;
+            };
+            assert_eq!(call["kind"], "continue");
+            let saved = &call["input"]["queries"][0];
+            assert_eq!(saved["includeDeclaration"], false);
+            assert_eq!(saved["contextLines"], json!({"before":0,"after":0}));
+            current = query(
+                crate::contracts::validate_built_query("lspSearch", saved.clone())
+                    .expect("saved row"),
+            );
+            assert!(pages < 91, "finite pages");
         }
-        walker.finish();
-        pages
+        assert_eq!(lines, (1..=90).collect::<Vec<_>>());
+        assert!(pages > 1);
     }
-    fn identities(pages: &[Value]) -> Vec<u64> {
-        pages
-            .iter()
-            .flat_map(|page| page["files"].as_array().expect("files"))
-            .flat_map(|file| file["matches"].as_array().expect("matches"))
-            .map(|hit| hit["line"].as_u64().expect("line"))
-            .collect()
-    }
-    for content in ["ordinary evidence ".repeat(7), "普通😀 evidence ".repeat(7)] {
-        let (_dir, root, paths) = temp_workspace();
-        let file = root.join("a.ts");
-        std::fs::write(&file, format!("{content}\n").repeat(241)).expect("source");
-        let uri = octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri");
-        let query =
-            query(json!({"operation":"references","path":uri,"symbolName":"ordinary","line":1}));
-        let found = (0..241)
-            .map(|line| {
-                json!({"uri":uri,"content":content,
-            "range":{"start":{"line":line,"character":0},"end":{"line":line,"character":4}}})
-            })
-            .collect::<Vec<_>>();
-        let full = locations(
-            &requery(&query, json!({"pageSize":1000})),
-            &mut SourceCache::new(&paths),
-            "references",
-            "referencesProvider",
-            found.clone(),
-            1,
-            None,
-        )
-        .await;
-        // The measured public terminal row plus the existing shared envelope
-        // reserve fits; the repeated-query reserve would leave a tiny tail.
-        let mut low = 1;
-        let mut high = octocode_engine::json_size::utf16_units(&full).unwrap_or(0) * 2;
-        assert!(crate::response::page_windows::terminal_row_fits(
-            Some(high),
-            &full
-        ));
-        while low < high {
-            let middle = low + (high - low) / 2;
-            if crate::response::page_windows::terminal_row_fits(Some(middle), &full) {
-                high = middle;
-            } else {
-                low = middle + 1;
-            }
-        }
-        let window = low;
-        let expected = (1..=241).collect::<Vec<_>>();
-        let default = walk(&paths, &query, &found, &[window]).await;
-        assert_eq!(default.len(), 1, "whole terminal row should fit: {window}");
-        assert_eq!(identities(&default), expected);
-        let small = walk(&paths, &query, &found, &[5_000]).await;
-        assert!(small.len() > 1, "small windows must keep pages");
-        assert_eq!(identities(&small), expected);
-        let explicit = walk(
-            &paths,
-            &requery(&query, json!({"pageSize":17})),
-            &found,
-            &[window],
-        )
-        .await;
-        assert_eq!(explicit.len(), 241usize.div_ceil(17));
-        assert_eq!(identities(&explicit), expected);
-        // Every call of a walk pages under the one automatic window
-        // (`domain_dispatch::local_response_window`), whatever the batch, so
-        // a walk is cut at one budget: any budget reaches every row once.
-        let medium = walk(&paths, &query, &found, &[12_000]).await;
-        assert!(
-            medium.len() > 1 && medium.len() < small.len(),
-            "{}",
-            medium.len()
-        );
-        assert_eq!(identities(&medium), expected);
-        let receipts = walk(
-            &paths,
-            &requery(&query, json!({"extras":["receipts"]})),
-            &found,
-            &[window],
-        )
-        .await;
-        assert!(
-            receipts.len() > 1,
-            "unmeasured detailed extras retain the conservative cut"
-        );
-        assert_eq!(identities(&receipts), expected);
-        let stale = locations(
-            &requery(&query, json!({"page":2,"snapshot":"lsp-v3:not-current"})),
-            &mut SourceCache::new(&paths),
-            "references",
-            "referencesProvider",
-            found,
-            1,
-            Some(window),
-        )
-        .await;
-        assert_eq!(stale["errorCode"], "staleSnapshot");
-    }
-}
-
-/// lspSearch recomputes page N from the page budget: page 1 asked for an
-/// absolute path over 128 characters and the `next.nextPage` its published
-/// response leads to (that path respelled workspace-relative) get the same
-/// budget, so the continuation starts exactly where page 1 stopped.
-#[tokio::test]
-async fn reference_next_page_keeps_page_one_budget() {
-    use serde_json::json;
-    let (_dir, root, paths) = temp_workspace();
-    let deep = (0..3).fold(root.join("deep"), |dir, level| {
-        let mut name = format!("level_{level}_{}", "x".repeat(60));
-        name.truncate(60);
-        dir.join(name)
-    });
-    std::fs::create_dir_all(&deep).expect("deep dir");
-    let file = deep.join("a.ts");
-    std::fs::write(&file, "const used = 1;\n".repeat(400)).expect("source");
-    let absolute = file.to_string_lossy().into_owned();
-    assert!(absolute.len() > 128, "{absolute}");
-    let uri = octocode_engine::lsp::uri::path_to_uri(&absolute).expect("uri");
-    let found = (0..400)
-        .map(|line| {
-            json!({"uri":uri,"content":"const used = 1;",
-                "range":{"start":{"line":line,"character":6},"end":{"line":line,"character":10}}})
-        })
-        .collect::<Vec<_>>();
-    let query =
-        query(json!({"operation":"references","path":absolute,"symbolName":"used","line":1}));
-    let window = 4_000;
-    let row = locations(
-        &query,
-        &mut SourceCache::new(&paths),
-        "references",
-        "referencesProvider",
-        found,
-        crate::response::page_windows::page_budget(Some(window), &lsp_search_query::to_row(&query)),
-        Some(window),
-    )
-    .await;
-    let row = with_next(&query, row);
-    assert_eq!(row["pagination"]["hasMore"], true, "page 1 leads on: {row}");
-    crate::tools::test_support::assert_next_page_keeps_the_budget(
-        crate::id::ToolId::LspSearch,
-        &lsp_search_query::to_row(&query),
-        &row,
-        &paths,
-        |window, row| {
-            let typed: LspSearchQuery = serde_json::from_value(row.clone()).expect("typed row");
-            crate::response::page_windows::page_budget(window, &lsp_search_query::to_row(&typed))
-        },
-    );
 }

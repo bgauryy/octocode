@@ -47,23 +47,6 @@ pub(crate) fn runs<T: LineNumber>(lines: impl IntoIterator<Item = T>) -> Vec<(T,
     out
 }
 
-/// One `start-end` range text as numbers, in the order written.
-pub(crate) fn parse_span_raw<T: std::str::FromStr>(range: &str) -> Option<(T, T)> {
-    let (start, end) = range.split_once('-')?;
-    Some((start.parse().ok()?, end.parse().ok()?))
-}
-
-/// One `start-end` range text as numbers, low end first: a reversed
-/// range (`"80-40"`) names the same span.
-pub(crate) fn parse_span<T: std::str::FromStr + Ord>(range: &str) -> Option<(T, T)> {
-    let (start, end) = parse_span_raw::<T>(range)?;
-    Some(if end < start {
-        (end, start)
-    } else {
-        (start, end)
-    })
-}
-
 /// The first `max_lines` of sorted, distinct `lines`, and how many more
 /// there are: a file with thousands of scattered hits costs a bounded
 /// hint, and the match pages still hold the rest.
@@ -98,10 +81,5 @@ mod tests {
             vec![(1, 5), (10, 20)]
         );
         assert_eq!(runs([3_usize, 4, 5, 9, 9]), vec![(3, 5), (9, 9), (9, 9)]);
-        assert_eq!(parse_span::<u64>("95-105"), Some((95, 105)));
-        assert_eq!(parse_span::<u64>("105-95"), Some((95, 105)));
-        assert_eq!(parse_span::<u64>("95"), None);
-        assert_eq!(parse_span_raw::<u64>("105-95"), Some((105, 95)));
-        assert_eq!(parse_span_raw::<u64>("a-95"), None);
     }
 }

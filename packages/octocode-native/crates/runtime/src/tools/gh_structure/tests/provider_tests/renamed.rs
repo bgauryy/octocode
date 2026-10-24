@@ -34,12 +34,10 @@ async fn a_refs_page_of_a_renamed_repository_warns_and_leads_canonically() {
         json!([{"ref":"refs/tags/v1","object":{"sha":SHA}}]),
     )
     .await;
-    let out = list(
-        &server,
-        json!({"owner":"a","repo":"b","operation":"refs","extras":[]}),
-    )
-    .await
-    .expect("refs");
+    mount_json(&server, "/api/v3/repos/a/b/branches", 200, json!([])).await;
+    let out = list(&server, json!({"owner":"a","repo":"b","operation":"refs"}))
+        .await
+        .expect("refs");
     assert_eq!(
         out.data["warnings"],
         json!([crate::tools::gh_shared::renamed_warning(
@@ -50,12 +48,10 @@ async fn a_refs_page_of_a_renamed_repository_warns_and_leads_canonically() {
         "{}",
         out.data
     );
-    let lead = &out.data["next"]["viewRefs"]["query"]["queries"][0];
-    assert_eq!(
-        (lead["owner"].as_str(), lead["repo"].as_str()),
-        (Some("c"), Some("d")),
-        "{}",
-        out.data
+    assert_eq!(out.data["tags"], json!(["v1"]));
+    assert!(
+        out.data.get("next").is_none(),
+        "complete refs need no continuation"
     );
 }
 
@@ -134,7 +130,7 @@ async fn a_missing_ref_of_a_renamed_repository_names_it_canonically() {
     .await
     .expect_err("missing ref");
     assert!(failure.message.contains("c/d"), "{}", failure.message);
-    let lead = &failure.next.expect("viewRefs")["viewRefs"]["query"]["queries"][0];
+    let lead = &failure.calls.expect("viewRefs")["viewRefs"]["input"]["queries"][0];
     assert_eq!(
         (lead["owner"].as_str(), lead["repo"].as_str()),
         (Some("c"), Some("d")),

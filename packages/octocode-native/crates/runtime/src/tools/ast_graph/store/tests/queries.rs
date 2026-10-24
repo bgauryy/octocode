@@ -43,7 +43,7 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     );
 
     let path = ask(root, "path", Some("src/main.ts"), |o| {
-        o.to = Some("src/lib.ts".into())
+        o.to = Some("src/lib.ts".into());
     });
     assert_eq!(path.value["found"], true);
     assert_eq!(path.value["length"], 1);
@@ -72,7 +72,7 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     );
 
     let found = ask(root, "find", Some("gre"), |o| {
-        o.kind = Some("symbol".into())
+        o.kind = Some("symbol".into());
     });
     assert_eq!(ids(&found), vec!["src/lib.ts#greet"]);
 }
@@ -95,7 +95,7 @@ fn references_report_ambiguity_and_absence_with_exit_codes() {
     assert_eq!(bad.class, ExitClass::InvalidInput);
 
     let none = ask(dir.0.as_path(), "stats", None, |o| {
-        o.graph = Some("no-such-graph".into())
+        o.graph = Some("no-such-graph".into());
     });
     assert_eq!(
         none.class,
@@ -113,7 +113,7 @@ fn list_operations_page_with_a_runnable_next_command() {
         ExitClass::Success
     );
     let first = ask(dir.0.as_path(), "symbols", Some("src/lib.ts"), |o| {
-        o.limit = Some(2)
+        o.limit = Some(2);
     });
     assert_eq!(first.class, ExitClass::Success, "paging is success");
     assert_eq!(first.value["truncated"], true);
@@ -148,7 +148,7 @@ fn heritage_and_jsx_become_inherits_and_renders_edges() {
         ExitClass::Success
     );
     let bases = ask(dir.0.as_path(), "deps", Some("Crate"), |o| {
-        o.edges = vec!["inherits".into()]
+        o.edges = vec!["inherits".into()];
     });
     let rows = bases.value["results"].as_array().expect("rows");
     let got = rows
@@ -197,7 +197,7 @@ fn answers_over_a_cut_snapshot_name_the_cut_and_the_reingest() {
             max_files: Some(2),
             ..Default::default()
         },
-        &policy(root),
+        &workspace_policy(root),
         &ContentSecurity::new(),
         &NeverCancel,
         None,
@@ -248,7 +248,7 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
         );
     }
     let past = ask(root, "symbols", Some("src/lib.ts"), |o| {
-        o.offset = Some(500)
+        o.offset = Some(500);
     });
     assert_eq!(past.class, ExitClass::Empty, "{}", past.value);
     assert!(past.value["total"].as_u64().is_some_and(|total| total > 0));
@@ -261,7 +261,7 @@ fn unknown_edge_kind_lists_every_kind() {
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
     let out = ask(root, "walk", Some("src/lib.ts"), |o| {
-        o.edges = vec!["bogus".into()]
+        o.edges = vec!["bogus".into()];
     });
     assert_eq!(out.class, ExitClass::InvalidInput);
     let error = out.value["error"].as_str().unwrap_or_default();

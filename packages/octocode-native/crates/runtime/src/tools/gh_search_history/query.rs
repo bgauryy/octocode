@@ -1,6 +1,5 @@
 //! Routing (search or REST list) and the GitHub search terms a query runs.
 use super::{GhSearchHistoryQuery, HistoryOperation, HistorySearch};
-use crate::providers::github::resolve_date_window;
 use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::gh_shared::query::SearchTerms;
 use octocode_github::{ProviderError, ProviderErrorKind, validate_person_name};
@@ -44,8 +43,6 @@ pub(super) fn needs_issue_search_qualifiers(q: &HistorySearch) -> bool {
         || f.linked.is_some()
         || f.comments.is_some()
         || f.created.is_some()
-        || gh_search_history_query::since(q).is_some()
-        || gh_search_history_query::until(q).is_some()
         || f.updated.is_some()
         || f.closed.is_some()
         || !f.match_kinds.is_empty()
@@ -99,7 +96,7 @@ pub(super) fn required_repo(q: &GhSearchHistoryQuery) -> Result<(&str, &str), Pr
 /// Person fields become `author:`-style qualifiers: reject anything that is
 /// not a GitHub name before it can rewrite the search scope (the contract
 /// validates owner and repo).
-fn validate_history_scope(q: &HistorySearch) -> Result<(), ProviderError> {
+pub(super) fn validate_history_scope(q: &HistorySearch) -> Result<(), ProviderError> {
     let f = q.filters();
     for (field, value) in [("author", q.author()), ("committer", q.committer())]
         .into_iter()
@@ -112,59 +109,17 @@ fn validate_history_scope(q: &HistorySearch) -> Result<(), ProviderError> {
     Ok(())
 }
 
-/// Resolves `since`/`until`, rejecting an unparseable value or an inverted
-/// window (since after until) as a validation error: a dropped bound would
-/// list unfiltered rows as if they matched.
-pub(super) fn resolve_commit_window(
-    q: &GhSearchHistoryQuery,
-    warnings: &mut Vec<String>,
-) -> Result<(Option<String>, Option<String>), ProviderError> {
-    for (field, value) in [
-        ("since", gh_search_history_query::since(q)),
-        ("until", gh_search_history_query::until(q)),
-    ] {
-        if let Some(value) = value
-            && resolve_date_window(value).value.is_none()
-        {
-            return Err(ProviderError::new(
-                ProviderErrorKind::Validation,
-                format!(
-                    "{field} \"{}\" is not a date or relative window; use e.g. \"30d\", \"2w\", \"6m\", \"1y\", or an ISO date like \"2026-01-01\".",
-                    value.trim()
-                ),
-            ));
-        }
+pub(super) fn resolve_commit_window(q: &GhSearchHistoryQuery) -> (Option<String>, Option<String>) {
+    match gh_search_history_query::committed_at(q) {
+        Some(range) => (
+            range.from.as_ref().map(ToString::to_string),
+            range.to.as_ref().map(ToString::to_string),
+        ),
+        None => (None, None),
     }
-    let since = gh_search_history_query::since(q).map(resolve_date_window);
-    let until = gh_search_history_query::until(q).map(resolve_date_window);
-    if let (Some(since), Some(until)) = (&since, &until)
-        && since.is_after(until)
-    {
-        return Err(ProviderError::new(
-            ProviderErrorKind::Validation,
-            format!(
-                "since ({}) is after until ({}); swap them or widen the window",
-                gh_search_history_query::since(q).unwrap_or_default().trim(),
-                gh_search_history_query::until(q).unwrap_or_default().trim()
-            ),
-        ));
-    }
-    let mut values = [None, None];
-    for (slot, window) in values.iter_mut().zip([since, until]) {
-        if let Some(window) = window {
-            warnings.extend(window.warning);
-            *slot = window.value;
-        }
-    }
-    let [since, until] = values;
-    Ok((since, until))
 }
 
-fn commit_terms(
-    q: &HistorySearch,
-    out: &mut SearchTerms,
-    warnings: &mut Vec<String>,
-) -> Result<(), ProviderError> {
+fn commit_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), ProviderError> {
     let (o, r) = required_repo(q)?;
     out.scope(Some(o), Some(r));
     for (field, value) in [("author", q.author()), ("committer", q.committer())] {
@@ -177,68 +132,18 @@ fn commit_terms(
             out.push(format!("{key}:{value}"));
         }
     }
-    let (since, until) = resolve_commit_window(q, warnings)?;
-    if let Some(range) = window_range(since.as_deref(), until.as_deref()) {
+    if let Some(range) =
+        gh_search_history_query::committed_at(q).and_then(crate::tools::gh_shared::ranges::date)
+    {
         out.push(format!("committer-date:{range}"));
     }
     Ok(())
 }
 
-/// A date-only `until` as the end of that day: the REST commit listing reads
-/// a bare date as its midnight, which would drop the day search's
-/// `committer-date:<=` range keeps. A timestamp stays as given.
-pub(super) fn inclusive_until(until: &str) -> String {
-    if until.len() == "2026-01-01".len() {
-        format!("{until}T23:59:59Z")
-    } else {
-        until.to_owned()
-    }
-}
-
-/// A resolved `since`/`until` window as one search range value.
-pub(super) fn window_range(since: Option<&str>, until: Option<&str>) -> Option<String> {
-    match (since, until) {
-        (Some(since), Some(until)) => Some(format!("{since}..{until}")),
-        (Some(since), None) => Some(format!(">={since}")),
-        (None, Some(until)) => Some(format!("<={until}")),
-        (None, None) => None,
-    }
-}
-
-/// The `created:` range a pull-request or issue `since`/`until` window
-/// maps to. Search has no generic date, so the window is the creation date
-/// (never a guessed `merged:`); a
-/// `created:` qualifier set too is a conflict, never silently overridden.
-fn created_window(
-    q: &HistorySearch,
-    warnings: &mut Vec<String>,
-) -> Result<Option<String>, ProviderError> {
-    if gh_search_history_query::since(q).is_none() && gh_search_history_query::until(q).is_none() {
-        return Ok(None);
-    }
-    if q.filters().created.is_some() {
-        return Err(ProviderError::new(
-            ProviderErrorKind::Validation,
-            "since/until set the created: window; remove created: from qualifiers, or drop since/until.",
-        ));
-    }
-    // The published `since` names the creation date, so no per-call note.
-    let (since, until) = resolve_commit_window(q, warnings)?;
-    Ok(window_range(since.as_deref(), until.as_deref()))
-}
-
-fn issue_terms(
-    q: &HistorySearch,
-    out: &mut SearchTerms,
-    warnings: &mut Vec<String>,
-) -> Result<(), ProviderError> {
+fn issue_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), ProviderError> {
     let f = q.filters();
-    let created = match created_window(q, warnings)? {
-        Some(range) => Some(range),
-        None => f.created.clone(),
-    };
     if !f.match_kinds.is_empty() {
-        out.checked("in", Some(&f.match_kinds.join(",")))?;
+        out.text("in", Some(&f.match_kinds.join(",")));
     }
     let pull_request = matches!(
         gh_search_history_query::operation(q),
@@ -254,7 +159,7 @@ fn issue_terms(
         gh_search_history_query::owner(q),
         gh_search_history_query::repo(q),
     );
-    out.checked("is", q.state().as_deref())?;
+    out.text("is", q.state().as_deref());
     if let Some(draft) = f.draft {
         out.push(if draft { "is:draft" } else { "-is:draft" });
     }
@@ -267,7 +172,7 @@ fn issue_terms(
         .chain([
             ("head", q.head()),
             ("base", q.base()),
-            ("created", created.as_deref()),
+            ("created", f.created.as_deref()),
             ("updated", f.updated.as_deref()),
             ("merged", f.merged.as_deref()),
             ("closed", f.closed.as_deref()),
@@ -277,25 +182,17 @@ fn issue_terms(
             ("review", f.review.as_deref()),
         ])
     {
-        out.checked(k, v)?;
+        out.text(k, v);
     }
     for label in q.label() {
-        // A label is one quoted name; an interior quote or backslash
-        // would close it early and splice the rest into the query.
-        if label.contains(['"', '\\']) || label.trim().is_empty() {
-            return Err(ProviderError::new(
-                ProviderErrorKind::Validation,
-                format!("label: \"{label}\" cannot contain quotes or backslashes"),
-            ));
-        }
-        out.push(format!("label:\"{}\"", label.trim()));
+        out.text("label", Some(label));
     }
     if let Some(archived) = f.archived {
         out.push(format!("archived:{archived}"));
     }
-    out.checked("status", f.status.as_deref())?;
+    out.text("status", f.status.as_deref());
     for (key, value) in &f.excluded {
-        out.excluded(key, value)?;
+        out.text(&format!("-{key}"), Some(value));
     }
     Ok(())
 }
@@ -304,14 +201,13 @@ fn issue_terms(
 pub(super) fn build_query_with_warnings(
     q: &HistorySearch,
 ) -> Result<(String, Vec<String>), ProviderError> {
-    let mut warnings = Vec::new();
     validate_history_scope(q)?;
     let mut out = SearchTerms::new(gh_search_history_query::keywords(q));
     match gh_search_history_query::operation(q) {
-        HistoryOperation::Commit => commit_terms(q, &mut out, &mut warnings)?,
+        HistoryOperation::Commit => commit_terms(q, &mut out)?,
         HistoryOperation::PullRequest | HistoryOperation::Issue => {
-            issue_terms(q, &mut out, &mut warnings)?;
+            issue_terms(q, &mut out)?;
         }
     }
-    Ok((out.finish(), warnings))
+    Ok((out.finish(), Vec::new()))
 }

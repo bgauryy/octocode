@@ -94,7 +94,7 @@ pub(super) fn hits(
 }
 
 /// `[function build_searcher 992-1016]` for the usual enclosing declaration,
-/// then any other match field as words (`declaration`, `enclosingLine 935`).
+/// then any other match field as words (`declaration`).
 pub(super) fn match_note(extra: &mut Map<String, Value>) -> Option<String> {
     let mut parts = Vec::new();
     if let Some(Value::Object(enclosing)) = extra.get("enclosing")

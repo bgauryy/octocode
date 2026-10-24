@@ -4,6 +4,10 @@
 use tree_sitter::Node;
 
 use super::*;
+use super::{
+    cpp::cpp_bindings, csharp::csharp_bindings, go::go_bindings, java::java_bindings,
+    python::python_bindings,
+};
 
 impl<'t> ReceiverTypes<'t> {
     pub(super) fn collect_bindings(
@@ -15,11 +19,11 @@ impl<'t> ReceiverTypes<'t> {
     ) {
         match self.lang {
             Lang::Rust => self.rust_bindings(up, content, out),
-            Lang::Python => self.python_bindings(up, function, content, out),
-            Lang::Java => self.java_bindings(up, content, out),
-            Lang::Go => self.go_bindings(up, content, out),
-            Lang::CSharp => self.csharp_bindings(up, function, content, out),
-            Lang::Cpp => self.cpp_bindings(up, content, out),
+            Lang::Python => python_bindings(up, function, content, out),
+            Lang::Java => java_bindings(up, content, out),
+            Lang::Go => go_bindings(up, content, out),
+            Lang::CSharp => csharp_bindings(up, function, content, out),
+            Lang::Cpp => cpp_bindings(up, content, out),
         }
     }
 }

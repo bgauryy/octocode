@@ -25,12 +25,12 @@ fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
         executor.handle().clone(),
     );
     let query = json!({"owner":"o","repo":"r","page":3,"keywords":["retry"],
-        "clasifyContext":{"classifiers":["Does it state the termination condition?"]}});
+        "classification":{"predicates":["Does it state the termination condition?"]}});
     let original = json!({"results":[{"index":0,"data":{
         "files":[{"path":"retry.rs","lines":["UNRELATED_SENTINEL"]}],
-        "next":{"nextPage":{"tool":"ghSearchCode","query":{"queries":[{
+        "next":{"nextPage":{"kind":"continue","tool":"ghSearchCode","input":{"queries":[{
             "owner":"o","repo":"r","page":4,"keywords":["retry"],
-            "clasifyContext":{"classifiers":["Does it state the termination condition?"]},
+            "classification":{"predicates":["Does it state the termination condition?"]},
             "selection":"old-plan"
         }]}}}
     }}]});
@@ -45,13 +45,13 @@ fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
     // The filtered-evidence notice is the response stage's, said once
     // on a first page (`selection_errors::decorate`), never per page.
     assert!(data.get("warnings").is_none(), "{data}");
-    let provider_next = &data["next"]["nextPage"]["query"]["queries"][0];
+    let provider_next = &data["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(provider_next["page"], 4);
     assert!(provider_next.get("selection").is_none());
-    assert!(provider_next.get("clasifyContext").is_some());
-    let recovery = data["next"]["unfiltered"]["query"]["queries"][0].clone();
+    assert!(provider_next.get("classification").is_some());
+    let recovery = data["next"]["unfiltered"]["input"]["queries"][0].clone();
     assert_eq!(recovery["page"], 3, "recover the same provider page");
-    assert!(recovery.get("clasifyContext").is_none());
+    assert!(recovery.get("classification").is_none());
     assert!(recovery.get("selection").is_none());
     let mut unfiltered_page = original.clone();
     let mut unfiltered_query = recovery.clone();
@@ -86,7 +86,7 @@ fn an_empty_provider_page_offers_no_unfiltered_page() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = test_runtime(std::sync::Arc::new(NoJudge), executor.handle().clone());
     let query = json!({"owner":"o","repo":"r","keywords":["nothing"],
-        "clasifyContext":{"classifiers":["Relevant?"]}});
+        "classification":{"predicates":["Relevant?"]}});
     let mut page = json!({"results":[{"index":0,"status":"empty","data":{"files":[]}}]});
     let mut response_query = query.clone();
     apply_code_rows(&mut page, query, &mut response_query, &runtime).expect("empty provider page");
@@ -100,7 +100,7 @@ fn path_only_candidates_are_unknown_without_provider_work() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
     let query = json!({"owner":"o","repo":"r","keywords":["retry"],
-        "clasifyContext":{"classifiers":["Does this show a stopping condition?"]}});
+        "classification":{"predicates":["Does this show a stopping condition?"]}});
     let mut output = json!({"results":[{"index":0,"data":{"files":[{"path":"retry.rs"}]}}]});
     let mut response_query = query.clone();
     apply_code_rows(&mut output, query, &mut response_query, &runtime)
@@ -117,7 +117,7 @@ fn source_failure_keeps_selection_coverage_visible_without_returning_partial_bod
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
     let query = json!({"owner":"o","keywords":["retry"],
-        "clasifyContext":{"classifiers":["Does it describe retries?"]}});
+        "classification":{"predicates":["Does it describe retries?"]}});
     let mut output = json!({"results":[{"index":0,"status":"error","data":{
         "errorCode":"providerUnavailable","files":[{"path":"a.rs","lines":["UNJUDGED_BODY"]}]
     }}]});
@@ -151,7 +151,7 @@ fn a_provider_failing_the_whole_page_fails_the_row_with_its_typed_error() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = test_runtime(std::sync::Arc::new(Unauthorized), executor.handle().clone());
     let query = json!({"owner":"o","repo":"r","page":2,"keywords":["retry"],
-        "clasifyContext":{"classifiers":["Does it state when retries stop?"]}});
+        "classification":{"predicates":["Does it state when retries stop?"]}});
     let mut output = json!({"results":[{"index":0,"data":{"files":[
         {"path":"a.rs","matches":[{"line":1,"value":"UNJUDGED_BODY"}]}
     ]}}]});
@@ -171,9 +171,9 @@ fn a_provider_failing_the_whole_page_fails_the_row_with_its_typed_error() {
     assert_eq!(data["selection"]["status"], "unavailable");
     assert_eq!(data["selection"]["reason"], "classificationProviderError");
     assert_eq!(data["selection"]["unknownItems"], 1);
-    let recovery = &data["next"]["unfiltered"]["query"]["queries"][0];
+    let recovery = &data["next"]["unfiltered"]["input"]["queries"][0];
     assert_eq!(recovery["page"], 2);
-    assert!(recovery.get("clasifyContext").is_none());
+    assert!(recovery.get("classification").is_none());
     assert!(
         response_query.get("selection").is_none(),
         "no plan to replay"
@@ -208,7 +208,7 @@ fn a_provider_that_is_down_shows_the_whole_page_as_unavailable() {
         executor.handle().clone(),
     );
     let query = json!({"owner":"o","repo":"r","keywords":["retry"],
-        "clasifyContext":{"classifiers":["Does it state when retries stop?"]}});
+        "classification":{"predicates":["Does it state when retries stop?"]}});
     let page = || {
         json!({"results":[{"index":0,"data":{"files":[
             {"path":"a.rs","matches":[{"line":1,"value":"FIRST_BODY"}]},
@@ -264,7 +264,7 @@ fn a_provider_that_is_down_shows_the_whole_page_as_unavailable() {
 fn malformed_code_page_fails_clearly_and_skips_judgment() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
-    let query = json!({"owner":"a","repo":"b","keywords":["target"],"clasifyContext":{"classifiers":["wanted"]}});
+    let query = json!({"owner":"a","repo":"b","keywords":["target"],"classification":{"predicates":["wanted"]}});
     let files = json!({"unexpected":"shape"});
     let mut structured = json!({"results":[{"index":0,"data":{"files":files,"marker":"retain"}}]});
     let mut response_query = query.clone();

@@ -6,33 +6,35 @@ import { readDomConfig, readSteps } from './dom-config.mjs';
 import { locateWhenReady } from './dom-locate.mjs';
 import { runStep, waitForText } from './dom-act.mjs';
 import { recordNewRefs } from './dom-ref-diff.mjs';
+import type { Session } from '../cdp-connection.mjs';
+import type { RunnerSession } from '../cdp-runner-session.mjs';
+import type {
+  DomContext,
+  DomEffects,
+  DomOptions,
+  DomStep,
+  RefUnit,
+  StepDetails,
+} from './dom-types.mjs';
 
-// Env (one step):
-//   DOM_REF | DOM_SELECTOR  target (snapshot ref, or CSS; default first control)
-//   DOM_ACTION    inspect | click | dblclick | fill | type | press | hover | select | check | uncheck |
-//                 focus | scroll | upload | drag | wait
-//   DOM_VALUE     fill/type text, select option, scroll deltaY, upload paths ('|'-separated), wait text
-//   DOM_KEY       press: Enter, Tab, Escape, ArrowDown, a, Control+A, Shift+Tab…
-//   DOM_TO_REF | DOM_TO_SELECTOR  drag destination
-// Env (batch): DOM_STEPS='[{"ref":"e1","action":"fill","value":"a"},{"ref":"e4","action":"click"}]'
-//   (step keys: ref, selector, action, value, key, toRef, toSelector); stops at the first failed step.
-// Shared:
-//   DOM_WAIT_TEXT text that must appear after the step(s) ('|' = any of); DOM_WAIT_MS (8000)
-//   DOM_INPUT     trusted (default: real CDP mouse/keyboard, isTrusted=true) | js (DOM calls)
-//   DOM_SETTLE_MS wait before verifying (default 500)
-//   DOM_DIALOG    dismiss (default) | accept, for alert/confirm/prompt opened by the action
-//   DOM_DIFF=0    skip the after-action [NEW] ref diff
-export function createDomOperations(options: Record<string, any> = {}) {
-  const cfg = readDomConfig(options);
-  const MODE = cfg.mode;
-  const WAIT_MS = cfg.waitMs;
-  const WAIT_TEXT = cfg.waitText;
-  const ACCEPT_DIALOG = cfg.acceptDialog;
-  const DIFF = cfg.diff;
-  const STEPS = readSteps(options, WAIT_TEXT);
-  const ctx = { cfg, log: line => console.log(line) };
+/** The runner's session: it may bring a page to the front and record a resource. */
+type OperationSession = Session &
+  Partial<Pick<RunnerSession, 'foreground' | 'upsertResourceMap'>>;
+type NavigatedFrame = { parentId?: string; url: string };
+// Page.javascriptDialogOpening; the protocol sends message as a string.
+type DialogEvent = { type: string; message: string };
+type StepRow = {
+  step: DomStep;
+  label?: string;
+  details?: StepDetails;
+  objectId?: string | null;
+  found?: boolean;
+  ms?: number | null;
+  postActionWait?: { text: string; found: boolean; ms: number };
+};
 
-  const REASONS = {
+const REASONS: Record<string, (details: StepDetails, step: DomStep) => string> =
+  {
     'blocked-by-actionability': d =>
       `DOM_BLOCKED ${[!d.visible && 'not visible (hidden, zero-size or off-screen; re-snapshot: refs may have shifted)', d.disabled && 'disabled', d.covered && `covered by ${d.coveredBy}`, d.stable === false && 'still moving (animation)'].filter(Boolean).join('; ') || 'actionability check failed'}`,
     'not-fillable': d =>
@@ -51,8 +53,39 @@ export function createDomOperations(options: Record<string, any> = {}) {
       'DOM_NO_FILES upload needs DOM_VALUE=/abs/path[|/abs/path2]',
   };
 
+// Env (one step):
+//   DOM_REF | DOM_SELECTOR  target (snapshot ref, or CSS; default first control)
+//   DOM_ACTION    inspect | click | dblclick | fill | type | press | hover | select | check | uncheck |
+//                 focus | scroll | upload | drag | wait
+//   DOM_VALUE     fill/type text, select option, scroll deltaY, upload paths ('|'-separated), wait text
+//   DOM_KEY       press: Enter, Tab, Escape, ArrowDown, a, Control+A, Shift+Tab…
+//   DOM_TO_REF | DOM_TO_SELECTOR  drag destination
+// Env (batch): DOM_STEPS='[{"ref":"e1","action":"fill","value":"a"},{"ref":"e4","action":"click"}]'
+//   (step keys: ref, selector, action, value, key, toRef, toSelector); stops at the first failed step.
+// Shared:
+//   DOM_WAIT_TEXT text that must appear after the step(s) ('|' = any of); DOM_WAIT_MS (8000)
+//   DOM_INPUT     trusted (default: real CDP mouse/keyboard, isTrusted=true) | js (DOM calls)
+//   DOM_SETTLE_MS wait before verifying (default 500)
+//   DOM_DIALOG    dismiss (default) | accept, for alert/confirm/prompt opened by the action
+//   DOM_DIFF=0    skip the after-action [NEW] ref diff
+export function createDomOperations(options: DomOptions = {}) {
+  const cfg = readDomConfig(options);
+  const MODE = cfg.mode;
+  const WAIT_MS = cfg.waitMs;
+  const WAIT_TEXT = cfg.waitText;
+  const ACCEPT_DIALOG = cfg.acceptDialog;
+  const DIFF = cfg.diff;
+  const STEPS = readSteps(options, WAIT_TEXT);
+  const ctx: DomContext = { cfg, log: line => console.log(line) };
+
   // Prints one step; returns false when the batch should stop.
-  function reportStep(step, label, details, effects, prefix) {
+  function reportStep(
+    step: DomStep,
+    label: string,
+    details: StepDetails,
+    effects: DomEffects,
+    prefix: string
+  ) {
     if (!details.found) {
       console.log(
         `[FINDING] ${prefix}DOM target not found target=${JSON.stringify(label)}${details.error ? ` error=${JSON.stringify(details.error)}` : ''}`
@@ -85,7 +118,7 @@ export function createDomOperations(options: Record<string, any> = {}) {
         0,
         (a.mutations ?? 0) - (details.mutationsBefore ?? 0)
       );
-      const parts = [];
+      const parts: string[] = [];
       if (details.verified !== undefined)
         parts.push(details.verified ? 'ok' : 'MISMATCH');
       if (effects.navigatedTo) parts.push(`navigated=${effects.navigatedTo}`);
@@ -103,7 +136,7 @@ export function createDomOperations(options: Record<string, any> = {}) {
       console.log(`[VERIFY] ${prefix}${parts.join(' ')}`);
       if (a.events)
         console.log(
-          `[METRIC] ${prefix}USER_EVENTS count=${a.events.length} trusted=${a.events.filter(e => e.trusted).length}`
+          `[METRIC] ${prefix}USER_EVENTS count=${a.events.length} trusted=${a.events.filter((e: { trusted?: boolean }) => e.trusted).length}`
         );
       if (effects.dialog)
         console.log(
@@ -150,10 +183,10 @@ export function createDomOperations(options: Record<string, any> = {}) {
     return step.action === 'inspect';
   }
 
-  const currentRefs = async cdp =>
+  const currentRefs = async (cdp: Session): Promise<RefUnit[]> =>
     (await collectRefs(cdp, {}).catch(() => ({ useful: [] }))).useful;
 
-  function reportNewRefs(cdp, before, after) {
+  function reportNewRefs(cdp: Session, before: RefUnit[], after: RefUnit[]) {
     const diff = recordNewRefs(cdp, before, after);
     if (!diff) return 0;
     console.log(`[DIFF] new=${diff.added} gone=${diff.gone}`);
@@ -163,7 +196,7 @@ export function createDomOperations(options: Record<string, any> = {}) {
     return diff.added;
   }
 
-  async function run(cdp) {
+  async function run(cdp: OperationSession) {
     await cdp.send('Runtime.enable');
     await cdp.send('DOM.enable');
     await cdp.send('Accessibility.enable');
@@ -178,25 +211,29 @@ export function createDomOperations(options: Record<string, any> = {}) {
       );
 
     // Effects the action may cause outside the element.
-    const effects = { navigatedTo: null, dialog: null, popup: null };
+    const effects: DomEffects = {
+      navigatedTo: null,
+      dialog: null,
+      popup: null,
+    };
     let navigatedAny = false;
-    const onNav = ({ frame }) => {
+    const onNav = ({ frame }: { frame: NavigatedFrame }) => {
       if (!frame.parentId) {
         effects.navigatedTo = frame.url;
         navigatedAny = true;
       }
     };
-    const onDialog = async ({ type, message }) => {
+    const onDialog = async ({ type, message }: DialogEvent) => {
       effects.dialog = {
         type,
-        message: String(message),
+        message,
         accepted: ACCEPT_DIALOG,
       };
       await cdp
         .send('Page.handleJavaScriptDialog', { accept: ACCEPT_DIALOG })
         .catch(() => {});
     };
-    const onPopup = ({ url }) => {
+    const onPopup = ({ url }: { url: string }) => {
       effects.popup = url;
     };
     cdp.on('Page.frameNavigated', onNav);
@@ -205,7 +242,7 @@ export function createDomOperations(options: Record<string, any> = {}) {
 
     const mutating = STEPS.some(s => !['inspect', 'wait'].includes(s.action));
     const before = DIFF && mutating ? await currentRefs(cdp) : null;
-    const results = [];
+    const results: StepRow[] = [];
     let ok = true;
     for (const step of STEPS) {
       const prefix = STEPS.length > 1 ? `#${step.index} ` : '';
@@ -250,7 +287,7 @@ export function createDomOperations(options: Record<string, any> = {}) {
         break;
       }
     }
-    if (ok && WAIT_TEXT && STEPS.at(-1).action !== 'wait') {
+    if (ok && WAIT_TEXT && STEPS[STEPS.length - 1].action !== 'wait') {
       const { hit, ms } = await waitForText(
         cdp,
         WAIT_TEXT,
@@ -277,8 +314,8 @@ export function createDomOperations(options: Record<string, any> = {}) {
       before && !navigatedAny
         ? reportNewRefs(cdp, before, await currentRefs(cdp))
         : 0;
-    const lastHover =
-      results.at(-1)?.step.action === 'hover' ? results.at(-1).details : null;
+    const lastRow = results.at(-1);
+    const lastHover = lastRow?.step.action === 'hover' ? lastRow.details : null;
     if (lastHover?.noEffect && !added)
       console.log(
         '[FINDING] NO_VISIBLE_EFFECT hover changed nothing and revealed no refs; the menu may open on click'
@@ -326,6 +363,6 @@ export function createDomOperations(options: Record<string, any> = {}) {
   return { run };
 }
 
-export async function run(cdp, options) {
+export async function run(cdp: OperationSession, options?: DomOptions) {
   return createDomOperations(options).run(cdp);
 }

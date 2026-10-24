@@ -19,7 +19,11 @@ use std::collections::BTreeSet;
 use std::future::Future;
 
 mod scan;
-pub(super) use scan::*;
+#[cfg(test)]
+pub(super) use scan::subtype_snippets;
+pub(super) use scan::{
+    HeritageScan, SERVER_GRACE_AFTER_SCAN, describe_scan, describe_unread, hedged, scan_subtypes,
+};
 
 /// The LSP capability each fallback needs.
 pub(super) fn fallback_provider(operation: &str) -> Option<&'static str> {

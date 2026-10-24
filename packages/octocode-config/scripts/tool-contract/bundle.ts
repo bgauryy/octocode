@@ -194,7 +194,7 @@ const singleValue = (schema: Json | undefined): string | undefined =>
  * itself instead: `<Owner><Value>`, plus the required field only that branch
  * has when values repeat (`AstSearchQueryMatchPattern` / `…MatchRule`).
  */
-function nameUntaggableVariants(schema: JsonObject, owner: string): JsonObject {
+function nameVariants(schema: JsonObject, owner: string): JsonObject {
   const key = unionKey(schema);
   const branches = key ? schema[key] : undefined;
   if (
@@ -216,17 +216,6 @@ function nameUntaggableVariants(schema: JsonObject, owner: string): JsonObject {
     Array.isArray(branch.required)
       ? branch.required.filter((key): key is string => typeof key === 'string')
       : [];
-  // A required discriminator with unique values lets typify tag the enum
-  // itself. Optional discriminators cannot be serde tags; their values name variants.
-  if (
-    discriminators.some(
-      key =>
-        new Set(valuesOf(key)).size === objects.length &&
-        objects.every(branch => required(branch).includes(key))
-    )
-  ) {
-    return schema;
-  }
   const [discriminator] = discriminators;
   if (!discriminator)
     return nameByOwnField(objects, owner, required, schema, key);
@@ -297,7 +286,7 @@ export function buildToolTypesBundle(
       const exclusive = stringConstsAsEnums(schema);
       return definitions.hoistTitles(
         owner && isObject(exclusive)
-          ? nameUntaggableVariants(exclusive, owner)
+          ? nameVariants(exclusive, owner)
           : exclusive
       );
     };

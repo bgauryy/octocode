@@ -1,5 +1,5 @@
 import { sameSecret } from '../shared/env.js';
-import { isRecord } from '../shared/util.js';
+import { isRecord, parseJson } from '../shared/util.js';
 import { auditLine } from './effect.js';
 import { ACTION_CLASSES, ASK_REASONS, PERMISSION_MODES, type ActionClass, type ActionCount, type AskReason, type PermissionMode } from './mode.js';
 
@@ -67,12 +67,7 @@ export const childAuditMessage = (entry: AuditEntry, nonce: string): string => `
  */
 export function childAuditEntry(message: string, agent: string, nonce: string): AuditEntry | undefined {
   if (!message.startsWith(AUDIT_NOTIFY_PREFIX)) return undefined;
-  let raw: unknown;
-  try {
-    raw = JSON.parse(message.slice(AUDIT_NOTIFY_PREFIX.length));
-  } catch {
-    return undefined;
-  }
+  const raw = parseJson(message.slice(AUDIT_NOTIFY_PREFIX.length));
   if (!isRecord(raw) || !sameSecret(nonce, raw['nonce'])) return undefined;
   const mode = PERMISSION_MODES.find((each) => each === raw['mode']);
   const { action, via, what } = raw;

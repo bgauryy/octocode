@@ -1,4 +1,5 @@
 use super::{binding_rank, language_name, match_tier, rank_workspace_symbols};
+use octocode_contract_types::LspSearchQuery;
 
 fn snippet(path: &str, start: u32, end: u32) -> octocode_engine::lsp::types::LspCodeSnippet {
     use octocode_engine::lsp::types::{LspExactPosition, LspRange};
@@ -59,7 +60,7 @@ fn root_marker_families_are_named_by_language_id() {
 /// stays partial for them, and leads to a text search over exactly them.
 #[test]
 fn a_scan_answer_names_its_unread_files_and_leads_to_them() {
-    let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
+    let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
         "path": "/r/a.ts", "symbolName": "Base", "line": 1, "operation": "subtypes"
     }))
     .expect("query");
@@ -84,10 +85,10 @@ fn a_scan_answer_names_its_unread_files_and_leads_to_them() {
         warnings.contains("big.ts") && !warnings.contains("/r/"),
         "{warnings}"
     );
-    let lead = &row["next"]["findText"];
+    let lead = &crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
     assert_eq!(lead["tool"], "localSearch", "{row}");
     // The warning and the lead name the file the same way.
-    assert_eq!(lead["query"]["queries"][0]["path"], "big.ts", "{row}");
+    assert_eq!(lead["input"]["queries"][0]["path"], "big.ts", "{row}");
 
     let mut complete = serde_json::json!({});
     super::mark_scan_answer(
@@ -102,7 +103,13 @@ fn a_scan_answer_names_its_unread_files_and_leads_to_them() {
         complete["partialReasons"],
         serde_json::json!(["serverUnanswered"])
     );
-    assert!(complete["next"]["findText"].is_null());
+    assert!(
+        !complete["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "localSearch")
+    );
 }
 
 /// The published rows (`symbolName`, not the server's `name`) rank

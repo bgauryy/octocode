@@ -4,32 +4,22 @@ use crate::response::result::ToolError;
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
-pub use octocode_contract_types::AstSearchQuerySyntaxTree;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{AstSearchQuerySyntaxTree, ErrorCode};
 use octocode_engine::structural::SyntaxTreeInspectOptions;
-use serde_json::json;
+use serde_json::{Value, json};
 
 mod render;
 use render::{node_page_chars, render_tree_page};
 
 /// Engine-unit views over the generated `syntaxTree` query.
 pub(crate) mod ast_search_query_syntax_tree {
-    use super::AstSearchQuerySyntaxTree;
     use crate::num::u32_of;
+    use octocode_contract_types::AstSearchQuerySyntaxTree;
     pub(crate) fn language(query: &AstSearchQuerySyntaxTree) -> Option<String> {
-        query.language.as_ref().map(ToString::to_string)
+        query.parser.as_ref().map(ToString::to_string)
     }
     pub(crate) fn page(query: &AstSearchQuerySyntaxTree) -> u32 {
         u32_of(query.page.get())
-    }
-    /// The caller's nodes per page; unset fills the response window.
-    pub(crate) fn page_size(query: &AstSearchQuerySyntaxTree) -> Option<u32> {
-        query.page_size.map(|size| u32_of(size.get()))
-    }
-    /// The first node of an explicit-size page; a window-sized page starts
-    /// where the previous one ended, which only a walk of the nodes knows.
-    pub(crate) fn node_offset(query: &AstSearchQuerySyntaxTree) -> Option<u32> {
-        page_size(query).map(|size| page(query).saturating_sub(1).saturating_mul(size))
     }
     pub(crate) fn snapshot(query: &AstSearchQuerySyntaxTree) -> Option<&str> {
         query.snapshot.as_deref().map(String::as_str)
@@ -46,7 +36,17 @@ pub fn execute_syntax(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
-) -> super::AstResult {
+) -> Result<Value, ToolError> {
+    run_syntax(q, paths, security, cancel, response_window).map(super::output::finish)
+}
+
+fn run_syntax(
+    q: &AstSearchQuerySyntaxTree,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &dyn CancellationCheck,
+    response_window: Option<usize>,
+) -> Result<Value, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
     let p = paths
         .validate_read(q.path.as_str())
@@ -55,11 +55,10 @@ pub fn execute_syntax(
         &p.canonical,
         ast_search_query_syntax_tree::language(q).as_deref(),
     )?;
+    let display_path =
+        super::RowPaths::new(paths, &p.canonical, true).delivered(&p.canonical.to_string_lossy());
     let Some(bytes) = super::source::read_parse_source(&p.canonical)? else {
-        return Ok(super::source::source_limit(
-            &p.canonical.to_string_lossy(),
-            None,
-        ));
+        return Ok(super::source::source_limit(&display_path, None));
     };
     let sanitized = security.sanitize_text(
         &super::source::parse_text(&p.canonical, &bytes)?,
@@ -69,7 +68,7 @@ pub fn execute_syntax(
         // Node-row shape version (1-based columns).
         "rows-v2",
         p.canonical.to_string_lossy(),
-        q.language,
+        q.parser,
         sanitized.content,
         q.named_only,
         ast_search_query_syntax_tree::line(q)
@@ -104,12 +103,7 @@ pub fn execute_syntax(
         &crate::response::result::query_value(q),
     );
     let page = read_page(q, &source, budget, &snapshot, cancel)?;
-    Ok(render_tree_page(
-        q,
-        &p.canonical.to_string_lossy(),
-        page,
-        &snapshot,
-    ))
+    Ok(render_tree_page(q, &display_path, page, &snapshot))
 }
 
 /// A `line` past the file's last line is invalid input naming the line
@@ -123,9 +117,9 @@ fn check_line(q: &AstSearchQuerySyntaxTree, line: u32, content: &str) -> Result<
         ErrorCode::InvalidInput,
         format!("line {line} is past the end of the file ({total} lines)."),
     );
-    let repaired = crate::response::result::query_row(q, &["line", "page", "snapshot"]);
-    error.next = Some(Box::new(json!({
-        "repair": crate::response::result::Continuation::new(ToolId::AstSearch, repaired).build()
+    let repaired = crate::response::result::query_row(q, &["line"]);
+    error.calls = Some(Box::new(json!({
+        "repair": crate::response::result::restart_query(ToolId::AstSearch, &repaired)
     })));
     Err(error)
 }
@@ -210,8 +204,7 @@ impl Source<'_> {
     }
 }
 
-/// Page `q.page()` of the tree. An explicit size asks the engine for
-/// exactly its page. Otherwise the page is the nodes that fill the window:
+/// Page `q.page()` contains the nodes that fill the response window:
 /// each page starts where the one before ended, so the walk reads nodes from
 /// the start until the page's window is closed by a node that no longer
 /// fits. That walk is kept by snapshot, so a later page reads on from it
@@ -225,18 +218,6 @@ fn read_page(
 ) -> Result<TreePage, ToolError> {
     use crate::response::pages::PageFacts;
     let page = usize_of(ast_search_query_syntax_tree::page(q));
-    if let Some((offset, size)) =
-        ast_search_query_syntax_tree::node_offset(q).zip(ast_search_query_syntax_tree::page_size(q))
-    {
-        let r = source.inspect(q, offset, size)?;
-        let more = r.next_offset.is_some();
-        let total = usize_of(r.total_nodes);
-        let past_end = page > 1 && r.status == "ok" && usize_of(offset) >= total;
-        let facts = PageFacts::open(page, Some(usize_of(size)), more)
-            .with_total(total)
-            .out_of_range(past_end);
-        return Ok(TreePage { r, more, facts });
-    }
     let policy = budget.to_string();
     let stored = WALKS.get(snapshot, &policy, std::sync::Arc::clone);
     let walked = match stored {

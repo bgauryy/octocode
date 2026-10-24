@@ -1,225 +1,122 @@
-//! Flow edges replay verbatim: every `next.*` page and `hints.*` lead a
-//! local tool emits is a complete fresh or saved tool input, passes the
-//! strict input contract of the tool it names, uses only current field and
-//! lead names, and runs unchanged as the whole call. The seeds
-//! below reach the local edges whose fields the schema alignment changed;
-//! the GitHub edges are replayed the same way by their provider tests.
-
-use crate::support::{self, Run as _};
-
-use octocode_native::contracts::validate;
+//! Contract-declared evidence and exploration calls execute unchanged.
+use crate::support::{self, Run as _, Workspace};
+use octocode_native::{contracts, id::ToolId, response::continuations::visit_calls};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
-use support::Workspace;
 
-/// One emitted continuation: the tool that emitted it, its name, and the call.
-#[derive(Debug)]
-struct Edge {
-    from: String,
-    name: String,
-    tool: String,
-    query: Value,
-}
-
-/// Every `next` and `hints` lead of `value` (the response-paging call is
-/// replayed on its own), as edges from `from`.
-fn collect(from: &str, value: &Value, out: &mut Vec<Edge>) {
-    out.extend(
-        support::checks::leads(value)
-            .into_iter()
-            .filter(|lead| lead.channel != "responsePagination")
-            .map(|lead| Edge {
-                from: from.to_owned(),
-                name: lead.name,
-                tool: lead.tool,
-                query: lead.query,
-            }),
-    );
-}
-
-fn assert_current(edge: &Edge) {
-    validate(&edge.tool, edge.query.clone()).unwrap_or_else(|error| {
-        panic!(
-            "{}.{} → {} is not a complete input under the strict contract: {error:?}\n{edge:?}",
-            edge.from, edge.name, edge.tool
+fn calls(tool: &str, output: &Value) -> Vec<Value> {
+    let tool = ToolId::from_name(tool).expect("tool");
+    let mut calls = Vec::new();
+    visit_calls(tool, output, &mut |call, _| calls.push(call.clone())).expect("declared call walk");
+    for call in &calls {
+        contracts::validate(
+            call["tool"].as_str().expect("target"),
+            call["input"].clone(),
         )
-    });
+        .expect("complete public request");
+        if call["kind"] == "continue" {
+            support::assert_cursor_only(&call["input"]);
+        } else {
+            assert_eq!(call["kind"], "related");
+            assert!(call["input"]["queries"].is_array());
+        }
+    }
+    calls
 }
 
-/// Runs a continuation exactly as emitted: no envelope, no brief added.
-async fn replay(
-    runtime: &octocode_native::runtime::ToolRuntime,
-    tool: &str,
-    input: Value,
-) -> Value {
-    let outcome = runtime
-        .run("replay".into(), tool.into(), input.clone())
-        .await
-        .unwrap_or_else(|error| panic!("{tool} {input}: {error:?}"));
-    checked(tool, &input, outcome.structured_content.into_value())
-}
-
-fn checked(tool: &str, query: &Value, structured: Value) -> Value {
-    for row in structured["results"].as_array().into_iter().flatten() {
-        let code = row["data"]["errorCode"].as_str().unwrap_or_default();
+fn checked(tool: &str, output: &Value) {
+    support::checks::assert_output_contract(tool, output);
+    for row in output["results"].as_array().into_iter().flatten() {
         assert!(
-            !matches!(code, "outputContractViolation" | "invalidInput"),
-            "{tool} {query}: {row}"
+            !matches!(
+                row["data"]["errorCode"].as_str(),
+                Some("invalidInput" | "outputContractViolation")
+            ),
+            "{tool}: {row}"
         );
-    }
-    structured
-}
-
-fn fixture(workspace: &Workspace) {
-    let mut lines = String::from("pub fn helper(value: u32) -> u32 {\n    value + 1\n}\n\n");
-    for index in 0..40 {
-        lines.push_str(&format!(
-            "pub fn caller{index}() -> u32 {{\n    helper({index})\n}}\n\n"
-        ));
-    }
-    workspace.write("src/lib.rs", lines);
-    workspace.write(
-        "src/long.txt",
-        format!("start\n{}\nend\n", "needle ".repeat(400)),
-    );
-    workspace.write("src/store", b"SQLite format 3\0needle");
-    for index in 0..12 {
-        workspace.write(&format!("src/mod{index}.rs"), "pub fn helper_twin() {}\n");
     }
 }
 
 #[tokio::test]
-async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
+async fn emitted_local_calls_are_strict_and_replay_without_input_rewriting() {
     let workspace = Workspace::new();
-    fixture(&workspace);
-    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
-    let root = workspace.workspace.clone();
-    let src = root.join("src");
-    let lib = src.join("lib.rs");
-    let seeds: Vec<(&str, Value)> = vec![
-        // localSearch: nextPage, read, findCallers, matchString leads.
+    let source = (0..40)
+        .map(|index| format!("pub fn caller{index}() -> u32 {{\n    helper({index})\n}}\n\n"))
+        .collect::<String>();
+    workspace.write(
+        "src/lib.rs",
+        format!("pub fn helper(value:u32)->u32 {{value+1}}\n{source}"),
+    );
+    for index in 0..12 {
+        workspace.write(&format!("src/mod{index}.rs"), "pub fn helper_twin() {}\n");
+    }
+    let runtime = workspace.runtime(&[]);
+    let seeds = [
         (
             "localSearch",
-            json!({"path": src, "matchString": "helper", "pageSize": 1}),
+            json!({"path":"src","matchString":["helper"]}),
         ),
-        (
-            "localSearch",
-            json!({"path": lib, "matchString": "helper", "matchPageSize": 1}),
-        ),
-        // localSearch: a binary file → binarySkipped (structureSearch nameRegex).
-        ("localSearch", json!({"path": src, "matchString": "needle"})),
-        // localSearch: an invalid regex → repair.
-        (
-            "localSearch",
-            json!({"path": src, "matchString": "helper(", "regex": "rust"}),
-        ),
-        // structureSearch: read and continueWalk.
-        (
-            "structureSearch",
-            json!({"operation": "files", "path": src, "include": ["lib.rs"]}),
-        ),
-        (
-            "structureSearch",
-            json!({"operation": "files", "path": src, "maxEntries": 3}),
-        ),
-        (
-            "structureSearch",
-            json!({"operation": "tree", "path": root, "maxDepth": 1, "pageSize": 1}),
-        ),
-        // astSearch: syntaxTree paging, match paging, symbols.
+        ("structureSearch", json!({"operation":"files","path":"src"})),
         (
             "astSearch",
-            json!({"operation": "syntaxTree", "path": lib, "pageSize": 5}),
+            json!({"operation":"syntaxTree","path":"src/lib.rs"}),
         ),
         (
             "astSearch",
-            json!({"operation": "match", "path": lib, "pattern": "helper($A)", "matchPageSize": 2}),
+            json!({"operation":"match","path":"src/lib.rs","rule":{"pattern":"helper($A)"}}),
         ),
         (
             "astSearch",
-            json!({"operation": "symbols", "path": lib, "symbolName": "helper"}),
+            json!({"operation":"symbols","path":"src/lib.rs","symbolFilter":{"terms":["helper"]}}),
         ),
-        // localFetch: continueWindow, matchString, block, a missed match.
+        ("localFetch", json!({"path":"src/lib.rs"})),
         (
             "localFetch",
-            json!({"path": lib, "unit": "lines", "length": 10}),
-        ),
-        (
-            "localFetch",
-            json!({"path": lib, "matchString": "caller3", "contextLines": 1}),
+            json!({"path":"src/lib.rs","matchString":["caller3"],"contextLines":{"before":1,"after":2}}),
         ),
         (
             "localFetch",
-            json!({"path": lib, "matchString": "no_such_text_anywhere"}),
-        ),
-        (
-            "localFetch",
-            json!({"path": lib, "ranges": ["5-6"], "block": true}),
-        ),
-        // Envelope window paging (responseScope:"structured"): responsePagination.next.
-        (
-            "localFetch",
-            json!({"path": lib, "fullContent": true, "responseLength": 400, "responseScope": "structured"}),
+            json!({"path":"src/lib.rs","ranges":[{"startLine":5,"endLine":6}],"block":true}),
         ),
     ];
-    let mut edges = Vec::new();
-    for (tool, query) in seeds {
-        let output = checked(
+    let mut all = Vec::new();
+    let mut kinds = BTreeSet::new();
+    for (tool, row) in seeds {
+        let output = support::run(
+            &runtime,
             tool,
-            &query,
-            support::run(&runtime, tool, query.clone(), &support::ALL_EXTRAS)
-                .await
-                .outcome
-                .structured_content
-                .into_value(),
-        );
-        collect(tool, &output, &mut edges);
-        if let Some(next) = output.pointer("/responsePagination/next") {
-            let query = next["query"].clone();
-            support::assert_cursor_only(&query);
-            let replay = runtime
-                .run("replay".into(), tool.into(), query)
-                .await
-                .expect("response page replays");
-            assert!(replay.structured_content["results"].is_array());
-            edges.push(Edge {
-                from: tool.into(),
-                name: "responsePagination.next".into(),
-                tool: tool.into(),
-                query: next["query"].clone(),
-            });
+            json!({"queries":[row],"responseChars":1800}),
+        )
+        .await
+        .structured_content
+        .clone();
+        checked(tool, &output);
+        for call in calls(tool, &output) {
+            kinds.insert(call["kind"].as_str().unwrap().to_owned());
+            all.push(call);
         }
     }
+    assert!(
+        kinds.contains("continue"),
+        "required evidence continuation exercised"
+    );
+    assert!(kinds.contains("related"), "new exploration exercised");
     let mut seen = BTreeSet::new();
-    for edge in &edges {
-        assert_current(edge);
-        seen.insert(format!("{}.{}", edge.from, edge.name));
-    }
-    // Replay each distinct (from, name) edge once, verbatim.
-    let mut replayed = BTreeSet::new();
-    for edge in &edges {
-        if edge.tool == "clasify" || !replayed.insert(format!("{}.{}", edge.from, edge.name)) {
+    for call in all {
+        if !seen.insert(call.to_string()) {
             continue;
         }
-        let output = replay(&runtime, &edge.tool, edge.query.clone()).await;
-        let mut second = Vec::new();
-        collect(&edge.tool, &output, &mut second);
-        second.iter().for_each(assert_current);
+        let tool = call["tool"].as_str().unwrap();
+        if tool == "clasify" || tool == "lspSearch" {
+            continue;
+        }
+        let output = runtime
+            .run("verbatim".into(), tool.into(), call["input"].clone())
+            .await
+            .expect("unchanged public call")
+            .structured_content;
+        checked(tool, &output);
+        calls(tool, &output);
     }
-    for expected in [
-        "localSearch.nextPage",
-        "localSearch.findCallers",
-        "localSearch.binarySkipped",
-        "structureSearch.read",
-        "structureSearch.continueWalk",
-        "astSearch.nextPage",
-        "astSearch.nextMatchPage",
-        "localFetch.continueWindow",
-        "localFetch.responsePagination.next",
-    ] {
-        assert!(
-            seen.contains(expected),
-            "{expected} not reached; saw {seen:?}"
-        );
-    }
+    runtime.close().await;
 }

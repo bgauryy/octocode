@@ -10,10 +10,14 @@ use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 #[test]
 fn line_reads_spell_published_ranges() {
     let mut q = test_local_fetch_query();
-    local_fetch_query::set_line_span(&mut q, 1, 9);
+    local_fetch_query::set_line_span(&mut q, 1, 9).expect("range");
     let wire = |query: LocalFetchQuery| serde_json::to_value(query).expect("query");
     let one = wire(line_read(&q, &[LineRange { start: 57, end: 69 }]).expect("read"));
-    assert_eq!(one["ranges"], serde_json::json!(["57-69"]), "{one}");
+    assert_eq!(
+        one["ranges"],
+        serde_json::json!([{"startLine":57,"endLine":69}]),
+        "{one}"
+    );
     assert!(
         one.get("startLine").is_none() && one.get("endLine").is_none(),
         "{one}"
@@ -25,7 +29,11 @@ fn line_reads_spell_published_ranges() {
         })
         .collect::<Vec<_>>();
     let span = wire(line_read(&q, &many).expect("read"));
-    assert_eq!(span["ranges"], serde_json::json!(["1-102"]), "{span}");
+    assert_eq!(
+        span["ranges"],
+        serde_json::json!([{"startLine":1,"endLine":102}]),
+        "{span}"
+    );
     assert!(span.get("startLine").is_none(), "{span}");
 }
 
@@ -45,9 +53,8 @@ fn read_range_cap_comes_from_the_contract() {
 /// field, and decides `leaves_more` and the source binding alone.
 #[test]
 fn the_read_list_is_every_read_by_its_wire_name() {
-    let call = FetchCall {
-        query: serde_json::from_value(serde_json::json!({"path": "a.txt"})).expect("query"),
-    };
+    let query = serde_json::from_value(serde_json::json!({"path": "a.txt"})).expect("query");
+    let call = FetchCall::continued(query);
     let mut next = NextCalls::default();
     for (_, _, read) in next.reads_slots() {
         *read = Some(call.clone());
@@ -71,8 +78,8 @@ fn the_read_list_is_every_read_by_its_wire_name() {
     }
     assert!(next.leaves_more());
     let lead = NextCalls {
-        read: Some(call.clone()),
-        restart: Some(call.clone()),
+        read: Some(FetchCall::related(call.query.clone())),
+        restart: Some(FetchCall::related(call.query.clone())),
         ..NextCalls::default()
     };
     assert!(

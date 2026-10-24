@@ -1,7 +1,7 @@
 //! `block:true`: widen a line window to its enclosing declaration, so a read
 //! that starts at (or inside) a function, class, or heading section returns
 //! through its end instead of stopping mid-body and forcing a re-read. Spans
-//! come from the same declaration outline behind `minify:"symbols"` and
+//! come from the same declaration outline behind `view:"symbols"` and
 //! clasify locate; a file type without one keeps the requested window.
 
 mod recovery;
@@ -54,10 +54,6 @@ impl Blocks {
     fn is_one_line(&self, line: usize) -> bool {
         self.one_line.binary_search(&line).is_ok()
     }
-}
-/// 1-based inclusive spans of the multi-line declarations the engine outlines.
-fn declaration_spans(content: &str, path: &str) -> Option<Vec<(usize, usize)>> {
-    declarations(content, path).map(|declared| declared.iter().map(|d| (d.start, d.end)).collect())
 }
 
 /// `lines` as a warning names them: `line 4` or `lines 4, 9`.
@@ -128,21 +124,6 @@ fn no_outline(content: &str, path: &str) -> String {
     format!(
         "block: no declaration outline for {path}; returned the requested lines.{}",
         recovered_parse(content, path).unwrap_or_default()
-    )
-}
-
-/// The innermost declaration (up to [`BLOCK_MAX_LINES`]) enclosing each hit,
-/// or `None` when the file type has no declaration outline. The doc comments
-/// above a declaration are not part of it here: a window that shows its body
-/// whole is not cut.
-pub fn enclosing(content: &str, path: &str, hits: &[usize]) -> Option<Vec<LineRange>> {
-    let spans = declaration_spans(content, path)?;
-    Some(
-        hits.iter()
-            .filter_map(|&hit| innermost(&spans, hit))
-            .filter(|(start, end)| end + 1 - start <= BLOCK_MAX_LINES)
-            .map(|(start, end)| LineRange { start, end })
-            .collect(),
     )
 }
 

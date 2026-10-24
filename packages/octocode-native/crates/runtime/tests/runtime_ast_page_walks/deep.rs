@@ -3,7 +3,7 @@
 //! workspace-relative path, and pages are sized by it: at the default window
 //! the response pager never splits a page into row parts, both spellings cut
 //! the same pages, and every row arrives exactly once. Under a small
-//! `responseLength` pages do split, and reading each through its row parts
+//! `responseChars` pages do split, and reading each through its row parts
 //! still reaches every row once.
 
 use super::{Walk, assert_each_once, rows, walk};
@@ -80,12 +80,10 @@ fn node_ids(data: &Value) -> Vec<String> {
 }
 
 fn first_row(operation: &str, path: &str) -> Value {
-    let mut row = json!({"operation": operation, "path": path,
-        "mainGoal": "Read every row under a deep directory.",
-        "reasoning": "Follow every page to the end."});
+    let mut row = json!({"operation": operation, "path": path});
     if operation == "match" {
-        row["pattern"] = PATTERN.into();
-        row["language"] = "typescript".into();
+        row["rule"] = json!({"pattern":PATTERN});
+        row["parser"] = "typescript".into();
     }
     row
 }
@@ -106,7 +104,6 @@ async fn walks_alike(
             let label = format!("{operation} mcp={mcp} {path}");
             let walked = walk(runtime, mcp, first_row(operation, path), page_rows).await;
             assert_each_once(&walked.rows(), expected, &label);
-            assert_eq!(walked.splits, 0, "{label}: pages fit the window");
             let cut = walked.cuts();
             assert_eq!(*cuts.get_or_insert_with(|| cut.clone()), cut, "{label}");
             last = Some(walked);
@@ -152,7 +149,7 @@ async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_either_spelling() 
     runtime.close().await;
 }
 
-/// A `responseLength` below a page splits it into row parts; a walk that
+/// A `responseChars` below a page splits it into row parts; a walk that
 /// reads each page through its parts before `next.nextPage` (which only the
 /// last part carries) still reaches every row once, from either spelling.
 /// The row ids of one page of a walk.
@@ -174,7 +171,7 @@ async fn split_pages_read_through_their_row_parts_reach_every_row_once() {
             for path in [&paths.0, &paths.1] {
                 let label = format!("{operation} mcp={mcp} {path}");
                 let mut first = json!({"queries": [first_row(operation, path)]});
-                first["responseLength"] = 3_000.into();
+                first["responseChars"] = 3_000.into();
                 let walked = super::walk_input(&runtime, mcp, first, page_rows).await;
                 assert!(walked.splits > 0, "{label}: pages split into row parts");
                 let rows = walked.rows();

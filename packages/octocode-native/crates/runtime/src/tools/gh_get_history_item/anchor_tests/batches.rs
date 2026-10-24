@@ -3,11 +3,7 @@ use super::*;
 
 #[tokio::test]
 async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
-    for (total, extras) in [
-        (250, json!([])),
-        (260, json!([])),
-        (260, json!(["details"])),
-    ] {
+    for total in [250, 260] {
         let server = MockServer::builder().start().await;
         mount_json(
             &server,
@@ -45,7 +41,7 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
         // The details view keeps page detail: the row's limits still lift
         // off its pages (the page schema declares none of them).
         let mut query = json!({"operation":"pullRequest","owner":"o","repo":"r",
-            "number":1,"sections":["commits"],"pageSize":100,"extras":extras});
+            "number":1,"sections":["commits"],"pageSize":100});
         let mut all = Vec::new();
         let mut pages = 0;
         let last = loop {
@@ -60,10 +56,10 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
                     .iter()
                     .map(|c| c["commitSha"].as_str().expect("sha").to_owned()),
             );
-            let Some(next) = data.pointer("/next/nextCommitPage/query") else {
+            let Some(next) = data.pointer("/next/nextCommitPage/input") else {
                 break data;
             };
-            let normalized = crate::contracts::validate("ghGetHistoryItem", next.clone())
+            let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
                 .expect("executable copied commit page");
             query = normalized["queries"][0].clone();
         };
@@ -157,10 +153,10 @@ async fn commit_file_boundary_is_a_lower_bound_with_or_without_a_final_link() {
                     .expect("path")
                     .to_owned()
             }));
-            let Some(next) = data.pointer("/next/nextFilePage/query") else {
+            let Some(next) = data.pointer("/next/nextFilePage/input") else {
                 break data;
             };
-            let normalized = crate::contracts::validate("ghGetHistoryItem", next.clone())
+            let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
                 .expect("executable copied file page");
             query = normalized["queries"][0].clone();
         };

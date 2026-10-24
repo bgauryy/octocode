@@ -20,19 +20,40 @@ import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromeOutputLimits } from './chrome-contract.mjs';
 import { validateFlags } from './cli-flags.mjs';
+import { errorMessage } from './error-message.mjs';
 import {
   matches,
   parse,
   pointer,
   validatePredicates,
   validateProjection,
+  type Predicate,
 } from './evidence-predicates.mjs';
 
-const args = process.argv.slice(2),
-  get = (flag: string, fallback?: string) =>
-    args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
-const digest = value => createHash('sha256').update(value).digest('hex');
-async function sourceDigest(file) {
+/** The saved index manifest (index.json) of one query identity. */
+type EvidenceIndex = {
+  file: string;
+  sha256: string;
+  format: string;
+  pointer: string;
+  filters: Predicate[];
+  select: unknown;
+  scanned: number;
+  matched: number;
+  offsetsSha256: string;
+  rowsBytes: number;
+};
+
+const args = process.argv.slice(2);
+// Read only after validateFlags, which rejects a value flag given without its value.
+function get(flag: string): string | undefined;
+function get(flag: string, fallback: string): string;
+function get(flag: string, fallback?: string) {
+  return args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
+}
+const digest = (value: string | Buffer) =>
+  createHash('sha256').update(value).digest('hex');
+async function sourceDigest(file: string) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest('hex');
@@ -43,7 +64,7 @@ if (args.includes('--help') || args.includes('-h')) {
   );
   process.exit(0);
 }
-let temporary;
+let temporary: string | null | undefined;
 try {
   validateFlags(args, [
     '--file',
@@ -55,8 +76,9 @@ try {
     '--limit',
     '--sha256',
   ]);
-  if (!get('--file')) throw new Error('--file is required');
-  const file = resolve(get('--file')),
+  const fileArg = get('--file');
+  if (!fileArg) throw new Error('--file is required');
+  const file = resolve(fileArg),
     format = get('--format', 'json'),
     path = get('--pointer', '');
   const cursor = Number(get('--cursor', '0')),
@@ -73,9 +95,10 @@ try {
   if (format === 'jsonl' && path)
     throw new Error('JSONL rows are the root; omit --pointer');
   const filters = parse(get('--where', '[]')),
-    select = get('--select') ? JSON.parse(get('--select')) : null;
+    selectArg = get('--select'),
+    select: unknown = selectArg ? JSON.parse(selectArg) : null;
   validatePredicates(filters);
-  validateProjection(select);
+  const projection = validateProjection(select);
   const sha256 = await sourceDigest(file);
   if (get('--sha256') && get('--sha256') !== sha256)
     throw new Error('Capture changed; restart the query');
@@ -87,23 +110,24 @@ try {
       identity
     ),
     manifestFile = join(indexDir, 'index.json');
-  let index,
+  let index: EvidenceIndex,
     reused = existsSync(manifestFile);
   if (reused) index = JSON.parse(readFileSync(manifestFile, 'utf8'));
   else {
     mkdirSync(dirname(indexDir), { recursive: true, mode: 0o700 });
-    temporary = indexDir + '-' + randomUUID();
-    mkdirSync(temporary, { mode: 0o700 });
-    const out = openSync(join(temporary, 'rows.jsonl'), 'wx', 0o600),
-      offsets = openSync(join(temporary, 'offsets.bin'), 'wx', 0o600);
+    const staging = indexDir + '-' + randomUUID();
+    temporary = staging;
+    mkdirSync(staging, { mode: 0o700 });
+    const out = openSync(join(staging, 'rows.jsonl'), 'wx', 0o600),
+      offsets = openSync(join(staging, 'offsets.bin'), 'wx', 0o600);
     let at = 0,
       scanned = 0,
       matched = 0;
-    const add = (row, sourcePointer) => {
+    const add = (row: unknown, sourcePointer: string) => {
       const sourceIndex = scanned++;
       if (!matches(row, filters)) return;
-      const value = select
-        ? Object.fromEntries(select.map(p => [p, pointer(row, p) ?? null]))
+      const value = projection
+        ? Object.fromEntries(projection.map(p => [p, pointer(row, p) ?? null]))
         : row;
       const record = { sourceIndex, sourcePointer, value },
         encoded = Buffer.from(JSON.stringify(record) + '\n');
@@ -173,18 +197,18 @@ try {
       select,
       scanned,
       matched,
-      offsetsSha256: await sourceDigest(join(temporary, 'offsets.bin')),
+      offsetsSha256: await sourceDigest(join(staging, 'offsets.bin')),
       rowsBytes: at,
     };
-    writeFileSync(join(temporary, 'index.json'), JSON.stringify(index), {
+    writeFileSync(join(staging, 'index.json'), JSON.stringify(index), {
       mode: 0o600,
     });
     try {
-      renameSync(temporary, indexDir);
+      renameSync(staging, indexDir);
       temporary = null;
     } catch (error) {
       if (!existsSync(manifestFile)) throw error;
-      rmSync(temporary, { recursive: true, force: true });
+      rmSync(staging, { recursive: true, force: true });
       temporary = null;
       index = JSON.parse(readFileSync(manifestFile, 'utf8'));
       reused = true;
@@ -201,7 +225,7 @@ try {
     throw new Error('Evidence offset index changed; rebuild it');
   const fd = openSync(rowsFile, 'r'),
     offsets = openSync(offsetsFile, 'r'),
-    rows = [];
+    rows: unknown[] = [];
   let nextCursor = cursor,
     bytes = 0;
   try {
@@ -219,7 +243,7 @@ try {
           format === 'jsonl' ? 'line:' + sourceLine : path + '/' + sourceIndex,
         sha256: encodedEntry.subarray(32).toString('hex'),
       };
-      let record;
+      let record: unknown;
       if (entry.length > 16000) {
         const oversized = join(indexDir, `row-${nextCursor}.json`);
         if (!existsSync(oversized)) {
@@ -331,7 +355,7 @@ try {
     })
   );
 } catch (error) {
-  console.error('[EVIDENCE_QUERY] ' + error.message);
+  console.error('[EVIDENCE_QUERY] ' + errorMessage(error));
   process.exitCode = 1;
 } finally {
   if (temporary) rmSync(temporary, { recursive: true, force: true });

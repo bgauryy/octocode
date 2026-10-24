@@ -273,7 +273,7 @@ impl KeyState {
         if persisted {
             let state = Arc::clone(self);
             let write = octocode_io::notice::carried(move || {
-                state.persist_with(|view| view.release(group.name(), start, previous, window))
+                state.persist_with(|view| view.release(group.name(), start, previous, window));
             });
             match tokio::runtime::Handle::try_current() {
                 Ok(handle) => drop(handle.spawn_blocking(write)),
@@ -287,7 +287,7 @@ impl KeyState {
     pub(in crate::budget) async fn refresh_off_thread(self: &Arc<Self>) {
         let state = Arc::clone(self);
         let _ = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
-            state.refresh_from_disk()
+            state.refresh_from_disk();
         }))
         .await;
     }

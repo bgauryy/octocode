@@ -1,5 +1,5 @@
 //! Where a repository page leads: the top repository, archived rows, a broadened empty search.
-use super::{FILTERS, GhSearchRepoQuery, GhSearchRepoQuerySort};
+use super::{FILTERS, GhSearchRepoQuery};
 use crate::id::ToolId;
 use crate::response::result::{Continuation, ToolData, query_row};
 use crate::tools::leads::broaden::{Broaden, broaden, set_broadened};
@@ -24,28 +24,14 @@ pub(super) fn top_leads(
 /// The search a lead copies, from its first page: defaults and the brief
 /// stay out of the copied call.
 pub(super) fn copied_search(query: &GhSearchRepoQuery) -> Value {
-    let mut row = query_row(
-        query,
-        &[
-            "page",
-            "extras",
-            "sort",
-            "pageSize",
-            "mainGoal",
-            "reasoning",
-        ],
-    );
-    if query.sort != GhSearchRepoQuerySort::BestMatch {
-        row["sort"] = json!(query.sort.to_string());
-    }
-    row
+    query_row(query, &["page"])
 }
 
 /// The same search with archived repositories included, from its first page.
 pub(super) fn include_archived(query: &GhSearchRepoQuery) -> Value {
     let mut row = copied_search(query);
-    row["includeArchived"] = json!(true);
-    Continuation::new(ToolId::GhSearchRepo, row).build()
+    row["filters"]["archive"] = json!("include");
+    Continuation::related(ToolId::GhSearchRepo, row).build()
 }
 
 /// An empty search, broadened ([`broaden`]): one variant per set filter,
@@ -81,5 +67,6 @@ pub(super) fn repository_output(
             set_broadened(&mut output.data, &copied_search(query), broader);
         }
     }
+    crate::tools::gh_shared::finish_calls(&mut output.data);
     output
 }

@@ -3,13 +3,12 @@
 //! syntactic file graph.
 
 use super::edges::{Load, load};
-use super::types::Node;
-use octocode_engine::graph::{Condensed, condense, scc};
+use octocode_engine::graph::{Condensed, FileGraphNode, condense, scc};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The file graph without its data edges ([`Load::Data`]): the edges that
 /// link code.
-fn code_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
+fn code_graph(nodes: &BTreeMap<String, FileGraphNode>) -> BTreeMap<String, FileGraphNode> {
     nodes
         .iter()
         .map(|(file, node)| {
@@ -27,7 +26,7 @@ fn code_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
                 .collect();
             (
                 file.clone(),
-                Node {
+                FileGraphNode {
                     edges,
                     dynamic_only: node.dynamic_only.clone(),
                 },
@@ -38,7 +37,7 @@ fn code_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
 
 /// The code graph without its module tree: no data or `rust-module` edges,
 /// and no edge from a module file to one of its ancestors in that tree.
-fn dependency_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
+fn dependency_graph(nodes: &BTreeMap<String, FileGraphNode>) -> BTreeMap<String, FileGraphNode> {
     let nodes = &code_graph(nodes);
     let module_tree = |kind: &String| load(kind) == Load::ModuleTree;
     let mut parent = BTreeMap::<&str, &str>::new();
@@ -81,7 +80,7 @@ fn dependency_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
                 .collect();
             (
                 file.clone(),
-                Node {
+                FileGraphNode {
                     edges,
                     dynamic_only: node.dynamic_only.clone(),
                 },
@@ -92,7 +91,7 @@ fn dependency_graph(nodes: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
 
 /// The graph of the edges that run while their importer loads
 /// ([`Load::Eager`]): its cycles are runtime (module-load) cycles.
-fn runtime_graph(g: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
+fn runtime_graph(g: &BTreeMap<String, FileGraphNode>) -> BTreeMap<String, FileGraphNode> {
     g.iter()
         .map(|(f, n)| {
             let edges = n
@@ -103,7 +102,7 @@ fn runtime_graph(g: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
                 .collect();
             (
                 f.clone(),
-                Node {
+                FileGraphNode {
                     edges,
                     dynamic_only: n.dynamic_only.clone(),
                 },
@@ -117,7 +116,7 @@ fn runtime_graph(g: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
 /// out), and inside each the groups its runtime edges close.
 pub(super) struct Cycles {
     /// The dependency graph: the file graph without its module trees.
-    pub uses: BTreeMap<String, Node>,
+    pub uses: BTreeMap<String, FileGraphNode>,
     /// Its condensation; a cycle group is a component of several files or
     /// one importing itself.
     pub condensed: Condensed,
@@ -126,7 +125,7 @@ pub(super) struct Cycles {
 }
 
 impl Cycles {
-    pub(super) fn of(nodes: &BTreeMap<String, Node>) -> Self {
+    pub(super) fn of(nodes: &BTreeMap<String, FileGraphNode>) -> Self {
         let uses = dependency_graph(nodes);
         let condensed = condense(&uses);
         let runtime_groups = scc(&runtime_graph(&uses), true);

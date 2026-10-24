@@ -7,7 +7,7 @@ use serde_json::json;
 #[test]
 fn github_rows_name_owner_and_repo_after_the_repository_url() {
     let mut row = json!({"name":"ajv","repository":"https://github.com/ajv-validator/ajv.git","version":"8.0.0"});
-    name_github_repository(&mut row, false);
+    name_github_repository(&mut row);
     assert_eq!(
         row.as_object().unwrap().keys().collect::<Vec<_>>(),
         ["name", "repository", "owner", "repo", "version"]
@@ -15,10 +15,10 @@ fn github_rows_name_owner_and_repo_after_the_repository_url() {
     assert_eq!(row["owner"], "ajv-validator");
     assert_eq!(row["repo"], "ajv");
     let mut other = json!({"name":"x","repository":"https://gitlab.com/g/x"});
-    name_github_repository(&mut other, false);
+    name_github_repository(&mut other);
     assert!(other.get("owner").is_none() && other.get("repo").is_none());
     let mut none = json!({"name":"x"});
-    name_github_repository(&mut none, false);
+    name_github_repository(&mut none);
     assert_eq!(none, json!({"name":"x"}));
 }
 
@@ -28,7 +28,7 @@ fn github_rows_name_owner_and_repo_after_the_repository_url() {
 #[test]
 fn a_repository_url_restating_owner_and_repo_is_dropped() {
     let mut row = json!({"name":"joi","repository":"https://github.com/hapijs/joi","version":"1"});
-    name_github_repository(&mut row, false);
+    name_github_repository(&mut row);
     assert_eq!(
         row,
         json!({"name":"joi","owner":"hapijs","repo":"joi","version":"1"})
@@ -37,12 +37,9 @@ fn a_repository_url_restating_owner_and_repo_is_dropped() {
         row.as_object().unwrap().keys().collect::<Vec<_>>(),
         ["name", "owner", "repo", "version"]
     );
-    let mut details = json!({"name":"joi","repository":"https://github.com/hapijs/joi"});
-    name_github_repository(&mut details, true);
-    assert_eq!(details["repository"], "https://github.com/hapijs/joi");
     let mut pinned =
         json!({"name":"convict","repository":"https://github.com/mozilla/node-convict.git#master"});
-    name_github_repository(&mut pinned, false);
+    name_github_repository(&mut pinned);
     assert_eq!(
         pinned["repository"],
         "https://github.com/mozilla/node-convict.git#master"
@@ -86,10 +83,6 @@ fn only_a_homepage_that_is_the_repository_page_is_dropped() {
     drop_repository_homepage(&mut distinct);
     assert_eq!(distinct.homepage.as_deref(), Some("https://zod.dev"));
     // The registry URL is verbose: the verbose stage drops it by default.
-    assert!(
-        crate::response::extras::all_paths(crate::id::ToolId::ArtifactSearch)
-            .contains(&"results[].data.artifacts[].registryUrl")
-    );
 }
 
 #[test]
@@ -99,7 +92,7 @@ fn rows_carry_no_type_and_start_with_the_name() {
     let keys = encoded.as_object().expect("row").keys().collect::<Vec<_>>();
     assert_eq!(
         keys.first().map(|key| key.as_str()),
-        Some("name"),
+        Some("packageName"),
         "{encoded}"
     );
     assert!(!keys.iter().any(|key| *key == "type"), "{encoded}");

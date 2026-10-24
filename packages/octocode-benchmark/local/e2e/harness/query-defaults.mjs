@@ -1,13 +1,14 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 
-function validator() {
-  const ajv = new Ajv2020({ strict: false, validateFormats: true });
+/** The suites' JSON Schema 2020-12 validator; `validateFormats: false` ignores `format`. */
+export function createAjv({ validateFormats = true } = {}) {
+  const ajv = new Ajv2020({ strict: false, validateFormats });
   addFormats(ajv);
   return ajv;
 }
 
-export function createQueryDefaults(tools, ajv = validator()) {
+export function createQueryDefaults(tools, ajv = createAjv()) {
   const schemas = new Map(tools.map(tool => [tool.name, { root: tool.querySchema ?? tool.inputSchema, isRow: tool.querySchema !== undefined }]));
   const checks = new WeakMap();
   return (tool, query) => {

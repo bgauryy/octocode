@@ -1,6 +1,7 @@
 //! Version-range support per ecosystem.
+use super::query::versioned;
 use super::test_http::RouteHttp;
-use super::types::{test_budget, versioned};
+use super::test_http::test_budget;
 use super::*;
 
 /// An ecosystem that takes exact versions refuses a range before any
@@ -24,6 +25,14 @@ async fn an_exact_only_ecosystem_refuses_a_version_range() {
         (ArtifactType::Nuget, "Newtonsoft.Json", "[13.0,)"),
         (ArtifactType::Go, "github.com/a/b", ">=v1.2.0"),
     ] {
+        let row = serde_json::json!({"operation":"resolve","ecosystem":ecosystem,"packageName":name,"version":range});
+        if range != "31.x" {
+            assert!(
+                crate::contracts::validate_query("artifactSearch", row).is_err(),
+                "{range}"
+            );
+            continue;
+        }
         let error = execute_artifact(&versioned(ecosystem, name, range), &context)
             .await
             .expect_err("a range");
@@ -41,6 +50,10 @@ async fn an_exact_only_ecosystem_refuses_a_version_range() {
             error.message
         );
     }
+    assert!(
+        http.seen().is_empty(),
+        "rejected versions must not dispatch"
+    );
     for exact in [
         "31.1-jre",
         "2.0.0.Final",

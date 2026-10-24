@@ -115,7 +115,7 @@ pub(super) fn note_skipped(
     }
     // The response keeps the first leads of `next`: the text fallback goes
     // after the leads that lift what the outline skipped.
-    if let Some(next) = out["next"].as_object_mut()
+    if let Some(next) = out["calls"].as_object_mut()
         && let Some(fallback) = next.shift_remove("findText")
     {
         next.insert("findText".to_owned(), fallback);

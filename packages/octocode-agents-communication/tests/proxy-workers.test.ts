@@ -1,27 +1,15 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import test from 'node:test';
-import type { TestContext } from 'node:test';
-import { only } from './helpers.ts';
+import { only, posix, tempWorkspace, waitFor } from './helpers.ts';
 import { fixture, runtime } from './store-support.ts';
 import type { LoopWorker } from '../src/runtime/vendor-workers.ts';
 import type { JsonRecord } from './json-record.ts';
 
 const { proxy, timing, wire } = runtime;
-const posix = process.platform !== 'win32';
-
-function scratch(t: TestContext) {
-  const path = realpathSync(mkdtempSync(join(tmpdir(), 'proxy-workers-')));
-  t.after(() => rmSync(path, { recursive: true, force: true }));
-  return path;
-}
 
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-// The bound only ends a failing wait. It is monotonic, which does not advance while the host is suspended, so a laptop that
-// sleeps mid-test does not turn into a spurious timeout; a passing wait returns as soon as the condition holds.
-const until = async (condition: () => unknown, limit = 5000) => { const end = performance.now() + limit; while (!condition()) { assert.ok(performance.now() < end, 'timed out'); await new Promise(resolve => setTimeout(resolve, 10)); } };
 
 /** A worker with nothing to deliver whose wire answers every poll with `event`; the loop reads only these members. */
 function fakeWorker(event: () => Promise<null>): LoopWorker {
@@ -66,20 +54,20 @@ test('a child that parent-dies is detected through process.ppid changing', { ski
   t.after(() => middle.kill('SIGKILL'));
   let text = '';
   middle.stdout.on('data', chunk => (text += chunk));
-  await until(() => text.includes('watching'));
+  await waitFor(() => text.includes('watching'));
   middle.kill('SIGKILL');
-  await until(() => text.includes('reparented'));
+  await waitFor(() => text.includes('reparented'));
 });
 
 test('closing a vendor kills its whole process group, escalating to SIGKILL after two seconds', { skip: !posix }, async t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'proxy-workers-', { real: true });
   const pids = join(directory, 'pids');
   // The vendor and its grandchild ignore SIGTERM, so only the escalation ends them.
   const script = join(directory, 'stubborn.sh');
   writeFileSync(script, `#!/bin/sh\ntrap '' TERM\nsleep 100 &\necho $! > '${pids}'\necho ready\nwait\nwhile true; do sleep 1; done\n`);
   chmodSync(script, 0o755);
   const host = new wire.Wire(script, [], directory, [], null);
-  await until(() => existsSync(pids) && readFileSync(pids, 'utf8').trim() !== '');
+  await waitFor(() => existsSync(pids) && readFileSync(pids, 'utf8').trim() !== '');
   const grandchild = Number(readFileSync(pids, 'utf8'));
   const child = host.pid;
   assert.ok(child !== undefined);
@@ -89,13 +77,13 @@ test('closing a vendor kills its whole process group, escalating to SIGKILL afte
   const elapsed = performance.now() - started;
   assert.ok(elapsed >= wire.TERMINATE_GRACE_MS * 0.9, 'waited for SIGTERM to be honoured before SIGKILL: ' + elapsed);
   assert.ok(elapsed < wire.TERMINATE_GRACE_MS * 4, 'killed promptly after the grace period: ' + elapsed);
-  await until(() => !alive(child) && !alive(grandchild));
+  await waitFor(() => !alive(child) && !alive(grandchild));
 });
 
 test('a cooperative vendor ends on SIGTERM without waiting for the grace period', { skip: !posix }, async t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'proxy-workers-', { real: true });
   const host = new wire.Wire('sleep', ['100'], directory, [], null);
-  await until(() => host.pid !== undefined);
+  await waitFor(() => host.pid !== undefined);
   const pid = host.pid;
   assert.ok(pid !== undefined);
   const started = performance.now();
@@ -117,7 +105,8 @@ test('usage is persisted once per source event and traced tool calls are paired'
   assert.equal(records.length, 3, 'a repeated source event is idempotent');
   assert.deepEqual(records[0], { key: records[0].key, scope: 'turn', inputTokens: 10, outputTokens: 4, cachedInputTokens: 3 });
   const { key: cumulativeKey, ...cumulative } = records[1];
-  assert.ok(cumulativeKey);
+  assert.equal(typeof cumulativeKey, 'string');
+  assert.notEqual(cumulativeKey, records[0].key, 'each usage record has its own key');
   assert.deepEqual(cumulative, { scope: 'cumulative', inputTokens: 9, outputTokens: 1, contextTokens: 5 });
   assert.equal(records[2].contextTokens, 8);
   assert.equal(records[2].cacheWriteTokens, 2);
@@ -164,7 +153,7 @@ process.stdin.on('data', chunk => {
 
 test('a managed codex worker: handshake, first turn, mail delivered between turns, approvals refused, clean leave', { skip: !posix }, async t => {
   const f = fixture(t);
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'proxy-workers-', { real: true });
   const log = join(directory, 'frames.log');
   const script = join(directory, 'codex');
   writeFileSync(script, FAKE_CODEX);
@@ -181,7 +170,7 @@ test('a managed codex worker: handshake, first turn, mail delivered between turn
     launcher: { mcp: (args: readonly string[]) => ({ command: 'communication', args: [...args] }), binary: 'communication', piExtension: '' },
   };
   const running = proxy.run({ vendor: 'codex', model: 'gpt-test', prompt: 'Do the task\nwith details', durationMs: 4000, workspace: f.workspace, database: f.file, trace: true }, io);
-  await until(() => output.some(record => record.type === 'turn-completed')).catch(error => { throw new Error(error.message + ' ' + JSON.stringify(output) + ' ' + (existsSync(log) ? readFileSync(log, 'utf8') : 'nolog')); });
+  await waitFor(() => output.some(record => record.type === 'turn-completed')).catch(error => { throw new Error(error.message + ' ' + JSON.stringify(output) + ' ' + (existsSync(log) ? readFileSync(log, 'utf8') : 'nolog')); });
   const ready = output.find(record => record.type === 'ready');
   assert.ok(ready);
   assert.equal(ready.vendor, 'codex');
@@ -194,8 +183,8 @@ test('a managed codex worker: handshake, first turn, mail delivered between turn
   assert.equal(runtime.ownerLock.deliveryOwnerLive(f.file, identity), true, 'the worker owns delivery for its session');
 
   const sent = await f.call(sender, 'send_message', { to: identity, body: 'peer fact for the worker', wake: 'action' });
-  await until(() => output.some(record => record.type === 'delivery' && record.messages.includes(sent.id)));
-  await until(() => output.filter(record => record.type === 'turn-completed').length >= 2);
+  await waitFor(() => output.some(record => record.type === 'delivery' && record.messages.includes(sent.id)));
+  await waitFor(() => output.filter(record => record.type === 'turn-completed').length >= 2);
   await running;
 
   const frames = readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));

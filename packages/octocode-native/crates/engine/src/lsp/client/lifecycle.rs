@@ -51,46 +51,14 @@ impl NativeLspClient {
         }
         self.reset_session_state();
 
-        let validated_command =
-            crate::lsp::validation::validate_lsp_server_path(self.inner.config.command.clone())?;
-        let mut command_args = self.inner.config.args.clone().unwrap_or_default();
-        let command_program = lsp_spawn_program(&validated_command, &mut command_args).await?;
-        let mut command = tokio::process::Command::new(&command_program);
-        crate::process::contain(command.as_std_mut());
-        command
-            .args(command_args)
-            .current_dir(&self.inner.config.workspace_root)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
         // OS-level memory cap: internal buffer bounds do not stop a runaway
         // server from OOMing the host. macOS and Linux bound the resident
         // memory of the whole server tree with an RSS watchdog
         // (`memory_watchdog_for`); Windows attaches a Job Object right after
         // spawn; other Unix targets cap the address space before exec.
         let memory_cap = spawn_limits::memory_cap_bytes(self.inner.config.max_memory_mb);
-        if let Some(cap_bytes) = memory_cap {
-            spawn_limits::apply_pre_spawn_cap(&mut command, cap_bytes);
-        }
-        // Never leak octocode's own environment (OCTOCODE_CLASSIFICATION_API, GITHUB_TOKEN,
-        // etc.) into a spawned language server. Start from an empty environment and
-        // re-add only a minimal, secret-free allowlist plus any explicitly
-        // configured server env. PATH must be preserved so built-in servers
-        // (e.g. a `node`/`rust-analyzer` resolved via PATH) still launch.
-        command.env_clear();
-        for &key in LSP_SERVER_ENV_ALLOWLIST {
-            if let Some(value) = crate::process_env::var_os(key) {
-                command.env(key, value);
-            }
-        }
-        if let Some(env) = &self.inner.config.env {
-            for (key, value) in env {
-                command.env(key, value);
-            }
-        }
-
-        let mut child = command
+        let mut child = server_command(&self.inner.config, memory_cap)
+            .await?
             .spawn()
             .map_err(|err| Error::new(format!("Failed to start language server: {err}")))?;
         let memory_cap_guard = match crate::process::Job::attach_async(&child, memory_cap) {
@@ -168,22 +136,7 @@ impl NativeLspClient {
                          octocode advertises utf-16; semantic positions cannot be resolved safely"
             )));
         }
-        {
-            let mut capabilities = self
-                .inner
-                .capabilities
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            *capabilities = initialize_result.get("capabilities").cloned();
-        }
-        {
-            let mut server_info = self
-                .inner
-                .server_info
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            *server_info = initialize_result.get("serverInfo").cloned();
-        }
+        self.record_server(&initialize_result);
         if let Err(error) = connection.notify("initialized", json!({})).await {
             cleanup_failed_start(&mut child, stderr_task).await;
             return Err(error);
@@ -209,6 +162,25 @@ impl NativeLspClient {
         }
         *child_guard = Some(child);
         Ok(())
+    }
+
+    /// Keep what the server's `initialize` answer says about it: its
+    /// capabilities and `serverInfo`.
+    fn record_server(&self, initialize_result: &Value) {
+        {
+            let mut capabilities = self
+                .inner
+                .capabilities
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *capabilities = initialize_result.get("capabilities").cloned();
+        }
+        let mut server_info = self
+            .inner
+            .server_info
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *server_info = initialize_result.get("serverInfo").cloned();
     }
 
     pub async fn stop(&self) -> Result<()> {
@@ -257,6 +229,48 @@ impl NativeLspClient {
 /// Extracts the server-selected `positionEncoding` from an `InitializeResult`.
 /// Returns `None` when the server omits it (which the LSP spec defines as the
 /// utf-16 default).
+/// The spawn command of the configured server: its validated program and
+/// arguments in the workspace root, piped stdio, the pre-spawn memory cap
+/// where the platform applies one, and a scrubbed environment.
+async fn server_command(
+    config: &LspLanguageServerConfig,
+    memory_cap: Option<u64>,
+) -> Result<tokio::process::Command> {
+    let validated_command =
+        crate::lsp::validation::validate_lsp_server_path(config.command.clone())?;
+    let mut command_args = config.args.clone().unwrap_or_default();
+    let command_program = lsp_spawn_program(&validated_command, &mut command_args).await?;
+    let mut command = tokio::process::Command::new(&command_program);
+    crate::process::contain(command.as_std_mut());
+    command
+        .args(command_args)
+        .current_dir(&config.workspace_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    if let Some(cap_bytes) = memory_cap {
+        spawn_limits::apply_pre_spawn_cap(&mut command, cap_bytes);
+    }
+    // Never leak octocode's own environment (OCTOCODE_CLASSIFICATION_API, GITHUB_TOKEN,
+    // etc.) into a spawned language server. Start from an empty environment and
+    // re-add only a minimal, secret-free allowlist plus any explicitly
+    // configured server env. PATH must be preserved so built-in servers
+    // (e.g. a `node`/`rust-analyzer` resolved via PATH) still launch.
+    command.env_clear();
+    for &key in LSP_SERVER_ENV_ALLOWLIST {
+        if let Some(value) = crate::process_env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    if let Some(env) = &config.env {
+        for (key, value) in env {
+            command.env(key, value);
+        }
+    }
+    Ok(command)
+}
+
 pub(super) fn extract_position_encoding(initialize_result: &Value) -> Option<String> {
     initialize_result
         .get("capabilities")

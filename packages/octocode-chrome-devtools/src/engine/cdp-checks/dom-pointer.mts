@@ -10,16 +10,25 @@ import { DONE } from './dom-config.mjs';
 import { SELECT_ALL_FN } from './dom-page-scripts.mjs';
 import { resolveRefEntry } from './dom-locate.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { Payload, Session } from '../cdp-connection.mjs';
+import type { DomStep, StepDetails } from './dom-types.mjs';
 
-const mouse = (cdp, params) => cdp.send('Input.dispatchMouseEvent', params);
+type Rect = { x: number; y: number; width: number; height: number };
+/** A node to measure: by object handle, backend id, or document node id. */
+type NodeTarget =
+  { objectId: string } | { backendNodeId: number } | { nodeId: number };
+type Point = { cx: number; cy: number; rect?: Rect };
+
+const mouse = (cdp: Session, params: Payload) =>
+  cdp.send('Input.dispatchMouseEvent', params);
 
 // Main-frame viewport coordinates; also right inside same-process iframes, where
 // getBoundingClientRect is frame-local.
 async function centerOf(
-  cdp,
-  target,
-  fallbackRect?: { x: number; y: number; width: number; height: number }
-) {
+  cdp: Session,
+  target: NodeTarget | null,
+  fallbackRect?: Rect | null
+): Promise<Point> {
   const quads = target
     ? await cdp.send('DOM.getContentQuads', target).catch(() => null)
     : null;
@@ -46,7 +55,7 @@ async function centerOf(
   };
 }
 
-async function dropPoint(cdp, step) {
+async function dropPoint(cdp: Session, step: DomStep) {
   if (step.toRef)
     return centerOf(cdp, {
       backendNodeId: resolveRefEntry(cdp, step.toRef).backendDOMNodeId,
@@ -61,7 +70,12 @@ async function dropPoint(cdp, step) {
   return centerOf(cdp, { nodeId });
 }
 
-async function dragPath(cdp, from, to, dragData) {
+async function dragPath(
+  cdp: Session,
+  from: Point,
+  to: Point,
+  dragData: () => unknown
+) {
   await mouse(cdp, { type: 'mouseMoved', x: from.cx, y: from.cy });
   await mouse(cdp, {
     type: 'mousePressed',
@@ -98,9 +112,9 @@ async function dragPath(cdp, from, to, dragData) {
 }
 
 // Pointer drag; native HTML5 drag-and-drop is intercepted and replayed as dragEnter/dragOver/drop.
-async function performDrag(cdp, from, to) {
-  let dragData = null;
-  const onDrag = ({ data }) => {
+async function performDrag(cdp: Session, from: Point, to: Point) {
+  let dragData: unknown = null;
+  const onDrag = ({ data }: { data: unknown }) => {
     dragData = data;
   };
   cdp.on('Input.dragIntercepted', onDrag);
@@ -118,7 +132,7 @@ async function performDrag(cdp, from, to) {
 
 // Real CDP input: isTrusted events with mousedown/up, keydown/up, hover.
 // The page keeps the last trusted mouse position, so the next approach starts where the pointer is.
-async function rememberMouse(cdp, x, y) {
+async function rememberMouse(cdp: Session, x: number, y: number) {
   await cdp
     .send('Runtime.evaluate', {
       expression: `globalThis.__octoMouse = { x: ${x}, y: ${y} }`,
@@ -127,7 +141,12 @@ async function rememberMouse(cdp, x, y) {
 }
 
 // Is the element under (x, y) the target or inside it? Unknown (e.g. cross-frame) counts as yes.
-async function hitsTarget(cdp, objectId, x, y) {
+async function hitsTarget(
+  cdp: Session,
+  objectId: string,
+  x: number,
+  y: number
+) {
   const loc = await cdp
     .send('DOM.getNodeForLocation', {
       x: Math.round(x),
@@ -156,7 +175,19 @@ async function hitsTarget(cdp, objectId, x, y) {
 
 // Move directly to the observed point, then re-aim with straight moves until the point under
 // the mouse is the target (a hover effect can shift layout).
-async function approach(cdp, start, { target, objectId, details }) {
+async function approach(
+  cdp: Session,
+  start: Point,
+  {
+    target,
+    objectId,
+    details,
+  }: {
+    target: NodeTarget | null;
+    objectId: string | null;
+    details: StepDetails;
+  }
+) {
   let at = start;
   await mouse(cdp, { type: 'mouseMoved', x: at.cx, y: at.cy });
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -175,13 +206,18 @@ async function approach(cdp, start, { target, objectId, details }) {
   return at;
 }
 
-async function click(cdp, { cx, cy }, clickCount) {
+async function click(cdp: Session, { cx, cy }: Point, clickCount: number) {
   const at = { x: cx, y: cy, button: 'left' };
   await mouse(cdp, { type: 'mousePressed', ...at, buttons: 1, clickCount });
   await mouse(cdp, { type: 'mouseReleased', ...at, buttons: 0, clickCount });
 }
 
-async function dispatchAction(cdp, step, details, at) {
+async function dispatchAction(
+  cdp: Session,
+  step: DomStep,
+  details: StepDetails,
+  at: Point
+) {
   const action = step.action;
   if (action === 'hover') return; // already there
   if (action === 'press')
@@ -201,7 +237,12 @@ async function dispatchAction(cdp, step, details, at) {
 }
 
 /** Selects the field's text and replaces it; false when the click did not focus it. */
-async function enterText(cdp, step, details, objectId) {
+async function enterText(
+  cdp: Session,
+  step: DomStep,
+  details: StepDetails,
+  objectId: string | null
+) {
   const focused = objectId
     ? (
         await cdp
@@ -228,7 +269,7 @@ async function enterText(cdp, step, details, objectId) {
   return true;
 }
 
-async function upload(cdp, step, objectId) {
+async function upload(cdp: Session, step: DomStep, objectId: string | null) {
   const files = step.value
     .split('|')
     .map(f => f.trim())
@@ -240,7 +281,12 @@ async function upload(cdp, step, objectId) {
 }
 
 /** Performs a pending step with trusted input; returns its operation (DONE on success). */
-export async function performTrusted(cdp, step, details, objectId) {
+export async function performTrusted(
+  cdp: Session,
+  step: DomStep,
+  details: StepDetails,
+  objectId: string | null
+) {
   const action = step.action;
   if (action === 'upload') return upload(cdp, step, objectId);
   const target = objectId ? { objectId } : null;

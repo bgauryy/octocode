@@ -113,26 +113,8 @@ pub(crate) enum Severity {
 }
 /// Diagnostic code of a configuration key no setting reads.
 pub(crate) const UNKNOWN_CONFIG_CODE: &str = "unknown_or_future_config";
-/// Diagnostic code of a setting or variable the contract removed.
-pub(crate) const REMOVED_SETTING_CODE: &str = "removed_setting";
 /// Diagnostic code of a tool-list entry no tool has.
 pub(crate) const UNKNOWN_TOOL_NAME_CODE: &str = "unknown_tool_name";
-
-/// Why the contract removed `name`: a removed variable, or a removed setting
-/// path or a path inside a removed section (`output.pagination.x`).
-#[must_use]
-pub(crate) fn removed_reason(name: &str) -> Option<&'static str> {
-    REMOVED_ENV_KEYS
-        .iter()
-        .chain(REMOVED_SETTINGS)
-        .find(|(removed, _)| {
-            name == *removed
-                || name
-                    .strip_prefix(removed)
-                    .is_some_and(|rest| rest.starts_with('.'))
-        })
-        .map(|(_, reason)| *reason)
-}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConfigDiagnostic {

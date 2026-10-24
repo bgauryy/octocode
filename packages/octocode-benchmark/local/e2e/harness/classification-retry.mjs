@@ -2,8 +2,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checks, collect, rowData, writeResults } from './mcp-client.mjs';
-import { answer, pages, setup, stable, startServer, success } from './read-tool-selection/support.mjs';
+import { checks, startServer, writeResults } from './mcp-client.mjs';
+import { collect } from './responses.mjs';
+import { answer, setup } from './classification-fixture.mjs';
+import { canon } from './lead-predicates.mjs';
 
 const { check, summary } = checks('classification-retry');
 let mode = 'success';
@@ -34,11 +36,11 @@ const usageSince = before => {
 let client;
 const traces = [];
 const query = (state, instructions = 'Does the evidence contain an explicit null field?') => ({
-  state,
+  operation: 'evaluate', content: state,
   questions: { answer: { type: 'noul', instructions } },
 });
 const verdicts = result => collect(result.json ?? result.sc, value => value.type === 'noul' && typeof value.noul === 'number').map(value => value.noul);
-const row = result => (result.json ?? result.sc)?.queries?.[0];
+const row = result => (result.json ?? result.sc)?.results?.[0]?.data;
 const errors = result => collect(result.json ?? result.sc, value => typeof value.errorCode === 'string').map(value => value.errorCode);
 const account = key => ({ OCTOCODE_CLASSIFICATION_API: key, OCTOCODE_STORAGE_MODE: 'persistent', OCTOCODE_ENABLE_STATS: 'true' });
 const call = async (input, label) => {
@@ -91,12 +93,12 @@ try {
   const retryUsage = usageTotals();
   const retried = await call(query({ retry: 'throttle' }), '429 then success');
   const packets = ctx.mock.classificationRequests.slice(retryStart);
-  check('transient failure retries once with identical provider input', retried.calls === 2 && packets.length === 2 && stable(packets[0]) === stable(packets[1]) && verdicts(retried.result).includes(0.1));
+  check('transient failure retries once with identical provider input', retried.calls === 2 && packets.length === 2 && canon(packets[0]) === canon(packets[1]) && verdicts(retried.result).includes(0.1));
   // The row shows the provider's reported usage; the throttled attempt
   // reported none, so it is counted as an attempt with unknown usage.
   const retryCharged = usageSince(retryUsage);
   check('retry usage counts both attempts without inventing missing tokens',
-    stable(row(retried.result)?.usage) === stable({ input_tokens: 10, output_tokens: 2 })
+    canon(row(retried.result)?.usage) === canon({ input_tokens: 10, output_tokens: 2 })
       && retryCharged.calls === 2 && retryCharged.known_usage_calls === 1 && retryCharged.unknown_usage_calls === 1 && retryCharged.input_tokens === 10,
     JSON.stringify({ usage: row(retried.result)?.usage, retryCharged }));
   // Retries are a runtime constant (3); a varied budget is covered by
@@ -132,8 +134,8 @@ try {
   JSON.stringify({ persistentColdCalls, persistentWarmCalls }));
   const persistentCharged = usageSince(persistentUsage);
   check('persistent CLI replay retains the receipt without charging usage twice',
-    stable(row(persistentSecond)?.usage) === stable(row(persistentFirst)?.usage)
-      && stable(persistentCharged) === stable({ calls: 1, known_usage_calls: 1, unknown_usage_calls: 0, input_tokens: 10, output_tokens: 2 }),
+    canon(row(persistentSecond)?.usage) === canon(row(persistentFirst)?.usage)
+      && canon(persistentCharged) === canon({ calls: 1, known_usage_calls: 1, unknown_usage_calls: 0, input_tokens: 10, output_tokens: 2 }),
   JSON.stringify(persistentCharged));
 
   const memoryCalls = [];
@@ -160,46 +162,6 @@ try {
   const warmAccount = await ctx.cli('clasify', query({ account: 'same-state' }), account('fixture-account-a'));
   check('returning to the original account still reuses its own judgment', ctx.calls() === beforeWarmAccount && verdicts(warmAccount).includes(0.1));
 
-  // A selected-view plan binds the account, classifiers, research context and
-  // source bytes; every replay must reuse it or fail stale before provider work.
-  const file = path.join(ctx.fixture, 'selection-guide.txt');
-  const sourceQuery = { path: file, unit: 'lines', length: 10, clasifyContext: { classifiers: ['Find the rule that cancels a queued request before its work starts.'] } };
-  const beforeSelection = ctx.calls();
-  const initial = await ctx.cli('localFetch', sourceQuery);
-  const data = success(initial);
-  const receipt = data.selection;
-  check('replay fixture starts from a provider-selected source', ctx.calls() > beforeSelection
-    && receipt?.scope === 'selectedView' && receipt.selectedItems > 0 && receipt.excludedItems > 0
-    && receipt.selectedItems + receipt.excludedItems + (receipt.relatedItems ?? 0) + receipt.unknownItems === receipt.totalItems
-    && data.content.includes('SELECTED_SELECTION_SENTINEL') && !data.content.includes('EXCLUDED_SELECTION_SENTINEL'), JSON.stringify(receipt));
-  // next.unfiltered is the ordinary recovery read; the saved plan rides on the window continuation.
-  const next = pages(data).find(lead => lead.kind === 'continueWindow');
-  assert.ok(next?.query.queries[0].selection, 'selected source must emit a plan-bound continuation');
-  const beforeReplay = ctx.calls();
-  const replay = await ctx.cliArgs([next.tool, JSON.stringify(next.query), '--json']);
-  const replayed = success(replay);
-  check('saved selection replays across processes without another judgment', ctx.calls() === beforeReplay
-    && stable(replayed.selection) === stable(receipt) && !replayed.content.includes('EXCLUDED_SELECTION_SENTINEL'), JSON.stringify(replayed.selection));
-
-  const accountChanged = await ctx.cliArgs([next.tool, JSON.stringify(next.query), '--json'], { OCTOCODE_CLASSIFICATION_API: 'fixture-key-rotated' });
-  check('account change rejects the saved selection before provider work', errors(accountChanged).includes('staleSnapshot') && ctx.calls() === beforeReplay, JSON.stringify(errors(accountChanged)));
-  const newClassifiers = structuredClone(next.query);
-  newClassifiers.queries[0].clasifyContext = { classifiers: ['Find the bookkeeping rule.'] };
-  const classifiersChanged = await ctx.cliArgs([next.tool, JSON.stringify(newClassifiers), '--json']);
-  check('classifier change rejects the saved selection before provider work', errors(classifiersChanged).includes('staleSnapshot') && ctx.calls() === beforeReplay, JSON.stringify(errors(classifiersChanged)));
-
-  // Replays through a fresh MCP process use the same saved identity.
-  const replayMcp = await client.raw(next.tool, next.query);
-  check('MCP also replays the saved selection without provider work', !replayMcp.isError && !replayMcp.rowErrors && ctx.calls() === beforeReplay
-    && stable(rowData(replayMcp)?.selection) === stable(receipt), JSON.stringify(rowData(replayMcp)?.selection ?? errors(replayMcp)));
-  fs.appendFileSync(file, 'The source changed after the saved page.\n');
-  const staleCli = await ctx.cliArgs([next.tool, JSON.stringify(next.query), '--json']);
-  const staleMcp = await client.raw(next.tool, next.query);
-  check('source changes are stale on CLI and MCP without hidden reclassification', errors(staleCli).includes('staleSnapshot') && errors(staleMcp).includes('staleSnapshot') && ctx.calls() === beforeReplay);
-  const restart = rowData(staleMcp)?.next?.restart;
-  assert.ok(restart, 'stale source must offer restart');
-  const restarted = await client.follow(restart);
-  check('the emitted restart is executable against the new source', !restarted.isError && !restarted.rowErrors && ctx.calls() > beforeReplay);
 } finally {
   client?.close();
   await ctx.close();

@@ -9,7 +9,7 @@ use fields::resolve_fields;
 #[cfg(test)]
 pub(crate) use fields::resolve_sections;
 pub(crate) use inspector::inspector_data;
-use layers::{EnvFiles, LayerState, config_source, drop_removed_env, load_layer};
+use layers::{EnvFiles, LayerState, config_source, load_layer};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -136,11 +136,7 @@ pub(crate) fn nearest_tool_name(name: &str) -> Option<&'static str> {
 }
 
 /// The tool-list settings: each names tools by their wire name.
-const TOOL_LIST_FIELDS: [&ConfigFieldSpec; 3] = [
-    field::TOOLS_ENABLED,
-    field::TOOLS_DISABLED,
-    field::MCP_DEFERRED,
-];
+const TOOL_LIST_FIELDS: [&ConfigFieldSpec; 2] = [field::TOOLS_ENABLED, field::TOOLS_DISABLED];
 
 /// A warning per tool-list setting that names a tool no tool has. Non-fatal:
 /// the name is ignored, but a typo in an allowlist would otherwise leave no
@@ -210,9 +206,8 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
             _ => None,
         }
     }
-    let mut merged = merged_env(text(&input.global_env), text(&input.project_env));
+    let merged = merged_env(text(&input.global_env), text(&input.project_env));
     let mut effective = input.env.clone();
-    let removed_env = drop_removed_env(&mut merged, &mut effective, input);
     let dotenv = apply_env(merged, &mut effective);
     let mut diagnostics = vec![];
     let (project_file, project_state) =
@@ -243,7 +238,6 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         .iter()
         .any(|key| effective.contains_key(*key));
     let source = config_source([project_state, global_state], has_env);
-    diagnostics.extend(removed_env);
     drop_invalid_credential_env(
         &env_files,
         &mut effective,

@@ -42,17 +42,17 @@ async fn github_image_reuses_shared_capture_cache_and_resolved_commit() {
     query["assets"]["image_a"]["source"] = json!({"tool":"ghGetFileContent","query":{"owner":"a","repo":"b","path":"image.png","ref":"main"}});
     let out = clasify(&runtime, vec![query.clone()]).await;
     assert_eq!(
-        out["queries"][0]["assets"]["image_a"]["source"]["query"]["ref"], sha,
+        out["results"][0]["data"]["assets"]["image_a"]["source"]["query"]["ref"], sha,
         "{out}"
     );
     let again = clasify(&runtime, vec![query.clone()]).await;
-    assert_eq!(again["queries"][0]["replayed"], true);
+    assert_eq!(again["results"][0]["data"]["replayed"], true);
     let text = runtime
         .run(
             "text".into(),
             "ghGetFileContent".into(),
             json!({"queries":[{
-                "owner":"a","repo":"b","path":"image.png","ref":sha,"ranges":["1-5"]
+                "owner":"a","repo":"b","path":"image.png","ref":sha,"ranges":[{"startLine":1,"endLine":5}]
             }]}),
         )
         .await
@@ -66,12 +66,12 @@ async fn github_image_reuses_shared_capture_cache_and_resolved_commit() {
     query["assets"]["image_a"]["source"]["query"]["ref"] = json!("other");
     let other = clasify(&runtime, vec![query]).await;
     assert_eq!(
-        other["queries"][0]["assets"]["image_a"]["source"]["query"]["ref"], other_sha,
+        other["results"][0]["data"]["assets"]["image_a"]["source"]["query"]["ref"], other_sha,
         "{other}"
     );
     assert_ne!(
-        other["queries"][0]["assets"]["image_a"]["snapshot"],
-        out["queries"][0]["assets"]["image_a"]["snapshot"]
+        other["results"][0]["data"]["assets"]["image_a"]["snapshot"],
+        out["results"][0]["data"]["assets"]["image_a"]["snapshot"]
     );
     assert_eq!(requests(&server).await.len(), 2);
     runtime.close().await;
@@ -95,16 +95,19 @@ async fn models_and_long_context_follow_provider_contract() {
         &runtime,
         vec![
             json!({"operation":"models"}),
-            json!({"state":"x".repeat(40_000),"longContext":true,
+            json!({"operation":"evaluate","content":"x".repeat(40_000),"longContext":true,
         "questions":{"q":{"type":"noul","instructions":"Is text present?"}}}),
         ],
     )
     .await;
     assert_eq!(
-        out["queries"][0]["models"][0]["name"], "jev-preview",
+        out["results"][0]["data"]["models"][0]["name"], "jev-preview",
         "{out}"
     );
-    assert_eq!(out["queries"][1]["answers"]["q"]["noul"], 0.9, "{out}");
+    assert_eq!(
+        out["results"][1]["data"]["answers"]["q"]["noul"], 0.9,
+        "{out}"
+    );
     let sent = requests(&server).await;
     let posted = sent
         .iter()

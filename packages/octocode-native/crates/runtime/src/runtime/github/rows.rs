@@ -86,7 +86,7 @@ pub(super) fn tool_row(result: Result<ToolData, GhFailure>) -> DomainResult {
                 &failure.error,
                 failure.message,
                 failure.hints,
-                failure.next.map(|next| *next),
+                failure.calls.map(|next| *next),
             );
             for (field, value) in failure.fields {
                 row.data[field] = value;

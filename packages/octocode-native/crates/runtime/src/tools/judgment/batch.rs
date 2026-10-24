@@ -133,10 +133,11 @@ async fn answer_inner(
     let singles = stream::iter(questions.iter())
         .map(|question| async move {
             let assets = input.assets.and_then(Value::as_object).and_then(|assets| {
-                let referenced = crate::tools::source_capture::assets::referenced;
                 let selected = assets
                     .iter()
-                    .filter(|(key, _)| referenced(input.state, key) || referenced(question, key))
+                    .filter(|(key, _)| {
+                        super::referenced(input.state, key) || super::referenced(question, key)
+                    })
                     .map(|(key, value)| (key.clone(), value.clone()))
                     .collect::<serde_json::Map<String, Value>>();
                 (!selected.is_empty()).then_some(Value::Object(selected))

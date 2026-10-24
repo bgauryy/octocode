@@ -7,9 +7,8 @@ use std::path::{Path, PathBuf};
 
 /// Where the TypeScript server may be looked up when it is not on `PATH`.
 pub(in crate::lsp::config) struct TypeScriptServerSearch<'a> {
-    /// The file octocode's code was loaded from (the executable, or the Node
-    /// addon under MCP): its install tree's `node_modules` (octocode ships
-    /// `typescript-language-server`) is octocode-managed.
+    /// The running native executable, for both CLI and MCP: its install
+    /// tree's `node_modules` may supply an installed TypeScript server.
     pub(in crate::lsp::config) managed_start: Option<&'a Path>,
     /// The invocation directory: the user's own project.
     pub(in crate::lsp::config) current_dir: Option<&'a Path>,

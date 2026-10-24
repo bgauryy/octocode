@@ -7,7 +7,6 @@ use super::scan::parser_extension;
 use super::scope::Inapplicable;
 use super::types::{Group, Grouped, SKIP_CODES, ScannedFile, Scope};
 use super::{content_length, file_list, row_chars};
-use crate::contracts::query_limits::ast_search::r#match as limits;
 use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::is_compile_failure;
@@ -45,11 +44,9 @@ pub(super) fn group_files(
                 grouped.parsed_files += 1;
                 grouped.scanned_files += 1;
                 grouped.first_parsed.get_or_insert_with(|| path.clone());
-                grouped.first_scanned.get_or_insert_with(|| path.clone());
             }
             "skippedByPreFilter" => {
                 grouped.scanned_files += 1;
-                grouped.first_scanned.get_or_insert_with(|| path.clone());
             }
             _ if outside => {}
             _ => {
@@ -133,7 +130,6 @@ pub(super) fn listed_file(
         out_of_range: false,
         more_matches: false,
         truncated_captures: false,
-        cut_chars: None,
         clipped: vec![],
         priced: None,
     }
@@ -162,11 +158,7 @@ pub(super) fn match_pages(
     budget: usize,
     row_paths: RowPaths<'_>,
 ) -> MatchPages {
-    let paging = crate::response::page_windows::Paging::of(
-        q.match_page_size()
-            .map(|size| (size as usize).clamp(1, limits::MATCH_PAGE_SIZE_MAXIMUM)),
-        budget,
-    );
+    let paging = crate::response::page_windows::Paging::of(None, budget);
     // The file's place on a file page is its first match page, whichever
     // match page is asked for, so the file pages never move.
     let first = crate::response::page_windows::select(paging, sizes, 1).range;
@@ -198,7 +190,6 @@ pub(super) fn priced_group(
         out_of_range: pages.out_of_range(),
         more_matches: pages.cut.more,
         truncated_captures: false,
-        cut_chars: None,
         clipped: vec![],
         priced: Some(index),
     }
@@ -267,7 +258,7 @@ fn rebuild_file(
     let matches = match octocode_engine::structural::file_matches(
         source,
         &parser_extension(scope, source),
-        q.pattern().as_deref(),
+        None,
         q.rule().as_ref(),
         digest,
         super::super::source::MAX_PARSE_SOURCE_BYTES as u64,
@@ -301,7 +292,6 @@ pub(super) fn unevaluated_group(path: String) -> Group {
         out_of_range: false,
         more_matches: false,
         truncated_captures: false,
-        cut_chars: None,
         clipped: vec![],
         priced: None,
     }
@@ -324,7 +314,6 @@ pub(super) fn match_group(
     // Rows whose text was cut to a header or that hide capture text:
     // `captureText:true` (next.expandCaptures) returns them whole.
     let truncated_captures = page_rows.iter().any(|row| row.withheld);
-    let cut_chars = page_rows.iter().filter_map(|row| row.cut).max();
     let clipped = page_rows
         .iter()
         .filter(|row| row.shown_cut)
@@ -347,7 +336,6 @@ pub(super) fn match_group(
         out_of_range,
         more_matches,
         truncated_captures,
-        cut_chars,
         clipped,
         priced: None,
     }

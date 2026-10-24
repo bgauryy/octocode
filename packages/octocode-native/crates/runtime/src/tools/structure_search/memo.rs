@@ -172,22 +172,24 @@ mod tests {
     use crate::tools::source::StampSet;
     use std::path::PathBuf;
 
+    /// A walk that listed one file.
+    struct One(PathBuf);
+    impl Listed for One {
+        fn sources(&self) -> Vec<Seen<'_>> {
+            let (size, modified) = observed(&self.0).expect("listed file");
+            vec![Seen {
+                path: self.0.as_path(),
+                size,
+                modified,
+            }]
+        }
+    }
+
     #[test]
     fn a_stored_walk_is_served_until_a_listed_directory_changes() {
         let root = tempfile::tempdir().expect("root");
         let file = root.path().join("a.txt");
         std::fs::write(&file, "x").expect("file");
-        struct One(PathBuf);
-        impl Listed for One {
-            fn sources(&self) -> Vec<Seen<'_>> {
-                let (size, modified) = observed(&self.0).expect("listed file");
-                vec![Seen {
-                    path: self.0.as_path(),
-                    size,
-                    modified,
-                }]
-            }
-        }
         let policy = "p".to_owned();
         put(
             "memo-test".into(),
@@ -215,17 +217,6 @@ mod tests {
         std::fs::write(&file, "x").expect("file");
         let rules = root.path().join(".gitignore");
         std::fs::write(&rules, "b.txt\n").expect("rules");
-        struct One(PathBuf);
-        impl Listed for One {
-            fn sources(&self) -> Vec<Seen<'_>> {
-                let (size, modified) = observed(&self.0).expect("listed file");
-                vec![Seen {
-                    path: self.0.as_path(),
-                    size,
-                    modified,
-                }]
-            }
-        }
         let policy = "p".to_owned();
         put(
             "memo-rules".into(),

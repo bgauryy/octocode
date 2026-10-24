@@ -65,7 +65,7 @@ test('view exposes live workspace entities read-only, with bounded complete pagi
  assert.ok(oldest.items[0].createdAt>0);assert.equal(oldest.items[0].senderVendor,'codex');
  assert.equal((await f.get('api/summary')).counts.messages,117);
  let thread=await f.get('api/message?conversation=older-thread');const threadIds=thread.items.map((r:JsonRecord)=>r.id);
- assert.equal(thread.items.length,50);assert.ok(thread.next);
+ assert.equal(thread.items.length,50);assert.match(thread.next,/^[A-Za-z0-9_-]+$/,'a base64url cursor');
  const tail=await f.get('api/message?conversation=older-thread&after='+thread.next);threadIds.push(...tail.items.map((r:JsonRecord)=>r.id));
  assert.equal(threadIds.length,60);assert.equal(new Set(threadIds).size,60);assert.equal(tail.next,null);
  assert.equal((await fetch(f.ready.url+'api/message?conversation=recent-thread&after='+thread.next)).status,400);

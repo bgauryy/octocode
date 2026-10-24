@@ -93,7 +93,7 @@ export function redactUrl(raw) {
     const url = new URL(raw);
     url.username = '';
     url.password = '';
-    for (const key of [...url.searchParams.keys()]) {
+    for (const key of Array.from(url.searchParams.keys())) {
       if (SECRET_QUERY.test(key)) url.searchParams.set(key, '[REDACTED]');
     }
     return url.href;
@@ -124,6 +124,42 @@ export function redactPostData(postData) {
   return out;
 }
 
+// Redacts one request in place; returns whether its headers changed and how many cookies it carried.
+function redactHarRequest(request) {
+  request.url = redactUrl(request.url);
+  const before = JSON.stringify(request.headers || []);
+  request.headers = redactHeaders(request.headers || []);
+  const touched = JSON.stringify(request.headers) !== before;
+  let cookies = 0;
+  if (request.cookies?.length) {
+    cookies = request.cookies.length;
+    request.cookies = redactCookies(request.cookies);
+  }
+  if (request.queryString) {
+    request.queryString = request.queryString.map((q) => (
+      SECRET_QUERY.test(q.name) ? { name: q.name, value: '[REDACTED]' } : q
+    ));
+  }
+  request.postData = redactPostData(request.postData);
+  return { touched, cookies };
+}
+
+// Redacts one response in place; returns how many cookies it carried.
+function redactHarResponse(response, stripBodies) {
+  response.headers = redactHeaders(response.headers || []);
+  let cookies = 0;
+  if (response.cookies?.length) {
+    cookies = response.cookies.length;
+    response.cookies = redactCookies(response.cookies);
+  }
+  if (stripBodies && response.content) {
+    response.content = { ...response.content, text: '', encoding: undefined, comment: 'body stripped' };
+  } else if (response.content) {
+    response.content = redactHarContent(response.content);
+  }
+  return cookies;
+}
+
 /** Best of chrome-devtools har-redact: mutate a HAR object in place and return counts. */
 export function redactHarObject(har, { stripBodies = false } = {}) {
   const entries = har?.log?.entries || [];
@@ -131,33 +167,11 @@ export function redactHarObject(har, { stripBodies = false } = {}) {
   let cookiesRedacted = 0;
   for (const entry of entries) {
     if (entry.request) {
-      entry.request.url = redactUrl(entry.request.url);
-      const before = JSON.stringify(entry.request.headers || []);
-      entry.request.headers = redactHeaders(entry.request.headers || []);
-      if (JSON.stringify(entry.request.headers) !== before) headerRowsTouched += 1;
-      if (entry.request.cookies?.length) {
-        cookiesRedacted += entry.request.cookies.length;
-        entry.request.cookies = redactCookies(entry.request.cookies);
-      }
-      if (entry.request.queryString) {
-        entry.request.queryString = entry.request.queryString.map((q) => (
-          SECRET_QUERY.test(q.name) ? { name: q.name, value: '[REDACTED]' } : q
-        ));
-      }
-      entry.request.postData = redactPostData(entry.request.postData);
+      const { touched, cookies } = redactHarRequest(entry.request);
+      if (touched) headerRowsTouched += 1;
+      cookiesRedacted += cookies;
     }
-    if (entry.response) {
-      entry.response.headers = redactHeaders(entry.response.headers || []);
-      if (entry.response.cookies?.length) {
-        cookiesRedacted += entry.response.cookies.length;
-        entry.response.cookies = redactCookies(entry.response.cookies);
-      }
-      if (stripBodies && entry.response.content) {
-        entry.response.content = { ...entry.response.content, text: '', encoding: undefined, comment: 'body stripped' };
-      } else if (entry.response.content) {
-        entry.response.content = redactHarContent(entry.response.content);
-      }
-    }
+    if (entry.response) cookiesRedacted += redactHarResponse(entry.response, stripBodies);
   }
   return { entries, headerRowsTouched, cookiesRedacted };
 }
@@ -179,13 +193,16 @@ export function compactHarEntry(entry, index) {
     status: response.status ?? 0,
     mimeType: mime,
     ms: Math.round(entry.time ?? 0),
-    bodySize: response.bodySize ?? response.content?.size ?? -1,
+    bodySize: bodySizeOf(response),
     type: entry._resourceType ?? '',
-    failed: Boolean(entry._failed || (response.status >= 400) || response.status === 0),
+    failed: entryFailed(entry, response),
     looksJson: /json/i.test(mime) || /\.json(\?|$)/i.test(url) || /\/api\//i.test(url),
     looksApi: /\/api\//i.test(url) || /graphql/i.test(url) || /json/i.test(mime),
   };
 }
+
+const bodySizeOf = (response) => response.bodySize ?? response.content?.size ?? -1;
+const entryFailed = (entry, response) => Boolean(entry._failed || (response.status >= 400) || response.status === 0);
 
 export function filterHarRows(rows, filter = 'all', { minMs = 1000, domain = '' } = {}) {
   if (filter === 'failures') return rows.filter((r) => r.failed);
@@ -264,14 +281,14 @@ export async function patchAgentIndexForBridge(sessionDir, { cdpRel = 'cdp/', ex
   for (const e of extracts) targets.add(e);
   agent.searchTargets = [...targets];
   agent.analysis = {
-    ...(agent.analysis || {}),
+    ...agent.analysis,
     cdpBridge: cdpRel,
     cdpNetwork: 'extracts/cdp-network.jsonl',
     cdpBodies: 'extracts/cdp-bodies.jsonl',
     bridgeHandoff: 'extracts/bridge-handoff.json',
   };
   agent.bridge = {
-    ...(agent.bridge || {}),
+    ...agent.bridge,
     updatedAt: new Date().toISOString(),
     cdpDir: cdpRel,
   };
@@ -308,14 +325,15 @@ export function defaultCdpArtifactInclude(rel) {
   return /\.(har|json|jsonl|ndjson|txt|md|html|css|js)$/i.test(rel);
 }
 
+const cleanPartNumber = (name) => Number((name.match(/\.clean\.part-(\d+)\.md$/) || [])[1] || 0);
+
 /** Concatenate text/{pageId}.clean.part-*.md into one string (and optional write). */
 export async function concatCleanParts(sessionDir, pageId, { writeFull = false } = {}) {
   const textDir = join(sessionDir, 'text');
   if (!existsSync(textDir)) return { pageId, text: '', parts: [], fullRel: null };
-  const partNumber = (name) => Number((name.match(/\.clean\.part-(\d+)\.md$/) || [])[1] || 0);
   const names = (await readdir(textDir))
     .filter((n) => n.startsWith(`${pageId}.clean.part-`) && n.endsWith('.md'))
-    .sort((a, b) => partNumber(a) - partNumber(b));
+    .toSorted((a, b) => cleanPartNumber(a) - cleanPartNumber(b));
   const chunks = [];
   for (const name of names) chunks.push(await readFile(join(textDir, name), 'utf8'));
   // Parts are byte-exact splits of one text, so they join with nothing between them.

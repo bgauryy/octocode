@@ -3,6 +3,9 @@
 // next-page continuation that pins them.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { errorMessage } from '../error-message.mjs';
+import type { HarEntry, HarFile } from './har-types.mjs';
+import type { HarRow, MeasurePaths } from './measure-types.mjs';
 
 const MEASURES = [
   'performance-measure.json',
@@ -10,20 +13,25 @@ const MEASURES = [
   'storage-measure.json',
 ];
 
-/** Parsed JSON at path; null without a path. An unreadable artifact fails. */
-export function readMeasure(path) {
+/**
+ * Parsed JSON at path; null without a path. An unreadable artifact fails. A value that is not a
+ * JSON object holds none of the fields a query reads, so it reads as null.
+ */
+export function readMeasure(path: string | null): object | null {
   if (!path) return null;
+  let parsed: unknown;
   try {
-    return JSON.parse(readFileSync(path, 'utf8'));
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
   } catch (error) {
     throw new Error(
-      `Cannot read measurement artifact ${path}: ${error.message}`,
+      `Cannot read measurement artifact ${path}: ${errorMessage(error)}`,
       { cause: error }
     );
   }
+  return typeof parsed === 'object' ? parsed : null;
 }
 
-const isDirectory = p => {
+const isDirectory = (p: string) => {
   try {
     return statSync(p).isDirectory();
   } catch {
@@ -31,7 +39,7 @@ const isDirectory = p => {
   }
 };
 
-const newestFirst = (a, b) => {
+const newestFirst = (a: string, b: string) => {
   try {
     return statSync(b).mtimeMs - statSync(a).mtimeMs;
   } catch {
@@ -40,7 +48,7 @@ const newestFirst = (a, b) => {
 };
 
 // A directory is one capture boundary. Never fill missing measures from older runs.
-function latestRunDir(under) {
+function latestRunDir(under: string) {
   const root = resolve(under);
   if (!existsSync(root)) return null;
   return (
@@ -52,15 +60,15 @@ function latestRunDir(under) {
   );
 }
 
-function firstHar(dir) {
+function firstHar(dir: string) {
   if (!existsSync(dir)) return null;
   const names = readdirSync(dir).filter(n => /\.har$/i.test(n));
   return names.length ? join(dir, names.toSorted()[0]) : null;
 }
 
-function discoverInDir(dir) {
+function discoverInDir(dir: string): MeasurePaths {
   const d = resolve(dir);
-  const pick = name => {
+  const pick = (name: string) => {
     const p = join(d, name);
     return existsSync(p) ? p : null;
   };
@@ -73,10 +81,28 @@ function discoverInDir(dir) {
   };
 }
 
-const resolved = file => (file ? resolve(file) : null);
+const resolved = (file: string | undefined) => (file ? resolve(file) : null);
 
 /** The artifact paths: --latest under a root, one --dir, or explicit files. */
-export function measurePaths({ latest, under, dir, perf, net, storage, har }) {
+type MeasureSources = {
+  latest: boolean;
+  under: string;
+  dir?: string;
+  perf?: string;
+  net?: string;
+  storage?: string;
+  har?: string;
+};
+
+export function measurePaths({
+  latest,
+  under,
+  dir,
+  perf,
+  net,
+  storage,
+  har,
+}: MeasureSources): MeasurePaths {
   if (latest) {
     const found = latestRunDir(under);
     return found
@@ -99,41 +125,46 @@ export function measurePaths({ latest, under, dir, perf, net, storage, har }) {
   };
 }
 
-const hostOf = url => {
+const hostOf = (url: string | undefined) => {
   try {
-    return new URL(url).hostname;
+    return new URL(url ?? '').hostname;
   } catch {
     return '';
   }
 };
 
 // HAR custom fields carry a leading underscore by spec.
-function compactEntry(entry, index) {
+function compactEntry(entry: HarEntry, index: number): HarRow {
   const request = entry.request ?? {};
   const response = entry.response ?? {};
+  const status = response.status;
   return {
     index,
     method: request.method,
     url: request.url,
     host: hostOf(request.url),
-    status: response.status,
+    status,
     ms: Math.round(entry.time ?? 0),
     type: entry['_resourceType'] ?? '',
     failed: Boolean(
-      entry['_failed'] || response.status >= 400 || response.status === 0
+      entry['_failed'] ||
+      (status !== undefined && status >= 400) ||
+      status === 0
     ),
   };
 }
 
 /** One compact row per HAR entry, in file order. */
-export function harRows(path) {
-  const har = JSON.parse(readFileSync(path, 'utf8'));
-  const entries = Array.isArray(har.log?.entries) ? har.log.entries : [];
+export function harRows(path: string): HarRow[] {
+  const har: HarFile = JSON.parse(readFileSync(path, 'utf8'));
+  const entries: HarEntry[] = Array.isArray(har.log?.entries)
+    ? har.log.entries
+    : [];
   return entries.map(compactEntry);
 }
 
 /** Rows matching --filter: all, failures, slow (>= minMs) or domain:<host>. */
-export function filterHar(rows, filter, minMs) {
+export function filterHar(rows: HarRow[], filter: string, minMs: number) {
   if (filter === 'failures') return rows.filter(r => r.failed);
   if (filter === 'slow') return rows.filter(r => r.ms >= minMs);
   if (!filter.startsWith('domain:')) return rows;
@@ -153,10 +184,33 @@ const FILTER_FLAGS = [
   '--filter',
 ];
 
+/** Every value flag measure-query accepts: the sources, the view and paging, and the filters. */
+export const MEASURE_VALUE_FLAGS = [
+  '--dir',
+  '--under',
+  '--perf',
+  '--net',
+  '--storage',
+  '--har-file',
+  '--view',
+  '--limit',
+  '--page',
+  ...FILTER_FLAGS,
+];
+
 /** The next-page command line: same view, limit and filters, with every source file pinned. */
+type NextPage = {
+  script: string;
+  view: string;
+  limit: number;
+  page: number;
+  paths: MeasurePaths;
+  includeHar: boolean;
+};
+
 export function nextPageArgs(
-  { script, view, limit, page, paths, includeHar },
-  getArg
+  { script, view, limit, page, paths, includeHar }: NextPage,
+  getArg: (flag: string) => string | undefined
 ) {
   const args = [
     script,
@@ -167,16 +221,16 @@ export function nextPageArgs(
     '--page',
     String(page + 1),
   ];
-  for (const [flag, file] of [
+  const pinned: [string, string | null][] = [
     ['--perf', paths.perf],
     ['--net', paths.net],
     ['--storage', paths.storage],
     ['--har-file', paths.har],
-  ])
-    if (file) args.push(flag, resolve(file));
+  ];
+  for (const [flag, file] of pinned) if (file) args.push(flag, resolve(file));
   for (const flag of FILTER_FLAGS) {
-    const value = getArg(flag, null);
-    if (value !== null) args.push(flag, value);
+    const value = getArg(flag);
+    if (value !== undefined) args.push(flag, value);
   }
   if (includeHar) args.push('--har');
   return args;

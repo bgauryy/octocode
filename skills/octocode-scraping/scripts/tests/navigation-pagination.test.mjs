@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { chunkTextByBytes, cleanForAgent } from '../lib/text.mjs';
+import { chunkTextByBytes } from '../lib/text.mjs';
 import { initCorpus, writePage } from '../lib/corpus.mjs';
+import { node, withDir } from './helpers.mjs';
 
 const scripts = fileURLToPath(new URL('../', import.meta.url));
 const invoke = (command, args) => { const result = spawnSync(command, args, { encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout); };
@@ -22,7 +23,8 @@ test('all corpus query lists have stable complete continuations and preserve dis
     writeFileSync(join(dir,'graph/graph.json'),JSON.stringify({nodes:rows,edges:rows.map((r,i)=>({from:r.id,to:'p0',kind:'navigates_to',label:'same destination',score:i}))}));
     for (const file of ['indexes/top-links.jsonl','extracts/links.jsonl','extracts/elements.jsonl']) writeFileSync(join(dir,file),rows.map(r=>JSON.stringify(r)).join('\n'));
     for (const [script,field] of [['corpus-inspect','pageRows'],['corpus-inspect','workflows'],['corpus-inspect','topLinks'],['graph-navigate','routes'],['graph-navigate','actionNodes'],['dom-find','matches'],['resource-list','resources']]) {
-      let page = invoke(process.execPath,[join(scripts,script+'.mjs'),'--session-dir',dir,'--view',field,'--limit','3']), found = [];
+      let page = invoke(process.execPath,[join(scripts,script+'.mjs'),'--session-dir',dir,'--view',field,'--limit','3']);
+      const found = [];
       for (;;) { assert(Buffer.byteLength(JSON.stringify(page)) < 22000); found.push(...page[field]); if (!page.next?.[field]) break; page=invoke(page.next[field].command,page.next[field].args); }
       assert.equal(found.length,57,script+' '+field); assert.equal(new Set(found.map(r=>r.from ?? r.id ?? r.pageId)).size,57);
     }
@@ -48,7 +50,7 @@ test('downloaded raw and cleaned text survive configured view sizes and Unicode 
     const body='<h1>Guide</h1><p>'+('emoji 🧠 and spaces  '.repeat(2000))+'</p>';
     const config={outBase:dir,sessionId:'test',mode:'html',provider:'direct',maxRawBytes:100,maxTextBytes:2000,chunkBytes:1000};
     const sessionDir=await initCorpus(config);
-    const written=await writePage({sessionDir,config,response:{pageId:'page-001',url:'https://site.test',contentType:'text/html',status:200,body},pageIndex:1});
+    const written=await writePage({sessionDir,config,response:{pageId:'page-001',url:'https://site.test',contentType:'text/html',status:200,body}});
     assert.equal(readFileSync(join(sessionDir,written.sourceRow.raw),'utf8'),body);
     const restored=written.sourceRow.textParts.map(p=>readFileSync(join(sessionDir,p),'utf8')).join('');
     assert(restored.endsWith('emoji 🧠 and spaces')); assert(!written.sourceRow.textTruncated);
@@ -100,3 +102,32 @@ test('specialized script results retain every field through bounded source pages
     assert.deepEqual(JSON.parse(Buffer.concat(parts)),expected);
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+test('corpus-run searches reports, honors --roots, and continues from any cwd', () => withDir((dir) => {
+  for (const sub of ['reports', 'text', 'raw']) mkdirSync(join(dir, sub));
+  writeFileSync(join(dir, 'AGENT_INDEX.json'), JSON.stringify({ sessionId: 's', note: 'needle' }));
+  writeFileSync(join(dir, 'reports', 'summary.md'), 'needle in report\n');
+  writeFileSync(join(dir, 'raw', 'page-001.html'), 'needle in raw\n');
+  for (let i = 0; i < 3; i += 1) writeFileSync(join(dir, 'text', `page-00${i}.clean.part-001.md`), 'needle\n');
+  const all = JSON.parse(node('corpus-run.mjs', ['--session-dir', dir, '--regex', 'needle', '--view', 'matches']).stdout);
+  const files = new Set(all.matches.map((m) => m.file));
+  assert.ok(files.has('reports/summary.md'), 'reports/ must be searched by default');
+  assert.ok(!files.has('raw/page-001.html'), 'raw/ is audit data, not a default root');
+  const textOnly = JSON.parse(node('corpus-run.mjs', ['--session-dir', dir, '--roots', 'text', '--regex', 'needle', '--view', 'matches']).stdout);
+  assert.ok(textOnly.matches.every((m) => m.file.startsWith('text/')), '--roots text must not scan AGENT_INDEX.json');
+  const rel = node('corpus-run.mjs', ['--session-dir', '.', '--roots', 'text', '--regex', 'needle', '--limit', '1', '--view', 'matches'], { cwd: dir });
+  const next = JSON.parse(rel.stdout).next.matches;
+  const dirArg = next.args[next.args.indexOf('--session-dir') + 1];
+  assert.ok(isAbsolute(dirArg), `continuation keeps a relative path: ${dirArg}`);
+  assert.equal(spawnSync(next.command, next.args, { encoding: 'utf8', cwd: tmpdir() }).status, 0);
+}));
+
+test('resource-list lists page assets, and queries match values only', () => withDir((dir) => {
+  mkdirSync(join(dir, 'extracts'));
+  writeFileSync(join(dir, 'extracts/links.jsonl'), `${JSON.stringify({ pageId: 'p', href: 'https://x.test/docs', text: 'Docs', source: 'html' })}\n`);
+  writeFileSync(join(dir, 'extracts/resources.jsonl'), `${JSON.stringify({ pageId: 'p', kind: 'script', src: 'https://cdn.test/app.js', source: 'html' })}\n`);
+  const scriptsOnly = JSON.parse(node('resource-list.mjs', ['--session-dir', dir, '--kind', 'script']).stdout);
+  assert.equal(scriptsOnly.totalMatches, 1);
+  const byKey = JSON.parse(node('resource-list.mjs', ['--session-dir', dir, '--query', 'source']).stdout);
+  assert.equal(byKey.totalMatches, 0);
+}));

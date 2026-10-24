@@ -6,9 +6,7 @@ use super::*;
 fn unknown_tool_names_warn_with_the_nearest_valid_name() {
     let out = resolve(Layers {
         env: &[("TOOLS_TO_RUN", "localSerch,localFetch")],
-        global_rc: Some(
-            r#"{"tools":{"disabled":["ghSearchCod"]},"mcp":{"deferred":["zzzzzzzz"]}}"#,
-        ),
+        global_rc: Some(r#"{"tools":{"disabled":["ghSearchCod","zzzzzzzz"]}}"#),
         ..NONE
     });
     let warning = |path: &str| {
@@ -39,13 +37,7 @@ fn unknown_tool_names_warn_with_the_nearest_valid_name() {
             .message
             .contains("did you mean \"ghSearchCode\"")
     );
-    let deferred = warning("mcp.deferred");
-    assert!(deferred.message.contains("\"zzzzzzzz\""));
-    assert!(
-        !deferred.message.contains("did you mean"),
-        "{}",
-        deferred.message
-    );
+    assert!(warning("tools.disabled").message.contains("\"zzzzzzzz\""));
     let clean = resolve(Layers {
         env: &[("TOOLS_TO_RUN", "localSearch,ghSearchCode")],
         ..NONE
@@ -177,127 +169,51 @@ fn a_workspace_cannot_widen_local_tools_or_email_redaction() {
     assert!(narrowed.dotenv.skipped_protected.is_empty());
 }
 
-/// Removed settings are named as removed: no alias, no silent acceptance.
 #[test]
-fn removed_settings_are_reported_as_removed() {
-    let file = resolve(Layers {
-        global_rc: Some(r#"{"version":1,"classification":{"type":"jev"},"lsp":{"prewarm":"off"}}"#),
+fn unknown_settings_warn_without_exposing_values_or_overriding_valid_fields() {
+    let out = resolve(Layers {
+        global_rc: Some(
+            r#"{"version":"private-marker","unknownSection":{"secret":"private-marker"},"lsp":{"prewarm":"off","unknownKey":"private-marker"}}"#,
+        ),
+        project_rc: Some(r#"{"lsp":{"prewarm":"all"}}"#),
         ..NONE
     });
-    for path in ["version", "classification.type"] {
-        let d = file
-            .diagnostics
-            .iter()
-            .find(|d| d.code == "removed_setting" && d.field_path.as_deref() == Some(path))
-            .unwrap_or_else(|| panic!("{path}: {:?}", file.diagnostics));
-        assert_eq!(d.severity, Severity::Warning);
-        assert!(d.message.contains("removed"), "{}", d.message);
+    assert_eq!(value_of(&out, "lsp.prewarm"), serde_json::json!("all"));
+    assert_eq!(out.diagnostics.len(), 3, "{:?}", out.diagnostics);
+    for diagnostic in &out.diagnostics {
+        assert_eq!(diagnostic.code, UNKNOWN_CONFIG_CODE);
+        assert_eq!(diagnostic.severity, Severity::Warning);
+        assert!(!diagnostic.to_string().contains("private-marker"));
+        assert_eq!(
+            diagnostic.source_path.as_deref(),
+            Some(std::path::Path::new(GLOBAL_RC))
+        );
     }
-    assert!(
-        file.diagnostics
-            .iter()
-            .all(|d| d.code != UNKNOWN_CONFIG_CODE),
-        "{:?}",
-        file.diagnostics
-    );
-    assert_eq!(value_of(&file, "lsp.prewarm"), serde_json::json!("off"));
-    assert_eq!(value_of(&file, "version"), serde_json::Value::Null);
-    assert_eq!(
-        value_of(&file, "classification.type"),
-        serde_json::Value::Null
-    );
-    let env = resolve(Layers {
-        env: &[("OCTOCODE_CLASSIFICATION_TYPE", "jev")],
-        ..NONE
-    });
-    let d = env
-        .diagnostics
-        .iter()
-        .find(|d| d.code == "removed_setting")
-        .unwrap_or_else(|| panic!("{:?}", env.diagnostics));
-    assert!(
-        d.message.contains("OCTOCODE_CLASSIFICATION_TYPE"),
-        "{}",
-        d.message
-    );
-    assert!(!d.message.contains("jev\""), "{}", d.message);
+    for path in ["version", "unknownSection", "lsp.unknownKey"] {
+        assert_eq!(value_of(&out, path), serde_json::Value::Null);
+    }
 }
 
-/// Internal limits are code constants, not settings: every layer that still
-/// names one gets exactly one `removed_setting` warning per name, the value
-/// is never applied or clamped, and the variable leaves the effective
-/// environment.
 #[test]
-fn removed_limits_warn_once_and_never_apply() {
+fn unbound_environment_variables_preserve_values_without_becoming_settings() {
+    let baseline = resolve(NONE);
     let out = resolve(Layers {
-        env: &[("MAX_RETRIES", "0")],
-        project_env: Some("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH=50000\nREQUEST_TIMEOUT=300000"),
-        global_rc: Some(
-            r#"{"network":{"timeout":5000},"output":{"pagination":{"defaultCharLength":4000}},"storage":{"cloneCache":{"ttl":60000}}}"#,
-        ),
-        project_rc: Some(r#"{"classification":{"maxChars":1048576},"lsp":{"maxMemoryMb":0}}"#),
+        env: &[("UNBOUND_CUSTOM_SETTING", "process-marker")],
+        global_env: Some("UNBOUND_CUSTOM_SETTING=home-marker\nANOTHER_CUSTOM_KEY=home-marker"),
+        project_env: Some("ANOTHER_CUSTOM_KEY=workspace-marker"),
         ..NONE
     });
-    let removed = |name: &str| {
-        out.diagnostics
-            .iter()
-            .filter(|d| {
-                d.code == REMOVED_SETTING_CODE
-                    && (d.field_path.as_deref() == Some(name)
-                        || (d.field_path.is_none() && d.message.starts_with(name)))
-            })
-            .count()
-    };
-    for name in [
-        "MAX_RETRIES",
-        "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH",
-        "REQUEST_TIMEOUT",
-        "network.timeout",
-        "output.pagination",
-        "storage.cloneCache",
-        "classification.maxChars",
-        "lsp.maxMemoryMb",
-    ] {
-        assert_eq!(removed(name), 1, "{name}: {:?}", out.diagnostics);
-    }
-    for d in &out.diagnostics {
-        assert_eq!(d.severity, Severity::Warning, "{d}");
-        assert!(
-            d.code == REMOVED_SETTING_CODE,
-            "only removal warnings, no unknown key, clamp or invalid value: {d}"
-        );
-        assert!(!d.to_string().contains("50000"), "value leaked: {d}");
-    }
-    let workspace_env = out
-        .diagnostics
-        .iter()
-        .find(|d| d.message.starts_with("REQUEST_TIMEOUT"))
-        .expect("workspace .env removal");
     assert_eq!(
-        workspace_env.source_path.as_deref(),
-        Some(std::path::Path::new("/synthetic/cwd/.octocode/.env"))
+        serde_json::to_value(&out.resolved).unwrap(),
+        serde_json::to_value(&baseline.resolved).unwrap()
     );
-    for name in [
-        "MAX_RETRIES",
-        "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH",
-        "REQUEST_TIMEOUT",
-    ] {
-        assert_eq!(out.env_value(name), None, "{name} stays out of the env");
-        assert!(!out.dotenv.keys.iter().any(|key| key == name), "{name}");
-    }
-    let resolved = serde_json::to_value(&out.resolved).expect("resolved");
-    for path in [
-        "network.timeout",
-        "network.maxRetries",
-        "output.pagination",
-        "storage.cloneCache",
-        "classification.maxChars",
-        "lsp.maxMemoryMb",
-    ] {
-        assert_eq!(
-            super::super::validation::get_path(&resolved, path),
-            None,
-            "{path} is not a resolved setting"
-        );
-    }
+    assert_eq!(
+        out.env_value("UNBOUND_CUSTOM_SETTING"),
+        Some("process-marker")
+    );
+    assert_eq!(
+        out.env_value("ANOTHER_CUSTOM_KEY"),
+        Some("workspace-marker")
+    );
+    assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
 }

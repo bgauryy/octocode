@@ -1,12 +1,13 @@
 //! Recording edges and resolving import specifiers (generic and Python).
 use super::*;
+use octocode_engine::graph::FileGraphNode;
 
 /// Records one file edge. A repeat of `(target, kind)` keeps the file's
 /// first production evidence line, else its first test-only one
 /// (`test_scoped`), so an edge is test code only when all of its sites are.
 pub(super) fn add_edge(
     b: &mut BuiltGraph,
-    node: &mut Node,
+    node: &mut FileGraphNode,
     target: &str,
     kind: &str,
     line: u32,
@@ -98,7 +99,7 @@ pub(super) fn record_resolution(
     security: &ContentSecurity,
 ) -> bool {
     if target.is_some() {
-        b.count_import(ImportOutcome::Resolved, file, line, spec)
+        b.count_import(ImportOutcome::Resolved, file, line, spec);
     } else if unsupported {
         b.count_import(ImportOutcome::Unsupported, file, line, spec);
         b.diagnostics.push(Diagnostic::new(
@@ -109,12 +110,12 @@ pub(super) fn record_resolution(
                 security,
                 &format!("Cannot link import {spec:?} (unsupported)."),
             ),
-        ))
+        ));
     } else if lang != Linker::Python
         && (spec.starts_with('.') || spec.starts_with('/') || internal_bare)
         && is_non_code_specifier(spec)
     {
-        b.count_import(ImportOutcome::NonCode, file, line, spec)
+        b.count_import(ImportOutcome::NonCode, file, line, spec);
     } else if spec.starts_with('.')
         || spec.starts_with('/')
         || (lang == Linker::Rust && rust_internal_specifier(spec))
@@ -129,7 +130,7 @@ pub(super) fn record_resolution(
                 security,
                 &format!("Cannot link import {spec:?} (unresolvedInternal)."),
             ),
-        ))
+        ));
     } else {
         b.count_import(ImportOutcome::External, file, line, spec);
         return true;

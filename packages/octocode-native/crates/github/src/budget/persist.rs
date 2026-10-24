@@ -11,8 +11,6 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-/// How often a held state lock is retried.
-const LOCK_POLL: Duration = Duration::from_millis(5);
 /// The longest a write that cannot be cancelled waits for a peer's lock
 /// before it goes ahead unlocked, as on a filesystem without lock support.
 const WRITE_LOCK_WAIT: Duration = Duration::from_secs(1);
@@ -79,7 +77,7 @@ fn file_stamp(path: &Path) -> Option<FileStamp> {
 
 impl KeyFacts {
     /// Keep the most restrictive of two views (memory vs. disk).
-    pub(super) fn merge(&mut self, other: KeyFacts, now_ms: u64) {
+    pub(super) fn merge(&mut self, other: Self, now_ms: u64) {
         for (name, bucket) in other.buckets {
             if bucket.remaining != 0 || bucket.reset.saturating_mul(1000) <= now_ms {
                 continue;
@@ -122,8 +120,8 @@ impl KeyFacts {
     }
 
     /// Only facts that can block a future request are persisted.
-    pub(super) fn blocking_view(&self, now_ms: u64) -> KeyFacts {
-        KeyFacts {
+    pub(super) fn blocking_view(&self, now_ms: u64) -> Self {
+        Self {
             buckets: self
                 .buckets
                 .iter()
@@ -347,7 +345,7 @@ async fn lock_file(
             Ok(TryLock::Locked(lock)) => return Ok(Some(lock)),
             Ok(TryLock::Busy(busy)) => {
                 file = busy;
-                pause(LOCK_POLL, deadline, cancellation).await?;
+                pause(octocode_io::lock::LOCK_POLL, deadline, cancellation).await?;
             }
             Err(error) => {
                 warn_unshared("lock", path, &error);
@@ -364,7 +362,7 @@ fn lock_file_blocking(path: &Path, deadline: Instant) -> Option<octocode_io::loc
     match octocode_io::lock::lock_within(
         file,
         deadline.saturating_duration_since(Instant::now()),
-        LOCK_POLL,
+        octocode_io::lock::LOCK_POLL,
     ) {
         Ok(lock) => Some(lock),
         Err(octocode_io::lock::LockError::Busy) => None,

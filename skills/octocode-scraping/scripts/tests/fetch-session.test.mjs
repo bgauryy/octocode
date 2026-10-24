@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
-import { workspaceRootFor } from '../lib/args.mjs';
+import { safeSessionId, workspaceRootFor } from '../lib/args.mjs';
+import { node, withDir } from './helpers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = join(here, '..', 'fetch.mjs');
@@ -21,7 +22,7 @@ function run(args, cwd = root) {
   const res = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', cwd });
   let parsed = null;
   const text = (res.stdout || '').trim() || (res.stderr || '').trim();
-  try { parsed = JSON.parse(text); } catch {}
+  try { parsed = JSON.parse(text); } catch { /* not JSON: keep parsed null */ }
   return { ...res, parsed };
 }
 
@@ -125,15 +126,17 @@ test('an unknown or retired flag is rejected instead of silently ignored', () =>
   }
 });
 
+// The URLs a mocked crawl from https://ex.test/a fetched, in order.
+function crawledUrls(extra) {
+  const res = run(mockArgs('https://ex.test/a', ['--crawl', '--max-pages', '5', '--delay-ms', '0', ...extra]));
+  assert.equal(res.status, 0, res.stderr || res.stdout);
+  return readFileSync(join(res.parsed.sessionDir, 'sources.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l).url);
+}
+
 test('a crawl stays on the --url host unless --span-hosts is passed', () => {
   writeFileSync(join(root, 'body.html'), '<html><body><a href="https://ex.test/b">b</a><a href="https://other.test/c">c</a></body></html>');
-  const urls = (extra) => {
-    const res = run(mockArgs('https://ex.test/a', ['--crawl', '--max-pages', '5', '--delay-ms', '0', ...extra]));
-    assert.equal(res.status, 0, res.stderr || res.stdout);
-    return readFileSync(join(res.parsed.sessionDir, 'sources.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l).url);
-  };
-  assert.deepEqual(urls(['--session', 'host-only']), ['https://ex.test/a', 'https://ex.test/b']);
-  assert.deepEqual(urls(['--session', 'span', '--span-hosts']), ['https://ex.test/a', 'https://ex.test/b', 'https://other.test/c']);
+  assert.deepEqual(crawledUrls(['--session', 'host-only']), ['https://ex.test/a', 'https://ex.test/b']);
+  assert.deepEqual(crawledUrls(['--session', 'span', '--span-hosts']), ['https://ex.test/a', 'https://ex.test/b', 'https://other.test/c']);
 });
 
 
@@ -172,3 +175,19 @@ test('uncommitted page files are preserved and never reused by append', () => {
   assert.equal(result.parsed.error.code, 'sessionIncomplete');
   assert.equal(readFileSync(join(sessionDir, 'raw/page-001.html'), 'utf8'), 'partial original');
 });
+
+test('dot-only session ids are rejected', () => {
+  for (const id of ['.', '..', '...']) assert.throws(() => safeSessionId(id, 'https://x.test/'), /Invalid --session/);
+  assert.equal(safeSessionId('run.1', 'https://x.test/'), 'run.1');
+});
+
+test('a body cut at the network cap marks raw and text truncated', () => withDir((dir) => {
+  const big = join(dir, 'big.html');
+  writeFileSync(big, `<html><body><h1>Big</h1><p>${'word '.repeat(40000)}</p></body></html>`);
+  const res = node('fetch.mjs', ['--url', 'https://x.test/', '--provider', 'direct', '--mock-status', '200', '--mock-body-file', big, '--mock-content-type', 'text/html', '--max-raw-bytes', '1000', '--max-text-bytes', '1000'], { cwd: dir });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const sessionDir = JSON.parse(res.stdout).sessionDir;
+  const source = JSON.parse(readFileSync(join(sessionDir, 'sources.jsonl'), 'utf8').trim().split('\n')[0]);
+  assert.equal(source.rawTruncated, source.networkTruncated);
+  assert.equal(source.textTruncated, source.networkTruncated);
+}));

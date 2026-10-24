@@ -1,12 +1,11 @@
 /** Atomic, overlap-aware advisory leases and read-only write checks. */
-import { statSync } from 'node:fs';
 import * as catalog from './catalog.js';
 import { execute, query, readTransaction, rowInteger, rowText, transaction, type Database, type Row, type SqlValue } from './database.js';
 import type { CheckPathsInput, CheckWriteInput, CommandResults, Lease, LockInput, LockManyInput, LockRefused, LocksInput, PathTarget, RenewInput, UnlockInput } from './catalog-types.generated.js';
 import { leaseKind, type LeaseKind } from './rows.js';
 import { parseObjects, type JsonObject } from './validation.js';
 import { ValidationError } from './errors.js';
-import { ancestors, keysOverlap, leaseKey, resolvePath } from './paths.js';
+import { ancestors, isDirectory, keysOverlap, leaseKey, resolvePath } from './paths.js';
 import { render } from './protocols.js';
 import { isWithin, relativePath, type StoreHost } from './store-types.js';
 import { compareCodePoints } from './text.js';
@@ -52,14 +51,6 @@ function integer(value: unknown): number {
   const text = String(value).trim();
   if (!/^[+-]?\d+$/.test(text)) throw new ValidationError(`invalid literal for int() with base 10: '${String(value)}'`);
   return Number(text);
-}
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 function relative(host: StoreHost, path: string, workspace?: string): string {

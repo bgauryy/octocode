@@ -1,9 +1,9 @@
 //! Go discovery paging: pkg.go.dev search pages, bound cursors and token walks.
+use super::super::ArtifactError;
 use super::super::http::{JSON, RegistryClient};
 use super::super::util::{endpoint, object_for, string};
-use super::super::{ArtifactError, ArtifactSearchQuery, ArtifactType};
-use crate::providers::artifact::types::artifact_search_query;
-use octocode_contract_types::ErrorCode;
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use serde_json::Value;
 
 /// pkg.go.dev serves at most this many search results and reports this

@@ -28,7 +28,6 @@ const contract = JSON.parse(readFileSync(join(root, 'packages/octocode-config/co
 const coverage = JSON.parse(readFileSync(join(runtime, 'src/contracts/field-effect-coverage.json'), 'utf8'));
 
 // Native module dirs whose names do not follow camel→snake of the tool name.
-const DIR_OVERRIDES = {};
 const snake = s => s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
 
 function rsFiles(path) {
@@ -37,25 +36,36 @@ function rsFiles(path) {
   return readdirSync(path).flatMap(name => rsFiles(join(path, name)));
 }
 
-function leafFields(schema, prefix = '', out = new Map()) {
-  for (const [name, child] of Object.entries(schema?.properties ?? {})) {
+function leafFields(schema, prefix = '', out = new Map(), root = schema, seen = new Set()) {
+  if (!schema || schema['x-cursor']) return out;
+  if (schema.$ref) {
+    if (seen.has(schema.$ref)) return out;
+    const target = schema.$ref.slice(2).split('/').reduce((value, key) => value?.[key.replace(/~1/g, '/').replace(/~0/g, '~')], root);
+    return leafFields(target, prefix, out, root, new Set([...seen, schema.$ref]));
+  }
+  for (const [name, child] of Object.entries(schema.properties ?? {})) {
+    if (child['x-cursor']) continue;
     const path = prefix ? `${prefix}.${name}` : name;
     const prev = out.get(path);
     if (!prev || (!prev.description && child.description)) out.set(path, { description: child.description ?? '' });
-    leafFields(child, path, out);
-    if (child.items) leafFields(child.items, `${path}[]`, out);
+    leafFields(child, path, out, root, seen);
+    if (child.items) leafFields(child.items, `${path}[]`, out, root, seen);
   }
-  for (const key of ['anyOf', 'oneOf', 'allOf']) for (const branch of schema?.[key] ?? []) leafFields(branch, prefix, out);
+  if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+    leafFields(schema.additionalProperties, `${prefix}{}`, out, root, seen);
+  }
+  for (const branch of branchesOf(schema)) leafFields(branch, prefix, out, root, seen);
   return out;
 }
 
-const isEnvelope = f => f.classes.length > 0 && f.classes.every(c => c === 'workflow-metadata');
+/** A schema's anyOf/oneOf/allOf branches. */
+const branchesOf = schema => ['anyOf', 'oneOf', 'allOf'].flatMap(key => schema?.[key] ?? []);
 
 const report = [];
 for (const tool of contract.tools) {
   if (wanted.length && !wanted.includes(tool.name)) continue;
   const cov = coverage.tools[tool.name] ?? { evidence: [], fields: {} };
-  const moduleDir = join(runtime, 'src/tools', DIR_OVERRIDES[tool.name] ?? snake(tool.name));
+  const moduleDir = join(runtime, 'src/tools', snake(tool.name));
   const files = [...new Set([...rsFiles(moduleDir), ...cov.evidence.map(e => join(runtime, e)).flatMap(rsFiles)])];
   const corpus = files.map(f => readFileSync(f, 'utf8')).join('\n');
   const fields = [...leafFields(tool.querySchema)].map(([path, meta]) => {
@@ -71,13 +81,12 @@ for (const tool of contract.tools) {
   const declared = new Set(Object.keys(cov.fields));
   report.push({
     tool: tool.name,
-    shortDescription: tool.shortDescription,
+    title: tool.title,
     variants: tool.variants.map(v => v.name),
     moduleDir: relative(root, moduleDir),
     evidenceFiles: files.map(f => relative(root, f)),
     fields,
-    // Envelope fields (mainGoal/reasoning/debug) are handled by the shared runtime, not tool modules.
-    zeroHitFields: fields.filter(f => f.hits === 0 && !isEnvelope(f)).map(f => f.path),
+    zeroHitFields: fields.filter(f => f.hits === 0).map(f => f.path),
     unclassifiedFields: fields.filter(f => !declared.has(f.path)).map(f => f.path),
     undescribedFields: fields.filter(f => f.descriptionChars === 0).map(f => f.path),
   });
@@ -87,7 +96,7 @@ if (json) {
   process.stdout.write(`${JSON.stringify({ fingerprint: contract.fingerprint, tools: report }, null, 2)}\n`);
 } else {
   for (const t of report) {
-    console.log(`\n## ${t.tool} — ${t.shortDescription}`);
+    console.log(`\n## ${t.tool} — ${t.title}`);
     console.log(`module: ${t.moduleDir}  files: ${t.evidenceFiles.length}  fields: ${t.fields.length}  variants: ${t.variants.join(', ') || '-'}`);
     console.log(`zero-hit (candidate unused/misnamed): ${t.zeroHitFields.join(', ') || 'none'}`);
     console.log(`unclassified in field-effect-coverage: ${t.unclassifiedFields.join(', ') || 'none'}`);

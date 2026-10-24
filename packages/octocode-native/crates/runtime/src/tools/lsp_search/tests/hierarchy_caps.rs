@@ -45,8 +45,7 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
     assert_eq!(deep.edges.len(), 1 + MAX_HIERARCHY_FAN_OUT);
     assert_eq!(deep.fan_out_capped, vec!["hub".to_owned()]);
     let q = query(serde_json::json!({
-        "operation": "callers", "mainGoal": "test", "reasoning": "test",
-        "path": file.to_string_lossy(),
+        "operation": "callers", "path": file.to_string_lossy(),
         "symbolName": "root",
         "line": 1,
         "graphDepth": 2
@@ -68,7 +67,7 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
         serde_json::json!(["hierarchyFanOutLimit"])
     );
     assert_eq!(row["unexpandedParents"][0]["symbolName"], "hub");
-    let resume = &row["next"]["continueWalk"]["query"]["queries"][0];
+    let resume = &row["next"]["continueWalk"]["input"]["queries"][0];
     assert_eq!(resume["graphDepth"], 1, "{resume}");
     // Re-anchored by name and 1-based line, never a 0-based position.
     assert!(resume.get("position").is_none(), "{resume}");
@@ -80,8 +79,7 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
             .map(|line| line + 1),
         "{resume}"
     );
-    let mut row = with_next(&q, row);
-    row["next"]["continueWalk"]["query"]["queries"][0]["reasoning"] = serde_json::json!("continue");
+    let row = with_next(&q, row);
     crate::contracts::validate_output("lspSearch", &public_row(&row))
         .expect("fan-out-limited row satisfies the output contract");
     let resumed = walk_from(
@@ -144,8 +142,7 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
     );
 
     let q = query(serde_json::json!({
-        "operation": "callers", "mainGoal": "test", "reasoning": "test",
-        "path": file.to_string_lossy(),
+        "operation": "callers", "path": file.to_string_lossy(),
         "symbolName": "root",
         "line": 1,
         "graphDepth": 2
@@ -181,7 +178,7 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
         serde_json::json!(["hierarchyNodeLimit"])
     );
     assert!(row.get("terminalLimit").is_none(), "{}", row["next"]);
-    let resume_query = &row["next"]["continueWalk"]["query"]["queries"][0];
+    let resume_query = &row["next"]["continueWalk"]["input"]["queries"][0];
     assert_eq!(resume_query["graphDepth"], 1);
     assert_eq!(resume_query["path"], file.to_string_lossy().as_ref());
     // Walk continuations re-anchor by symbol and 1-based line.
@@ -209,16 +206,7 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
             .get(format!("continueWalk{}", walk.resumes.len() + 1))
             .is_none()
     );
-    let mut row = with_next(&q, row);
-    for continuation in ["continueWalk", "nextPage"] {
-        if row["next"].get(continuation).is_some() {
-            row["next"][continuation]["query"]["queries"][0]["reasoning"] =
-                serde_json::json!("continue");
-        }
-    }
-    for key in &resumed {
-        row["next"][key]["query"]["queries"][0]["reasoning"] = serde_json::json!("continue");
-    }
+    let row = with_next(&q, row);
     crate::contracts::validate_output("lspSearch", &public_row(&row))
         .expect("node-capped row satisfies the output contract");
 }
@@ -285,8 +273,7 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
     chain.uri = Some(uri.clone());
     let row_at = |depth: u32, walk: &HierarchyWalk| {
         let q = query(serde_json::json!({
-            "operation": "callers", "mainGoal": "test", "reasoning": "test",
-            "path": file.to_string_lossy(),
+            "operation": "callers", "path": file.to_string_lossy(),
             "symbolName": "root",
             "line": 1,
             "graphDepth": depth
@@ -312,7 +299,9 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
 
     let shallow = walk(1).await.expect("walk");
     let row = row_at(1, &shallow);
-    let deeper = &row["next"]["walkDeeper"]["query"]["queries"][0];
+    let deeper = &crate::tools::test_support::checks::related_call(&row, "lspSearch", |input| {
+        input["queries"][0]["graphDepth"] == 2
+    })["input"]["queries"][0];
     assert_eq!(deeper["graphDepth"], 2, "{}", row["next"]);
     assert_eq!(deeper["symbolName"], "root");
     assert!(row.get("isPartial").is_none(), "{row}");
@@ -321,7 +310,16 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
     let whole = walk(3).await.expect("walk");
     assert_eq!(whole.edges.len(), 2);
     let row = row_at(3, &whole);
-    assert!(row["next"].get("walkDeeper").is_none(), "{}", row["next"]);
+    assert!(
+        !row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["graphDepth"] == 2),
+        "{}",
+        row["next"]
+    );
 
     // The deepest walk the contract allows has no deeper level to offer.
     let deepest = walk(MAX_HIERARCHY_DEPTH).await.expect("walk");
@@ -330,5 +328,14 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
         edge.level = MAX_HIERARCHY_DEPTH;
     }
     let row = row_at(MAX_HIERARCHY_DEPTH, &long);
-    assert!(row["next"].get("walkDeeper").is_none(), "{}", row["next"]);
+    assert!(
+        !row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["graphDepth"] == 2),
+        "{}",
+        row["next"]
+    );
 }

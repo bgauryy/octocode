@@ -50,7 +50,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
         let verified = verify::guard_clipped_secrets(
             &mut file,
             &source,
-            None,
+            crate::tools::local_search::sources::Expected::Fresh,
             0..10,
             &verify::ValueCheck {
                 security: &ContentSecurity::new(),
@@ -83,7 +83,8 @@ fn a_fifo_or_link_in_place_of_a_source_is_never_reread() {
             (
                 stored.is_none(),
                 verify::read_key_scan_bytes(&read).is_none(),
-                enclosing::shown_bytes(&read, None).is_none(),
+                enclosing::shown_bytes(&read, crate::tools::local_search::sources::Expected::Fresh)
+                    .is_none(),
                 sources::read_entry(&read, 1024).is_none(),
                 budget,
             )
@@ -98,7 +99,8 @@ fn a_fifo_or_link_in_place_of_a_source_is_never_reread() {
     assert!(manifest::read_source(real.to_string_lossy().into_owned(), &[], &mut budget).is_some());
     assert!(verify::read_key_scan_bytes(&real).is_some());
     assert_eq!(
-        enclosing::shown_bytes(&real, None).as_deref(),
+        enclosing::shown_bytes(&real, crate::tools::local_search::sources::Expected::Fresh)
+            .as_deref(),
         Some(b"needle\n".as_slice())
     );
     assert!(sources::read_entry(&real, 1024).is_some());

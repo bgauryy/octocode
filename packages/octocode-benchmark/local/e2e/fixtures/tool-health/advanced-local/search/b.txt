@@ -1,0 +1,3 @@
+SELECT
+alpha
+beta beta

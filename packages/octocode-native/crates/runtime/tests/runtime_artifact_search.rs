@@ -30,7 +30,7 @@ async fn artifact_search_lookup_goes_through_execute() {
         &runtime,
         "artifactSearch",
         json!({
-            "ecosystem": "npm",
+            "operation":"resolve", "ecosystem": "npm",
             "packageName": "left-pad",
             "registryUrl": server.uri()
         }),
@@ -46,7 +46,7 @@ async fn artifact_search_lookup_goes_through_execute() {
     let data = row_data(&outcome);
     let artifact = &data["artifacts"][0];
     assert_eq!(
-        (&artifact["name"], &artifact["version"]),
+        (&artifact["packageName"], &artifact["version"]),
         (&json!("left-pad"), &json!("1.3.0")),
         "{data}"
     );
@@ -113,7 +113,7 @@ async fn artifact_search_npm_credentials_follow_the_runtime_env() {
         let outcome = call(
             &runtime,
             "artifactSearch",
-            json!({"ecosystem": "npm", "packageName": "runtime-env-auth", "registryUrl": server.uri()}),
+            json!({"operation":"resolve", "ecosystem": "npm", "packageName": "runtime-env-auth", "registryUrl": server.uri()}),
         )
         .await
         .expect("artifactSearch");
@@ -180,7 +180,7 @@ async fn artifact_search_npm_userconfig_never_comes_from_the_workspace_env() {
     let outcome = call(
         &runtime,
         "artifactSearch",
-        json!({"ecosystem": "npm", "packageName": "runtime-env-auth", "registryUrl": server.uri()}),
+        json!({"operation":"resolve", "ecosystem": "npm", "packageName": "runtime-env-auth", "registryUrl": server.uri()}),
     )
     .await
     .expect("artifactSearch");
@@ -216,7 +216,7 @@ async fn registry_failures_share_githubs_codes_and_retry_lead() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_string())]);
-    let read = |package: &str| json!({"ecosystem": "npm", "packageName": package, "registryUrl": server.uri()});
+    let read = |package: &str| json!({"operation":"resolve", "ecosystem": "npm", "packageName": package, "registryUrl": server.uri()});
     let outcome = call(&runtime, "artifactSearch", read("down"))
         .await
         .expect("row-level error");
@@ -225,10 +225,11 @@ async fn registry_failures_share_githubs_codes_and_retry_lead() {
     assert_eq!(data["retryable"], true, "{data}");
     let retry = &data["next"]["retry"];
     assert_eq!(retry["tool"], "artifactSearch", "{data}");
-    assert_eq!(
-        retry["query"]["queries"][0]["packageName"], "down",
-        "{data}"
-    );
+    assert!(retry["input"]["cursor"].is_string());
+    let repeated = call(&runtime, "artifactSearch", retry["input"].clone())
+        .await
+        .expect("issued retry");
+    assert_eq!(row_data(&repeated)["errorCode"], "server");
 
     let outcome = call(&runtime, "artifactSearch", read("denied"))
         .await
@@ -237,7 +238,7 @@ async fn registry_failures_share_githubs_codes_and_retry_lead() {
     assert_eq!(data["errorCode"], "permission", "{data}");
     assert!(data["next"].get("retry").is_none(), "{data}");
     assert!(
-        crate::support::checks::hint(data, "text")[0]
+        data["hints"][0]
             .as_str()
             .is_some_and(|hint| hint.contains("credentials")),
         "{data}"

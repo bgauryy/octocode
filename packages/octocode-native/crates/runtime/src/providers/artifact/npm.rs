@@ -1,20 +1,24 @@
+//! npm: exact package versions (manifest, release facts, provenance or
+//! release-tag source ref) and keyword search, on the configured registry.
 use super::http::{DnsPin, JSON, NPM_INSTALL_JSON, RegistryClient};
 use super::util::{
-    canonical_repository, commit_sha, encode_component, endpoint, object_for, required, safe_url,
-    string, total,
+    canonical_repository, commit_sha, encode_component, object_for, required, string,
 };
 use super::versions::{VersionSpec, npm_resolve, version_not_found};
 use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactType, ResolvedNpmRegistry, TerminalLimit,
+    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ResolvedNpmRegistry,
 };
-use crate::policy::network::is_public;
-use crate::providers::artifact::types::artifact_search_query;
-use octocode_contract_types::ErrorCode;
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
+use provenance::attested_commit;
+use registry::{registry_url, trim_registry, validate_registry};
+use search::search;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::net::{SocketAddr, ToSocketAddrs};
-use url::{Host, Url};
+
+mod provenance;
+pub(super) mod registry;
+mod search;
 
 pub(crate) async fn npm(
     query: &ArtifactSearchQuery,
@@ -24,7 +28,7 @@ pub(crate) async fn npm(
     allow_private_registry: bool,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let dns_pin = validate_registry(query, registry, allow_private_registry)?;
-    if let Some(name) = artifact_search_query::bare_package_name(query) {
+    if let Some(name) = artifact_search_query::package_name(query) {
         exact(
             name,
             artifact_search_query::version(query),
@@ -36,111 +40,6 @@ pub(crate) async fn npm(
     } else {
         search(query, state, registry, client, dns_pin).await
     }
-}
-
-fn validate_registry(
-    query: &ArtifactSearchQuery,
-    registry: &ResolvedNpmRegistry,
-    allow_private_registry: bool,
-) -> Result<Option<DnsPin>, ArtifactError> {
-    let base = &registry.base;
-    if !matches!(base.scheme(), "http" | "https")
-        || !base.username().is_empty()
-        || base.password().is_some()
-        || base.query().is_some()
-        || base.fragment().is_some()
-    {
-        return Err(invalid_registry_url());
-    }
-    if let Some(requested) = artifact_search_query::registry_url(query) {
-        let requested = Url::parse(requested).map_err(|_| invalid_registry_url())?;
-        if trim_registry(&requested) != trim_registry(base) {
-            return Err(ArtifactError::new(
-                ErrorCode::InvalidInput,
-                "Resolved npm registry does not match the query registry.",
-            ));
-        }
-    }
-    if allow_private_registry {
-        return Ok(None);
-    }
-    validate_registry_target(base)
-}
-
-fn trim_registry(url: &Url) -> String {
-    url.as_str().trim_end_matches('/').to_owned()
-}
-
-/// A `registryUrl` that is not a plain HTTP(S) registry base.
-pub(crate) fn invalid_registry_url() -> ArtifactError {
-    ArtifactError::new(
-        ErrorCode::InvalidInput,
-        "registryUrl must be an HTTP(S) URL without credentials, query or fragment.",
-    )
-}
-
-fn registry_target_error() -> ArtifactError {
-    ArtifactError::new(
-        ErrorCode::InvalidInput,
-        "registryUrl names a loopback, link-local or private host; network.allowPrivateRegistry \
-         (OCTOCODE_ALLOW_PRIVATE_REGISTRY) permits it.",
-    )
-}
-
-/// Validate a custom registry target and return the exact public DNS answers
-/// that the HTTP transport must use. The official npm registry is the sole
-/// hostname allowlist entry; every other domain is resolved once, rejects a
-/// mixed public/private answer, and is pinned through connect.
-fn validate_registry_target(base: &Url) -> Result<Option<DnsPin>, ArtifactError> {
-    match base.host() {
-        Some(Host::Ipv4(ip)) if !is_public(ip.into()) => Err(registry_target_error()),
-        Some(Host::Ipv6(ip)) if !is_public(ip.into()) => Err(registry_target_error()),
-        Some(Host::Ipv4(_) | Host::Ipv6(_)) => Ok(None),
-        Some(Host::Domain(name)) => {
-            let dns_host = name.to_ascii_lowercase();
-            let host = dns_host.trim_end_matches('.');
-            if host.is_empty() || octocode_github::names_localhost(host) {
-                return Err(registry_target_error());
-            }
-            if base.scheme() == "https"
-                && host == "registry.npmjs.org"
-                && base.port_or_known_default() == Some(443)
-            {
-                return Ok(None);
-            }
-            let port = base
-                .port_or_known_default()
-                .ok_or_else(registry_target_error)?;
-            let addresses: Vec<SocketAddr> = (dns_host.as_str(), port)
-                .to_socket_addrs()
-                .map_err(|_| {
-                    ArtifactError::new(
-                        ErrorCode::ProviderError,
-                        "Custom npm registry hostname could not be resolved safely.",
-                    )
-                })?
-                .collect();
-            validate_resolved_addresses(&addresses)?;
-            Ok(Some(DnsPin {
-                host: dns_host,
-                addresses,
-            }))
-        }
-        None => Err(registry_target_error()),
-    }
-}
-
-fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<(), ArtifactError> {
-    if addresses.is_empty() {
-        return Err(ArtifactError::new(
-            ErrorCode::ProviderError,
-            "Custom npm registry hostname resolved without any usable address.",
-        ));
-    }
-    if addresses.iter().any(|address| !is_public(address.ip())) {
-        return Err(registry_target_error());
-    }
-    Ok(())
 }
 
 async fn exact(
@@ -205,7 +104,7 @@ async fn exact(
     }
     // Without an attested or recorded commit, the upstream release tag pins
     // the source, as for every registry that names no commit.
-    let name = artifact.name.clone();
+    let name = artifact.package_name.clone();
     super::release_ref::pin_release_tag(&mut artifact, &name, &version, client).await;
     artifact.version = Some(version);
     Ok(ArtifactProviderPage {
@@ -433,237 +332,6 @@ fn published_at(row: &serde_json::Map<String, Value>) -> Option<String> {
         .find(|part| part.len() == 13 && part.bytes().all(|b| b.is_ascii_digit()))
         .and_then(|millis| millis.parse::<i64>().ok())
         .map(crate::civil_date::date_millis)
-}
-
-/// The source commit of an npm provenance attestation, accepted only when the
-/// attestation binds this exact tarball (subject digest = `dist.integrity`)
-/// and its source repository is the manifest's repository. The registry
-/// verifies the Sigstore bundle at publish; this does not re-verify
-/// signatures. Any failure leaves the unverified `gitHead` lead.
-async fn attested_commit(
-    artifact: &ArtifactItem,
-    version: &str,
-    row: &serde_json::Map<String, Value>,
-    registry: &ResolvedNpmRegistry,
-    client: &RegistryClient<'_>,
-    dns_pin: Option<DnsPin>,
-) -> Option<String> {
-    let dist = row.get("dist")?;
-    let url = Url::parse(dist.pointer("/attestations/url")?.as_str()?).ok()?;
-    // Attestations must stay on the registry origin; credential path scope is checked below.
-    if url.origin() != registry.base.origin()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return None;
-    }
-    let integrity = dist.get("integrity")?.as_str()?;
-    let authorization = registry.authorization_for(&url);
-    let bundle = client
-        .json(ArtifactType::Npm, url, true, authorization, dns_pin, JSON)
-        .await
-        .ok()??;
-    provenance_commit(
-        &bundle,
-        &artifact.name,
-        version,
-        integrity,
-        artifact.repository.as_deref()?,
-    )
-}
-
-pub(crate) fn provenance_commit(
-    bundle: &Value,
-    name: &str,
-    version: &str,
-    integrity: &str,
-    repository: &str,
-) -> Option<String> {
-    use base64::Engine as _;
-    let engine = base64::engine::general_purpose::STANDARD;
-    let tarball_sha512 = hex::encode(engine.decode(integrity.strip_prefix("sha512-")?).ok()?);
-    let purl = format!("pkg:npm/{}@{version}", name.replacen('@', "%40", 1));
-    let same_repo = |uri: &str| {
-        let uri = uri.strip_prefix("git+").unwrap_or(uri);
-        let uri = uri.split_once('@').map_or(uri, |(repo, _)| repo);
-        canonical_repository(uri).is_some_and(|uri| {
-            uri.trim_end_matches('/')
-                .eq_ignore_ascii_case(repository.trim_end_matches('/'))
-        })
-    };
-    bundle
-        .get("attestations")?
-        .as_array()?
-        .iter()
-        .filter(|attestation| {
-            attestation.get("predicateType").and_then(Value::as_str)
-                == Some("https://slsa.dev/provenance/v1")
-        })
-        .find_map(|attestation| {
-            let payload = attestation
-                .pointer("/bundle/dsseEnvelope/payload")?
-                .as_str()?;
-            let statement: Value = serde_json::from_slice(&engine.decode(payload).ok()?).ok()?;
-            let bound = statement.get("subject")?.as_array()?.iter().any(|subject| {
-                subject.get("name").and_then(Value::as_str) == Some(purl.as_str())
-                    && subject
-                        .pointer("/digest/sha512")
-                        .and_then(Value::as_str)
-                        .is_some_and(|digest| digest.eq_ignore_ascii_case(&tarball_sha512))
-            });
-            if !bound {
-                return None;
-            }
-            let source = statement
-                .pointer("/predicate/buildDefinition/resolvedDependencies")?
-                .as_array()?
-                .first()?;
-            if !same_repo(source.get("uri")?.as_str()?) {
-                return None;
-            }
-            commit_sha(source.pointer("/digest/gitCommit")).filter(|sha| sha.len() == 40)
-        })
-}
-
-async fn search(
-    query: &ArtifactSearchQuery,
-    state: &ArtifactProviderState,
-    registry: &ResolvedNpmRegistry,
-    client: &RegistryClient<'_>,
-    dns_pin: Option<DnsPin>,
-) -> Result<ArtifactProviderPage, ArtifactError> {
-    let offset = state.offset.unwrap_or(0);
-    let size = artifact_search_query::page_size(query);
-    let window = |from: u64, size: usize| {
-        search_window(query, registry, client, dns_pin.clone(), from, size)
-    };
-    let (total_found, objects) = window(offset, size).await?;
-    // npm serves a deep window from an undocumented reach on and answers a
-    // `from` past it with earlier rows instead of an error. The page is its
-    // own rows only when the two rows ending just before it are the row
-    // before its first and its first: a restarted or clamped window fails
-    // that either way.
-    if offset > 0
-        && let Some(first) = objects.first()
-    {
-        let (_, probe) = window(offset - 1, 2).await?;
-        let name = |entry: Option<&Value>| {
-            entry
-                .and_then(|entry| entry.pointer("/package/name"))
-                .cloned()
-        };
-        let first = name(Some(first));
-        if name(probe.first()) == first || name(probe.get(1)) != first {
-            return Ok(ArtifactProviderPage {
-                artifacts: Vec::new(),
-                next_state: None,
-                total: Some(total_found),
-                terminal_limit: Some(unreachable_rows(offset, total_found)),
-                registry: Some(trim_registry(&registry.base)),
-            });
-        }
-    }
-    let mut artifacts = Vec::with_capacity(objects.len().min(size));
-    for entry in objects.iter().take(size) {
-        let package = object_for(
-            object_for(entry, ArtifactType::Npm)?
-                .get("package")
-                .ok_or_else(|| super::util::invalid(ArtifactType::Npm))?,
-            ArtifactType::Npm,
-        )?;
-        let name = required(package.get("name"), ArtifactType::Npm).map_err(|_| {
-            ArtifactError::new(
-                ErrorCode::ProviderError,
-                "npm registry search returned an unnamed package; refusing to skip a result.",
-            )
-        })?;
-        let mut artifact = ArtifactItem::new(
-            ArtifactType::Npm,
-            name.clone(),
-            format!(
-                "{}/{}",
-                trim_registry(&registry.base),
-                encode_component(&name)
-            ),
-        );
-        artifact.version = string(package.get("version")).filter(|value| value != "unknown");
-        artifact.downloads_monthly = entry.pointer("/downloads/monthly").and_then(Value::as_u64);
-        artifact.description = string(package.get("description"));
-        artifact.license = string(package.get("license"));
-        if let Some(Value::Object(links)) = package.get("links") {
-            artifact.homepage = safe_url(links.get("homepage"));
-            artifact.repository = links
-                .get("repository")
-                .and_then(Value::as_str)
-                .and_then(canonical_repository);
-        }
-        artifacts.push(artifact);
-    }
-    let has_more = offset.saturating_add(artifacts.len() as u64) < total_found;
-    let terminal_limit =
-        (has_more && artifacts.is_empty()).then(|| unreachable_rows(offset, total_found));
-    Ok(ArtifactProviderPage {
-        next_state: (has_more && !artifacts.is_empty()).then(|| ArtifactProviderState {
-            offset: Some(offset + artifacts.len() as u64),
-            ..Default::default()
-        }),
-        artifacts,
-        total: Some(total_found),
-        terminal_limit,
-        registry: Some(trim_registry(&registry.base)),
-    })
-}
-
-/// One npm search window: the registry's total and its result objects.
-async fn search_window(
-    query: &ArtifactSearchQuery,
-    registry: &ResolvedNpmRegistry,
-    client: &RegistryClient<'_>,
-    dns_pin: Option<DnsPin>,
-    from: u64,
-    size: usize,
-) -> Result<(u64, Vec<Value>), ArtifactError> {
-    let url = endpoint(
-        &format!("{}/-/v1/search", trim_registry(&registry.base)),
-        &[
-            ("text", Some(artifact_search_query::terms(query))),
-            ("size", Some(size.to_string())),
-            ("from", (from > 0).then(|| from.to_string())),
-        ],
-    )?;
-    let authorization = registry.authorization_for(&url);
-    let mut response = client
-        .json(ArtifactType::Npm, url, false, authorization, dns_pin, JSON)
-        .await?
-        .ok_or_else(|| {
-            ArtifactError::new(ErrorCode::ProviderError, "npm registry search failed.")
-        })?;
-    let data = object_for(&response, ArtifactType::Npm)?;
-    let total_found = total(data.get("total")).ok_or_else(|| {
-        ArtifactError::new(
-            ErrorCode::ProviderError,
-            "npm registry search omitted a valid total; pagination cannot be determined.",
-        )
-    })?;
-    match response.get_mut("objects").map(Value::take) {
-        Some(Value::Array(objects)) => Ok((total_found, objects)),
-        _ => Err(ArtifactError::new(
-            ErrorCode::ProviderError,
-            "Invalid npm registry search response; expected an object with results and a total.",
-        )),
-    }
-}
-
-/// The terminal limit of a page npm does not serve: the rows before it are
-/// the most this search reaches.
-fn unreachable_rows(offset: u64, total: u64) -> TerminalLimit {
-    TerminalLimit::result_cap(format!(
-        "npm serves no rows past the first {offset} for this search: at most {offset} of {total} are reachable."
-    ))
-}
-
-fn registry_url(base: &Url, path: &str) -> Result<Url, ArtifactError> {
-    Url::parse(&format!("{}/{}", trim_registry(base), path)).map_err(|_| invalid_registry_url())
 }
 
 #[cfg(test)]

@@ -10,10 +10,10 @@ use super::types::{
     StructuralDemand, StructuralDiagnostic, StructuralSearchFilesDetailedResult,
     StructuralSearchFilesOptions, WalkErrors,
 };
-use crate::error::{Error, Result as EngineResult};
+use crate::error::{Error, Result};
 use crate::search::walk::{Prune, Stop};
 use crate::signatures::languages;
-use crate::text::file_extension::extension_of;
+use crate::text::extension_of;
 
 mod anchors;
 mod counts;
@@ -32,7 +32,7 @@ use walk::{Walked, check_root_exists, collect_files};
 #[cfg(test)]
 pub(crate) fn search_files_detailed(
     options: StructuralSearchFilesOptions,
-) -> EngineResult<StructuralSearchFilesDetailedResult> {
+) -> Result<StructuralSearchFilesDetailedResult> {
     search_files(
         options,
         StructuralDemand::Matches,
@@ -63,7 +63,7 @@ pub fn search_files(
     admit: &(dyn Fn(&Path) -> bool + Sync),
     select_extension: &(dyn Fn(&Path) -> String + Sync),
     stop: &Stop<'_>,
-) -> EngineResult<StructuralSearchFilesDetailedResult> {
+) -> Result<StructuralSearchFilesDetailedResult> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         search_files_with_budget(
             options,
@@ -89,7 +89,7 @@ pub(crate) fn search_files_with_budget(
     select_extension: &(dyn Fn(&Path) -> String + Sync),
     stop: &Stop<'_>,
     budget: Option<std::time::Duration>,
-) -> EngineResult<StructuralSearchFilesDetailedResult> {
+) -> Result<StructuralSearchFilesDetailedResult> {
     let StructuralSearchFilesOptions {
         path,
         pattern,
@@ -181,7 +181,7 @@ pub(crate) fn search_files_with_budget(
             chunk
                 .par_iter()
                 .map(|file_path| scan.file(file_path))
-                .collect::<EngineResult<Vec<_>>>()?,
+                .collect::<Result<Vec<_>>>()?,
         );
         pacer.record(chunk.len());
     }
@@ -226,7 +226,7 @@ pub(crate) fn search_files_with_budget(
     })
 }
 
-type CompiledMatchers = BTreeMap<String, Result<OctoCompiledMatcher, CompileError>>;
+type CompiledMatchers = BTreeMap<String, std::result::Result<OctoCompiledMatcher, CompileError>>;
 
 fn invalid_query_result(
     path: String,

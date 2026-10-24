@@ -60,7 +60,7 @@ impl SourceReader for DomainDispatcher {
         query: &CheckedQuery,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError> {
-        DomainDispatcher::execute(self, tool, query, context)
+        Self::execute(self, tool, query, context)
     }
 
     fn retained_github_identity(

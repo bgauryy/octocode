@@ -20,7 +20,6 @@ fn rate_limited(remaining: Option<u64>, reset: Option<u64>, resource: &str) -> P
 fn rate_limit_rows_have_one_shape_on_every_github_tool() {
     let primary = rate_limited(Some(0), Some(1_700_000_000), "core");
     let secondary = rate_limited(None, None, "search");
-    let hint = "Wait for Retry-After or the rate-limit reset before retrying.";
     for (error, rate_limit) in [
         (
             primary,
@@ -38,7 +37,7 @@ fn rate_limit_rows_have_one_shape_on_every_github_tool() {
             "httpStatus": 403,
             "rateLimit": rate_limit,
         });
-        for (tool, result) in [
+        for (_tool, result) in [
             (ToolId::GhSearchCode, search_row(error.clone())),
             (
                 ToolId::GhSearchHistory,
@@ -63,7 +62,6 @@ fn rate_limit_rows_have_one_shape_on_every_github_tool() {
                 ["error", "errorCode", "retryable", "httpStatus", "rateLimit"]
             );
             assert_eq!(result.failure, Some(FailureKind::RateLimited));
-            assert_eq!(staged(tool, &result)["hints"], json!([hint]), "{tool:?}");
         }
         // A file read adds only the file's identity.
         let file = file_row(error.clone(), json!({"owner":"a","repo":"b","path":"x"}));

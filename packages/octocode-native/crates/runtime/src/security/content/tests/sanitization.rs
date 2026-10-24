@@ -3,41 +3,50 @@ use super::*;
 #[test]
 fn credential_keys_are_rejected_without_echoing_or_renaming_them() {
     let token = format!("ghp_{}", "a".repeat(36));
-    let params = serde_json::json!({"state":[{"nested":{token.clone():"ordinary value"}}]});
-    let checked = ContentSecurity::new().validate_state_parameters(&params, 32_000);
+    let params = serde_json::json!({"content":[{"nested":{token.clone():"ordinary value"}}]});
+    let checked = ContentSecurity::new().validate_content_parameters(&params, 32_000);
     assert!(!checked.is_valid);
     assert!(checked.has_secrets);
     assert!(!format!("{checked:?}").contains(&token));
 }
 
 #[test]
-fn only_declared_state_inherits_the_current_evidence_limit() {
+fn only_declared_content_inherits_the_current_evidence_limit() {
     let policy = ContentSecurity::new();
-    let evidence = serde_json::json!({"state":{"draft":"x".repeat(20_000)}});
-    assert!(policy.validate_state_parameters(&evidence, 32_000).is_valid);
+    let evidence = serde_json::json!({"content":{"draft":"x".repeat(20_000)}});
+    assert!(
+        policy
+            .validate_content_parameters(&evidence, 32_000)
+            .is_valid
+    );
     assert!(!policy.validate_input_parameters(&evidence).is_valid);
     for other in [
         serde_json::json!({"matchString":"x".repeat(20_000)}),
         serde_json::json!({"resources":[{"value":"x".repeat(20_000)}]}),
-        serde_json::json!({"filter":{"state":"x".repeat(20_000)}}),
+        serde_json::json!({"filter":{"content":"x".repeat(20_000)}}),
     ] {
-        assert!(!policy.validate_state_parameters(&other, 32_000).is_valid);
+        assert!(!policy.validate_content_parameters(&other, 32_000).is_valid);
     }
 }
 
 #[test]
-fn state_limit_counts_complete_unicode_evidence_and_nested_arrays() {
+fn content_limit_counts_complete_unicode_evidence_and_nested_arrays() {
     let policy = ContentSecurity::new();
-    let unicode = serde_json::json!({"state":[[{"text":"😀".repeat(20_000)}]]});
-    assert!(policy.validate_state_parameters(&unicode, 32_000).is_valid);
-    let over = serde_json::json!({"state":["a".repeat(17_000),"b".repeat(17_000)]});
-    assert!(!policy.validate_state_parameters(&over, 32_000).is_valid);
-    let long = serde_json::json!({"state":"x".repeat(40_000)});
-    assert!(!policy.validate_state_parameters(&long, 32_000).is_valid);
-    assert!(policy.validate_state_parameters(&long, 256_000).is_valid);
+    let unicode = serde_json::json!({"content":[[{"text":"😀".repeat(20_000)}]]});
+    assert!(
+        policy
+            .validate_content_parameters(&unicode, 32_000)
+            .is_valid
+    );
+    let over = serde_json::json!({"content":["a".repeat(17_000),"b".repeat(17_000)]});
+    assert!(!policy.validate_content_parameters(&over, 32_000).is_valid);
+    let long = serde_json::json!({"content":"x".repeat(40_000)});
+    assert!(!policy.validate_content_parameters(&long, 32_000).is_valid);
+    assert!(policy.validate_content_parameters(&long, 256_000).is_valid);
     let token = format!("ghp_{}", "a".repeat(37));
-    let value = serde_json::json!({"state":[[{"text":format!("{} {token}","a".repeat(20_000))}]]});
-    let checked = policy.validate_state_parameters(&value, 32_000);
+    let value =
+        serde_json::json!({"content":[[{"text":format!("{} {token}","a".repeat(20_000))}]]});
+    let checked = policy.validate_content_parameters(&value, 32_000);
     assert!(checked.is_valid && checked.has_secrets);
     assert!(
         !serde_json::to_string(&checked.sanitized_params)

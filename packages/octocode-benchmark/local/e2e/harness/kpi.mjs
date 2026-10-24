@@ -17,19 +17,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { ROOT } from './mcp-client.mjs';
+import { RESULTS, ROOT } from './paths.mjs';
+import { median } from './util.mjs';
 
-const RESULTS = path.join(ROOT, 'packages/octocode-benchmark/local/e2e/results');
 const argv = process.argv.slice(2);
 const opt = name => argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const LABEL = opt('label') ?? 'run';
 const OUT = path.resolve(opt('out') ?? path.join(ROOT, '.octocode/evals', `${new Date().toISOString().slice(0, 10)}-kpi`));
-const median = xs => {
-  const s = xs.filter(x => x != null && Number.isFinite(x)).sort((a, b) => a - b);
-  if (!s.length) return null;
-  const m = Math.floor(s.length / 2);
-  return +(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2).toFixed(3);
-};
 const fmt = v => (v == null ? '—' : typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString('en-US') : String(+v.toFixed(3))) : String(v));
 const TOOL_ORDER = ['localSearch', 'localFetch', 'structureSearch', 'astSearch', 'lspSearch', 'ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch', 'clasify', 'ghCloneRepo'];
 
@@ -54,9 +48,9 @@ function competitorsKpi(file) {
     correct: `${o.octocodeCorrect}/${o.ran}`, correctShell: `${o.competitorCorrect}/${o.ran}`,
     medianBytesRatio: o.medianBytesRatio, medianBytesRatioUnfiltered: o.medianBytesRatioUnfiltered,
     medianMsRatio: o.medianMsRatio, medianCallsRatio: o.medianCallsRatio,
-    hintsShareSmall: median(small.map(t => t.octocode.sensors?.hintsShare)), smallTasks: small.length,
+    hintsShareSmall: median(small.map(t => t.octocode.sensors?.hintsShare), 3), smallTasks: small.length,
     hintsShareAll: o.medianHintsShare, leadShareAll: o.medianLeadShare,
-    leadShareSmall: median(small.map(t => t.octocode.sensors?.leadShare)),
+    leadShareSmall: median(small.map(t => t.octocode.sensors?.leadShare), 3),
     neverTrimViolations: Array.isArray(o.neverTrimViolations) ? o.neverTrimViolations.length : o.neverTrimViolations,
     schemaErrors: o.schemaErrors?.total ?? null,
   };
@@ -69,7 +63,7 @@ function competitorsKpi(file) {
   }
   for (const x of Object.values(perTool)) {
     x.bytesRatio = x.shBytes ? +(x.ocBytes / x.shBytes).toFixed(2) : null;
-    x.leadShareMedian = median(x.leads); x.hintsShareMedian = median(x.hints);
+    x.leadShareMedian = median(x.leads, 3); x.hintsShareMedian = median(x.hints, 3);
     delete x.leads; delete x.hints;
   }
   const skipped = j.tasks.filter(t => t.status !== 'ran').map(t => `${t.id} ${t.tool}: ${t.skipReason ?? t.error}`);

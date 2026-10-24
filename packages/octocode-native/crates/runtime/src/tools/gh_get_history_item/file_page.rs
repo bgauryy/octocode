@@ -9,13 +9,12 @@ use super::patch_hop::DiffCursors;
 use super::pr_menu::{ChangeSides, change_reads, without_match_string};
 use super::remaining::Remainder;
 use super::util::str_at;
-use super::window::clamp_warning;
 use crate::id::ToolId;
 use crate::response::paging::push_warnings;
 use crate::response::result::Continuation;
 use crate::response::result::Remaining;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
-use crate::tools::gh_shared::ensure_next;
+use crate::tools::gh_shared::ensure_calls;
 use serde_json::{Value, json};
 
 /// What a commit's or comparison's file page leaves for its continuations
@@ -59,6 +58,7 @@ pub(super) fn shape_file_page(
         unsearched,
         dropped,
         in_scope,
+        loaded,
     } = filtered;
     let patches = query.include_diff();
     // A file page's first patch window reads its top file at both sides of
@@ -88,12 +88,15 @@ pub(super) fn shape_file_page(
     out["files"] = rows;
     super::window::lift_page_limits(out, &mut page);
     out["contentPagination"][Axis::Files.key()] = page;
-    if patches {
-        push_warnings(out, clamp_warning(query));
-    }
     let mut without_match = None;
     if first_page(query) {
-        if match_removed_all && let Some(needle) = gh_get_history_item_query::match_string(query) {
+        if !gh_get_history_item_query::include_patterns(query).is_empty()
+            && in_scope > 0
+            && in_scope < loaded
+        {
+            push_warnings(out, [super::filter::include_kept_warning(in_scope, loaded)]);
+        }
+        if match_removed_all && let Some(needle) = gh_get_history_item_query::match_strings(query) {
             push_warnings(
                 out,
                 [super::filter::match_removed_all_warning(needle, in_scope)],
@@ -143,15 +146,15 @@ fn file_rows(files: Vec<Value>, query: &HistoryItemRequest) -> (Value, Option<us
         );
     }
     let page = super::patch::page::shape_patch_page(files, query).compact();
-    let mut rows = Value::Array(page.rows);
-    // The narrowed-view marker is internal to the pull-request lead.
-    super::patch_hop::take_reshaped_paths(Some(&mut rows), false);
+    let rows = Value::Array(page.rows);
     (rows, page.cursor)
 }
 
 /// The literal a read filters changed files by: its `matchString`, when it
 /// reads patches (an inventory lists every file).
-pub(super) fn patch_needle(query: &HistoryItemRequest) -> Option<String> {
+pub(super) fn patch_needle(
+    query: &HistoryItemRequest,
+) -> Option<std::sync::Arc<super::matcher::Matcher>> {
     super::text::needle(query).filter(|_| query.include_diff())
 }
 
@@ -179,7 +182,7 @@ fn mark_unsearched(
 
 /// The read of one commit at its default sections.
 pub(super) fn read_commit_lead(query: &HistoryItemRequest, sha: &str) -> Value {
-    Continuation::new(
+    Continuation::related(
         ToolId::GhGetHistoryItem,
         json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"ref":sha}),
     )
@@ -192,8 +195,8 @@ pub(super) fn lead_first(out: &mut Value, leads: Vec<(impl Into<String>, Value)>
     if leads.is_empty() {
         return;
     }
-    ensure_next(out);
-    if let Some(next) = out["next"].as_object_mut() {
+    ensure_calls(out);
+    if let Some(next) = out["calls"].as_object_mut() {
         for (name, lead) in leads.into_iter().rev() {
             next.shift_insert(0, name.into(), lead);
         }

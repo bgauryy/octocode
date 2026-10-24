@@ -1,22 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
+import { posix, tempWorkspace, waitFor } from './helpers.ts';
 import { bundlePath, fixture, runtime } from './store-support.ts';
 
 const { proxy, wire } = runtime;
-const posix = process.platform !== 'win32';
 type ProxyRuntime = Parameters<typeof proxy.run>[1];
-
-function scratch(t: TestContext) {
-  const path = realpathSync(mkdtempSync(join(tmpdir(), 'watchdog-')));
-  t.after(() => rmSync(path, { recursive: true, force: true }));
-  return path;
-}
 
 /** Whether any process of the group `group` exists. */
 /** `kill(pid, 0)` only tests existence: EPERM means the process exists. */
@@ -24,14 +18,6 @@ const permitted = (error: unknown) => error instanceof Error && 'code' in error 
 const groupAlive = (group: number) => { try { process.kill(-group, 0); return true; } catch (error) { return permitted(error); } };
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (error) { return permitted(error); } };
 
-/** Waits for a condition; the limit only bounds a failure (monotonic, so host sleep does not count), a passing run returns as soon as the condition holds. */
-async function until(condition: () => unknown, what: string, limit = 15000) {
-  const end = performance.now() + limit;
-  while (!(await condition())) {
-    assert.ok(performance.now() < end, 'timed out waiting for ' + what);
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-}
 
 const exited = (child: ChildProcess) => new Promise<void>(resolve => (child.exitCode !== null || child.signalCode !== null ? resolve() : child.once('exit', () => resolve())));
 
@@ -81,39 +67,39 @@ function reap(t: TestContext, directory: string, pids: number[]) {
 }
 
 test('premise: without the watchdog a SIGKILLed worker leaks its vendor group', { skip: !posix }, async t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'watchdog-', { real: true });
   const { child, report } = startWorker(t, directory, { guarded: false, stubborn: false });
   const { vendor } = await report;
   reap(t, directory, [vendor]);
-  await until(grandchildOf(directory), 'the vendor grandchild');
+  await waitFor(grandchildOf(directory), { timeout: 15000, message: 'Timed out waiting for the vendor grandchild' });
   child.kill('SIGKILL');
   await exited(child);
   // Nothing signals the group; give a would-be watchdog's two second grace time to show it is absent.
-  await new Promise(resolve => setTimeout(resolve, 2500));
+  await delay(2500);
   assert.equal(groupAlive(vendor), true, 'the orphaned vendor group is still running');
 });
 
 for (const stubborn of [false, true]) {
   test(`a SIGKILLed worker does not leak its vendor group (${stubborn ? 'vendor ignores SIGTERM: SIGKILL after the grace' : 'vendor ends on SIGTERM'})`, { skip: !posix }, async t => {
-    const directory = scratch(t);
+    const directory = tempWorkspace(t, 'watchdog-', { real: true });
     const { child, report } = startWorker(t, directory, { guarded: true, stubborn });
     const { vendor, watchdog } = await report;
     assert.ok(watchdog !== null, 'the guarded worker started a watchdog');
     reap(t, directory, [vendor, watchdog]);
-    await until(grandchildOf(directory), 'the vendor grandchild');
+    await waitFor(grandchildOf(directory), { timeout: 15000, message: 'Timed out waiting for the vendor grandchild' });
     const grandchild = Number(readFileSync(join(directory, 'grandchild'), 'utf8'));
     assert.ok(groupAlive(vendor) && alive(grandchild) && alive(watchdog));
     assert.notEqual(vendor, watchdog);
     child.kill('SIGKILL');
-    await until(() => !groupAlive(vendor) && !alive(grandchild), 'the vendor group to be killed');
-    await until(() => !alive(watchdog), 'the watchdog to exit');
+    await waitFor(() => !groupAlive(vendor) && !alive(grandchild), { timeout: 15000, message: 'Timed out waiting for the vendor group to be killed' });
+    await waitFor(() => !alive(watchdog), { timeout: 15000, message: 'Timed out waiting for the watchdog to exit' });
   });
 }
 
 test('the watchdog exits without signalling anyone when the vendor group ends first', { skip: !posix }, async t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'watchdog-', { real: true });
   const host = new wire.Wire('sleep', ['100'], directory, [], null);
-  await until(() => host.pid !== undefined, 'the vendor pid');
+  await waitFor(() => host.pid !== undefined, { timeout: 15000, message: 'Timed out waiting for the vendor pid' });
   const guard = proxy.watchdog(host.pid);
   assert.ok(guard, 'the watchdog started');
   t.after(() => guard.kill('SIGKILL'));
@@ -125,7 +111,7 @@ test('the watchdog exits without signalling anyone when the vendor group ends fi
 });
 
 test('a worker that ends normally stops its watchdog', { skip: !posix }, async t => {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'watchdog-', { real: true });
   const host = new wire.Wire('sleep', ['100'], directory, [], null);
   const guard = proxy.watchdog(host.pid);
   assert.ok(guard, 'the watchdog started');
@@ -160,7 +146,7 @@ process.stdin.on('data', chunk => {
 
 test('proxy.run starts the watchdog: a SIGKILLed codex worker leaves no vendor processes', { skip: !posix }, async t => {
   const f = fixture(t);
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'watchdog-', { real: true });
   const script = join(directory, 'codex');
   writeFileSync(script, FAKE_CODEX);
   chmodSync(script, 0o755);
@@ -177,7 +163,7 @@ test('proxy.run starts the watchdog: a SIGKILLed codex worker leaves no vendor p
   t.after(() => child.kill('SIGKILL'));
   let text = '';
   child.stdout.on('data', chunk => (text += chunk));
-  await until(() => /"type":"ready"/.test(text), 'the worker to be ready');
+  await waitFor(() => /"type":"ready"/.test(text), { timeout: 15000, message: 'Timed out waiting for the worker to be ready' });
   const ready = text.split('\n').find(line => line.includes('"ready"'));
   assert.ok(ready, 'the worker reported ready');
   const vendor = JSON.parse(ready).pid;
@@ -185,7 +171,7 @@ test('proxy.run starts the watchdog: a SIGKILLed codex worker leaves no vendor p
   assert.equal(Number(readFileSync(join(directory, 'vendor.pid'), 'utf8')), vendor);
   assert.equal(groupAlive(vendor), true);
   child.kill('SIGKILL');
-  await until(() => !groupAlive(vendor), 'the vendor group to be killed');
+  await waitFor(() => !groupAlive(vendor), { timeout: 15000, message: 'Timed out waiting for the vendor group to be killed' });
 });
 
 test('parentGone follows the original parent', () => {
@@ -195,7 +181,7 @@ test('parentGone follows the original parent', () => {
 
 /** A vendor that only sleeps: `proxy.worker` spawns it, then the injected seam decides what happens next. */
 function sleepingVendor(t: TestContext) {
-  const directory = scratch(t);
+  const directory = tempWorkspace(t, 'watchdog-', { real: true });
   writeFileSync(join(directory, 'codex'), '#!/bin/sh\nsleep 100\n');
   chmodSync(join(directory, 'codex'), 0o755);
   const saved = process.env.PATH;
@@ -223,5 +209,5 @@ test('the watchdog seam runs after the vendor spawned, with its group; a seam fa
   assert.equal(seen.length, 1);
   assert.ok(Number.isInteger(seen[0].group));
   assert.equal(seen[0].aliveAtCall, true, 'the vendor exists before the watchdog is asked to guard it: the residual window');
-  await until(() => !groupAlive(seen[0].group), 'the vendor group to be gone');
+  await waitFor(() => !groupAlive(seen[0].group), { timeout: 15000, message: 'Timed out waiting for the vendor group to be gone' });
 });

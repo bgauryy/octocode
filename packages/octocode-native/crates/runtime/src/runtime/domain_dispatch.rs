@@ -11,7 +11,7 @@ use crate::{
     security::{CheckedQuery, ContentSecurity},
     tools::lsp_search::{LspExecutionConfig, prewarm},
 };
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LspSearchQuery};
 use octocode_github::ProviderError;
 use serde_json::Value;
 use std::{
@@ -120,14 +120,18 @@ impl DomainDispatcher {
     ) -> Result<DomainResult, ExecutionError> {
         let _enter = self.handle.enter();
         context.check()?;
-        execute_row(|| match tool.family() {
+        let mut result = execute_row(|| match tool.family() {
             ToolFamily::GitHub => self.execute_github(tool, query, context),
             ToolFamily::Local if tool == ToolId::LspSearch => self.execute_lsp(query, context),
             ToolFamily::Local => self.execute_local(tool, query, context),
             // Clasify runs its own batch, never a domain row.
             ToolFamily::Remote if tool.is_clasify() => Err(ExecutionError::UnroutedTool),
             ToolFamily::Remote => self.execute_artifact(query, context),
-        })
+        })?;
+        if matches!(tool.family(), ToolFamily::Local) {
+            crate::response::paths::workspace_relative(&mut result.data, &self.paths);
+        }
+        Ok(result)
     }
 
     fn execute_github(
@@ -186,7 +190,7 @@ impl DomainDispatcher {
                 match crate::tools::artifact_search::execute(query, call).await {
                     Ok(data) => dispatch::data_result(data),
                     Err(error) => {
-                        let next = error.next;
+                        let calls = error.calls;
                         let mut row = dispatch::provider_failure(
                             error.message,
                             error.code,
@@ -194,13 +198,8 @@ impl DomainDispatcher {
                             error.status,
                             None,
                         );
-                        // A repair lead is the recovery: no code fallback
-                        // text beside it.
-                        if let Some(next) = next
-                            && let Some(data) = row.data.as_object_mut()
-                        {
-                            data.shift_remove("hints");
-                            data.insert("next".into(), *next);
+                        if let Some(calls) = calls {
+                            crate::response::result::attach_calls(&mut row.data, *calls);
                         }
                         // A retryable registry failure offers the same
                         // `next.retry` every GitHub failure does.
@@ -221,7 +220,7 @@ impl DomainDispatcher {
         query: &Value,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError> {
-        let query: crate::tools::lsp_search::LspSearchQuery = match dispatch::parse_query(query) {
+        let query: LspSearchQuery = match dispatch::parse_query(query) {
             Ok(query) => query,
             Err(row) => return Ok(*row),
         };
@@ -265,7 +264,7 @@ impl DomainDispatcher {
                             crate::response::result::missing_path_lead(&self.paths, requested)
                         })
                     {
-                        row.data["next"] = next;
+                        crate::response::result::attach_calls(&mut row.data, next);
                     }
                     Ok(row)
                 }
@@ -314,7 +313,7 @@ impl DomainDispatcher {
         // lspSearch finds a warm pooled client: for the file an offered
         // lspSearch call names, or (opt-in) the file a read or search names.
         let lead = (prewarm_mode != crate::config::LspPrewarm::Off)
-            .then(|| prewarm::lead_file(&result.data))
+            .then(|| prewarm::lead_file(tool, &result.data))
             .flatten();
         if let Some(file) = lead
             .or_else(|| prewarm_query.and_then(|query| prewarm::anchor_file(query, &result.data)))
@@ -358,7 +357,7 @@ mod within_request_tests;
 /// window its own pages fill (`None` when the runtime has no window).
 /// Streamed listing, walk and lspSearch pages are cut at the automatic
 /// response window, which every call of a walk shares (an explicit
-/// `responseLength` is per call, so it never moves a page cut and a
+/// `responseChars` is per call, so it never moves a page cut and a
 /// continuation under another window names the same page). localFetch
 /// continues by offset: its reader fits the row's share of the response
 /// page, the caller's or the automatic ([`ExecutionContext::row_page_chars`],

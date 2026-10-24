@@ -3,10 +3,11 @@ use super::validate::{is_sparse_path, repository_url, web_root};
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::policy::path::PathPolicyConfig;
-use crate::tools::gh_shared::test_support as gh_shared_support;
+use crate::tools::gh_shared::test_support::{
+    mock_endpoint, one_shot_provider, one_shot_provider_at,
+};
 use crate::tools::test_support;
-use octocode_contract_types::ErrorCode;
-use octocode_contract_types::{GhCloneRepoQueryPathArrayItem, GhCloneRepoQueryRef};
+use octocode_contract_types::{ErrorCode, GhCloneRepoQueryPathsItem, GhCloneRepoQueryRef};
 use octocode_github::CredentialSource;
 use std::ffi::OsString;
 use std::fs;
@@ -58,7 +59,7 @@ impl RewriteRunner {
     fn rewrite<'a>(&self, request: &GitRunRequest<'a>) -> GitRunRequest<'a> {
         self.seen
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push(format!("{request:?}"));
         let args = request
             .args
@@ -302,27 +303,18 @@ fn home_root() -> (test_support::Fixture, PathBuf) {
 
 fn query() -> GhCloneRepoQuery {
     parse_query(serde_json::json!({
-        "owner": "fixture-owner", "repo": "fixture-repo", "ref": "main",
-        "mainGoal": "test", "reasoning": "clone fixture"
-    }))
+        "owner": "fixture-owner", "repo": "fixture-repo", "ref": "main"}))
 }
 
-/// One sparse path, as a single-string `path`.
-fn one(path: &str) -> GhCloneRepoQueryPath {
-    GhCloneRepoQueryPath::String(path.parse().expect("valid sparse fixture path"))
+fn one(path: &str) -> Vec<GhCloneRepoQueryPathsItem> {
+    many(&[path])
 }
 
-fn many(paths: &[&str]) -> GhCloneRepoQueryPath {
-    GhCloneRepoQueryPath::Array(
-        paths
-            .iter()
-            .map(|path| {
-                (*path)
-                    .parse::<GhCloneRepoQueryPathArrayItem>()
-                    .expect("valid sparse fixture path")
-            })
-            .collect(),
-    )
+fn many(paths: &[&str]) -> Vec<GhCloneRepoQueryPathsItem> {
+    paths
+        .iter()
+        .map(|path| (*path).parse().expect("valid sparse fixture path"))
+        .collect()
 }
 
 fn reference(value: &str) -> GhCloneRepoQueryRef {
@@ -331,7 +323,7 @@ fn reference(value: &str) -> GhCloneRepoQueryRef {
 
 fn rejects_sparse_path(path: &str) -> bool {
     let mut row = serde_json::to_value(query()).expect("fixture query JSON");
-    row["path"] = serde_json::json!(path);
+    row["paths"] = serde_json::json!([path]);
     serde_json::from_value::<GhCloneRepoQuery>(row).is_err()
 }
 

@@ -85,17 +85,17 @@ fn go_pages_end_at_the_registrys_thousandth_result() {
 #[test]
 fn the_query_cursor_is_the_provider_page_token() {
     for (ecosystem, page) in [("go", Some(3)), ("nuget", None)] {
-        let query = types::artifact_query(
-            serde_json::json!({"ecosystem": ecosystem, "keywords": ["http"],
-                "page": 3, "pageSize": 10, "cursor": "issued"}),
+        let query = query::artifact_query(
+            serde_json::json!({"operation":"search","ecosystem": ecosystem, "keywords": ["http"],
+                "page": 3, "registryCursor": "issued"}),
             None,
         );
         let state = page_state(&query);
         assert_eq!(state.token.as_deref(), Some("issued"), "{ecosystem}");
         assert_eq!(state.page, page, "{ecosystem}");
     }
-    let plain = types::artifact_query(
-        serde_json::json!({"ecosystem": "go", "keywords": ["http"]}),
+    let plain = query::artifact_query(
+        serde_json::json!({"operation":"search","ecosystem": "go", "keywords": ["http"]}),
         None,
     );
     assert_eq!(page_state(&plain).token, None);

@@ -1,6 +1,7 @@
 //! Maven exact lookups: POM repositories, dependencies, release days, pinned versions and caching.
+use super::super::query::artifact_query;
+use super::super::test_http::test_budget;
 use super::super::test_http::{KnownTags, RouteHttp};
-use super::super::types::{artifact_query, test_budget};
 use super::*;
 use serde_json::json;
 
@@ -21,7 +22,7 @@ fn pom_path(version: &str) -> String {
 
 fn guava_query() -> ArtifactSearchQuery {
     artifact_query(
-        json!({"ecosystem": ArtifactType::Maven, "packageName": "com.google.guava:guava"}),
+        json!({"operation":"resolve","ecosystem": ArtifactType::Maven, "packageName": "com.google.guava:guava"}),
         None,
     )
 }
@@ -179,7 +180,7 @@ async fn maven_parses_exact_xml_lookup() {
     let b = test_budget();
     let client = RegistryClient::uncached(&http, &b);
     let q = artifact_query(
-        json!({"ecosystem": ArtifactType::Maven, "packageName": "com.fasterxml.jackson.core:jackson-databind"}),
+        json!({"operation":"resolve","ecosystem": ArtifactType::Maven, "packageName": "com.fasterxml.jackson.core:jackson-databind"}),
         None,
     );
     let page = maven(&q, &ArtifactProviderState::default(), &client)
@@ -187,7 +188,10 @@ async fn maven_parses_exact_xml_lookup() {
         .expect("maven exact");
     assert_eq!(page.artifacts.len(), 1);
     let item = &page.artifacts[0];
-    assert_eq!(item.name, "com.fasterxml.jackson.core:jackson-databind");
+    assert_eq!(
+        item.package_name,
+        "com.fasterxml.jackson.core:jackson-databind"
+    );
     assert_eq!(item.version.as_deref(), Some("2.15.2"));
     assert_eq!(
         item.registry_url,
@@ -209,7 +213,7 @@ async fn maven_exact_version_reads_that_release_and_its_tag() {
     let pom = "<project><url>https://github.com/google/guava</url></project>";
     let query = |version: &str| {
         artifact_query(
-            json!({"ecosystem": ArtifactType::Maven,
+            json!({"operation":"resolve","ecosystem": ArtifactType::Maven,
                 "packageName": "com.google.guava:guava", "version": version}),
             None,
         )
@@ -256,24 +260,20 @@ async fn maven_exact_version_reads_that_release_and_its_tag() {
 /// A coordinate that is not `groupId:artifactId` is rejected before any
 /// request, naming the field; only a bare artifact name is marked as a
 /// name a keyword search finds.
-#[tokio::test]
-async fn maven_rejects_invalid_coordinate() {
-    let http = RouteHttp::new();
-    let b = test_budget();
-    let client = RegistryClient::uncached(&http, &b);
-    for (name, searchable) in [("not-a-maven-coordinate", true), ("g:a:1.0", false)] {
-        let q = artifact_query(
-            json!({"ecosystem": ArtifactType::Maven, "packageName": name}),
-            None,
+#[test]
+fn maven_rejects_invalid_coordinate() {
+    for name in ["not-a-maven-coordinate", "g:a:1.0"] {
+        assert!(
+            crate::contracts::validate_query(
+                "artifactSearch",
+                json!({
+                    "operation":"resolve", "ecosystem":"maven", "packageName":name
+                })
+            )
+            .is_err(),
+            "{name}"
         );
-        let err = maven(&q, &ArtifactProviderState::default(), &client)
-            .await
-            .expect_err("invalid maven coordinate");
-        assert_eq!(err.code, ErrorCode::InvalidInput);
-        assert!(err.message.starts_with("packageName "), "{err:?}");
-        assert_eq!(err.searchable_name, searchable, "{name}");
     }
-    assert!(http.seen().is_empty());
 }
 
 /// Dependency versions written as `${…}` resolve from the POM's own

@@ -10,11 +10,12 @@ import {
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import {
-  chromeCommands as commands,
+  chromeCommands,
   chromeInstructions,
   chromeResearchCommands,
+  chromeSchemaFor,
+  type ChromeInvocation,
 } from '@octocodeai/config/schema';
-import { schemaFor, type Invocation } from './command-inputs.js';
 import manifest from '../package.json' with { type: 'json' };
 import { invoke, stopEngine } from './invocation.js';
 export { connectStdio, cliFromMcp, runCli } from 'octocode-mcp-cli';
@@ -22,11 +23,11 @@ export const spec = defineCli({
   name: 'octocode-chrome-devtools',
   version: manifest.version,
   instructions: chromeInstructions,
-  commands: Object.entries(commands).map(([name, description]) =>
+  commands: Object.entries(chromeCommands).map(([name, description]) =>
     defineCommand({
       name,
       description,
-      schema: schemaFor(name),
+      schema: chromeSchemaFor(name),
       annotations: {
         readOnlyHint: [
           'skill',
@@ -62,7 +63,11 @@ export const spec = defineCli({
         ].includes(name),
       },
       run: async (input, context) => {
-        const result = await invoke(name, input as Invocation, context?.signal);
+        const result = await invoke(
+          name,
+          input as ChromeInvocation,
+          context?.signal
+        );
         return cliView(
           result.ok ? 'OK' : 'Failed; inspect capture before retrying.',
           { structuredContent: result }

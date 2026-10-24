@@ -6,10 +6,10 @@ use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use std::collections::HashMap;
 
 mod matching;
+#[cfg(test)]
+pub(super) use matching::HunkMatch;
 mod stream;
 
-#[cfg(test)]
-pub(super) use matching::clip_line;
 pub(super) use matching::matching_hunks;
 
 /// File text at the pull request's head (`headSha`): a `matchString` view
@@ -36,25 +36,29 @@ pub(super) struct PatchView {
     pub(super) text: String,
     /// A `matchString` view narrowed to its hit runs.
     pub(super) narrowed: bool,
-    /// New-side windows (`start-end`) the requested context reaches past
+    /// Inclusive new-side line windows the requested context reaches past
     /// the hunks without head text to fill them.
-    pub(super) clipped: Vec<String>,
+    pub(super) clipped: Vec<(usize, usize)>,
     /// Char offsets in `text` of the lines a `matchString` view shows as
     /// hits (diff lines holding the needle); empty for any other view.
     pub(super) hits: Vec<usize>,
 }
 
-/// Diff lines kept around each `matchString` hit (`contextLines`).
-pub(in crate::tools::gh_get_history_item) fn match_context(query: &HistoryItemRequest) -> usize {
-    gh_get_history_item_query::match_context(query).unwrap_or(MATCH_CONTEXT_LINES)
+/// Diff lines kept around each `matchString` hit: `contextLines`, else the
+/// contract's `limits.defaultReadContextLines`. Related reads offer
+/// unfiltered patches beyond that selection.
+pub(in crate::tools::gh_get_history_item) fn match_context(
+    query: &HistoryItemRequest,
+) -> (usize, usize) {
+    gh_get_history_item_query::match_context(query)
 }
 
 /// Whether a `matchString` view of `patch` needs file text beyond its hunks
 /// to hold `context` lines around every hit.
 pub(in crate::tools::gh_get_history_item) fn head_text_needed(
     patch: &str,
-    needle: &str,
-    context: usize,
+    needle: &super::super::matcher::Matcher,
+    context: (usize, usize),
 ) -> bool {
     matching_hunks(patch, needle, context, None).is_some_and(|found| !found.clipped.is_empty())
 }
@@ -164,11 +168,6 @@ pub(super) fn number_patch(patch: &str) -> String {
     }
     out
 }
-
-/// Diff lines kept around each `matchString` hit when `contextLines` is
-/// omitted (contract `limits.defaultReadContextLines`);
-/// `next.readFullPatches` re-reads the whole patches.
-pub(super) const MATCH_CONTEXT_LINES: usize = crate::id::DEFAULT_READ_CONTEXT_LINES;
 
 /// Context lines GitHub puts around each change of a diff.
 pub(in crate::tools::gh_get_history_item) const DIFF_CONTEXT_LINES: usize = 3;

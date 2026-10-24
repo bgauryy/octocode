@@ -21,21 +21,6 @@ pub(crate) fn sanitize_then_cut<E>(
     Ok(cut(&clean, changed))
 }
 
-/// [`sanitize_then_cut`] with the content scanner every tool's output passes
-/// through, for a cut made where no caller-supplied scanner reaches; a
-/// scanner failure shows the redaction placeholder.
-pub(crate) fn scan_then_cut(text: &str, cut: impl FnOnce(&str, bool) -> String) -> String {
-    sanitize_then_cut(
-        text,
-        |raw| {
-            octocode_engine::security::sanitizer::sanitize_content(raw, None)
-                .map(|result| result.content)
-        },
-        cut,
-    )
-    .unwrap_or_else(|_| octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
-}
-
 /// A shown line without the clip markers at its ends: a leading `…`, a
 /// trailing `…` or `...` truncation suffix.
 pub(crate) fn strip_clip_markers(line: &str) -> &str {
@@ -68,14 +53,27 @@ mod tests {
         let tail = |text: &str, _changed: bool| text.chars().skip(16).collect::<String>();
         let raw_cut = tail(&line, false);
         assert!(raw_cut.contains(&SECRET[8..28]), "the raw cut splits it");
-        let shown = scan_then_cut(&line, tail);
+        let shown = sanitize_then_cut(
+            &line,
+            |raw| {
+                octocode_engine::security::sanitizer::sanitize_content(raw, None)
+                    .map(|result| result.content)
+            },
+            tail,
+        )
+        .expect("sanitized");
         assert!(!shown.contains(&SECRET[8..28]), "{shown}");
         assert!(shown.contains("needle"), "{shown}");
         // A line with nothing to redact is cut unchanged.
-        let plain = scan_then_cut("plain needle line", |text, changed| {
-            assert!(!changed);
-            text.to_owned()
-        });
+        let plain = sanitize_then_cut(
+            "plain needle line",
+            |raw| Ok::<_, ()>(raw.to_owned()),
+            |text, changed| {
+                assert!(!changed);
+                text.to_owned()
+            },
+        )
+        .expect("sanitized");
         assert_eq!(plain, "plain needle line");
     }
 

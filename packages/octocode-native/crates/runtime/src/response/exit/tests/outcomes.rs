@@ -1,17 +1,39 @@
 use super::*;
 
+fn row(status: &str, code: &str) -> Value {
+    json!({"index":0,"status":status,"data":{"errorCode":code}})
+}
+
+fn retry_row(code: &str) -> Value {
+    json!({"index":0,"status":"error","data":{"errorCode":code,"retryable":true,
+            "next":{"retry":{"kind":"continue","tool":"ghSearchRepo","input":{"cursor":"issued-retry"}}}}})
+}
+
+fn page_row() -> Value {
+    json!({"index":0,"data":{"next":{"nextPage":{
+            "kind":"continue","tool":"localSearch","input":{"cursor":"issued-page"}}}}})
+}
+
+fn stale_row() -> Value {
+    json!({"results":[{"index":0,"status":"error","data":{"errorCode":"staleSnapshot",
+            "related":[{"kind":"related","tool":"localSearch","input":{"queries":[{"path":".","matchString":["needle"]}]}}]}}]})
+}
+
+/// Each `(response, failure, all rows failed, expected class)`.
+fn assert_classes<const N: usize>(cases: [(Value, Option<FailureKind>, bool, ExitClass); N]) {
+    for (value, failure, all_failed, expected) in cases {
+        assert_eq!(
+            outcome(value.clone(), failure, all_failed).exit_class(),
+            expected,
+            "{value}"
+        );
+    }
+}
+
+/// One row, or rows that agree, set the class.
 #[test]
 fn outcomes_classify_by_their_rows() {
-    let row = |status: &str, code: &str| json!({"status":status,"data":{"errorCode":code}});
-    let retry_row = |code: &str| {
-        json!({"status":"error","data":{"errorCode":code,"retryable":true,
-                "next":{"retry":{"tool":"ghSearchRepo","query":{"queries":[{}]}}}}})
-    };
-    let page_row = json!({"status":"success","data":{"next":{"nextPage":{
-            "tool":"localSearch","query":{"queries":[{}]}}}}});
-    let stale_row = json!({"results":[{"status":"error","data":{"errorCode":"staleSnapshot",
-            "next":{"restart":{"tool":"localSearch","query":{}}}}}]});
-    let cases = [
+    assert_classes([
         (
             json!({"results":[{"data":{}}]}),
             None,
@@ -55,6 +77,13 @@ fn outcomes_classify_by_their_rows() {
             ExitClass::Failed(FailureKind::Execution),
         ),
         (json!({"results":[]}), None, true, ExitClass::InvalidInput),
+    ]);
+}
+
+/// A batch with a failed or rejected row ends like its worst one.
+#[test]
+fn a_batch_ends_like_its_worst_row() {
+    assert_classes([
         // No row succeeded, so the batch failed like its error rows.
         (
             json!({"results":[row("empty", ""), row("error", "pathNotFound")]}),
@@ -84,7 +113,7 @@ fn outcomes_classify_by_their_rows() {
             ExitClass::Failed(FailureKind::NotFound),
         ),
         (
-            json!({"results":[page_row.clone(), row("error", "pathNotFound")]}),
+            json!({"results":[page_row(), row("error", "pathNotFound")]}),
             None,
             false,
             ExitClass::Failed(FailureKind::NotFound),
@@ -109,16 +138,23 @@ fn outcomes_classify_by_their_rows() {
             false,
             ExitClass::InvalidInput,
         ),
+    ]);
+}
+
+/// More to read, or a clasify answer, is success.
+#[test]
+fn a_continuation_or_an_answer_is_success() {
+    assert_classes([
         // A remaining page, a partial read or a pending clasify walk
         // is success; the continuation is the page's `next.*`.
         (
-            json!({"results":[{"data":{}}, page_row.clone()]}),
+            json!({"results":[{"data":{}}, page_row()]}),
             None,
             false,
             ExitClass::Success,
         ),
         (
-            json!({"results":[page_row.clone()]}),
+            json!({"results":[page_row()]}),
             None,
             false,
             ExitClass::Success,
@@ -130,22 +166,29 @@ fn outcomes_classify_by_their_rows() {
             ExitClass::Success,
         ),
         (
-            json!({"queries":[{"id":"b","answers":{"q":{"type":"noul","noul":0.4}},
-                    "usage":{"input_tokens":1,"output_tokens":1}}]}),
+            json!({"results":[{"index":0,"data":{"answers":{"q":{"type":"noul","noul":0.4}},
+                    "usage":{"input_tokens":1,"output_tokens":1}}}]}),
             None,
             false,
             ExitClass::Success,
         ),
+    ]);
+}
+
+/// A stale snapshot or a retryable failure still fails the batch.
+#[test]
+fn stale_and_retryable_rows_are_failures() {
+    assert_classes([
         // A stale snapshot is an error row: exit 5, alone or beside
         // answering rows, even when a healthy page is offered.
         (
-            stale_row.clone(),
+            stale_row(),
             Some(FailureKind::Execution),
             true,
             ExitClass::Failed(FailureKind::Execution),
         ),
         (
-            json!({"results":[page_row.clone(), stale_row["results"][0].clone()]}),
+            json!({"results":[page_row(), stale_row()["results"][0].clone()]}),
             None,
             false,
             ExitClass::Failed(FailureKind::Execution),
@@ -170,12 +213,5 @@ fn outcomes_classify_by_their_rows() {
             true,
             ExitClass::Failed(FailureKind::RateLimited),
         ),
-    ];
-    for (value, failure, all_failed, expected) in cases {
-        assert_eq!(
-            outcome(value.clone(), failure, all_failed).exit_class(),
-            expected,
-            "{value}"
-        );
-    }
+    ]);
 }

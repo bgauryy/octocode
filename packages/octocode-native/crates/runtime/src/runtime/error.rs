@@ -91,10 +91,7 @@ fn timeout_hint(tool: &str) -> &'static str {
         )
 }
 
-/// An error envelope → one line: the error, each repair detail, each hint
-/// note (a lossy repair names what it drops), then the repair lead's call
-/// when the envelope has one (a text-only client reads no structured
-/// content).
+/// An error envelope as one line, preserving the error, details and prose hints.
 fn error_line(payload: &Value) -> Option<String> {
     let error = payload.get("error")?.as_str()?;
     let mut clauses = vec![error.to_owned()];
@@ -116,7 +113,7 @@ fn error_line(payload: &Value) -> Option<String> {
             .filter_map(Value::as_str)
             .map(str::to_owned),
     );
-    // The error, each detail and the lead are separate clauses.
+    // Keep each detail visible to text-only clients.
     Some(clauses.join("; "))
 }
 
@@ -130,14 +127,7 @@ mod tests {
         RuntimeError {
             code: ErrorCode::InvalidInput,
             message: error.to_string(),
-            payload: Some(Box::new({
-                let mut payload = contracts::format_input_error(tool, &error);
-                crate::response::channels::publish_hints(
-                    &mut payload,
-                    crate::id::ToolId::from_name(tool).expect("tool"),
-                );
-                payload
-            })),
+            payload: Some(Box::new(contracts::format_input_error(tool, &error))),
             validation_issues: Some(error.issues),
         }
     }
@@ -190,62 +180,65 @@ mod tests {
     }
 
     #[test]
-    fn mcp_errors_carry_the_actionable_repair_details() {
-        let typo = text(
-            "localFetch",
-            json!({"queries":[{"path":"a.rs","matchstring":"x"}]}),
-        );
-        assert!(
-            typo.starts_with("Input validation error: Invalid arguments for tool localFetch: "),
-            "{typo}"
-        );
-        assert!(typo.contains("did you mean 'matchString'?"), "{typo}");
-        // No static schema note: the instructions name the schema once.
-        assert!(!typo.contains("inputSchema"), "{typo}");
-        assert!(!typo.contains("octocode schema"), "{typo}");
-
-        let missing = text(
-            "ghGetFileContent",
-            json!({"queries":[{"owner":"a","repo":"b"}]}),
-        );
-        assert!(
-            missing.contains("Set path to a repository-relative file."),
-            "{missing}"
-        );
-
-        let choice = text(
-            "localSearch",
-            json!({"queries":[{"path":".","matchString":"x","regex":"perl"}]}),
-        );
-        assert!(choice.contains("literal, rust, pcre2"), "{choice}");
-
-        let brief = text(
-            "localFetch",
-            json!({"mainGoal":"g","queries":[{"path":"a.rs"}]}),
-        );
-        assert!(
-            brief.contains("Move 'mainGoal' into each queries[] row"),
-            "{brief}"
-        );
+    fn invalid_inputs_keep_structured_field_errors_without_repairing_the_request() {
+        for (tool, input) in [
+            (
+                "localFetch",
+                json!({"queries":[{"path":"a.rs","matchstring":"x"}]}),
+            ),
+            (
+                "ghGetFileContent",
+                json!({"queries":[{"owner":"a","repo":"b"}]}),
+            ),
+            (
+                "localSearch",
+                json!({"queries":[{"path":".","matchString":["x"],"regexEngine":"perl"}]}),
+            ),
+            (
+                "localFetch",
+                json!({"mainGoal":"g","queries":[{"path":"a.rs"}]}),
+            ),
+            ("localFetch", json!({"queries":"x"})),
+            ("localFetch", json!({"path":"a.rs"})),
+        ] {
+            let rejected = invalid(tool, input.clone());
+            let issues = rejected
+                .validation_issues
+                .as_ref()
+                .expect("structured issues");
+            assert!(!issues.is_empty(), "{tool}: {input}");
+            let projected = tool_error_result(tool, &rejected);
+            let response = mcp(tool, rejected);
+            assert_eq!(
+                response["structuredContent"],
+                projected.envelope.into_value()
+            );
+            let envelope = &response["structuredContent"];
+            assert!(
+                envelope.get("next").is_none(),
+                "no guessed continuation: {envelope}"
+            );
+            assert!(
+                envelope.get("related").is_none(),
+                "no rewritten request: {envelope}"
+            );
+            assert!(!text(tool, input).is_empty());
+        }
     }
 
-    /// A host that shows only the text of an error still reads the note a
-    /// lossy repair carries, ahead of the repair call.
     #[test]
-    fn the_error_text_carries_the_lossy_repair_note() {
+    fn terminal_errors_preserve_each_detail_and_prose_hint() {
+        let details = [
+            "The path is outside the workspace.",
+            "Choose a readable path.",
+        ];
+        let hint = "The original request was not executed.";
         let line = error_line(&json!({"error":"bad","errorCode":"invalidInput",
-            "hints":["The repair lead drops queries[0].glob.",
-                "repair: Approximate: localSearch {\"queries\":[{\"path\":\".\",\"matchString\":\"x\"}]}"]}))
+            "details":details,"hints":[hint]}))
         .expect("line");
-        let note = line.find("drops queries[0].glob").expect("note");
-        let repair = line.find("repair: ").expect("repair");
-        assert!(note < repair, "{line}");
-    }
-
-    #[test]
-    fn malformed_envelopes_get_the_same_projection() {
-        assert!(text("localFetch", json!({"queries":"x"})).contains("queries must be an array"));
-        assert!(text("localFetch", json!({"path":"a.rs"})).contains("{\"queries\":[...]}"));
+        for evidence in ["bad", details[0], details[1], hint] {
+            assert_eq!(line.matches(evidence).count(), 1, "{line}");
+        }
     }
 
     /// A response that breaks its own output contract is a tool defect the

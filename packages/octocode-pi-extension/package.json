@@ -69,7 +69,10 @@
     "clean": "rm -rf dist",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "lint": "yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
+    "format": "yarn run -T prettier --write src scripts tests vitest.config.ts",
+    "format:check": "yarn run -T prettier --check src scripts tests vitest.config.ts",
     "test": "vitest run --coverage",
+    "test:chrome": "PI_TEST_CHROME=1 vitest run chrome.test",
     "verify": "yarn lint && yarn typecheck && yarn test && yarn build",
     "prepack": "yarn clean && yarn build"
   },

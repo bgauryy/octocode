@@ -134,3 +134,20 @@ async fn noncanonical_provider_answers_are_not_cached() {
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 }
+
+#[test]
+fn references_are_value_occurrences_including_criteria_not_property_names() {
+    assert!(referenced(
+        &json!({"criteria":{"yes":"a depicted item in opaque_asset_1"}}),
+        "opaque_asset_1"
+    ));
+    assert!(referenced(
+        &json!([{"image":"opaque_asset_1"}]),
+        "opaque_asset_1"
+    ));
+    assert!(!referenced(
+        &json!({"opaque_asset_1":"not a value reference"}),
+        "opaque_asset_1"
+    ));
+    assert!(!referenced(&json!(null), "opaque_asset_1"));
+}

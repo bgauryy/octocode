@@ -22,22 +22,14 @@ fn summary_dirs_equals_the_stubs_plus_the_groups_the_listing_shows() {
         json!({"operation":"tree","path":root.0,"maxDepth":4}),
     )
     .expect("tree");
-    let (mut stubs, mut groups) = (0, 0);
-    for group in out["files"].as_array().expect("files") {
-        groups += usize::from(group["dir"] != ".");
-        stubs += group["files"]
-            .as_array()
-            .expect("entries")
-            .iter()
-            .filter(|entry| entry.as_str().is_some_and(|entry| entry.ends_with('/')))
-            .count();
-    }
-    assert_eq!(out["summary"]["dirs"], json!(stubs + groups), "{out}");
-    assert_eq!(out["summary"]["dirs"], json!(6), "{out}");
-    assert!(
-        has_string(&out["files"], "mid/"),
-        "a directory of groups keeps a stub: {out}"
-    );
+    let directories: std::collections::BTreeSet<_> = listed(&out)
+        .into_iter()
+        .filter(|entry| entry["type"] == "directory")
+        .map(|entry| entry["path"].as_str().expect("path").to_owned())
+        .collect();
+    assert_eq!(out["summary"]["dirs"], json!(directories.len()), "{out}");
+    assert_eq!(directories.len(), 6, "{out}");
+    assert!(directories.contains("./only/mid"), "{out}");
 }
 
 /// `files` counts `summary.dirs` from the walk, like `tree`: a chain of
@@ -132,11 +124,11 @@ fn a_listing_with_ignored_entries_leads_to_include_ignored() {
     for operation in ["tree", "files"] {
         let out = run(&root.0, json!({"operation":operation,"path":root.0})).expect("listing");
         assert_eq!(skipped_count(&out, "ignored"), 1, "{operation}: {out}");
-        let lead = &out["next"]["includeSkipped"]["query"]["queries"][0];
+        let lead = &related(&out, "structureSearch")["input"]["queries"][0];
         assert_eq!(lead["includeIgnored"], true, "{operation}: {out}");
         assert_eq!(lead["operation"], operation, "{out}");
         let all = run(&root.0, lead.clone()).expect("relaxed listing");
-        assert!(all["next"].get("includeSkipped").is_none(), "{all}");
+        assert!(related(&all, "structureSearch").is_null(), "{all}");
     }
 }
 
@@ -175,8 +167,8 @@ fn a_glob_that_reaches_above_path_is_named_by_both_operations() {
                 None,
             );
             assert!(
-                !names(&row["data"], "notices") && !names(&row["data"], "warnings"),
-                "a resumed walk does not repeat it: {operation} {key}: {row}"
+                names(&row["data"], "notices") && !names(&row["data"], "warnings"),
+                "a resumed walk preserves the diagnostic: {operation} {key}: {row}"
             );
         }
     }
@@ -236,9 +228,9 @@ fn a_filtered_listing_names_the_links_it_does_not_follow() {
         let length = std::fs::symlink_metadata(links.join("skill"))
             .expect("link")
             .len();
-        assert!(
-            has_string(&plain, &format!("skill ({length}, symlink)")),
-            "{operation}: {plain}"
-        );
+        let entries = listed(&plain);
+        assert_eq!(entries.len(), 1, "{plain}");
+        assert_eq!(entries[0]["type"], "symlink", "{plain}");
+        assert_eq!(entries[0]["size"], length, "{plain}");
     }
 }

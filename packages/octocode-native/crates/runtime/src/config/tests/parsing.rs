@@ -67,7 +67,7 @@ fn config_parser_is_comment_json_not_full_json5() {
         .error
         .as_deref(),
         Some("Config file has invalid structure: must be a JSON object")
-    )
+    );
 }
 #[test]
 fn validation_covers_types_paths_and_warnings() {
@@ -88,7 +88,7 @@ fn validation_covers_types_paths_and_warnings() {
         &json!({"local":{"allowedPaths":["relative","/a/../b"]},"extra":1}),
     );
     assert!(!bad.is_empty());
-    assert!(warnings.contains(&"Unknown configuration key: extra".into()))
+    assert!(warnings.contains(&"Unknown configuration key: extra".into()));
 }
 #[test]
 fn all_fields_and_source_quirk_resolve() {
@@ -111,7 +111,7 @@ fn all_fields_and_source_quirk_resolve() {
         resolve_config(&input(only, None)).source,
         ConfigSource::Env,
         "OCTOCODE_BETA is a frozen source key"
-    )
+    );
 }
 #[test]
 fn invalid_field_is_dropped_alone_with_a_warning() {
@@ -167,7 +167,7 @@ fn token_is_redacted_and_storage_stats_are_explicit() {
         &BTreeMap::from([("OCTOCODE_ENABLE_STATS".into(), "true".into())]),
     );
     assert!(cfg.is_ok());
-    assert!(!is_stats_enabled(&cfg.unwrap_or_default()))
+    assert!(!is_stats_enabled(&cfg.unwrap_or_default()));
 }
 #[test]
 fn fresh_acquisition_observes_file_changes_and_cleans_up() {
@@ -196,7 +196,7 @@ fn fresh_acquisition_observes_file_changes_and_cleans_up() {
     assert_eq!(
         (a.resolved.lsp.prewarm, b.resolved.lsp.prewarm),
         (LspPrewarm::Off, LspPrewarm::All)
-    )
+    );
 }
 #[test]
 fn oversized_config_layer_is_unreadable_not_truncated() {
@@ -230,7 +230,7 @@ fn home_resolution_and_file_states_are_portable() {
             .error
             .as_deref(),
         Some("Config file does not exist")
-    )
+    );
 }
 #[test]
 fn source_labels_and_dot_lookup_match_reference() {
@@ -251,5 +251,5 @@ fn source_labels_and_dot_lookup_match_reference() {
         Some(json!("all"))
     );
     assert_eq!(get_config_value(&mixed.resolved, "does.not.exist"), None);
-    assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env)
+    assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env);
 }

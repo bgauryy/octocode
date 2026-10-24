@@ -19,11 +19,8 @@ pub(super) fn salted_snapshot(
 ) -> String {
     let mut scope = lsp_search_query::to_row(query);
     if let Some(object) = scope.as_object_mut() {
-        for field in crate::response::result::INTENT_FIELDS
-            .iter()
-            .chain(&["page", "snapshot"])
-        {
-            object.remove(*field);
+        for field in ["page", "snapshot"] {
+            object.remove(field);
         }
     }
     // Canonical form: a continuation lists the query's fields in a
@@ -107,7 +104,7 @@ pub(in super::super) fn salted_items_payload(
     let (page, pagination, next_page) = paginate(
         &raw_items,
         lsp_search_query::page(query).unwrap_or(1),
-        &Pages::of(query, budget, &sizes, &snapshot),
+        &Pages::of(budget, &sizes, &snapshot),
     );
     let mut row = json!({
         "kind": kind,
@@ -154,7 +151,7 @@ pub(super) fn document_symbols_payload(
         .collect::<Vec<_>>();
     let (window, pagination, next_page) = page_window(
         lsp_search_query::page(query).unwrap_or(1),
-        &Pages::of(query, budget, &sizes, &snapshot),
+        &Pages::of(budget, &sizes, &snapshot),
     );
     let page = if window.is_empty() {
         Vec::new()
@@ -173,18 +170,21 @@ pub(super) fn document_symbols_payload(
     });
     offer_next_page(query, &mut row, next_page);
     if let (Some(path), Some(read)) = (lsp_search_query::path(query), outline_read(&page)) {
-        row["next"]["read"] = crate::response::result::Continuation::input(
-            ToolId::LocalFetch,
-            json!({ "queries": [{ "path": path, "ranges": [read] }] }),
-        )
-        .build();
+        crate::response::result::attach_related(
+            &mut row,
+            crate::response::result::Continuation::related_input(
+                ToolId::LocalFetch,
+                json!({ "queries": [{ "path": path, "ranges": [read] }] }),
+            )
+            .build(),
+        );
     }
     row
 }
 
 /// The line range of an outline page's first top-level multi-line
 /// declaration (its name line to its last line), else its first symbol's.
-pub(super) fn outline_read(page: &[Value]) -> Option<String> {
+pub(super) fn outline_read(page: &[Value]) -> Option<Value> {
     let span = |symbol: &Value| {
         let line = symbol.get("line")?.as_u64()?;
         let end = symbol
@@ -199,5 +199,5 @@ pub(super) fn outline_read(page: &[Value]) -> Option<String> {
         .filter_map(span)
         .find(|(line, end)| end > line)
         .or_else(|| page.iter().find_map(span))?;
-    Some(format!("{line}-{end}"))
+    Some(json!({"startLine":line,"endLine":end}))
 }

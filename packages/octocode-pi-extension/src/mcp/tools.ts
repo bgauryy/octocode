@@ -1,4 +1,4 @@
-import type { AgentToolResult, ToolAnnotations as PiToolAnnotations, ToolDefinition } from '@earendil-works/pi-coding-agent';
+import type { AgentToolResult, ToolAnnotations, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { toLlmContent, type CallToolResult, type Tool } from '@earendil-works/pi-mcp';
 import type { TSchema } from 'typebox';
 import { clip, queryTarget, resultBlock, resultText, toolHeader } from '../shared/render.js';
@@ -20,10 +20,10 @@ interface ToolBinding {
 }
 
 /** Hints the server gave about the tool, as Pi's annotations (booleans only: nothing else is a hint). */
-function annotations(tool: Tool): PiToolAnnotations | undefined {
+function annotations(tool: Tool): ToolAnnotations | undefined {
   const hints = tool.annotations;
   if (!hints) return undefined;
-  const picked: PiToolAnnotations = {};
+  const picked: ToolAnnotations = {};
   for (const key of ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'] as const) {
     if (typeof hints[key] === 'boolean') picked[key] = hints[key];
   }

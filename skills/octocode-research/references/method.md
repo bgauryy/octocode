@@ -59,7 +59,7 @@ Report per [output](../output.md#response).
 - Whole declaration: `block:true` on a match or range; check the span closes it, else use `astSearch symbols` `line`/`endLine`. Never guess an end.
 - `minify:"symbols"`: doc headings with lines (read a heading to the next equal-or-higher one) or code signatures (read exact source before explaining behavior). Underlined headings or `minifyFallback`: exact search; a missing entry is not absence.
 - Broad unread source where only some passages matter: [context selection](clasify.md#select-inside-search-and-fetch) returns selected raw windows; omit minify. A known deciding span is usually an ordinary exact read.
-- Unanchored reads page by byte budget: copy `next.continueWindow`. `fullContent:true` is for small files; past its limit it returns page one with `pagination.hasMore` and `next.continueWindow`.
+- Path-only reads return content and page when necessary. Copy emitted continue inputs unchanged; never author private offsets.
 
 ## Campaigns
 

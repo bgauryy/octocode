@@ -1,5 +1,6 @@
 //! The last commit touching a read file, cached per immutable (owner, repo, SHA, path).
-use super::GhGetFileContentQuery;
+use super::access;
+use octocode_contract_types::GhGetFileContentQuery;
 use octocode_github::{GitHubProvider, RequestContext};
 
 /// Last commit touching `path` at `reference` (a resolved SHA), from the one
@@ -18,10 +19,10 @@ pub(super) async fn file_timestamp(
         use sha2::{Digest, Sha256};
         let mut digest = Sha256::new();
         for value in [
-            query.owner.to_ascii_lowercase().as_str(),
-            query.repo.to_ascii_lowercase().as_str(),
+            access::owner(query).to_ascii_lowercase().as_str(),
+            access::repo(query).to_ascii_lowercase().as_str(),
             reference,
-            query.path.as_str(),
+            access::path(query),
         ] {
             digest.update(value.as_bytes());
             digest.update([0]);
@@ -42,10 +43,10 @@ pub(super) async fn file_timestamp(
     let Ok(stamp) = provider
         .transport
         .path_last_commit(
-            query.owner.as_str(),
-            query.repo.as_str(),
+            access::owner(query),
+            access::repo(query),
             reference,
-            query.path.as_str(),
+            access::path(query),
             context,
         )
         .await

@@ -1,10 +1,11 @@
 use super::acquire::*;
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
+use crate::tools::source_view::local_fetch_query;
 use crate::tools::source_view::*;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
-/// One localFetch row; `selection` judges it under `clasifyContext`.
+/// One localFetch row; `selection` judges it under `classification`.
 pub fn execute_local_fetch(
     q: &LocalFetchQuery,
     paths: &impl PathAccess,
@@ -14,7 +15,11 @@ pub fn execute_local_fetch(
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> LocalFetchResult {
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(q.path.to_string(), ErrorCode::Cancelled, e);
+        return LocalFetchResult::error(
+            local_fetch_query::path(q).to_owned(),
+            ErrorCode::Cancelled,
+            e,
+        );
     }
     let (validated, file, meta) = match resolve_file(q, paths) {
         Ok(resolved) => resolved,
@@ -25,14 +30,18 @@ pub fn execute_local_fetch(
     // Past the whole-file ceiling, only a streamed line window is served
     // (see `large_source`); past the streaming ceiling nothing is read.
     if meta.len() > super::large_source::MAX_STREAM_SOURCE_BYTES {
-        return source_too_large(&q.path, meta.len(), SourceSizeLimit::Streaming);
+        return source_too_large(
+            local_fetch_query::path(q),
+            meta.len(),
+            SourceSizeLimit::Streaming,
+        );
     }
     let in_memory = meta.len() <= MAX_SOURCE_BYTES;
     let (file, sample) = match read_sample(file, meta.len(), in_memory) {
         Ok(opened) => opened,
         Err(error) => {
             return LocalFetchResult::error(
-                q.path.to_string(),
+                local_fetch_query::path(q).to_owned(),
                 ErrorCode::FileReadFailed,
                 error.to_string(),
             );
@@ -43,7 +52,7 @@ pub fn execute_local_fetch(
     }
     if !in_memory && octocode_engine::text::has_utf16_bom(&sample) {
         let mut result = LocalFetchResult::error(
-            q.path.to_string(),
+            local_fetch_query::path(q).to_owned(),
             ErrorCode::FileTooLarge,
             format!(
                 "BOM-marked UTF-16 sources require a bounded whole-file decode (limit: {MAX_SOURCE_BYTES} bytes); this source is {} bytes.",
@@ -51,7 +60,7 @@ pub fn execute_local_fetch(
             ),
         );
         result.source_bytes = Some(meta.len() as usize);
-        result.terminal_limit(PartialReason::FullContentSource);
+        result.terminal_limit(PartialReason::SourceSizeLimit);
         result.hints = vec!["Convert a copy to UTF-8 or split the source into smaller text files; line ranges do not lift this decoding limit.".into()];
         return result;
     }
@@ -63,12 +72,18 @@ pub fn execute_local_fetch(
     let bytes = match read_rest(file, sample, MAX_SOURCE_BYTES, cancel) {
         Ok(bytes) => bytes,
         Err(octocode_engine::text::ReadError::TooLarge(len)) => {
-            return source_too_large(&q.path, len, SourceSizeLimit::InMemoryGrowth);
+            return source_too_large(
+                local_fetch_query::path(q),
+                len,
+                SourceSizeLimit::InMemoryGrowth,
+            );
         }
-        Err(octocode_engine::text::ReadError::Io(error)) => return read_failure(&q.path, error),
+        Err(octocode_engine::text::ReadError::Io(error)) => {
+            return read_failure(local_fetch_query::path(q), error);
+        }
         Err(error @ octocode_engine::text::ReadError::NotRegular) => {
             return LocalFetchResult::error(
-                q.path.to_string(),
+                local_fetch_query::path(q).to_owned(),
                 ErrorCode::FileReadFailed,
                 error.to_string(),
             );
@@ -94,28 +109,34 @@ pub fn execute_local_fetch(
         cancel,
         selection,
     );
-    bind_continuation_to_source(&mut result);
-    name_read_file(&mut result, q, &validated);
+    if let Err(error) = bind_continuation_to_source(&mut result)
+        .and_then(|()| name_read_file(&mut result, q, &validated))
+    {
+        return LocalFetchResult::error(
+            local_fetch_query::path(q).to_owned(),
+            ErrorCode::ExecutionFailed,
+            error.to_string(),
+        );
+    }
     result
 }
 
 /// Bind pages and recovery of unread or unfiltered evidence to the captured
 /// file version, so they cannot silently read a different source.
 /// (Remote reads pin a commit SHA in their continuation instead.)
-fn bind_continuation_to_source(result: &mut LocalFetchResult) {
-    let snapshot = result
-        .source_sha256
-        .as_deref()
-        .and_then(|digest| digest.parse().ok());
+fn bind_continuation_to_source(
+    result: &mut LocalFetchResult,
+) -> Result<(), octocode_contract_types::error::ConversionError> {
+    let snapshot = result.source_sha256.as_deref();
     if let Some(next) = result.next.as_mut() {
         for read in next.reads_of_mut(ReadSource::Page) {
-            read.query.snapshot = snapshot.clone();
+            local_fetch_query::set_snapshot(&mut read.query, snapshot)?;
         }
         if let Some(digest) = result.source_sha256.as_deref() {
             for rows in next
                 .unfiltered_unknown_rest
                 .values_mut()
-                .filter_map(|call| call.pointer_mut("/query/queries"))
+                .filter_map(|call| call.pointer_mut("/input/queries"))
                 .filter_map(serde_json::Value::as_array_mut)
             {
                 for row in rows {
@@ -124,6 +145,7 @@ fn bind_continuation_to_source(result: &mut LocalFetchResult) {
             }
         }
     }
+    Ok(())
 }
 
 pub(super) fn system_time_iso(t: std::time::SystemTime) -> Option<String> {

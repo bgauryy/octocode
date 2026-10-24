@@ -1,5 +1,7 @@
 // Page behavior. Inlined into the HTML via Function#toString; reads #report-data. The page views
 // (document, widgets, diagrams, search) arrive in `views`, inlined the same way, and share `ctx`.
+/* oxlint-disable unicorn/consistent-function-scoping -- helpers must stay inside the serialized client */
+// oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
   const { esc, slugify } = kit;
   const $ = (s, r = document) => r.querySelector(s);
@@ -45,6 +47,7 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
     return editor === 'file' ? `file://${lead}${kit.encodePath(p)}` : `${editor}://file${lead}${kit.encodePath(p)}${line ? `:${line}` : ''}`;
   };
 
+  const flash = (el) => { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); };
   const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1600); };
   const copy = async (text, msg) => {
     try {
@@ -156,60 +159,69 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
     }
     if (slug) {
       const el = document.getElementById(slug);
-      if (el) { el.scrollIntoView(); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+      if (el) { el.scrollIntoView(); flash(el); }
     }
     if (pendingTerm) { highlightTerm(art, pendingTerm); pendingTerm = ''; }
   }
 
   // ----- Global interactions -----
-  document.addEventListener('click', (e) => {
-    if (e.target.closest('a.skip')) { e.preventDefault(); $('#page').focus(); return; }
-    if (!e.target.closest('.search')) results.classList.remove('open');
+  // Links inside the page: section anchors, jumps, scroll targets, and rail tabs.
+  function navClick(e) {
     const anchor = e.target.closest('a.anchor');
-    if (anchor) { e.preventDefault(); history.replaceState(null, '', anchor.getAttribute('href')); copy(location.href, 'Link copied'); return; }
+    if (anchor) { e.preventDefault(); history.replaceState(null, '', anchor.getAttribute('href')); void copy(location.href, 'Link copied'); return true; }
     const jump = e.target.closest('[data-jump]');
     if (jump) {
       e.preventDefault();
       const el = document.getElementById(jump.dataset.jump);
-      if (el) { el.scrollIntoView({ block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
-      return;
+      if (el) { el.scrollIntoView({ block: 'center' }); flash(el); }
+      return true;
     }
     const scroll = e.target.closest('[data-scroll]');
-    if (scroll) { e.preventDefault(); document.getElementById(scroll.dataset.scroll)?.scrollIntoView(); return; }
+    if (scroll) { e.preventDefault(); document.getElementById(scroll.dataset.scroll)?.scrollIntoView(); return true; }
     const tab = e.target.closest('[data-tab]');
-    if (tab) {
-      $$('[data-tab]').forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
-      $$('.rail-panel').forEach((p) => { p.hidden = p.id !== tab.dataset.tab; });
-      return;
-    }
-    const act = e.target.closest('[data-act]');
-    if (!act) return;
-    const fig = act.closest('.diagram');
-    if (act.dataset.act === 'copy-sources') copy(sources().map((s) => `- [${s.label.replace(/[[\]]/g, '')}](${s.kind === 'web' ? s.key : `${data.workspace}/${s.key}`})`).join('\n'), 'Sources copied');
-    if (act.dataset.act === 'copy' && fig) copy(fig.dataset.src, 'Diagram source copied');
-    if (act.dataset.act === 'src' && fig) {
-      const pre = $('pre', fig), canvas = $('.canvas', fig), showSrc = pre.hidden;
-      if (!$('svg', canvas)) { pre.hidden = false; canvas.hidden = true; act.setAttribute('aria-pressed', 'true'); toast('Diagram unavailable; source is shown'); return; }
-      pre.hidden = !showSrc;
-      canvas.hidden = showSrc || !$('svg', canvas);
-      act.textContent = showSrc ? 'Show diagram' : 'Show source';
-      act.setAttribute('aria-pressed', String(showSrc));
-    }
-    if (act.dataset.act === 'download' && fig) {
-      const svg = $('.canvas svg', fig);
-      if (!svg) return;
-      const clone = svg.cloneNode(true);
-      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' }));
-      const link = Object.assign(document.createElement('a'), { href: url, download: `diagram-${slugify(diagramLabel(fig.dataset.src))}.svg` });
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-    if (act.dataset.act === 'zoom' && fig) {
+    if (!tab) return false;
+    $$('[data-tab]').forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
+    $$('.rail-panel').forEach((p) => { p.hidden = p.id !== tab.dataset.tab; });
+    return true;
+  }
+  function toggleSource(act, fig) {
+    const pre = $('pre', fig), canvas = $('.canvas', fig), showSrc = pre.hidden;
+    if (!$('svg', canvas)) { pre.hidden = false; canvas.hidden = true; act.setAttribute('aria-pressed', 'true'); toast('Diagram unavailable; source is shown'); return; }
+    pre.hidden = !showSrc;
+    canvas.hidden = showSrc || !$('svg', canvas);
+    act.textContent = showSrc ? 'Show diagram' : 'Show source';
+    act.setAttribute('aria-pressed', String(showSrc));
+  }
+  function downloadSvg(fig) {
+    const svg = $('.canvas svg', fig);
+    if (!svg) return;
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' }));
+    const link = Object.assign(document.createElement('a'), { href: url, download: `diagram-${slugify(diagramLabel(fig.dataset.src))}.svg` });
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  // A [data-act] button: copy the sources list, or act on its diagram.
+  function actClick(act) {
+    const kind = act.dataset.act, fig = act.closest('.diagram');
+    if (kind === 'copy-sources') void copy(sources().map((s) => `- [${s.label.replace(/[[\]]/g, '')}](${s.kind === 'web' ? s.key : `${data.workspace}/${s.key}`})`).join('\n'), 'Sources copied');
+    if (!fig) return;
+    if (kind === 'copy') void copy(fig.dataset.src, 'Diagram source copied');
+    if (kind === 'src') toggleSource(act, fig);
+    if (kind === 'download') downloadSvg(fig);
+    if (kind === 'zoom') {
       const svg = $('.canvas svg', fig);
       if (!svg) { toast('Nothing to expand'); return; }
       openDiagram(svg, act);
     }
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('a.skip')) { e.preventDefault(); $('#page').focus(); return; }
+    if (!e.target.closest('.search')) results.classList.remove('open');
+    if (navClick(e)) return;
+    const act = e.target.closest('[data-act]');
+    if (act) actClick(act);
   });
   $('#editor').addEventListener('change', (e) => {
     editor = e.target.value;
@@ -221,7 +233,7 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
   $('#theme').addEventListener('click', () => {
     setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
     const art = $('#page');
-    if (art.dataset.path) { art.dataset.path = '-'; show(); }
+    if (art.dataset.path) { art.dataset.path = '-'; void show(); }
   });
   let printDetails = [];
   addEventListener('beforeprint', () => { printDetails = $$('.data-widget details').filter(el=>!el.open); printDetails.forEach(el=>{el.open=true;}); });
@@ -229,20 +241,16 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
   $('#print').addEventListener('click', () => print());
   $('#menu').addEventListener('click', () => document.body.classList.toggle('menu'));
   $('#site-title').addEventListener('click', () => { location.hash = '#/'; });
-  document.addEventListener('keydown', (e) => {
-    if ($('#render-check').open) return;
-    if (modal.open) {
-      if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
-      const p = expanded()?.panzoom;
-      if (p && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const actions = { '+': () => p.zoomIn(), '=': () => p.zoomIn(), '-': () => p.zoomOut(), '0': fitDiagram,
-          ArrowLeft: () => p.pan(40, 0, { relative: true }), ArrowRight: () => p.pan(-40, 0, { relative: true }),
-          ArrowUp: () => p.pan(0, 40, { relative: true }), ArrowDown: () => p.pan(0, -40, { relative: true }) };
-        if (actions[e.key]) { e.preventDefault(); actions[e.key](); }
-      }
-      return;
-    }
-    if (e.metaKey || e.ctrlKey || e.altKey || /input|textarea|select/i.test(e.target.tagName)) return;
+  function modalKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+    const p = expanded()?.panzoom;
+    if (!p || e.ctrlKey || e.metaKey || e.altKey) return;
+    const actions = { '+': () => p.zoomIn(), '=': () => p.zoomIn(), '-': () => p.zoomOut(), '0': fitDiagram,
+      ArrowLeft: () => p.pan(40, 0, { relative: true }), ArrowRight: () => p.pan(-40, 0, { relative: true }),
+      ArrowUp: () => p.pan(0, 40, { relative: true }), ArrowDown: () => p.pan(0, -40, { relative: true }) };
+    if (actions[e.key]) { e.preventDefault(); actions[e.key](); }
+  }
+  function pageKey(e) {
     const cur = parseHash().path || home;
     const i = files.findIndex((f) => f.path === cur);
     if (e.key === '/') { e.preventDefault(); q.focus(); q.select(); }
@@ -251,6 +259,12 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
     else if (e.key === '[' && library) location.hash = i > 0 ? href(files[i - 1].path) : '#/';
     else if (e.key === 'g' && library) location.hash = '#/';
     else if (e.key === 't') $('#theme').click();
+  }
+  document.addEventListener('keydown', (e) => {
+    if ($('#render-check').open) return;
+    if (modal.open) { modalKey(e); return; }
+    if (e.metaKey || e.ctrlKey || e.altKey || /input|textarea|select/i.test(e.target.tagName)) return;
+    pageKey(e);
   });
   addEventListener('scroll', () => {
     const max = document.documentElement.scrollHeight - innerHeight;
@@ -269,9 +283,10 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
     const result = renderStatus();
     checkOutput.textContent = result.state === 'ready' ? `Ready: ${result.total} visuals loaded. Check readability and links before sharing.` : `${result.state === 'failed' ? 'Failed' : 'Pending'}: ${result.failed} failed, ${result.pending} pending of ${result.total}. ${result.items.filter(x=>x.state==='failed').map(x=>x.title).join('; ')}. Review the source/error messages; reload after correcting content or connectivity.`;
   };
-  $('#verify-render').onclick = () => { $$('img', $('#page')).forEach(img=>{img.loading='eager';}); updateCheck(); checkDialog.showModal(); checkTimer=setInterval(updateCheck,500); };
-  $('#render-check-close').onclick = () => checkDialog.close();
+  $('#verify-render').addEventListener('click', () => { $$('img', $('#page')).forEach(img=>{img.loading='eager';}); updateCheck(); checkDialog.showModal(); checkTimer=setInterval(updateCheck,500); });
+  $('#render-check-close').addEventListener('click', () => checkDialog.close());
   checkDialog.addEventListener('close',()=>{clearInterval(checkTimer);$('#verify-render').focus();});
+  // oxlint-disable-next-line no-underscore-dangle -- page global that browser automation reads; renaming breaks callers
   window.__octocodeReport = { files, parse: kit.parse, slugify, renderStatus };
-  show();
+  void show();
 }

@@ -86,7 +86,7 @@ fn opencode_prefers_plain_json_and_falls_back_to_an_existing_jsonc() {
 
 #[test]
 fn home_path_is_rooted_in_the_user_home_directory() {
-    let Some(home) = octocode_io::env::home_dir() else {
+    let Some(home) = std::env::home_dir() else {
         return;
     };
     assert_eq!(

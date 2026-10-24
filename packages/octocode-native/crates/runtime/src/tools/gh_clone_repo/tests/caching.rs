@@ -76,7 +76,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     let sparse = clone_pinned(
         &fixture,
         &GhCloneRepoQuery {
-            path: Some(one("src")),
+            paths: one("src"),
             ..query()
         },
         &context,
@@ -110,7 +110,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
         &fixture,
         &GhCloneRepoQuery {
             ref_: Some(reference(&fixture.first_commit)),
-            path: Some(one("src")),
+            paths: one("src"),
             ..query()
         },
         &context,
@@ -131,7 +131,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     let seen = runner
         .seen
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     test_support::checks::assert_absent(&serde_json::json!(*seen), "fixture-token");
     assert!(seen.iter().any(|value| value.contains("[REDACTED]")));
 }

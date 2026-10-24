@@ -33,8 +33,8 @@ test('native Octocode can search the hinted capture scope and fetch exact eviden
     const scope = {
       ...result.search,
       path: result.search.paths[0],
-      matchString: 'Needle',
-      regex: 'literal',
+      matchString: ['Needle'],
+      regexEngine: 'literal',
     };
     delete scope.paths;
     const found = spawnSync(
@@ -46,11 +46,7 @@ test('native Octocode can search the hinted capture scope and fetch exact eviden
     assert.match(found.stdout, /Needle in captured web content/);
     const read = spawnSync(
       process.execPath,
-      [
-        octo,
-        'localFetch',
-        JSON.stringify({ queries: [{ path: file, length: 20 }] }),
-      ],
+      [octo, 'localFetch', JSON.stringify({ queries: [{ path: file }] })],
       { cwd: work, encoding: 'utf8' }
     );
     assert.equal(read.status, 0, read.stderr + read.stdout);

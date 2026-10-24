@@ -1,12 +1,11 @@
 use super::http::{JSON, RegistryClient};
 use super::util::{endpoint, object_for, parse_url, required, rows, string, total};
 use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactType, TerminalLimit,
+    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, TerminalLimit,
 };
 use crate::num::usize_of;
-use crate::providers::artifact::types::artifact_search_query;
-use octocode_contract_types::ErrorCode;
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 /// Compile-once XML/coordinate patterns. `maven-metadata.xml` and POM parsing
 /// run per lookup; compiling these constant patterns on every call (and once
 /// per extracted tag in the old `field` closure) was pure waste.
@@ -92,11 +91,10 @@ pub(crate) async fn maven(
 
 /// Central's search answers no row for any `start` past 0 while it still
 /// counts every match (`q=yaml&start=20` → numFound 87, 0 docs), but one
-/// answer serves up to the contract's `pageSize` maximum of rows
+/// answer serves at most 100 rows
 /// (`rows=100` → all 87; measured 2026-10-16): the rows a discovery reaches
 /// end here.
-pub(super) const REACHABLE_END: u64 =
-    crate::contracts::query_limits::artifact_search::PAGE_SIZE_MAXIMUM as u64;
+pub(super) const REACHABLE_END: u64 = 100;
 
 /// Keyword terms as a Central search query: the words ANDed, or the
 /// artifactId they spell hyphen-joined (`jackson databind` finds
@@ -177,7 +175,7 @@ async fn exact(
                 .collect::<Vec<_>>();
             if !published.iter().any(|version| version == wanted) {
                 return Err(super::versions::version_not_found(
-                    &artifact.name,
+                    &artifact.package_name,
                     wanted,
                     &published,
                 ));
@@ -223,7 +221,7 @@ fn group_path(group: &str) -> String {
 /// A POM that is missing or names no SCM leaves the row without one.
 async fn discovery_repositories(artifacts: &mut [ArtifactItem], client: &RegistryClient<'_>) {
     let found = futures_util::future::join_all(artifacts.iter().map(|artifact| async move {
-        let (group, name) = artifact.name.split_once(':')?;
+        let (group, name) = artifact.package_name.split_once(':')?;
         let version = artifact.version.as_deref()?;
         read_pom(&group_path(group), name, version, client)
             .await

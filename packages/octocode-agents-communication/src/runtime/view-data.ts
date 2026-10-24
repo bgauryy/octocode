@@ -2,7 +2,7 @@
 import { query, type Row, type SqlValue } from './database.js';
 import type { RecordEnvelope } from './catalog-types.generated.js';
 import { ValidationError } from './errors.js';
-import { SELECT as RECORD_SELECT, envelope } from './records.js';
+import { RECORD_SELECT, envelope } from './records.js';
 import type { StoreHost } from './store-types.js';
 import { now } from './timing.js';
 import { isObject, isUuid, jsonEqual, type Json } from './validation.js';

@@ -1,19 +1,11 @@
 //! astSearch's answers to the shared response stages.
 
-use crate::response::output::{PathAnchor, ToolOutput};
+use crate::response::output::ToolOutput;
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 pub(crate) struct Output;
 impl ToolOutput for Output {
-    fn fallback_hint(&self, query: &Value) -> &'static str {
-        // A pattern must parse as one complete node of the target grammar.
-        if query["operation"] == "match" && query["pattern"].is_string() {
-            crate::tools::ast_rule::PATTERN_SHAPE_HINT
-        } else {
-            "Broaden the syntax/name query, path, or filters."
-        }
-    }
     fn error_hint(&self, code: ErrorCode, _query: &Value) -> Option<&'static str> {
         Some(match code {
             ErrorCode::InvalidPattern => crate::tools::ast_rule::INVALID_PATTERN_HINT,
@@ -21,49 +13,28 @@ impl ToolOutput for Output {
             // when a literal was searched) are the whole answer.
             ErrorCode::FileTooLarge => crate::response::output::NO_HINT,
             ErrorCode::LanguageRequired | ErrorCode::LanguageUnsupported => {
-                "Set language to the grammar of the source files (e.g. \"typescript\", \"rust\")."
+                "Set parser to the grammar of the source files (e.g. \"typescript\", \"rust\")."
             }
             // The message names the file's own grammar and both repairs.
             ErrorCode::LanguageMismatch => crate::response::output::NO_HINT,
             ErrorCode::SymbolsUnsupported => {
-                "Set language (a file) or languageGlobs (a directory) to the grammar the source is written in."
+                "Set parser (a file) or parserGlobs (a directory) to the grammar the source is written in."
             }
             ErrorCode::LanguageFileRequired => {
-                "For a directory, drop language: each extension picks its grammar; languageGlobs overrides (e.g. {cpp:[\"**/*.h\"]})."
+                "For a directory, drop parser: each extension picks its grammar; parserGlobs overrides (e.g. {cpp:[\"**/*.h\"]})."
             }
             ErrorCode::LanguageDirectoryRequired => {
-                "For a single file, use language instead of languageGlobs."
+                "For a single file, use parser instead of parserGlobs."
             }
             _ => return None,
         })
     }
-    fn evidence_kind(&self, query: &Value, _data: &Value) -> &'static str {
-        if query["operation"] == "match" {
-            "structural"
-        } else {
-            "syntactic"
-        }
-    }
-    fn path_anchor(&self) -> PathAnchor {
-        PathAnchor::QueryParent
-    }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::id::ToolId;
-    use serde_json::json;
-
-    #[test]
-    fn empty_pattern_match_hints_at_complete_nodes() {
-        let pattern = json!({"operation": "match", "pattern": "const $A = $B"});
-        let hint = ToolId::AstSearch.output().fallback_hint(&pattern);
-        assert!(hint.contains("whole nodes"), "{hint}");
-        assert!(hint.contains("syntaxTree"), "{hint}");
-        let rule = json!({"operation": "match", "rule": "id: x"});
-        assert_eq!(
-            ToolId::AstSearch.output().fallback_hint(&rule),
-            "Broaden the syntax/name query, path, or filters."
-        );
+/// Publish explicitly typed producer calls in their canonical channels.
+pub(super) fn finish(mut data: Value) -> Value {
+    if let Some(calls) = data.as_object_mut().and_then(|row| row.remove("calls")) {
+        crate::response::result::attach_calls(&mut data, calls);
     }
+    data
 }

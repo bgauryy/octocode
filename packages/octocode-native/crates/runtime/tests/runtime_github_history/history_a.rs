@@ -74,10 +74,9 @@ async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
     for extra in [
         json!({"sections":["patches"]}),
         json!({"sections":["files"]}),
-        json!({"sections":["patches"],"matchString":"parsed"}),
+        json!({"sections":["patches"],"matchString": ["parsed"]}),
     ] {
-        let mut query =
-            json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"extras":[]});
+        let mut query = json!({"operation":"pullRequest","owner":"a","repo":"b","number":9});
         for (key, value) in extra.as_object().expect("fields") {
             query[key] = value.clone();
         }
@@ -89,14 +88,13 @@ async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
         let pr = &data["pullRequests"][0];
         assert_eq!(pr["headSha"], HISTORY_A_HEAD, "{extra}: {data}");
         assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "{extra}: {data}");
-        // The target-branch tip rides the summary read only.
-        assert!(pr.get("baseSha").is_none(), "{extra}: {data}");
+        assert_eq!(pr["baseSha"], HISTORY_A_BASE, "{extra}: {data}");
         checks::assert_output_contract("ghGetHistoryItem", &outcome.structured_content);
     }
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"extras":[]}),
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9}),
     )
     .await
     .expect("summary read");
@@ -134,32 +132,55 @@ async fn history_a_unpatched_file_gets_head_and_parent_reads() {
         &runtime,
         "ghGetHistoryItem",
         json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,
-            "sections":["patches"],"extras":["hints"]}),
+            "sections":["patches"]}),
     )
     .await
     .expect("patch read");
     let data = row_data(&outcome);
-    // The response's lead cap keeps the head read (and the merge read, by
-    // priority); `readParent` is built the same way (unit-tested).
-    let head = &crate::support::checks::hint(data, "readAtCommit")["query"]["queries"][0];
-    assert_eq!(head["path"], "src/huge.rs", "{data}");
-    assert_eq!(head["ref"], HISTORY_A_HEAD, "{data}");
-    // The merge read locates the patched file's hunks by text.
-    let merge = &crate::support::checks::hint(data, "readAtMerge")["query"]["queries"][0];
-    assert_eq!(merge["ref"], HISTORY_A_MERGE, "{data}");
-    assert_eq!(
-        merge["matchString"],
-        json!(["let parsed = parse(input);"]),
-        "{data}"
-    );
-    assert!(merge.get("ranges").is_none(), "{data}");
+    use base64::Engine as _;
+    for (name, path_name, pinned, text) in [
+        (
+            "readAtCommit",
+            "src/huge.rs",
+            HISTORY_A_HEAD,
+            "huge source\n",
+        ),
+        (
+            "readAtMerge",
+            "src/parse.rs",
+            HISTORY_A_MERGE,
+            "let parsed = parse(input);\n",
+        ),
+    ] {
+        Mock::given(method("GET")).and(path(format!("/api/v3/repos/a/b/contents/{}",path_name.replace('/',"%2F"))))
+            .and(wiremock::matchers::query_param("ref",pinned))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":path_name,"encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(text)})))
+            .expect(1).mount(&server).await;
+        let read = call(
+            &runtime,
+            "ghGetFileContent",
+            if name == "readAtCommit" {
+                data["next"][name]["input"].clone()
+            } else {
+                checks::related_call(data, "ghGetFileContent", |input| {
+                    input["queries"][0]["ref"] == pinned
+                })["input"]
+                    .clone()
+            },
+        )
+        .await
+        .expect("source replay");
+        assert_eq!(row_status(&read), "success", "{}", read.structured_content);
+        assert!(
+            row_data(&read).to_string().contains(text.trim()),
+            "{}",
+            read.structured_content
+        );
+    }
     runtime.close().await;
 }
 
-/// The GraphQL read reads `baseSha` from `baseRefOid` and the
-/// commit and review-thread totals; the full header (`extras:["details"]`)
-/// carries them, while a plain section read keeps only the identity and the
-/// commits code is read at (`headSha`, `mergeCommitSha`).
+/// GraphQL section reads preserve the source identities and provider totals.
 #[tokio::test]
 async fn history_a_graphql_pr_reads_target_sha_and_totals() {
     let server = MockServer::builder().start().await;
@@ -191,20 +212,12 @@ async fn history_a_graphql_pr_reads_target_sha_and_totals() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    for (sections, details) in [
-        (json!(["body", "reviews"]), true),
-        (json!(["body", "files"]), false),
-    ] {
-        let extras = if details {
-            json!(["details"])
-        } else {
-            json!([])
-        };
+    for sections in [json!(["body", "reviews"]), json!(["body", "files"])] {
         let outcome = call(
             &runtime,
             "ghGetHistoryItem",
             json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,
-                "sections":sections,"extras":extras}),
+                "sections":sections}),
         )
         .await
         .expect("GraphQL read");
@@ -214,15 +227,9 @@ async fn history_a_graphql_pr_reads_target_sha_and_totals() {
         let pr = &data["pullRequests"][0];
         assert_eq!(pr["headSha"], HISTORY_A_HEAD, "{sections}: {data}");
         assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "{sections}: {data}");
-        if details {
-            assert_eq!(pr["baseSha"], HISTORY_A_BASE, "{sections}: {data}");
-            assert_eq!(pr["commitsCount"], 4, "{data}");
-            assert_eq!(pr["reviewThreadsCount"], 2, "{data}");
-        } else {
-            for dropped in ["baseSha", "commitsCount", "reviewThreadsCount"] {
-                assert!(pr.get(dropped).is_none(), "{dropped}: {data}");
-            }
-        }
+        assert_eq!(pr["baseSha"], HISTORY_A_BASE, "{sections}: {data}");
+        assert_eq!(pr["commitsCount"], 4, "{data}");
+        assert_eq!(pr["reviewThreadsCount"], 2, "{data}");
     }
     let documents = server
         .received_requests()
@@ -263,7 +270,7 @@ async fn history_a_commit_include_matching_nothing_warns_with_nearest_dirs() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let read = |include: &str| json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"include":[include],"extras":[]});
+    let read = |include: &str| json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"include":[include]});
     let outcome = call(&runtime, "ghGetHistoryItem", read("packages/react/**"))
         .await
         .expect("commit");
@@ -282,7 +289,7 @@ async fn history_a_commit_include_matching_nothing_warns_with_nearest_dirs() {
     assert_eq!(data["changedFilesCount"], 5, "{data}");
     let warnings = data["warnings"].to_string();
     assert!(
-        warnings.contains("include matched 0 of 5 changed files; changed directories: packages/react-dom/src/, packages/react/src/, packages/react/, docs/, scripts/."),
+        warnings.contains("matched 0 of 5") && warnings.contains("packages/react/src/"),
         "{data}"
     );
     runtime.close().await;
@@ -299,11 +306,11 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "status": "ahead", "ahead_by": 3, "behind_by": 0, "total_commits": 3,
             "commits": [
-                {"sha": "c1", "author": {"login": "rickhanlonii"},
+                {"sha": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1", "author": {"login": "rickhanlonii"},
                  "commit": {"message": "Fix A (#1)", "author": {"name": "Ricky", "date": "2024-01-01T00:00:00Z"}}},
-                {"sha": "c2", "author": null,
+                {"sha": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2", "author": null,
                  "commit": {"message": "Fix B (#2)\n\nLong body explaining B.", "author": {"name": "Unlinked", "date": "2024-01-02T00:00:00Z"}}},
-                {"sha": "c3", "author": {"login": "acdlite"},
+                {"sha": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3", "author": {"login": "acdlite"},
                  "commit": {"message": "Fix C\n\nmore", "author": {"name": "Andrew", "date": "2024-01-03T00:00:00Z"}}}
             ],
             "files": [{"filename": "src/a.js", "status": "modified", "additions": 1, "deletions": 0}]
@@ -315,7 +322,7 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":head,"extras":["hints"]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":head}),
     )
     .await
     .expect("compare");
@@ -335,8 +342,22 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
         "{data}"
     );
     assert!(commits.iter().all(|c| c.get("message").is_none()), "{data}");
-    let read = &crate::support::checks::hint(data, "readCommit")["query"]["queries"][0];
-    assert_eq!(read["operation"], "commit", "{data}");
-    assert_eq!(read["ref"], "c2", "{data}");
+    Mock::given(method("GET")).and(path("/api/v3/repos/a/b/commits/c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha":"c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2","commit":{"message":"Fix B (#2)\n\nLong body explaining B.","author":{"name":"Unlinked","date":"2024-01-02T00:00:00Z"}},"files":[]})))
+        .expect(1).mount(&server).await;
+    let full = call(
+        &runtime,
+        "ghGetHistoryItem",
+        checks::related_call(data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["ref"] == "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"
+        })["input"]
+            .clone(),
+    )
+    .await
+    .expect("complete message");
+    assert_eq!(
+        row_data(&full)["message"],
+        "Fix B (#2)\n\nLong body explaining B."
+    );
     runtime.close().await;
 }

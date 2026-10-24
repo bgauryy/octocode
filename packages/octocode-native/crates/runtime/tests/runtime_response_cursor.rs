@@ -1,7 +1,4 @@
-//! Whole-response pages are reached by one opaque cursor: a client that
-//! copies only `responsePagination.next.query.responseSnapshot` (the one
-//! continuation field an MCP client's published schema offers) walks every
-//! page of every scope, and the walk reproduces the unpaged response.
+//! MCP response pages are reached by copying one opaque cursor input.
 
 use crate::support::{self, Run as _, Workspace};
 use serde_json::{Value, json};
@@ -32,7 +29,7 @@ async fn walk(
         assert_ne!(result["isError"], true, "{result}");
         let pagination = result["structuredContent"]["responsePagination"].clone();
         if !pages.is_empty() || pagination.is_object() {
-            assert_eq!(pagination["currentPage"], pages.len() + 1, "{pagination}");
+            assert_eq!(pagination["page"], pages.len() + 1, "{pagination}");
             assert_ne!(pagination["restart"], true, "{pagination}");
         }
         if let Some(first) = pages.first() {
@@ -49,11 +46,11 @@ async fn walk(
             break;
         }
         assert!(pages.len() < 200, "the walk terminates");
-        let next = pagination["next"]["query"].clone();
+        let next = pagination["next"]["input"].clone();
         support::assert_cursor_only(&next);
         octocode_native::contracts::validate(tool, next.clone()).expect("canonical cursor");
         // Exactly what an MCP client sends: the cursor field and nothing else.
-        request = json!({"responseSnapshot": next["responseSnapshot"].clone()});
+        request = next;
     }
     pages
 }
@@ -69,16 +66,16 @@ fn captured(value: &Value, found: &mut Vec<String>) {
 }
 
 #[tokio::test]
-async fn every_scope_walks_every_page_following_only_the_cursor() {
+async fn mcp_walks_every_captured_line_following_only_the_cursor() {
     let workspace = Workspace::new();
     let file = workspace.write("cursor.txt", source());
     let runtime = workspace.runtime(&[]);
-    let queries = json!([{"path": file, "matchString": "needle", "pageSize": LINES}]);
+    let queries = json!([{"path": file, "matchString": ["needle"]}]);
     let whole = runtime
         .run_mcp(
             "whole".into(),
             "localSearch".into(),
-            json!({"queries": queries, "responseLength": 50_000}),
+            json!({"queries": queries, "responseChars": 50_000}),
         )
         .await
         .expect("unpaged");
@@ -92,28 +89,10 @@ async fn every_scope_walks_every_page_following_only_the_cursor() {
     let pages = walk(
         &runtime,
         "localSearch",
-        json!({"queries": queries, "responseLength": 900, "responseScope": "structured"}),
+        json!({"queries":queries,"responseChars":900}),
     )
     .await;
-    assert!(pages.len() > 2, "structured: the response pages");
-    let joined: String = pages
-        .iter()
-        .map(|page| {
-            page["structuredContent"]["responseWindow"]
-                .as_str()
-                .expect("window")
-        })
-        .collect();
-    let envelope: Value = serde_json::from_str(&joined).expect("the windows join into JSON");
-    assert_eq!(envelope["results"], whole["results"], "structured");
-
-    let pages = walk(
-        &runtime,
-        "localSearch",
-        json!({"queries": queries, "responseLength": 900, "responseScope": "rows"}),
-    )
-    .await;
-    assert!(pages.len() > 2, "rows: the response pages");
+    assert!(pages.len() > 2, "the fixture spans response pages");
     let mut seen = Vec::new();
     for page in &pages {
         captured(&page["structuredContent"]["results"], &mut seen);
@@ -130,13 +109,13 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
     let workspace = Workspace::new();
     let file = workspace.write("cursor.txt", source());
     let env = [("OCTOCODE_STORAGE_MODE", "persistent".into())];
-    let queries = json!([{"path": file, "matchString": "needle", "pageSize": LINES}]);
+    let queries = json!([{"path": file, "matchString": ["needle"]}]);
     let runtime = workspace.runtime(&env);
     let first = runtime
         .run_mcp(
             "first".into(),
             "localSearch".into(),
-            json!({"queries": queries, "responseLength": 900}),
+            json!({"queries": queries, "responseChars": 900}),
         )
         .await
         .expect("first page");
@@ -145,16 +124,18 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
     let mut seen = Vec::new();
     captured(&first["structuredContent"]["results"], &mut seen);
     let mut pagination = first["structuredContent"]["responsePagination"].clone();
-    assert_eq!(pagination["scope"], "rows", "{pagination}");
     let total = pagination["totalPages"].clone();
+    let mut pages = 1;
     while pagination["hasMore"] == true {
-        support::assert_cursor_only(&pagination["next"]["query"]);
+        pages += 1;
+        assert!(pages < 200, "finite persistent page walk");
+        support::assert_cursor_only(&pagination["next"]["input"]);
         let runtime = workspace.runtime(&env);
         let page = runtime
             .run_mcp(
                 "later".into(),
                 "localSearch".into(),
-                json!({"responseSnapshot": pagination["next"]["query"]["responseSnapshot"]}),
+                pagination["next"]["input"].clone(),
             )
             .await
             .expect("saved page");

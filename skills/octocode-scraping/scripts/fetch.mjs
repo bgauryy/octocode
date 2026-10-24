@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseConfig } from './lib/args.mjs';
-import { fail } from './lib/fail.mjs';
+import { errorMessage, fail } from './lib/fail.mjs';
 import { discoverSitemap, fetchRobotsPolicy, sleep } from './lib/client.mjs';
 import { initCorpus, writePage, writeSession } from './lib/corpus.mjs';
 import { resolvedUrlProblem } from './lib/net-guard.mjs';
@@ -13,7 +13,7 @@ let config;
 try {
   config = parseConfig(process.argv.slice(2));
 } catch (error) {
-  fail('invalidArguments', error instanceof Error ? error.message : String(error), 2);
+  fail('invalidArguments', errorMessage(error), 2);
 }
 
 // Reusing a populated session without --append would restart pageIds at
@@ -22,10 +22,11 @@ try {
 const priorSessionDir = join(config.outBase, config.sessionId);
 const priorSourcesPath = join(priorSessionDir, 'sources.jsonl');
 const pendingDir = join(priorSessionDir, '.pending');
-let priorSources = [], recovered = [];
+let priorSources = [];
+const recovered = [];
 try {
   if (existsSync(pendingDir)) {
-    for (const file of (await readdir(pendingDir)).filter(name => /^page-\d+\.json$/.test(name)).sort()) {
+    for (const file of (await readdir(pendingDir)).filter(name => /^page-\d+\.json$/.test(name)).toSorted()) {
       const page = JSON.parse(await readFile(join(pendingDir, file), 'utf8'));
       if (page.sourceRow?.pageId + '.json' !== file || page.pageMap?.pageId !== page.sourceRow.pageId ||
           !['links', 'headings', 'elements', 'resources'].every(key => Array.isArray(page[key]))) throw Error('Invalid page checkpoint ' + file);
@@ -56,11 +57,11 @@ if (config.provider === 'auto') {
   try {
     config.provider = autoSelectProvider(config.mode, process.env);
   } catch (error) {
-    fail('invalidArguments', error instanceof Error ? error.message : String(error), 2);
+    fail('invalidArguments', errorMessage(error), 2);
   }
 }
 
-let provider = resolveProvider(config.provider);
+const provider = resolveProvider(config.provider);
 // Sync deferred fields so corpus.mjs (manifest.json) records the real provider metadata.
 config.apiKeyEnv = provider.apiKeyEnv;
 config.requiresApiKey = provider.requiresApiKey;
@@ -101,7 +102,7 @@ function enqueue(href) {
     const key = crawlKey(next.href);
     if (!/^https?:$/.test(next.protocol) || seen.has(key) || queued.has(key)) return true;
     if (config.spanHosts || next.hostname === new URL(config.targetUrl).hostname) { queued.add(key); queue.push(next.href); }
-  } catch {}
+  } catch { /* not a URL: nothing to queue */ }
   return true;
 }
 
@@ -175,7 +176,7 @@ while (queue.length && pageIndex < config.maxPages) {
   const pageId = `page-${String(pageNumber).padStart(3, '0')}`;
   const response = await provider.fetch({ url, pageId, config, apiKey });
   for (const blocked of response.refusedRequests || []) refused.push({ url: blocked, reason: `browser request from ${pageId} to a private, local, or link-local host` });
-  const written = await writePage({ sessionDir, config, response, pageIndex: pageNumber });
+  const written = await writePage({ sessionDir, config, response });
   sources.push(written.sourceRow);
   pageMaps.push(written.pageMap);
   linksAll.push(...written.links);

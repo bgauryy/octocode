@@ -7,7 +7,7 @@ use crate::id::ToolId;
 use crate::providers::classification::gate::call_cap;
 use crate::response::result::Continuation;
 use crate::tools::judgment::stats::ClassificationUsage;
-use crate::tools::judgment::{ClassificationError, EvaluationInput};
+use crate::tools::judgment::{ClassificationError, EvaluationInput, QuestionOutcomes};
 use crate::tools::source_capture::SourceReader;
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::ErrorCode;
@@ -67,22 +67,11 @@ pub(super) fn assess_and_save(
         .iter()
         .map(|key| session.questions[key].clone())
         .collect();
+    let questions =
+        super::super::rows::contextual_questions(&questions, session.context.as_deref());
     let mut usage = ClassificationUsage::default();
     let mut settled = settle_unsupported(session, shared.limits);
-    let mut admitted = Vec::new();
-    let mut deferred_by_sibling = false;
-    'resources: for (resource_index, resource) in session.resources.iter_mut().enumerate() {
-        for (unit_index, unit) in resource.units.iter_mut().enumerate() {
-            if unit.cells.iter().all(Option::is_some) {
-                continue;
-            }
-            if !shared.admit(unit.chars) {
-                deferred_by_sibling = admitted.is_empty() && shared.has_admissions();
-                break 'resources;
-            }
-            admitted.push([resource_index, unit_index]);
-        }
-    }
+    let (admitted, deferred_by_sibling) = admit_units(session, shared);
     session.active = admitted.clone();
     if runtime.can_resume
         && !admitted.is_empty()
@@ -144,7 +133,95 @@ pub(super) fn assess_and_save(
         )
     };
     results.sort_unstable_by_key(|(position, _)| *position);
-    for ((&[resource, unit], pending), (_, result)) in admitted.iter().zip(pending).zip(results) {
+    settled += apply_results(
+        session,
+        &admitted,
+        pending,
+        results.into_iter().map(|(_, result)| result),
+        &mut usage,
+    );
+    session.active.clear();
+    let remaining = pending_cost(session).0;
+    if remaining > 0 && (!runtime.can_resume || (settled == 0 && !deferred_by_sibling)) {
+        return Ok(terminal_saved(
+            session,
+            if runtime.can_resume {
+                "This assessment batch made no progress before its execution budget ended; remaining cells were not assessed."
+            } else {
+                "The execution budget ended and this runtime cannot retain a later assessment batch; remaining cells were not assessed."
+            },
+            usage,
+            runtime,
+            context,
+        ));
+    }
+    let mut output = emit(session, &usage, None);
+    if remaining > 0 {
+        output["next"] = json!({"nextSectionPage":Continuation::continued(ToolId::Clasify, json!({"operation":"sections","assessment":token(&session.id, ordinal + 1)})).build()});
+    }
+    session.batches.push(output.clone());
+    if runtime.can_resume
+        && !runtime.sessions.save(
+            runtime.sessions.key(&runtime.access, &session.id),
+            session.clone(),
+            context,
+        )
+    {
+        session.batches.pop();
+        // Include this batch again in the full terminal result because its
+        // provisional output has not yet reached the caller.
+        for resource in &mut session.resources {
+            if let Some(shown) = output["resources"][&resource.key]["sections"].as_array() {
+                for unit in &mut resource.units {
+                    if shown.iter().any(|item| item["id"] == unit.metadata["id"]) {
+                        unit.emitted = false;
+                    }
+                }
+            }
+        }
+        return Ok(terminal_saved(
+            session,
+            "The next assessment batch could not be retained; remaining cells were not assessed.",
+            usage,
+            runtime,
+            context,
+        ));
+    }
+    Ok(Outcome { output, usage })
+}
+
+/// The units this batch assesses, as `[resource, unit]`, in plan order
+/// while the shared budget admits them; and whether a sibling's admissions
+/// deferred the whole batch.
+fn admit_units(session: &Session, shared: &Budget) -> (Vec<[usize; 2]>, bool) {
+    let mut admitted = Vec::new();
+    for (resource_index, resource) in session.resources.iter().enumerate() {
+        for (unit_index, unit) in resource.units.iter().enumerate() {
+            if unit.cells.iter().all(Option::is_some) {
+                continue;
+            }
+            if !shared.admit(unit.chars) {
+                let deferred_by_sibling = admitted.is_empty() && shared.has_admissions();
+                return (admitted, deferred_by_sibling);
+            }
+            admitted.push([resource_index, unit_index]);
+        }
+    }
+    (admitted, false)
+}
+
+/// Apply each admitted unit's answers, in admitted order, to its pending
+/// cells; an answer from a model other than the session's pinned one is
+/// refused. Returns how many cells settled.
+fn apply_results(
+    session: &mut Session,
+    admitted: &[[usize; 2]],
+    pending: Vec<Vec<usize>>,
+    results: impl Iterator<Item = QuestionOutcomes>,
+    usage: &mut ClassificationUsage,
+) -> usize {
+    let mut settled = 0;
+    for ((&[resource, unit], pending), result) in admitted.iter().zip(pending).zip(results) {
         let unit = &mut session.resources[resource].units[unit];
         usage.add(&result.complete);
         usage.models.extend(result.models.iter().cloned());
@@ -180,52 +257,5 @@ pub(super) fn assess_and_save(
             }
         }
     }
-    session.active.clear();
-    let remaining = pending_cost(session).0;
-    if remaining > 0 && (!runtime.can_resume || (settled == 0 && !deferred_by_sibling)) {
-        return Ok(terminal_saved(
-            session,
-            if runtime.can_resume {
-                "This assessment batch made no progress before its execution budget ended; remaining cells were not assessed."
-            } else {
-                "The execution budget ended and this runtime cannot retain a later assessment batch; remaining cells were not assessed."
-            },
-            usage,
-            runtime,
-            context,
-        ));
-    }
-    let mut output = emit(session, &usage, None);
-    if remaining > 0 {
-        output["next"] = json!({"nextSectionPage":Continuation::new(ToolId::Clasify, json!({"operation":"sections","assessment":token(&session.id, ordinal + 1)})).build()});
-    }
-    session.batches.push(output.clone());
-    if runtime.can_resume
-        && !runtime.sessions.save(
-            runtime.sessions.key(&runtime.access, &session.id),
-            session.clone(),
-            context,
-        )
-    {
-        session.batches.pop();
-        // Include this batch again in the full terminal result because its
-        // provisional output has not yet reached the caller.
-        for resource in &mut session.resources {
-            if let Some(shown) = output["resources"][&resource.key]["sections"].as_array() {
-                for unit in &mut resource.units {
-                    if shown.iter().any(|item| item["id"] == unit.metadata["id"]) {
-                        unit.emitted = false;
-                    }
-                }
-            }
-        }
-        return Ok(terminal_saved(
-            session,
-            "The next assessment batch could not be retained; remaining cells were not assessed.",
-            usage,
-            runtime,
-            context,
-        ));
-    }
-    Ok(Outcome { output, usage })
+    settled
 }

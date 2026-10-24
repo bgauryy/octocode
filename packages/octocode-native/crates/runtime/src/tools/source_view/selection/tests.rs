@@ -2,8 +2,9 @@ use super::*;
 use crate::security::ContentSecurity;
 use crate::tools::selection::{Decision, JudgeCall, Runtime, SelectionJudge};
 use crate::tools::source_view::ReadStatus;
+use crate::tools::source_view::local_fetch_query;
 use crate::tools::test_support::selection_fake::{self, DOWN, REFUSED, WordJudge};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -67,7 +68,6 @@ fn word_read_with(
     facts: &crate::tools::source_view::SourceFacts,
 ) -> crate::tools::source_view::LocalFetchResult {
     use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::LocalFetchQuery;
     let executor = tokio::runtime::Runtime::new().unwrap();
     let mut runtime = budget_runtime(executor.handle().clone(), Arc::new(AtomicUsize::new(0)));
     runtime.judge = Arc::new(WordJudge { fail });
@@ -78,8 +78,8 @@ fn word_read_with(
         .map(|word| format!("{word} {}\n", "x".repeat(1_500)))
         .collect::<String>();
     let mut query = json!({
-        "path":"source.txt", "fullContent":true,
-        "clasifyContext":{"classifiers":["Is it kept?"]}
+        "path":"source.txt",
+        "classification":{"predicates":["Is it kept?"]}
     });
     for (key, value) in extra.as_object().into_iter().flatten() {
         query[key] = value.clone();
@@ -105,7 +105,7 @@ fn budgeted_read(
     max: usize,
 ) -> crate::tools::source_view::LocalFetchResult {
     use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::{LocalFetchQuery, SourceFacts};
+    use crate::tools::source_view::SourceFacts;
     let executor = tokio::runtime::Runtime::new().unwrap();
     let mut runtime = budget_runtime(executor.handle().clone(), Arc::new(AtomicUsize::new(0)));
     runtime.judge = Arc::new(WordJudge { fail: None });

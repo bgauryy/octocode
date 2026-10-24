@@ -84,7 +84,7 @@ async fn the_server_answers_byte_for_byte_like_an_in_process_call() {
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async {
-            let input = json!({"queries": [{"matchString": "alpha", "path": "."}]});
+            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
             // The in-process answers come first: a server idle for its
             // 300 ms while one runs would stop before the next call.
             let mut calls = Vec::new();
@@ -174,7 +174,7 @@ async fn a_slow_runtime_build_holds_up_no_other_call() {
             let server = tokio::task::spawn_local(async move {
                 serve_on(listener, &server_daemon, Duration::from_millis(300), || {}).await;
             });
-            let input = json!({"queries": [{"matchString": "alpha", "path": "."}]});
+            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
             let warm = fixture.dir("a");
             fixture
                 .ask(&socket, &warm, "localSearch", &input, true)
@@ -222,11 +222,11 @@ async fn a_stopped_server_finishes_the_calls_it_took() {
                 (std::rc::Rc::clone(&daemon), std::rc::Rc::clone(&left));
             let server = tokio::task::spawn_local(async move {
                 serve_on(listener, &server_daemon, IDLE_EXIT, || {
-                    server_left.set(true)
+                    server_left.set(true);
                 })
                 .await;
             });
-            let input = json!({"queries": [{"matchString": "alpha", "path": "."}]});
+            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
             let (taken, ()) = tokio::join!(
                 fixture.ask(&socket, &slow, "localSearch", &input, true),
                 async {

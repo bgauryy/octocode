@@ -68,8 +68,8 @@ pub(super) fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolE
         ErrorCode::Timeout,
         "The rescan for this page stopped at the structural match deadline, so it cannot be checked against the earlier pages; the source is unchanged.",
     );
-    error.next = Some(Box::new(json!({
-        "retry": crate::response::result::Continuation::new(ToolId::AstSearch, q.to_value())
+    error.calls = Some(Box::new(json!({
+        "retry": crate::response::result::Continuation::continued(ToolId::AstSearch, q.to_value())
             .build()
     })));
     Some(error)
@@ -94,7 +94,6 @@ pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> S
         // restarts instead of mixing shapes across pages.
         MATCH_ROWS_VERSION,
         scope.canonical.to_string_lossy(),
-        q.pattern(),
         q.rule(),
         q.scope(),
         q.include(),

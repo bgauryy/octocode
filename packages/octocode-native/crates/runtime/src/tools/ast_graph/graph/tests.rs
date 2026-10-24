@@ -1,4 +1,4 @@
-use crate::tools::ast_graph::test_support::{Fixture, known};
+use crate::tools::ast_graph::test_support::known;
 use crate::tools::ast_graph::types::DiagnosticCode;
 
 mod cargo;

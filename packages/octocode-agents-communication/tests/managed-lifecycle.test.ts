@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {registerPiInbox} from '../dist/hosts/pi-inbox.js';
-import { binary, fastHeartbeatEnv, jsonCall, spawn, tempWorkspace, only, fakePi, boundSession } from './helpers.ts';
+import { binary, fastHeartbeatEnv, jsonCall, spawn, tempWorkspace, only, fakePi, boundSession, waitFor } from './helpers.ts';
 import type { PiContext } from '../src/hosts/shared/command.ts';
 import type { TestContext } from 'node:test';
 import type { JsonRecord } from './json-record.ts';
@@ -22,14 +22,6 @@ function fixture(t: TestContext) {
   return {workspace, database, call, db, session, peer, lock, lease, findLease};
 }
 
-async function until(check: () => unknown, timeout = 18000) {
-  const end = Date.now() + timeout;
-  while (Date.now() < end) {
-    if (check()) return;
-    await new Promise(resolve => setTimeout(resolve, 30));
-  }
-  assert.fail('Managed lifecycle did not reach expected state');
-}
 
 test('managed heartbeat renews only live owned leases and preserves unmanaged semantics', t => {
   const f = fixture(t);
@@ -64,17 +56,17 @@ test('managed MCP renews leases while idle, rejects expired identity, and releas
   child.stderr.on('data', chunk => stderr += chunk);
   child.stdout.on('data', chunk => stdout += chunk);
   const closed = new Promise<number | null>(resolve => child.once('close', resolve));
-  await until(() => stderr.includes('mcp_ready'));
+  await waitFor(() => stderr.includes('mcp_ready'), { timeout: 18000, message: 'Managed lifecycle did not reach expected state' });
   const ready = JSON.parse(stderr.trim().split('\n')[0]);
   assert.equal(ready.leases, 'managed');
   child.stdin.write(JSON.stringify({jsonrpc: '2.0', id: 1, method: 'initialize', params: {}}) + '\n');
-  await until(() => stdout.includes('\n'));
+  await waitFor(() => stdout.includes('\n'), { timeout: 18000, message: 'Managed lifecycle did not reach expected state' });
   assert.match(JSON.parse(stdout.trim()).result.instructions, /renews live owned leases/);
   const live = f.lock('live', 20000), expired = f.lock('expired', 1000);
   // Expire it explicitly: a 100 ms heartbeat would otherwise renew the still-live lease.
   f.db.prepare('UPDATE leases SET expiresAt=? WHERE id=?').run(Date.now() - 1, expired.id);
   const lapsed = f.lease(expired.id).expiresAt;
-  await until(() => f.lease(live.id).expiresAt > live.expiresAt);
+  await waitFor(() => f.lease(live.id).expiresAt > live.expiresAt, { timeout: 18000, message: 'Managed lifecycle did not reach expected state' });
   assert.equal(f.lease(expired.id).expiresAt, lapsed, 'renewal never revives an expired lease');
   f.db.prepare('UPDATE sessions SET expiresAt=0 WHERE id=?').run(f.session);
   const code = await closed;
@@ -100,11 +92,11 @@ test('Pi renews leases during active work and shuts down after lifecycle failure
   await fire('agent_start');
   const live = f.lock('pi-active', 20000, session), expired = f.lock('pi-expired', 20000, session);
   f.db.prepare('UPDATE leases SET expiresAt=0 WHERE id=?').run(expired.id);
-  await until(() => f.lease(live.id).expiresAt > live.expiresAt);
+  await waitFor(() => f.lease(live.id).expiresAt > live.expiresAt, { timeout: 18000, message: 'Managed lifecycle did not reach expected state' });
   assert.equal(f.lease(expired.id).expiresAt, 0);
   f.db.prepare('UPDATE sessions SET expiresAt=0 WHERE id=?').run(session);
-  await until(() => controller.getBinding() === null);
-  await until(() => only<JsonRecord>(f.db.prepare('SELECT count(*) AS n FROM leases WHERE owner=?').get(session)).n === 0);
+  await waitFor(() => controller.getBinding() === null, { timeout: 18000, message: 'Managed lifecycle did not reach expected state' });
+  await waitFor(() => only<JsonRecord>(f.db.prepare('SELECT count(*) AS n FROM leases WHERE owner=?').get(session)).n === 0, { timeout: 18000, message: 'Managed lifecycle did not reach expected state' });
   assert.ok(only<JsonRecord>(f.db.prepare('SELECT expiresAt FROM sessions WHERE id=?').get(session)).expiresAt <= Date.now());
   } finally { await fire('session_shutdown'); }
 });

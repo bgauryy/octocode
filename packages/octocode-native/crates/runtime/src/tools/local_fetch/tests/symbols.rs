@@ -1,6 +1,7 @@
 //! The symbols view: outlines, redactions, gutters, spans and the cache.
 
 use super::*;
+use octocode_contract_types::ReadView;
 
 /// A source whose earlier redaction (a whole-file key block) broke the
 /// parse names those lines as redacted text, never as syntax the grammar
@@ -75,7 +76,7 @@ fn a_symbols_page_counts_the_secrets_its_outline_redacted() {
         "export const KEY = 'SECRET';\n\nexport function run(): number {\n  return 1;\n}\n",
     )
     .expect("fixture");
-    let row = fetch(&qj(&p, serde_json::json!({"minify":"symbols"})), &paths);
+    let row = fetch(&qj(&p, serde_json::json!({"view":"symbols"})), &paths);
     let content = row.content.expect("content");
     assert!(!content.contains("SECRET"), "{content}");
     assert!(content.contains("[REDACTED]"), "{content}");
@@ -88,7 +89,7 @@ fn a_symbols_page_counts_the_secrets_its_outline_redacted() {
     );
 }
 
-/// `minify:"symbols"` uses one gutter, `N\t`, in every language and on
+/// `view:"symbols"` uses one gutter, `N\t`, in every language and on
 /// every line, closing-brace lines included.
 #[test]
 fn symbols_view_uses_a_tab_gutter_everywhere() {
@@ -100,7 +101,7 @@ fn symbols_view_uses_a_tab_gutter_everywhere() {
             "import { a } from 'a';\nimport { b } from 'b';\n\nexport class Box {\n  open(): void {\n    a();\n  }\n}\n\nexport function make(): Box {\n  return new Box();\n}\n",
         )
         .expect("fixture");
-    let content = fetch(&qj(&p, serde_json::json!({"minify":"symbols"})), &paths)
+    let content = fetch(&qj(&p, serde_json::json!({"view":"symbols"})), &paths)
         .content
         .expect("content");
     assert!(!content.is_empty());
@@ -126,7 +127,7 @@ fn symbols_view_keeps_the_sources_spacing() {
     let p = t.0.join("s.ts");
     let source = "export function isBlank(str: string, ...rest: any[]): boolean {\n  return !str;\n}\n\nexport class Box {\n  open(a: string, b: number): void {\n    a();\n    b();\n  }\n  close(): void {\n    a();\n    b();\n  }\n}\n";
     fs::write(&p, source).expect("fixture");
-    let content = fetch(&qj(&p, serde_json::json!({"minify":"symbols"})), &paths)
+    let content = fetch(&qj(&p, serde_json::json!({"view":"symbols"})), &paths)
         .content
         .expect("content");
     for text in [
@@ -152,17 +153,17 @@ fn symbols_outline_data_keys_and_name_why_an_outline_is_missing() {
     body.push_str(&"    \"k\": 1,\n".repeat(200));
     body.push_str("    \"last\": 2\n  }\n}\n");
     fs::write(&json, &body).expect("fixture");
-    let r = fetch(&qj(&json, serde_json::json!({"minify": "symbols"})), &paths);
-    assert_eq!(r.content_view, Some(MinifyMode::Symbols), "{r:?}");
+    let r = fetch(&qj(&json, serde_json::json!({"view": "symbols"})), &paths);
+    assert_eq!(r.view, Some(ReadView::Symbols), "{r:?}");
     assert_eq!(
         r.content.as_deref(),
         Some("2\t  \"name\": \"x\",\n3-205\t  \"items\": {\n")
     );
     let text = t.0.join("notes.txt");
     fs::write(&text, "plain\n".repeat(100)).expect("fixture");
-    let r = fetch(&qj(&text, serde_json::json!({"minify": "symbols"})), &paths);
+    let r = fetch(&qj(&text, serde_json::json!({"view": "symbols"})), &paths);
     assert_eq!(
-        r.minify_fallback
+        r.view_fallback
             .as_ref()
             .map(|fallback| fallback.reason.as_str()),
         Some("unsupported-language"),
@@ -184,10 +185,10 @@ fn a_symbols_outline_from_a_recovered_parse_names_the_skipped_lines() {
     }
     fs::write(&p, &flow).expect("fixture");
     let r = fetch(
-        &qj(&p, serde_json::json!({"minify": "symbols"})),
+        &qj(&p, serde_json::json!({"view": "symbols"})),
         &Paths(t.0.clone()),
     );
-    assert_eq!(r.content_view, Some(MinifyMode::Symbols), "{r:?}");
+    assert_eq!(r.view, Some(ReadView::Symbols), "{r:?}");
     assert!(
         r.warnings
             .iter()
@@ -199,11 +200,11 @@ fn a_symbols_outline_from_a_recovered_parse_names_the_skipped_lines() {
     let later = fetch(
         &qj(
             &p,
-            serde_json::json!({"minify": "symbols", "offset": 5, "length": 5}),
+            serde_json::json!({"view": "symbols", "readProgress":{"unit":"lines","offset":5}}),
         ),
         &Paths(t.0.clone()),
     );
-    assert_eq!(later.content_view, Some(MinifyMode::Symbols), "{later:?}");
+    assert_eq!(later.view, Some(ReadView::Symbols), "{later:?}");
     assert!(
         !later
             .warnings
@@ -255,7 +256,7 @@ fn symbols_view_heads_carry_line_ranges() {
     let p = t.0.join("m.py");
     fs::write(&p, PY_TWO).expect("fixture");
     let content = fetch(
-        &qj(&p, serde_json::json!({"minify": "symbols"})),
+        &qj(&p, serde_json::json!({"view": "symbols"})),
         &Paths(t.0.clone()),
     )
     .content
@@ -275,7 +276,7 @@ fn symbols_view_spans_sit_on_the_head_row_below_annotations() {
     let outline = |name: &str, text: &str| {
         let p = t.0.join(name);
         fs::write(&p, text).expect("fixture");
-        fetch(&qj(&p, serde_json::json!({"minify": "symbols"})), &paths)
+        fetch(&qj(&p, serde_json::json!({"view": "symbols"})), &paths)
             .content
             .expect("content")
     };

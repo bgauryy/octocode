@@ -1,15 +1,16 @@
 //! Provider failures and refused input.
 use super::*;
+use octocode_contract_types::LocalFetchQuery;
 
 #[test]
 fn a_first_classified_call_with_an_offset_is_refused_input_not_a_stale_cursor() {
     use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::{LocalFetchQuery, SourceFacts};
+    use crate::tools::source_view::SourceFacts;
     let executor = tokio::runtime::Runtime::new().unwrap();
     let runtime = budget_runtime(executor.handle().clone(), Arc::new(AtomicUsize::new(0)));
     let query: LocalFetchQuery = serde_json::from_value(json!({
-        "path":"source.txt", "offset":3, "length":5, "unit":"lines",
-        "clasifyContext":{"classifiers":["Is it kept?"]}
+        "path":"source.txt", "readProgress":{"unit":"lines","offset":3},
+        "classification":{"predicates":["Is it kept?"]}
     }))
     .unwrap();
     let result = crate::tools::source_view::process_fetched_content_selected(
@@ -33,9 +34,16 @@ fn a_first_classified_call_with_an_offset_is_refused_input_not_a_stale_cursor() 
         .unfiltered
         .expect("unfiltered")
         .query;
-    // The caller's window stays: only the classifier is dropped.
-    assert!(recovery.clasify_context.is_none(), "{recovery:?}");
-    assert_eq!((recovery.offset, recovery.unit), (query.offset, query.unit));
+    // Recovery preserves the selection and restarts its unfiltered view.
+    assert!(
+        !local_fetch_query::has_classification(&recovery),
+        "{recovery:?}"
+    );
+    assert!(local_fetch_query::read_progress(&recovery).is_none());
+    assert_eq!(
+        local_fetch_query::line_ranges(&recovery),
+        local_fetch_query::line_ranges(&query)
+    );
 }
 
 #[test]
@@ -68,7 +76,7 @@ fn a_provider_failing_every_chunk_fails_the_read_with_its_typed_error() {
         .unfiltered
         .expect("unfiltered")
         .query;
-    assert!(recovery.clasify_context.is_none());
+    assert!(!local_fetch_query::has_classification(&recovery));
 }
 
 /// A provider that cannot answer (down, overloaded, unreachable) never
@@ -123,7 +131,10 @@ fn a_provider_that_is_down_shows_the_unfiltered_view_as_unavailable() {
         .and_then(|next| next.continue_window)
         .expect("a next page")
         .query;
-    assert!(next.selection.is_some(), "the plan rides the next page");
+    assert!(
+        local_fetch_query::selection(&next).is_some(),
+        "the plan rides the next page"
+    );
     let replay = word_read_with(
         serde_json::to_value(&next).expect("next query"),
         None,
@@ -131,7 +142,8 @@ fn a_provider_that_is_down_shows_the_unfiltered_view_as_unavailable() {
     );
     assert_eq!(
         replay.selection.as_ref().map(|receipt| receipt.status),
-        Some(octocode_contract_types::SelectionStatus::Unavailable)
+        Some(octocode_contract_types::SelectionStatus::Unavailable),
+        "replayed read: {replay:?}"
     );
     assert!(
         replay.error_code.is_none() && replay.content.as_deref().is_some_and(|t| !t.is_empty()),
@@ -153,8 +165,8 @@ fn a_classified_read_that_selects_nothing_states_no_anchors() {
             }
         })
         .collect::<String>();
-    let query = json!({"path":"source.txt", "matchString":"target", "contextLines":1,
-        "clasifyContext":{"classifiers":["Is it kept?"]}});
+    let query = json!({"path":"source.txt", "matchString":["target"], "contextLines":{"before":1,"after":1},
+        "classification":{"predicates":["Is it kept?"]}});
     let result = budgeted_read(&text, &query, 64);
     assert_eq!(result.content.as_deref(), Some(""), "{result:?}");
     assert_eq!(

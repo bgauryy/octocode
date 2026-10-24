@@ -170,7 +170,7 @@ impl<'t> ReceiverTypes<'t> {
                 return None;
             }
             return match self.local(receiver, path, name, content) {
-                Some(ty) => ty,
+                Some(binding) => binding.ty.clone(),
                 None if lang.has_implicit_this() => self.enclosing_field(path, name, content, true),
                 None => None,
             };
@@ -181,34 +181,38 @@ impl<'t> ReceiverTypes<'t> {
             return self.enclosing_field(path, member, content, false);
         }
         if lang == Lang::Go && object.kind() == "identifier" {
-            let owner = self.local(object, path, node_text(object, content)?, content)??;
+            let owner = self
+                .local(object, path, node_text(object, content)?, content)?
+                .ty
+                .clone()?;
             let declaration = self.unique_type(&owner, content)?;
             return self.fields_of(declaration, content).get(member).cloned()?;
         }
         None
     }
 
-    /// Type of the local `name` visible at `at`: `Some(None)` when it is
-    /// bound but its type is unknown, `None` when it is not bound. `path`
-    /// holds the enclosing nodes of `at`, root first.
+    /// The binding of the local `name` visible at `at` (its type may be
+    /// unknown), `None` when it is not bound. `path` holds the enclosing
+    /// nodes of `at`, root first.
     fn local(
         &mut self,
         at: Node<'t>,
         path: &[Node<'t>],
         name: &str,
         content: &str,
-    ) -> Option<Option<String>> {
+    ) -> Option<&Binding> {
         let position = at.start_byte();
         for &node in path.iter().rev() {
             if self.lang.is_function(node.kind()) {
                 let found = self
                     .bindings_of(node, content)
                     .iter()
-                    .filter(|b| b.name == name && b.from <= position && position < b.until)
-                    .max_by_key(|b| b.from)
-                    .map(|b| b.ty.clone());
-                if found.is_some() {
-                    return found;
+                    .enumerate()
+                    .filter(|(_, b)| b.name == name && b.from <= position && position < b.until)
+                    .max_by_key(|(_, b)| b.from)
+                    .map(|(index, _)| index);
+                if let Some(index) = found {
+                    return self.bindings.get(&node.id())?.get(index);
                 }
                 // Nested Rust fn items do not capture their parent's locals.
                 if self.lang == Lang::Rust {

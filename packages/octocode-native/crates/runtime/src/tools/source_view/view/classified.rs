@@ -1,10 +1,10 @@
-//! Classified reads (`clasifyContext`): refusal on input, chunk selection,
+//! Classified reads (`classification`): refusal on input, chunk selection,
 //! and the routes to what a classified page left out.
 use super::super::types::*;
 use super::stale_snapshot;
 use crate::id::ToolId;
 use crate::security::scan::ContentScan;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
 /// The row for a selection that could not order the source.
 fn selection_failure(
@@ -14,17 +14,24 @@ fn selection_failure(
     match failure {
         crate::tools::selection::Failure::Stale => stale_snapshot(q),
         crate::tools::selection::Failure::Cancelled => LocalFetchResult::error(
-            q.path.to_string(),
+            local_fetch_query::path(q).to_owned(),
             ErrorCode::Cancelled,
             "Selection was cancelled".into(),
         ),
         crate::tools::selection::Failure::Provider(failure) => {
             let crate::tools::selection::ProviderFailure { error, outcome } = *failure;
-            let mut result = LocalFetchResult::error(q.path.to_string(), error.code, error.message);
+            let mut result = LocalFetchResult::error(
+                local_fetch_query::path(q).to_owned(),
+                error.code,
+                error.message,
+            );
             result.hints = error.hints;
             result.selection = Some(outcome.receipt);
             result.next = Some(NextCalls {
-                unfiltered: unfiltered_read(q),
+                unfiltered: match unfiltered_read(q) {
+                    Ok(read) => Some(read),
+                    Err(error) => return invalid_continuation(q, error),
+                },
                 ..NextCalls::default()
             });
             result
@@ -66,8 +73,8 @@ pub(super) fn select_no_match(
     mut result: LocalFetchResult,
 ) -> LocalFetchResult {
     let q = input.q;
-    if q.clasify_context.is_none() {
-        return if q.selection.is_some() {
+    if !local_fetch_query::has_classification(q) {
+        return if local_fetch_query::selection(q).is_some() {
             stale_snapshot(q)
         } else {
             result
@@ -77,7 +84,7 @@ pub(super) fn select_no_match(
         input.runtime,
         input.query_json(),
         &input.source_key(),
-        q.selection.as_ref().map(|token| token.as_str()),
+        local_fetch_query::selection(q),
         &[],
         None,
         octocode_contract_types::SelectionUnit::Chunks,
@@ -95,21 +102,15 @@ pub(super) fn refused_selection_input(
     q: &LocalFetchQuery,
     digest: &str,
 ) -> Option<LocalFetchResult> {
-    q.clasify_context.as_ref()?;
-    // A first call with an offset is a request, not a stale cursor.
-    if local_fetch_query::offset(q).is_some_and(|offset| offset > 0) && q.selection.is_none() {
-        return Some(unsupported_selection(
-            q,
-            "A classified read pages only through its continueWindow selection token; drop offset or clasifyContext.",
-            Some(digest),
-        ));
+    if !local_fetch_query::has_classification(q) {
+        return None;
     }
-    // A match read is verbatim whatever its minify (see `select_view`).
-    let transformed = local_fetch_query::minify_mode(q).is_some() && q.match_string.is_none();
-    if transformed || (q.unit == Some(WindowUnit::Bytes) && q.selection.is_none()) {
+    if local_fetch_query::offset(q).is_some_and(|offset| offset > 0)
+        && local_fetch_query::selection(q).is_none()
+    {
         return Some(unsupported_selection(
             q,
-            "clasifyContext requires raw text in line units; omit minify, and omit unit or use unit:lines.",
+            "A classified continuation is missing its selection token.",
             Some(digest),
         ));
     }
@@ -125,8 +126,8 @@ pub(super) fn select_view_chunks(
     security: &impl ContentScan,
 ) -> Result<Option<super::super::selection::Chosen>, Box<LocalFetchResult>> {
     let q = input.q;
-    if q.clasify_context.is_none() {
-        if q.selection.is_some() {
+    if !local_fetch_query::has_classification(q) {
+        if local_fetch_query::selection(q).is_some() {
             return Err(Box::new(stale_snapshot(q)));
         }
         return Ok(None);
@@ -140,7 +141,7 @@ pub(super) fn select_view_chunks(
         input.provider_path,
         security,
         input.runtime,
-        q.selection.as_ref().map(|token| token.as_str()),
+        local_fetch_query::selection(q),
         unsupported,
     );
     let (outcome, provider) =
@@ -148,7 +149,7 @@ pub(super) fn select_view_chunks(
             input.runtime,
             input.query_json(),
             &input.source_key(),
-            q.selection.as_ref().map(|s| s.as_str()),
+            local_fetch_query::selection(q),
             &candidates,
             unsupported,
             octocode_contract_types::SelectionUnit::Chunks,
@@ -173,10 +174,10 @@ pub(super) fn attach_unfiltered(
     calls: &mut NextCalls,
     q: &LocalFetchQuery,
     chosen: &super::super::selection::Chosen,
-) {
+) -> Result<(), String> {
     let query = crate::response::result::query_value(q);
     let reads = chosen.unknown_reads(&query);
-    calls.unfiltered = unfiltered_read(q);
+    calls.unfiltered = Some(unfiltered_read(q)?);
     for (index, batch) in reads
         .chunks(crate::response::result::rows_per_call(ToolId::LocalFetch))
         .enumerate()
@@ -184,9 +185,9 @@ pub(super) fn attach_unfiltered(
         // A lone read is the typed `unfilteredUnknown`; a batch is the same
         // name as a multi-row call.
         if let ([row], 0) = (batch, index) {
-            calls.unfiltered_unknown = serde_json::from_value(row.clone())
-                .ok()
-                .map(|query| FetchCall { query });
+            calls.unfiltered_unknown = Some(FetchCall::continued(
+                serde_json::from_value(row.clone()).map_err(|error| error.to_string())?,
+            ));
             continue;
         }
         calls.unfiltered_unknown_rest.insert(
@@ -194,7 +195,7 @@ pub(super) fn attach_unfiltered(
                 0 => "unfilteredUnknown".to_owned(),
                 n => format!("unfilteredUnknown{}", n + 1),
             },
-            crate::response::result::Continuation::input(
+            crate::response::result::Continuation::continued_input(
                 ToolId::LocalFetch,
                 serde_json::json!({ "queries": batch }),
             )
@@ -203,23 +204,34 @@ pub(super) fn attach_unfiltered(
     }
     if let Some(token) = chosen.next_candidates() {
         let mut page = q.clone();
-        page.offset = None;
-        page.selection = token.parse().ok();
-        calls.next_candidate_page = Some(FetchCall { query: page });
+        local_fetch_query::set_progress(&mut page, None);
+        local_fetch_query::set_selection(&mut page, Some(token))
+            .map_err(|error| error.to_string())?;
+        calls.next_candidate_page = Some(FetchCall::continued(page));
     }
+    Ok(())
 }
 
 /// The classified read as an ordinary read ([`crate::tools::selection::unfiltered_row`]).
-fn unfiltered_read(q: &LocalFetchQuery) -> Option<FetchCall> {
-    let row = crate::tools::selection::unfiltered_row(&serde_json::to_value(q).ok()?, &[]);
+fn unfiltered_read(q: &LocalFetchQuery) -> Result<FetchCall, String> {
+    let row =
+        crate::tools::selection::unfiltered_row(&crate::response::result::query_value(q), &[]);
     serde_json::from_value(row)
-        .ok()
-        .map(|query| FetchCall { query })
+        .map(FetchCall::continued)
+        .map_err(|error| error.to_string())
+}
+
+pub(super) fn invalid_continuation(q: &LocalFetchQuery, error: String) -> LocalFetchResult {
+    LocalFetchResult::error(
+        local_fetch_query::path(q).to_owned(),
+        ErrorCode::ExecutionFailed,
+        error,
+    )
 }
 
 /// A classified read refused before any selection ran: its unfiltered lead
-/// is the caller's own read without `clasifyContext`, window and view kept
-/// (`unit`, `offset`, `length`, `ranges`, `minify`), so dropping the
+/// is the caller's own read without `classification`, window and view kept
+/// (`readProgress`, `ranges`, `view`), so dropping the
 /// classifier is the only change. `digest` binds the lead to the source
 /// version the refusal saw.
 pub(crate) fn unsupported_selection(
@@ -227,14 +239,17 @@ pub(crate) fn unsupported_selection(
     message: &str,
     digest: Option<&str>,
 ) -> LocalFetchResult {
-    let mut result =
-        LocalFetchResult::error(q.path.to_string(), ErrorCode::InvalidInput, message.into());
+    let mut result = LocalFetchResult::error(
+        local_fetch_query::path(q).to_owned(),
+        ErrorCode::InvalidInput,
+        message.into(),
+    );
     result.source_sha256 = digest.map(str::to_owned);
-    let mut query = q.clone();
-    query.clasify_context = None;
-    query.selection = None;
     result.next = Some(NextCalls {
-        unfiltered: Some(FetchCall { query }),
+        unfiltered: match unfiltered_read(q) {
+            Ok(read) => Some(read),
+            Err(error) => return invalid_continuation(q, error),
+        },
         ..NextCalls::default()
     });
     result

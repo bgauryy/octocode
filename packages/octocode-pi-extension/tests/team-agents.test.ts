@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
@@ -10,17 +9,12 @@ import { registerCollab } from '../src/team/tools.js';
 import { AGENT_GOAL_ENV, AGENT_ID_ENV, AGENT_ROLE_ENV, TeamStore } from '../src/team/store.js';
 import type { Member } from '../src/team/model.js';
 import { fakeCtx, fakePi, theme } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 const NOW = 1_000_000;
 const member = (id: string, role: string, extra: Partial<Member> = {}): Member => ({
   id, role, pid: process.pid, status: 'idle', joinedAt: NOW - 60_000, updatedAt: NOW, toolCalls: 0, input: 0, cacheRead: 0, output: 0, cost: 0, unpriced: false, ...extra,
 });
-const dir = () => {
-  const cwd = tmp();
-  fs.mkdirSync(path.join(cwd, '.git'));
-  return cwd;
-};
 const session = (env: NodeJS.ProcessEnv, cwd: string, db: string) => {
   const fake = fakePi();
   const team = new Team(fake.pi, { OCTOCODE_AGENT_DB: db, ...env });
@@ -30,7 +24,7 @@ const session = (env: NodeJS.ProcessEnv, cwd: string, db: string) => {
 
 describe('agent identity on the team', () => {
   it('names a main session from the closed list, with the role main and the join note as its goal', () => {
-    const { team } = session({}, dir(), path.join(tmp(), 'team.sqlite'));
+    const { team } = session({}, repo(), path.join(tmp(), 'team.sqlite'));
     const me = team.join('audit auth token refresh');
     expect(AGENT_NAMES).toContain(me.id);
     expect(me).toMatchObject({ role: 'main', goal: 'audit auth token refresh' });
@@ -40,7 +34,7 @@ describe('agent identity on the team', () => {
   });
 
   it('gives each process its own name: never one a live member of the shared database holds', () => {
-    const cwd = dir();
+    const cwd = repo();
     const db = path.join(tmp(), 'team.sqlite');
     const names = new Set<string>();
     for (let i = 0; i < 12; i++) names.add(session({}, cwd, db).team.join().id);
@@ -51,7 +45,7 @@ describe('agent identity on the team', () => {
   });
 
   it('proposes a new name that avoids live members, finished subagents and names the caller holds', () => {
-    const { team } = session({}, dir(), path.join(tmp(), 'team.sqlite'));
+    const { team } = session({}, repo(), path.join(tmp(), 'team.sqlite'));
     const me = team.join();
     const finished = AGENT_NAMES.find((name) => name !== me.id)!;
     team.rememberFinished(finished, 'its report reached you.');
@@ -60,7 +54,7 @@ describe('agent identity on the team', () => {
   });
 
   it('takes a subagent\'s name, role and goal from the parent that started it', () => {
-    const cwd = dir();
+    const cwd = repo();
     const db = path.join(tmp(), 'team.sqlite');
     const parent = session({}, cwd, db).team.join();
     const child = session({ [AGENT_ID_ENV]: 'inky-kraken', [AGENT_ROLE_ENV]: 'reviewer', [AGENT_GOAL_ENV]: 'audit auth token refresh', OCTOCODE_PARENT_ID: parent.id }, cwd, db);
@@ -77,7 +71,7 @@ describe('agent identity on the team', () => {
     const fake = fakePi();
     const team = new Team(fake.pi, { OCTOCODE_AGENT_DB: path.join(tmp(), 'team.sqlite') });
     registerCollab(fake.pi, team, { stopAgent: () => undefined });
-    const ctx = fakeCtx({ cwd: dir() });
+    const ctx = fakeCtx({ cwd: repo() });
     await fake.emit('session_start', {}, ctx);
     const coordinate = fake.tools.get('coordinate');
     await expect(coordinate.execute('c', { action: 'join', goal: '   ' }, undefined, undefined, ctx)).rejects.toThrow(/goal is required/);
@@ -136,7 +130,7 @@ describe('what the team shows about an agent', () => {
   });
 
   it('reads the sender\'s role and goal from the team database when a message is delivered', () => {
-    const cwd = dir();
+    const cwd = repo();
     const store = TeamStore.open(cwd, path.join(tmp(), 'team.sqlite'));
     store.save(member('inky-kraken', 'reviewer', { goal: 'audit auth token refresh', joinedAt: NOW, pid: process.pid }));
     store.save(member('salty-squid', 'main'));

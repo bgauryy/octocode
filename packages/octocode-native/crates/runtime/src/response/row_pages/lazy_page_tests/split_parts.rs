@@ -6,10 +6,12 @@ use super::*;
 #[test]
 fn split_row_continuations_ride_the_part_they_follow() {
     let mut structured = envelope();
-    structured["results"][0]["data"]["next"]["read"] =
-        json!({"tool": "localFetch", "query": {"path": "a.rs"}});
+    structured["results"][0]["data"]["related"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"kind":"related","tool":"localFetch","input":{"queries":[{"path":"a.rs"}]}}));
     structured["results"][0]["data"]["next"]["nextPage"] =
-        json!({"tool": "localSearch", "query": {"page": 2}});
+        json!({"kind":"continue","tool":"localSearch","input":{"cursor":"issued"}});
     let pages = walk(&structured, 1_000);
     assert!(pages.len() > 2);
     let mut carriers = Vec::new();
@@ -21,6 +23,9 @@ fn split_row_continuations_ride_the_part_they_follow() {
             }
             let part = row["rowPart"]["part"].as_u64().expect("row 0 is split");
             parts = row["rowPart"]["of"].as_u64().expect("row 0 is split");
+            for call in row["data"]["related"].as_array().into_iter().flatten() {
+                carriers.push((call["tool"].as_str().unwrap().to_owned(), part));
+            }
             for name in row["data"]["next"]
                 .as_object()
                 .into_iter()
@@ -36,9 +41,9 @@ fn split_row_continuations_ride_the_part_they_follow() {
     assert_eq!(
         carriers,
         vec![
+            ("localFetch".to_owned(), 1),
+            ("localSearch".to_owned(), 1),
             ("nextPage".to_owned(), parts),
-            ("read".to_owned(), 1),
-            ("sidecar".to_owned(), 1),
         ]
     );
 }
@@ -73,11 +78,11 @@ fn nested_secondary_records_are_once_and_executable_queries_stay_intact() {
     let mut structured = envelope();
     structured["results"][0]["data"]["coverage"] =
         json!({"entries": [{"path": "generated/api.ts", "cause": "ignored"}], "sampled": true});
-    let query = json!({"paths": [{"path": "a.rs"}, {"path": "b.rs"}]});
-    structured["results"][0]["data"]["hints"]["inspect"] =
-        json!({"tool": "localFetch", "query": query});
+    let input = json!({"queries": [{"path": "a.rs"}, {"path": "b.rs"}]});
+    structured["results"][0]["data"]["related"] =
+        json!([{"kind":"related", "tool": "localFetch", "input": input}]);
     structured["results"][0]["data"]["next"]["nextPage"] =
-        json!({"tool": "localSearch", "query": query});
+        json!({"kind":"continue", "tool": "localFetch", "input": input});
     let pages = walk(&structured, 1_000);
     let mut records = Vec::new();
     let mut queries = Vec::new();
@@ -92,12 +97,18 @@ fn nested_secondary_records_are_once_and_executable_queries_stay_intact() {
                     .expect("entries")
                     .clone(),
             );
-            for channel in ["next", "hints"] {
-                for (name, call) in row["data"][channel].as_object().into_iter().flatten() {
-                    if name == "inspect" || name == "nextPage" {
-                        queries.push(call["query"].clone());
-                    }
-                }
+            for call in row["data"]["related"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .chain(
+                    row["data"]["next"]
+                        .as_object()
+                        .into_iter()
+                        .flat_map(|next| next.values()),
+                )
+            {
+                queries.push(call["input"].clone());
             }
         }
     }
@@ -106,7 +117,7 @@ fn nested_secondary_records_are_once_and_executable_queries_stay_intact() {
         records,
         vec![json!({"path": "generated/api.ts", "cause": "ignored"})]
     );
-    assert_eq!(queries, vec![query.clone(), query]);
+    assert_eq!(queries, vec![input.clone(), input]);
 }
 
 #[test]
@@ -116,8 +127,8 @@ fn continuation_query_arrays_are_indivisible_when_they_dominate_the_row() {
             .collect::<Vec<_>>()}]});
     let structured = json!({"results":[{"index":0,"data":{
         "files":[{"path":"a.rs","matches":[{"line":1},{"line":2}]}],
-        "hints":{"read":{"tool":"localFetch","query":query}},
-        "next":{"nextPage":{"tool":"localSearch","query":query}}
+        "related":[{"kind":"related","tool":"localFetch","input":query}],
+        "next":{"nextPage":{"kind":"continue","tool":"localSearch","input":query}}
     }}]})
     .as_object()
     .cloned()
@@ -132,22 +143,26 @@ fn continuation_query_arrays_are_indivisible_when_they_dominate_the_row() {
                     lines.push(item["line"].clone());
                 }
             }
-            for channel in [PAGES_KEY, HINTS_KEY] {
-                for (name, call) in row["data"][channel].as_object().into_iter().flatten() {
-                    assert!(
-                        call["query"] == query,
-                        "{channel}.{name} query was fragmented"
-                    );
-                    calls.push((channel, name.clone()));
-                }
+            for (channel, call) in row["data"]["related"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|call| ("related", call))
+                .chain(
+                    row["data"]["next"]
+                        .as_object()
+                        .into_iter()
+                        .flat_map(|next| next.values())
+                        .map(|call| (PAGES_KEY, call)),
+                )
+            {
+                assert_eq!(call["input"], query, "{channel} input was fragmented");
+                calls.push(channel);
             }
         }
     }
     calls.sort();
-    assert_eq!(
-        calls,
-        vec![(HINTS_KEY, "read".into()), (PAGES_KEY, "nextPage".into())]
-    );
+    assert_eq!(calls, vec![PAGES_KEY, "related"]);
     assert_eq!(lines, vec![json!(1), json!(2)]);
 }
 

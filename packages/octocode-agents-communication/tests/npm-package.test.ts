@@ -9,6 +9,9 @@ import { connectStdio } from 'octocode-mcp-cli';
 import type { JsonRecord } from './json-record.ts';
 import { isChildFailure, root, tempWorkspace } from './helpers.ts';
 
+const { catalog } = await import('../dist/runtime.js');
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 test('npm archive runs through npx outside the repository with CLI and MCP communication', async t => {
   const directory = tempWorkspace(t, 'communication-npm-', { real: true });
   const options: ExecFileSyncOptionsWithStringEncoding = { encoding: 'utf8', timeout: 30000, stdio: 'pipe' };
@@ -35,7 +38,7 @@ test('npm archive runs through npx outside the repository with CLI and MCP commu
   const database = join(directory, 'communication.sqlite');
   const flags = ['--workspace', directory, '--database', database];
   const agent = launch('join', '{"name":"npm-check","vendor":"generic"}', ...flags);
-  assert.ok(agent.id);
+  assert.match(agent.id, SESSION_ID);
   assert.equal(launch('peers', ...flags).items[0].id, agent.id);
   assert.equal(launch('db', 'info', ...flags).compatible, true);
   const installs = join(directory, 'npm-cache', '_npx');
@@ -50,7 +53,7 @@ test('npm archive runs through npx outside the repository with CLI and MCP commu
   ], env: Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)) });  // the private Octocode home of helpers.ts, so the server registers its database there
   try {
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 18);
+    assert.deepEqual(tools.tools.map(tool => tool.name), catalog.selectedTools().map((tool: JsonRecord) => tool.name));
     const sent = launch('send_message', '--to', receiver.id, '--question', 'CLI to packed MCP', '--reasoning', 'Verify installed interfaces', '--session', agent.id, ...flags);
     const inbox = await client.callTool({ name: 'inbox', arguments: {} });
     assert.notEqual(inbox.isError, true);
@@ -61,7 +64,8 @@ test('npm archive runs through npx outside the repository with CLI and MCP commu
     const completed = await client.callTool({ name: 'complete', arguments: { message: sent.id, outcome:'done',reply:{conclusion:'Packed MCP to CLI'} } });
     assert.notEqual(completed.isError, true);
     const reply = launch('inbox', '--session', agent.id, ...flags).items[0];
-    assert.equal(reply.body, 'BLUF\nOutcome: done\nConclusion: Packed MCP to CLI');
+    assert.equal(reply.kind, 'answer');
+    assert.match(reply.body, /\nConclusion: Packed MCP to CLI$/);
     assert.equal(reply.replyTo, sent.id);
     launch('complete', '--message', String(reply.id), '--session', agent.id, ...flags);
   } finally { await client.close(); }

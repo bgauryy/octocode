@@ -8,5 +8,13 @@
   "endOfLine": "lf",
   "arrowParens": "avoid",
   "bracketSpacing": true,
-  "quoteProps": "as-needed"
-} 
+  "quoteProps": "as-needed",
+  "overrides": [
+    {
+      "files": "**/SKILL.md",
+      "options": {
+        "singleQuote": false
+      }
+    }
+  ]
+}

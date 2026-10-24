@@ -17,8 +17,8 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { ROOT } from './lib/workspaces.mjs';
 import { spawnSync } from 'node:child_process';
 import {
   OCTOCODE_CORE_PACKAGE,
@@ -30,7 +30,6 @@ import {
   workspaceResolutionPackages,
 } from './dev-resolution-contract.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const PKG_PATH = join(ROOT, 'package.json');
 const NATIVE_PKG_PATH = join(ROOT, 'packages/octocode-native/package.json');
 const argv = process.argv.slice(2);

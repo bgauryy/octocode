@@ -69,7 +69,7 @@ impl Plan<'_> {
         let paths = self.sparse.as_ref().map(Sparse::paths);
         CloneResult {
             bytes,
-            next: explore_next(clone_dir, paths),
+            calls: Some(explore_next(clone_dir, paths)),
             warnings: Vec::new(),
             location: CloneLocation {
                 kind: if paths.is_some() { "tree" } else { "repo" },
@@ -229,10 +229,11 @@ fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json
     let tool = if root.is_file() {
         ToolId::LocalFetch
     } else {
+        query.insert("operation".into(), serde_json::json!("tree"));
         ToolId::StructureSearch
     };
     serde_json::json!({
-        "exploreClone": crate::response::result::Continuation::new(tool, serde_json::Value::Object(query))
+        "exploreClone": crate::response::result::Continuation::related(tool, serde_json::Value::Object(query))
             .build()
     })
 }

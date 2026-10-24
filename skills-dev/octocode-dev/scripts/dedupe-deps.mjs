@@ -20,10 +20,9 @@
  * only drift or obscure ownership.
  */
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { ROOT } from './lib/workspaces.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const FIX = process.argv.includes('--fix');
 const DEP_KINDS = [
   'dependencies',

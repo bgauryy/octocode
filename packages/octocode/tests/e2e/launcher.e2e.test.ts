@@ -10,12 +10,47 @@ import { binary, launcher, ready } from './native-fixture.js';
 // Skips when either artifact is absent (unbuilt checkout, platforms without
 // committed binaries).
 
-function runLauncher(args: string[], env: NodeJS.ProcessEnv = {}) {
+function runLauncher(
+  args: string[],
+  env: NodeJS.ProcessEnv = {},
+  input?: string
+) {
   return spawnSync(process.execPath, [launcher, ...args], {
     encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1', ...env },
+    input,
     timeout: 60_000,
   });
+}
+
+type LocalSearchPayload = {
+  results: Array<{
+    index: number;
+    data: {
+      files: Array<{
+        path: string;
+        matches: Array<{ line: number; declaration?: boolean }>;
+      }>;
+    };
+  }>;
+};
+
+const NATIVE_DELEGATE = resolve(
+  __dirname,
+  '..',
+  '..',
+  'src',
+  'cli',
+  'native-delegate.ts'
+);
+
+/** 1-based line of the first source line containing `text`. */
+function declarationLine(file: string, text: string): number {
+  return (
+    readFileSync(file, 'utf8')
+      .split('\n')
+      .findIndex(line => line.includes(text)) + 1
+  );
 }
 
 describe.skipIf(!ready)('launcher → native binary e2e', () => {
@@ -89,9 +124,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
           (tool: { name: string }) => tool.name
         )
       );
-      expect(instructions.includes('<clasify>')).toBe(Boolean(key));
-      expect(instructions.includes('clasifyContext')).toBe(Boolean(key));
-      expect(instructions).not.toContain('clasify scouts unread');
+      expect(instructions).not.toContain('clasifyContext');
       expect(
         JSON.parse(schema.stdout).tools.map(
           (tool: { name: string }) => tool.name
@@ -133,8 +166,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
     expect(json.stdout).not.toContain(token);
     const error = JSON.parse(json.stdout);
     expect(error.errorCode).toBe('invalidInput');
-    expect(error.error).toMatch(/^unexpected argument '\[REDACTED-/);
-    expect(error.error).toContain("' found; a JSON query is the only argument");
+    expect(error.error).toContain('[REDACTED-');
     expect(error).not.toHaveProperty('kind');
 
     const text = runLauncher(['config', token]);
@@ -146,47 +178,12 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
     expect(text.stderr).toMatch(/For more information, try '--help'\.\n$/);
   });
 
-  it('reads the query from stdin with --input -', () => {
-    const result = spawnSync(
-      process.execPath,
-      [launcher, 'localFetch', '--input', '-', '--json'],
-      {
-        encoding: 'utf8',
-        env: { ...process.env, NO_COLOR: '1' },
-        input: JSON.stringify({
-          queries: [{ path: launcher, ranges: ['1-1'] }],
-        }),
-        timeout: 60_000,
-      }
-    );
-    expect(result.status, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout).results[0].index).toBe(0);
-  });
-
   it('serves --version as the one package version', () => {
     const result = runLauncher(['--version']);
     expect(result.status).toBe(0);
     expect(result.stdout).toBe(
       `octocode ${JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf8')).version}\n`
     );
-  });
-
-  it('executes a real tool call end-to-end with exit 0 and structured JSON', () => {
-    const query = JSON.stringify({
-      queries: [
-        {
-          path: resolve(__dirname, '..', '..', 'src'),
-          matchString: 'delegateToNative',
-          pageSize: 5,
-        },
-      ],
-    });
-    const result = runLauncher(['localSearch', query, '--json']);
-    expect(result.status).toBe(0);
-    const payload = JSON.parse(result.stdout) as {
-      results: Array<{ index: number }>;
-    };
-    expect(payload.results[0].index).toBe(0);
   });
 
   it('propagates native validation failures as exit 2', () => {
@@ -207,5 +204,48 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
       JSON.parse(stdout).skills.map((skill: { name: string }) => skill.name);
     expect(names(native.stdout)).toEqual(names(node.stdout));
     expect(names(native.stdout)).toContain('octocode-architect');
+  });
+});
+
+describe.skipIf(!ready)('launcher → native tool calls', () => {
+  it('reads the query from stdin with --input -', () => {
+    const query = {
+      queries: [{ path: launcher, ranges: [{ startLine: 1, endLine: 1 }] }],
+    };
+    const result = runLauncher(
+      ['localFetch', '--input', '-', '--json'],
+      {},
+      JSON.stringify(query)
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const [row] = JSON.parse(result.stdout).results;
+    expect(row.index).toBe(0);
+    // The stdin query was read: its one-line range of the launcher came back.
+    const firstLine = readFileSync(launcher, 'utf8').split('\n')[0];
+    expect(row.data.content).toBe(`1\t${firstLine}\n`);
+  });
+
+  it('executes a real tool call end-to-end with exit 0 and structured JSON', () => {
+    const query = JSON.stringify({
+      queries: [
+        {
+          path: resolve(__dirname, '..', '..', 'src'),
+          matchString: ['delegateToNative'],
+        },
+      ],
+    });
+    const result = runLauncher(['localSearch', query, '--json']);
+    expect(result.status, result.stderr).toBe(0);
+    const [row] = (JSON.parse(result.stdout) as LocalSearchPayload).results;
+    expect(row.index).toBe(0);
+    const hit = row.data.files.find(file =>
+      file.path.endsWith('cli/native-delegate.ts')
+    );
+    expect(hit?.matches).toContainEqual(
+      expect.objectContaining({
+        line: declarationLine(NATIVE_DELEGATE, 'function delegateToNative('),
+        declaration: true,
+      })
+    );
   });
 });

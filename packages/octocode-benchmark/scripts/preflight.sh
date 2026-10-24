@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix='octocode-preflight-') as td:
     root=Path(os.environ.get('LOCAL_REPOS',str(Path(os.environ['BENCH_REPO'])/'packages/octocode-benchmark/local/repos'))) if arm.startswith('local-') else lab
     cmd=shlex.split(os.environ['BENCH_MCP_CMD'])
     env={'OCTOCODE_HOME':str(home),'WORKSPACE_ROOT':str(root.resolve()),'ALLOWED_PATHS':'',
-         'OCTOCODE_ENABLE_LOCAL':'true','OCTOCODE_BETA':'true','OCTOCODE_RANKING_ENABLED':str(enabled).lower()}
+         'OCTOCODE_ENABLE_LOCAL':'true','OCTOCODE_BETA':'true'}
     if arm.startswith('local-'):
         env['TOOLS_TO_RUN']='localSearch,localFetch,structureSearch,astSearch,lspSearch'+(',clasify' if enabled else '')
     if not enabled: env['OCTOCODE_CLASSIFICATION_API']=''

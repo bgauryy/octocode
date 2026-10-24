@@ -16,7 +16,7 @@ fn windows_cut_by_maxentries_and_by_time_never_overlap_whatever_the_timing() {
     for (operation, extra) in [
         ("tree", json!({})),
         ("files", json!({})),
-        ("files", json!({"sort": "path"})),
+        ("files", json!({"sort":{"by":"traversal","order":"asc"}})),
     ] {
         let mut time_cuts = 0;
         for max_entries in [2, 3, 5] {
@@ -87,7 +87,9 @@ fn windows_count_what_the_walk_left_out_once_whatever_the_timing() {
             root.write(&format!("t{index}/.hidden"), "x\n");
             root.write(&format!("t{index}/u.rs"), "fn f() {}\n");
         }
-        let start = json!({"operation": operation, "path": root.0, "includeHidden": false});
+        let mut start = rows(operation, &root.0);
+        start.as_object_mut().expect("row").remove("include");
+        start["includeHidden"] = json!(false);
         let whole = left_out(&run(&root.0, start.clone()).expect("whole"));
         assert!(
             whole.0 > 0 && whole.1 > 0 && whole.2 > 0,

@@ -91,7 +91,9 @@ fn no_production_lock_is_skipped_when_poisoned() {
                 continue;
             }
             // Test-only items may use any shape; prose and literals hold none.
-            let production = code_only(&production_source(&file));
+            let production = code_only(&production_text(
+                &std::fs::read_to_string(&file).expect("production source"),
+            ));
             for found in pattern.find_iter(&production) {
                 let line = production[..found.start()].lines().count();
                 offenders.push(format!("{relative}:{line}"));

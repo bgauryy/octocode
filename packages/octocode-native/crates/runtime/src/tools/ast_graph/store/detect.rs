@@ -21,7 +21,7 @@ use super::format::{
 use crate::tools::ast_graph::algorithms::Cycles;
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};
 use crate::tools::ast_graph::graph::{dirname, rust_module_child_dir};
-use crate::tools::ast_graph::types::{DiagnosticCode, Node};
+use crate::tools::ast_graph::types::DiagnosticCode;
 use octocode_io::shell::quote;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

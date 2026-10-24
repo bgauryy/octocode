@@ -1,6 +1,6 @@
 // The OpenCode native transport against a fake loopback HTTP API: preflight, receipts, deferral and credential binding.
 import assert from 'node:assert/strict';
-import { createServer as createHttpServer } from 'node:http';
+import { createServer } from 'node:http';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import type { JsonRecord } from './json-record.ts';
@@ -12,7 +12,7 @@ const { transport } = runtime;
 /** A fake OpenCode HTTP API over loopback; `calls` records every request. */
 async function opencodeServer(t: TestContext, ws: string, { status = 'idle', directory = ws, message }: { status?: string; directory?: string; message?: JsonRecord } = {}) {
   const calls: JsonRecord[] = [];
-  const server = createHttpServer((request, response) => {
+  const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on('data', chunk => chunks.push(chunk));
     request.on('end', () => {
@@ -75,7 +75,7 @@ test('opencode: busy defers, a mismatched receipt or workspace is refused, crede
 
 test('opencode: a non-200 preflight is refused and a non-ses_ identifier is rejected', async t => {
   const ws = workspace(t);
-  const server = createHttpServer((_request, response) => { response.writeHead(500); response.end('no'); });
+  const server = createServer((_request, response) => { response.writeHead(500); response.end('no'); });
   t.after(() => { server.closeAllConnections(); server.close(); });
   await listening(server, 0, '127.0.0.1');
   const delivery = await transport.NativeDelivery.open('opencode', `http://127.0.0.1:${portOf(server)}`, 'ses_a', ws);

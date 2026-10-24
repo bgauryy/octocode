@@ -1,7 +1,4 @@
-use super::{
-    ContractValidationError, ValidationIssue, cover_field, envelope_field, field_guess,
-    query_label, routing_details, sibling_message, sibling_requirement,
-};
+use super::{ContractValidationError, ValidationIssue, query_label, sibling_requirement};
 use serde_json::Value;
 
 /// Projects transport-neutral validation issues into the stable tool-error
@@ -28,53 +25,32 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
                 format!("{path}: {message}")
             }
         })
-        .chain(routing_details(tool_name, &error.issues))
         .collect::<Vec<_>>();
     issues_error(details)
 }
 
 /// The repair for one unknown field: the branch that declares it, a
 /// top-level row field to move, or removal with the closest known field.
-fn unknown_field_message(tool_name: &str, issue: &ValidationIssue) -> String {
+fn unknown_field_message(_tool_name: &str, issue: &ValidationIssue) -> String {
     let query = query_label(&issue.path);
     let field = issue.path.last().map(String::as_str).unwrap_or("unknown");
-    // Known fields from the embedded schema suggest the closest match (edit
-    // distance <= 3) as a "did you mean ...?" hint.
-    let known: Vec<&str> = issue
+    if let Some(requires) = sibling_requirement(issue) {
+        return format!(
+            "'{field}' is not allowed in this form of {query}; it requires {requires}."
+        );
+    }
+    let known = issue
         .schema
         .as_ref()
-        .and_then(|s| s["knownFields"].as_array())
+        .and_then(|schema| schema["knownFields"].as_array())
         .into_iter()
         .flatten()
-        .filter_map(|v| v.as_str())
-        .collect();
-    let msg = match (
-        sibling_requirement(issue),
-        cover_field(issue),
-        field_guess(issue, field, &known),
-    ) {
-        (Some(requires), ..) => sibling_message(issue, field, &query, &requires),
-        _ if is_root_brief(tool_name, &issue.path) => root_brief_message(field),
-        _ if envelope_field(issue) => {
-            format!("Move '{field}' from {query} beside queries: it applies to the whole call.")
-        }
-        (None, Some(cover), _) => {
-            format!("Remove unknown field '{field}' from {query}: {cover} expresses it.")
-        }
-        (None, None, Some(s)) => {
-            format!("Remove unknown field '{field}' from {query} (did you mean '{s}'?)")
-        }
-        (None, None, None) => format!("Remove unknown field(s) from {query}: {field}"),
-    };
-    if issue.path.iter().any(|segment| segment == "rule") {
-        format!(
-            "{}. Example rule: {}",
-            msg.trim_end_matches('.'),
-            octocode_engine::structural::EXAMPLE_RULE
-        )
-    } else {
-        msg
-    }
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    format!(
+        "Unknown field '{field}' in {query}. Allowed fields: {}.",
+        known.join(", ")
+    )
 }
 
 /// The error envelope every surface returns for a call that never reached a
@@ -105,15 +81,4 @@ fn required_guidance(issue: &ValidationIssue) -> Option<&str> {
         return None;
     }
     issue.schema.as_ref()?.get("x-requiredMessage")?.as_str()
-}
-
-/// A row field (`mainGoal`, `reasoning`, …) sent beside `queries` instead of
-/// inside each row: the envelope does not declare it, the rows do.
-fn is_root_brief(tool_name: &str, path: &[String]) -> bool {
-    matches!(path, [field] if crate::id::ToolId::from_name(tool_name)
-        .is_some_and(|tool| super::super::query_declares(tool, field)))
-}
-
-fn root_brief_message(field: &str) -> String {
-    format!("Move '{field}' into each queries[] row: a top-level {field} is not inherited.")
 }

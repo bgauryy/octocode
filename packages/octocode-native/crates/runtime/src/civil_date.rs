@@ -104,16 +104,20 @@ pub(crate) fn parse_rfc3339(value: &str) -> Option<(i64, u32)> {
     if !has_iso_date(value.get(..10)?)
         || bytes.get(10) != Some(&b'T')
         || bytes.get(13) != Some(&b':')
-        || bytes.get(16) != Some(&b':')
     {
         return None;
     }
-    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
+    let (second, zone_start) = if bytes.get(16) == Some(&b':') {
+        (number(17..19)?, 19)
+    } else {
+        (0, 16)
+    };
+    let (hour, minute) = (number(11..13)?, number(14..16)?);
     if hour > 23 || minute > 59 || second > 60 {
         return None;
     }
     let mut nanos = 0;
-    let mut rest = value.get(19..)?;
+    let mut rest = value.get(zone_start..)?;
     if let Some(fraction) = rest.strip_prefix('.') {
         let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
         if digits == 0 {
@@ -131,6 +135,9 @@ pub(crate) fn parse_rfc3339(value: &str) -> Option<(i64, u32)> {
                 return None;
             }
             let [h1, h2, m1, m2] = digits.map(|d| i64::from(d - b'0'));
+            if h1 * 10 + h2 > 23 || m1 * 10 + m2 > 59 {
+                return None;
+            }
             let minutes = (h1 * 10 + h2) * 60 + m1 * 10 + m2;
             if *sign == b'-' { -minutes } else { minutes }
         }
@@ -171,10 +178,13 @@ mod tests {
             );
         }
         assert_eq!(parse_rfc3339("1970-01-01T02:30:00+02:30"), Some((0, 0)));
+        assert_eq!(parse_rfc3339("1970-01-01T02:30+02:30"), Some((0, 0)));
         for bad in [
             "2026-01-01T00x00y00z000Z",
             "2026-02-31T00:00:00.000Z",
             "2026-01-01T00:00:00.Z",
+            "2026-01-01T00:00:00+24:00",
+            "2026-01-01T00:00:00+00:60",
         ] {
             assert_eq!(parse_rfc3339(bad), None);
         }

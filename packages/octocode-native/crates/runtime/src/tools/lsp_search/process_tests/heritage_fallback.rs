@@ -46,8 +46,7 @@ fn type_hierarchy_falls_back_when_the_server_has_no_type_hierarchy() {
         ] {
             let path = root.join(file).to_string_lossy().into_owned();
             let query = serde_json::from_value(json!({
-                "operation":operation, "mainGoal":"test", "reasoning":"test",
-                "path":path, "symbolName":symbol, "line":1
+                "operation":operation, "path":path, "symbolName":symbol, "line":1
             }))
             .expect("query");
             let mut sources = SourceCache::new(&paths);
@@ -130,8 +129,7 @@ fn subtypes_fall_back_to_a_labelled_heritage_scan_when_implementation_fails() {
         let client = NativeLspClient::new(config(&root, &script, None));
         client.start().await.expect("server starts");
         let query = serde_json::from_value(json!({
-            "operation":"subtypes", "mainGoal":"test", "reasoning":"test",
-            "path":uri, "symbolName":"Base", "line":1
+            "operation":"subtypes", "path":uri, "symbolName":"Base", "line":1
         }))
         .expect("query");
         let mut sources = SourceCache::new(&paths);
@@ -243,8 +241,7 @@ fn implementation_row(
         let client = NativeLspClient::new(config(&root, &script, None));
         client.start().await.expect("server starts");
         let query = serde_json::from_value(json!({
-            "operation": operation, "mainGoal": "test", "reasoning": "test",
-            "path": uri, "symbolName": symbol, "line": line + 1
+            "operation": operation, "path": uri, "symbolName": symbol, "line": line + 1
         }))
         .expect("query");
         let mut sources = SourceCache::new(&paths);
@@ -328,7 +325,7 @@ fn implementation_on_a_type_falls_back_to_the_labelled_heritage_scan() {
     assert_eq!(row["isPartial"], true, "{row}");
     assert_eq!(row["next"]["retry"]["tool"], "lspSearch", "{row}");
     assert_eq!(
-        row["next"]["retry"]["query"]["queries"][0]["operation"], "implementation",
+        row["next"]["retry"]["input"]["queries"][0]["operation"], "implementation",
         "{row}"
     );
     let query = serde_json::json!({"operation": "implementation", "path": "b.ts", "symbolName": "Base", "line": 1});

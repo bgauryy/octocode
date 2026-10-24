@@ -8,7 +8,8 @@ pub(super) fn annotate_rust(
     server_root: &str,
     scope: &Scope,
 ) {
-    let context = lsp_search_query::rust_context(query).unwrap_or_else(|| json!({}));
+    let context =
+        lsp_search_query::rust_context(query).map_or_else(|| json!({}), |context| json!(context));
     let Some(name) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
     else {
         return;
@@ -56,8 +57,10 @@ pub(super) fn annotate_rust(
     let mut context = context;
     context["features"] = json!("all");
     rerun["rustContext"] = context;
-    row["next"]["expandFeatures"] =
-        crate::response::result::Continuation::new(ToolId::LspSearch, rerun).build();
+    crate::response::result::attach_related(
+        row,
+        crate::response::result::Continuation::related(ToolId::LspSearch, rerun).build(),
+    );
 }
 
 /// Which `cfg` gate a scan looks for.

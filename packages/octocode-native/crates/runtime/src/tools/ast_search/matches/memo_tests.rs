@@ -1,10 +1,22 @@
-use super::super::test_rows::run_row;
 use super::*;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::Value;
+use serde_json::json;
+
+fn run_row(row: &Value, paths: &PathPolicy, security: &crate::security::ContentSecurity) -> Value {
+    let query = serde_json::from_value(row.clone()).expect("canonical match");
+    super::super::execute_ast(
+        &query,
+        paths,
+        security,
+        &crate::execution::cancel::NeverCancel,
+        Some(1),
+    )
+    .expect("budgeted source page")
+}
 
 fn next_query(out: &Value, name: &str) -> Value {
-    out["next"][name]["query"]["queries"][0].clone()
+    out["next"][name]["input"]["queries"][0].clone()
 }
 
 /// A continuation page served from the first page's stored scan is
@@ -13,7 +25,7 @@ fn next_query(out: &Value, name: &str) -> Value {
 #[test]
 fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
     let root = Fixture::new();
-    for (name, calls) in [("a.ts", 3), ("b.ts", 1), ("c.ts", 2)] {
+    for (name, calls) in [("a.ts", 2), ("b.ts", 1), ("c.ts", 2)] {
         let body = (0..calls)
             .map(|i| format!("console.log({i});\n"))
             .collect::<String>();
@@ -23,7 +35,7 @@ fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
     let (paths, security) = simple_policy(&root.0);
     octocode_engine::stamp::settle_written_so_far();
     let first = run_row(
-        &json!({"operation":"match","path":root.0,"pattern":"console.log($A)","language":"typescript","pageSize":1,"matchPageSize":2}),
+        &json!({"operation":"match","path":root.0,"rule":{"pattern":"console.log($A)"},"parser":"typescript"}),
         &paths,
         &security,
     );

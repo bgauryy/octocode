@@ -3,7 +3,6 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   DIRECT_TOOL_DEFINITIONS,
   TOOL_NAMES,
@@ -11,10 +10,8 @@ import {
   isCliOnlyTool,
 } from '@octocodeai/config/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
+import { ROOT } from './lib/workspaces.mjs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT = path.resolve(__dirname, '..', '..', '..');
 const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(repo => `https://github.com/bgauryy/${repo}/blob/main/`);
 const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
   definition => definition.name

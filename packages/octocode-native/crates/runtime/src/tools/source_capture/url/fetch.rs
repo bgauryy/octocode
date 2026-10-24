@@ -4,7 +4,7 @@
 //! second DNS answer cannot redirect it to a private network. The request
 //! carries no credential or cookie and follows no redirect itself; the body
 //! is read within the request budget and a byte limit.
-use super::{Reply, failure};
+use super::Reply;
 use crate::policy::network::is_public;
 use crate::tools::judgment::ClassificationError;
 use octocode_contract_types::ErrorCode;
@@ -77,10 +77,10 @@ impl Network<'_> {
             ..ClientPolicy::default()
         };
         let client = octocode_io::http::client(&policy).map_err(|_| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::ClassificationContextFailed,
                 "The page request could not be prepared.",
-                "Retry; supply the page text as state if it keeps failing.",
+                "Retry; supply the page text as content if it keeps failing.",
             )
         })?;
         let mut target = url.clone();
@@ -106,13 +106,13 @@ impl Network<'_> {
                 .await
                 .map_err(|error| match error {
                     BodyError::Stopped(stop) => stopped(stop),
-                    BodyError::TooLarge => failure(
+                    BodyError::TooLarge => ClassificationError::new(
                         ErrorCode::ClassificationContextTooLarge,
                         format!(
                             "The page body exceeds the {} MiB capture limit; nothing was judged.",
                             self.budget.max_body_bytes / (1024 * 1024)
                         ),
-                        "Select a smaller page or section, or supply the text as state.",
+                        "Select a smaller page or section, or supply the text as content.",
                     ),
                     BodyError::Transport => unreachable(host, "the body read failed"),
                 })?
@@ -147,7 +147,7 @@ pub(super) fn public_addresses(
 }
 
 pub(super) fn denied(message: &str) -> ClassificationError {
-    failure(
+    ClassificationError::new(
         ErrorCode::SecurityValidationFailed,
         message,
         "Capture only public HTTPS pages; read internal pages with a local reader.",
@@ -155,21 +155,21 @@ pub(super) fn denied(message: &str) -> ClassificationError {
 }
 
 fn unreachable(host: &Host<String>, why: &str) -> ClassificationError {
-    failure(
+    ClassificationError::new(
         ErrorCode::ClassificationContextFailed,
         format!("The page at {host} could not be fetched: {why}."),
-        "Check the URL, or supply the page text as state.",
+        "Check the URL, or supply the page text as content.",
     )
 }
 
 fn stopped(stop: BudgetStop) -> ClassificationError {
     match stop {
-        BudgetStop::Deadline => failure(
+        BudgetStop::Deadline => ClassificationError::new(
             ErrorCode::Timeout,
             "The page was not fetched before the call's deadline.",
-            "Retry with more time, or supply the page text as state.",
+            "Retry with more time, or supply the page text as content.",
         ),
-        BudgetStop::Cancelled => failure(
+        BudgetStop::Cancelled => ClassificationError::new(
             ErrorCode::Cancelled,
             "The call stopped before its page was fetched.",
             crate::response::rows::CANCELLED_HINT,

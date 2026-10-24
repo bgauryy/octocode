@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use super::{PathPolicy, normalize, projected_canonical_root};
+use super::{PathPolicy, projected_canonical_root};
 use crate::policy::{PolicyError, PolicyErrorCode};
+use octocode_engine::text::lexical;
 
 impl PathPolicy {
     /// A denied path for public messages: workspace-relative when the
@@ -10,7 +11,7 @@ impl PathPolicy {
     /// echoing the expanded form could add a prefix the caller never sent;
     /// canonical targets such as symlink destinations stay on `redact`.
     pub(super) fn display_requested(&self, input: &Path, absolute: &Path) -> String {
-        let normalized = normalize(absolute);
+        let normalized = lexical(absolute);
         if self
             .workspace_root
             .as_ref()

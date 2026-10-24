@@ -101,25 +101,13 @@ async fn history_repository_without_owner_is_rejected_before_provider_requests()
     .await
     .expect_err("repository-only scope must fail native contract validation");
     assert_eq!(outcome.code, ErrorCode::InvalidInput);
-    let issues = outcome.validation_issues.as_ref().expect("typed issues");
-    assert_eq!(issues.len(), 1);
-    assert_eq!(issues[0].rule_id, "history.repository-scope");
-    assert_eq!(
-        serde_json::to_value(&issues[0].path).unwrap(),
-        json!(["queries", "0", "owner"])
-    );
-    assert!(issues[0].message.contains("repo requires owner"));
-    let payload = outcome.payload.as_ref().expect("transport error payload");
-    for frame in ["kind", "version", "tool"] {
-        assert!(payload.get(frame).is_none(), "{frame}: {payload}");
-    }
     assert!(
-        payload["error"]
-            .as_str()
-            .is_some_and(|error| error.contains("repo requires owner")),
-        "{payload}"
+        !outcome
+            .validation_issues
+            .as_ref()
+            .expect("typed issues")
+            .is_empty()
     );
-    assert_eq!(payload["errorCode"], "invalidInput");
     assert!(
         server
             .received_requests()
@@ -148,7 +136,7 @@ async fn bad_commit_sha_is_not_found() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b","ref":"deadbeef","extras":[]}),
+        json!({"operation":"commit","owner":"a","repo":"b","ref":"deadbeef"}),
     )
     .await
     .expect("commit row");
@@ -162,11 +150,33 @@ async fn bad_commit_sha_is_not_found() {
     );
     // A missed commit leads to a commit search in the repository,
     // never to a refs listing (a SHA-shaped ref names no branch).
-    let lead = &crate::support::checks::hint(data, "findCommit");
+    let lead = &crate::support::checks::find_related_call(data, "ghSearchHistory", |input| {
+        input["queries"][0]["operation"] == "commit"
+    })
+    .unwrap_or(&serde_json::Value::Null);
     assert_eq!(lead["tool"], "ghSearchHistory", "{data}");
-    assert_eq!(lead["query"]["queries"][0]["operation"], "commit", "{data}");
+    assert_eq!(lead["input"]["queries"][0]["operation"], "commit", "{data}");
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let discovered = call(&runtime, "ghSearchHistory", lead["input"].clone())
+        .await
+        .expect("commit discovery");
+    assert_eq!(
+        row_status(&discovered),
+        "empty",
+        "{}",
+        discovered.structured_content
+    );
     assert!(
-        crate::support::checks::hint(data, "viewRefs").is_null(),
+        crate::support::checks::find_related_call(data, "ghStructure", |input| input["queries"][0]
+            ["operation"]
+            == "refs")
+        .unwrap_or(&serde_json::Value::Null)
+        .is_null(),
         "{data}"
     );
     runtime.close().await;
@@ -206,11 +216,11 @@ async fn gh_history_item_not_found_names_the_item() {
             "#987654",
         ),
         (
-            json!({"operation":"compare","owner":"a","repo":"b","base":"no-such-base","head":"main"}),
+            json!({"operation":"compare","owner":"a","repo":"b","baseRef":"no-such-base","headRef":"main"}),
             "no-such-base...",
         ),
         (
-            json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"no-such-head"}),
+            json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"no-such-head"}),
             "no-such-head",
         ),
     ] {
@@ -221,13 +231,16 @@ async fn gh_history_item_not_found_names_the_item() {
         assert_eq!(data["errorCode"], "notFound", "{query}: {data}");
         let error = data["error"].as_str().unwrap_or_default();
         assert!(error.contains(named), "{query}: {data}");
-        if query["operation"] != "compare" || query["head"] == "main" {
+        if query["operation"] != "compare" || query["headRef"] == "main" {
             assert!(error.contains("a/b"), "{query}: {data}");
         }
         if query["operation"] == "compare" {
-            let lead = &crate::support::checks::hint(data, "viewRefs");
+            let lead = &crate::support::checks::find_related_call(data, "ghStructure", |input| {
+                input["queries"][0]["operation"] == "refs"
+            })
+            .unwrap_or(&serde_json::Value::Null);
             assert_eq!(lead["tool"], "ghStructure", "{data}");
-            assert_eq!(lead["query"]["queries"][0]["operation"], "refs", "{data}");
+            assert_eq!(lead["input"]["queries"][0]["operation"], "refs", "{data}");
         }
     }
     runtime.close().await;

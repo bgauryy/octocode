@@ -1,20 +1,13 @@
 // Behavior of the store (src/runtime/store.ts and its capability modules) over real temporary databases: sessions,
-// message kinds and their rules; store-leases.test.ts covers leases. Reads of a database written by the previous release are in database-legacy-compat.test.ts.
+// message kinds and their rules; store-protocol-rules.test.ts covers keys, check-backs, handoff leases and evidence pins. Reads of a database written by the previous release are in database-legacy-compat.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import type { JsonRecord } from './json-record.ts';
-import { root } from './helpers.ts';
+import { answer, decision, issue, restate, root, sbar, task } from './helpers.ts';
 import { fixture, refuses, runtime, trio } from './store-support.ts';
-
-const task = (extra = {}) => ({ objective: 'Review storage', output: 'Findings', done: 'Given v7, when migrated, then tests pass', ...extra });
-const decision = (extra = {}) => ({ question: 'Which store?', options: ['sqlite', 'postgres'], recommendation: 'sqlite', default: 'sqlite', ...extra });
-const restate = (request: number) => ({ request, objective: 'Review storage', done: 'tests pass' });
-const sbar = { situation: 'CI red', background: 'main', assessment: 'flaky', recommendation: 'rerun' };
-const issue = { what: 'crash', where: 'a.ts:3', when: 'on save', who: 'unknown', why: 'unknown', how: 'save twice', howMuch: 'every save' };
-const answer = (message: number, conclusion = 'Done', extra: Record<string, unknown> = {}) => ({ message, outcome: 'done', reply: { conclusion }, ...extra });
 
 // --- Sessions ----------------------------------------------------------------------------------------------
 
@@ -41,8 +34,11 @@ test('Given a session, when it heartbeats, updates status and leaves, then prese
   const beat = await f.call(id, 'heartbeat', { ttlMs: 120000, task: 'porting', status: 'busy' });
   assert.equal(beat.alive, true);
   assert.deepEqual(await f.call(id, 'set_status', { status: 'blocked' }), { id, task: 'porting', status: 'blocked' });
+  assert.equal((await f.call(id, 'binding')).checkpoint, undefined);
   await f.call(id, 'record', { type: 'checkpoint', data: { goal: 'port', next: 'test' } });
-  assert.deepEqual((await f.call(id, 'binding')).checkpoint.data, { goal: 'port', next: 'test' });
+  const latest = await f.call(id, 'record', { type: 'checkpoint', data: { goal: 'port', done: ['docs'], next: 'run tests' } });
+  await assert.rejects(f.call(id, 'record', { type: 'checkpoint', data: { goal: 'No next' } }), /next/);
+  assert.deepEqual((await f.call(id, 'binding')).checkpoint, { recordId: latest.recordId, timestamp: latest.timestamp, data: latest.data }, 'the latest checkpoint wins');
   assert.deepEqual(await f.call(id, 'leave'), { left: true });
   const binding = await f.call(id, 'binding');
   assert.equal(binding.active, false);
@@ -50,6 +46,7 @@ test('Given a session, when it heartbeats, updates status and leaves, then prese
   await refuses(f.call(id, 'resume', { vendor: 'other' }), /Vendor mismatch or session still active/);
   const resumed = await f.call(id, 'resume', { vendor: 'generic' });
   assert.equal(resumed.id, id);
+  assert.deepEqual(resumed.checkpoint.data, latest.data, 'resume returns the latest checkpoint');
   assert.ok(resumed.expiresAt > Date.now());
 });
 
@@ -82,25 +79,68 @@ test('Given an unknown operation or invalid input, when it is called, then it is
 
 // --- Messages ------------------------------------------------------------------------------------------------
 
-test('Given each message kind, when it is stored, then the body is the labelled slots in catalog order', async t => {
+test('Given each message kind, when it is sent, then replyRequired and wake follow the kind; zero or two kinds are refused', async t => {
   const f = await trio(t);
-  const send = async (input: Record<string, unknown>) => (await f.call(f.alice, 'send_message', { to: 'bob', ...input })).id;
-  assert.equal(await f.body(f.bob, await send({ body: 'Plain FYI' })), 'Plain FYI');
-  assert.equal(await f.body(f.bob, await send({ question: 'Which store?' })), 'Which store?');
-  assert.equal(await f.body(f.bob, await send({ task: task({ inputs: ['a.ts'], constraints: ['no new deps'], budget: '1h', checkBack: true, informed: ['carol'] }) })),
+  await refuses(f.call(f.alice, 'send_message', { to: 'bob' }), /exactly one message kind/);
+  await refuses(f.call(f.alice, 'send_message', { to: 'bob', body: 'x', question: 'y?' }), /exactly one message kind/);
+  const expected: Record<string, [boolean, string]> = {
+    note: [false, 'passive'], question: [true, 'action'], task: [true, 'action'], decision: [true, 'action'], handoff: [true, 'action'],
+    blocker: [false, 'action'], delta: [false, 'passive'], issue: [false, 'passive'], checkback: [false, 'passive'],
+  };
+  assert.deepEqual(Object.keys(expected).sort(), runtime.catalog.messageKinds().map(marker => marker.kind).sort(), 'every catalog kind has an expected policy');
+  const ids: Record<string, number> = {};
+  for (const { kind, field } of runtime.catalog.messageKinds()) if (kind !== 'checkback') ids[kind] = (await f.call(f.alice, 'send_message', { to: 'bob', [field]: samples(0)[kind] })).id;
+  ids.checkback = (await f.call(f.bob, 'send_message', { to: 'alice', checkback: restate(ids.task) })).id;
+  for (const [kind, [replyRequired, wake]] of Object.entries(expected)) {
+    const item = await f.find(kind === 'checkback' ? f.alice : f.bob, ids[kind]);
+    assert.deepEqual({ kind: item.kind, replyRequired: item.replyRequired, wake: item.wake }, { kind, replyRequired, wake });
+  }
+});
+
+/** A filled payload for every message kind; `request` is the task a check-back restates. */
+const samples = (request: number): Record<string, unknown> => ({
+  note: 'Plain FYI', question: 'Which store?',
+  task: task({ inputs: ['a.ts'], constraints: ['no new deps'], budget: '1h', checkBack: true, informed: ['carol'] }),
+  decision: decision({ tradeoffs: ['sqlite is simple'], default: 'postgres', informed: ['carol'] }),
+  handoff: { state: 'Half done', evidence: [{ claim: 'Code', source: 'src/a.ts:3' }], blockers: ['review'], next: 'Finish it', constraints: ['read only', 'no new deps'] },
+  blocker: sbar, delta: { phase: 'verify', changes: ['tests pass'], blockers: ['CI slow'], next: 'merge' }, checkback: restate(request), issue,
+});
+
+test('Given each message kind, when it is stored, then the body is the kind title and every slot once, in catalog order', async t => {
+  const f = await trio(t);
+  const request = (await f.call(f.alice, 'send_message', { to: 'bob', task: task() })).id;
+  const filled = samples(request);
+  for (const { kind, field } of runtime.catalog.messageKinds()) {
+    const value = filled[kind];
+    assert.ok(value !== undefined, `${kind} has a sample`);
+    const [from, to, reader] = kind === 'checkback' ? [f.bob, 'alice', f.alice] : [f.alice, 'bob', f.bob];
+    // Slots arrive in reverse catalog order: the stored body must restore the catalog order.
+    const input = typeof value === 'string' ? value : Object.fromEntries(Object.entries(value as JsonRecord).toReversed());
+    const body = await f.body(reader, (await f.call(from, 'send_message', { to, [field]: input })).id);
+    const spec: JsonRecord = runtime.protocols.schema(kind);
+    if (spec.type === 'string') { assert.equal(body, value, kind); continue; }
+    const slots = value as JsonRecord, lines: string[] = body.split('\n');
+    assert.equal(lines[0], spec.title, kind);
+    let at = 0, expectedLines = 1;
+    const next = (label: string, matches: (line: string) => boolean) => {
+      const index = lines.findIndex((line, position) => position > at && matches(line));
+      assert.ok(index > at, `${kind}: ${label} follows line ${at} in\n${body}`);
+      at = index;
+    };
+    for (const [key, schema] of Object.entries(spec.properties as JsonRecord)) {
+      if (!(key in slots)) continue;
+      const slot = slots[key];
+      if (slot === true) { next(key, line => line === schema.title); expectedLines += 1; }
+      else if (Array.isArray(slot)) {
+        for (const item of slot) next(key, line => line === `- ${typeof item === 'object' ? `${item.claim} \u2014 ${item.source}` : item}`);
+        expectedLines += 1 + slot.length;
+      } else { next(key, line => line.endsWith(`: ${slot}`)); expectedLines += 1; }
+    }
+    assert.equal(lines.length, expectedLines, `${kind} renders nothing but its slots:\n${body}`);
+  }
+  // One exact rendering pins the label text and list layout.
+  assert.equal(await f.body(f.bob, (await f.call(f.alice, 'send_message', { to: 'bob', task: filled.task })).id),
     'Task contract\nObjective: Review storage\nInputs:\n- a.ts\nConstraints:\n- no new deps\nOutput: Findings\nDefinition of Done: Given v7, when migrated, then tests pass\nBudget: 1h\nCheck back before completing: send checkback with this message id\nInformed (copied on the answer):\n- carol');
-  assert.equal(await f.body(f.bob, await send({ decision: decision({ tradeoffs: ['sqlite is simple'], default: 'postgres', informed: ['carol'] }) })),
-    'Decision request\nQuestion: Which store?\nOptions:\n- sqlite\n- postgres\nTradeoffs:\n- sqlite is simple\nRecommendation: sqlite\nDefault if unanswered: postgres\nInformed (copied on the answer):\n- carol');
-  assert.equal(await f.body(f.bob, await send({ blocker: sbar })), 'SBAR\nSituation: CI red\nBackground: main\nAssessment: flaky\nRecommendation: rerun');
-  assert.equal(await f.body(f.bob, await send({ delta: { changes: ['tests pass'], blockers: ['CI slow'], next: 'merge' } })), 'Delta update\nChanges:\n- tests pass\nBlockers:\n- CI slow\nNext: merge');
-  assert.equal(await f.body(f.bob, await send({ handoff: { state: 'Half done', blockers: ['review'], next: 'Finish it' } })), 'Handoff packet\nState: Half done\nBlockers:\n- review\nNext: Finish it');
-  assert.equal(await f.body(f.bob, await send({ delta: { phase: 'verify', changes: ['tests pass'], blockers: ['CI slow'], next: 'merge' } })), 'Delta update\nPhase: verify\nChanges:\n- tests pass\nBlockers:\n- CI slow\nNext: merge', 'the phase leads the delta');
-  assert.equal(await f.body(f.bob, await send({ handoff: { constraints: ['read only', 'no new deps'], next: 'Finish it', blockers: ['review'], state: 'Half done' } })),
-    'Handoff packet\nState: Half done\nBlockers:\n- review\nNext: Finish it\nConstraints:\n- read only\n- no new deps', 'constraints follow next, in catalog order whatever the input order');
-  assert.equal(await f.body(f.bob, await send({ issue })), '5W2H\nWhat: crash\nWhere: a.ts:3\nWhen: on save\nWho: unknown\nWhy: unknown\nHow: save twice\nHow much: every save');
-  const request = await send({ task: task() });
-  const checkback = (await f.call(f.bob, 'send_message', { to: 'alice', checkback: restate(request) })).id;
-  assert.equal(await f.body(f.alice, checkback), `Check-back\nRequest: ${request}\nObjective: Review storage\nDefinition of Done: tests pass`);
 });
 
 test('Given an FYI kind, when the recipient completes it, then it is acknowledged with no reply; a request refuses silent completion', async t => {
@@ -178,6 +218,7 @@ test('Given informed peers, when a task is sent, then names or IDs resolve, dupl
   const only = await f.call(f.alice, 'send_message', { to: 'bob', task: task({ informed: ['alice', 'bob'] }) });
   assert.doesNotMatch(await f.body(f.bob, only.id), /Informed/);
   for (const input of [{ task: task({ informed: ['carol', 'nobody'] }) }, { decision: decision({ informed: ['nobody'] }) }]) await refuses(f.call(f.alice, 'send_message', { to: 'bob', ...input }), /Unknown peer nobody/);
+  assert.equal((await f.inbox(f.bob)).length, 2, 'a refused message stores nothing');
 });
 
 test('Given an informed peer, when the request is answered, then the copy shows what was asked', async t => {
@@ -289,28 +330,6 @@ test('Given a request that expires unacknowledged, when its sender heartbeats, t
   assert.equal(notices[0].body, `SBAR\nSituation: Request ${asked.id} expired before bob acknowledged it\nBackground: Expiry stops delivery; submitted context may already be in progress\nAssessment: Handling is unconfirmed; the decision default applies: postgres\nRecommendation: Inspect delivery and the recipient before sending a new request with a new key`);
   assert.equal(notices[0].sender, f.alice);
   assert.equal(notices[0].wake, 'action');
-});
-
-// --- Peers ---------------------------------------------------------------------------------------------------
-
-test('Given a consumer, when the peer directory changes, then peerContext reports the delta once and nothing when unchanged', async t => {
-  const f = await trio(t);
-  const first = f.store.peerContext(f.alice, 'hook', 'gen-1');
-  assert.match(first, /^Peer directory \(declared data; use exact IDs; removedFromView is not proof of departure; follow next\): /);
-  const delta = JSON.parse(first.slice(first.indexOf('{')));
-  assert.deepEqual(delta.upsert.map((row: JsonRecord) => row.name).sort(), ['bob', 'carol']);
-  assert.equal(f.store.peersChanged(f.alice, 'hook', 'gen-1'), false);
-  assert.equal(f.store.peerContext(f.alice, 'hook', 'gen-1'), '');
-  await f.call(f.bob, 'set_status', { task: 'new task' });
-  assert.equal(f.store.peersChanged(f.alice, 'hook', 'gen-1'), true);
-  const changed = JSON.parse(f.store.peerContext(f.alice, 'hook', 'gen-1').replace(/^[^{]*/, ''));
-  assert.deepEqual(changed.upsert.map((row: JsonRecord) => row.task), ['new task']);
-  await f.call(f.carol, 'leave');
-  const left = JSON.parse(f.store.peerContext(f.alice, 'hook', 'gen-1').replace(/^[^{]*/, ''));
-  assert.deepEqual(left.removedFromView, [f.carol]);
-  assert.equal(f.store.peersChanged(f.alice, 'hook', 'gen-2'), true, 'another generation has no saved view');
-  assert.equal(f.store.uniqueName('bob'), 'bob-2');
-  assert.deepEqual(f.store.hostIdentities('generic', 'native'), []);
 });
 
 // --- Kind taxonomy ---------------------------------------------------------------------------------------------

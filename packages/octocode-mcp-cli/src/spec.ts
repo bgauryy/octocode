@@ -3,6 +3,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { z, ZodError, type ZodType } from 'zod';
 import { flagsFromJsonSchema, objectProperties } from './json-schema-flags.js';
 import { notesOf } from './flag-names.js';
+import { isRecord } from './json-schema.js';
 import { flagsFromZod, zodRootIsObject } from './zod-flags.js';
 
 const RESERVED_COMMANDS = new Set(['help', 'version']);
@@ -81,14 +82,12 @@ export interface DefineCommandInput {
 
 const validators = new WeakMap<object, (data: unknown) => string | undefined>();
 
-export function commandToken(name: string): { token: string; aliased: boolean } {
-  if (COMMAND_WORD.test(name) && !RESERVED_COMMANDS.has(name)) {
-    return { token: name, aliased: false };
-  }
+export function commandToken(name: string): string {
+  if (COMMAND_WORD.test(name) && !RESERVED_COMMANDS.has(name)) return name;
   let token = name.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|\.+$|-+$/g, '');
   if (!COMMAND_WORD.test(token)) token = `tool-${token || 'command'}`;
   if (RESERVED_COMMANDS.has(token)) token = `${token}-command`;
-  return { token, aliased: true };
+  return token;
 }
 
 function assertCommandName(name: string): void {
@@ -182,14 +181,6 @@ function validatorFor(schema: JsonSchema): (data: unknown) => string | undefined
   return run;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function jsonRootIsObject(schema: JsonSchema): boolean {
-  return objectProperties(schema) !== undefined;
-}
-
 export function parseCommandInput(
   command: CliCommand,
   raw: Record<string, unknown>,
@@ -216,7 +207,7 @@ export function parseCommandInput(
     }
   }
   if (!command.inputSchema) throw new Error(`MCP command ${command.name} has no inputSchema`);
-  const payload = jsonRootIsObject(command.inputSchema) ? value : value.input;
+  const payload = objectProperties(command.inputSchema) !== undefined ? value : value.input;
   const message = validatorFor(command.inputSchema)(payload);
   if (message) throw new Error(message);
   if (isRecord(payload)) return payload;

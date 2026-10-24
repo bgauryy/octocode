@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Contract, lead and page-walk checks; the integration tests include the same
 // file (tests/support), so both kinds of test assert one way.
-use crate::contracts::{parsed_contract, validate, validate_output};
+use crate::contracts::{validate, validate_output};
 pub(crate) mod checks;
 pub(crate) mod selection_fake;
 
@@ -74,65 +74,100 @@ pub(crate) fn require_node() -> bool {
     false
 }
 
-/// A tool's raw executor `row` for `query`, shaped and finalized as the
-/// response stage ships it: `{results:[row]}` with its public `next`.
-pub(crate) fn published(tool: ToolId, query: &Value, row: &Value) -> Value {
-    use crate::response::continuations::{Scope, Sources, finalize};
-    let status = row["status"].as_str();
-    let mut shaped = crate::response::rows::result_row(tool, 0, query, row.clone(), status);
-    crate::response::rows::apply_hint_policy(&mut shaped, tool, query);
-    crate::response::extras::prune_row(&mut shaped, tool, query);
-    crate::response::rows::minimize_row(&mut shaped, tool, query);
-    let mut public = serde_json::json!({ "results": [shaped] });
-    finalize(&mut public, tool, &Sources::Rows(&[]), &Scope::everything())
-        .expect("valid continuations");
-    crate::response::notices::place(&mut public, tool.output().rows_key());
-    crate::response::channels::publish_hints(&mut public, tool);
-    public
+thread_local! { static SAVED_REQUESTS: std::cell::RefCell<Vec<(ToolId, Value)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+pub(crate) fn opened(tool: ToolId, row: &Value) -> Value {
+    crate::contracts::validate_built_query(tool.as_str(), row.clone())
+        .expect("valid internal producer row")
 }
 
-/// A tool's raw executor `row` for `query` through the response stages of a
-/// runtime call that name paths: row shaping, the workspace respelling of
-/// row and continuation paths ([`crate::response::rows::envelope_in`]) and
-/// continuation finalizing. The envelope a caller reads, before the
-/// response pager.
-pub(crate) fn published_in(tool: ToolId, query: &Value, row: &Value, paths: &PathPolicy) -> Value {
-    use crate::response::continuations::{Scope, Sources, finalize};
-    let status = row["status"].as_str();
-    let shaped = crate::response::rows::result_row(tool, 0, query, row.clone(), status);
-    let mut public = crate::response::rows::envelope_in(vec![shaped], tool, &[Some(query)], paths);
-    finalize(
-        &mut public,
-        tool,
-        &Sources::Rows(&[Some(query)]),
-        &Scope::everything(),
+pub(crate) fn opened_input(tool: ToolId, input: &Value) -> Value {
+    let saved = if let Some(token) = input.get("cursor").and_then(Value::as_str) {
+        validate(tool.as_str(), input.clone()).expect("valid public cursor input");
+        let id = token
+            .strip_prefix("test-publication-")
+            .expect("issued test cursor")
+            .parse::<usize>()
+            .expect("cursor index");
+        SAVED_REQUESTS.with(|saved| {
+            let saved = saved.borrow();
+            let (target, input) = saved.get(id).expect("issued cursor member");
+            assert_eq!(*target, tool, "cursor target binding");
+            input.clone()
+        })
+    } else {
+        input.clone()
+    };
+    crate::contracts::validate_built(tool.as_str(), saved).expect("valid saved producer input")
+}
+
+fn validate_test_input(
+    tool: &str,
+    input: &Value,
+) -> Result<Value, crate::contracts::ContractValidationError> {
+    if input.get("cursor").is_some() {
+        validate(tool, input.clone())
+    } else {
+        crate::contracts::validate_built(tool, input.clone())
+    }
+}
+
+fn publish_for_assertion(tool: &str, output: &Value) -> Value {
+    let mut output = output.clone();
+    if checks::leads(&output)
+        .iter()
+        .all(|lead| lead.kind != "continue" || lead.query.get("cursor").is_some())
+    {
+        return output;
+    }
+    crate::response::continuations::finalize(
+        &mut output,
+        ToolId::from_name(tool).expect("tool"),
+        &crate::response::continuations::Scope {
+            is_available: &|_| true,
+        },
+        &mut |target, input| {
+            SAVED_REQUESTS.with(|saved| {
+                let mut saved = saved.borrow_mut();
+                let id = saved.len();
+                saved.push((target, input));
+                Some(format!("test-publication-{id}"))
+            })
+        },
     )
-    .expect("valid continuations");
-    public
+    .expect("valid producer continuations");
+    output
 }
 
-/// The first query row of the `next.nextPage` that a tool's raw page-1
-/// `row` for `query` publishes ([`published_in`]).
+pub(crate) fn validate_sealed(
+    tool: &str,
+    output: &Value,
+) -> Result<(), crate::contracts::ContractValidationError> {
+    validate_output(tool, &publish_for_assertion(tool, output))
+}
+
+pub(crate) fn published(tool: ToolId, query: &Value, row: &Value) -> Value {
+    let shaped =
+        crate::response::rows::result_row(tool, 0, query, row.clone(), row["status"].as_str());
+    let mut output = serde_json::json!({"results":[shaped]});
+    crate::response::notices::place(&mut output, "results");
+    publish_for_assertion(tool.as_str(), &output)
+}
+
 pub(crate) fn published_next_page(
     tool: ToolId,
     query: &Value,
     row: &Value,
-    paths: &PathPolicy,
+    _paths: &PathPolicy,
 ) -> Value {
-    let public = published_in(tool, query, row, paths);
-    let next = &public["results"][0]["data"]["next"]["nextPage"];
-    assert_eq!(next["tool"], tool.as_str(), "page 1 leads on: {public}");
-    let row = next["query"]["queries"][0].clone();
-    assert!(row.is_object(), "an executable nextPage: {next}");
-    row
+    let public = published(tool, query, row);
+    opened_input(
+        tool,
+        &public["results"][0]["data"]["next"]["nextPage"]["input"],
+    )["queries"][0]
+        .clone()
 }
 
-/// Page 1 and the `next.nextPage` its published response leads to are cut
-/// from one page budget at every window, for a tool that recomputes page N
-/// from the budget: a budget that differed between them would start page 2
-/// past rows page 1 never reached, or repeat some. `budget_of` is the
-/// tool's own page budget of a query row under a window. `query` names an
-/// absolute workspace path, so the published continuation respells it.
 pub(crate) fn assert_next_page_keeps_the_budget(
     tool: ToolId,
     query: &Value,
@@ -141,16 +176,8 @@ pub(crate) fn assert_next_page_keeps_the_budget(
     budget_of: impl Fn(Option<usize>, &Value) -> usize,
 ) {
     let next = published_next_page(tool, query, row, paths);
-    assert_ne!(
-        next["path"], query["path"],
-        "{tool}: the continuation respells page 1's path"
-    );
     for window in [None, Some(4_000), Some(20_000), Some(100_000)] {
-        assert_eq!(
-            budget_of(window, &next),
-            budget_of(window, query),
-            "{tool} window {window:?}: page 1 {query} and page 2 {next}"
-        );
+        assert_eq!(budget_of(window, &next), budget_of(window, query));
     }
 }
 

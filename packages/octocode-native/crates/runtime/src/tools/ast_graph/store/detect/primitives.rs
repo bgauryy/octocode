@@ -15,7 +15,7 @@ pub(super) fn strongly_connected(
 
 /// Tarjan (the engine's one implementation) over `nodes` using `adj`: the
 /// components `keep` admits, each sorted by id.
-pub(in super::super) fn tarjan(
+pub(crate) fn tarjan(
     nodes: &[u32],
     adj: &dyn Fn(u32) -> Vec<u32>,
     n: usize,

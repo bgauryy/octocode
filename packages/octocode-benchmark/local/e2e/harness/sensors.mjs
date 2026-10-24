@@ -13,11 +13,12 @@
 // leads and `hints` was a prose string[]) a `next` entry that core classifies
 // as a lead. Briefs (mainGoal / reasoning) may be absent from any query.
 import { continuationChannel } from '@octocodeai/config/schema';
-import { suggestedCall } from './lead-predicates.mjs';
+import { canon, suggestedCall } from './lead-predicates.mjs';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMainModule } from '../../../../../skills/common/scripts/lib/entrypoint.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -262,12 +263,6 @@ export function mergeCounts(into, from) {
 }
 
 // ---------- verbatim replay ----------
-/** Canonical JSON (sorted keys) for comparing queries. */
-export function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
-  return JSON.stringify(value);
-}
 /** Call rows of an argument object: `queries[]`, or the arguments themselves (flat or raw calls). */
 export const callRows = args => (Array.isArray(args?.queries) ? args.queries : [args ?? {}]);
 
@@ -331,7 +326,7 @@ export function selfTest() {
   // Hints: `next` and `hints` read the same; envelope too; prose `hints` are not hints.
   const withNext = { results: [{ data: { next: { nextPage: hint('localSearch', { path: 'a', page: 2 }) } } }], responsePagination: { hasMore: true, next: hint('localSearch', { responseOffset: 10 }) } };
   const withHints = { results: [{ data: { hints: { nextPage: hint('localSearch', { path: 'a', page: 2 }) } } }], responsePagination: { hasMore: true, hints: hint('localSearch', { responseOffset: 10 }) } };
-  assert(canonical(allHintEntries(withNext)) === canonical(allHintEntries(withHints)) && allHintEntries(withHints).length === 2, 'hints and next walk to the same continuations (row + envelope)');
+  assert(canon(allHintEntries(withNext)) === canon(allHintEntries(withHints)) && allHintEntries(withHints).length === 2, 'hints and next walk to the same continuations (row + envelope)');
   assert(hintEntries(envelopeContainer(withHints)).length === 1 && hintEntries(envelopeContainer(withNext)).length === 1, 'envelope continuation read from responsePagination.next (or .hints)');
   assert(allHintEntries({ results: [{ status: 'error', data: { hints: ['Verify the path exists'] } }] }).length === 0, 'error-row prose hints are not continuations');
   // Legacy streams: leads inside `next`, prose `hints`. Current contract: pages in `next`, leads + text in `hints`.
@@ -402,5 +397,4 @@ export function selfTest() {
 }
 
 // argv[1] keeps a symlinked path while import.meta.url is the real path, so compare real paths.
-const realOrSelf = p => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url)) && process.argv.includes('--self-test')) process.exitCode = selfTest() ? 1 : 0;
+if (isMainModule(import.meta.url) && process.argv.includes('--self-test')) process.exitCode = selfTest() ? 1 : 0;

@@ -1,6 +1,6 @@
 use super::super::{bool_value, integer, invalid, object, string, to_screaming_snake};
 use super::{EnvironmentArrays, Field, own_default, write_string_slice};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::Write as _;
@@ -208,34 +208,4 @@ pub(super) fn environment_arrays(
         unique(sources),
         narrow,
     ))
-}
-
-/// Settings and variables the contract removed, each with the reason a
-/// diagnostic names: a removed name is reported, never silently accepted.
-pub(super) fn render_removed(
-    output: &mut String,
-    root: &Map<String, Value>,
-) -> Result<(), Box<dyn Error>> {
-    let removed = root
-        .get("removed")
-        .map(|value| object(value, "contract.removed"))
-        .transpose()?;
-    for (key, constant) in [
-        ("settings", "REMOVED_SETTINGS"),
-        ("environment", "REMOVED_ENV_KEYS"),
-    ] {
-        writeln!(output, "pub const {constant}: &[(&str, &str)] = &[")?;
-        if let Some(entries) = removed
-            .and_then(|removed| removed.get(key))
-            .map(|value| object(value, &format!("contract.removed.{key}")))
-            .transpose()?
-        {
-            for (name, reason) in entries {
-                let reason = string(reason, &format!("contract.removed.{key}.{name}"))?;
-                writeln!(output, "    ({name:?}, {reason:?}),")?;
-            }
-        }
-        writeln!(output, "];\n")?;
-    }
-    Ok(())
 }

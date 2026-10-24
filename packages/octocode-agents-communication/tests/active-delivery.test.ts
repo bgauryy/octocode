@@ -9,7 +9,7 @@ import {join} from 'node:path';
 import {promisify} from 'node:util';
 import {DatabaseSync} from 'node:sqlite';
 import type { JsonRecord } from './json-record.ts';
-import {binary, commandArgs, execFile, jsonCall, spawn, tempWorkspace} from './helpers.ts';
+import {binary, commandArgs, execFile, jsonCall, spawn, tempWorkspace, waitFor} from './helpers.ts';
 const exec = promisify(execFile);
 
 function fixture(t: TestContext) {
@@ -17,14 +17,6 @@ function fixture(t: TestContext) {
   const call = jsonCall(binary, workspace, database), args = commandArgs(workspace, database);
   const sender = call('join', {name: 'sender', vendor: 'test'}).id;
   return {workspace, database, call, args, sender};
-}
-async function until(check: () => unknown, timeout = 5000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    if (check()) return;
-    await new Promise(resolve => setTimeout(resolve, 20));
-  }
-  assert.fail('Delivery did not reach the active recipient');
 }
 
 async function codexSocket(t: TestContext, workspace: string) {
@@ -118,12 +110,12 @@ if(r.method==='turn/start')result={turn:{id:'held-active-turn',status:'inProgres
   const db = new DatabaseSync(f.database); db.exec('PRAGMA busy_timeout=5000');
   try {
     // Worker startup (the runtime plus the Node vendor fixture) is slow on a loaded host; delivery checks keep 5 s.
-    await until(() => requests().some(row => row.method === 'turn/start'), 15000);
+    await waitFor(() => requests().some(row => row.method === 'turn/start'), { timeout: 15000, message: 'Delivery did not reach the active recipient' });
     const ready = stdout.split('\n').filter(Boolean).map((line): JsonRecord => JSON.parse(line)).find(row => row.type === 'ready');
     assert.ok(ready, stderr);
     for (const wake of ['passive', 'action']) {
       const body = `${wake}-during-busy`, sent = f.call('send_message', {to: ready.session, body, wake, reasoning: 'Verify managed active delivery'}, f.sender);
-      await until(() => db.prepare('SELECT state FROM dispatches WHERE message=?').get(sent.id)?.state === 'submitted');
+      await waitFor(() => db.prepare('SELECT state FROM dispatches WHERE message=?').get(sent.id)?.state === 'submitted', { message: 'Delivery did not reach the active recipient' });
       const delivery = requests().find(row => JSON.stringify(row.params).includes(body));
       assert.ok(delivery, `${body} must reach the process while its original turn is still active`);
       assert.equal(delivery.method, wake === 'action' ? 'turn/start' : 'thread/inject_items');

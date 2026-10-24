@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Team } from '../src/team/session.js';
@@ -8,13 +7,7 @@ import { TeamStore } from '../src/team/store.js';
 import { agentsCommand } from '../src/subagents/command.js';
 import octocode from '../src/index.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
-
-const repo = () => {
-  const dir = tmp();
-  fs.mkdirSync(path.join(dir, '.git'));
-  return dir;
-};
+import { repo, tmp } from './helpers.js';
 
 const teams: Team[] = [];
 const stores: TeamStore[] = [];

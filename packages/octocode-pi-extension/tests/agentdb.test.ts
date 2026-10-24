@@ -2,10 +2,10 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AgentDbError, closeSharedAgentDb, openAgentDb, sharedAgentDb } from '../src/agentdb/db.js';
+import { closeSharedAgentDb, openAgentDb, sharedAgentDb } from '../src/agentdb/db.js';
 import { agentDbPath, repoKey, sessionDir, sessionOutputDir, setCurrentSession } from '../src/shared/home.js';
 import { redactSecrets, secretProblem } from '../src/shared/sanitize.js';
-import { AGENT_APPLICATION_ID } from '../src/agentdb/schema.js';
+import { AGENT_APPLICATION_ID, AgentDbError } from '../src/agentdb/schema.js';
 import { loadSqlite } from '../src/shared/util.js';
 import { tmp } from './helpers.js';
 

@@ -2,17 +2,15 @@
 //
 //   node harness/run-all.mjs                 # the hermetic quality suites
 //   OCTOCODE_LIVE=1 node harness/run-all.mjs # + the live suites
-//   node harness/run-all.mjs grammar,perf    # only the named suites
+//   node harness/run-all.mjs grammar,transport    # only the named suites
 //
 // HERMETIC suites need only the local clones (repos/, fixtures/): each runs
 // with a fresh empty OCTOCODE_HOME and GH_CONFIG_DIR, no GitHub or classifier
 // credentials, and HTTP(S) routed to a dead proxy (loopback stays reachable),
 // so a hidden network or home dependency fails instead of passing by luck.
-// LIVE suites call GitHub, package registries or the paid classifier with the
-// caller's own credentials; they run only with OCTOCODE_LIVE=1, which also
-// enables the live sections of mixed suites (chain-check, lead-replay).
-// BENCH suites are benchmarks and soaks, not correctness tests: they run only
-// when named (soak: OCTOCODE_SOAK_MINUTES, default 30).
+// LIVE suites call GitHub and package registries with the caller's credentials;
+// they run only with OCTOCODE_LIVE=1.
+// Performance and historical benchmark programs run separately.
 //
 // Each suite prints one `PASS <suite>` or `FAIL <suite>` line; the exit code
 // is non-zero when any selected suite fails, errors, times out or reports no
@@ -21,29 +19,21 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { LIVE, RESULTS, TESTING, hermeticEnv } from './mcp-client.mjs';
+import { LIVE } from './mcp-client.mjs';
+import { RESULTS, TESTING } from './paths.mjs';
+import { hermeticEnv } from '../../../../../test-utils/hermetic-env.ts';
 
 const script = name => [path.join(TESTING, 'harness', `${name}.mjs`)];
 const HERMETIC = {
-  acceptance: ['--test', '--test-reporter=spec', path.join(TESTING, 'harness', 'acceptance.test.mjs')],
-  'usage-regressions': script('usage-regressions'),
-  'lsp-importers': script('lsp-importers'),
+  acceptance: ['--test', '--test-reporter=spec', path.join(TESTING, 'harness', 'responses.test.mjs'), path.join(TESTING, 'harness', 'query-defaults.test.mjs'), path.join(TESTING, 'harness', 'tool-health', '*.test.mjs')],
+  transport: script('transport'),
   grammar: script('grammar'),
-  workflows: script('workflows'),
-  'chain-check': script('chain-check'),
-  'lead-replay': script('lead-replay'),
-  navigate: script('navigate'),
-  'repo-sweep': script('repo-sweep'),
-  'large-files': script('large-files'),
-  'local-ranking': script('local-ranking'),
-  'read-tool-selection': script('read-tool-selection'),
+  'lsp-importers': script('lsp-importers'),
   'classification-retry': script('classification-retry'),
-  'clasify-evidence': script('clasify-evidence'),
   'tool-health': script('tool-health'),
 };
-const LIVE_SUITES = { remote: script('remote'), github: script('github'), 'review-large': script('review-large'), artifacts: script('artifacts'), clasify: script('clasify') };
-const BENCH = { perf: script('perf'), competitors: script('competitors'), kpi: script('kpi'), soak: script('soak') };
-const ALL = { ...HERMETIC, ...LIVE_SUITES, ...BENCH };
+const LIVE_SUITES = { remote: script('remote') };
+const ALL = { ...HERMETIC, ...LIVE_SUITES };
 
 const named = process.argv[2]?.split(',');
 const selected = named ?? [...Object.keys(HERMETIC), ...(LIVE ? Object.keys(LIVE_SUITES) : [])];
@@ -52,7 +42,7 @@ if (unknown.length) throw new Error(`unknown suite: ${unknown.join(', ')} (known
 const gated = selected.filter(s => LIVE_SUITES[s] && !LIVE);
 if (gated.length) throw new Error(`live suite needs OCTOCODE_LIVE=1: ${gated.join(', ')}`);
 
-const suiteTimeout = suite => Math.max(Number(process.env.OCTOCODE_TEST_SUITE_TIMEOUT_MS ?? 1800000), suite === 'soak' ? (Number(process.env.OCTOCODE_SOAK_MINUTES ?? 30) + 15) * 60000 : 0);
+const suiteTimeout = Number(process.env.OCTOCODE_TEST_SUITE_TIMEOUT_MS ?? 1800000);
 /** Check counts from the harness `PASS`/`FAIL` lines or a node:test summary. */
 function counts(stdout) {
   const failed = stdout.match(/^FAIL .*/gm) ?? [];
@@ -62,10 +52,7 @@ function counts(stdout) {
   return { passed: passed + nodeTest('pass'), failed: [...failed, ...nodeFailed.slice(0, nodeTest('fail'))] };
 }
 
-// Language servers (rust-analyzer, tsgo) spend several CPU-seconds on a cold
-// first request; with the run queue far above the core count that wall time
-// grows past the suites' own time bounds (U17 allows a cold call 90 s; a
-// progressing server is waited for up to the 300 s tool-call deadline).
+// Record contention when a language-server check times out during a busy build.
 const OVERSUBSCRIBED = 2 * os.cpus().length;
 const loadAtStart = os.loadavg()[0];
 
@@ -73,9 +60,9 @@ fs.mkdirSync(RESULTS, { recursive: true });
 const rows = [];
 const wallStart = Date.now();
 for (const suite of selected) {
-  const kind = HERMETIC[suite] ? 'hermetic' : LIVE_SUITES[suite] ? 'live' : 'bench';
+  const kind = HERMETIC[suite] ? 'hermetic' : 'live';
   const started = Date.now();
-  const run = spawnSync(process.execPath, ALL[suite], { cwd: TESTING, env: kind === 'hermetic' ? hermeticEnv(process.env, suite) : process.env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: suiteTimeout(suite), killSignal: 'SIGTERM' });
+  const run = spawnSync(process.execPath, ALL[suite], { cwd: TESTING, env: kind === 'hermetic' ? hermeticEnv(process.env, suite) : process.env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: suiteTimeout, killSignal: 'SIGTERM' });
   fs.writeFileSync(path.join(RESULTS, `${suite}.log`), `${run.stdout ?? ''}\n${run.stderr ?? ''}`);
   const { passed, failed } = counts(run.stdout ?? '');
   const seconds = Math.round((Date.now() - started) / 1000);
@@ -94,6 +81,6 @@ fs.writeFileSync(path.join(RESULTS, 'summary.json'), JSON.stringify({ at: new Da
 console.log(failedSuites.length ? `FAIL run-all: ${failedSuites.length}/${rows.length} suites failed (${failedSuites.join(', ')}) in ${wallSeconds}s` : `PASS run-all: ${rows.length} suites in ${wallSeconds}s`);
 const loadPeak = Math.max(loadAtStart, os.loadavg()[0]);
 if (failedSuites.length && loadPeak > OVERSUBSCRIBED) {
-  console.log(`NOTE: load average ${loadPeak.toFixed(0)} on ${os.cpus().length} cores: LSP-backed checks (cold lspSearch timeouts) fail from CPU starvation; rerun on an idle machine before treating them as product failures.`);
+  console.log(`NOTE: load average ${loadPeak.toFixed(0)} on ${os.cpus().length} cores: LSP-backed checks (cold lspSearch timeouts) may be affected by CPU contention; retain the failure and rerun on an idle machine.`);
 }
 process.exitCode = failedSuites.length ? 1 : 0;

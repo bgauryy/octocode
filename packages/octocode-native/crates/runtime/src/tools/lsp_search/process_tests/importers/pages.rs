@@ -18,10 +18,10 @@ fn importer_pages_reach_every_reference_exactly_once() {
         let pool = fake_server_pool();
         let start = serde_json::json!({
             "operation": "references", "path": root.join("a.ts").to_string_lossy(),
-            "symbolName": "target", "line": 1, "pageSize": 10,
-            "workspaceRoot": root.to_string_lossy()
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
         });
-        let (pages, continuations) = walk_pages(&pool, &root, &execution, start.clone()).await;
+        let (pages, continuations) =
+            walk_pages(&pool, &root, &execution, start.clone(), Some(2000)).await;
         let windows = pages
             .iter()
             .map(|page| page.importer_page)
@@ -110,13 +110,17 @@ fn importer_pages_reach_every_reference_exactly_once() {
             .await
             .expect("stale page");
             assert_eq!(row["errorCode"], "staleSnapshot", "{row}");
-            let restart = next_row(&row, "restart").expect("restart");
-            for cursor in crate::response::result::CURSOR_FIELDS {
+            let restart = &crate::tools::test_support::checks::related_call(
+                &row,
+                "lspSearch",
+                |_| true,
+            )["input"]["queries"][0];
+            for cursor in crate::contracts::state_fields(crate::id::ToolId::LspSearch) {
                 assert!(restart.get(cursor).is_none(), "{cursor}: {restart}");
             }
         }
         // The restart walks the changed list once more: 61 importers.
-        let (pages, _) = walk_pages(&pool, &root, &execution, start).await;
+        let (pages, _) = walk_pages(&pool, &root, &execution, start, None).await;
         let rows = pages
             .iter()
             .flat_map(|page| reference_rows(&page.row))
@@ -140,10 +144,9 @@ fn importer_pages_reach_every_caller_exactly_once() {
         let pool = fake_server_pool();
         let start = serde_json::json!({
             "operation": "callers", "path": root.join("a.ts").to_string_lossy(),
-            "symbolName": "target", "line": 1, "pageSize": 10,
-            "workspaceRoot": root.to_string_lossy()
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
         });
-        let (pages, _) = walk_pages(&pool, &root, &execution, start).await;
+        let (pages, _) = walk_pages(&pool, &root, &execution, start, None).await;
         let mut callers = Vec::new();
         for page in &pages {
             for file in page

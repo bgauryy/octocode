@@ -4,7 +4,7 @@ How to add settings and credentials without TypeScript/Rust drift. User-facing s
 
 ## Architecture
 
-`packages/octocode-config/config-contract.json` is the only declaration of field policy: file paths and sections, input/resolved types, defaults, one environment variable per setting, enums, URL/path semantics, unknown keys, dotenv trust (`all`, `home`, `never`), credential exclusion from `ResolvedConfig`, removed names, and descriptions. The TypeScript generator validates it against `config-contract.schema.json` (Ajv); both build paths consume it:
+`packages/octocode-config/config-contract.json` is the only declaration of field policy: file paths and sections, input/resolved types, defaults, one environment variable per setting, enums, URL/path semantics, unknown keys, dotenv trust (`all`, `home`, `never`), credential exclusion from `ResolvedConfig`, and descriptions. The TypeScript generator validates it against `config-contract.schema.json` (Ajv); both build paths consume it:
 
 ```text
 packages/octocode-config/config-contract.json
@@ -59,7 +59,7 @@ A setting is something a user chooses: a credential, an endpoint, a feature swit
 
 Docs link to the constant instead of copying its value.
 
-To retire a setting, delete its field and add its path and variable to `removed.settings` / `removed.environment` with the reason (the fixed value or the replacement). A reason that states a `RuntimeLimits` value is pinned by `limits::tests::removed_limit_settings_state_the_default_values`: change the limit and the reason together. A removed name is reported once as `removed_setting` and ignored, never a load failure, and `config set` refuses it.
+To retire a setting, delete its declaration, consumers and tests for the removed behavior, then regenerate. Unknown names use ordinary unknown-key handling. Do not add compatibility aliases, tombstones, special diagnostics or a second policy registry.
 
 ## Add a normal setting
 

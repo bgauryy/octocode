@@ -77,12 +77,18 @@ describe('external API: events and redaction', () => {
 });
 
 describe('external API: nested tool calls', () => {
-  it('marks nested tool calls with parentId and depth, times tool.end, and filters them for topLevel watchers', async () => {
+  it('derives depth and parent from a tool call id', () => {
     expect(nesting(undefined)).toEqual({ depth: 0 });
     expect(nesting('toolu_1')).toEqual({ parentId: 'toolu_1', depth: 1 });
     expect(nesting('toolu_1/1')).toEqual({ parentId: 'toolu_1/1', depth: 2 });
+  });
 
-    const { client, emit, api } = await boot();
+  it('counts only tool events as nested', () => {
+    expect(isNestedToolEvent({ seq: 1, at: 0, type: 'message', data: { parentId: 'x' } })).toBe(false);
+  });
+
+  it('marks nested tool calls with parentId and depth, times tool.end, and filters them for topLevel watchers', async () => {
+    const { client, emit } = await boot();
     const all: ApiEvent[] = [];
     const top: ApiEvent[] = [];
     const controller = new AbortController();
@@ -118,9 +124,10 @@ describe('external API: nested tool calls', () => {
       { id: 'toolu_9', name: 'bash', isError: false, depth: 0, durationMs: 0 },
     ]);
     expect(top.map((event) => `${event.type}:${String(event.data['id'])}`)).toEqual(['tool.start:toolu_1', 'tool.end:toolu_1', 'tool.end:toolu_9']);
-    expect(isNestedToolEvent({ seq: 1, at: 0, type: 'message', data: { parentId: 'x' } })).toBe(false);
+  });
 
-    // New-session events keep native timing without any previous-session clock state.
+  it('keeps native timing on a tool that ends in a new session, without the previous session\'s clock state', async () => {
+    const { emit, api } = await boot();
     emit('tool_execution_start', { toolCallId: 'toolu_2', toolName: 'bash', args: {} });
     await api.start(fakeCtx({ value: true }), { socket: true });
     const after = new ApiClient(api.instance!);

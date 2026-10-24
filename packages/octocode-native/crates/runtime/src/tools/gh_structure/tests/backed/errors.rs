@@ -1,5 +1,10 @@
 //! Listing failures: a missing path, a missing branch, a file path.
 use super::*;
+use octocode_github::ProviderErrorKind;
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
 async fn tree_missing_path_on_existing_branch_does_not_fall_back() {
@@ -29,11 +34,11 @@ async fn tree_missing_path_on_existing_branch_does_not_fall_back() {
     )
     .await;
     let error = run(
-            &server,
-            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"dev","path":"missing"}),
-        )
-        .await
-        .expect_err("path missing on an existing branch");
+        &server,
+        json!({"operation":"tree", "owner":"a","repo":"b","ref":"dev","path":"missing"}),
+    )
+    .await
+    .expect_err("path missing on an existing branch");
     assert_eq!(error.kind, ProviderErrorKind::NotFound);
 }
 
@@ -66,11 +71,11 @@ async fn tree_missing_branch_is_an_error_not_a_default_branch_listing() {
     )
     .await;
     let error = run(
-            &server,
-            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"gone"}),
-        )
-        .await
-        .expect_err("a missing ref is an error");
+        &server,
+        json!({"operation":"tree", "owner":"a","repo":"b","ref":"gone"}),
+    )
+    .await
+    .expect_err("a missing ref is an error");
     assert_eq!(error.kind, ProviderErrorKind::NotFound);
     assert_eq!(
         error.reason,
@@ -93,11 +98,11 @@ async fn tree_on_a_file_path_is_a_clear_error() {
     )
     .await;
     let error = run(
-            &server,
-            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"main","path":"src/lib.rs"}),
-        )
-        .await
-        .expect_err("file path");
+        &server,
+        json!({"operation":"tree", "owner":"a","repo":"b","ref":"main","path":"src/lib.rs"}),
+    )
+    .await
+    .expect_err("file path");
     assert_eq!(error.kind, ProviderErrorKind::Validation);
     assert!(error.message.contains("is a file"), "{}", error.message);
 }

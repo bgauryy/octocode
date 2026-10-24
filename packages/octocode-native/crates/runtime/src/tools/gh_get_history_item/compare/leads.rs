@@ -9,7 +9,6 @@ use crate::tools::gh_get_history_item::file_page::{Lead, first_page, literal_pre
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::util::str_at;
 use crate::tools::gh_get_history_item::window::{COMPARE_FILE_LIMIT, page_starting_at};
-use crate::tools::gh_shared::dates::utc_date;
 use serde_json::{Value, json};
 
 /// A scoped path's own history lists the commits of the range that touched
@@ -33,15 +32,15 @@ pub(super) fn capped_file_leads(
         .into_iter()
         .find_map(literal_prefix)
     {
-        let mut history = json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"path":path,"ref":out["headSha"]});
+        let mut history = json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"pathPrefix":path,"ref":out["headSha"]});
         if let Some(date) = str_at(raw, "/merge_base_commit/commit/committer/date")
             .or_else(|| str_at(raw, "/base_commit/commit/committer/date"))
         {
-            history["since"] = json!(utc_date(Some(date)));
+            history["filters"]["committedAt"] = json!({"from":date});
         }
         leads.push((
             "narrowScope",
-            Continuation::new(ToolId::GhSearchHistory, history).build(),
+            Continuation::related(ToolId::GhSearchHistory, history).build(),
         ));
     }
     if !file_limit {
@@ -94,7 +93,8 @@ fn capped_files_reach(
             .collect::<Vec<_>>();
         return Some((
             "readCommitFiles",
-            Continuation::input(ToolId::GhGetHistoryItem, json!({"queries": rows})).build(),
+            Continuation::continued_input(ToolId::GhGetHistoryItem, json!({"queries": rows}))
+                .build(),
         ));
     }
     let (page, size) = page_starting_at(listed.seen?, batch);
@@ -107,12 +107,12 @@ fn commit_list_lead(
     size: usize,
     page: usize,
 ) -> (&'static str, Value) {
-    let mut list = json!({"operation":"compare","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"base":out["baseSha"],"head":out["headSha"],"sections":["commits"],"pageSize":size});
+    let mut list = json!({"operation":"compare","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"baseRef":out["baseSha"],"headRef":out["headSha"],"sections":["commits"],"pageSize":size});
     if page > 1 {
         list["page"] = json!(page);
     }
     (
         "listCommits",
-        Continuation::new(ToolId::GhGetHistoryItem, list).build(),
+        Continuation::continued(ToolId::GhGetHistoryItem, list).build(),
     )
 }

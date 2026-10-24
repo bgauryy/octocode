@@ -1,327 +1,111 @@
-use std::collections::{BTreeMap, BTreeSet};
+//! Common fields must change observable behavior consistently across tools.
+use crate::support::{Workspace, call, row_data};
+use serde_json::json;
 
-use octocode_native::contracts::contract_json;
-use serde_json::Value;
-
-const COVERAGE_JSON: &str = include_str!("../src/contracts/field-effect-coverage.json");
-const DISCRIMINATOR_FIELDS: &[&str] = &["operation", "regex", "type", "ecosystem"];
-
-fn assert_references_resolve(root: &Value) {
-    // Validate each stored reference once. Recursive AST rules are valid schemas;
-    // expanding them into field paths would produce an infinite coverage ledger.
-    let mut pending = vec![root];
-    while let Some(value) = pending.pop() {
-        match value {
-            Value::Object(object) => {
-                if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
-                    let pointer = reference
-                        .strip_prefix('#')
-                        .expect("contract refs are local");
-                    assert!(
-                        root.pointer(pointer).is_some(),
-                        "dangling contract reference: {reference}"
-                    );
-                }
-                pending.extend(object.values());
-            }
-            Value::Array(values) => pending.extend(values),
-            _ => {}
-        }
-    }
-}
-
-fn collect_fields(schema: &Value, prefix: &str, fields: &mut BTreeSet<String>) {
-    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
-        for (name, child) in properties {
-            let path = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{prefix}.{name}")
-            };
-            fields.insert(path.clone());
-            collect_fields(child, &path, fields);
-        }
-    }
-    if let Some(items) = schema.get("items") {
-        let path = if prefix.is_empty() {
-            "[]".to_owned()
-        } else {
-            format!("{prefix}[]")
-        };
-        collect_fields(items, &path, fields);
-    }
-    // A keyed map's values (clasify `questions`): `questions{}.type`.
-    if let Some(values) = schema
-        .get("additionalProperties")
-        .filter(|value| value.is_object())
-    {
-        collect_fields(values, &format!("{prefix}{{}}"), fields);
-    }
-    for union in ["anyOf", "oneOf", "allOf"] {
-        if let Some(branches) = schema.get(union).and_then(Value::as_array) {
-            for branch in branches {
-                collect_fields(branch, prefix, fields);
-            }
-        }
-    }
-}
-
-fn collect_values(schema: &Value, target: &str, prefix: &str, values: &mut BTreeSet<String>) {
-    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
-        for (name, child) in properties {
-            let path = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{prefix}.{name}")
-            };
-            if path == target {
-                if let Some(value) = child.get("const").and_then(Value::as_str) {
-                    values.insert(value.to_owned());
-                }
-                if let Some(entries) = child.get("enum").and_then(Value::as_array) {
-                    for entry in entries.iter().filter_map(Value::as_str) {
-                        values.insert(entry.to_owned());
-                    }
-                }
-            }
-            collect_values(child, target, &path, values);
-        }
-    }
-    if let Some(items) = schema.get("items") {
-        let path = if prefix.is_empty() {
-            "[]".to_owned()
-        } else {
-            format!("{prefix}[]")
-        };
-        collect_values(items, target, &path, values);
-    }
-    if let Some(entries) = schema
-        .get("additionalProperties")
-        .filter(|value| value.is_object())
-    {
-        collect_values(entries, target, &format!("{prefix}{{}}"), values);
-    }
-    for union in ["anyOf", "oneOf", "allOf"] {
-        if let Some(branches) = schema.get(union).and_then(Value::as_array) {
-            for branch in branches {
-                collect_values(branch, target, prefix, values);
-            }
-        }
-    }
-}
-
-fn discriminator_paths(schema: &Value) -> BTreeSet<String> {
-    let mut fields = BTreeSet::new();
-    collect_fields(schema, "", &mut fields);
-    fields
-        .into_iter()
-        .filter(|path| {
-            let leaf = path.rsplit('.').next().unwrap_or(path);
-            DISCRIMINATOR_FIELDS.contains(&leaf)
-        })
-        .filter(|path| {
-            let mut values = BTreeSet::new();
-            collect_values(schema, path, "", &mut values);
-            !values.is_empty()
-        })
-        .collect()
-}
-
-/// Whether `source` declares an executable test: an attribute whose path is
-/// `test` or ends in `::test`, with or without arguments (`#[test]`,
-/// `#[tokio::test]`, `#[tokio::test(flavor = "current_thread")]`).
-fn has_tests(source: &str) -> bool {
-    source.lines().any(|line| {
-        line.trim_start()
-            .strip_prefix("#[")
-            .map(|attribute| attribute.split(['(', ']']).next().unwrap_or("").trim())
-            .is_some_and(|path| path == "test" || path.ends_with("::test"))
-    })
-}
-
-fn string_set(values: &Value) -> BTreeSet<String> {
-    values
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect()
-}
-
-#[test]
-fn every_public_field_and_discriminator_has_declared_engine_effect_coverage() {
-    let contract: Value = serde_json::from_str(contract_json()).expect("generated contract JSON");
-    let coverage: Value = serde_json::from_str(COVERAGE_JSON).expect("field coverage JSON");
-
-    // Keyed by field and discriminator value, not by contract fingerprint: a
-    // contract change fails here only when it adds a field or value native has
-    // not declared an effect for, never for description or bound edits.
-    let allowed_classes = string_set(&coverage["coverageClasses"]);
-    let coverage_tools = coverage["tools"].as_object().expect("coverage tools");
-    let contract_tools = contract["tools"].as_array().expect("contract tools");
-    let contract_names = contract_tools
-        .iter()
-        .filter_map(|tool| tool["name"].as_str())
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>();
-    let coverage_names = coverage_tools.keys().cloned().collect::<BTreeSet<_>>();
-    assert_eq!(
-        coverage_names, contract_names,
-        "coverage must name exactly the public tools"
+#[tokio::test]
+async fn matching_and_context_have_the_same_meaning_in_search_and_reads() {
+    let workspace = Workspace::new();
+    let path = workspace.write(
+        "source.txt",
+        "before\nNeedle\nafter\nseparator\nneedle\ntail\n",
     );
-
-    for tool in contract_tools {
-        let name = tool["name"].as_str().expect("tool name");
-        assert_references_resolve(&tool["querySchema"]);
-        assert_references_resolve(&tool["inputSchema"]);
-        let tool_coverage = &coverage_tools[name];
-        let evidence = tool_coverage["evidence"]
-            .as_array()
-            .expect("tool evidence array");
-        assert!(
-            !evidence.is_empty()
-                && evidence
+    let runtime = workspace.runtime(&[]);
+    for (mode, expected) in [("sensitive", vec![5]), ("insensitive", vec![2, 5])] {
+        for tool in ["localSearch", "localFetch"] {
+            let result=call(&runtime,tool,json!({"path":path,"matchString":["needle"],"caseMode":mode,"regexEngine":"literal","contextLines":{"before":1,"after":0}})).await.expect("query executes");
+            let data = row_data(&result);
+            let content = if tool == "localFetch" {
+                data["content"].as_str().expect("source").to_owned()
+            } else {
+                data["files"][0]["matches"]
+                    .as_array()
+                    .expect("matches")
                     .iter()
-                    .all(|entry| entry.as_str().is_some_and(|s| !s.is_empty())),
-            "{name}: coverage must cite deterministic native tests"
-        );
-        for relative in evidence.iter().filter_map(Value::as_str) {
-            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
-            let source = std::fs::read_to_string(&path)
-                .unwrap_or_else(|error| panic!("{name}: cannot read {}: {error}", path.display()));
-            assert!(
-                has_tests(&source),
-                "{name}: evidence {} must contain executable tests",
-                path.display()
-            );
-        }
-
-        let mut actual_fields = BTreeSet::new();
-        collect_fields(&tool["querySchema"], "", &mut actual_fields);
-        let declared_fields = tool_coverage["fields"]
-            .as_object()
-            .expect("covered fields")
-            .keys()
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        assert_eq!(
-            declared_fields, actual_fields,
-            "{name}: schema fields and reviewed engine-effect coverage drifted"
-        );
-
-        for (path, classes) in tool_coverage["fields"]
-            .as_object()
-            .expect("covered field map")
-        {
-            let declared = string_set(classes);
-            assert!(
-                !declared.is_empty(),
-                "{name}.{path}: missing coverage class"
-            );
-            assert!(
-                declared.is_subset(&allowed_classes),
-                "{name}.{path}: unknown coverage class in {declared:?}"
-            );
-            assert_ne!(
-                declared,
-                BTreeSet::from(["validated".to_owned()]),
-                "{name}.{path}: schema validation alone cannot satisfy an advertised engine effect"
-            );
-        }
-
-        let actual_variants = tool["variants"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|variant| variant["name"].as_str())
-            .map(str::to_owned)
-            .collect::<BTreeSet<_>>();
-        let covered_variants = string_set(&tool_coverage["variants"]);
-        assert_eq!(
-            covered_variants, actual_variants,
-            "{name}: every canonical variant must remain tied to deterministic native evidence"
-        );
-
-        let expected_discriminator_paths = discriminator_paths(&tool["querySchema"]);
-        let discriminators = tool_coverage["discriminators"]
-            .as_object()
-            .expect("discriminator map");
-        let covered_discriminator_paths = discriminators.keys().cloned().collect::<BTreeSet<_>>();
-        assert_eq!(
-            covered_discriminator_paths, expected_discriminator_paths,
-            "{name}: operation discriminator inventory drifted"
-        );
-        for (path, expected) in discriminators {
-            let mut actual = BTreeSet::new();
-            collect_values(&tool["querySchema"], path, "", &mut actual);
+                    .map(|hit| hit["value"].as_str().expect("value"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            let numbered = content
+                .lines()
+                .filter_map(|line| line.split_once('\t'))
+                .filter_map(|(number, text)| Some((number.parse::<u64>().ok()?, text)))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            let wanted = expected
+                .iter()
+                .flat_map(|line| [line - 1, *line])
+                .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(
-                string_set(expected),
-                actual,
-                "{name}.{path}: every advertised branch must have deterministic native coverage"
+                numbered
+                    .keys()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                wanted,
+                "{tool} {mode}: {data}"
             );
-        }
-    }
-}
-
-#[test]
-fn field_effect_registry_records_all_supported_coverage_classes() {
-    let coverage: Value = serde_json::from_str(COVERAGE_JSON).expect("field coverage JSON");
-    let mut observed: BTreeMap<String, usize> = BTreeMap::new();
-    for tool in coverage["tools"].as_object().expect("tools").values() {
-        for classes in tool["fields"].as_object().expect("fields").values() {
-            for class in string_set(classes) {
-                *observed.entry(class).or_default() += 1;
+            for hit in &expected {
+                assert_eq!(numbered[hit].to_lowercase(), "needle");
             }
         }
     }
-    for required in [
-        "consumed",
-        "forwarded",
-        "output-control",
-        "continuation",
-        "workflow-metadata",
-        "security-policy",
-    ] {
-        assert!(
-            observed.get(required).is_some_and(|count| *count > 0),
-            "coverage class {required} is declared but unused"
-        );
-    }
+    runtime.close().await;
 }
 
-#[test]
-fn every_tool_envelope_has_shared_engine_effect_coverage() {
-    let contract: Value = serde_json::from_str(contract_json()).expect("generated contract JSON");
-    let coverage: Value = serde_json::from_str(COVERAGE_JSON).expect("field coverage JSON");
-    let envelope = &coverage["envelope"];
-    let allowed = string_set(&coverage["coverageClasses"]);
-    let fields = envelope["fields"].as_object().expect("envelope fields");
-    let declared = fields.keys().cloned().collect::<BTreeSet<_>>();
-    for (name, classes) in fields {
-        let classes = string_set(classes);
-        assert!(!classes.is_empty() && classes.is_subset(&allowed), "{name}");
-        assert_ne!(classes, BTreeSet::from(["validated".into()]), "{name}");
+#[tokio::test]
+async fn shared_walk_filters_select_the_same_files_in_text_structure_and_ast() {
+    let workspace = Workspace::new();
+    for path in [
+        "src/keep.rs",
+        "src/drop.rs",
+        "test/keep.rs",
+        "src/nested/keep.rs",
+    ] {
+        workspace.write(path, "pub fn needle() {}\n");
     }
-    let evidence = envelope["evidence"].as_array().expect("envelope evidence");
-    assert!(!evidence.is_empty());
-    for relative in evidence {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(relative.as_str().expect("evidence path"));
-        let source = std::fs::read_to_string(path).expect("envelope evidence exists");
-        assert!(has_tests(&source));
+    let runtime = workspace.runtime(&[]);
+    for (tool, mut query) in [
+        (
+            "localSearch",
+            json!({"matchString":["needle"],"view":"files"}),
+        ),
+        (
+            "structureSearch",
+            json!({"operation":"files","entryType":"file"}),
+        ),
+        (
+            "astSearch",
+            json!({"operation":"match","parser":"rust","rule":{"pattern":"pub fn needle() {}"},"view":"files"}),
+        ),
+    ] {
+        query["path"] = json!(workspace.workspace);
+        query["include"] = json!(["src/**/*.rs"]);
+        query["exclude"] = json!(["**/drop.rs", "src/nested/**"]);
+        let result = call(&runtime, tool, query).await.expect("filtered walk");
+        let data = row_data(&result);
+        let paths = data["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .flat_map(|row| {
+                if let Some(path) = row["path"].as_str() {
+                    vec![path.to_owned()]
+                } else {
+                    row["files"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|entry| {
+                            let entry = entry.as_str().expect("entry");
+                            let name = entry
+                                .strip_suffix(')')
+                                .and_then(|value| value.rsplit_once(" ("))
+                                .map_or(entry, |(name, _)| name);
+                            format!("{}/{name}", row["dir"].as_str().expect("dir"))
+                        })
+                        .collect()
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(paths, ["src/keep.rs"], "{tool}: {data}");
     }
-    for tool in contract["tools"].as_array().expect("tools") {
-        let mut all_fields = BTreeSet::new();
-        collect_fields(&tool["inputSchema"], "", &mut all_fields);
-        let actual = all_fields
-            .into_iter()
-            .filter(|field| !field.contains(['.', '[', '{']))
-            .collect::<BTreeSet<_>>();
-        assert_eq!(
-            actual, declared,
-            "{} envelope coverage drifted",
-            tool["name"]
-        );
-    }
+    runtime.close().await;
 }

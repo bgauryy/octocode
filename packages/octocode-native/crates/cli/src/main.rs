@@ -1,7 +1,3 @@
-// Test-compiled code may assert with unwrap/expect/panic. A crate attribute,
-// not clippy.toml's `allow-*-in-tests`: clippy does not treat modules mounted
-// under `cfg(all(test, unix))` as test code.
-#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 mod cli;
 
 // The CLI is a short-lived, IO-bound process: CPU-parallel work lives in the

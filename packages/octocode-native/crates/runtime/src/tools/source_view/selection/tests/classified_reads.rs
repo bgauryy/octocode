@@ -1,10 +1,11 @@
 //! Classified reads: recovery leads, window room, and candidate pages.
 use super::*;
+use octocode_contract_types::LocalFetchQuery;
 
 #[test]
 fn context_selection_omits_unrelated_bodies_and_exposes_recovery() {
     use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::{LocalFetchQuery, SourceFacts};
+    use crate::tools::source_view::SourceFacts;
     struct Relevance;
     impl SelectionJudge for Relevance {
         fn identity(&self) -> serde_json::Value {
@@ -39,9 +40,8 @@ fn context_selection_omits_unrelated_bodies_and_exposes_recovery() {
         "x".repeat(2_030)
     );
     let query: LocalFetchQuery = serde_json::from_value(json!({
-        "path":"source.txt", "length":100,
-        "clasifyContext":{"classifiers":["When do retries stop?"]},
-        "mainGoal":"Explain retry termination", "reasoning":"Find the stopping condition"
+        "path":"source.txt",
+        "classification":{"predicates":["When do retries stop?"]}
     }))
     .unwrap();
     let result = crate::tools::source_view::process_fetched_content_selected(
@@ -74,7 +74,7 @@ fn context_selection_omits_unrelated_bodies_and_exposes_recovery() {
 #[test]
 fn a_classified_page_leaves_room_for_its_selection_fields() {
     use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::{LocalFetchQuery, SourceFacts};
+    use crate::tools::source_view::SourceFacts;
     let executor = tokio::runtime::Runtime::new().unwrap();
     let mut runtime = budget_runtime(executor.handle().clone(), Arc::new(AtomicUsize::new(0)));
     runtime.judge = Arc::new(WordJudge { fail: None });
@@ -90,9 +90,9 @@ fn a_classified_page_leaves_room_for_its_selection_fields() {
         ..SourceFacts::default()
     };
     let read = |classified: bool| {
-        let mut query = json!({"path":"source.txt", "fullContent":true});
+        let mut query = json!({"path":"source.txt"});
         if classified {
-            query["clasifyContext"] = json!({"classifiers":["Is it kept?"]});
+            query["classification"] = json!({"predicates":["Is it kept?"]});
         }
         let query: LocalFetchQuery = serde_json::from_value(query).unwrap();
         crate::tools::source_view::process_fetched_content_selected(
@@ -155,14 +155,13 @@ fn unfiltered_unknown_reads_exactly_the_unknown_chunks_beside_the_whole_view() {
     let next = result.next.expect("recovery");
     let unknown = next.unfiltered_unknown.expect("unknown chunks").query;
     assert_eq!(
-        serde_json::to_value(&unknown.ranges).unwrap(),
-        json!(["3-4"])
+        serde_json::to_value(&unknown).unwrap()["ranges"],
+        json!([{"startLine":3,"endLine":4}])
     );
-    assert!(unknown.clasify_context.is_none() && unknown.full_content.is_none());
+    assert!(!local_fetch_query::has_classification(&unknown));
     let whole = next.unfiltered.expect("whole view").query;
-    assert!(whole.clasify_context.is_none());
-    assert_eq!(whole.full_content, Some(true));
-    assert!(whole.ranges.is_empty());
+    assert!(!local_fetch_query::has_classification(&whole));
+    assert!(local_fetch_query::line_ranges(&whole).is_empty());
 }
 
 /// Chunks past the candidate budget are judged by `nextCandidatePage`,
@@ -175,8 +174,8 @@ fn a_chain_of_candidate_pages_judges_every_chunk_once() {
         "keep", "drop", "maybe", "keep", "drop", "keep", "maybe", "keep",
     ];
     let text = word_lines(&words);
-    let query = json!({"path":"source.txt", "fullContent":true,
-        "clasifyContext":{"classifiers":["Is it kept?"]}});
+    let query = json!({"path":"source.txt",
+        "classification":{"predicates":["Is it kept?"]}});
     let unbudgeted = budgeted_read(&text, &query, 64);
     let mut result = budgeted_read(&text, &query, 3);
     let receipt = result.selection.as_ref().expect("receipt");
@@ -199,7 +198,10 @@ fn a_chain_of_candidate_pages_judges_every_chunk_once() {
         let Some(page) = next.next_candidate_page else {
             break;
         };
-        assert!(page.query.clasify_context.is_some() && page.query.selection.is_some());
+        assert!(
+            local_fetch_query::has_classification(&page.query)
+                && local_fetch_query::selection(&page.query).is_some()
+        );
         assert!(totals.len() < 5, "the chain ends");
         result = budgeted_read(&text, &serde_json::to_value(&page.query).unwrap(), 3);
     }
@@ -229,8 +231,8 @@ fn every_unknown_range_has_a_read_past_one_row() {
         .map(|i| if i % 2 == 0 { "maybe" } else { "keep" })
         .collect::<Vec<_>>();
     let text = word_lines(&words);
-    let query = json!({"path":"source.txt", "fullContent":true,
-        "clasifyContext":{"classifiers":["Is it kept?"]}});
+    let query = json!({"path":"source.txt",
+        "classification":{"predicates":["Is it kept?"]}});
     let result = budgeted_read(&text, &query, 64);
     let next = serde_json::to_value(result.next.expect("leads")).unwrap();
     let mut ranges = Vec::new();
@@ -239,7 +241,7 @@ fn every_unknown_range_has_a_read_past_one_row() {
         "unfilteredUnknown2",
         "unfilteredUnknown3",
     ] {
-        for row in next[name]["query"]["queries"]
+        for row in next[name]["input"]["queries"]
             .as_array()
             .into_iter()
             .flatten()
@@ -249,11 +251,12 @@ fn every_unknown_range_has_a_read_past_one_row() {
     }
     let expected = (0..30)
         .step_by(2)
-        .map(|i| json!(format!("{}-{}", i + 1, i + 1)))
+        .map(|i| json!({"startLine":i+1,"endLine":i+1}))
         .collect::<Vec<_>>();
     assert_eq!(ranges, expected, "{next}");
-    assert_eq!(
-        next["unfiltered"]["query"]["queries"][0]["fullContent"],
-        true
+    assert!(
+        next["unfiltered"]["input"]["queries"][0]
+            .get("ranges")
+            .is_none()
     );
 }

@@ -4,9 +4,7 @@
 use crate::types::{CaseRule, PatternSyntax, SearchOutput, SearchSort, TextSearchOptions};
 use aho_corasick::AhoCorasick;
 
-/// Output mode. The CLI builder applied these with a fixed precedence
-/// (filesOnly → filesWithoutMatch → countMatches → countLines → normal); we
-/// mirror that precedence so conflicting flags resolve identically.
+/// Internal projection of the mutually exclusive search output views.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Mode {
     FilesOnly,

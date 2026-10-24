@@ -80,7 +80,7 @@ fn declaration_facts_equal_the_graph_facts_without_calls() {
         (
             "large.rs",
             concat!(
-                include_str!("../graph_facts/mod.rs"),
+                include_str!("../graph_facts.rs"),
                 include_str!("../graph_facts/collect.rs"),
                 include_str!("../graph_facts/imports.rs"),
                 include_str!("../graph_facts/positions.rs"),

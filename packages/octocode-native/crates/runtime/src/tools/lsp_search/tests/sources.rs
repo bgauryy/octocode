@@ -59,10 +59,9 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
         );
     }
     let q = query(serde_json::json!({
-        "operation": "references", "mainGoal": "test", "reasoning": "test",
-        "path": large.to_string_lossy(),
+        "operation": "references", "path": large.to_string_lossy(),
         "symbolName": "foo", "line": 1,
-        "contextLines": 2
+        "contextLines":{"before":2,"after":2}
     }));
     let unavailable = "[content unavailable — could not read: file too large]";
     let snippets = [&large, &binary]
@@ -112,8 +111,7 @@ async fn locations_outside_the_read_roots_are_reported_withheld() {
     )
     .expect("lib");
     let q = query(serde_json::json!({
-        "operation": "definition", "mainGoal": "test", "reasoning": "test",
-        "path": anchor.to_string_lossy(), "symbolName": "WalkBuilder", "line": 2
+        "operation": "definition", "path": anchor.to_string_lossy(), "symbolName": "WalkBuilder", "line": 2
     }));
     let snippets = vec![serde_json::json!({
         "uri": octocode_engine::lsp::uri::path_to_uri(&target.to_string_lossy()).expect("uri"),
@@ -139,7 +137,15 @@ async fn locations_outside_the_read_roots_are_reported_withheld() {
         "{row}"
     );
     assert!(row.get("hints").is_none(), "{row}");
-    assert!(row["next"].get("includeBuildScripts").is_none(), "{row}");
+    assert!(
+        !row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
+        "{row}"
+    );
 }
 
 #[cfg(unix)]
@@ -209,8 +215,24 @@ async fn context_windows_come_from_one_cached_read_per_file() {
     let mut sources = SourceCache::new(&paths);
     let mut first = location(0);
     let mut last = location(4);
-    apply_context_lines(&mut first, 1, &mut sources).await;
-    apply_context_lines(&mut last, 1, &mut sources).await;
+    apply_context_lines(
+        &mut first,
+        octocode_engine::types::SearchContext {
+            before: 1,
+            after: 1,
+        },
+        &mut sources,
+    )
+    .await;
+    apply_context_lines(
+        &mut last,
+        octocode_engine::types::SearchContext {
+            before: 1,
+            after: 1,
+        },
+        &mut sources,
+    )
+    .await;
     assert_eq!(sources.reads(), 1);
     assert_eq!(first["content"], "l1\nl2\n");
     assert_eq!(
@@ -228,8 +250,7 @@ async fn context_windows_come_from_one_cached_read_per_file() {
 fn symbol_anchors_resolve_on_the_synchronized_text_not_the_disk() {
     // The path does not exist: resolution must use the supplied content.
     let q = query(serde_json::json!({
-        "operation": "definition", "mainGoal": "test", "reasoning": "test",
-        "path": "/nonexistent/lib.rs",
+        "operation": "definition", "path": "/nonexistent/lib.rs",
         "symbolName": "greet",
         "line": 2
     }));
@@ -250,8 +271,7 @@ fn symbol_anchors_resolve_on_the_synchronized_text_not_the_disk() {
     assert_eq!(resolved["foundAtCharacter"], 16);
     // Found off its hint: the line and the deviation are new facts.
     let off = query(serde_json::json!({
-        "operation": "definition", "mainGoal": "test", "reasoning": "test",
-        "path": "/nonexistent/lib.rs",
+        "operation": "definition", "path": "/nonexistent/lib.rs",
         "symbolName": "greet",
         "line": 1
     }));
@@ -273,8 +293,7 @@ fn symbol_anchors_resolve_on_the_synchronized_text_not_the_disk() {
 fn member_qualified_symbol_names_anchor_on_the_last_member() {
     let anchor_for = |path: &str, source: &str, name: &str, line: u32| {
         let q = query(serde_json::json!({
-            "operation": "definition", "mainGoal": "test", "reasoning": "test",
-            "path": path, "symbolName": name, "line": line
+            "operation": "definition", "path": path, "symbolName": name, "line": line
         }));
         let anchor = resolve_anchor(&q, path, "file:///repo/x", Some(source)).expect(name);
         (anchor.line, anchor.character)

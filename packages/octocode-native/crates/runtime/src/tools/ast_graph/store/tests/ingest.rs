@@ -6,11 +6,11 @@ fn default_workspace_stops_at_the_allowed_roots() {
     let dir = fixture();
     let sub = dir.0.as_path().join("app");
     assert_eq!(
-        default_workspace(sub.clone(), &policy(dir.0.as_path())),
+        default_workspace(sub.clone(), &workspace_policy(dir.0.as_path())),
         dir.0.as_path()
     );
     // A repository root above the allowed root would be denied: use cwd.
-    assert_eq!(default_workspace(sub.clone(), &policy(&sub)), sub);
+    assert_eq!(default_workspace(sub.clone(), &workspace_policy(&sub)), sub);
 }
 
 /// A credential in source text the graph keeps (here an import specifier,
@@ -111,7 +111,7 @@ fn ingest_classifies_roles_entries_and_declared_dependencies() {
     );
 
     let uses = ask(root, "dependents", Some("src/lib.ts#greet"), |o| {
-        o.edges = vec!["uses".into()]
+        o.edges = vec!["uses".into()];
     });
     assert_eq!(ids(&uses), vec!["src/main.ts"], "{}", uses.value);
 }
@@ -238,7 +238,7 @@ fn ingest_denials_share_the_path_policy_codes() {
             workspace: Some(outside.0.as_path().to_path_buf()),
             ..Default::default()
         },
-        &policy(dir.0.as_path()),
+        &workspace_policy(dir.0.as_path()),
         &ContentSecurity::new(),
         &NeverCancel,
         None,
@@ -254,7 +254,7 @@ fn ingest_denials_share_the_path_policy_codes() {
             workspace: Some(dir.0.as_path().to_path_buf()),
             ..Default::default()
         },
-        &policy(dir.0.as_path()),
+        &workspace_policy(dir.0.as_path()),
         &ContentSecurity::new(),
         &NeverCancel,
         None,
@@ -298,7 +298,7 @@ fn ingest_language_globs_choose_the_parser() {
                     .collect(),
                 ..Default::default()
             },
-            &policy(root),
+            &workspace_policy(root),
             &ContentSecurity::new(),
             &NeverCancel,
             None,
@@ -306,7 +306,7 @@ fn ingest_language_globs_choose_the_parser() {
     };
     let widget = || {
         let found = ask(root, "find", Some("Widget"), |o| {
-            o.kind = Some("symbol".into())
+            o.kind = Some("symbol".into());
         });
         found.value["results"][0]["symbolKind"].clone()
     };
@@ -345,7 +345,7 @@ fn a_malformed_language_glob_is_an_invalid_glob_error() {
             language_globs: BTreeMap::from([("cpp".to_owned(), vec!["[bad".to_owned()])]),
             ..Default::default()
         },
-        &policy(root),
+        &workspace_policy(root),
         &ContentSecurity::new(),
         &NeverCancel,
         None,

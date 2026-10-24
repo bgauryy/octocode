@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { connectCDP } from './cdp-connection.mjs';
+import { connectCDP, type Payload } from './cdp-connection.mjs';
+import { errorMessage } from './error-message.mjs';
 
 import { isAbsolute, join, relative, resolve } from 'path';
 import { existsSync } from 'fs';
@@ -13,7 +14,8 @@ import {
   attachSaveArtifact,
   attachSessionStore,
   createRunDir,
-  readJson,
+  readJsonObject,
+  reportRunError,
   sessionMetaDir as sessionMetaDirFor,
   startRunHistory,
   writeJson,
@@ -22,6 +24,7 @@ import {
 import {
   attachForeground,
   chromeEndpoint,
+  confirmTabLoaded,
   listTargets,
   navigateTab,
   selectTarget,
@@ -31,7 +34,7 @@ import {
 propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
-function workspaceOutputPath(candidate, label) {
+function workspaceOutputPath(candidate: string, label: string) {
   const resolved = resolve(candidate);
   const rel = relative(OCTOCODE_OUTPUT_BASE, resolved);
   if (rel.startsWith('..') || isAbsolute(rel)) {
@@ -56,6 +59,7 @@ const scriptArg = argv.find(
   a => !a.startsWith('--') && (a.endsWith('.mjs') || a.endsWith('.js'))
 );
 const { getArg, hasFlag } = flagArgs(argv);
+// getArg returns the default whenever the flag has no value, so these are never undefined.
 
 const PORT = getArg('--port', '9222');
 const NEW_TAB = getArg('--new-tab', '');
@@ -105,16 +109,16 @@ if (nodeMajor < 24) {
 
 const chrome = chromeEndpoint(PORT);
 
-const createSession = (url: string, targetInfo: Record<string, any>) =>
+const createSession = (url: string, targetInfo: Payload) =>
   connectCDP(url, { targetInfo, timeoutMs: TIMEOUT });
 
-let _cleanup = null;
-let _interrupted = null;
-function registerCleanup(fn) {
+let _cleanup: (() => Promise<void>) | null = null;
+let _interrupted: ((signal: string) => void) | null = null;
+function registerCleanup(fn: () => Promise<void>) {
   _cleanup = fn;
 }
 
-async function shutdown(signal) {
+async function shutdown(signal: string) {
   console.error(`[CDP_RUNNER] ${signal} received - cleaning up...`);
   _interrupted?.(signal);
   if (_cleanup) {
@@ -147,7 +151,8 @@ async function main() {
   const sessionMetaFile = join(sessionMetaDir, 'session-metadata.json');
   const targetSnapshotFile = join(sessionMetaDir, 'targets-latest.json');
 
-  if (LIST_TARGETS) {
+  // A run without a script never gets here unless it lists targets (checked at startup).
+  if (LIST_TARGETS || !scriptArg) {
     await listTargets(
       chrome,
       {
@@ -163,7 +168,7 @@ async function main() {
   const selected = await selectTarget(chrome, SELECTION, line =>
     console.error(line)
   );
-  if (selected.error) {
+  if (selected.error !== undefined) {
     console.error(selected.error);
     process.exit(1);
   }
@@ -176,39 +181,26 @@ async function main() {
     process.exit(1);
   }
 
-  const cdp: Awaited<ReturnType<typeof createSession>> & Record<string, any> =
-    await createSession(targetWsUrl, targetInfo);
-  // A tab opened on about: or data: is usable once its document has loaded.
-  if (openedTabId)
-    await cdp
-      .send(
-        'Runtime.evaluate',
-        {
-          expression:
-            "document.readyState === 'complete' || new Promise(resolve => addEventListener('load', resolve, { once: true }))",
-          awaitPromise: true,
-        },
-        undefined,
-        { timeoutMs: 15000 }
-      )
-      .catch(error =>
-        console.error(
-          `[CDP_RUNNER] New tab load not confirmed: ${error.message}`
-        )
-      );
-  attachForeground(cdp, targetInfo, () =>
-    createSession(version.webSocketDebuggerUrl, { type: 'browser' })
+  const connected = await createSession(targetWsUrl, targetInfo);
+  const cdp = attachSessionStore(
+    attachSaveArtifact(
+      Object.assign(
+        attachForeground(connected, targetInfo, () =>
+          createSession(version.webSocketDebuggerUrl, { type: 'browser' })
+        ),
+        { protocol: chrome.protocol, skillScriptsDir: import.meta.dirname }
+      ),
+      line => console.log(line)
+    ),
+    { sessionMetaDir, sessionMetaFile, targetSnapshotFile }
   );
-  cdp.protocol = chrome.protocol;
-  cdp.skillScriptsDir = import.meta.dirname;
-  attachSaveArtifact(cdp, line => console.log(line));
+  if (openedTabId) await confirmTabLoaded(cdp, line => console.error(line));
 
   const outputDir = ENV_OUTPUT_DIR || createRunDir(OCTOCODE_OUTPUT_BASE);
   const runLogFile = join(sessionMetaDir, 'run-history.json');
-  const existingMeta = readJson(sessionMetaFile, {}) ?? {};
   const nowIso = new Date().toISOString();
   const baseMeta = {
-    ...existingMeta,
+    ...readJsonObject(sessionMetaFile),
     port: PORT,
     browser: version.Browser,
     lastConnectedAt: nowIso,
@@ -248,18 +240,13 @@ async function main() {
   });
 
   _interrupted = signal => {
-    cdp.writeSessionMetadata?.({
+    cdp.writeSessionMetadata({
       lastRunStatus: 'interrupted',
       lastError: signal,
     });
     finalizeRun('interrupted', { signal });
   };
   cdp.outputDir = outputDir;
-  attachSessionStore(cdp, {
-    sessionMetaDir,
-    sessionMetaFile,
-    targetSnapshotFile,
-  });
   if (VERBOSE) {
     console.error(`[CDP_RUNNER] Output dir: ${outputDir}`);
     console.error(`[CDP_RUNNER] Session meta dir: ${sessionMetaDir}`);
@@ -279,7 +266,11 @@ async function main() {
   });
 
   // A run that cannot start: record why, release the tab and exit 1.
-  const abort = async (message, lastError, error = lastError) => {
+  const abort = async (
+    message: string,
+    lastError: string,
+    error = lastError
+  ): Promise<never> => {
     console.error(`[CDP_RUNNER] ${message}`);
     cdp.writeSessionMetadata({ lastRunStatus: 'error', lastError });
     finalizeRun('error', { error });
@@ -293,17 +284,19 @@ async function main() {
       `Script not found: ${scriptPath}`
     );
 
-  let mod;
+  let mod: { run?: unknown };
   try {
     mod = await import(pathToFileURL(scriptPath).href);
   } catch (e) {
-    await abort(`Failed to load script: ${e.message}`, e.message);
+    await abort(`Failed to load script: ${errorMessage(e)}`, errorMessage(e));
+    return;
   }
-
-  if (typeof mod.run !== 'function') {
+  const { run } = mod;
+  if (typeof run !== 'function') {
     const missing =
       'Script must export: export async function run(cdp) { ... }';
     await abort(missing, missing, 'missing run(cdp) export');
+    return;
   }
 
   try {
@@ -322,45 +315,20 @@ async function main() {
       });
     }
   } catch (stealthErr) {
-    await abort(stealthErr.message, stealthErr.message);
+    await abort(errorMessage(stealthErr), errorMessage(stealthErr));
   }
 
   let exitCode = 0;
   try {
-    await mod.run(cdp);
+    // Called on the module, as `mod.run(cdp)`, so a run that reads `this` keeps working.
+    await run.call(mod, cdp);
     exitCode = Number(process.exitCode) || 0;
     const status = exitCode === 0 ? 'success' : 'error';
     cdp.writeSessionMetadata({ lastRunStatus: status, lastExitCode: exitCode });
     finalizeRun(status, { exitCode });
     if (VERBOSE) console.error('[CDP_RUNNER] Script completed successfully');
   } catch (e) {
-    const isCdpError = /CDP error \[|CDP timeout/.test(e.message);
-    if (isCdpError) {
-      const methodMatch =
-        e.message.match(/for:\s*(\S+)/) ??
-        e.message.match(/'([A-Z][a-zA-Z]+\.[a-zA-Z]+)'/);
-      const method = methodMatch ? methodMatch[1] : 'unknown';
-      console.log(`[CDP_RETRY_NEEDED] method=${method} error="${e.message}"`);
-      console.log(
-        `[CDP_RETRY_NEEDED] Inspect "${method}", its parameters, enabled domains and target readiness before retrying.`
-      );
-      cdp.writeSessionMetadata({
-        lastRunStatus: 'retry-needed',
-        lastError: e.message,
-        lastErrorMethod: method,
-      });
-      finalizeRun('retry-needed', { error: e.message, errorMethod: method });
-      exitCode = 2;
-    } else {
-      console.error(`[CDP_RUNNER] Script error: ${e.message}`);
-      if (e.stack) console.error(e.stack);
-      cdp.writeSessionMetadata({
-        lastRunStatus: 'error',
-        lastError: e.message,
-      });
-      finalizeRun('error', { error: e.message });
-      exitCode = 1;
-    }
+    exitCode = reportRunError(cdp, finalizeRun, e, console);
   } finally {
     await _cleanup?.();
     _cleanup = null;
@@ -377,8 +345,8 @@ async function main() {
   process.exit(exitCode);
 }
 
-main().catch(async e => {
-  console.error('[CDP_RUNNER_FATAL]', e.message);
+main().catch(async (e: unknown) => {
+  console.error('[CDP_RUNNER_FATAL]', errorMessage(e));
   if (_cleanup) {
     try {
       await _cleanup();

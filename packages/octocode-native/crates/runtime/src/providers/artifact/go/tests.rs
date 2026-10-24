@@ -1,6 +1,7 @@
 //! Go exact lookups: source refs, module directories, package paths, pins and vanity modules.
+use super::super::query::{artifact_query, exact_query};
 use super::super::test_http::RouteHttp;
-use super::super::types::{artifact_query, exact_query, test_budget};
+use super::super::test_http::test_budget;
 use super::*;
 
 use serde_json::json;
@@ -86,7 +87,7 @@ async fn go_parses_exact_module_lookup() {
         .expect("go");
     assert_eq!(page.artifacts.len(), 1);
     let item = &page.artifacts[0];
-    assert_eq!(item.name, "github.com/gin-gonic/gin");
+    assert_eq!(item.package_name, "github.com/gin-gonic/gin");
     assert_eq!(item.version.as_deref(), Some("v1.9.1"));
     assert_eq!(item.published_at.as_deref(), Some("2023-06-12"));
     assert_eq!(
@@ -130,7 +131,7 @@ async fn go_package_paths_rejected_as_modules_read_the_package_endpoint() {
         .await
         .expect("package fallback");
     let item = &page.artifacts[0];
-    assert_eq!(item.name, "golang.org/x/net/http2");
+    assert_eq!(item.package_name, "golang.org/x/net/http2");
     assert_eq!(item.module_path.as_deref(), Some("golang.org/x/net"));
     assert_eq!(item.version.as_deref(), Some("v0.61.0"));
     let paths = |http: &RouteHttp| {
@@ -182,8 +183,7 @@ async fn go_pinned_versions_resolve_the_pinned_release() {
     let b = test_budget();
     let client = RegistryClient::uncached(&http, &b);
     let lookup = |version: Option<&str>| {
-        let mut fields =
-            json!({"ecosystem":"go","packageName":"github.com/open-telemetry/opentelemetry-go"});
+        let mut fields = json!({"operation":"resolve","ecosystem":"go","packageName":"github.com/open-telemetry/opentelemetry-go"});
         if let Some(version) = version {
             fields["version"] = json!(version);
         }
@@ -210,10 +210,9 @@ async fn go_pinned_versions_resolve_the_pinned_release() {
         missing.nearest.iter().any(|version| version == "0.70.0"),
         "{missing:?}"
     );
-    let range = go(&lookup(Some("^0.71")), &state, &client)
-        .await
-        .expect_err("range");
-    assert_eq!(range.code, ErrorCode::CapabilityUnavailable);
+    assert!(crate::contracts::validate_query("artifactSearch", json!({
+        "operation":"resolve", "ecosystem":"go", "packageName":"github.com/a/b", "version":"^0.71"
+    })).is_err());
 }
 
 /// A vanity module path names neither its repository directory nor its
@@ -236,7 +235,7 @@ async fn go_vanity_modules_take_the_release_commit_from_the_proxy() {
     let b = test_budget();
     let client = RegistryClient::uncached(&http, &b);
     let query = artifact_query(
-        json!({"ecosystem":"go","packageName":"go.opentelemetry.io/otel/sdk","version":"v1.30.0"}),
+        json!({"operation":"resolve","ecosystem":"go","packageName":"go.opentelemetry.io/otel/sdk","version":"v1.30.0"}),
         None,
     );
     let page = go(&query, &ArtifactProviderState::default(), &client)

@@ -5,17 +5,8 @@ import {mkdirSync, readFileSync, writeFileSync, existsSync, rmSync} from 'node:f
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import type { JsonRecord } from './json-record.ts';
-import {binary, tempDir, jsonCall, execFileSync, spawn, only} from './helpers.ts';
+import {binary, tempDir, jsonCall, execFileSync, spawn, only, waitFor} from './helpers.ts';
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-async function until(check: () => unknown, detail: () => string) {
-  const deadline = Date.now() + 8000;
-  while (Date.now() < deadline) {
-    if (check()) return;
-    await delay(20);
-  }
-  assert.fail(`Timed out: ${detail()}`);
-}
 
 async function fixture(t: TestContext, mode: 'busy' | 'idle') {
   const workspace = tempDir('claude-active-', {real:true});
@@ -72,7 +63,7 @@ setInterval(() => { if (received && fs.existsSync(release)) finish(); }, 20);
   const events = () => stdout.split('\n').slice(0,-1).filter(Boolean).map((line): JsonRecord => JSON.parse(line));
   const frames = () => existsSync(capture) ? readFileSync(capture, 'utf8').trim().split('\n').filter(Boolean).map((line): JsonRecord => JSON.parse(line)) : [];
   const detail = () => `${stdout}\n${stderr}`;
-  await until(() => frames().some(row => row.channel === 'stdin'), detail);
+  await waitFor(() => frames().some(row => row.channel === 'stdin'), { message: detail });
   const ready = events().find(event => event.type === 'ready');
   assert.ok(ready, 'the worker reported ready');
   const recipient = ready.session;
@@ -96,8 +87,8 @@ test('managed Claude receives native peer input while its original turn is still
   const f = await fixture(t, 'busy');
   assert.equal(f.events().filter(event => event.type === 'turn-completed').length, 0);
   const message = f.send('collaborator-result');
-  await until(() => f.frames().some(row => row.channel === 'socket'), f.detail);
-  await until(() => f.state(message)?.state === 'submitted', f.detail);
+  await waitFor(() => f.frames().some(row => row.channel === 'socket'), { message: f.detail });
+  await waitFor(() => f.state(message)?.state === 'submitted', { message: f.detail });
   assert.equal(f.events().filter(event => event.type === 'turn-completed').length, 0, 'delivery waited for a result event');
   const frames = f.frames(), socket = frames.find(row => row.channel === 'socket');
   assert.ok(socket, 'the peer socket received a frame');
@@ -109,22 +100,22 @@ test('managed Claude receives native peer input while its original turn is still
   assert.equal(packet.priority, 'next');
   assert.equal(packet.message.role, 'user');
   assert.match(packet.message.content, /collaborator-result/);
-  assert.ok(packet.uuid); assert.equal(packet.msg_id, packet.uuid);
+  assert.match(packet.uuid, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/); assert.equal(packet.msg_id, packet.uuid);
   const state = f.delivery(message);
   assert.equal(state.token, packet.uuid);
   assert.equal(state.acknowledgedAt, null, 'socket submission must not acknowledge recipient handling');
   writeFileSync(f.release, 'finish');
-  await until(() => f.events().some(event => event.type === 'turn-completed'), f.detail);
+  await waitFor(() => f.events().some(event => event.type === 'turn-completed'), { message: f.detail });
 });
 
 test('passive-only mail does not start an idle Claude turn; an action wake uses the peer socket', {skip:process.platform==='win32'}, async t => {
   const f = await fixture(t, 'idle');
-  await until(() => f.events().some(event => event.type === 'turn-completed'), f.detail);
+  await waitFor(() => f.events().some(event => event.type === 'turn-completed'), { message: f.detail });
   const passive = f.send('passive-context', 'passive');
   assert.equal(f.delivery(passive).state, null);
   const action = f.send('default-action');
-  await until(() => f.frames().some(row => row.channel === 'socket'), f.detail);
-  await until(() => f.state(action)?.state === 'submitted', f.detail);
+  await waitFor(() => f.frames().some(row => row.channel === 'socket'), { message: f.detail });
+  await waitFor(() => f.state(action)?.state === 'submitted', { message: f.detail });
   // Positive proof the passive mail never woke a turn on its own: it rides the single action frame.
   const sockets = f.frames().filter(row => row.channel === 'socket');
   assert.equal(sockets.length, 1);
@@ -133,5 +124,5 @@ test('passive-only mail does not start an idle Claude turn; an action wake uses 
   assert.equal(f.delivery(passive).state, 'submitted');
   assert.equal(f.frames().filter(row => row.channel === 'stdin').length, 1);
   assert.equal(f.delivery(action).acknowledgedAt, null);
-  await until(() => f.events().filter(event => event.type === 'turn-completed').length === 2, f.detail);
+  await waitFor(() => f.events().filter(event => event.type === 'turn-completed').length === 2, { message: f.detail });
 });

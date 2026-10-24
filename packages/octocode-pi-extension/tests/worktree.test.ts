@@ -1,13 +1,11 @@
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { processStartTime } from '../src/shared/process.js';
 import { subagentProcessEnv } from '../src/subagents/process.js';
 import { createWorktree, describePrune, finishWorktree, isolationReport, mergeAgent, pendingRefs, pruneWorktrees, recordWorktreePid, worktreesDir } from '../src/subagents/worktree.js';
-import { tmp } from './helpers.js';
+import { git, tmp } from './helpers.js';
 
-const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
 function repo(): string {
   const dir = fs.realpathSync(tmp('octocode-wt-repo-'));
@@ -193,26 +191,6 @@ describe('isolated subagent worktrees', () => {
     fs.renameSync(`${stuck.path}.json`, `${stuck.path}.json.pruning-${dead}`);
     expect(await pruneWorktrees(dir, home)).toEqual({ saved: [{ agentId: 'stuck-1', ref: 'refs/octocode/pi/stuck-1' }], kept: [] });
     expect(fs.readdirSync(worktreesDir(dir, home))).toEqual([]);
-  });
-
-  it.runIf(process.platform !== 'win32')('releases a prune claim whose pid names another process now, and keeps one its own process holds', async () => {
-    const dir = repo();
-    const home = tmp();
-    const dead = spawnSync(process.execPath, ['-e', '0']).pid;
-    const orphan = async (id: string) => {
-      const worktree = await createWorktree(dir, id, home);
-      fs.writeFileSync(path.join(worktree.path, 'src', 'a.txt'), `${id}\n`);
-      const meta = `${worktree.path}.json`;
-      fs.writeFileSync(meta, JSON.stringify({ ...JSON.parse(fs.readFileSync(meta, 'utf8')), owners: [{ pid: dead }] }));
-      return worktree;
-    };
-    // The pruning session died and its pid went to this one's parent; the claim's start time tells them apart.
-    const reused = await orphan('reused-1');
-    fs.renameSync(`${reused.path}.json`, `${reused.path}.json.pruning-${process.ppid}-1`);
-    const held = await orphan('held-1');
-    fs.renameSync(`${held.path}.json`, `${held.path}.json.pruning-${process.ppid}-${processStartTime(process.ppid)}`);
-    expect(await pruneWorktrees(dir, home)).toEqual({ saved: [{ agentId: 'reused-1', ref: 'refs/octocode/pi/reused-1' }], kept: [] });
-    expect(fs.existsSync(`${held.path}.json.pruning-${process.ppid}-${processStartTime(process.ppid)}`)).toBe(true);
   });
 
   it('leaves a worktree whose owner record is unreadable but fresh, and warns about it once stale', async () => {

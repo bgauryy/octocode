@@ -1,6 +1,7 @@
 //! Go discovery: remembered tokens, bound cursors, the registry cap and deadline-bounded walks.
+use super::super::query::discovery;
 use super::super::test_http::RouteHttp;
-use super::super::types::{discovery, test_budget};
+use super::super::test_http::test_budget;
 use super::*;
 use serde_json::json;
 
@@ -11,8 +12,8 @@ use serde_json::json;
 async fn go_next_pages_start_from_the_remembered_token() {
     let item = |n: usize| json!({"packagePath": format!("example.com/p{n}")});
     let search = |token: Option<&str>| match token {
-        None => "/v1/search?q=json&limit=2".to_owned(),
-        Some(token) => format!("/v1/search?q=json&limit=2&token={token}"),
+        None => "/v1/search?q=json&limit=20".to_owned(),
+        Some(token) => format!("/v1/search?q=json&limit=20&token={token}"),
     };
     let http = RouteHttp::new()
         .json(
@@ -39,7 +40,7 @@ async fn go_next_pages_start_from_the_remembered_token() {
     };
     let page_of = |page: u64| {
         (
-            discovery(ArtifactType::Go, json!({"page": page, "pageSize": 2})),
+            discovery(ArtifactType::Go, json!({"page": page})),
             ArtifactProviderState {
                 page: Some(page),
                 ..Default::default()
@@ -58,13 +59,13 @@ async fn go_next_pages_start_from_the_remembered_token() {
     let seen = http.targets().len();
     let (query, state) = page_of(2);
     let second = go(&query, &state, &client).await.expect("page 2");
-    assert_eq!(second.artifacts[0].name, "example.com/p3");
+    assert_eq!(second.artifacts[0].package_name, "example.com/p3");
     assert_eq!(http.targets()[seen..], [search(Some("t2"))], "one request");
     // Page 4 walks from page 3, the deepest page whose start is known.
     let seen = http.targets().len();
     let (query, state) = page_of(4);
     let fourth = go(&query, &state, &client).await.expect("page 4");
-    assert_eq!(fourth.artifacts[0].name, "example.com/p7");
+    assert_eq!(fourth.artifacts[0].package_name, "example.com/p7");
     assert_eq!(fourth.next_state, None);
     assert_eq!(
         http.targets()[seen..],
@@ -75,10 +76,10 @@ async fn go_next_pages_start_from_the_remembered_token() {
 /// pkg.go.dev search pages of two rows (`p1`…`p8`), tokens `t2`…`t4`.
 fn go_pages() -> RouteHttp {
     let item = |n: usize| json!({"packagePath": format!("example.com/p{n}")});
-    let search = |token: &str| format!("/v1/search?q=json&limit=2&token={token}");
+    let search = |token: &str| format!("/v1/search?q=json&limit=20&token={token}");
     RouteHttp::new()
         .json(
-            "/v1/search?q=json&limit=2",
+            "/v1/search?q=json&limit=20",
             json!({"items": [item(1), item(2)], "nextPageToken": "t2", "total": 8}),
         )
         .json(
@@ -97,7 +98,7 @@ fn go_pages() -> RouteHttp {
 
 fn go_page(page: u64, cursor: Option<String>) -> (ArtifactSearchQuery, ArtifactProviderState) {
     (
-        discovery(ArtifactType::Go, json!({"page": page, "pageSize": 2})),
+        discovery(ArtifactType::Go, json!({"page": page})),
         ArtifactProviderState {
             page: Some(page),
             token: cursor,
@@ -195,7 +196,7 @@ async fn a_go_cursor_serves_its_page_in_one_request_without_a_cache() {
     let client = RegistryClient::uncached(&http, &b);
     let (query, state) = go_page(3, None);
     let third = go(&query, &state, &client).await.expect("page 3 walks");
-    assert_eq!(third.artifacts[0].name, "example.com/p5");
+    assert_eq!(third.artifacts[0].package_name, "example.com/p5");
     let cursor = third.next_state.and_then(|next| next.token);
     assert!(
         cursor.as_deref().is_some_and(|cursor| cursor != "t4"),
@@ -204,10 +205,10 @@ async fn a_go_cursor_serves_its_page_in_one_request_without_a_cache() {
     let seen = http.targets().len();
     let (query, state) = go_page(4, cursor);
     let fourth = go(&query, &state, &client).await.expect("page 4");
-    assert_eq!(fourth.artifacts[0].name, "example.com/p7");
+    assert_eq!(fourth.artifacts[0].package_name, "example.com/p7");
     assert_eq!(
         http.targets()[seen..],
-        ["/v1/search?q=json&limit=2&token=t4"],
+        ["/v1/search?q=json&limit=20&token=t4"],
         "one request"
     );
     assert_eq!(fourth.next_state, None);
@@ -217,10 +218,7 @@ async fn a_go_cursor_serves_its_page_in_one_request_without_a_cache() {
 /// shortcut: the page walks and serves exactly the rows it owns.
 #[tokio::test]
 async fn a_foreign_or_rejected_go_cursor_walks_to_the_same_rows() {
-    let other = discovery(
-        ArtifactType::Go,
-        json!({"keywords": ["yaml"], "pageSize": 2}),
-    );
+    let other = discovery(ArtifactType::Go, json!({"keywords": ["yaml"]}));
     for cursor in [
         // Bound to another query's page 3.
         go_cursor(&go_page_key(&other, 3), "t2"),
@@ -238,13 +236,13 @@ async fn a_foreign_or_rejected_go_cursor_walks_to_the_same_rows() {
         let names = third
             .artifacts
             .iter()
-            .map(|row| row.name.as_str())
+            .map(|row| row.package_name.as_str())
             .collect::<Vec<_>>();
         assert_eq!(names, ["example.com/p5", "example.com/p6"], "{cursor}");
         assert!(
             http.targets()
                 .iter()
-                .any(|target| target == "/v1/search?q=json&limit=2&token=t2"),
+                .any(|target| target == "/v1/search?q=json&limit=20&token=t2"),
             "walked: {cursor}"
         );
     }

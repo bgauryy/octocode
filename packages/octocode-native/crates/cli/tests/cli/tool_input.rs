@@ -23,51 +23,55 @@ fn tool_rejects_non_canonical_fields() {
 }
 
 #[test]
-fn localfetch_pages_expose_a_rerunnable_continuation() {
+fn localfetch_cursor_walk_reconstructs_source_across_processes() {
     let workspace = Workspace::new();
-    let content: String = (1..24).map(|n| format!("line {n}: research\n")).collect();
-    let path = workspace.write("source.txt", &content);
-    // Line pages carry their source numbers (`<line>\t<text>`).
-    let numbered: String = (1..24)
-        .map(|n| format!("{n}\tline {n}: research\n"))
+    let content: String = (1..=80)
+        .map(|n| format!("line {n}: {}\n", "research ".repeat(30)))
         .collect();
-    let query = serde_json::json!({"queries":[{
-        "path": path,
-        "unit": "lines",
-        "length": 3,
-        "mainGoal": "test", "reasoning": "Verify paginated native reads."
-    }]})
-    .to_string();
-    let first = workspace
-        .cli()
-        .args(["localFetch", &query, "--json"])
-        .output()
-        .expect("first read");
-    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
-    let value: serde_json::Value = serde_json::from_str(stdout(&first)).expect("page JSON");
-    let first_content = value["results"][0]["data"]["content"]
-        .as_str()
-        .expect("first page content")
-        .to_owned();
-    assert!(numbered.starts_with(&first_content), "first page prefix");
-    // Cursor tokens are per-process, so the response advertises the prefilled
-    // continuation query as a directly re-runnable call.
-    let call = &value["results"][0]["data"]["next"]["continueWindow"];
-    assert_eq!(call["tool"], "localFetch", "{value}");
-    let continuation = serde_json::to_string(&call["query"]).expect("continuation query");
-    let second = workspace
-        .cli()
-        .args(["localFetch", &continuation, "--json"])
-        .output()
-        .expect("continuation read");
-    assert_eq!(second.status.code(), Some(0), "{}", stderr(&second));
-    let value: serde_json::Value = serde_json::from_str(stdout(&second)).expect("page two JSON");
-    let second_content = value["results"][0]["data"]["content"]
-        .as_str()
-        .expect("second page content");
-    let joined = format!("{first_content}{second_content}");
-    assert!(numbered.starts_with(&joined), "joined prefix");
-    assert!(joined.len() > first_content.len(), "second page advanced");
+    let path = workspace.write("source.txt", &content);
+    let expected: String = content
+        .lines()
+        .enumerate()
+        .map(|(n, line)| format!("{}\t{line}\n", n + 1))
+        .collect();
+    let mut input = serde_json::json!({"queries":[{"path":path}],"responseChars":2000});
+    let mut shown = String::new();
+    let mut pages = 0;
+    loop {
+        pages += 1;
+        assert!(
+            pages <= content.lines().count() + 1,
+            "continuation must advance"
+        );
+        let output = workspace
+            .cli()
+            .env("OCTOCODE_STORAGE_MODE", "persistent")
+            .args(["localFetch", &input.to_string(), "--json"])
+            .output()
+            .expect("read page");
+        assert!(output.status.success(), "{}", stdout(&output));
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("page JSON");
+        for row in value["results"].as_array().expect("rows") {
+            if let Some(content) = row["data"]["content"].as_str() {
+                shown.push_str(content);
+            }
+        }
+        let call = if value["responsePagination"]["hasMore"] == true {
+            &value["responsePagination"]["next"]
+        } else {
+            &value["results"][0]["data"]["next"]["continueWindow"]
+        };
+        if call.is_null() {
+            break;
+        }
+        assert_eq!(call["kind"], "continue");
+        assert_eq!(call["tool"], "localFetch");
+        input = call["input"].clone();
+        assert_eq!(input.as_object().expect("input").len(), 1);
+        assert!(input["cursor"].is_string());
+    }
+    assert!(pages > 1);
+    assert_eq!(shown, expected);
 }
 
 #[test]
@@ -85,8 +89,10 @@ fn tool_without_query_exits_two_with_schema_hint() {
     assert_eq!(error["errorCode"], "invalidInput", "{error}");
     let message = error["error"].as_str().unwrap_or_default();
     assert!(
-        message.contains("Missing query") && message.contains("octocode astSearch --help"),
-        "expected usage + help hint: {message}"
+        message.contains("Missing query")
+            && message.contains("octocode astSearch")
+            && message.contains("--input"),
+        "expected invocation guidance: {message}"
     );
     assert!(stderr(&output).is_empty(), "{}", stderr(&output));
 }
@@ -138,8 +144,7 @@ fn tool_reads_query_from_input_file() {
     let workspace = Workspace::new();
     let source = workspace.write("input-source.rs", "fn from_file() {}\n");
     let query = serde_json::json!({"queries":[{
-        "path": source,
-        "mainGoal": "test", "reasoning": "Verify --input file queries."
+        "path": source
     }]})
     .to_string();
     let query_file = workspace.write("query.json", &query);
@@ -170,13 +175,11 @@ fn tool_accepts_bulk_queries() {
     let query = serde_json::json!({"queries":[
         {
             "path": first,
-            "ranges": ["1-1"],
-            "mainGoal": "test", "reasoning": "Verify the first native bulk query."
+            "ranges":[{"startLine":1,"endLine":1}]
         },
         {
             "path": second,
-            "ranges": ["1-1"],
-            "mainGoal": "test", "reasoning": "Verify the second native bulk query."
+            "ranges":[{"startLine":1,"endLine":1}]
         }
     ]})
     .to_string();
@@ -203,9 +206,7 @@ fn tool_accepts_bulk_queries() {
     );
 }
 
-/// Host spellings of line ranges read the same lines as the canonical form.
-/// Admission accepts only the canonical `start-end` range spelling; a host
-/// spelling is the caller's input to fix (exit 2), never repaired.
+/// Line ranges are typed inclusive objects; alternate spellings are rejected.
 #[test]
 fn localfetch_rejects_host_line_range_spellings() {
     let workspace = Workspace::new();
@@ -218,8 +219,7 @@ fn localfetch_rejects_host_line_range_spellings() {
         serde_json::json!([2, 4]),
     ] {
         let query = serde_json::json!({"queries":[{
-            "path": path, "ranges": ranges,
-            "mainGoal": "test", "reasoning": "Verify strict line ranges."
+            "path": path, "ranges": ranges
         }]})
         .to_string();
         let output = workspace
@@ -246,7 +246,7 @@ fn inline_json_query_never_waits_on_an_open_stdin() {
 
     let workspace = Workspace::new();
     workspace.write("note.txt", "alpha\nbeta\n");
-    let query = serde_json::json!({"queries": [{"path": "note.txt", "ranges": ["1-1"]}]});
+    let query = serde_json::json!({"queries": [{"path": "note.txt", "ranges":[{"startLine":1,"endLine":1}]}]});
     let mut child = workspace
         .cli()
         .args(["localFetch", &query.to_string()])

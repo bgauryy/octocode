@@ -1,44 +1,28 @@
 mod artifact;
-mod clasify;
-mod content;
-mod depth_range;
-mod enum_value;
-mod github_search;
-mod history;
-mod local_search;
-mod lsp;
 #[cfg(test)]
-mod normalizer_tests;
+mod canonical_tests;
+mod clasify;
+mod depth_range;
+mod issues;
+mod lsp;
+mod messages;
 #[cfg(test)]
 mod numeric_tests;
+mod output;
 #[cfg(test)]
 mod pattern_tests;
-mod qualifiers;
-mod repair;
-mod repository;
-mod shape;
-mod structural_rule;
-pub(crate) use qualifiers::qualifier_terms;
-pub(crate) use repair::repair_input;
-mod issues;
-mod messages;
-mod output;
-mod routing;
+mod relations;
 mod rules;
 mod schema;
+mod structural_rule;
 mod union;
-use rules::{apply_normalization_rules, apply_validation_rules, query_values};
+use rules::{apply_validation_rules, query_values};
 
-pub(crate) use artifact::split_coordinate;
 pub(crate) use issues::levenshtein;
-use issues::{
-    field_guess, internal, issue, name_field, query_label, schema_issue, sibling_message,
-    sibling_requirement, suggest_field,
-};
+use issues::{internal, issue, query_label, schema_issue, sibling_requirement};
 pub use messages::{format_input_error, tool_error};
 pub use output::validate_output;
 pub(crate) use output::validate_output_in_place;
-use routing::routing_details;
 use schema::validate_input_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -91,7 +75,23 @@ fn contract_tool(tool_name: &str) -> Result<(ToolId, &'static Value), ContractVa
 /// Validates the canonical input, applying schema defaults and integer number
 /// representations before typed decoding. Relation rules follow structural parsing.
 pub fn validate(tool_name: &str, input: Value) -> Result<Value, ContractValidationError> {
-    let (input, batch) = validate_batch(tool_name, input)?;
+    validate_from(tool_name, input, false)
+}
+
+#[cfg(test)]
+pub(super) fn validate_saved(
+    tool_name: &str,
+    input: Value,
+) -> Result<Value, ContractValidationError> {
+    validate_from(tool_name, input, true)
+}
+
+fn validate_from(
+    tool_name: &str,
+    input: Value,
+    saved: bool,
+) -> Result<Value, ContractValidationError> {
+    let (input, batch) = validate_batch(tool_name, input, saved)?;
     let mut issues: Vec<_> = batch
         .rows
         .into_iter()
@@ -118,16 +118,37 @@ pub(crate) struct BatchIssues {
 pub(crate) fn validate_batch(
     tool_name: &str,
     mut input: Value,
+    saved: bool,
 ) -> Result<(Value, BatchIssues), ContractValidationError> {
     let (id, tool) = contract_tool(tool_name)?;
     let plan = RowPlan::of(id, tool);
-    apply_normalization_rules(&tool["rules"], &mut input)?;
     let mut rows = Vec::new();
     let item_schema = plan.item_schema.as_ref();
     if let Some(queries) = input.get_mut("queries").and_then(Value::as_array_mut) {
         for (index, query) in queries.iter_mut().enumerate() {
             let mut issues = Vec::new();
             let mut path = vec!["queries".to_owned(), index.to_string()];
+            if !saved {
+                for field in super::state_fields(id) {
+                    if query.get(field).is_some() {
+                        let mut at = path.clone();
+                        at.push(field.clone());
+                        issues.push(ValidationIssue {
+                            rule_id: "input.private-state".into(),
+                            path: at,
+                            message: format!(
+                                "{field} is private progress; copy the issued cursor from next.*."
+                            ),
+                            schema: None,
+                            received: None,
+                        });
+                    }
+                }
+                if !issues.is_empty() {
+                    rows.push(issues);
+                    continue;
+                }
+            }
             let mut parsed =
                 validate_input_schema(&tool["querySchema"], &tool["querySchema"], query, &mut path);
             if parsed.is_ok()
@@ -202,7 +223,7 @@ struct RowPlan {
 }
 
 impl RowPlan {
-    fn of(id: ToolId, tool: &Value) -> &'static RowPlan {
+    fn of(id: ToolId, tool: &Value) -> &'static Self {
         static PLANS: [std::sync::OnceLock<RowPlan>; ToolId::ALL.len()] =
             [const { std::sync::OnceLock::new() }; ToolId::ALL.len()];
         PLANS[id.index()].get_or_init(|| Self::derive(tool))
@@ -260,7 +281,7 @@ fn strip_query_items(schema: &mut Value) {
 }
 
 /// Marks a row's unknown field that only the envelope takes
-/// (`responseLength` in a row) as `envelopeField`: it moves beside `queries`.
+/// (`responseChars` in a row) as `envelopeField`: it moves beside `queries`.
 fn mark_envelope_fields(id: ToolId, tool: &Value, issues: &mut [ValidationIssue]) {
     let input = &tool["inputSchema"];
     for issue in issues {
@@ -281,76 +302,31 @@ fn mark_envelope_fields(id: ToolId, tool: &Value, issues: &mut [ValidationIssue]
     }
 }
 
-/// Whether an unknown row field is one the envelope takes.
-fn envelope_field(issue: &ValidationIssue) -> bool {
-    issue
-        .schema
-        .as_ref()
-        .is_some_and(|schema| schema.get("envelopeField") == Some(&Value::Bool(true)))
-}
-
-/// The known fields that express an unknown field's constraint (core
-/// `x-covers`: `pageSize` covers `limit`), quoted: a pointer to the field to
-/// send, never an alias (the unknown field stays rejected).
-fn cover_field(issue: &ValidationIssue) -> Option<String> {
-    let fields = issue
-        .schema
-        .as_ref()?
-        .get("coverFields")?
-        .as_array()?
-        .iter()
-        .filter_map(Value::as_str)
-        .map(|field| format!("'{field}'"))
-        .collect::<Vec<_>>();
-    (!fields.is_empty()).then(|| fields.join(" or "))
-}
-
-/// The one input shape every host's call takes: a bare query row (an object
-/// without `queries`) runs as a one-row `queries` (see [`one_row_envelope`]).
-/// Nothing else changes: a value the canonical schema rejects is rejected by
-/// validation with a repair hint, never repaired here. An unknown tool is
-/// returned unchanged.
-#[must_use]
-pub(crate) fn normalize_input(tool_name: &str, input: Value) -> Value {
-    let Some(Ok(tool)) = super::tool_contract_named(tool_name) else {
-        return input;
-    };
-    one_row_envelope(&tool["inputSchema"], input)
-}
-
-/// A bare query row (an object without `queries`) as `{"queries":[row]}`: the
-/// envelope fields it carries (`responseLength`, …) stay on the envelope. An
-/// object with only envelope fields is not a row and is returned unchanged.
-fn one_row_envelope(input_schema: &Value, input: Value) -> Value {
-    let Value::Object(mut row) = input else {
-        return input;
-    };
-    if row.contains_key("queries") {
-        return Value::Object(row);
-    }
-    let mut envelope = serde_json::Map::new();
-    for key in super::schema_facts::property_names(input_schema, &input_schema["$defs"]) {
-        if let Some(value) = row.remove(key) {
-            envelope.insert(key.to_owned(), value);
-        }
-    }
-    if row.is_empty() {
-        return Value::Object(envelope);
-    }
-    envelope.insert("queries".into(), Value::Array(vec![Value::Object(row)]));
-    Value::Object(envelope)
-}
-
 /// Validates a single flat query object and returns the validated, defaulted
 /// query. Strips the internal `queries.0.` path prefix from error messages so
 /// callers see `field` rather than `queries.0.field`.
 pub fn validate_query(tool_name: &str, query: Value) -> Result<Value, ContractValidationError> {
+    validate_row(tool_name, query, false)
+}
+
+pub(super) fn validate_saved_query(
+    tool_name: &str,
+    query: Value,
+) -> Result<Value, ContractValidationError> {
+    validate_row(tool_name, query, true)
+}
+
+fn validate_row(
+    tool_name: &str,
+    query: Value,
+    saved: bool,
+) -> Result<Value, ContractValidationError> {
     let wrapped = serde_json::json!({ "queries": [query] });
-    let mut validated = validate(tool_name, wrapped).map_err(strip_queries_prefix)?;
+    let mut validated = validate_from(tool_name, wrapped, saved).map_err(strip_queries_prefix)?;
     validated["queries"]
         .as_array_mut()
         .and_then(|arr| arr.first_mut())
-        .map(|q| q.take())
+        .map(serde_json::Value::take)
         .ok_or_else(|| ContractValidationError {
             issues: vec![ValidationIssue {
                 rule_id: "validate.extract".to_owned(),
@@ -372,6 +348,3 @@ fn strip_queries_prefix(mut error: ContractValidationError) -> ContractValidatio
     }
     error
 }
-
-#[cfg(test)]
-mod tests;

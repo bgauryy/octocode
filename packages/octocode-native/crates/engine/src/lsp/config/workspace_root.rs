@@ -1,7 +1,7 @@
 use super::catalog::{default_server_for_file, typescript_server_fallback};
 use super::types::LspDiscoveryOptions;
 use crate::lsp::types::LspLanguageServerConfig;
-use crate::text::file_extension::{JS_TS_EXTENSIONS, extension_of};
+use crate::text::{JS_TS_EXTENSIONS, extension_of};
 use serde_json::Value;
 use std::path::Path;
 

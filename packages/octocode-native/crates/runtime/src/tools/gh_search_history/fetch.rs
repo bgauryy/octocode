@@ -55,7 +55,7 @@ async fn list_commits(
 ) -> Result<HistoryPage, ProviderError> {
     let (o, r) = query::required_repo(query)?;
     // Invalid-value warnings were already collected by the terms.
-    let (since, until) = query::resolve_commit_window(query, &mut Vec::new())?;
+    let (since, until) = query::resolve_commit_window(query);
     transport
         .list_commits_by_committer(
             &CommitListRequest {
@@ -65,7 +65,7 @@ async fn list_commits(
                 path: gh_search_history_query::path(query).map(str::to_owned),
                 author: query.author().map(str::to_owned),
                 since,
-                until: until.map(|until| query::inclusive_until(&until)),
+                until,
                 page,
                 per_page: per,
             },

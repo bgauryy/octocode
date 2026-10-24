@@ -23,32 +23,6 @@ pub(crate) fn admitted(
     (next <= crate::contracts::query_schema_max(tool, operation, field)).then_some(next)
 }
 
-/// Rows per page: `requested`, at least one and at most the contract maximum
-/// of `tool`'s `pageSize` (the variant admitting `operation`). The one clamp
-/// every tool's page-size accessor applies, so no site can forget the bound.
-pub(crate) fn clamp_page_size(tool: ToolId, operation: Option<&str>, requested: usize) -> usize {
-    requested.clamp(
-        1,
-        crate::contracts::query_schema_max(tool, operation, "pageSize"),
-    )
-}
-
-/// The rows a page holds: the caller's `requested` `pageSize` clamped to the
-/// contract bound ([`clamp_page_size`]), or `None` for the character budget
-/// that fills the response window ([`crate::response::page_windows::Paging::of`]).
-/// The one page-size accessor of a tool.
-pub(crate) fn page_size(
-    tool: ToolId,
-    operation: Option<&str>,
-    requested: Option<impl Into<u64>>,
-) -> Option<usize> {
-    // Generated query types carry u32 or u64 sizes; both clamp to the contract bound.
-    requested.map(|size| {
-        let size = usize::try_from(size.into()).unwrap_or(usize::MAX);
-        clamp_page_size(tool, operation, size)
-    })
-}
-
 /// `query` with cursor `field` set to `next` and each `(field, value)` of
 /// `set` written after it; `None` when `query` is not an object.
 fn with_cursor(mut query: Value, field: &str, next: usize, set: &[(&str, Value)]) -> Option<Value> {
@@ -95,7 +69,7 @@ pub(crate) fn next_page_call(
 ) -> Option<Value> {
     let next = next_cursor(row, tool, operation, field, next)?;
     let query = with_cursor(query, field, next, set)?;
-    Some(crate::response::result::Continuation::new(tool, query).build())
+    Some(crate::response::result::Continuation::continued(tool, query).build())
 }
 
 /// The cursor value `next` of `field` when [`admitted`]; otherwise the
@@ -227,17 +201,17 @@ pub(crate) fn push_notice(row: &mut impl RowFields, notice: impl Into<String>) {
 /// Whether `query` continues an earlier page of its result: a page-number
 /// cursor past 1, an offset cursor past 0, or a cursor token (`snapshot`,
 /// `selection`, …) it carries ([`crate::response::result::CURSOR_FIELDS`]).
-pub(crate) fn continues_a_page(query: &Value) -> bool {
-    crate::response::result::CURSOR_FIELDS.iter().any(|field| {
-        let Some(value) = query.get(*field).filter(|value| !value.is_null()) else {
-            return false;
-        };
-        let lower = field.to_ascii_lowercase();
-        match value.as_u64() {
-            Some(page) if lower.ends_with("page") => page > 1,
-            Some(offset) if lower.ends_with("offset") => offset > 0,
-            _ => true,
-        }
+pub(crate) fn continues_a_page(tool: ToolId, query: &Value) -> bool {
+    crate::contracts::state_fields(tool).iter().any(|field| {
+        query.get(field).is_some_and(|value| {
+            !value.is_null()
+                && crate::contracts::query_schema_value(
+                    tool,
+                    query.get("operation").and_then(Value::as_str),
+                    field,
+                    "default",
+                ) != Some(value)
+        })
     })
 }
 

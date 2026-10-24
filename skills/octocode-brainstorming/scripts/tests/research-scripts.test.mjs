@@ -39,7 +39,7 @@ test('search merges providers by URL, ranks agreement first, records per-provide
     if (req.url === '/tavily/search') return res.end(JSON.stringify({ results: [{ url: 'https://www.a.test/x/', title: 'A', content: 'tavily snippet', published_date: '2025-01-02' }, { url: 'https://b.test/only-tavily', title: 'B', content: 'b' }] }));
     if (req.url === '/exa/search') { assert.equal(body.category, 'research paper'); return res.end(JSON.stringify({ results: [{ url: 'https://a.test/x?utm_source=feed', title: 'A', highlights: ['exa highlight'] }], costDollars: { total: 0.005 } })); }
     if (req.url === '/serper/scholar') { res.statusCode = 403; return res.end(JSON.stringify({ message: 'bad key SECRETKEY123' })); }
-    res.statusCode = 404; res.end('{}');
+    res.statusCode = 404; return res.end('{}');
   });
   try {
     const env = { TAVILY_API_KEY: 'SECRETKEY123', EXA_API_KEY: 'SECRETKEY123', SERPER_API_KEY: 'SECRETKEY123', TAVILY_BASE_URL: `${base}/tavily`, EXA_BASE_URL: `${base}/exa`, SERPER_BASE_URL: `${base}/serper` };
@@ -47,7 +47,7 @@ test('search merges providers by URL, ranks agreement first, records per-provide
     assert.equal(r.status, 0, r.stdout);
     assert.ok(!r.stdout.includes('SECRETKEY123'), 'a key leaked into the output');
     assert.equal(r.json.results[0].url, 'https://www.a.test/x/');
-    assert.deepEqual(r.json.results[0].seenBy.map((s) => s.provider).sort(), ['exa', 'tavily']);
+    assert.deepEqual(r.json.results[0].seenBy.map((s) => s.provider).toSorted(), ['exa', 'tavily']);
     assert.equal(r.json.results.length, 2);
     assert.equal(r.json.providers.serper.status, 'error');
     assert.equal(r.json.providers.exa.costDollars, 0.005);
@@ -82,7 +82,7 @@ test('verify-claims marks verified, missing, short, unreachable, and PDF claims 
     if (req.url === '/article') { res.setHeader('content-type', 'text/html'); return res.end('<html><head><title>Study</title><meta name="citation_publication_date" content="2022/03/01"></head><body><p>Forecasters who scored high on actively open-minded thinking were more accurate than their peers.</p></body></html>'); }
     if (req.url === '/captcha') { res.setHeader('content-type', 'text/html'); return res.end('<html><head><title>Checking your browser - reCAPTCHA</title></head><body><div class="g-recaptcha"></div></body></html>'); }
     if (req.url === '/paper.pdf') { res.setHeader('content-type', 'application/pdf'); return res.end('%PDF'); }
-    res.statusCode = 404; res.end('gone');
+    res.statusCode = 404; return res.end('gone');
   });
   const dir = mkdtempSync(join(tmpdir(), 'brainstorm-verify-'));
   try {
@@ -186,7 +186,7 @@ test('fetch-asset plans without saving, downloads only with --approve, and recor
     if (req.url === '/notes.txt') { res.setHeader('content-type', 'text/plain'); return res.end(req.method === 'HEAD' ? undefined : 'Teams that consider the opposite reduced their overconfidence in the study.'); }
     if (req.url === '/bundle.zip') { res.setHeader('content-type', 'application/zip'); return res.end(); }
     if (req.url === '/big.pdf') { res.setHeader('content-type', 'application/pdf'); res.setHeader('content-length', String(3_000_000)); return res.end(req.method === 'HEAD' ? undefined : Buffer.alloc(3_000_000)); }
-    res.statusCode = 404; res.end();
+    res.statusCode = 404; return res.end();
   });
   const dir = mkdtempSync(join(tmpdir(), 'brainstorm-assets-'));
   const runDir = join(dir, '.octocode', 'octocode-brainstorming', 'tmp', 'run');

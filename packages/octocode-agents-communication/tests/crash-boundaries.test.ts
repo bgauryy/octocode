@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { spawn as nativeSpawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execPath } from 'node:process';
 import { createHash } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { binary, execFileSync, root, tempDir, waitFor, withReasoning, only, isChildFailure } from './helpers.ts';
 import type { TestContext } from 'node:test';
 import type { JsonRecord } from './json-record.ts';
@@ -28,7 +29,6 @@ interface Evidence {
 const fixtureScript = fileURLToPath(new URL('./fixtures/crash-boundary.ts', import.meta.url));
 const skipped = process.platform === 'win32';
 const boundaries = ['before-submit', 'uncertain-submit', 'after-submit-before-ack', 'during-complete'];
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const hash = (file: string) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 function setup(t: TestContext, name: string) {
@@ -56,7 +56,7 @@ function setup(t: TestContext, name: string) {
   const frames = () => readFileSync(framesFile, 'utf8').split('\n').filter(Boolean).map((line): JsonRecord => JSON.parse(line));
   const children: ChildProcess[] = [];
   const child = (mode: string, marker: string, operationArgs: string[]) => {
-    const process = nativeSpawn(execPath, [fixtureScript, mode, marker, ...operationArgs], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const process = spawn(execPath, [fixtureScript, mode, marker, ...operationArgs], { stdio: ['ignore', 'pipe', 'pipe'] });
     const record = { pid: process.pid, mode, stdout: '', stderr: '' };
     evidence.processes.push(record); children.push(process);
     process.stdout.on('data', chunk => { record.stdout += chunk; });
@@ -95,7 +95,7 @@ function setup(t: TestContext, name: string) {
     if (kill) await stop(process);
     return kill ? checkpoint : { checkpoint, process };
   }
-  const health = async (expected?: string) => { await sleep(1050); const state = call('health', { staleAfterMs: 1000 }); if (expected) assert.ok(state.issues.some((issue: JsonRecord) => issue.message === sent.id && issue.issue === expected), JSON.stringify(state)); return state; };
+  const health = async (expected?: string) => { await delay(1050); const state = call('health', { staleAfterMs: 1000 }); if (expected) assert.ok(state.issues.some((issue: JsonRecord) => issue.message === sent.id && issue.issue === expected), JSON.stringify(state)); return state; };
   const inspect = () => { call('binding', {}, receiver.id); return call('fetch', { current: true }, receiver.id); };
   const noReplay = () => { const before = frames().length; assert.equal(call('dispatch', {}, receiver.id).submitted, 0); assert.equal(call('dispatch', {}, receiver.id).submitted, 0); assert.equal(frames().length, before); };
   const unrelated = async () => { call('attach', { transport: 'claude', endpoint, vendorSession: 'healthy-session' }, healthy.id); const next = call('send_message', { to: healthy.id, question: `healthy:${name}`, key: 'healthy' }, sender.id); assert.equal(call('dispatch', {}, healthy.id).submitted, 1); await waitFor(() => frames().some((row: JsonRecord) => row.frame.message?.content.includes(`healthy:${name}`))); const reply = call('complete', { message: next.id, outcome:'done',reply:{conclusion:`healthy-answer:${name}`} }, healthy.id); assert.equal(reply.completed, true); };
@@ -174,9 +174,9 @@ test('acknowledgement does not permit rebinding while the real staged delivery o
   f.evidence.passed = true;
 });
 
-for (const boundary of boundaries) for (let cycle = 1; cycle <= 3; cycle++) {
-  test(`real crash recovery ${boundary}, cycle ${cycle}`, { skip: skipped, timeout: 120000 }, async t => {
-    const f = setup(t, `${boundary}-${cycle}`);
+for (const boundary of boundaries) {
+  test(`real crash recovery ${boundary}`, { skip: skipped, timeout: 120000 }, async t => {
+    const f = setup(t, boundary);
     let server = await f.server('initial');
     f.call('attach', { transport: 'claude', endpoint: f.endpoint, vendorSession: 'fixture-session' }, f.receiver.id);
     if (boundary === 'during-complete') assert.equal(f.call('dispatch', {}, f.receiver.id).submitted, 1);

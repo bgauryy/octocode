@@ -27,14 +27,6 @@ pub(super) fn language_name(extension: &str) -> &'static str {
         .unwrap_or("unknown")
 }
 
-pub(super) fn capitalized(word: &str) -> String {
-    let mut chars = word.chars();
-    chars
-        .next()
-        .map(|first| first.to_uppercase().chain(chars).collect())
-        .unwrap_or_default()
-}
-
 /// Servers return fuzzy matches in their own order (rust-analyzer:
 /// alphabetical), which can bury the exact name past the first page. Public
 /// rows are ranked by `symbolName` tier; within a tier, declarations come
@@ -174,9 +166,9 @@ impl Operation<'_, '_> {
 
     pub(super) async fn workspace_symbol(self) -> Result<Value, LspFailure> {
         let query = self.query;
-        let name = lsp_search_query::symbol_name(query)
+        let name = lsp_search_query::symbol_query(query)
             .map(str::to_owned)
-            .ok_or_else(|| LspFailure::invalid_query("workspaceSymbol requires symbolName"))?;
+            .ok_or_else(|| LspFailure::invalid_query("workspaceSymbol requires symbolQuery"))?;
         let symbols =
             cancellable(self.cancel, self.client.workspace_symbol(name.clone())).await??;
         // The server's own cap is judged on its raw answer, before the
@@ -225,16 +217,18 @@ impl Operation<'_, '_> {
                 };
                 let language = language_name(extension);
                 others.push(language);
-                row["next"][format!("search{}", capitalized(language))] =
-                    crate::response::result::Continuation::new(
+                crate::response::result::attach_related(
+                    &mut row,
+                    crate::response::result::Continuation::related(
                         ToolId::LspSearch,
                         json!({
                             "operation": "workspaceSymbol",
-                            "symbolName": name,
+                            "symbolQuery": name,
                             "path": file
                         }),
                     )
-                    .build();
+                    .build(),
+                );
             }
             let hint = if others.is_empty() {
                 match super::super::session::root_representative(self.path, &self.scope.root) {

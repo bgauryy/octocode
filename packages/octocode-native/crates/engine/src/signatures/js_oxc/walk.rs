@@ -13,11 +13,12 @@ use crate::deep_stack::job_cancelled;
 
 use crate::signatures::js_oxc_shared::SpanPositions;
 
+use super::DocumentSymbol;
 use super::symbols::{
     class_symbol, collect_variable, container, enum_symbol, external_module_symbol, global_symbol,
     interface_symbol, namespace_symbol, type_alias_symbol,
 };
-use super::{DocumentSymbol, kind};
+use crate::lsp::symbol_kind;
 
 pub(super) fn collect_program(
     program: &Program,
@@ -152,9 +153,9 @@ fn member_path(expression: &Expression) -> Option<()> {
 fn assigned_definition<'a>(expression: &'a Expression<'a>) -> Option<(u8, &'a Expression<'a>)> {
     match expression.without_parentheses() {
         value @ (Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)) => {
-            Some((kind::FUNCTION, value))
+            Some((symbol_kind::FUNCTION, value))
         }
-        value @ Expression::ClassExpression(_) => Some((kind::CLASS, value)),
+        value @ Expression::ClassExpression(_) => Some((symbol_kind::CLASS, value)),
         Expression::AssignmentExpression(inner) => assigned_definition(&inner.right),
         _ => None,
     }
@@ -216,7 +217,7 @@ fn function_symbol(f: &Function, li: &SpanPositions) -> Option<DocumentSymbol> {
     let id = f.id.as_ref()?;
     Some(container(
         id.name.as_str(),
-        kind::FUNCTION,
+        symbol_kind::FUNCTION,
         f.span,
         id.span,
         nested_in_function(f, li),
@@ -269,7 +270,7 @@ impl<'a> VisitJs<'a> for NestedDeclarations<'_, '_> {
         {
             self.out.push(container(
                 id.name.as_str(),
-                kind::FUNCTION,
+                symbol_kind::FUNCTION,
                 it.span,
                 id.span,
                 children,

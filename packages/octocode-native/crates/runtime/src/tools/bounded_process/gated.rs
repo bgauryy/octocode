@@ -33,7 +33,13 @@ pub(super) struct Gated<R> {
 }
 
 impl<R> Gated<R> {
-    #[cfg_attr(not(unix), allow(unused_variables))] // Only Unix reads gate on the end marker.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            unused_variables,
+            reason = "only Unix reads gate on the end marker; the signature is shared"
+        )
+    )]
     pub(super) fn new(inner: R, finished: Arc<OnceLock<Instant>>, grace: Duration) -> Self {
         Self {
             inner,
@@ -127,4 +133,8 @@ fn poll_readable(fd: std::os::fd::RawFd, wait: Duration) -> std::io::Result<bool
 
 /// The pipe gate on Unix, where reads poll the descriptor.
 #[cfg(all(test, unix))]
+#[expect(
+    clippy::expect_used,
+    reason = "test module: clippy's allow-expect-in-tests does not see `cfg(all(test, unix))`"
+)]
 mod tests;

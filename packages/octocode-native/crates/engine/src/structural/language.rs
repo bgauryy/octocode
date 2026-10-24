@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use tree_sitter::Language as TSLanguage;
+use tree_sitter::Language;
 
 use crate::signatures::languages::LanguageEntry;
 
@@ -9,6 +9,11 @@ use crate::signatures::languages::LanguageEntry;
 /// essentially never declares this name, so `effective_pattern_root` can
 /// unwrap the wrapper by name without swallowing a user's own declaration.
 pub(super) const WRAP_MARKER: &str = "__OctoWrap";
+
+/// `statement` as the sole statement of the synthetic C-family function.
+pub(super) fn wrap_in_function_body(statement: &str) -> String {
+    format!("void {WRAP_MARKER}(void) {{ {statement} }}")
+}
 
 /// Stand-in identifier character substituted for a `$`-sigil metavar so the
 /// selected Tree-sitter grammar accepts the pattern as valid source.
@@ -30,7 +35,7 @@ impl Expando {
 /// and parsing contexts for patterns that are not complete source documents.
 #[derive(Clone)]
 pub(super) struct AgLanguage {
-    ts: TSLanguage,
+    ts: Language,
     expando: Expando,
     /// C# has no top-level method/member syntax: a modifier like `public` is
     /// only valid inside a `class`/`struct`/`interface` body, so a bare
@@ -67,7 +72,7 @@ impl AgLanguage {
         }
     }
 
-    pub(super) fn tree_sitter_language(&self) -> TSLanguage {
+    pub(super) fn tree_sitter_language(&self) -> Language {
         self.ts.clone()
     }
 
@@ -83,11 +88,6 @@ impl AgLanguage {
     /// Whether this is a C-family grammar (see `c_family`).
     pub(super) fn is_c_family(&self) -> bool {
         self.c_family
-    }
-
-    /// `statement` as the sole statement of the synthetic function.
-    pub(super) fn wrap_in_function_body(&self, statement: &str) -> String {
-        format!("void {WRAP_MARKER}(void) {{ {statement} }}")
     }
 
     pub(super) fn terminated_fragment_kind(&self) -> Option<&'static str> {

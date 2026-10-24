@@ -1,6 +1,7 @@
 //! NuGet exact lookups and catalog rows: stable releases, inline items, nuspec repositories and version order.
+use super::super::query::artifact_query;
 use super::super::test_http::RouteHttp;
-use super::super::types::{artifact_query, test_budget};
+use super::super::test_http::test_budget;
 use super::entries::repository_url;
 use super::*;
 use serde_json::json;
@@ -10,7 +11,7 @@ async fn newtonsoft_exact(http: &RouteHttp) -> ArtifactProviderPage {
     let b = test_budget();
     let client = RegistryClient::uncached(http, &b);
     let q = artifact_query(
-        serde_json::json!({"ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
+        serde_json::json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
         None,
     );
     nuget(&q, &ArtifactProviderState::default(), &client)
@@ -98,7 +99,7 @@ async fn nuget_parses_exact_inline_items() {
     let page = newtonsoft_exact(&http).await;
     assert_eq!(page.artifacts.len(), 1);
     let item = &page.artifacts[0];
-    assert_eq!(item.name, "Newtonsoft.Json");
+    assert_eq!(item.package_name, "Newtonsoft.Json");
     assert_eq!(item.version.as_deref(), Some("13.0.3"));
     assert_eq!(
         item.registry_url,
@@ -144,7 +145,7 @@ async fn nuget_exact_version_reads_the_page_that_holds_it() {
     let client = RegistryClient::uncached(&http, &b);
     let lookup = |version: &str| {
         artifact_query(
-            json!({"ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json", "version": version}),
+            json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json", "version": version}),
             None,
         )
     };
@@ -173,10 +174,9 @@ async fn nuget_exact_version_reads_the_page_that_holds_it() {
         missing.nearest.iter().any(|version| version == "13.0.3"),
         "{missing:?}"
     );
-    let range = nuget(&lookup("[13.0,14.0)"), &state, &client)
-        .await
-        .expect_err("range");
-    assert_eq!(range.code, ErrorCode::CapabilityUnavailable, "{range:?}");
+    assert!(crate::contracts::validate_query("artifactSearch", json!({
+        "operation":"resolve", "ecosystem":"nuget", "packageName":"Newtonsoft.Json", "version":"[13.0,14.0)"
+    })).is_err());
 }
 
 /// An exact row states its publish day and its dependency groups'
@@ -276,7 +276,7 @@ async fn nuget_prefers_repository_object_over_project_url() {
     let b = test_budget();
     let client = RegistryClient::uncached(&http, &b);
     let q = artifact_query(
-        serde_json::json!({"ecosystem": ArtifactType::Nuget, "packageName": "Serilog".to_string()}),
+        serde_json::json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Serilog".to_string()}),
         None,
     );
     let page = nuget(&q, &ArtifactProviderState::default(), &client)

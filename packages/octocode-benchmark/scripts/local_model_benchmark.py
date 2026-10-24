@@ -30,7 +30,7 @@ def scoped_arguments(value, root):
     """Validate paths without repairing model arguments or following external symlinks."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if key == 'clasifyContext':
+            if key == 'classification':
                 raise ValueError('Classifier requests are outside this local-only benchmark')
             paths = item if key == 'entrypoints' and isinstance(item, list) else [item]
             if key in PATH_FIELDS or key == 'entrypoints':
@@ -56,10 +56,12 @@ def native_call(binary, name, arguments, root, timeout=40):
             raise ValueError('Only the five local tools are allowed')
         scoped_arguments(arguments, root)
         sent = copy.deepcopy(arguments)
-        sent.setdefault('responseLength', PAGE_CHAR_LIMIT)
-        if sent['responseLength'] > PAGE_CHAR_LIMIT:
-            raise ValueError('Request a page of at most 5000 characters; use returned continuations')
-        env = dict(os.environ, OCTOCODE_BETA='1', ALLOWED_PATHS=str(root),
+        if 'cursor' not in sent:
+            sent.setdefault('responseChars', PAGE_CHAR_LIMIT)
+            if sent['responseChars'] > PAGE_CHAR_LIMIT:
+                raise ValueError('Request a page of at most 5000 characters; use returned continuations')
+        env = dict(os.environ, OCTOCODE_BETA='0', OCTOCODE_CLASSIFICATION_API='', OCTOCODE_ENABLE_LOCAL='true',
+                   WORKSPACE_ROOT=str(root), ALLOWED_PATHS=str(root),
                    CARGO_NET_OFFLINE='true', GOPROXY='off', GOSUMDB='off', npm_config_offline='true')
         proc = subprocess.run([str(binary), name, json.dumps(sent), '--json'], cwd=root, env=env,
                               capture_output=True, text=True, timeout=timeout)
@@ -185,20 +187,29 @@ def tool_probes(client, model, binary, root, tools, context):
     return rows
 
 
+def constrain_response_budget(schema):
+    """Narrow the published budget without reconstructing tool variants or references."""
+    if isinstance(schema, dict):
+        budget = schema.get('properties', {}).get('responseChars')
+        if isinstance(budget, dict):
+            budget.update(maximum=PAGE_CHAR_LIMIT, default=PAGE_CHAR_LIMIT)
+        for value in schema.values():
+            constrain_response_budget(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            constrain_response_budget(value)
+
+
 def capture_schemas(binary, out):
     tools = []
     for name in LOCAL_TOOLS:
         run = subprocess.run([str(binary), 'schema', name, '--view', 'query'],
-                             env=dict(os.environ, OCTOCODE_BETA='1'), capture_output=True, text=True, check=True)
+                             env=dict(os.environ, OCTOCODE_BETA='0', OCTOCODE_CLASSIFICATION_API='', OCTOCODE_ENABLE_LOCAL='true'),
+                             capture_output=True, text=True, check=True)
         schema = json.loads(run.stdout)
         save(out / 'schemas' / (name + '.json'), schema)
-        query = copy.deepcopy(schema['querySchema'])
-        query.get('properties', {}).pop('clasifyContext', None)
-        envelope = copy.deepcopy(schema.get('envelopeFields', {}))
-        if 'responseLength' in envelope:
-            envelope['responseLength']['maximum'] = PAGE_CHAR_LIMIT
-        parameters = {'type': 'object', 'properties': {'queries': {'type': 'array', 'minItems': 1, 'maxItems': 5, 'items': query},
-                       **envelope}}
+        parameters = copy.deepcopy(schema['inputSchema'])
+        constrain_response_budget(parameters)
         tools.append({'type': 'function', 'function': {'name': name, 'description': schema['description'], 'parameters': parameters}})
     save(out / 'tools.json', tools)
     return tools
@@ -274,8 +285,8 @@ def main():
               'These clones can be ignored by a parent directory; use includeIgnored:true where needed. '
               'Tool results are complete native pages; copy next.* continuations to read more and identify unread scope. '
               'Fresh calls use queries as a JSON array, never a JSON-encoded string. '
-              'Saved response reads copy responsePagination.next without queries. '
-              'Text searches are literal unless regex:"rust" is set; set it for | alternatives. '
+              'Continue with the returned tool and input verbatim; cursor inputs have no other fields. '
+              'Text searches use matchString arrays and are literal unless regexEngine:"rust" is set; use it for regular-expression alternatives. '
               'Errors and empty results do not prove absence. Read decisive code before concluding. '
               'There are at most ' + str(args.turns) + ' research turns, then a final answer turn. '
               'You may batch independent calls. Finish early when evidence answers the questions; otherwise state precisely what remains unresolved.')

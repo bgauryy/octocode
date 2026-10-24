@@ -5,7 +5,11 @@ import {
   ACTIONABILITY_HELPERS_JS,
   waitForPageReady,
 } from '../dom-actionability.mjs';
+import type { Session } from '../cdp-connection.mjs';
 import { flagArgs } from '../cli-flags.mjs';
+
+type GraphNode = { kind?: string; selector?: string };
+type ActionabilityRow = { canOperate: boolean };
 
 const argv = process.argv.slice(2);
 const { getArg } = flagArgs(argv);
@@ -20,20 +24,24 @@ const LIMIT = Math.max(
   Math.min(100, Number.parseInt(getArg('--limit', '25'), 10))
 );
 
-function selectorsFromGraph(graphPath) {
+function selectorsFromGraph(graphPath: string | undefined): string[] {
   if (!graphPath) return [];
   try {
-    const graph = JSON.parse(readFileSync(resolve(graphPath), 'utf8'));
+    const graph: { nodes?: GraphNode[] } = JSON.parse(
+      readFileSync(resolve(graphPath), 'utf8')
+    );
     return (graph.nodes || [])
-      .filter(n => ['form', 'input', 'button', 'pagination'].includes(n.kind))
+      .filter(n =>
+        ['form', 'input', 'button', 'pagination'].includes(n.kind ?? '')
+      )
       .map(n => n.selector)
-      .filter(Boolean);
+      .filter((selector): selector is string => Boolean(selector));
   } catch {
     return [];
   }
 }
 
-export async function run(cdp) {
+export async function run(cdp: Session) {
   await cdp.send('Runtime.enable');
   await cdp.send('DOM.enable');
   await cdp.send('Accessibility.enable');
@@ -108,7 +116,7 @@ export async function run(cdp) {
   writeFileSync(artifact, `${JSON.stringify(payload, null, 2)}\n`, {
     mode: 0o600,
   });
-  const rows = payload.rows || [];
+  const rows: ActionabilityRow[] = payload.rows || [];
   console.log(
     `[METRIC] ACTIONABILITY rows=${rows.length} operable=${rows.filter(r => r.canOperate).length}`
   );

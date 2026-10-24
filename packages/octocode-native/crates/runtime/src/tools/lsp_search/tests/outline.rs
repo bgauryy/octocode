@@ -83,25 +83,18 @@ fn document_symbols_are_compact_outline_rows() {
         "{envelope}"
     );
     assert_eq!(envelope["pagination"]["totalItems"], 6, "{envelope}");
-    let paged: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "documentSymbols", "path": "file:///repo/src/lib.rs", "pageSize": 1
-    }))
-    .expect("paged query");
-    let first = items_payload(&paged, "documentSymbols", raw.clone(), TEST_BUDGET);
-    assert_eq!(first["pagination"]["totalItems"], 6, "{first}");
-    assert_eq!(first["pagination"]["totalPages"], 6, "{first}");
-    assert_eq!(
-        first["symbols"],
-        serde_json::json!([envelope["symbols"][0].clone()]),
-        "{first}"
-    );
     // CHAIN: an outline leads to localFetch: the first top-level
     // multi-line declaration, name line to last line.
-    let read = &envelope["next"]["read"];
+    let read = envelope["related"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|call| call["tool"] == "localFetch")
+        .expect("source exploration");
     assert_eq!(read["tool"], "localFetch", "{envelope}");
     assert_eq!(
-        read["query"]["queries"][0],
-        serde_json::json!({"path": "file:///repo/src/lib.rs", "ranges": ["3-9"]}),
+        read["input"]["queries"][0],
+        serde_json::json!({"path": "file:///repo/src/lib.rs", "ranges": [{"startLine":3,"endLine":9}]}),
         "{envelope}"
     );
 }
@@ -252,8 +245,8 @@ fn long_declaration_content_is_capped_with_a_marker_naming_the_omitted_lines() {
     // The omitted lines are one executable read, each line once.
     assert_eq!(rest["tool"], "localFetch");
     assert_eq!(
-        rest["query"]["queries"][0],
-        serde_json::json!({"path": "/repo/a.ts", "ranges": ["486-625"]})
+        rest["input"]["queries"][0],
+        serde_json::json!({"path": "/repo/a.ts", "ranges": [{"startLine":486,"endLine":625}]})
     );
     let short = "a\nb\nc";
     let mut small =

@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import {
   buildPlugin,
   isMainModule,
-  readJson,
   writeJson,
 } from '../../octocode/scripts/build-plugin.mjs';
 
@@ -13,7 +12,6 @@ export const packageRoot = resolve(
   '..'
 );
 export const repoRoot = resolve(packageRoot, '../..');
-export { readJson };
 
 export function build() {
   buildPlugin({

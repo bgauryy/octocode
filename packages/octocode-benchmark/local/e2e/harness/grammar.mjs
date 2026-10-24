@@ -1,7 +1,9 @@
 // Grammar sweep: every Tree-sitter language through astSearch / localFetch / localSearch / lspSearch.
 import fs from 'node:fs';
 import path from 'node:path';
-import { findHint, FIXTURES, astMatchRows, checks, collect, declarations, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { collect, declarations, rowData } from './responses.mjs';
+import { FIXTURES } from './paths.mjs';
+import { checks, startServer, writeResults } from './mcp-client.mjs';
 
 const FIX = path.join(FIXTURES, 'grammar');
 const { check, summary } = checks('grammar');
@@ -55,22 +57,12 @@ for (const [lang, l] of Object.entries(L)) {
   check(`${lang}: symbols has ${l.names.join(',')}`, !sym.isError && !missing.length, missing.join(','));
   const dirSym = await call('astSearch', { operation: 'symbols', path: dir });
   res.symbolsDir = dirSym.isError ? 'ERR' : `ok(${declarations(dirSym).filter(o => typeof o.name === 'string' && typeof o.line === 'number').length})`;
-  check(`${lang}: directory symbols (no language)`, !dirSym.isError && dirSym.rowErrors === 0, dirSym.text.slice(0, 100));
-  const bad = await call('astSearch', { operation: 'symbols', path: dir, language: lang });
-  const repair = findHint(bad.sc, 'repair');
-  check(`${lang}: directory symbols with language returns an exact repair`, !!repair && repair.query.queries.every(query => !Object.hasOwn(query, 'language')), JSON.stringify(rowData(bad)?.hints ?? {}).slice(0, 100));
+  check(`${lang}: directory symbols`, !dirSym.isError && dirSym.rowErrors === 0, dirSym.text.slice(0, 100));
   if (l.call) {
     // Captures are opt-in (captureText); default rows carry line/column/value only.
-    const m = await call('astSearch', { operation: 'match', path: dir, language: lang, pattern: `${l.call}($A)`, captureText: true });
+    const m = await call('astSearch', { operation: 'match', path: dir, parser: ({ TypeScript: 'typescript', JavaScript: 'javascript', TSX: 'tsx', 'C++': 'cpp', 'C#': 'csharp', Assembly: 'asm' }[lang] ?? lang.toLowerCase()), rule: { pattern: `${l.call}($A)` }, includeCaptures: true });
     // A match row is {line, endLine?, value}; positions live on its captures.
     const matches = collect(rowData(m), o => typeof o.value === 'string' && typeof o.line === 'number' && o.metavarRanges);
-    const lean = await call('astSearch', { operation: 'match', path: dir, language: lang, pattern: `${l.call}($A)` });
-    const leanRows = astMatchRows(lean);
-    // A lean row hides a capture when its value does not show the capture
-    // text; exactly then next.expandCaptures offers the captureText rows.
-    const norm = t => t.split(/\s+/).filter(Boolean).join(' ');
-    const hidden = matches.some((full, i) => Object.values(full.metavarRanges).flat().some(r => norm(r.text) && !(leanRows[i]?.value ?? '').includes(norm(r.text))));
-    check(`${lang}: default match rows are lean and offer next.expandCaptures iff a value hides a capture`, leanRows.length === matches.length && leanRows.every((o, i) => typeof o.value === 'string' && o.line === matches[i].line && !o.metavarRanges && !o.metavars) && !!rowData(lean)?.next?.expandCaptures === hidden, `${leanRows.length} vs ${matches.length} hidden=${hidden}`);
     const srcLines = l.src.split('\n');
     const emojiLine = srcLines.findIndex(s => s.includes('😀')) + 1;
     const onEmoji = matches.find(x => x.line === emojiLine);
@@ -82,21 +74,20 @@ for (const [lang, l] of Object.entries(L)) {
     check(`${lang}: call pattern ${l.call}($A) matches`, matches.length > 0, m.text.slice(0, 100));
     check(`${lang}: UTF-16 column after emoji`, !!capture && capture.column === expected, res.utf16);
   }
-  const k = await call('astSearch', { operation: 'match', path: dir, language: lang, rule: { kind: l.kind }, resultView: 'countMatches' });
+  const k = await call('astSearch', { operation: 'match', path: dir, parser: ({ TypeScript: 'typescript', JavaScript: 'javascript', TSX: 'tsx', 'C++': 'cpp', 'C#': 'csharp', Assembly: 'asm' }[lang] ?? lang.toLowerCase()), rule: { kind: l.kind }, view: 'countMatches' });
   // Minimal countMatches: per-file matchCount (restored from `shared`).
   const kc = (rowData(k)?.files ?? []).reduce((sum, f) => sum + (f.matchCount ?? 0), 0);
   res.kind = `${l.kind}=${kc}`;
   check(`${lang}: kind rule ${l.kind}`, kc > 0, k.text.slice(0, 80));
-  const st = await call('astSearch', { operation: 'syntaxTree', path: file, namedOnly: true, pageSize: 15 });
-  check(`${lang}: syntaxTree pages`, !st.isError && /next/i.test(st.text), `${st.bytes}B`);
-  const f = await call('localFetch', { path: file, minify: 'symbols' });
-  check(`${lang}: localFetch symbols view names ${l.names.at(-1)}`, (rowData(f)?.content ?? '').includes(l.names.at(-1)), rowData(f)?.contentView);
-  const g = await call('localSearch', { path: dir, matchString: l.names.at(-1), language: l.rg, resultView: 'files' });
+  const st = await call('astSearch', { operation: 'syntaxTree', path: file, namedOnly: true });
+  check(`${lang}: syntax tree contains source nodes`, !st.isError && !st.rowErrors && rowData(st)?.nodes?.some(node => typeof node === 'string' && node.includes(`1:1-${l.src.split('\n').length}:1`)), `${st.bytes}B`);
+  const f = await call('localFetch', { path: file, view: 'symbols' });
+  check(`${lang}: localFetch symbols view names ${l.names.at(-1)}`, (rowData(f)?.content ?? '').includes(l.names.at(-1)), rowData(f)?.view);
+  const g = await call('localSearch', { path: dir, matchString: [l.names.at(-1)], fileType: l.rg, view: 'files' });
   check(`${lang}: localSearch language ${l.rg}`, (rowData(g)?.files ?? []).some(f => f.path.endsWith(`main.${l.ext}`)), g.text.slice(0, 80));
-  const lsp = await call('lspSearch', { path: file, operation: 'documentSymbols' });
-  res.lsp = lsp.isError || lsp.rowErrors ? `n/a(${rowData(lsp)?.errorCode})` : 'ok';
+
   for (const alt of l.alt) {
-    const a = await call('astSearch', { operation: 'symbols', path: path.join(dir, `alt.${alt}`), ...(l.cppHeader && ['hpp', 'hh', 'hxx'].includes(alt) ? { language: 'cpp' } : {}) });
+    const a = await call('astSearch', { operation: 'symbols', path: path.join(dir, `alt.${alt}`), ...(l.cppHeader && ['hpp', 'hh', 'hxx'].includes(alt) ? { parser: 'cpp' } : {}) });
     check(`${lang}: .${alt} symbols`, names(a).has(l.names.at(-1)), a.text.slice(0, 80));
   }
   table.push(res);

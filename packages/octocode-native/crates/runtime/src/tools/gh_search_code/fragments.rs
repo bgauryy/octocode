@@ -1,5 +1,5 @@
 //! Preserve text-match anchors through the shared native sanitizer. Snippets
-//! are already small, so they stay raw (no minify): lines, spacing, and
+//! are already small, so they retain their original lines, spacing, and
 //! comments are the evidence, and each match keeps its own line offset.
 use crate::security::scan::{ContentScan, sanitize_provider_text};
 use octocode_github::{ProviderError, TextMatch};
@@ -84,8 +84,7 @@ mod tests {
         };
         let text_match: TextMatch = serde_json::from_value(json!({
             "fragment": fragment,
-            "matches": [at("needle;"), at("needle =")],
-        }))
+            "matches": [at("needle;"), at("needle =")]}))
         .unwrap();
         let value = project(&text_match, "README.md", &Passthrough)
             .unwrap()

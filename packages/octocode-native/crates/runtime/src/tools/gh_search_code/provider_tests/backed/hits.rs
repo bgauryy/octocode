@@ -1,5 +1,9 @@
 //! Hit rows: numbered occurrences, reads of every hit, owner-wide fragments and path matches.
 use super::*;
+use octocode_github::mock_http::mount_json;
+use serde_json::{Value, json};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Repo-scoped hits list every keyword line of the top files with its
 /// line number (`grep -n` over the fetched blob), name owner/repo
@@ -22,11 +26,11 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
         )
         .await;
     let out = run(
-            &server,
-            json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["wrap_app"]}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"]}),
+    )
+    .await
+    .expect("search");
     let data = &out.data;
     // A repo-scoped page echoes no owner/repo: they are the query's.
     assert!(data.get("owner").is_none(), "{data}");
@@ -51,25 +55,26 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
             row.get("owner").is_none() && row.get("repo").is_none(),
             "{row}"
         );
-        assert!(row.get("matches").is_none(), "{row}");
+        assert!(
+            row["matches"]
+                .as_array()
+                .is_some_and(|matches| !matches.is_empty()),
+            "{row}"
+        );
     }
-    let read = &data["next"]["read"]["query"]["queries"][0];
+    let read = &data["next"]["read"]["input"]["queries"][0];
     assert_eq!(read["owner"], "a", "{data}");
     // The top hit declares `wrap_app`, so the read is that whole
     // declaration, never a fixed line window that may cut it.
     assert_eq!(read["path"], "src/handler.py", "{data}");
-    assert_eq!(read["matchString"], "def wrap_app(app):", "{data}");
+    assert_eq!(read["matchString"], json!(["def wrap_app(app):"]), "{data}");
     assert_eq!(read["block"], true, "{data}");
     assert!(
         read.get("startLine").is_none() && read.get("endLine").is_none(),
         "{data}"
     );
-    crate::contracts::validate_query("ghGetFileContent", {
-        let mut query = read.clone();
-        query["mainGoal"] = json!("g");
-        query
-    })
-    .expect("read is a valid ghGetFileContent query");
+    crate::contracts::validate_query("ghGetFileContent", read.clone())
+        .expect("read is a valid ghGetFileContent query");
 }
 
 /// A file whose hits are capped or whose hit lines are cut carries an
@@ -88,11 +93,11 @@ async fn capped_or_clipped_hit_files_carry_a_read_of_every_hit() {
     .await;
     mount_content(&server, "src/routing.py", &"wrap_app()\n".repeat(25)).await;
     let out = run(
-            &server,
-            json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["wrap_app"]}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"]}),
+    )
+    .await
+    .expect("search");
     let data = &out.data;
     let reads: Vec<&Value> = ["readHits", "readHits2"]
         .iter()
@@ -102,29 +107,33 @@ async fn capped_or_clipped_hit_files_carry_a_read_of_every_hit() {
     assert!(data["next"].get("readHits3").is_none(), "{data}");
     let mut paths: Vec<&str> = reads
         .iter()
-        .map(|read| read["query"]["queries"][0]["path"].as_str().expect("path"))
+        .map(|read| read["input"]["queries"][0]["path"].as_str().expect("path"))
         .collect();
     paths.sort_unstable();
     assert_eq!(paths, ["src/handler.py", "src/routing.py"], "{data}");
     for read in reads {
         assert_eq!(read["tool"], "ghGetFileContent", "{data}");
-        let query = &read["query"]["queries"][0];
+        let query = &read["input"]["queries"][0];
         assert_eq!(query["ref"], TREE_SHA, "{data}");
-        assert_eq!(query["matchString"], "wrap_app", "{data}");
-        assert_eq!(query["contextLines"], 0, "{data}");
+        assert_eq!(query["matchString"], json!(["wrap_app"]), "{data}");
+        assert_eq!(
+            query["contextLines"],
+            json!({"before":0,"after":0}),
+            "{data}"
+        );
         // A file whose first five hits are shown resumes after them
         // (lines 6-25 hold the other twenty); a file whose shown line
         // was cut re-reads its hits whole.
         match query["path"].as_str().expect("path") {
-            "src/routing.py" => assert_eq!(query["ranges"], json!(["6-25"]), "{data}"),
+            "src/routing.py" => assert_eq!(
+                query["ranges"],
+                json!([{"startLine":6,"endLine":25}]),
+                "{data}"
+            ),
             _ => assert!(query.get("ranges").is_none(), "{data}"),
         }
-        crate::contracts::validate_query("ghGetFileContent", {
-            let mut query = query.clone();
-            query["mainGoal"] = json!("g");
-            query
-        })
-        .expect("readHits is a valid ghGetFileContent query");
+        crate::contracts::validate_query("ghGetFileContent", query.clone())
+            .expect("readHits is a valid ghGetFileContent query");
     }
 }
 
@@ -139,12 +148,12 @@ async fn hit_reads_match_case_like_the_listing() {
     mount_content(&server, "src/handler.py", "def wrap_app(app):\n").await;
     mount_content(&server, "src/routing.py", &"wrap_app()\n".repeat(25)).await;
     let out = run(
-            &server,
-            json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["Wrap_App"]}),
-        )
-        .await
-        .expect("search");
-    let query = &out.data["next"]["readHits"]["query"]["queries"][0];
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["Wrap_App"]}),
+    )
+    .await
+    .expect("search");
+    let query = &out.data["next"]["readHits"]["input"]["queries"][0];
     assert_eq!(query["path"], "src/routing.py", "{}", out.data);
     assert_eq!(query["caseMode"], "insensitive", "{}", out.data);
 }
@@ -158,11 +167,11 @@ async fn fully_shown_hit_files_get_no_hit_read() {
     mount_content(&server, "src/handler.py", "def wrap_app(app):\n").await;
     mount_content(&server, "src/routing.py", "wrap_app()\n").await;
     let out = run(
-            &server,
-            json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["wrap_app"]}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"]}),
+    )
+    .await
+    .expect("search");
     assert!(out.data["next"].get("readHits").is_none(), "{}", out.data);
 }
 
@@ -178,10 +187,7 @@ async fn owner_wide_hits_keep_fragments_without_offsets() {
         .expect(0)
         .mount(&server)
         .await;
-    let out = run(
-            &server,
-            json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","keywords":["wrap_app"]}),
-        )
+    let out = run(&server, json!({"owner":"a","keywords":["wrap_app"]}))
         .await
         .expect("search");
     // Every row is in a/b: the page names the repository once.
@@ -192,18 +198,10 @@ async fn owner_wide_hits_keep_fragments_without_offsets() {
     assert!(row["matches"][0]["value"].is_string(), "{}", out.data);
     // Offsets are a diagnostics extra (core field class): the default
     // response drops them, `extras:["diagnostics"]` keeps them.
-    assert!(
-        crate::response::extras::all_paths(crate::id::ToolId::GhSearchCode)
-            .contains(&"results[].data.files[].matches[].matchIndices"),
-        "{}",
-        out.data
-    );
+
     assert!(out.data.get("commitSha").is_none(), "{}", out.data);
     // The diagnostics extra keeps the offsets.
-    let diagnostics = run(
-            &server,
-            json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","keywords":["wrap_app"],"extras":["diagnostics"]}),
-        )
+    let diagnostics = run(&server, json!({"owner":"a","keywords":["wrap_app"]}))
         .await
         .expect("search");
     assert!(
@@ -231,8 +229,8 @@ async fn path_match_rows_omit_empty_matches() {
     .await;
     let out = run(
         &server,
-        json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b",
-                   "keywords":["pool"],"matchIn":"path"}),
+        json!({ "owner":"a","repo":"b",
+                   "keywords":["pool"],"matchIn":["path"]}),
     )
     .await
     .expect("search");

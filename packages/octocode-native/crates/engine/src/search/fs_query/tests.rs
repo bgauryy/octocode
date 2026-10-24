@@ -10,6 +10,7 @@ use crate::types::{EntryType, FileKind};
 
 mod cursor;
 mod filters;
+mod metadata_bounds;
 mod options;
 mod resume;
 mod walk_order;

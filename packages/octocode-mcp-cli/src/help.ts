@@ -24,7 +24,7 @@ function typeWord(kind: Flag['kind'] | Flag['itemKind'] | undefined): string {
   return kind ?? 'json';
 }
 
-function flagHead(flag: Flag, dashed = true): string {
+function flagHead(flag: Flag, dashed: boolean): string {
   const name = dashed ? `--${flag.name}` : flag.name;
   if (flag.presence) return name;
   if (flag.kind === 'array') {
@@ -152,20 +152,25 @@ function finish(text: string): string {
   return stripAnsi(body);
 }
 
-function outputLines(schema: JsonSchema): string[] {
-  const built = flagsFromJsonSchema(schema);
-  if (built.flags.length === 1 && built.flags[0]?.property === 'input') return ['      json'];
-  if (built.flags.length === 0) return ['      (none)'];
-  const rows = built.flags.map(flag => {
-    const shown = { ...flag, name: flag.property };
+/** One aligned line per flag, each partial flag followed by its schema outline. */
+function flagLines(flags: readonly Flag[], root: JsonSchema, dashed: boolean): string[] {
+  if (flags.length === 0) return ['      (none)'];
+  const rows = flags.map(flag => {
+    const shown = dashed ? flag : { ...flag, name: flag.property };
     return {
-      head: flagHead(shown, false),
+      head: flagHead(shown, dashed),
       tail: flagTail(shown),
-      nested: flag.partial ? outlineLines(flagValueSchema(flag, schema) ?? {}, schema, '') : [],
+      nested: flag.partial ? outlineLines(flagValueSchema(flag, root) ?? {}, root, '') : [],
     };
   });
   const rendered = aligned(rows.map(row => ({ head: row.head, tail: row.tail })), '      ');
   return rows.flatMap((row, index) => [rendered[index] ?? '', ...row.nested]);
+}
+
+function outputLines(schema: JsonSchema): string[] {
+  const built = flagsFromJsonSchema(schema);
+  if (built.flags.length === 1 && built.flags[0]?.property === 'input') return ['      json'];
+  return flagLines(built.flags, schema, false);
 }
 
 function hintLines(annotations: ToolAnnotations | undefined): string[] {
@@ -202,16 +207,7 @@ export function commandHelp(spec: CliSpec, command: CliCommand): string {
   const usage = usagePattern(spec.name, command.name, command.flags);
   const lines = [command.description];
   if (command.title && command.title !== command.description) lines.push('', command.title);
-  const flagRows = command.flags.map(flag => ({
-    head: flagHead(flag),
-    tail: flagTail(flag),
-    nested: flag.partial ? outlineLines(flagValueSchema(flag, root) ?? {}, root, '') : [],
-  }));
-  const renderedFlags = aligned(flagRows.map(row => ({ head: row.head, tail: row.tail })), '      ');
-  const flags = flagRows.length > 0
-    ? flagRows.flatMap((row, index) => [renderedFlags[index] ?? '', ...row.nested])
-    : ['      (none)'];
-  lines.push('', 'USAGE', `  ${usage}`, '', 'FLAGS', ...flags);
+  lines.push('', 'USAGE', `  ${usage}`, '', 'FLAGS', ...flagLines(command.flags, root, true));
   if (command.outputSchema) lines.push('', 'OUTPUT', ...outputLines(command.outputSchema));
   const hints = hintLines(command.annotations);
   if (hints.length > 0) lines.push('', 'HINTS', ...hints.map(hint => `  ${hint}`));
@@ -235,8 +231,8 @@ export function commandHelpJson(spec: CliSpec, command: CliCommand): CommandHelp
   };
 }
 
-export function defaultOutput(spec: CliSpec): string {
-  const lines = [
+function overviewLines(spec: CliSpec): string[] {
+  return [
     spec.instructions,
     '',
     'USAGE',
@@ -245,18 +241,15 @@ export function defaultOutput(spec: CliSpec): string {
     'COMMANDS',
     ...commandLines(spec.commands),
   ];
-  return finish(lines.join('\n'));
+}
+
+export function defaultOutput(spec: CliSpec): string {
+  return finish(overviewLines(spec).join('\n'));
 }
 
 export function rootHelp(spec: CliSpec): string {
   const lines = [
-    spec.instructions,
-    '',
-    'USAGE',
-    `  ${spec.name} <command> [flags]`,
-    '',
-    'COMMANDS',
-    ...commandLines(spec.commands),
+    ...overviewLines(spec),
     '',
     'FLAGS',
     ...aligned([

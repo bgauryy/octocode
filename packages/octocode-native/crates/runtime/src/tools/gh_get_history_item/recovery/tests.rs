@@ -14,7 +14,7 @@ fn missing_items_list_where_the_right_one_is() {
         let next = recovery(ProviderErrorKind::NotFound, None, &query).expect(operation);
         assert_eq!(next[name]["tool"], "ghSearchHistory", "{next}");
         assert_eq!(
-            next[name]["query"]["queries"][0],
+            next[name]["input"]["queries"][0],
             json!({"operation":operation,"owner":"o","repo":"r"}),
             "{next}"
         );
@@ -79,7 +79,7 @@ async fn a_missing_ref_is_recovered_inside_the_tool() {
     };
     let lead = |failure: &GhFailure, name: &str| {
         failure
-            .next
+            .calls
             .as_deref()
             .and_then(|next| next.get(name))
             .cloned()
@@ -98,26 +98,28 @@ async fn a_missing_ref_is_recovered_inside_the_tool() {
     );
     let retry = lead(&commit, "atDefaultBranch");
     assert_eq!(retry["tool"], "ghGetHistoryItem");
-    assert_eq!(retry["query"]["queries"][0]["ref"], "master");
+    assert_eq!(retry["input"]["queries"][0]["ref"], "master");
     assert_eq!(lead(&commit, "viewRefs")["tool"], "ghStructure");
 
-    let compare =
-        fail(json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"next"}))
-            .await;
+    let compare = fail(
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"next"}),
+    )
+    .await;
     assert_eq!(
         compare.message,
-        "Cannot compare main...next in a/b: \"main\" (base) not found; the default branch is \"master\"."
+        "Cannot compare main...next in a/b: \"main\" (baseRef) not found; the default branch is \"master\"."
     );
-    let row = &lead(&compare, "atDefaultBranch")["query"]["queries"][0];
+    let row = &lead(&compare, "atDefaultBranch")["input"]["queries"][0];
     assert_eq!(
-        (&row["base"], &row["head"]),
+        (&row["baseRef"], &row["headRef"]),
         (&json!("master"), &json!("next"))
     );
     assert_eq!(lead(&compare, "viewRefs")["tool"], "ghStructure");
 
-    let same =
-        fail(json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"master"}))
-            .await;
+    let same = fail(
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"master"}),
+    )
+    .await;
     assert!(lead(&same, "atDefaultBranch").is_null());
     assert!(!lead(&same, "viewRefs").is_null());
 }
@@ -180,9 +182,9 @@ async fn a_missing_ref_of_a_renamed_repository_names_the_rename() {
         "{}",
         failure.message
     );
-    let next = failure.next.as_deref().expect("leads");
+    let next = failure.calls.as_deref().expect("leads");
     let named = |lead: &str| {
-        let query = &next[lead]["query"]["queries"][0];
+        let query = &next[lead]["input"]["queries"][0];
         (query["owner"].clone(), query["repo"].clone())
     };
     assert_eq!(named("atDefaultBranch"), (json!("c"), json!("d")), "{next}");

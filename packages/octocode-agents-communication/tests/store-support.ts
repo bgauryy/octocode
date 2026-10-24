@@ -13,6 +13,13 @@ export const { Store } = runtime.store;
 export const { ValidationError } = runtime;
 type StoreInstance = InstanceType<typeof Store>;
 
+/** Runs `name` on `store` as `session` after the catalog validates the input, as the CLI and MCP entries do. */
+// Negative tests pass malformed input on purpose: validation, not the type, refuses it.
+export async function callStore(store: StoreInstance, session: string, name: string, input: Record<string, unknown> = {}): Promise<JsonRecord> {
+  const checked = runtime.catalog.command(runtime.catalog.commandName(name), withReasoning(name, input));
+  return store.call(session, checked.name, checked.input);
+}
+
 /** A real workspace (a Git repository when `git`) with a fresh database and a store bound to it. */
 export function fixture(t: TestContext, { git = false }: { git?: boolean } = {}) {
   const workspace = realpathSync(tempWorkspace(t, 'store-', { real: true }));
@@ -26,11 +33,7 @@ export function fixture(t: TestContext, { git = false }: { git?: boolean } = {})
   };
   t.after(() => { for (const store of stores) try { store.close(); } catch { /* already closed */ } });
   const store = open();
-  // Negative tests pass malformed input on purpose: validation, not the type, refuses it.
-  const call = async (session: string, name: string, input: Record<string, unknown> = {}): Promise<JsonRecord> => {
-    const checked = runtime.catalog.command(runtime.catalog.commandName(name), withReasoning(name, input));
-    return store.call(session, checked.name, checked.input);
-  };
+  const call = (session: string, name: string, input: Record<string, unknown> = {}) => callStore(store, session, name, input);
   const join_ = async (name: string) => (await call('', 'join', { name, vendor: 'generic' })).id;
   return { workspace, file, store, open, call, join: join_, mkdir: (path: string) => mkdirSync(join(workspace, path), { recursive: true }) };
 }

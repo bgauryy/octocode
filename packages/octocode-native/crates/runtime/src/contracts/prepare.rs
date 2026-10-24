@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::ValidationIssue;
 
 /// The rejection for input with neither fresh queries nor a saved-response token.
-const ENVELOPE_REQUIRED: &str = "Fresh calls require {\"queries\":[...]}; saved pages require responseSnapshot without queries.";
+const ENVELOPE_REQUIRED: &str = "Fresh calls require {\"queries\":[...]}; continuations require {\"cursor\":\"...\"} without queries.";
 
 /// Rule of a bare array of rows: the repair wraps it as `queries`.
 pub(crate) const ENVELOPE_ARRAY: &str = "envelope.array";
@@ -31,7 +31,7 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
     let Some(rows) = input.as_object().and_then(|object| object.get("queries")) else {
         if input
             .as_object()
-            .is_some_and(|object| object.contains_key("responseSnapshot"))
+            .is_some_and(|object| object.contains_key("cursor"))
         {
             return Vec::new();
         }
@@ -89,7 +89,7 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
                 issue(
                     ENVELOPE_NESTED,
                     path,
-                    "A row holds its own queries: put those rows directly in queries[] and its other fields (responseLength, …) beside queries. Nothing ran.".to_owned(),
+                    "A row holds its own queries: put those rows directly in queries[] and its other fields (responseChars) beside queries. Nothing ran.".to_owned(),
                     Some(envelope_fields()),
                 )
             } else {
@@ -102,133 +102,4 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
             })
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ENVELOPE_ARRAY, ENVELOPE_NESTED, ENVELOPE_SHAPE, envelope_issues};
-    use serde_json::json;
-
-    /// Artifact coordinates are trimmed once, by the contract's own
-    /// normalization rule, on every validated path.
-    #[test]
-    fn artifact_coordinates_are_trimmed_by_the_contract() {
-        let validated = crate::contracts::prepare_many_and_validate(
-            "artifactSearch",
-            json!({"queries": [
-                {"ecosystem": "npm", "packageName": "  express \n"},
-                {"ecosystem": "npm", "keywords": [" http ", "server"]}
-            ]}),
-        )
-        .expect("valid artifact queries");
-        assert_eq!(validated[0]["packageName"], "express");
-        assert_eq!(validated[1]["keywords"], json!(["http", "server"]));
-    }
-
-    #[test]
-    fn pure_clasify_preparation_preserves_exactly_the_supplied_values() {
-        let query = json!({"id":"decision","mainGoal": "test", "reasoning":"Decide the next evidence read.","state":{"text":"one"}, "questions":{"relevant":{
-            "type": "noul", "instructions": "Assess supplied state"
-        }}});
-        let prepared =
-            crate::contracts::prepare_many_and_validate("clasify", json!({"queries": [query]}))
-                .expect("pure input");
-        assert_eq!(prepared, [query]);
-    }
-
-    /// Fresh rows and saved reads pass the shape preflight; other shapes
-    /// produce issues the repair can read, never a silent reshape.
-    #[test]
-    fn fresh_and_saved_envelopes_have_no_shape_issue() {
-        let rules = |input| {
-            envelope_issues("localFetch", &input)
-                .into_iter()
-                .map(|issue| (issue.rule_id, issue.path.join(".")))
-                .collect::<Vec<_>>()
-        };
-        assert!(rules(json!({"queries":[{"path":"/a"},{"path":"/b"}]})).is_empty());
-        assert!(rules(json!({"responseSnapshot":"saved","responseOffset":1})).is_empty());
-        assert_eq!(
-            rules(json!([{"path":"/a"}])),
-            [(ENVELOPE_ARRAY.to_owned(), String::new())]
-        );
-        for empty in [json!([]), json!("x"), json!({"responseLength": 9})] {
-            assert_eq!(rules(empty), [(ENVELOPE_SHAPE.to_owned(), String::new())]);
-        }
-        assert_eq!(
-            rules(
-                json!({"queries":[{"path":"/a"}, 1, {"queries":[{"path":"/b"}]}, [{"path":"/c"}]]})
-            ),
-            [
-                (ENVELOPE_SHAPE.to_owned(), "queries.1".to_owned()),
-                (ENVELOPE_NESTED.to_owned(), "queries.2.queries".to_owned()),
-                (ENVELOPE_NESTED.to_owned(), "queries.3.queries".to_owned()),
-            ]
-        );
-    }
-
-    #[test]
-    fn saved_response_envelopes_validate_without_query_rows() {
-        let input = json!({
-            "responseSnapshot":"saved",
-            "responseOffset":1,
-            "responseLength":1000,
-            "responseScope":"rows"
-        });
-        let rows = crate::contracts::prepare_many_and_validate("localFetch", input.clone())
-            .expect("valid saved response envelope");
-        assert!(
-            rows.is_empty(),
-            "saved reads must not prepare fresh queries"
-        );
-        assert_eq!(
-            crate::contracts::validate("localFetch", input.clone())
-                .expect("saved response fields remain canonical"),
-            input
-        );
-    }
-
-    #[test]
-    fn saved_response_envelopes_keep_canonical_validation() {
-        for input in [
-            json!({"responseSnapshot":"saved","queries":[{"path":"a.rs"}]}),
-            json!({"responseSnapshot":null}),
-            json!({"responseSnapshot":123}),
-            json!({"responseSnapshot":""}),
-            json!({"responseSnapshot":"saved","responseOffset":-1}),
-            json!({"responseSnapshot":"saved","responseScope":"content.text"}),
-            json!({"responseSnapshot":"saved","unexpected":true}),
-        ] {
-            let expected = crate::contracts::validate("localFetch", input.clone())
-                .expect_err("canonical saved response rejection");
-            let actual = crate::contracts::prepare_many_and_validate("localFetch", input.clone())
-                .expect_err("preparation must preserve canonical rejection");
-            assert_eq!(actual, expected, "{input}");
-        }
-    }
-
-    /// A nested envelope is rejected whatever it carries: its sibling
-    /// fields are never dropped silently, and the message names no
-    /// internal function.
-    #[test]
-    fn a_nested_envelope_is_rejected_not_unwrapped() {
-        for inner in [
-            json!([{"path":"/a","matchString":"fn "}]),
-            json!([{"path":"/a","matchString":"fn "},{"path":"/b","matchString":"fn "}]),
-        ] {
-            let input = json!({"queries":[{"bogus":1,"responseLength":3000,"queries":inner}]});
-            let error = crate::contracts::prepare_many_and_validate("localSearch", input)
-                .expect_err("nested envelope");
-            assert_eq!(error.issues.len(), 1, "{error:?}");
-            assert_eq!(error.issues[0].rule_id, ENVELOPE_NESTED);
-            assert!(!error.issues[0].message.contains("prepare"), "{error:?}");
-            let fields = &error.issues[0].schema.as_ref().expect("schema")["envelopeFields"];
-            assert!(
-                fields
-                    .as_array()
-                    .is_some_and(|f| f.contains(&json!("responseLength"))),
-                "{fields}"
-            );
-        }
-    }
 }

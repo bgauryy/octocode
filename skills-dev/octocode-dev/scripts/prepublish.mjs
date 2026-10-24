@@ -29,14 +29,13 @@
 import { isMainModule } from './lib/entrypoint.mjs';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve } from 'node:path';
+import { ROOT } from './lib/workspaces.mjs';
 import {
   isLocalResolution,
   managedResolutionPackages,
 } from './dev-resolution-contract.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const FIX = process.argv.includes('--fix');
 const DRY_RUN = process.argv.includes('--dry-run');
 const PACKAGE_INDEX = process.argv.indexOf('--package');

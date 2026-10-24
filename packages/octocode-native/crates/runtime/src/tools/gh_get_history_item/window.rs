@@ -10,7 +10,7 @@ mod pages;
 #[cfg(test)]
 mod tests;
 
-pub(super) use budget::{auto_page, clamp_warning, literal_patch_window, patch_window};
+pub(super) use budget::{auto_page, literal_patch_window, patch_window};
 use pages::mark_capped;
 pub(super) use pages::{
     lift_page_limits, paginate_window, reconcile_collection_total, reconcile_file_totals,
@@ -34,7 +34,7 @@ pub(super) const MAX_COLLECTION_BATCHES: usize = 30;
 /// GitHub lists at most 250 commits for a pull request.
 pub(super) const MAX_PR_COMMIT_BATCHES: usize = 3;
 
-/// The `(page, pageSize)` pair whose page starts exactly at item `start`
+/// The private `(page, pageSize)` pair whose page starts exactly at item `start`
 /// of a list GitHub pages by whole pages: the largest page size within
 /// `max_size` that divides `start`, so every item past `start` falls on
 /// exactly one later page.
@@ -79,9 +79,9 @@ impl WindowState {
     }
 }
 
-/// Provider items loaded to serve one public page. Batches are derived from
-/// the public window `[(page-1)*pageSize, page*pageSize)` so continuations
-/// carry only public page cursors, never provider batch numbers.
+/// Provider items loaded for one result page. The private saved `page` and
+/// `pageSize` define its item window; provider batch numbers are derived
+/// here and never exposed as authored input.
 pub(super) struct Loaded {
     pub(super) items: Vec<Value>,
     pub(super) state: WindowState,

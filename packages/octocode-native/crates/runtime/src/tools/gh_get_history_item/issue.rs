@@ -5,11 +5,13 @@ use super::promotion::promote_issue_continuations;
 use super::remaining::Remainder;
 use super::text::paginate_text;
 use super::util::{str_at, string};
-use super::{HistoryItemRequest, Section, Sections, fetch, validation};
+use super::{HistoryItemRequest, Sections, fetch, validation};
+use crate::id::ToolId;
 use crate::response::result::ToolData;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::dates::{utc_date, utc_value};
-use crate::tools::gh_shared::ensure_next;
+use crate::tools::gh_shared::ensure_calls;
 use octocode_github::{
     GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
@@ -144,13 +146,10 @@ pub(super) async fn issue(
         let (body, page) = paginate_text(
             body_view,
             gh_get_history_item_query::char_offset(query),
-            gh_get_history_item_query::char_length(query),
+            None,
         );
         row["body"] = json!(body);
-        if gh_get_history_item_query::char_offset(query).is_some()
-            || gh_get_history_item_query::char_length(query).is_some()
-            || page["hasMore"] == true
-        {
+        if gh_get_history_item_query::char_offset(query).is_some() || page["hasMore"] == true {
             pagination.insert(Axis::Body.key().into(), page);
         }
     }
@@ -159,14 +158,7 @@ pub(super) async fn issue(
         let used = if comment_hop {
             let mut first = header_for();
             if let Some(body_view) = body_view {
-                first["body"] = json!(
-                    paginate_text(
-                        body_view,
-                        None,
-                        gh_get_history_item_query::char_length(query)
-                    )
-                    .0
-                );
+                first["body"] = json!(paginate_text(body_view, None, None).0);
             }
             octocode_engine::json_size::utf16_units(&first).unwrap_or(0)
         } else {
@@ -230,19 +222,20 @@ fn issue_header(raw: &Value) -> Value {
     })
 }
 
-/// `next.readDiscussion`: an issue read without its discussion offers it
+/// An issue read without its discussion offers it as related work
 /// when GitHub counts any comment (the same issue, `sections:["comments"]`).
 fn attach_comments_read(out: &mut Value, query: &HistoryItemRequest, raw: &Value) {
     if super::util::nonzero(raw.get("comments")).is_none() {
         return;
     }
     let mut nq = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
-    for key in ["offset", "length", "page"] {
+    for key in ["offset", "page"] {
         super::pr_menu::remove_key(&mut nq, key);
     }
     Sections::of([Section::Comments]).set_on(&mut nq);
-    ensure_next(out);
-    out["next"]["readDiscussion"] = super::pr_menu::continuation(nq);
+    ensure_calls(out);
+    out["calls"]["readDiscussion"] =
+        crate::response::result::restart_query(ToolId::GhGetHistoryItem, &nq);
 }
 
 /// The closing-reference set ends at a bound: no cursor continues it, and the

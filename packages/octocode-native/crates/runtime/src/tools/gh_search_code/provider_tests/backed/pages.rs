@@ -1,5 +1,9 @@
 //! Page facts: partial coverage, the terminal capped page and several extensions on one page.
 use super::*;
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// A non-empty page GitHub marks incomplete says so in its data,
 /// without extras, separately from whether another page exists.
@@ -21,8 +25,8 @@ async fn a_non_empty_incomplete_page_reports_partial_coverage() {
     .await;
     let out = run(
         &server,
-        json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a",
-                "keywords":["wrap_app"],"matchIn":"path"}),
+        json!({"owner":"a",
+                "keywords":["wrap_app"],"matchIn":["path"]}),
     )
     .await
     .expect("search");
@@ -35,7 +39,7 @@ async fn a_non_empty_incomplete_page_reports_partial_coverage() {
     );
     assert!(data.pointer("/pagination/hasMore").is_none(), "{data}");
     assert_eq!(
-        data["next"]["retry"]["query"]["queries"][0]["page"], 1,
+        data["next"]["retry"]["input"]["queries"][0]["page"], 1,
         "{data}"
     );
     assert!(out.diagnostics.partial);
@@ -55,20 +59,14 @@ async fn capped_search_is_terminal_only_on_the_last_reachable_page() {
         }),
     )
     .await;
-    let first = run(
-            &server,
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"o","keywords":["x"],"page":1,"pageSize":100}),
-        )
+    let first = run(&server, json!({"owner":"o","keywords":["x"],"page":1}))
         .await
         .expect("page 1");
     assert!(first.data["next"]["nextPage"].is_object());
     assert!(first.data.get("terminalLimit").is_none(), "{}", first.data);
-    let last = run(
-            &server,
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"o","keywords":["x"],"page":10,"pageSize":100}),
-        )
+    let last = run(&server, json!({"owner":"o","keywords":["x"],"page":20}))
         .await
-        .expect("page 10");
+        .expect("last provider page");
     assert_eq!(last.data["terminalLimit"], true, "{}", last.data);
     assert!(last.data["next"].get("nextPage").is_none());
 }
@@ -86,7 +84,7 @@ async fn several_extensions_share_one_page() {
                 "q",
                 format!("extension:{extension}"),
             ))
-            .and(wiremock::matchers::query_param("per_page", "5"))
+            .and(wiremock::matchers::query_param("per_page", "25"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "total_count":1,"incomplete_results":false,"items":[code_item(file)]
             })))
@@ -96,7 +94,7 @@ async fn several_extensions_share_one_page() {
     }
     let out = run(
         &server,
-        json!({"operation":"code","owner":"a","keywords":["needle"],"extensions":["ts","js"],"pageSize":10}),
+        json!({"owner":"a","keywords":["needle"],"extensions":["ts","js"]}),
     )
     .await
     .expect("search");

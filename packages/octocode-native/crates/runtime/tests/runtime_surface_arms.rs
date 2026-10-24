@@ -1,11 +1,5 @@
-//! Catalog-shape switches: `tools.enabled`/`tools.disabled` narrow
-//! availability, and the `mcp.*` presentation switches reach hosts through the
-//! runtime catalog. Defaults keep the full catalog.
-
-use crate::support;
-
-use serde_json::{Value, json};
-use support::Workspace;
+use crate::support::Workspace;
+use serde_json::Value;
 
 fn tool<'a>(catalog: &'a Value, name: &str) -> &'a Value {
     catalog["tools"]
@@ -17,59 +11,29 @@ fn tool<'a>(catalog: &'a Value, name: &str) -> &'a Value {
 }
 
 #[tokio::test]
-async fn default_family_keeps_every_family() {
+async fn catalog_availability_matches_execution_gates() {
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[]);
-    for name in ["localSearch", "ghSearchCode", "artifactSearch"] {
-        assert!(runtime.is_available(name), "{name}");
-    }
-    let catalog = runtime.catalog();
-    assert_eq!(
-        catalog["presentation"],
-        json!({"deferred":[], "selection":false})
-    );
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn tool_lists_select_tools_and_name_the_reason() {
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("TOOLS_TO_RUN", "localSearch,ghSearchCode".into())]);
-    assert!(runtime.is_available("localSearch"));
-    assert!(runtime.is_available("ghSearchCode"));
-    assert!(!runtime.is_available("localFetch"));
-    // The retired family preset no longer narrows anything.
-    let retired = workspace.runtime(&[("OCTOCODE_TOOL_FAMILY", "local".into())]);
-    assert!(retired.is_available("ghSearchCode"));
-    let catalog = runtime.catalog();
-    assert_eq!(
-        tool(&catalog, "localFetch")["unavailableReason"],
-        "toolsList"
-    );
-    runtime.close().await;
-    retired.close().await;
-}
-
-#[tokio::test]
-async fn presentation_switches_reach_the_catalog() {
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[
-        // Unknown names and unavailable tools (localSearch is disabled) are
-        // never deferred: the dispatcher serves only tools the runtime runs.
-        (
-            "OCTOCODE_DEFER_TOOLS",
-            "nope,ghSearchRepo,localSearch,ghStructure".into(),
-        ),
-        ("DISABLE_TOOLS", "localSearch".into()),
+    let default = workspace.runtime(&[]);
+    let restricted = workspace.runtime(&[
+        ("TOOLS_TO_RUN", "localSearch,ghSearchCode".into()),
+        ("DISABLE_TOOLS", "ghSearchCode".into()),
     ]);
-    let catalog = runtime.catalog();
-    assert_eq!(
-        catalog["presentation"],
-        json!({"deferred":["ghSearchRepo","ghStructure"], "selection":false})
-    );
-    assert!(
-        runtime.is_available("ghSearchRepo"),
-        "deferred tools stay executable"
-    );
-    runtime.close().await;
+    for name in [
+        "localSearch",
+        "localFetch",
+        "ghSearchCode",
+        "artifactSearch",
+    ] {
+        assert!(default.is_available(name), "{name}");
+        let available = restricted.is_available(name);
+        assert_eq!(available, name == "localSearch", "{name}");
+        let catalog = restricted.catalog();
+        let entry = tool(&catalog, name);
+        assert_eq!(entry["available"], available, "{entry}");
+        if !available {
+            assert!(entry["unavailableReason"].is_string(), "{entry}");
+        }
+    }
+    default.close().await;
+    restricted.close().await;
 }

@@ -1,7 +1,8 @@
-//! Reads judged under `clasifyContext`: the selected plan, its scope, and
+//! Reads judged under `classification`: the selected plan, its scope, and
 //! refusals.
 
 use super::*;
+use octocode_contract_types::LocalFetchQuery;
 
 mod recovery;
 
@@ -18,18 +19,25 @@ fn selection_runtime(handle: tokio::runtime::Handle) -> crate::tools::selection:
 fn context_read_replays_selected_plan_and_rejects_source_drift() {
     let temp = Fixture::new();
     let path = temp.0.join("goals.txt");
-    fs::write(&path, "first\nsecond\nthird\n").expect("fixture");
+    let source = "first\nsecond\nthird\n".repeat(500);
+    fs::write(&path, &source).expect("fixture");
     let paths = Paths(temp.0.clone());
     let mut query = q(&path);
-    query.clasify_context = Some(
-        serde_json::from_value(serde_json::json!({"classifiers":["find second"]}))
-            .expect("context"),
+    amend(
+        &mut query,
+        serde_json::json!({"classification":serde_json::json!({"predicates":["find second"]})}),
     );
-    query.length = wire_positive(1);
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = selection_runtime(executor.handle().clone());
     let read = |query: &LocalFetchQuery| {
-        execute_local_fetch(query, &paths, &Safe, &NeverCancel, None, Some(&runtime))
+        execute_local_fetch(
+            query,
+            &paths,
+            &Safe,
+            &NeverCancel,
+            Some(1200),
+            Some(&runtime),
+        )
     };
     let first = read(&query);
     assert_eq!(
@@ -42,23 +50,14 @@ fn context_read_replays_selected_plan_and_rejects_source_drift() {
         .continue_window
         .expect("page")
         .query;
-    assert!(continued.selection.is_some());
+    assert!(local_fetch_query::selection(&continued).is_some());
     let second = read(&continued);
-    assert_eq!(second.content.as_deref(), Some("second\n"));
-    let mut switched_to_full = continued.clone();
-    switched_to_full.full_content = Some(true);
-    switched_to_full.unit = None;
-    switched_to_full.offset = None;
-    switched_to_full.length = None;
-    assert_eq!(
-        read(&switched_to_full).error_code,
-        None,
-        "fullContent changes output paging, not the bound extraction"
-    );
+    let first_bytes = first.content.as_deref().expect("first content").len();
+    assert!(source[first_bytes..].starts_with(second.content.as_deref().expect("second content")));
     let mut changed = continued.clone();
-    changed.clasify_context = Some(
-        serde_json::from_value(serde_json::json!({"classifiers":["a different goal"]}))
-            .expect("context"),
+    amend(
+        &mut changed,
+        serde_json::json!({"classification":serde_json::json!({"predicates":["a different goal"]})}),
     );
     assert_eq!(read(&changed).error_code, Some(ErrorCode::StaleSnapshot));
     fs::write(&path, "changed evidence\n").expect("change source");
@@ -71,10 +70,10 @@ fn context_read_with_no_matches_reports_empty_selection_scope() {
     let path = temp.0.join("empty-selection.txt");
     fs::write(&path, "ordinary text\n").expect("fixture");
     let mut query = q(&path);
-    query.match_string = Some(MatchString::String("missing".parse().expect("match")));
-    query.clasify_context = Some(
-        serde_json::from_value(serde_json::json!({"classifiers":["find missing evidence"]}))
-            .expect("context"),
+    amend(&mut query, serde_json::json!({"matchString":["missing"]}));
+    amend(
+        &mut query,
+        serde_json::json!({"classification":serde_json::json!({"predicates":["find missing evidence"]})}),
     );
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = selection_runtime(executor.handle().clone());
@@ -99,7 +98,7 @@ fn context_read_with_no_matches_reports_empty_selection_scope() {
 /// read without the classifier: its window, ranges and view stay, bound to
 /// the source version the refusal saw.
 #[test]
-fn a_refused_classified_read_keeps_its_window_in_the_unfiltered_lead() {
+fn a_refused_classified_read_restarts_its_unfiltered_selection() {
     let temp = Fixture::new();
     let path = temp.0.join("evidence.txt");
     let text = numbered(40);
@@ -107,16 +106,13 @@ fn a_refused_classified_read_keeps_its_window_in_the_unfiltered_lead() {
     let digest = hex::encode(sha2::Sha256::digest(text.as_bytes()));
     let paths = Paths(temp.0.clone());
     for read in [
-        serde_json::json!({"unit": "bytes", "offset": 0, "length": 50}),
-        serde_json::json!({"ranges": ["1-30"], "offset": 10}),
-        serde_json::json!({"minify": "standard", "offset": 0, "length": 5}),
+        serde_json::json!({"readProgress":{"unit":"bytes","offset":10}}),
+        serde_json::json!({"ranges":[{"startLine":1,"endLine":30}],"readProgress":{"unit":"lines","offset":10}}),
     ] {
         let mut query = qj(&path, read.clone());
-        query.clasify_context = Some(
-            serde_json::from_value(
-                serde_json::json!({"classifiers":["Does this explain ownership?"]}),
-            )
-            .expect("context"),
+        amend(
+            &mut query,
+            serde_json::json!({"classification":{"predicates":["Does this explain ownership?"]}}),
         );
         let row = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
         assert_eq!(
@@ -131,8 +127,9 @@ fn a_refused_classified_read_keeps_its_window_in_the_unfiltered_lead() {
             .expect("unfiltered")
             .query;
         // The row names the file as the workspace does.
-        let mut expected = qj(Path::new(lead.path.as_str()), read.clone());
-        expected.snapshot = digest.parse().ok();
+        let mut expected = qj(Path::new(local_fetch_query::path(&lead)), read.clone());
+        local_fetch_query::set_progress(&mut expected, None);
+        local_fetch_query::set_snapshot(&mut expected, Some(&digest)).expect("snapshot");
         assert_eq!(
             serde_json::to_value(&lead).expect("json"),
             serde_json::to_value(&expected).expect("json"),
@@ -187,9 +184,9 @@ fn selection_provider_sees_workspace_relative_path_and_complete_evidence() {
         Duration::from_secs(2),
     );
     let mut query = q(&file);
-    query.clasify_context = Some(
-        serde_json::from_value(serde_json::json!({"classifiers":["find evidence"]}))
-            .expect("context"),
+    amend(
+        &mut query,
+        serde_json::json!({"classification":serde_json::json!({"predicates":["find evidence"]})}),
     );
     let result = execute_local_fetch(&query, &policy, &Safe, &NeverCancel, None, Some(&selection));
     assert_eq!(result.error_code, None);
@@ -199,47 +196,9 @@ fn selection_provider_sees_workspace_relative_path_and_complete_evidence() {
 /// A classified read its input alone rules out is refused before the
 /// source is decoded or redacted, its lead bound to the version it saw.
 #[test]
-fn a_classified_read_with_an_unsupported_view_is_refused_before_any_scan() {
-    struct Counting(AtomicUsize);
-    impl ContentScan for Counting {
-        fn sanitize(
-            &self,
-            text: &str,
-            _: &Path,
-        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            Ok((text.to_owned(), vec![]))
-        }
-        fn redact_key_blocks(&self, content: &str) -> (String, bool) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            (content.to_owned(), false)
-        }
-    }
-    let t = Fixture::new();
-    let p = t.0.join("run.rs");
-    fs::write(&p, "pub fn run() {}\n").expect("fixture");
-    for fields in [
-        serde_json::json!({"minify": "standard"}),
-        serde_json::json!({"unit": "bytes"}),
-        serde_json::json!({"offset": 3}),
-    ] {
-        let mut fields = fields;
-        fields["clasifyContext"] = serde_json::json!({"classifiers": ["find run"]});
-        let scan = Counting(AtomicUsize::new(0));
-        let r = execute_local_fetch(
-            &qj(&p, fields.clone()),
-            &Paths(t.0.clone()),
-            &scan,
-            &NeverCancel,
-            None,
-            None,
-        );
-        assert_eq!(
-            r.error_code,
-            Some(ErrorCode::InvalidInput),
-            "{fields}: {r:?}"
-        );
-        assert!(r.source_sha256.is_some());
-        assert_eq!(scan.0.into_inner(), 0, "{fields}");
+fn classification_with_compact_or_symbols_is_rejected_before_execution() {
+    for view in ["compact", "symbols"] {
+        let row = serde_json::json!({"path":"run.rs","view":view,"classification":{"predicates":["find run"]}});
+        assert!(crate::contracts::validate_query("localFetch", row).is_err());
     }
 }

@@ -53,7 +53,7 @@ fn a_tool_call_answers_alike_through_the_warm_server_and_in_process() {
         .prefix("oc")
         .tempdir_in("/tmp")
         .expect("socket dir");
-    let query = r#"{"queries":[{"matchString":"alpha","path":"."}]}"#;
+    let query = r#"{"queries":[{"matchString": ["alpha"],"path":"."}]}"#;
     let run = |served: bool| {
         let mut command = workspace.cli();
         command

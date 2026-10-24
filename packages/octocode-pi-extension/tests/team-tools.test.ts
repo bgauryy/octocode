@@ -49,13 +49,13 @@ describe('team shutdown order', () => {
   });
 });
 
-describe('team tools on a fake Pi', () => {
+/** Two members on one team database, started per call; every member a test started shuts down after it. */
+function usePair() {
   const started: Array<ReturnType<typeof member>> = [];
   afterEach(async () => {
     for (const agent of started.splice(0)) await agent.emit('session_shutdown', {}, agent.ctx);
   });
-
-  async function pair() {
+  const pair = async () => {
     const cwd = tmp();
     const db = path.join(tmp(), 'team.sqlite');
     const a = member(db, cwd);
@@ -64,7 +64,12 @@ describe('team tools on a fake Pi', () => {
     await a.emit('session_start', {}, a.ctx);
     await b.emit('session_start', {}, b.ctx);
     return { a, b, cwd };
-  }
+  };
+  return { pair, started };
+}
+
+describe('team tools on a fake Pi', () => {
+  const { pair, started } = usePair();
 
   it('joins, lists, locks, blocks a peer edit, unlocks and leaves', async () => {
     const { a, b } = await pair();
@@ -200,58 +205,6 @@ describe('team tools on a fake Pi', () => {
     expect(parameters.properties).not.toHaveProperty('note');
   });
 
-  it('tracks activity and renders messages and calls', async () => {
-    const { a, b } = await pair();
-    await run(a.tools.get('coordinate'), { action: 'join' }, a.ctx);
-    await a.emit('agent_start', {}, a.ctx);
-    await a.emit('tool_execution_start', { toolCallId: 't1', toolName: 'bash', args: { command: 'yarn test' } }, a.ctx);
-    await a.emit('message_end', { message: { role: 'assistant', usage: { input: 1200, output: 300, cacheRead: 0, cacheWrite: 0, totalTokens: 1500, cost: { total: 0 } } } }, a.ctx);
-    await a.emit('message_end', { message: { role: 'user' } }, a.ctx);
-    // Activity reaches the shared database on the member's next tick.
-    await vi.waitFor(() => {
-      const busy = b.team.members().find((entry) => entry.id === a.team.id)!;
-      expect(busy).toMatchObject({ status: 'working', input: 1200, output: 300 });
-      expect(busy.activity).toContain('bash');
-    }, { timeout: 3_000 });
-    await a.emit('agent_end', {}, a.ctx);
-    // Queued messages, retries and compaction can continue after agent_end.
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
-    expect(b.team.members().find((entry) => entry.id === a.team.id)!.status).toBe('working');
-    await a.emit('agent_settled', {}, a.ctx);
-    await vi.waitFor(() => expect(b.team.members().find((entry) => entry.id === a.team.id)!.status).toBe('idle'), { timeout: 3_000 });
-
-    const renderer = a.renderers.get(INTERNAL_MESSAGE_TYPE);
-    const message = { details: { messages: [{ from: 'reviewer-1a2b', text: 'first\nsecond', replyRequired: true, at: Date.parse('2026-01-01T10:00:00Z') }] } };
-    const collapsed = rendered(renderer(message, { expanded: false }, theme));
-    expect(collapsed).toContain('from reviewer-1a2b');
-    expect(collapsed).toContain('reply requested');
-    expect(collapsed).toMatch(/first\n\s*second/);
-    expect(rendered(renderer(message, { expanded: true }, theme))).toMatch(/first\n\s*second/);
-    expect(rendered(renderer({ details: { messages: [{ from: 'x', text: 'bad\u001b[31mred' }] } }, { expanded: false }, theme))).toContain('badred');
-    expect(rendered(renderer({}, { expanded: false }, theme))).toContain('from agent');
-    // Details that are not a batch (another writer, a damaged entry) show the text the model got.
-    expect(rendered(renderer({ content: 'plain text', details: { from: 'x' } }, { expanded: false }, theme))).toContain('plain text');
-
-    const coordinate = a.tools.get('coordinate');
-    expect(rendered(coordinate.renderCall({ action: 'lock', paths: ['a.ts', 'b/'], goal: 'n' }, theme, {}))).toBe('○ Coordinate(lock 2 paths "n")');
-    expect(rendered(coordinate.renderCall({ action: 'unlock', paths: ['a.ts'] }, theme, {}))).toBe('○ Coordinate(unlock a.ts)');
-    expect(rendered(coordinate.renderCall({}, theme, {}))).toBe('○ Coordinate');
-    const listed = await run(coordinate, { action: 'list' }, a.ctx);
-    expect(listed.details).toMatchObject({ summary: expect.stringMatching(/^\d+ agents? · \d+ working$/) });
-    const listRow = rendered(coordinate.renderResult(listed, { expanded: false }, theme, { args: { action: 'list' }, expanded: false }));
-    expect(listRow).toMatch(/^ {2}⎿ {2}\d+ agents? · \d+ working \(ctrl\+o to expand\)$/);
-    expect(rendered(coordinate.renderResult(listed, { expanded: true }, theme, { args: { action: 'list' }, expanded: true }))).toContain(a.team.id!);
-    expect(rendered(coordinate.renderResult({ content: [{ type: 'text', text: 'Not reserved; nothing was locked:\n- a.ts is covered' }] }, {}, theme, { isError: true }))).toBe('  ⎿  Error: Not reserved; nothing was locked:\n     - a.ts is covered');
-    const send = a.tools.get('sendMessage');
-    const long = `hello\n${'x'.repeat(500)}`;
-    expect(rendered(send.renderCall({ to: 'all', message: long }, theme, {}), 1_000)).toBe('○ Send(→ all)');
-    expect(rendered(send.renderCall({ to: 'x', replyTo: 41, message: 'm' }, theme, {}))).toBe('○ Send(→ x · reply to #41)');
-    expect(rendered(send.renderCall({}, theme, {}))).toBe('○ Send');
-    const delivered = { content: [{ type: 'text', text: 'Queued message #42 for b.' }], details: { id: 42, to: ['b'] } };
-    expect(rendered(send.renderResult(delivered, {}, theme, { args: { message: long }, expanded: false }))).toBe('  ⎿  Queued #42 (ctrl+o to expand)');
-    expect(rendered(send.renderResult(delivered, {}, theme, { args: { message: long }, expanded: true }), 1_000)).toBe(`  ⎿  Queued #42\n     hello\n     ${'x'.repeat(500)}`);
-  });
-
   it('/agents and /agents tell report through the UI', async () => {
     const { a, b } = await pair();
     await run(b.tools.get('coordinate'), { action: 'join' }, b.ctx);
@@ -286,6 +239,73 @@ describe('team tools on a fake Pi', () => {
     const ctx = fakeCtx({ cwd: tmp() });
     await fake.commands.get('agents').handler('', ctx);
     expect(ctx.ui.notes.at(-1)).toMatchObject({ type: 'warning', message: expect.stringContaining('schema v99 is newer') });
+  });
+});
+
+describe('team tools on a fake Pi: activity and rendering', () => {
+  const { pair } = usePair();
+
+  it('tracks a member\'s activity and usage, and marks it idle only once the agent settled', async () => {
+    const { a, b } = await pair();
+    await run(a.tools.get('coordinate'), { action: 'join' }, a.ctx);
+    await a.emit('agent_start', {}, a.ctx);
+    await a.emit('tool_execution_start', { toolCallId: 't1', toolName: 'bash', args: { command: 'yarn test' } }, a.ctx);
+    await a.emit('message_end', { message: { role: 'assistant', usage: { input: 1200, output: 300, cacheRead: 0, cacheWrite: 0, totalTokens: 1500, cost: { total: 0 } } } }, a.ctx);
+    await a.emit('message_end', { message: { role: 'user' } }, a.ctx);
+    // Activity reaches the shared database on the member's next tick.
+    await vi.waitFor(() => {
+      const busy = b.team.members().find((entry) => entry.id === a.team.id)!;
+      expect(busy).toMatchObject({ status: 'working', input: 1200, output: 300 });
+      expect(busy.activity).toContain('bash');
+    }, { timeout: 3_000 });
+    await a.emit('agent_end', {}, a.ctx);
+    // Queued messages, retries and compaction can continue after agent_end.
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    expect(b.team.members().find((entry) => entry.id === a.team.id)!.status).toBe('working');
+    await a.emit('agent_settled', {}, a.ctx);
+    await vi.waitFor(() => expect(b.team.members().find((entry) => entry.id === a.team.id)!.status).toBe('idle'), { timeout: 3_000 });
+  });
+
+  it('renders a team message collapsed and expanded, with controls stripped and a fallback for other details', async () => {
+    const { a } = await pair();
+    const renderer = a.renderers.get(INTERNAL_MESSAGE_TYPE);
+    const message = { details: { messages: [{ from: 'reviewer-1a2b', text: 'first\nsecond', replyRequired: true, at: Date.parse('2026-01-01T10:00:00Z') }] } };
+    const collapsed = rendered(renderer(message, { expanded: false }, theme));
+    expect(collapsed).toContain('from reviewer-1a2b');
+    expect(collapsed).toContain('reply requested');
+    expect(collapsed).toMatch(/first\n\s*second/);
+    expect(rendered(renderer(message, { expanded: true }, theme))).toMatch(/first\n\s*second/);
+    expect(rendered(renderer({ details: { messages: [{ from: 'x', text: 'bad\u001b[31mred' }] } }, { expanded: false }, theme))).toContain('badred');
+    expect(rendered(renderer({}, { expanded: false }, theme))).toContain('from agent');
+    // Details that are not a batch (another writer, a damaged entry) show the text the model got.
+    expect(rendered(renderer({ content: 'plain text', details: { from: 'x' } }, { expanded: false }, theme))).toContain('plain text');
+  });
+
+  it('renders coordinate calls and a list result', async () => {
+    const { a } = await pair();
+    await run(a.tools.get('coordinate'), { action: 'join' }, a.ctx);
+    const coordinate = a.tools.get('coordinate');
+    expect(rendered(coordinate.renderCall({ action: 'lock', paths: ['a.ts', 'b/'], goal: 'n' }, theme, {}))).toBe('○ Coordinate(lock 2 paths "n")');
+    expect(rendered(coordinate.renderCall({ action: 'unlock', paths: ['a.ts'] }, theme, {}))).toBe('○ Coordinate(unlock a.ts)');
+    expect(rendered(coordinate.renderCall({}, theme, {}))).toBe('○ Coordinate');
+    const listed = await run(coordinate, { action: 'list' }, a.ctx);
+    expect(listed.details).toMatchObject({ summary: expect.stringMatching(/^\d+ agents? · \d+ working$/) });
+    const listRow = rendered(coordinate.renderResult(listed, { expanded: false }, theme, { args: { action: 'list' }, expanded: false }));
+    expect(listRow).toMatch(/^ {2}⎿ {2}\d+ agents? · \d+ working \(ctrl\+o to expand\)$/);
+    expect(rendered(coordinate.renderResult(listed, { expanded: true }, theme, { args: { action: 'list' }, expanded: true }))).toContain(a.team.id!);
+    expect(rendered(coordinate.renderResult({ content: [{ type: 'text', text: 'Not reserved; nothing was locked:\n- a.ts is covered' }] }, {}, theme, { isError: true }))).toBe('  ⎿  Error: Not reserved; nothing was locked:\n     - a.ts is covered');
+  });
+
+  it('renders sendMessage calls and a queued result, the message shown whole only when expanded', async () => {
+    const { a } = await pair();
+    const send = a.tools.get('sendMessage');
+    const long = `hello\n${'x'.repeat(500)}`;
+    expect(rendered(send.renderCall({ to: 'all', message: long }, theme, {}), 1_000)).toBe('○ Send(→ all)');
+    expect(rendered(send.renderCall({ to: 'x', replyTo: 41, message: 'm' }, theme, {}))).toBe('○ Send(→ x · reply to #41)');
+    expect(rendered(send.renderCall({}, theme, {}))).toBe('○ Send');
+    const delivered = { content: [{ type: 'text', text: 'Queued message #42 for b.' }], details: { id: 42, to: ['b'] } };
+    expect(rendered(send.renderResult(delivered, {}, theme, { args: { message: long }, expanded: false }))).toBe('  ⎿  Queued #42 (ctrl+o to expand)');
+    expect(rendered(send.renderResult(delivered, {}, theme, { args: { message: long }, expanded: true }), 1_000)).toBe(`  ⎿  Queued #42\n     hello\n     ${'x'.repeat(500)}`);
   });
 });
 

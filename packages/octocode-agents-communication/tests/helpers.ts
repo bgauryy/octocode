@@ -1,5 +1,5 @@
 import * as childProcess from 'node:child_process';
-import { closeSync, existsSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,10 @@ import assert from 'node:assert/strict';
 export const octocodeHome = mkdtempSync(join(tmpdir(), 'communication-home-'));
 process.env.OCTOCODE_HOME = octocodeHome;
 process.on('exit', () => rmSync(octocodeHome, { recursive: true, force: true }));
+/** The active-database registry under the private home (docs/DB.md#active-database-registry). */
+export const registryDirectory = join(octocodeHome, 'agents-communication', 'active-databases');
+export const registryEntries = () => existsSync(registryDirectory) ? readdirSync(registryDirectory).filter(name => name.endsWith('.json')).map(name => JSON.parse(readFileSync(join(registryDirectory, name), 'utf8'))) : [];
+export const resetRegistry = () => rmSync(registryDirectory, { recursive: true, force: true });
 
 /** The one row a statement must return: `get()` yields undefined when nothing matches. */
 export function only<Value extends object>(row: Value | undefined): Value {
@@ -161,13 +165,19 @@ export function boundSession(controller: PiInboxController): string {
   return session;
 }
 
-/** Polls `check` every `interval` ms until it returns truthy; fails with `message` after `timeout` ms. */
-export async function waitFor<Value>(check: () => Value | Promise<Value>, {timeout = 10000, interval = 20, message = 'Condition not reached'}: { timeout?: number; interval?: number; message?: string } = {}): Promise<Awaited<Value>> {
-  const end = Date.now() + timeout;
+/** True where the tests can use POSIX process groups, signals and Unix sockets. */
+export const posix = process.platform !== 'win32';
+
+/**
+ * Polls `check` every `interval` ms until it returns truthy; fails with `message` after `timeout` ms. The bound is
+ * monotonic, so a host that sleeps mid-test does not turn into a spurious timeout.
+ */
+export async function waitFor<Value>(check: () => Value | Promise<Value>, {timeout = 10000, interval = 20, message = 'Condition not reached'}: { timeout?: number; interval?: number; message?: string | (() => string) } = {}): Promise<Awaited<Value>> {
+  const end = performance.now() + timeout;
   for (;;) {
     const value = await check();
     if (value) return value;
-    if (Date.now() >= end) throw new Error(`${message} within ${timeout} ms`);
+    if (performance.now() >= end) throw new Error(`${typeof message === 'function' ? message() : message} within ${timeout} ms`);
     await new Promise(resolve => setTimeout(resolve, interval));
   }
 }
@@ -200,3 +210,11 @@ export const reasoningCommands = ['send_message', 'notify_all', 'lock', 'lock_ma
 export const withReasoning = (command: string, input: Record<string, unknown>): Record<string, unknown> => reasoningCommands.includes(command)
   ? { reasoning: `Verify ${command} behavior in this isolated regression fixture`, ...input }
   : input;
+
+/** Valid slot payloads for the message kinds, shared by the store and CLI protocol tests. */
+export const task = (extra = {}) => ({ objective: 'Review storage', output: 'Findings', done: 'Given v7, when migrated, then tests pass', ...extra });
+export const decision = (extra = {}) => ({ question: 'Which store?', options: ['sqlite', 'postgres'], recommendation: 'sqlite', default: 'sqlite', ...extra });
+export const restate = (request: number) => ({ request, objective: 'Review storage', done: 'tests pass' });
+export const sbar = { situation: 'CI red', background: 'main', assessment: 'flaky', recommendation: 'rerun' };
+export const issue = { what: 'crash', where: 'a.ts:3', when: 'on save', who: 'unknown', why: 'unknown', how: 'save twice', howMuch: 'every save' };
+export const answer = (message: number, conclusion = 'Done', extra: Record<string, unknown> = {}) => ({ message, outcome: 'done', reply: { conclusion }, ...extra });

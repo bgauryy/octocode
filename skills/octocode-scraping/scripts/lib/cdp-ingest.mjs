@@ -20,8 +20,24 @@ import { fail } from './fail.mjs';
 const ingestId = (kind, text) => `cdp-${kind}-${createHash('sha256').update(text).digest('hex').slice(0, 12)}`;
 
 /** Ingests a HAR file; returns its redaction counts and the number of rows that passed the filter. */
+// Redacts the HAR in place unless noRedact; returns the counts either way.
+function redactHar(har, noRedact, stripBodies) {
+  if (noRedact) return { headerRowsTouched: 0, cookiesRedacted: 0, entries: (har.log?.entries || []).length };
+  const meta = redactHarObject(har, { stripBodies });
+  return {
+    headerRowsTouched: meta.headerRowsTouched,
+    cookiesRedacted: meta.cookiesRedacted,
+    entries: (meta.entries || []).length,
+  };
+}
+
+const harCounts = (allRows) => ({
+  failures: allRows.filter((r) => r.failed).length,
+  api: allRows.filter((r) => r.looksApi || r.looksJson).length,
+  hosts: new Set(allRows.map((r) => r.host).filter(Boolean)).size,
+});
+
 export async function ingestHar(harPath, { sessionDir, ingestedAt, noRedact, existingSources, filter, minMs, domain, stripBodies }, { cdpFiles, networkRows, sourceRows }) {
-  let redactMeta = { headerRowsTouched: 0, cookiesRedacted: 0, entries: 0 };
   const absHar = resolve(harPath);
   if (!existsSync(absHar)) {
     fail('notFound', `HAR not found: ${absHar}`, 1);
@@ -29,16 +45,7 @@ export async function ingestHar(harPath, { sessionDir, ingestedAt, noRedact, exi
   const harText = await readFile(absHar, 'utf8');
   const har = JSON.parse(harText);
   const harId = ingestId('har', harText);
-  if (!noRedact) {
-    const meta = redactHarObject(har, { stripBodies });
-    redactMeta = {
-      headerRowsTouched: meta.headerRowsTouched,
-      cookiesRedacted: meta.cookiesRedacted,
-      entries: (meta.entries || []).length,
-    };
-  } else {
-    redactMeta.entries = (har.log?.entries || []).length;
-  }
+  const redactMeta = redactHar(har, noRedact, stripBodies);
 
   const allRows = (har.log?.entries || []).map(compactHarEntry);
   const rows = filterHarRows(allRows, filter, { minMs, domain });
@@ -56,11 +63,7 @@ export async function ingestHar(harPath, { sessionDir, ingestedAt, noRedact, exi
     domain: domain || null,
     allEntries: allRows.length,
     filteredEntries: rows.length,
-    counts: {
-      failures: allRows.filter((r) => r.failed).length,
-      api: allRows.filter((r) => r.looksApi || r.looksJson).length,
-      hosts: [...new Set(allRows.map((r) => r.host).filter(Boolean))].length,
-    },
+    counts: harCounts(allRows),
     rows,
   }, null, 2)}\n`);
   cdpFiles.push(compactRel);
@@ -136,7 +139,7 @@ export async function ingestBodies(bodiesPath, { sessionDir, ingestedAt, noRedac
       url: item.url,
       bodyFile: item.bodyFileRel,
       chars: item.bodyText.length,
-      looksJson: /^\s*[\[{]/.test(item.bodyText),
+      looksJson: /^\s*[[{]/.test(item.bodyText),
       sample: item.bodyText.slice(0, 240),
     });
   }
@@ -170,6 +173,37 @@ export async function ingestBodies(bodiesPath, { sessionDir, ingestedAt, noRedac
   });
 }
 
+function redactCapture(original, noRedact) {
+  if (noRedact) return original;
+  const data = redactSecretsInJson(original);
+  if (typeof data.location === 'string') data.location = redactUrl(data.location);
+  if (typeof data.url === 'string') data.url = redactUrl(data.url);
+  return data;
+}
+
+const snapshotRow = (data, base, { file, fallbackUrl }) => ({
+  kind: 'cdp-page-snapshot',
+  ...base,
+  url: data.url || fallbackUrl,
+  refCount: Object.keys(data.refs || {}).length,
+  refs: Object.entries(data.refs || {}).slice(0, 60).map(([ref, value]) => ({ ref, role: value.role || null, name: value.name || null })),
+  evidence: { file },
+});
+
+const domCheckRow = (data, base, { file, fallbackUrl }) => ({
+  kind: 'cdp-dom-check',
+  ...base,
+  url: data.location || fallbackUrl,
+  found: Boolean(data.found),
+  action: data.action || null,
+  operation: data.operation || null,
+  role: data.role || null,
+  name: data.accessibleNameGuess || data.text || null,
+  canOperate: data.canOperate ?? null,
+  recoveredFromStaleRef: Boolean(data.recoveredFromStaleRef),
+  evidence: { file },
+});
+
 /** Ingests one page-snapshot.json or dom-check.json capture. */
 export async function ingestCapture(capturePath, { sessionDir, ingestedAt, noRedact, existingSources }, { cdpFiles, captureRows, sourceRows }) {
   const absCapture = resolve(capturePath);
@@ -177,35 +211,12 @@ export async function ingestCapture(capturePath, { sessionDir, ingestedAt, noRed
   const captureText = await readFile(absCapture, 'utf8');
   const original = JSON.parse(captureText);
   const captureId = ingestId('capture', captureText);
-  const data = noRedact ? original : redactSecretsInJson(original);
-  if (!noRedact && typeof data.location === 'string') data.location = redactUrl(data.location);
-  if (!noRedact && typeof data.url === 'string') data.url = redactUrl(data.url);
+  const data = redactCapture(original, noRedact);
   const outRel = `cdp/${captureId}-${name}`;
   await writeFile(join(sessionDir, outRel), `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
   cdpFiles.push(outRel);
-  const isSnapshot = /^page-snapshot\.json$/i.test(name);
-  const row = isSnapshot ? {
-    kind: 'cdp-page-snapshot',
-    ingestId: captureId,
-    ingestedAt,
-    url: data.url || existingSources[0]?.url || null,
-    refCount: Object.keys(data.refs || {}).length,
-    refs: Object.entries(data.refs || {}).slice(0, 60).map(([ref, value]) => ({ ref, role: value.role || null, name: value.name || null })),
-    evidence: { file: outRel },
-  } : {
-    kind: 'cdp-dom-check',
-    ingestId: captureId,
-    ingestedAt,
-    url: data.location || existingSources[0]?.url || null,
-    found: Boolean(data.found),
-    action: data.action || null,
-    operation: data.operation || null,
-    role: data.role || null,
-    name: data.accessibleNameGuess || data.text || null,
-    canOperate: data.canOperate ?? null,
-    recoveredFromStaleRef: Boolean(data.recoveredFromStaleRef),
-    evidence: { file: outRel },
-  };
+  const toRow = /^page-snapshot\.json$/i.test(name) ? snapshotRow : domCheckRow;
+  const row = toRow(data, { ingestId: captureId, ingestedAt }, { file: outRel, fallbackUrl: existingSources[0]?.url || null });
   captureRows.push(row);
   sourceRows.push({
     pageId: captureId,

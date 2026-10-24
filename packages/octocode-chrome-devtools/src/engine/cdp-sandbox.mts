@@ -7,6 +7,7 @@ import { existsSync, realpathSync, mkdirSync, copyFileSync } from 'fs';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { flagArgs } from './cli-flags.mjs';
 import { octocodeOutputBase } from './engine-io.mjs';
+import { errorMessage } from './error-message.mjs';
 
 function requireNode24() {
   const [major] = process.versions.node.split('.').map(Number);
@@ -70,7 +71,7 @@ const OUTPUT_DIR = (() => {
       mkdirSync(dir, { mode: 0o700 });
       return dir;
     } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+      if (!(e instanceof Error && 'code' in e && e.code === 'EEXIST')) throw e;
     }
   }
 })();
@@ -83,7 +84,7 @@ const SESSION_META_DIR = join(
 );
 mkdirSync(SESSION_META_DIR, { recursive: true, mode: 0o700 });
 
-const safePath = p => {
+const safePath = (p: string) => {
   try {
     return realpathSync(p);
   } catch {
@@ -114,6 +115,8 @@ const HELPERS = [
   'dom-actionability.mjs',
   'ax-snapshot.mjs',
   'frame-events.mjs',
+  // Imported at runtime by the staged helpers above.
+  'error-message.mjs',
 ];
 for (const helper of HELPERS) {
   const src = resolve(__dir, helper);
@@ -123,7 +126,7 @@ for (const helper of HELPERS) {
       copyFileSync(src, dst);
     } catch (e) {
       console.error(
-        `[CDP_SANDBOX] Warning: could not copy ${helper}: ${e.message}`
+        `[CDP_SANDBOX] Warning: could not copy ${helper}: ${errorMessage(e)}`
       );
     }
   }
@@ -163,6 +166,7 @@ const readPaths = [
       'chrome-contract.mjs',
       'cli-flags.mjs',
       'engine-io.mjs',
+      'error-message.mjs',
       // The runner's own modules, and the page-owner lookup it shares with browser plans.
       'cdp-runner-guard.mjs',
       'cdp-runner-session.mjs',

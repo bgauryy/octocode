@@ -72,7 +72,7 @@ async fn gh_clone_repo_classifies_a_missing_repository_before_git() {
     // The missing repository leads to a search for it (a failed row keeps
     // its recovery lead).
     assert_eq!(
-        crate::support::checks::hint(data, "findRepository")["tool"],
+        crate::support::checks::related_call(data, "ghSearchRepo", |_| true)["tool"],
         "ghSearchRepo",
         "{data}"
     );
@@ -157,19 +157,26 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "notFound", "{data}");
     assert_eq!(
-        crate::support::checks::hint(data, "read")["query"]["queries"][0]["path"],
+        crate::support::checks::related_call(data, "ghGetFileContent", |_| true)["input"]["queries"]
+            [0]["path"],
         "tokio/src/lib.rs",
         "{data}"
     );
     // Recovery leads pin the commit the read resolved, not the movable ref.
     assert_eq!(
-        crate::support::checks::hint(data, "read")["query"]["queries"][0]["ref"],
+        crate::support::checks::related_call(data, "ghGetFileContent", |_| true)["input"]["queries"]
+            [0]["ref"],
         sha,
         "{data}"
     );
     // The case-fixed read is the one repair; no listing beside it.
     assert!(
-        crate::support::checks::hint(data, "viewTree").is_null(),
+        !data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "ghStructure"
+                && (call["input"]["queries"][0]["operation"] != "refs")),
         "{data}"
     );
     let outcome = call(&runtime, "ghGetFileContent", read("tokio/src/nope.rs"))
@@ -177,19 +184,31 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
         .expect("error row");
     let data = row_data(&outcome);
     assert!(
-        crate::support::checks::hint(data, "read").is_null(),
+        !data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "ghGetFileContent" && (true)),
         "{data}"
     );
     assert_eq!(
-        crate::support::checks::hint(data, "viewTree")["query"]["queries"][0]["path"],
+        crate::support::checks::related_call(
+            data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] != "refs"
+        )["input"]["queries"][0]["path"],
         "tokio/src",
         "{data}"
     );
     // A hint is not proof, so no continuation carries confidence:"exact".
     assert!(
-        crate::support::checks::hint(data, "viewTree")
-            .get("confidence")
-            .is_none(),
+        crate::support::checks::related_call(
+            data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] != "refs"
+        )
+        .get("confidence")
+        .is_none(),
         "{data}"
     );
     runtime.close().await;
@@ -237,7 +256,8 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let tree = |dir: &str| json!({"owner":"a","repo":"b","path":dir,"ref":"main"});
+    let tree =
+        |dir: &str| json!({"operation":"tree","owner":"a","repo":"b","path":dir,"ref":"main"});
     for (requested, nearest) in [
         ("src/nope", "src"),
         ("src/tools", "src/Tools"),
@@ -255,26 +275,34 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
         let data = row_data(&outcome);
         assert_eq!(data["errorCode"], "notFound", "{data}");
         assert_eq!(
-            crate::support::checks::hint(data, "viewTree")["tool"],
+            crate::support::checks::related_call(data, "ghStructure", |input| input["queries"][0]
+                ["operation"]
+                != "refs")["tool"],
             "ghStructure",
             "{data}"
         );
         assert_eq!(
-            crate::support::checks::hint(data, "viewTree")["query"]["queries"][0]["path"],
+            crate::support::checks::related_call(data, "ghStructure", |input| input["queries"][0]
+                ["operation"]
+                != "refs")["input"]["queries"][0]["path"],
             nearest,
             "{data}"
         );
         // Recovery leads pin the commit the listing resolved.
         assert_eq!(
-            crate::support::checks::hint(data, "viewTree")["query"]["queries"][0]["ref"],
+            crate::support::checks::related_call(data, "ghStructure", |input| input["queries"][0]
+                ["operation"]
+                != "refs")["input"]["queries"][0]["ref"],
             sha,
             "{data}"
         );
         // A hint is not proof, so no continuation carries confidence:"exact".
         assert!(
-            crate::support::checks::hint(data, "viewTree")
-                .get("confidence")
-                .is_none(),
+            crate::support::checks::related_call(data, "ghStructure", |input| input["queries"][0]
+                ["operation"]
+                != "refs")
+            .get("confidence")
+            .is_none(),
             "{data}"
         );
         assert!(
@@ -309,7 +337,7 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"ghost","repo":"nope","path":"README.md","extras":[]}),
+        json!({"owner":"ghost","repo":"nope","path":"README.md"}),
     )
     .await
     .expect("error row");
@@ -321,22 +349,24 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
         "{data}"
     );
     assert!(
-        crate::support::checks::hint(data, "viewTree").is_null(),
+        !data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "ghStructure"
+                && (call["input"]["queries"][0]["operation"] != "refs")),
         "{data}"
     );
     // As on ghSearchCode and ghStructure, the one repair is a search for
     // the repository's name, which names the owner that holds it.
-    let find = &crate::support::checks::hint(data, "findRepository");
+    let find = &crate::support::checks::related_call(data, "ghSearchRepo", |_| true);
     assert_eq!(find["tool"], "ghSearchRepo", "{data}");
     assert_eq!(
-        find["query"]["queries"][0]["keywords"],
+        find["input"]["queries"][0]["keywords"],
         json!(["nope"]),
         "{data}"
     );
-    assert!(
-        crate::support::checks::hint(data, "text").is_null(),
-        "{data}"
-    );
+    assert!(data.get("hints").is_none(), "{data}");
     checks::assert_absent(data, "exact case");
     checks::assert_absent(data, "commits#get-a-commit");
     runtime.close().await;
@@ -349,9 +379,13 @@ async fn gh_search_repo_missing_owner_is_named() {
     let server = MockServer::builder().start().await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let outcome = call(&runtime, "ghSearchRepo", json!({"owner":"ghost-login"}))
-        .await
-        .expect("error row");
+    let outcome = call(
+        &runtime,
+        "ghSearchRepo",
+        json!({"operation":"list","owner":"ghost-login"}),
+    )
+    .await
+    .expect("error row");
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "notFound", "{data}");
     assert!(

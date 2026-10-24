@@ -3,20 +3,10 @@
 //! utilities.
 //!
 //! The runtime and CLI crates consume it as a plain Rust library.
-// Test-compiled code may assert with unwrap/expect/panic. A crate attribute,
-// not clippy.toml's `allow-*-in-tests`: clippy does not treat modules mounted
-// under `cfg(all(test, unix))` as test code.
-#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
-// The workspace lint floor applies (Cargo.toml `[lints] workspace = true`). A
-// library adds to it: output goes through its callers, never to stdout/stderr,
-// plus style lints that would be noise in the host crates.
+// The workspace lint floor applies (Cargo.toml `[lints] workspace = true`).
+// This library adds one rule the CLI host cannot share: output goes through
+// its callers, never to stdout/stderr.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
-#![warn(
-    clippy::use_self,
-    clippy::cloned_instead_of_copied,
-    clippy::redundant_closure_for_method_calls,
-    clippy::semicolon_if_nothing_returned
-)]
 
 pub(crate) mod deep_stack;
 pub mod digest;

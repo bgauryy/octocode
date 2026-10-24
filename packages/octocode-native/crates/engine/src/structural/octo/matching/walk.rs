@@ -9,7 +9,7 @@ use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, ParseFailure, parse_wi
 use crate::structural::octo::macro_bodies::{MAX_MACRO_DEPTH, MacroBodies};
 
 use crate::structural::octo::line_index_support::to_structural_match_with_index;
-use crate::text::utf8_offsets::LineIndex;
+use crate::text::LineIndex;
 
 use super::{ExecutionError, Found, PARSE_INTERRUPTED};
 

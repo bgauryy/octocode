@@ -6,10 +6,11 @@ use super::remaining::BodyWindows;
 use super::text::{body_matches, delivered_earlier, needle, shape_comment, window_body};
 use super::util::{array, str_at, string};
 use super::window::{WindowState, paginate_window};
-use super::{HistoryItemRequest, Section, fetch};
+use super::{HistoryItemRequest, fetch};
 use crate::id::ToolId;
 use crate::response::result::remove_nulls;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::commit;
 use crate::tools::gh_shared::dates::utc_value;
 use futures_util::{StreamExt as _, TryStreamExt as _};
@@ -80,9 +81,9 @@ fn comment_code_reads(query: &HistoryItemRequest, comments: &[Value]) -> Vec<Val
         .map(|spans| {
             let ranges = spans
                 .iter()
-                .map(|(start, end)| format!("{start}-{end}"))
+                .map(|(start, end)| json!({"startLine":start,"endLine":end}))
                 .collect::<Vec<_>>();
-            crate::response::result::Continuation::new(
+            crate::response::result::Continuation::related(
                 ToolId::GhGetFileContent,
                 json!({
                     "owner": gh_get_history_item_query::owner(query),
@@ -165,6 +166,7 @@ pub(super) fn shape_pr_comments(
         CommentSection::ReviewInline => comment_code_reads(query, &shaped),
         CommentSection::Discussion => Vec::new(),
     };
+    super::util::humans_first(&mut shaped);
     if !shaped.is_empty() {
         row[section.key()] = Value::Array(shaped);
     }
@@ -309,7 +311,7 @@ pub(super) async fn shape_pr_commits(
 /// The next changed-file page of one PR commit: the commit read of its
 /// paths at `page`.
 fn commit_files_page(query: &HistoryItemRequest, sha: &str, page: u64, page_size: usize) -> Value {
-    crate::response::result::Continuation::new(
+    crate::response::result::Continuation::continued(
         ToolId::GhGetHistoryItem,
         json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"ref":sha,
             "sections":["files"],"page":page,"pageSize":page_size}),

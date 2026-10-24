@@ -6,19 +6,16 @@ use super::types::*;
 use super::{no_match::*, outline::*, prepare::*};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadView};
 
 mod classified;
-mod fit;
 mod page;
 mod warnings;
 
 use classified::{SelectionInput, refused_selection_input, select_no_match, select_view_chunks};
-use fit::{FIT_STEPS, keep_asked_page, lines_fitting, page_chars, shorter_page};
-use page::{CutPage, cut_page, page_result};
+use page::{cut_page, page_result};
 
 pub(crate) use classified::unsupported_selection;
-pub(crate) use fit::fitted_lines;
 
 /// Shared post-acquisition content processing. Performs no filesystem access;
 /// callers own source authorization, binary/transport limits and provenance.
@@ -108,7 +105,11 @@ pub(crate) fn process_fetched_content_selected(
         Err(result) => return *result,
     };
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(q.path.to_string(), ErrorCode::Cancelled, e);
+        return LocalFetchResult::error(
+            local_fetch_query::path(q).to_owned(),
+            ErrorCode::Cancelled,
+            e,
+        );
     }
     // The row's share of the response window, which the whole row (and
     // what the caller adds beside it) fits; a tiny window still keeps half
@@ -121,7 +122,6 @@ pub(crate) fn process_fetched_content_selected(
         ..facts.clone()
     };
     let facts = &own;
-    let share = facts.window;
     // A classified page's plan token, receipt and unfiltered leads ride the
     // same row: the text window leaves room for them.
     let classified_facts;
@@ -143,78 +143,31 @@ pub(crate) fn process_fetched_content_selected(
         Err(result) => return *result,
     };
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(cut.q.path.to_string(), ErrorCode::Cancelled, e);
+        return LocalFetchResult::error(
+            local_fetch_query::path(&cut.q).to_owned(),
+            ErrorCode::Cancelled,
+            e,
+        );
     }
-    let paged = |cut: CutPage<'_>| {
-        page_result(
-            cut,
-            &source,
-            &ext,
-            &view,
-            selection_outcome.as_ref(),
-            source_path,
-            facts,
-        )
-    };
-    let page = paged(cut);
-    // A page over the row's share is cut again from the view already read:
-    // a shorter line page, whose leads page on at the caller's size.
-    let (Some(share), Some(lines)) = (share, share.and_then(|share| fitted_lines(&page, q, share)))
-    else {
-        return page;
-    };
-    let cut_lines = |lines: usize| {
-        let shorter = shorter_page(q, lines);
-        let mut cut =
-            cut_page(&shorter, &view, &ext, &source, facts, source_path, security).ok()?;
-        cut.read = q;
-        let mut fitted = paged(cut);
-        if fitted.status != ReadStatus::Success {
-            return None;
-        }
-        keep_asked_page(&mut fitted, q);
-        Some(fitted)
-    };
-    let Some(mut fitted) = cut_lines(lines) else {
-        return page;
-    };
-    // The long page's coordinates (its line ranges, hits and leads) priced
-    // that cut; the shorter page has fewer, so it grows while it fits.
-    let page_lines = page
-        .content
-        .as_deref()
-        .map_or(0, |text| text.lines().count());
-    let (mut fits, mut over) = (lines, page_lines);
-    for _ in 0..FIT_STEPS {
-        let estimate = lines_fitting(&page, &fitted, q, share);
-        let next = if estimate < over {
-            estimate
-        } else {
-            fits + (over - fits) / 2
-        };
-        if next <= fits {
-            break;
-        }
-        let Some(grown) = cut_lines(next) else {
-            break;
-        };
-        if page_chars(&grown, q) <= share {
-            (fits, fitted) = (next, grown);
-        } else {
-            over = next;
-        }
-    }
-    fitted
+    page_result(
+        cut,
+        &source,
+        &ext,
+        &view,
+        selection_outcome.as_ref(),
+        source_path,
+        facts,
+    )
 }
 
 /// The selected text in the view it is returned in (`mode` `None`: as is).
 struct View {
     text: String,
-    mode: Option<MinifyMode>,
-    fallback: Option<MinifyFallback>,
+    mode: Option<ReadView>,
+    fallback: Option<ViewFallback>,
 }
 
-/// Apply the requested `minify` view to the extracted text. A match read
+/// Apply the requested `view` to the extracted text. A match read
 /// stays verbatim evidence; an outline the file type cannot give falls
 /// back to the standard view.
 fn select_view(
@@ -224,13 +177,13 @@ fn select_view(
     source_path: &std::path::Path,
     security: &impl ContentScan,
 ) -> View {
-    let requested = local_fetch_query::minify_mode(q);
+    let requested = local_fetch_query::view(q);
     let selected = std::mem::take(&mut ext.text);
     // matchString reads are verbatim source; the tool description says so,
     // so the row carries no fallback notice. Byte windows address the
     // selected view (a numbered walk pages an oversized line by view bytes),
     // so they take no view of their own here.
-    if q.match_string.is_some() {
+    if local_fetch_query::has_matches(q) {
         return View {
             text: selected,
             mode: None,
@@ -241,8 +194,10 @@ fn select_view(
     // view numbers each kept line with its source line, the outline uses the
     // same separator in every language.
     let standard_view = |selected: &str| {
-        let view =
-            octocode_engine::minify::apply::apply_content_view_minification(selected, &q.path);
+        let view = octocode_engine::minify::apply::apply_content_view_minification(
+            selected,
+            local_fetch_query::path(q),
+        );
         let lines = ext.source_lines.as_deref();
         // A compaction that joins lines would cite them wrong: keep lines whole.
         crate::response::numbered::number_view(selected, lines, &view)
@@ -254,13 +209,13 @@ fn select_view(
         fallback: None,
     };
     match requested {
-        None => view(selected, None),
-        Some(MinifyMode::Standard) => view(standard_view(&selected), Some(MinifyMode::Standard)),
-        Some(MinifyMode::Symbols) => {
+        ReadView::Content => view(selected, None),
+        ReadView::Compact => view(standard_view(&selected), Some(ReadView::Compact)),
+        ReadView::Symbols => {
             match symbols_view(
                 crate::tools::declarations_cache::symbols_store(),
                 &selected,
-                &q.path,
+                local_fetch_query::path(q),
                 source_path,
                 security,
             )
@@ -279,18 +234,18 @@ fn select_view(
                     // The outline shows the placeholders its render put in: the
                     // page counts them as source-wide redactions.
                     add_redacted_lines(source_redactions, redacted_lines);
-                    view(outline.clone(), Some(MinifyMode::Symbols))
+                    view(outline.clone(), Some(ReadView::Symbols))
                 }
-                // `minifyFallback` is the typed notice of the applied view.
+                // `viewFallback` is the typed notice of the applied view.
                 crate::tools::declarations_cache::SymbolsView {
                     outline: Err(reason),
                     ..
                 } => View {
                     text: standard_view(&selected),
-                    mode: Some(MinifyMode::Standard),
-                    fallback: Some(MinifyFallback {
-                        requested: MinifyMode::Symbols,
-                        applied: MinifyMode::Standard,
+                    mode: Some(ReadView::Compact),
+                    fallback: Some(ViewFallback {
+                        requested: ReadView::Symbols,
+                        applied: ReadView::Compact,
                         reason: reason.as_str().into(),
                     }),
                 },
@@ -305,30 +260,22 @@ fn select_view(
 /// states the condition; no warning restates it.
 pub(crate) fn past_end(q: &LocalFetchQuery) -> NextCalls {
     let mut query = q.clone();
-    query.offset = Some(0);
+    local_fetch_query::set_progress(&mut query, None);
     NextCalls {
-        restart: Some(FetchCall { query }),
+        restart: Some(FetchCall::related(query)),
         ..NextCalls::default()
     }
 }
 
 /// Same file and caller metadata, every extraction selector reset to one raw line.
-pub(super) fn single_line_query(q: &LocalFetchQuery, line: usize) -> LocalFetchQuery {
-    let mut query = LocalFetchQuery {
-        minify: None,
-        full_content: None,
-        match_string: None,
-        regex: None,
-        case_mode: None,
-        whole_word: None,
-        context_lines: None,
-        unit: None,
-        offset: None,
-        length: None,
-        ..q.clone()
-    };
-    local_fetch_query::set_line_span(&mut query, line, line);
-    query
+pub(super) fn single_line_query(q: &LocalFetchQuery, line: usize) -> Option<LocalFetchQuery> {
+    line_read(
+        q,
+        &[LineRange {
+            start: line,
+            end: line,
+        }],
+    )
 }
 
 /// The continued source changed since its page was cut. Pages of two file
@@ -338,7 +285,7 @@ pub(super) fn single_line_query(q: &LocalFetchQuery, line: usize) -> LocalFetchQ
 /// without its cursors, so a streamed range read restarts every range.
 pub(crate) fn stale_snapshot(q: &LocalFetchQuery) -> LocalFetchResult {
     LocalFetchResult::error(
-        q.path.to_string(),
+        local_fetch_query::path(q).to_owned(),
         ErrorCode::StaleSnapshot,
         crate::response::result::STALE_SNAPSHOT_ERROR.into(),
     )

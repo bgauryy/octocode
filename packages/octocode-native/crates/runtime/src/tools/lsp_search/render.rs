@@ -4,11 +4,9 @@
 //! pagination, and URI/path coercion. All functions are pure over
 //! `serde_json::Value`; no request state, path policy, or client lives here.
 
-use octocode_engine::lsp::uri::uri_to_path as engine_uri_to_path;
+use octocode_engine::lsp::symbol_kind;
 use serde_json::{Value, json};
 
-use super::lsp_search_query;
-use crate::id::ToolId;
 use crate::response::page_windows::{Paging, select};
 
 /// One flattened document symbol: `name`, `kind`, one-based `line` (the
@@ -107,7 +105,7 @@ pub(super) fn name_type_aliases(symbols: &mut Value, content: &str) {
             return;
         };
         for symbol in items {
-            if symbol["kind"].as_u64() == Some(13)
+            if symbol["kind"].as_u64() == Some(u64::from(symbol_kind::VARIABLE))
                 && let Some(name) = symbol["name"].as_str()
                 && let Some(line) = symbol
                     .pointer("/selectionRange/start/line")
@@ -150,15 +148,12 @@ pub(super) fn symbol_kind_name(kind: Option<&Value>) -> String {
         return kind.to_owned();
     }
     kind.and_then(Value::as_u64)
-        .and_then(octocode_engine::lsp::symbol_kind::name)
+        .and_then(symbol_kind::name)
         .unwrap_or("unknown")
         .to_owned()
 }
 
-/// How one page is cut: `paging` (the caller's explicit `pageSize` row
-/// count, else as many rows as fit the character budget), each row costing
-/// its `sizes` entry. `snapshot` is the result set's digest, which every
-/// page of the walk carries.
+/// Evidence rows cut by the character budget, pinned to one result digest.
 pub(super) struct Pages<'a> {
     pub(super) paging: Paging,
     pub(super) sizes: &'a [usize],
@@ -166,21 +161,10 @@ pub(super) struct Pages<'a> {
 }
 
 impl<'a> Pages<'a> {
-    /// The cut `query` asks for: its `pageSize` (clamped to the contract
-    /// bound), else `budget` characters a page.
-    pub(super) fn of(
-        query: &super::LspSearchQuery,
-        budget: usize,
-        sizes: &'a [usize],
-        snapshot: &'a str,
-    ) -> Self {
-        let count = crate::response::paging::page_size(
-            ToolId::LspSearch,
-            None,
-            lsp_search_query::page_size(query),
-        );
+    /// Fit complete rows within the character budget.
+    pub(super) fn of(budget: usize, sizes: &'a [usize], snapshot: &'a str) -> Self {
         Self {
-            paging: Paging::of(count, budget),
+            paging: Paging::of(None, budget),
             sizes,
             snapshot,
         }
@@ -254,7 +238,7 @@ pub(super) fn into_items(value: Value) -> Vec<Value> {
 
 pub(super) fn decode_uri_path(uri: &str) -> Result<String, String> {
     if uri.starts_with("file:") {
-        engine_uri_to_path(uri).map_err(|error| error.to_string())
+        octocode_engine::lsp::uri::uri_to_path(uri).map_err(|error| error.to_string())
     } else {
         Ok(uri.to_owned())
     }

@@ -13,7 +13,7 @@ pub(super) struct Scope {
     /// The grammar observed when the discovery window holds only one.
     pub(super) inferred: Option<String>,
     pub(super) extensions: Option<std::collections::BTreeSet<String>>,
-    /// `languageGlobs`: the parser of files whose names select none.
+    /// `parserGlobs`: the parser of files whose names select none.
     pub(super) parsers: GlobParsers,
 }
 
@@ -69,7 +69,7 @@ pub(super) struct Scan {
     pub(super) withheld: crate::policy::discovery::Withheld,
     /// Files the walk passed over because no grammar parses their names.
     pub(super) unparsed: NamedFiles,
-    /// Without `language`: the files the walk admitted, by parser extension
+    /// Without `parser`: the files the walk admitted, by parser extension
     /// (the census the scope's grammar is inferred from).
     pub(super) census: std::collections::BTreeMap<String, usize>,
     /// The scopes a scan cut at the walk ceiling never read.
@@ -126,10 +126,10 @@ pub(super) fn unparsed_notice(files: &NamedFiles) -> Option<String> {
     match files.count {
         0 => None,
         1 => Some(format!(
-            "1 file skipped: no AST grammar for its name ({names}); if it is source code, languageGlobs maps its name to a grammar."
+            "1 file skipped: no AST grammar for its name ({names}); if it is source code, parserGlobs maps its name to a grammar."
         )),
         count => Some(format!(
-            "{count} files skipped: no AST grammar for their names ({names}); if they are source code, languageGlobs maps their names to a grammar."
+            "{count} files skipped: no AST grammar for their names ({names}); if they are source code, parserGlobs maps their names to a grammar."
         )),
     }
 }
@@ -159,7 +159,6 @@ pub(super) struct Group {
     pub(super) more_matches: bool,
     pub(super) truncated_captures: bool,
     /// The longest value this match page shortened, in characters.
-    pub(super) cut_chars: Option<usize>,
     /// Line spans of this match page's rows whose shown text was cut.
     pub(super) clipped: Vec<(u64, u64)>,
     /// A priced file whose rows are not built yet: its index in the scan's
@@ -184,8 +183,6 @@ pub(super) struct Grouped {
     pub(super) groups: Vec<Group>,
     /// The first file that parsed (its row path).
     pub(super) first_parsed: Option<String>,
-    /// The first file the scan read, parsed or skipped by the prefilter.
-    pub(super) first_scanned: Option<String>,
     pub(super) diagnostics: Vec<Value>,
     pub(super) total_matches: u64,
     pub(super) parsed_files: u32,
@@ -196,8 +193,8 @@ pub(super) struct Grouped {
     pub(super) unevaluated_files: u32,
     /// Files skipped unread: no grammar, unreadable, over the parse limit.
     pub(super) skipped_files: u32,
-    /// The warning naming the grammars the query does not apply to.
-    pub(super) inapplicable_notice: Option<String>,
+    /// Files per grammar the query does not compile in.
+    pub(super) skipped_grammars: Option<Value>,
     /// Files whose recovered parse could hide a match.
     pub(super) recovered: NamedFiles,
 }

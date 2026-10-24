@@ -1,7 +1,6 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Permission } from '../src/permission/ask.js';
 import { NEEDS_APPROVAL } from '../src/permission/dialog.js';
 import { runSubagent } from '../src/subagents/process.js';
@@ -9,28 +8,11 @@ import { doneSummary } from '../src/subagents/render.js';
 import { registerAgentTool } from '../src/subagents/tool.js';
 import { Team } from '../src/team/session.js';
 import { fakeCtx, fakePermission, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { git, tmp } from './helpers.js';
+import { useScriptedPi } from './subagent-tool-harness.js';
 
-const FIXTURE = path.join(path.dirname(new URL(import.meta.url).pathname), 'subagent-fake-pi.cjs');
-const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
-const savedArgv = process.argv[1];
-const savedEnv = { ...process.env };
 
-beforeAll(() => {
-  const root = tmp('octocode-agent-permission-');
-  for (const key of Object.keys(process.env)) if (key.startsWith('OCTOCODE_')) delete process.env[key];
-  Object.assign(process.env, { OCTOCODE_HOME: path.join(root, 'home'), OCTOCODE_AGENT_DB: path.join(root, 'team.sqlite'), OCTOCODE_FAKE_DENIAL: `${NEEDS_APPROVAL} running a shell command (npm test) needs the user's approval (manual mode) and no one can be asked here.` });
-  // runSubagent re-runs the current `pi` script: point it at the scripted stand-in.
-  const bin = path.join(root, 'bin');
-  fs.mkdirSync(bin);
-  fs.copyFileSync(FIXTURE, path.join(bin, 'pi'));
-  process.argv[1] = path.join(bin, 'pi');
-});
-
-afterAll(() => {
-  process.argv[1] = savedArgv!;
-  process.env = savedEnv;
-});
+useScriptedPi({ OCTOCODE_FAKE_DENIAL: `${NEEDS_APPROVAL} running a shell command (npm test) needs the user's approval (manual mode) and no one can be asked here.` });
 
 describe("a child's refused actions", () => {
   it('are reported to the parent one by one, apart from ordinary tool failures', async () => {

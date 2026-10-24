@@ -9,18 +9,19 @@ fn match_miss_leads_to_directory_search() {
     let p = t.0.join("a.rs");
     fs::write(&p, "fn a() {}\n").expect("fixture");
     let result = fetch(
-        &qj(&p, serde_json::json!({"matchString": "nowhere_here"})),
+        &qj(&p, serde_json::json!({"matchString": ["nowhere_here"]})),
         &Paths(t.0.clone()),
     );
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
     let search = &next["findText"];
     assert_eq!(search["tool"], "localSearch", "{next}");
     assert_eq!(
-        search["query"]["queries"][0]["matchString"], "nowhere_here",
+        search["input"]["queries"][0]["matchString"],
+        serde_json::json!(["nowhere_here"]),
         "{next}"
     );
     assert_eq!(
-        search["query"]["queries"][0]["path"],
+        search["input"]["queries"][0]["path"],
         t.0.to_string_lossy().as_ref(),
         "{next}"
     );
@@ -37,7 +38,7 @@ fn a_ranged_miss_with_hits_elsewhere_leads_to_the_unranged_read() {
     let result = fetch(
         &qj(
             &p,
-            serde_json::json!({"matchString": "needle", "ranges": ["1-2"]}),
+            serde_json::json!({"matchString": ["needle"], "ranges":[{"startLine":1,"endLine":2}]}),
         ),
         &Paths(t.0.clone()),
     );
@@ -50,11 +51,12 @@ fn a_ranged_miss_with_hits_elsewhere_leads_to_the_unranged_read() {
     let read = &next["read"];
     assert_eq!(read["tool"], "localFetch", "{next}");
     assert_eq!(
-        read["query"]["queries"][0]["matchString"], "needle",
+        read["input"]["queries"][0]["matchString"],
+        serde_json::json!(["needle"]),
         "{next}"
     );
     assert!(
-        read["query"]["queries"][0].get("ranges").is_none(),
+        read["input"]["queries"][0].get("ranges").is_none(),
         "{next}"
     );
     assert!(next.get("findText").is_none(), "{next}");
@@ -72,8 +74,8 @@ fn a_match_miss_lead_keeps_the_reads_dialect_case_and_whole_word() {
         &qj(
             &p,
             serde_json::json!({
-                "matchString": "(?<=x)nowhere",
-                "regex": "pcre2",
+                "matchString": ["(?<=x)nowhere"],
+                "regexEngine": "pcre2",
                 "caseMode": "insensitive",
                 "wholeWord": true
             }),
@@ -81,17 +83,21 @@ fn a_match_miss_lead_keeps_the_reads_dialect_case_and_whole_word() {
         &Paths(t.0.clone()),
     );
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let row = &next["findText"]["query"]["queries"][0];
-    assert_eq!(row["matchString"], "(?<=x)nowhere", "{next}");
-    assert_eq!(row["regex"], "pcre2", "{next}");
+    let row = &next["findText"]["input"]["queries"][0];
+    assert_eq!(
+        row["matchString"],
+        serde_json::json!(["(?<=x)nowhere"]),
+        "{next}"
+    );
+    assert_eq!(row["regexEngine"], "pcre2", "{next}");
     assert_eq!(row["caseMode"], "insensitive", "{next}");
     assert_eq!(row["wholeWord"], true, "{next}");
 }
 
 /// Several literal patterns that all missed: the lead searches every one of
-/// them, each escaped, so `a.b` does not widen to any character.
+/// them with the same literal and case semantics.
 #[test]
-fn a_match_miss_lead_searches_every_literal_pattern_escaped() {
+fn a_match_miss_lead_preserves_literal_patterns_and_smart_case() {
     let t = Fixture::new();
     let p = t.0.join("a.rs");
     fs::write(&p, "fn a() {}\n").expect("fixture");
@@ -103,13 +109,14 @@ fn a_match_miss_lead_searches_every_literal_pattern_escaped() {
         &Paths(t.0.clone()),
     );
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let row = &next["findText"]["query"]["queries"][0];
+    let row = &next["findText"]["input"]["queries"][0];
     assert_eq!(
-        row["matchString"], "(?i:no\\.where)|(?:Elsewhere)",
+        row["matchString"],
+        serde_json::json!(["no.where", "Elsewhere"]),
         "{next}"
     );
-    assert_eq!(row["regex"], "rust", "{next}");
-    assert_eq!(row["caseMode"], "sensitive", "{next}");
+    assert_eq!(row["regexEngine"], "literal", "{next}");
+    assert_eq!(row["caseMode"], "smart", "{next}");
 }
 
 /// A file with a redaction keeps every miss lead: they count lines of the
@@ -136,56 +143,43 @@ fn a_miss_in_a_redacted_file_keeps_its_leads() {
         );
         serde_json::to_value(row.next.as_ref().expect("next")).expect("json")
     };
-    let next = read(serde_json::json!({"matchString": "executor|nothing"}));
+    let next = read(serde_json::json!({"matchString": ["executor|nothing"]}));
     assert_eq!(
-        next["repair"]["query"]["queries"][0]["matchString"],
-        serde_json::json!(["executor", "nothing"]),
+        next["findText"]["input"]["queries"][0]["matchString"],
+        serde_json::json!(["executor|nothing"]),
         "{next}"
     );
-    let next = read(serde_json::json!({"matchString": "mod other", "caseMode": "sensitive"}));
+    let next = read(serde_json::json!({"matchString": ["mod other"], "caseMode": "sensitive"}));
     assert!(next.get("ignoreCase").is_some(), "{next}");
-    let next = read(serde_json::json!({"matchString": "absent"}));
+    let next = read(serde_json::json!({"matchString": ["absent"]}));
     assert!(next.get("findText").is_some(), "{next}");
 }
 
-/// A literal `|` miss leads to the same read with each part as its own
-/// matchString, not to a search repeating the literal `|`.
 #[test]
-fn a_literal_bar_miss_repairs_to_a_match_list() {
-    let t = Fixture::new();
-    let p = t.0.join("mod.rs");
-    fs::write(&p, "mod executor;\nmod other;\n").expect("fixture");
-    let paths = Paths(t.0.clone());
-    let r = fetch(
-        &qj(&p, serde_json::json!({"matchString": "executor|nothing"})),
-        &paths,
-    );
-    assert_eq!(r.status, ReadStatus::Empty, "{r:?}");
-    let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
-    assert_eq!(
-        next["repair"]["query"]["queries"][0]["matchString"],
-        serde_json::json!(["executor", "nothing"]),
-        "{next}"
-    );
-    assert!(next.get("findText").is_none(), "{next}");
-    let repaired: LocalFetchQuery =
-        serde_json::from_value(next["repair"]["query"]["queries"][0].clone()).expect("query");
-    assert_eq!(fetch(&repaired, &paths).matched_lines, vec![1]);
-    // Parts this file lacks too: the search looks for each part.
-    let r = fetch(
-        &qj(&p, serde_json::json!({"matchString": "absent|gone"})),
-        &paths,
-    );
-    let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
-    assert!(next.get("repair").is_none(), "{next}");
-    let search = &next["findText"]["query"]["queries"][0];
-    assert_eq!(search["regex"], "rust", "{next}");
-    assert!(
-        search["matchString"]
-            .as_str()
-            .is_some_and(|pattern| pattern.contains("absent") && pattern.contains(")|(")),
-        "{next}"
-    );
+fn literal_bars_preserve_the_exact_match_in_related_searches() {
+    let root = Fixture::new();
+    let file = root.0.join("mod.rs");
+    fs::write(&file, "mod executor;\nmod other;\n").expect("source");
+    let paths = Paths(root.0.clone());
+    for pattern in ["executor|nothing", "absent|gone"] {
+        let result = fetch(
+            &qj(&file, serde_json::json!({"matchString":[pattern]})),
+            &paths,
+        );
+        assert_eq!(result.status, ReadStatus::Empty, "{result:?}");
+        let calls = serde_json::to_value(result.next.as_ref().expect("search")).expect("calls");
+        assert!(
+            calls.get("repair").is_none(),
+            "literal syntax must not be reinterpreted: {calls}"
+        );
+        let query = &calls["findText"]["input"]["queries"][0];
+        assert_eq!(
+            query["matchString"],
+            serde_json::json!([pattern]),
+            "{calls}"
+        );
+        assert_eq!(query["regexEngine"], "literal", "{calls}");
+    }
 }
 
 /// A miss that already matched every pattern ignoring case does not run
@@ -201,7 +195,7 @@ fn an_insensitive_miss_runs_its_patterns_once() {
         let r = execute_local_fetch(
             &qj(
                 &p,
-                serde_json::json!({"matchString": "gamma", "regex": "rust", "caseMode": case}),
+                serde_json::json!({"matchString": ["gamma"], "regexEngine": "rust", "caseMode": case}),
             ),
             &Paths(t.0.clone()),
             &Safe,

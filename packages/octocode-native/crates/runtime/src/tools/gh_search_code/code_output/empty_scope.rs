@@ -2,8 +2,8 @@
 use super::requested_ref;
 use crate::id::ToolId;
 use crate::response::result::Continuation;
-use crate::tools::gh_search_code::{GhSearchCodeQuery, GhSearchCodeQueryMatchIn};
-use crate::tools::gh_shared::{RepoPath, ensure_next};
+use crate::tools::gh_search_code::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
+use crate::tools::gh_shared::{RepoPath, ensure_calls};
 use octocode_github::ProviderError;
 use octocode_github::{GitHubTransport, ProviderErrorKind, ProviderErrorReason, RequestContext};
 use serde_json::{Value, json};
@@ -17,7 +17,7 @@ pub(in crate::tools::gh_search_code) async fn owner_exists(
     context: &RequestContext,
 ) -> Result<(), ProviderError> {
     match transport
-        .list_owner_repositories(owner, "pushed", 1, 1, context)
+        .list_owner_repositories(owner, "pushed", "desc", 1, 1, context)
         .await
     {
         Err(error) if error.kind == ProviderErrorKind::NotFound => {
@@ -61,7 +61,7 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
         Ok(metadata) if metadata.archived => (
             "viewTree",
             ToolId::GhStructure,
-            json!({"owner":owner,"repo":repo,"path":""}),
+            json!({"operation":"tree","owner":owner,"repo":repo,"path":""}),
             "ghRepoArchived",
         ),
         // The repository exists: a scoped path is listed; a repo-wide search
@@ -69,7 +69,11 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
         _ => {
             let hint = "No indexed matches is unproven absence; verify the repo structure and search a bounded local copy before concluding.";
             diagnostics.add("ghScopedZeroUnproven", hint, false);
-            let Some(scope) = query.path.as_deref().map(|path| path.as_str()) else {
+            let Some(scope) = query
+                .path_prefix
+                .as_deref()
+                .map(std::string::String::as_str)
+            else {
                 // A path search of code leads to the same search of file
                 // contents (`findCode`): that targeted lead keeps the slots.
                 if !path_mode_given_code(query) {
@@ -80,15 +84,15 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
                 }
                 return Ok(());
             };
-            // `path` is a directory prefix: list the directory, or for a
+            // `pathPrefix` is a directory prefix: list the directory, or for a
             // file's path its parent, and read the file for the keywords.
             let listed = match file_scope(scope) {
                 Some(file) => {
-                    ensure_next(value);
+                    ensure_calls(value);
                     if let Some(read) =
                         crate::tools::gh_search_code::leads::file_scope_read(query, file.path)
                     {
-                        value["next"]["read"] = read;
+                        value["calls"]["read"] = read;
                     }
                     file.parent
                 }
@@ -97,7 +101,7 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
             (
                 "viewTree",
                 ToolId::GhStructure,
-                json!({"owner":owner,"repo":repo,"path":listed}),
+                json!({"operation":"tree","owner":owner,"repo":repo,"path":listed}),
                 "ghScopedZeroUnproven",
             )
         }
@@ -121,7 +125,7 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
         diagnostics.add(code, &hint, false);
         value["hints"] = json!([hint]);
     }
-    value["next"][name] = Continuation::new(tool, next_query).build();
+    value["calls"][name] = Continuation::related(tool, next_query).build();
     Ok(())
 }
 
@@ -133,8 +137,8 @@ fn add_clone_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, rep
         reference: requested_ref(query),
         ..RepoPath::root(owner, repo)
     };
-    ensure_next(value);
-    value["next"]["cloneRepo"] = at.lead(ToolId::GhCloneRepo).build();
+    ensure_calls(value);
+    value["calls"]["cloneRepo"] = at.lead(ToolId::GhCloneRepo).build();
 }
 
 /// `cloneRepo` runs only where clone is available, so an empty repo-wide
@@ -145,14 +149,16 @@ fn add_root_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, repo
         reference: requested_ref(query),
         ..RepoPath::root(owner, repo)
     };
-    ensure_next(value);
-    value["next"]["viewTree"] = at.lead(ToolId::GhStructure).build();
+    ensure_calls(value);
+    value["calls"]["viewTree"] = at.lead(ToolId::GhStructure).build();
 }
 
 /// A `match:"path"` search whose keywords read as code (spaces or syntax
 /// characters) rather than path segments.
 pub(in crate::tools::gh_search_code) fn path_mode_given_code(query: &GhSearchCodeQuery) -> bool {
-    query.match_in == GhSearchCodeQueryMatchIn::Path
+    !query
+        .match_in
+        .contains(&GhSearchCodeQueryMatchInItem::Content)
         && query.keywords.iter().any(|keyword| {
             keyword
                 .trim()
@@ -161,7 +167,7 @@ pub(in crate::tools::gh_search_code) fn path_mode_given_code(query: &GhSearchCod
         })
 }
 
-/// A `path` scope that names one file rather than a directory.
+/// A `pathPrefix` scope that names one file rather than a directory.
 pub(in crate::tools::gh_search_code) struct FileScope<'a> {
     /// The scope without surrounding slashes.
     pub(in crate::tools::gh_search_code) path: &'a str,
@@ -169,7 +175,7 @@ pub(in crate::tools::gh_search_code) struct FileScope<'a> {
     pub(in crate::tools::gh_search_code) name: &'a str,
 }
 
-/// The index matches `path` as a directory prefix, so a scope whose last
+/// The index matches `pathPrefix` as a directory prefix, so a scope whose last
 /// segment looks like a file (an extension that holds a letter, or a known
 /// extensionless or dot file such as `Makefile` or `.gitignore`) matches
 /// nothing. A dotted directory such as `docs/v1.2` is not a file.
@@ -190,7 +196,7 @@ pub(in crate::tools::gh_search_code) fn file_scope(scope: &str) -> Option<FileSc
 }
 
 /// What an empty code search says in its default hint: a requested ref the
-/// default-branch index did not cover, and for a `path` scope why that proves
+/// default-branch index did not cover, and for a `pathPrefix` scope why that proves
 /// nothing (a file's path matches no directory; a directory's index can lag).
 /// The leads carry the routes that verify it. Each note is its own hint, so
 /// no composed hint outgrows the guidance budget.
@@ -198,16 +204,16 @@ pub(in crate::tools::gh_search_code) fn empty_hints(query: &GhSearchCodeQuery) -
     let reference = requested_ref(query).map(|reference| {
         format!("Code search indexes only the default branch; `{reference}` was not searched.")
     });
-    let scope = query.path.as_deref().map(|path| path.as_str()).and_then(|scope| {
+    let scope = query.path_prefix.as_deref().map(std::string::String::as_str).and_then(|scope| {
         match file_scope(scope) {
             Some(file) => {
                 let under = if file.parent.is_empty() {
                     String::new()
                 } else {
-                    format!(" with `path:\"{}\"`", file.parent)
+                    format!(" with `pathPrefix:\"{}\"`", file.parent)
                 };
                 Some(format!(
-                    "`path` is a directory prefix and `{}` looks like a file: search it by `filename:\"{}\"`{under}, or read it with matchString.",
+                    "`pathPrefix` is a directory prefix and `{}` looks like a file: search it by `nameContains:\"{}\"`{under}, or read it with matchString.",
                     file.path, file.name
                 ))
             }
@@ -215,7 +221,7 @@ pub(in crate::tools::gh_search_code) fn empty_hints(query: &GhSearchCodeQuery) -
             // search has no one directory to list.
             None => query.repo.as_ref().map(|_| {
                 format!(
-                    "No indexed match under `{}`: unproven absence; a file is `filename` + its parent as `path`; ghStructure lists the path.",
+                    "No indexed match under `{}`: unproven absence; a file is `nameContains` + its parent as `pathPrefix`; ghStructure lists the path.",
                     scope.trim_matches('/')
                 )
             }),

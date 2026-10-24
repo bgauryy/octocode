@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { processStartTime } from '../src/shared/process.js';
 import { subagentProcessEnv } from '../src/subagents/process.js';
 import { createWorktree } from '../src/subagents/worktree.js';
-import { git, repo, reportOf, setup, useScriptedPi } from './subagent-tool-harness.js';
+import { git } from './helpers.js';
+import { repo, reportOf, setup, useScriptedPi } from './subagent-tool-harness.js';
 
 useScriptedPi();
 

@@ -144,7 +144,6 @@ describe('the audit', () => {
     expect(written).toHaveLength(6);
     expect(log.count).toEqual({ actions: 8, warnings: 1 });
     expect(log.summary()).toMatch(/permission summary: shell × 3, web × 4, shell.destructive × 1\n {2}⚠ shell.destructive: x/);
-    expect(AUDIT_CEILING).toBe(5000);
   });
 
   it('writes a rollup by itself every so many suppressed entries, so a crash loses few counts', () => {
@@ -176,6 +175,17 @@ describe('the audit', () => {
       expect.objectContaining({ action: 'invariant', allowed: false, via: 'invariant', note: 'write: in the state folder' }),
       expect.objectContaining({ action: 'shell', allowed: true, via: 'typed', what: ['ls', 'cwd: /work'] }),
     ]);
+  });
+});
+
+describe('the audit ceiling', () => {
+  it('writes routine entries up to the default ceiling, then rolls up the rest', () => {
+    const written: AuditEntry[] = [];
+    const log = new AuditLog((entry) => void written.push(entry));
+    for (let each = 0; each <= AUDIT_CEILING; each++) log.record({ at: 1, mode: 'full', action: 'shell', what: ['x'], agent: 'main', allowed: true, via: 'mode' });
+    expect(written.filter((each) => each.action === 'shell')).toHaveLength(AUDIT_CEILING);
+    log.flush();
+    expect(written.at(-1)).toMatchObject({ action: 'rollup', suppressed: { shell: 1 } });
   });
 });
 

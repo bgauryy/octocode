@@ -1,6 +1,7 @@
 //! The per-file link pass: ignore rules, heritage and call kinds, fact
 //! schemas and diagnostics.
 use super::*;
+use crate::tools::test_support::Fixture;
 
 /// A graph scan walks under the one ignore policy (it has no
 /// `includeIgnored`): `.gitignore`, nested negations and
@@ -165,7 +166,7 @@ fn facts_of_an_older_schema_are_skipped_not_linked() {
 /// `line`, and the message carries no line text.
 #[test]
 fn a_module_attribute_note_names_its_line() {
-    let dir = crate::tools::test_support::Fixture::new();
+    let dir = Fixture::new();
     dir.write("lib.rs", "fn a() {}\n#[custom]\nmod t;\n");
     dir.write("t.rs", "fn b() {}\n");
     let built = fixture_graph(&dir.0, &[]);

@@ -68,13 +68,29 @@ pub(super) async fn open_candidates(
     Ok((opened, failed))
 }
 
-/// Keep each occurrence whose definition chain reaches `declaration`.
-/// Returns the verified anchors, the files whose every occurrence resolved
-/// to another declaration (rejected), and the files left unverified: an
-/// identity check failed, or every occurrence's chain stopped inside the
-/// file itself (an import binding the server did not follow) while the
-/// declaration lives elsewhere. Unresolved is not proof of another
-/// declaration, so such a file is never rejected.
+/// A zero-based site: canonical file, line, UTF-16 character.
+pub(in super::super) type Site = (String, u32, u32);
+
+/// What [`verify_occurrences`] proved of one window's opened candidates.
+#[derive(Default)]
+pub(super) struct Verified {
+    /// Occurrences that bind the anchor's declaration.
+    pub(super) anchors: Vec<Anchor>,
+    /// Files whose every occurrence binds another declaration.
+    pub(super) rejected: Vec<String>,
+    /// Files without an anchor where an identity check failed, an
+    /// occurrence's chain stopped on an import the server did not follow,
+    /// or a site bound the anchor and another declaration at once.
+    /// Undecided is not proof of another declaration, so such a file is
+    /// never rejected.
+    pub(super) unverified: Vec<String>,
+    /// Occurrences that bind another declaration ([`Binding::Other`]): no
+    /// answer lists them as references.
+    pub(super) elsewhere: HashSet<Site>,
+}
+
+/// Classify each occurrence by what its definition chain reaches (see
+/// [`binding`]).
 pub(super) async fn verify_occurrences(
     client: &NativeLspClient,
     sources: &mut SourceCache<'_>,
@@ -82,7 +98,7 @@ pub(super) async fn verify_occurrences(
     cancel: &dyn CancellationCheck,
     opened: Vec<OpenedFile>,
     declaration: &HashSet<String>,
-) -> Result<(Vec<Anchor>, Vec<String>, Vec<String>), LspFailure> {
+) -> Result<Verified, LspFailure> {
     let policy = sources.policy();
     let missing = proven_missing(policy);
     // A server that pipelines requests (tsgo) gets several files at once,
@@ -123,19 +139,23 @@ pub(super) async fn verify_occurrences(
         }
         verdicts
     };
-    let mut anchors = Vec::new();
-    let mut rejected = Vec::new();
-    let mut unverified = Vec::new();
+    let mut verified = Verified::default();
     for verdict in verdicts {
+        verified.elsewhere.extend(
+            verdict
+                .elsewhere
+                .into_iter()
+                .map(|(line, character)| (verdict.file.clone(), line, character)),
+        );
         if !verdict.anchors.is_empty() {
-            anchors.extend(verdict.anchors);
+            verified.anchors.extend(verdict.anchors);
         } else if verdict.unresolved {
-            unverified.push(verdict.file);
+            verified.unverified.push(verdict.file);
         } else {
-            rejected.push(verdict.file);
+            verified.rejected.push(verdict.file);
         }
     }
-    Ok((anchors, rejected, unverified))
+    Ok(verified)
 }
 
 /// Run `task` over `items` with at most `limit` in flight; results keep
@@ -162,9 +182,11 @@ pub(super) const CONCURRENT_FILE_VERIFICATIONS: usize = 8;
 pub(super) struct FileVerdict {
     pub(super) file: String,
     pub(super) anchors: Vec<Anchor>,
-    /// A chain failed or stopped at an import the server did not follow, so
-    /// without an anchor the file stays unverified rather than rejected.
+    /// A site was undecided ([`Binding::Undecided`]), so without an anchor
+    /// the file stays unverified rather than rejected.
     pub(super) unresolved: bool,
+    /// Zero-based `(line, character)` of sites that bind another declaration.
+    pub(super) elsewhere: Vec<(u32, u32)>,
 }
 
 pub(super) async fn verify_file(
@@ -182,6 +204,7 @@ pub(super) async fn verify_file(
     };
     let mut anchors = Vec::new();
     let mut unresolved = false;
+    let mut elsewhere = Vec::new();
     // One verified anchor answers for the whole file's program; keep
     // checking only until a verified call site is found as well.
     let mut verified_any = false;
@@ -204,26 +227,93 @@ pub(super) async fn verify_file(
             unresolved = true;
             continue;
         };
-        if !resolved.is_disjoint(declaration) {
-            anchors.push(Anchor {
-                path: file.clone(),
-                line: spot_line,
-                character: spot_character,
-                is_call,
-            });
-            if is_call {
-                break;
+        match binding(&resolved, &file, declaration, &content, missing) {
+            Binding::Anchor => {
+                anchors.push(Anchor {
+                    path: file.clone(),
+                    line: spot_line,
+                    character: spot_character,
+                    is_call,
+                });
+                if is_call {
+                    break;
+                }
+                verified_any = true;
             }
-            verified_any = true;
-        } else if stays_on_import(&resolved, &file, declaration, &content, missing) {
-            unresolved = true;
+            Binding::Other => elsewhere.push((spot_line, spot_character)),
+            Binding::Undecided => unresolved = true,
         }
     }
     Ok(FileVerdict {
         file,
         anchors,
         unresolved,
+        elsewhere,
     })
+}
+
+/// What the name at one candidate site binds, by its definition chain.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Binding {
+    /// The anchor's declaration alone: a reference.
+    Anchor,
+    /// Another declaration: not a reference.
+    Other,
+    /// Neither proven: no reference, and the file stays unverified.
+    Undecided,
+}
+
+/// What the name at a site of `file` (canonical) binds, from the `resolved`
+/// identities of its definition chain. It binds the anchor only when every
+/// identity is the anchor's `declaration` or lies in a file that declares
+/// it (the module's own export of it). A site that also binds a
+/// declaration of `file` itself (a same-named `const`, parameter or
+/// destructured binding the site's scope declares, which shadows the
+/// anchor; a shorthand `{ name }` names it and, through a contextual type,
+/// the anchor's property too) binds that declaration. Any other extra
+/// identity, an import binding of `file` the server did not follow
+/// included, leaves the site undecided. A chain that misses the anchor is
+/// another declaration unless it stopped on such an import.
+pub(super) fn binding(
+    resolved: &HashSet<String>,
+    file: &str,
+    declaration: &HashSet<String>,
+    content: &str,
+    missing: &dyn Fn(&Path) -> bool,
+) -> Binding {
+    if resolved.is_disjoint(declaration) {
+        return if stays_on_import(resolved, file, declaration, content, missing) {
+            Binding::Undecided
+        } else {
+            Binding::Other
+        };
+    }
+    let declaring = declaration
+        .iter()
+        .map(|identity| identity_file(identity))
+        .collect::<HashSet<_>>();
+    let extra = resolved
+        .difference(declaration)
+        .filter(|identity| !declaring.contains(identity_file(identity)))
+        .collect::<Vec<_>>();
+    if extra.is_empty() {
+        return Binding::Anchor;
+    }
+    let own = extra
+        .into_iter()
+        .filter(|identity| identity_file(identity) == file)
+        .cloned()
+        .collect::<HashSet<_>>();
+    if own.is_empty() || stays_on_import(&own, file, declaration, content, missing) {
+        Binding::Undecided
+    } else {
+        Binding::Other
+    }
+}
+
+/// The file of a `path:line:character:endLine:endCharacter` identity.
+fn identity_file(identity: &str) -> &str {
+    identity.rsplitn(5, ':').last().unwrap_or(identity)
 }
 
 /// Declaration identities reached by the definition chain at a position.

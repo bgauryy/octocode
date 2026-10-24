@@ -8,11 +8,12 @@
 //
 import { writeFileSync } from 'fs';
 import { join } from 'path';
+import type { StealthSession } from '../stealth-session.mjs';
 
 const TARGET =
   process.env.AFFILIATES_CHECK_URL ?? 'https://affiliates.walmart.com/';
 
-export async function run(cdp) {
+export async function run(cdp: StealthSession) {
   if (!cdp.stealthApplied) {
     throw new Error(
       '[STEALTH_GATE] emulation was not enabled; use --stealth for this dedicated check'

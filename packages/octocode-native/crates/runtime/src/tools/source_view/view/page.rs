@@ -3,10 +3,11 @@ use super::super::pagination::{SourceLines, continuation, result_counts};
 use super::super::types::*;
 use super::super::{page_scan::*, prepare::*};
 use super::classified::attach_unfiltered;
-use super::fit::page_on_as_asked;
 use super::warnings::read_scope_warnings;
 use super::{View, compress_ranges, past_end};
 use crate::security::scan::ContentScan;
+use crate::tools::source_view::local_fetch_query;
+use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit, ReadView};
 
 /// The scanned page of a view, and the query it was cut for.
 pub(super) struct CutPage<'a> {
@@ -18,9 +19,6 @@ pub(super) struct CutPage<'a> {
     /// The caller's read as sent, before a cut to fit the row's share: the
     /// scope notes (a long-line byte walk) judge it, not the cut.
     pub(super) read: &'a LocalFetchQuery,
-    view_limited: bool,
-    /// The page is the head of an unanchored read.
-    head: bool,
     scanned: ScannedPage,
 }
 
@@ -36,13 +34,7 @@ pub(super) fn cut_page<'a>(
     security: &impl ContentScan,
 ) -> Result<CutPage<'a>, Box<LocalFetchResult>> {
     let asked = q;
-    let view_limited =
-        q.full_content == Some(true) && facts.window.is_some_and(|window| view.text.len() > window);
-    let q = if view_limited {
-        std::borrow::Cow::Owned(bounded_query(q))
-    } else {
-        std::borrow::Cow::Borrowed(q)
-    };
+    let q = std::borrow::Cow::Borrowed(q);
     // A configured response window owns the page budget. Keep the smaller
     // fallback for direct callers without one and any explicit preview.
     let line_page_bytes =
@@ -54,9 +46,7 @@ pub(super) fn cut_page<'a>(
                     &crate::response::result::query_row(q.as_ref(), &[]),
                 )
             });
-    let head_view = head_query(&q, view.mode, view.text.len());
-    let head = head_view.is_some();
-    let page_q = head_view.as_ref().unwrap_or(&q);
+    let page_q = q.as_ref();
     // A byte page of a streamed window is cut at its offset in the window.
     let in_window = facts.byte_origin.map(|origin| origin.within(page_q));
     let page_q = in_window.as_ref().unwrap_or(page_q);
@@ -64,7 +54,7 @@ pub(super) fn cut_page<'a>(
     // selection pages in: raw source lines for a whole file (the unit of
     // `totalLines`, the gutter and `ranges`), the extracted lines for
     // `ranges`; an outline pages its own lines.
-    let source_lines = (view.mode == Some(MinifyMode::Standard))
+    let source_lines = (view.mode == Some(ReadView::Compact))
         .then(|| match ext.source_lines.as_deref() {
             None => SourceLines::of_gutter(&view.text, source.total_lines),
             Some(selected) => SourceLines::of_selected_gutter(&view.text, selected),
@@ -87,7 +77,7 @@ pub(super) fn cut_page<'a>(
     };
     let mut scanned = scan_page(&q, &window, source_path, security, source, ext.start)?;
     if let Some(origin) = facts.byte_origin
-        && scanned.page.pagination.unit == WindowUnit::Bytes
+        && scanned.page.pagination.unit == ReadProgressUnit::Bytes
     {
         origin.place(&mut scanned.page.pagination);
     }
@@ -95,8 +85,6 @@ pub(super) fn cut_page<'a>(
         q,
         asked,
         read: asked,
-        view_limited,
-        head,
         scanned,
     })
 }
@@ -116,8 +104,6 @@ pub(super) fn page_result(
         q,
         asked,
         read,
-        view_limited,
-        head,
         scanned,
     } = cut;
     let q = q.as_ref();
@@ -151,15 +137,16 @@ pub(super) fn page_result(
     }
     let out_of_range = pg.out_of_range;
     let token = selection_outcome.map(|chosen| chosen.outcome.token.as_str());
-    let mut next = continue_calls(q, &pg, head, token, ext);
-    // A whole view over the share was cut as its first line page.
-    if view_limited && let Some(next) = next.as_mut() {
-        page_on_as_asked(next, asked);
-    }
+    let mut next = match continue_calls(q, &pg, token, ext) {
+        Ok(next) => next,
+        Err(error) => return super::classified::invalid_continuation(q, error),
+    };
     if let Some(chosen) = selection_outcome
         && chosen.outcome.leaves_out()
+        && let Err(error) =
+            attach_unfiltered(next.get_or_insert_with(NextCalls::default), asked, chosen)
     {
-        attach_unfiltered(next.get_or_insert_with(NextCalls::default), asked, chosen);
+        return super::classified::invalid_continuation(q, error);
     }
     read_scope_warnings(read, &pg, &mut warnings);
     // Redaction (source-wide for matchString, or on the page) replaces text
@@ -183,11 +170,11 @@ pub(super) fn page_result(
     let (chars, ret_bytes, ret_lines) = result_counts(&pg.text);
     let minified_away = pg.text.is_empty() && view.mode.is_some() && !out_of_range;
     let mut result = LocalFetchResult {
-        path: q.path.to_string(),
+        path: local_fetch_query::path(q).to_owned(),
         source_sha256: Some(source.sha256.clone()),
         content: Some(pg.text),
-        content_view: view.mode,
-        minify_fallback: view.fallback.clone(),
+        view: view.mode,
+        view_fallback: view.fallback.clone(),
         warnings,
         total_lines: Some(source.total_lines),
         start_line: ext.start,
@@ -198,7 +185,7 @@ pub(super) fn page_result(
         match_keys,
         blocks,
         selected_match_count: ext.count,
-        modified: (view.mode != Some(MinifyMode::Symbols))
+        modified: (view.mode != Some(ReadView::Symbols))
             .then(|| facts.modified.clone())
             .flatten(),
         source_chars: Some(source.chars),
@@ -224,11 +211,12 @@ pub(super) fn page_result(
     // The view removed every selected line (a comment-only range read
     // minified): an empty read whose lead is the same read as is.
     if minified_away && source.bytes > 0 {
-        let mut query = q.clone();
-        query.minify = None;
+        let Ok(query) = local_fetch_query::updated(q, serde_json::json!({"view":"content"})) else {
+            return result;
+        };
         result.status = ReadStatus::Empty;
         result.hints.push(MINIFIED_AWAY_HINT.into());
-        result.next.get_or_insert_with(NextCalls::default).read = Some(FetchCall { query });
+        result.next.get_or_insert_with(NextCalls::default).read = Some(FetchCall::related(query));
     }
     // A classified view that kept no chunk: an empty read whose unfiltered
     // lead is its recovery (zero kept is not absence).
@@ -244,72 +232,39 @@ pub(super) fn page_result(
 }
 
 /// The hint of a read whose minified view removed every selected line.
-const MINIFIED_AWAY_HINT: &str = "minify removed every selected line; omit minify to read them.";
+const MINIFIED_AWAY_HINT: &str =
+    "The compact view removed every selected line; use view:content to read the source.";
 
 /// The page's continuations: its next page bound to the selection token, plus
 /// follow-ups to data the extraction selected but did not return.
 fn continue_calls(
     q: &LocalFetchQuery,
     pg: &super::super::pagination::Page,
-    head: bool,
     token: Option<&str>,
     ext: &super::super::extraction::Extraction,
-) -> Option<NextCalls> {
-    let mut next = page_next(q, pg, head);
+) -> Result<Option<NextCalls>, String> {
+    let mut next = page_next(q, pg);
     if let Some(token) = token
         && let Some(read) = next.as_mut().and_then(|next| next.continue_window.as_mut())
     {
-        read.query.selection = token.parse().ok();
+        local_fetch_query::set_selection(&mut read.query, Some(token))
+            .map_err(|error| error.to_string())?;
     }
     let follow_ups = ext.next.clone();
     if !pg.out_of_range && !follow_ups.is_empty() {
         next.get_or_insert_with(NextCalls::default)
             .absorb(follow_ups);
     }
-    next
+    Ok(next)
 }
 
-/// The head page of an untargeted first read whose view would not fit one
-/// line page: paging through it is rarely what an unanchored read needs, and
-/// the head plus a locate (or an anchored read) costs a fraction of a page.
-/// An outline (`symbols`) is already the orientation view and is never cut.
-fn head_query(
-    q: &LocalFetchQuery,
-    mode: Option<MinifyMode>,
-    view_bytes: usize,
-) -> Option<LocalFetchQuery> {
-    (unanchored_first_read(q)
-        && mode != Some(MinifyMode::Symbols)
-        && view_bytes > super::super::pagination::LINE_PAGE_BYTES)
-        .then(|| LocalFetchQuery {
-            unit: Some(WindowUnit::Lines),
-            length: wire_positive(HEAD_LINES),
-            ..q.clone()
-        })
-}
-
-/// The page's own continuation: the next page, or a restart for an offset
-/// past the end of the view.
-fn page_next(
-    q: &LocalFetchQuery,
-    pg: &super::super::pagination::Page,
-    head: bool,
-) -> Option<NextCalls> {
-    if !pg.out_of_range {
-        let mut next = continuation(q, &pg.pagination);
-        // Paging on from a line head uses the default line page size. A head
-        // that fell back to a byte page (one oversized line) keeps its unit
-        // and window: they give `offset` its meaning.
-        if head
-            && pg.pagination.unit == WindowUnit::Lines
-            && let Some(read) = next.as_mut().and_then(|next| next.continue_window.as_mut())
-        {
-            read.query.length = None;
-            read.query.unit = None;
-        }
-        return next;
+/// Continue the selected view or restart an out-of-range saved position.
+fn page_next(q: &LocalFetchQuery, pg: &super::super::pagination::Page) -> Option<NextCalls> {
+    if pg.out_of_range {
+        Some(past_end(q))
+    } else {
+        continuation(q, &pg.pagination)
     }
-    Some(past_end(q))
 }
 
 /// The source lines a page touches: a raw page's through the view-to-source
@@ -317,7 +272,7 @@ fn page_next(
 fn page_lines(
     pg: &super::super::pagination::Page,
     source_lines: Option<&[usize]>,
-    mode: Option<MinifyMode>,
+    mode: Option<ReadView>,
 ) -> Vec<usize> {
     if mode.is_some() {
         return pg
@@ -359,28 +314,4 @@ fn page_source_ranges(
         .collect();
     page_lines.dedup();
     compress_ranges(&page_lines)
-}
-
-/// A first read with nothing selecting what to return: no match, range,
-/// block, page cursor, page size, or whole-file request.
-fn unanchored_first_read(q: &LocalFetchQuery) -> bool {
-    q.match_string.is_none()
-        && !local_fetch_query::has_ranges(q)
-        && local_fetch_query::start_line(q).is_none()
-        && local_fetch_query::end_line(q).is_none()
-        && !local_fetch_query::block(q)
-        && q.full_content != Some(true)
-        && local_fetch_query::offset(q).is_none()
-        && local_fetch_query::window_length(q).is_none()
-        && q.unit.is_none()
-}
-
-/// The first bounded line page of the same view as a complete read.
-fn bounded_query(q: &LocalFetchQuery) -> LocalFetchQuery {
-    let mut query = q.clone();
-    query.full_content = None;
-    query.unit = Some(WindowUnit::Lines);
-    query.offset = Some(0);
-    query.length = wire_positive(DEFAULT_LINE_CHUNK);
-    query
 }

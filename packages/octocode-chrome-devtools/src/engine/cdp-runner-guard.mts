@@ -6,7 +6,7 @@
 // override does not touch — required since source maps live at the
 // page's own real domain, not localhost.
 
-function isLocalhost(url) {
+function isLocalhost(url: unknown) {
   try {
     const h = new URL(String(url)).hostname;
     return h === 'localhost' || h === '127.0.0.1' || h === '::1';
@@ -34,7 +34,7 @@ export function restrictNetworkToLocalhost() {
     return origFetch(input, init);
   };
   globalThis.WebSocket = class RestrictedWebSocket extends OrigWS {
-    constructor(url, ...args) {
+    constructor(url: string | URL, ...args: [protocols?: string | string[]]) {
       if (!isLocalhost(url)) {
         throw new Error(
           `[SANDBOX] WebSocket blocked: only localhost allowed (attempted: ${url})`

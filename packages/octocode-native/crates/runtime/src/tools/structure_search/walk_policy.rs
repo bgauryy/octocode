@@ -81,7 +81,7 @@ impl<'a> WalkLeft<'a> {
             let relative = path.strip_prefix(&self.root).unwrap_or(path);
             self.pruned
                 .lock()
-                .unwrap_or_else(|error| error.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push((position, relative.to_string_lossy().replace('\\', "/")));
         }
         pruned
@@ -153,14 +153,14 @@ impl<'a> WalkLeft<'a> {
         }
         self.hidden
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push((position, relative));
     }
 
     pub(super) fn record_withheld(&self, position: u32, path: &std::path::Path) {
         self.withheld
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push((position, path.to_path_buf(), path.is_dir()));
     }
 
@@ -203,7 +203,7 @@ impl<'a> WalkLeft<'a> {
         for (_, path, is_dir) in self
             .withheld
             .into_inner()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .filter(|(position, ..)| covered(position))
         {
@@ -215,7 +215,7 @@ impl<'a> WalkLeft<'a> {
             hidden: self
                 .hidden
                 .into_inner()
-                .unwrap_or_else(|error| error.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .into_iter()
                 .filter(|(position, _)| covered(position))
                 .map(|(_, relative)| relative)
@@ -223,7 +223,7 @@ impl<'a> WalkLeft<'a> {
             pruned: self
                 .pruned
                 .into_inner()
-                .unwrap_or_else(|error| error.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .into_iter()
                 .filter(|(position, _)| covered(position))
                 .map(|(_, relative)| relative)

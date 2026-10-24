@@ -24,9 +24,6 @@ This reference is generated from [`packages/octocode-config/config-contract.json
     "enabled": null,
     "disabled": null
   },
-  "mcp": {
-    "deferred": null
-  },
   "network": {
     "allowPrivateRegistry": false
   },
@@ -66,7 +63,6 @@ Environment values take precedence over `.octocoderc`. Each setting has at most 
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. WORKSPACE_ROOT: shell or trusted home .env |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
 | `tools.disabled` | `DISABLE_TOOLS` | unset | string array | Tools removed from the default tool set. |
-| `mcp.deferred` | `OCTOCODE_DEFER_TOOLS` | unset | string array | Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them. |
 | `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | `false` | boolean | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. OCTOCODE_ALLOW_PRIVATE_REGISTRY: shell or trusted home .env |
 | `lsp.configPath` | `OCTOCODE_LSP_CONFIG` | unset | path | Optional path to a custom lsp-servers.json. OCTOCODE_LSP_CONFIG: shell or trusted home .env |
 | `lsp.autoInstall` | `OCTOCODE_LSP_AUTO_INSTALL` | `"prompt"` | `prompt` or `off` or `auto` | Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. OCTOCODE_LSP_AUTO_INSTALL: shell or trusted home .env |
@@ -119,36 +115,3 @@ A workspace `.octocode/.env` cannot set these; the value is skipped and listed u
 | `OCTOCODE_STORAGE_MODE` | `memory` |
 | `OCTOCODE_CLASSIFICATION_API_HOST` | — |
 
-## Removed settings
-
-A removed name is reported once as a `removed_setting` warning and otherwise ignored.
-
-| Name | Where | What to do |
-|---|---|---|
-| `version` | `.octocoderc` | The configuration file no longer declares a schema version; delete the key. |
-| `classification.type` | `.octocoderc` | The classification provider is built in; delete the key. |
-| `network.timeout` | `.octocoderc` | Request timeout is fixed at 30 s; delete the key. |
-| `network.maxRetries` | `.octocoderc` | Retries are fixed at 3; delete the key. |
-| `network.maxRateLimitWait` | `.octocoderc` | The GitHub rate-limit wait is fixed at 45 s; delete the key. |
-| `lsp.maxMemoryMb` | `.octocoderc` | The language-server memory cap is host-derived (25% of RAM, 4096–8192 MiB); set maxMemoryMb per server in lsp-servers.json instead, and delete the key. |
-| `output.pagination` | `.octocoderc` | The automatic response page is fixed at 20,000 characters; set responseLength (up to 50,000) on a call instead, and delete the section. |
-| `storage.cloneCache` | `.octocoderc` | The clone cache is fixed at a 24 h TTL, 2 GiB and 50 repositories; delete the section. |
-| `classification.maxConcurrency` | `.octocoderc` | Classification concurrency is fixed at 10 in-flight requests per endpoint; delete the key. |
-| `classification.maxCandidates` | `.octocoderc` | Context selection is fixed at 64 candidates per operation; delete the key. |
-| `classification.maxChars` | `.octocoderc` | Context selection is fixed at 131,072 characters per operation; delete the key. |
-| `classification.timeoutMs` | `.octocoderc` | The context selection deadline is fixed at 10 s; delete the key. |
-| `output.format` | `.octocoderc` | MCP text content is always the serialized JSON of structuredContent, and the CLI prints JSON with --json; delete the key. |
-| `OCTOCODE_CLASSIFICATION_TYPE` | environment | The classification provider is built in; unset the variable. |
-| `REQUEST_TIMEOUT` | environment | Request timeout is fixed at 30 s; unset the variable. |
-| `MAX_RETRIES` | environment | Retries are fixed at 3; unset the variable. |
-| `OCTOCODE_MAX_RATE_LIMIT_WAIT` | environment | The GitHub rate-limit wait is fixed at 45 s; unset the variable. |
-| `OCTOCODE_LSP_MAX_MEMORY_MB` | environment | The language-server memory cap is host-derived (25% of RAM, 4096–8192 MiB); set maxMemoryMb per server in lsp-servers.json instead, and unset the variable. |
-| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | environment | The automatic response page is fixed at 20,000 characters; set responseLength (up to 50,000) on a call instead, and unset the variable. |
-| `OCTOCODE_CACHE_TTL_MS` | environment | The clone cache TTL is fixed at 24 h; unset the variable. |
-| `OCTOCODE_MAX_CACHE_SIZE` | environment | The clone cache size is fixed at 2 GiB; unset the variable. |
-| `OCTOCODE_MAX_CLONES` | environment | The clone cache keeps at most 50 repositories; unset the variable. |
-| `OCTOCODE_CLASSIFICATION_CONCURRENCY` | environment | Classification concurrency is fixed at 10 in-flight requests per endpoint; unset the variable. |
-| `OCTOCODE_CLASSIFICATION_MAX_CANDIDATES` | environment | Context selection is fixed at 64 candidates per operation; unset the variable. |
-| `OCTOCODE_CLASSIFICATION_MAX_CHARS` | environment | Context selection is fixed at 131,072 characters per operation; unset the variable. |
-| `OCTOCODE_CLASSIFICATION_TIMEOUT_MS` | environment | The context selection deadline is fixed at 10 s; unset the variable. |
-| `OCTOCODE_OUTPUT_FORMAT` | environment | MCP text content is always the serialized JSON of structuredContent, and the CLI prints JSON with --json; unset the variable. |

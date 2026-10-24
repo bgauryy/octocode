@@ -1,11 +1,7 @@
-//! Source reads never elide inside a requested span, and a batch of reads
-//! shares the response window so every row returns content.
-
-use crate::support::{self, Run as _};
-
+//! Complete source evidence survives response paging and intentional selection.
+use crate::support::{self, Run as _, Workspace};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use support::Workspace;
 
 const WINDOW: usize = 20_000;
 
@@ -15,124 +11,109 @@ fn numbered_file(tag: &str, lines: usize) -> String {
         .collect()
 }
 
-/// `line -> text` of numbered content (`N\t<text>`); markers are skipped.
-fn numbered_lines(content: &str, into: &mut BTreeMap<usize, String>) {
-    for record in content.lines() {
-        let Some((number, text)) = record.split_once('\t') else {
-            assert_eq!(record, "--", "unnumbered line {record:?}");
-            continue;
-        };
-        let number: usize = number.parse().expect("line number");
-        assert!(
-            into.insert(number, text.to_owned()).is_none(),
-            "line {number} shown twice"
-        );
-    }
+fn records(output: &Value) -> Vec<(String, usize, String)> {
+    output["results"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|row| {
+            let file = std::path::Path::new(row["data"]["path"].as_str().expect("source path"))
+                .file_name()
+                .expect("file")
+                .to_string_lossy()
+                .into_owned();
+            row["data"]["content"]
+                .as_str()
+                .into_iter()
+                .flat_map(str::lines)
+                .filter_map(move |line| {
+                    if line == "--" {
+                        return None;
+                    }
+                    let (number, text) = line
+                        .split_once('\t')
+                        .unwrap_or_else(|| panic!("unnumbered source: {line:?}"));
+                    Some((
+                        file.clone(),
+                        number.parse().expect("line number"),
+                        text.to_owned(),
+                    ))
+                })
+        })
+        .collect()
 }
 
-fn row_file(row: &Value) -> &Value {
-    &row["data"]
-}
-
-/// Follow a row's `next.continueWindow` chain to the end, collecting every line.
-async fn walk(
+async fn read_all(
     runtime: &octocode_native::runtime::ToolRuntime,
-    tool: &str,
-    first: &Value,
-) -> BTreeMap<usize, String> {
-    let mut lines = BTreeMap::new();
-    numbered_lines(row_file(first)["content"].as_str().unwrap(), &mut lines);
-    let mut next = row_file(first)["next"]["continueWindow"]["query"].clone();
-    let mut hops = 0;
-    while next.is_object() {
-        hops += 1;
-        assert!(hops < 50, "walk terminates");
-        let page = runtime
-            .run(format!("walk-{hops}"), tool.into(), next.clone())
+    input: Value,
+) -> BTreeMap<(String, usize), String> {
+    let mut walker = support::checks::Walker::new("localFetch", input);
+    let mut found = BTreeMap::new();
+    while let Some(input) = walker.next_query() {
+        let output = runtime
+            .run("read-page".into(), "localFetch".into(), input)
             .await
-            .expect("continuation runs unchanged");
-        let row = &page.structured_content["results"][0];
-        numbered_lines(row_file(row)["content"].as_str().unwrap(), &mut lines);
-        next = row_file(row)["next"]["continueWindow"]["query"].clone();
+            .expect("read")
+            .structured_content
+            .into_value();
+        let mut ids = Vec::new();
+        for (path, line, text) in records(&output) {
+            ids.push(format!("{path}:{line}"));
+            assert!(
+                found.insert((path, line), text).is_none(),
+                "source line duplicated"
+            );
+        }
+        walker.accept(support::checks::Page { output, rows: ids });
     }
-    lines
+    found
 }
 
 #[tokio::test]
-async fn a_batch_of_reads_shares_the_window_and_every_row_returns_content() {
+async fn batched_reads_deliver_every_source_line_once_across_budgets() {
     let workspace = Workspace::new();
-    let files: Vec<String> = (0..3)
-        .map(|index| {
-            workspace
-                .write(
-                    &format!("f{index}.txt"),
-                    numbered_file(&format!("f{index}"), 400),
-                )
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    let small = workspace.write("small.txt", "one\ntwo\n");
+    let mut queries = Vec::new();
+    let mut expected = BTreeMap::new();
+    for (name, count) in [
+        ("small.txt", 2),
+        ("a.txt", 400),
+        ("b.txt", 400),
+        ("c.txt", 400),
+    ] {
+        let source = numbered_file(name, count);
+        for (line, text) in source.lines().enumerate() {
+            expected.insert((name.to_owned(), line + 1), text.to_owned());
+        }
+        queries.push(json!({"path":workspace.write(name,source)}));
+    }
     let runtime = workspace.runtime(&[]);
-    let mut queries: Vec<Value> = vec![json!({"path": small})];
-    queries.extend(
-        files
-            .iter()
-            .map(|path| json!({"path": path, "fullContent": true})),
-    );
-    let mcp = runtime
-        .run_mcp(
-            "share".into(),
-            "localFetch".into(),
-            json!({"queries": queries}),
-        )
-        .await
-        .expect("batch");
-    let envelope = &mcp["structuredContent"];
-    assert!(
-        envelope.get("responsePagination").is_none(),
-        "rows stay on one page: {}",
-        envelope["responsePagination"]
-    );
-    assert!(envelope.to_string().encode_utf16().count() <= WINDOW + 1_000);
-    let rows = envelope["results"].as_array().expect("rows");
-    assert_eq!(rows.len(), 4);
-    assert_eq!(rows[0]["data"]["content"], "1\tone\n2\ttwo\n");
-    // No envelope banner restates the partial rows: each row's own
-    // `next.continueWindow` discloses its unread rest.
-    assert!(
-        envelope.get("warnings").is_none(),
-        "{}",
-        envelope["warnings"]
-    );
-    let text = mcp["content"][0]["text"].as_str().unwrap();
-    assert!(!text.contains("incomplete — "), "{text:.200}");
-    for (row, path) in rows[1..].iter().zip(&files) {
-        let next = &row["data"]["next"]["continueWindow"]["query"]["queries"][0];
-        assert!(
-            next.get("length").is_none(),
-            "continues at the default page: {next}"
-        );
-        let lines = walk(&runtime, "localFetch", row).await;
-        let expected = std::fs::read_to_string(path).unwrap();
-        assert_eq!(
-            lines.keys().copied().collect::<Vec<_>>(),
-            (1..=400).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            lines
-                .values()
-                .map(|line| format!("{line}\n"))
-                .collect::<String>(),
-            expected
-        );
+    for budget in [2500, 20000] {
+        let actual = read_all(&runtime, json!({"queries":queries,"responseChars":budget})).await;
+        assert_eq!(actual, expected, "budget {budget}");
     }
     runtime.close().await;
 }
 
-/// The automatic response page is a code constant (20,000 characters): a
-/// checkout's `.octocode/.env` or `.octocoderc`, or the home file, naming the
-/// removed setting is reported as `removed_setting` and changes nothing.
+#[tokio::test]
+async fn range_pages_deliver_exactly_the_requested_source_lines() {
+    let workspace = Workspace::new();
+    let source = numbered_file("big", 2000);
+    let path = workspace.write("big.txt", &source);
+    let runtime = workspace.runtime(&[]);
+    let expected: BTreeMap<_, _> = source
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| (10..=20).contains(&(i + 1)) || (100..=1900).contains(&(i + 1)))
+        .map(|(i, text)| (("big.txt".to_owned(), i + 1), text.to_owned()))
+        .collect();
+    for budget in [2500, 20000] {
+        let actual = read_all(&runtime,json!({"queries":[{"path":path,"ranges":[{"startLine":10,"endLine":20},{"startLine":100,"endLine":1900}]}],"responseChars":budget})).await;
+        assert_eq!(actual, expected, "budget {budget}");
+    }
+    runtime.close().await;
+}
+
+/// Unknown file settings cannot change the automatic response window.
 #[tokio::test]
 async fn workspace_config_cannot_change_the_response_window() {
     let workspace = Workspace::new();
@@ -140,17 +121,14 @@ async fn workspace_config_cannot_change_the_response_window() {
         .map(|line| format!("{line:03} {}\n", "x".repeat(2_000)))
         .collect();
     let file = workspace.write("wide.txt", &wide);
-    workspace.write(
-        ".octocode/.env",
-        "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH=50000\nREQUEST_TIMEOUT=300000\n",
-    );
+    workspace.write(".octocode/.env", "UNBOUND_RESPONSE_CHARS=50000\n");
     workspace.write(
         ".octocode/.octocoderc",
-        r#"{"output":{"pagination":{"defaultCharLength":50000}}}"#,
+        r#"{"output":{"responseChars":50000}}"#,
     );
     std::fs::write(
         workspace.home.join(".octocoderc"),
-        r#"{"output":{"pagination":{"defaultCharLength":4000}}}"#,
+        r#"{"output":{"responseChars":4000}}"#,
     )
     .expect("home rc");
     let base = workspace.config(&[]);
@@ -161,101 +139,24 @@ async fn workspace_config_cannot_change_the_response_window() {
         base.runtime_surface,
     );
     let runtime = octocode_native::runtime::ToolRuntime::new(input).expect("runtime");
-    let removed: Vec<String> = runtime
-        .config()
-        .diagnostics
-        .iter()
-        .filter(|d| d.code == "removed_setting")
-        .map(|d| {
-            d.field_path
-                .clone()
-                .unwrap_or_else(|| d.message.split(' ').next().unwrap_or_default().to_owned())
-        })
-        .collect();
-    for name in [
-        "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH",
-        "REQUEST_TIMEOUT",
-        "output.pagination",
-    ] {
-        assert!(
-            removed.iter().any(|seen| seen == name),
-            "{name}: {removed:?}"
-        );
-    }
+    let diagnostics = &runtime.config().diagnostics;
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code == "unknown_or_future_config")
+    );
     let mcp = runtime
         .run_mcp(
             "window".into(),
             "localFetch".into(),
-            json!({"queries":[{"path": file, "fullContent": true}]}),
+            json!({"queries":[{"path": file}]}),
         )
         .await
         .expect("read");
     let envelope = &mcp["structuredContent"];
     let page = envelope.to_string().encode_utf16().count();
     assert!(page <= WINDOW + 1_000, "page {page} exceeds the constant");
-    let content = envelope["results"][0]["data"]["content"]
-        .as_str()
-        .expect("content")
-        .encode_utf16()
-        .count();
-    assert!(
-        content > WINDOW / 2,
-        "content {content}: the 4,000 home value applied, not the constant"
-    );
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn a_batch_that_fits_is_unchanged_and_carries_no_banner() {
-    let workspace = Workspace::new();
-    let a = workspace.write("a.txt", numbered_file("a", 20));
-    let b = workspace.write("b.txt", numbered_file("b", 20));
-    let runtime = workspace.runtime(&[]);
-    let mcp = runtime
-        .run_mcp(
-            "fits".into(),
-            "localFetch".into(),
-            json!({"queries":[{"path":a},{"path":b}]}),
-        )
-        .await
-        .expect("batch");
-    let envelope = &mcp["structuredContent"];
-    assert!(envelope.get("warnings").is_none(), "{envelope}");
-    for row in envelope["results"].as_array().unwrap() {
-        assert!(row["data"].get("next").is_none(), "{row}");
-        assert_eq!(row["data"]["content"].as_str().unwrap().lines().count(), 20);
-    }
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn a_budget_cut_range_continues_exactly_the_rest_of_the_requested_spans() {
-    let workspace = Workspace::new();
-    let path = workspace.write("big.txt", numbered_file("big", 2_000));
-    let runtime = workspace.runtime(&[]);
-    let outcome = runtime
-        .run(
-            "cut".into(),
-            "localFetch".into(),
-            json!({"queries":[{"path": path, "ranges": ["10-20", "100-1900"]}]}),
-        )
-        .await
-        .expect("read");
-    let row = &outcome.structured_content["results"][0];
-    let content = row["data"]["content"].as_str().unwrap();
-    // One `--` gap line between the spans; none inside a span.
-    assert_eq!(
-        content.lines().filter(|line| *line == "--").count(),
-        1,
-        "{content:.400}"
-    );
-    assert!(
-        row["data"]["next"]["continueWindow"].is_object(),
-        "the page is cut"
-    );
-    let lines = walk(&runtime, "localFetch", row).await;
-    let expected: Vec<usize> = (10..=20).chain(100..=1900).collect();
-    assert_eq!(lines.keys().copied().collect::<Vec<_>>(), expected);
     runtime.close().await;
 }
 
@@ -289,45 +190,36 @@ pub fn second() -> usize {
 ";
 
 #[tokio::test]
-async fn a_match_window_that_cuts_its_declaration_offers_no_reread_and_block_reads_it() {
+async fn match_context_is_explicit_and_block_selects_the_whole_declaration() {
     let workspace = Workspace::new();
     let path = workspace.write("src/lib.rs", SOURCE);
     let runtime = workspace.runtime(&[]);
-    let read = |query: serde_json::Value| {
-        let runtime = &runtime;
-        async move {
-            runtime
-                .run(
-                    "read".into(),
-                    "localFetch".into(),
-                    json!({"queries":[query]}),
-                )
-                .await
-                .expect("read")
-                .structured_content["results"][0]["data"]
-                .clone()
-        }
-    };
-    for query in [
-        json!({"path": path, "matchString": "needle here", "contextLines": 2, "extras": ["hints"]}),
-        json!({"path": path, "matchString": "needle here", "contextLines": 0, "extras": ["hints"]}),
-        json!({"path": path, "matchString": "other needle", "extras": ["hints"]}),
+    for (fields, expected) in [
+        (json!({"matchString":["needle here"]}), vec![12]),
+        (
+            json!({"matchString":["needle here"],"contextLines":{"before":2,"after":1}}),
+            (10..=13).collect(),
+        ),
+        (json!({"matchString":["other needle"]}), vec![24]),
+        (
+            json!({"matchString":["needle here"],"block":true}),
+            (1..=21).collect(),
+        ),
     ] {
-        let data = read(query.clone()).await;
-        assert!(
-            crate::support::checks::hint(&data, "readBlock").is_null(),
-            "{query}: {data}"
+        let mut query = json!({"path":path});
+        query
+            .as_object_mut()
+            .expect("row")
+            .extend(fields.as_object().expect("fields").clone());
+        let actual = read_all(&runtime, json!({"queries":[query]})).await;
+        assert_eq!(
+            actual.keys().map(|(_, line)| *line).collect::<Vec<_>>(),
+            expected,
+            "{fields}"
         );
-        assert!(data["next"].get("readBlock").is_none(), "{query}: {data}");
+        for ((_, line), text) in actual {
+            assert_eq!(Some(text.as_str()), SOURCE.lines().nth(line - 1));
+        }
     }
-    // The caller reads the whole declaration with `block`.
-    let data = read(json!({"path": path, "matchString": "needle here", "block": true})).await;
-    let mut lines = BTreeMap::new();
-    numbered_lines(data["content"].as_str().unwrap(), &mut lines);
-    assert_eq!(
-        lines.keys().copied().collect::<Vec<_>>(),
-        (1..=21).collect::<Vec<_>>(),
-        "{data}"
-    );
     runtime.close().await;
 }

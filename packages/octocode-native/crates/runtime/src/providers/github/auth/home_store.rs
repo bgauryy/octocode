@@ -195,7 +195,7 @@ impl HomeStore {
     }
     fn lock(&self) -> Result<octocode_io::lock::LockedFile, ProviderError> {
         let file = private_open(&self.home.join(".credentials.lock"), true)?;
-        octocode_io::lock::lock_within(file, Duration::from_secs(5), Duration::from_millis(10))
+        octocode_io::lock::lock_within(file, Duration::from_secs(5), octocode_io::lock::LOCK_POLL)
             .map_err(|_| failure("cannot lock credential store"))
     }
     fn atomic_write(&self, name: &str, bytes: &[u8]) -> Result<(), ProviderError> {
@@ -206,6 +206,13 @@ impl HomeStore {
         octocode_io::atomic::write_atomic(&target, bytes, true)
             .map_err(|_| failure("cannot replace credentials"))
     }
+    #[cfg_attr(
+        not(unix),
+        expect(
+            clippy::unused_self,
+            reason = "only unix syncs the home directory entry; the call is the same on every platform"
+        )
+    )]
     fn sync_home(&self) -> Result<(), ProviderError> {
         #[cfg(unix)]
         {

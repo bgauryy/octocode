@@ -3,7 +3,9 @@
 //! when the response pages); a replayed page responds from its seed.
 
 mod batch;
+mod publication;
 mod shaping;
+use super::cursors::{Pending, Registry};
 use super::page_replay::{PageReplay, PageReplayMemo, page_expiry, snapshot_expired};
 use super::{RuntimeError, runtime_execution_error};
 use crate::contracts;
@@ -49,6 +51,9 @@ pub(super) struct ChannelRun {
     pub(super) replays: (Arc<PageReplayMemo>, [u8; 32]),
     pub(super) section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
     pub(super) access: [u8; 32],
+    pub(super) cursors: Arc<Registry>,
+    pub(super) cursor_set: Option<Pending>,
+    pub(super) resume_identity: Option<String>,
 }
 
 impl ChannelRun {
@@ -56,11 +61,7 @@ impl ChannelRun {
         &self,
         context: &ExecutionContext,
     ) -> Result<(), RuntimeError> {
-        let Some(expected) = self
-            .replayed
-            .as_ref()
-            .and_then(|saved| saved.github_identity.as_ref())
-        else {
+        let Some(expected) = self.resume_identity.as_ref() else {
             return Ok(());
         };
         context.check().map_err(runtime_execution_error)?;
@@ -79,10 +80,9 @@ impl ChannelRun {
             stage.options.saved = Some(crate::response::page_model::SavedResponse {
                 key: self.replays.1,
                 expires_at: replay.expires_at.clone(),
-                storage: self.replays.0.storage(),
                 replayed: true,
             });
-            return stage::respond_saved(
+            let stage::Staged { mut result, next } = stage::respond_saved(
                 stage::StageInput {
                     failure: replay.failure,
                     ..stage
@@ -91,7 +91,17 @@ impl ChannelRun {
                 &replay.remaining,
                 &replay.pages,
                 context,
-            );
+            )?;
+            if let Ok(outcome) = &mut result {
+                let Some(mut pending) = self.cursor_set.take() else {
+                    return Err(ExecutionError::WorkerFailed);
+                };
+                self.register_page(outcome, next, &mut pending)?;
+                if !self.cursors.retain(pending) {
+                    return Err(ExecutionError::WorkerFailed);
+                }
+            }
+            return Ok(result);
         }
         let rejected = std::mem::take(&mut self.rejected_rows);
         let mcp = self.mcp;
@@ -122,7 +132,6 @@ impl ChannelRun {
                 saved: Some(crate::response::page_model::SavedResponse {
                     key: self.replays.1,
                     expires_at: page_expiry(),
-                    storage: self.replays.0.storage(),
                     replayed: false,
                 }),
                 ..self.options.clone()
@@ -150,15 +159,12 @@ impl ChannelRun {
                 can_resume: self.mcp || self.replays.0.persistent,
             },
         )?;
-        if let Err(error) = receipts.structured.edit(|structured| {
-            continuations::finalize(
-                structured,
-                self.id,
-                &continuations::Sources::Matrices(&self.response_query),
-                scope,
-            )
-        }) {
-            debug_assert!(false, "invalid clasify continuation: {:?}", error.issues);
+        let mut pending = self.pending()?;
+        if let Err(error) = receipts
+            .structured
+            .edit(|structured| self.publish(structured, scope, &mut pending))
+        {
+            return Ok(Err(error));
         }
         let mut failure = receipts.failure;
         let remaining = match stage::settle(
@@ -174,10 +180,19 @@ impl ChannelRun {
             response_query: &self.response_query,
             failure,
         };
-        let (mut finished, seed) =
-            self.respond_settled(&settled, receipts.structured, remaining, context)?;
-        if let (Ok(outcome), Some(seed)) = (&mut finished, seed) {
-            self.remember_page(outcome, seed, context)?;
+        let (
+            stage::Staged {
+                result: mut finished,
+                mut next,
+            },
+            seed,
+        ) = self.respond_settled(&settled, receipts.structured, remaining, context)?;
+        if let Ok(outcome) = &mut finished {
+            if let Some(seed) = seed {
+                self.remember_page(outcome, &mut next, seed, context)?;
+            }
+            self.register_page(outcome, next, &mut pending)?;
+            self.retain_pending(pending, context)?;
         }
         Ok(finished)
     }
@@ -200,7 +215,13 @@ impl ChannelRun {
             response_query,
             rejected_at,
             mut failure,
-        } = self.shape_rows(rejected, scope, context)?;
+        } = self.shape_rows(rejected, context)?;
+        let mut pending = self.pending()?;
+        if let Err(error) =
+            structured.edit(|structured| self.publish(structured, scope, &mut pending))
+        {
+            return Ok(Err(error));
+        }
         let mut remaining =
             match stage::settle(self.id, &mut structured, &response_query, &mut failure) {
                 Ok(remaining) => remaining,
@@ -216,13 +237,31 @@ impl ChannelRun {
                 crate::runtime::row_indices::split_rejected(structured, remaining, &rejected_at)
             });
         }
-        let (mut finished, seed) =
-            self.respond_settled(&settled, structured, remaining, context)?;
+        let (
+            stage::Staged {
+                result: mut finished,
+                mut next,
+            },
+            seed,
+        ) = self.respond_settled(&settled, structured, remaining, context)?;
         if let Ok(outcome) = &mut finished {
             if let Some(seed) = seed {
-                self.remember_page(outcome, seed, context)?;
+                self.remember_page(outcome, &mut next, seed, context)?;
             }
+            self.register_page(outcome, next, &mut pending)?;
+            self.retain_pending(pending, context)?;
             crate::runtime::row_indices::attach_rejected(outcome, rejected_rows);
+            outcome
+                .structured_content
+                .edit(|output| {
+                    crate::response::pager::measure_page(
+                        output,
+                        self.options
+                            .response_chars
+                            .or(Some(self.output.auto_page_chars)),
+                    )
+                })
+                .map_err(|_| ExecutionError::WorkerFailed)?;
         }
         Ok(finished)
     }
@@ -235,13 +274,7 @@ impl ChannelRun {
         structured: Sanitized,
         remaining: Vec<Vec<crate::response::result::Remaining>>,
         context: &ExecutionContext,
-    ) -> Result<
-        (
-            Result<ToolOutcome, contracts::ContractValidationError>,
-            Option<PageReplay>,
-        ),
-        ExecutionError,
-    > {
+    ) -> Result<(stage::Staged, Option<PageReplay>), ExecutionError> {
         let pages = crate::response::pager::SavedPages::default();
         let mut kept = None;
         let stage = stage::StageInput {
@@ -272,17 +305,11 @@ impl ChannelRun {
     fn remember_page(
         &self,
         outcome: &mut ToolOutcome,
+        next: &mut Option<Cursor>,
         mut seed: PageReplay,
         context: &ExecutionContext,
     ) -> Result<(), ExecutionError> {
-        let pagination = &outcome.structured_content["responsePagination"];
-        // `next` carries the cursor while pages remain; a page without one
-        // names its own page in the block.
-        let Some(cursor) = pagination["next"]["query"]["responseSnapshot"]
-            .as_str()
-            .or_else(|| pagination["snapshot"].as_str())
-            .and_then(Cursor::decode)
-        else {
+        let Some(cursor) = next.as_ref() else {
             return Ok(());
         };
         let auth_retained = match self.dispatcher.github_access.identity() {
@@ -300,7 +327,7 @@ impl ChannelRun {
             Err(()) => false,
         };
         let (saved, retained) = if auth_retained {
-            self.replays.0.insert(&cursor, seed)
+            self.replays.0.insert(cursor, seed)
         } else {
             (Arc::new(seed), false)
         };
@@ -319,7 +346,9 @@ impl ChannelRun {
                 }
             });
             *outcome = stage::respond(stage, saved.remaining.clone(), None, context)?
+                .result
                 .map_err(|_| ExecutionError::WorkerFailed)?;
+            *next = None;
         }
         Ok(())
     }

@@ -80,7 +80,7 @@ impl DiscoveryWalk<'_> {
         let known = self
             .parents
             .read()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(parent)
             .map(|parent_real| parent_real.as_ref().map(|real| real.join(name)));
         let real = match known {
@@ -90,7 +90,7 @@ impl DiscoveryWalk<'_> {
                 let real = parent_real.as_ref().map(|real| real.join(name));
                 self.parents
                     .write()
-                    .unwrap_or_else(|error| error.into_inner())
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .insert(parent.to_path_buf(), parent_real);
                 real
             }

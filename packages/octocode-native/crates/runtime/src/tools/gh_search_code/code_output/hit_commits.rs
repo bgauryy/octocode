@@ -1,7 +1,7 @@
 //! The commits a page's hits are read at, and the line hits read there.
 use super::reads_lines;
 use crate::security::scan::ContentScan;
-use crate::tools::gh_search_code::GhSearchCodeQuery;
+use octocode_contract_types::GhSearchCodeQuery;
 use octocode_github::{CodeSearchItem, ProviderError};
 use octocode_github::{ProviderErrorKind, RequestContext};
 use serde_json::{Value, json};
@@ -281,7 +281,11 @@ async fn read_groups(
     context: &RequestContext,
     security: &(impl ContentScan + Sync),
 ) -> Result<Resolution, ProviderError> {
-    let goal = query.main_goal.as_ref().map_or("", |goal| goal.as_str());
+    let keywords = query
+        .keywords
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
     // Per group: the distinct paths read, and for each row the read it shares.
     let plans = groups
         .iter()
@@ -310,16 +314,7 @@ async fn read_groups(
         .zip(&plans)
         .map(|(((owner, repo, sha), _), (paths, _))| {
             crate::tools::gh_search_code::lines::resolve_files(
-                provider,
-                owner,
-                repo,
-                sha,
-                paths,
-                &query.keywords,
-                // Without a mainGoal the keywords alone pick the best hit.
-                goal,
-                context,
-                security,
+                provider, owner, repo, sha, paths, &keywords, "", context, security,
             )
         });
     let resolved = futures_util::future::join_all(reads).await;

@@ -153,7 +153,7 @@ async fn searches_without_line_reads_resolve_no_commit() {
     let provider = one_shot_provider(&server);
     let context = default_context();
     for row in [
-        json!({"owner":"a","repo":"b","keywords":["app"],"matchIn":"path"}),
+        json!({"owner":"a","repo":"b","keywords":["app"],"matchIn":["path"]}),
         json!({"owner":"a","repo":"b","keywords":["app"],"fields":["path"]}),
     ] {
         let query: GhSearchCodeQuery = serde_json::from_value(row).expect("query");
@@ -205,7 +205,7 @@ async fn path_only_rows_name_their_indexed_commit() {
     let context = default_context();
     let search = |keyword: &str| -> GhSearchCodeQuery {
         serde_json::from_value(
-            json!({"owner":"a","repo":"b","keywords":[keyword],"matchIn":"path"}),
+            json!({"owner":"a","repo":"b","keywords":[keyword],"matchIn":["path"]}),
         )
         .expect("query")
     };

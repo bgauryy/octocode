@@ -77,13 +77,20 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
         ]),
         "{nested}"
     );
-    assert!(quiet["next"].get("includeSkipped").is_none(), "{quiet}");
+    assert!(
+        !quiet["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "localSearch"),
+        "{quiet}"
+    );
     // They are no evidence, so the row stays whole, but the lead reaches
     // into each of them.
     assert!(nested.get("isPartial").is_none(), "{nested}");
     assert!(nested.get("partialReasons").is_none(), "{nested}");
     let lead_paths = |row: &Value| {
-        row["next"]["includeSkipped"]["query"]["queries"]
+        crate::tools::test_support::checks::related_call(row, "localSearch", |_| true)["input"]["queries"]
             .as_array()
             .expect("leads")
             .iter()
@@ -120,7 +127,11 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
         json!([IGNORED_REASON]),
         "{unfinished}"
     );
-    let lead = &unfinished["next"]["includeSkipped"]["query"]["queries"][0];
+    let lead = &crate::tools::test_support::checks::related_call(
+        &unfinished,
+        "localSearch",
+        |_| true,
+    )["input"]["queries"][0];
     assert_eq!(lead["path"], "/r", "{unfinished}");
     assert_eq!(lead["includeIgnored"], true, "{unfinished}");
     assert_eq!(
@@ -137,7 +148,9 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
     });
     assert!(copies.get("isPartial").is_none(), "{copies}");
     assert_eq!(
-        copies["next"]["includeSkipped"]["query"]["queries"][0]["path"], "/r/releases/copy.mjs",
+        crate::tools::test_support::checks::related_call(&copies, "localSearch", |_| true)["input"]
+            ["queries"][0]["path"],
+        "/r/releases/copy.mjs",
         "{copies}"
     );
 
@@ -168,7 +181,11 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
         [json!("/r/gen/g.ts"), json!("/r")],
         "{hidden}"
     );
-    let past_stop = &hidden["next"]["includeSkipped"]["query"]["queries"][1];
+    let past_stop = &crate::tools::test_support::checks::related_call(
+        &hidden,
+        "localSearch",
+        |_| true,
+    )["input"]["queries"][1];
     assert_eq!(past_stop["include"], json!(["*.ts"]), "{hidden}");
     // Undecided files and nested repositories are named the same way.
     let hidden_unchecked = annotate(IgnoredMentions {
@@ -205,7 +222,9 @@ fn ignored_importers_or_an_unfinished_scan_make_the_row_partial() {
         warning.contains("1 imports it and 1 could not be checked"),
         "{undecided}"
     );
-    let leads = undecided["next"]["includeSkipped"]["query"]["queries"]
+    let leads = crate::tools::test_support::checks::related_call(&undecided, "localSearch", |_| {
+        true
+    })["input"]["queries"]
         .as_array()
         .expect("leads")
         .iter()
@@ -244,6 +263,7 @@ async fn ignored_files_the_check_cannot_decide_stay_unchecked() {
         &policy,
         &crate::execution::cancel::NeverCancel,
         "x",
+        None,
     )
     .await
     .expect("check");

@@ -1,51 +1,30 @@
 //! Walks over oversized lines reach every byte once, in byte pages.
 
 use super::*;
+use octocode_contract_types::{ReadProgressUnit, ReadView};
 
-/// A long-line source's default window is bounded by bytes, with the
-/// full window one continuation away.
+/// Default matching selects complete hit lines, with no implicit context.
 #[test]
-fn minified_default_window_is_byte_bounded() {
-    let t = Fixture::new();
-    let p = t.0.join("lodash.min.js");
-    let text: String = (1..=140)
-        .map(|n| {
-            let tag = if n == 126 { "HIT" } else { "abc" };
-            format!("var v{n:03}={tag};{}\n", "x".repeat(505))
-        })
-        .collect();
-    fs::write(&p, &text).expect("fixture");
-    let result = fetch(
-        &qj(&p, serde_json::json!({"matchString": "HIT"})),
-        &Paths(t.0.clone()),
-    );
-    let content = result.content.clone().expect("content");
-    assert!(content.len() <= 2600, "{} bytes", content.len());
-    assert!(content.contains("var v126=HIT;"), "{content}");
-    let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let window = crate::id::DEFAULT_READ_CONTEXT_LINES;
-    assert_eq!(
-        next["expandContext"]["query"]["queries"][0]["contextLines"], window,
-        "{next}"
-    );
-    // Short-line sources keep the full default window and no lead.
-    let short = t.0.join("a.txt");
-    fs::write(&short, numbered(40).replace("l20\n", "l20 HIT\n")).expect("fixture");
-    let plain = fetch(
-        &qj(&short, serde_json::json!({"matchString": "HIT"})),
-        &Paths(t.0.clone()),
-    );
-    assert!(
-        plain
-            .next
-            .as_ref()
-            .is_none_or(|next| next.expand_context.is_none()),
-        "{plain:?}"
-    );
-    assert_eq!(
-        plain.content.expect("content").lines().count(),
-        2 * window + 1
-    );
+fn default_match_context_is_zero_for_long_and_short_lines() {
+    let fixture = Fixture::new();
+    let paths = Paths(fixture.0.clone());
+    for width in [3, 505] {
+        let hit = format!("HIT {}\n", "x".repeat(width));
+        let path = fixture.write(
+            &format!("line-{width}.txt"),
+            format!("before\n{hit}after\n"),
+        );
+        let result = fetch(
+            &qj(&path, serde_json::json!({"matchString":["HIT"]})),
+            &paths,
+        );
+        assert_eq!(result.content.as_deref(), Some(hit.as_str()));
+        assert_eq!(
+            result.source_line_ranges,
+            vec![LineRange { start: 2, end: 2 }]
+        );
+        assert!(result.next.is_none());
+    }
 }
 
 /// A `unit:"lines"` walk over a file holding one line longer
@@ -69,7 +48,7 @@ fn line_walk_over_an_oversized_line_covers_every_byte_once() {
     }
     let total_lines = long_line + 11;
     fs::write(&file, &source).expect("fixture");
-    let mut query = qj(&file, serde_json::json!({"unit": "lines", "length": 400}));
+    let mut query = qj(&file, serde_json::json!({}));
     let (mut text, mut last_line, mut byte_pages, mut pages) = (String::new(), 0, 0, 0);
     loop {
         let page = fetch(&query, &paths);
@@ -79,7 +58,7 @@ fn line_walk_over_an_oversized_line_covers_every_byte_once() {
         let wire = serde_json::to_value(&page).expect("serializable");
         let content = page.content.clone().unwrap_or_default();
         let unit = page.pagination.as_ref().map(|p| p.unit);
-        if unit == Some(WindowUnit::Bytes) {
+        if unit == Some(ReadProgressUnit::Bytes) {
             byte_pages += 1;
             assert_eq!(
                 wire["sourceLineRanges"],
@@ -148,9 +127,10 @@ fn selected_line_walk_keeps_byte_fallback_and_every_source_byte() {
         executor.handle().clone(),
         Duration::from_secs(10),
     );
-    let mut query = qj(&file, serde_json::json!({"unit":"lines","length":400}));
-    query.clasify_context = Some(
-        serde_json::from_value(serde_json::json!({"classifiers":["find CSS"]})).expect("context"),
+    let mut query = qj(&file, serde_json::json!({}));
+    amend(
+        &mut query,
+        serde_json::json!({"classification":serde_json::json!({"predicates":["find CSS"]})}),
     );
     let (mut text, mut units, mut pages) = (String::new(), Vec::new(), 0);
     loop {
@@ -172,12 +152,12 @@ fn selected_line_walk_keeps_byte_fallback_and_every_source_byte() {
     assert!(
         units
             .windows(2)
-            .any(|pair| pair == [Some(WindowUnit::Lines), Some(WindowUnit::Bytes)])
+            .any(|pair| pair == [Some(ReadProgressUnit::Lines), Some(ReadProgressUnit::Bytes)])
     );
     assert!(
         units
             .windows(2)
-            .any(|pair| pair == [Some(WindowUnit::Bytes), Some(WindowUnit::Lines)])
+            .any(|pair| pair == [Some(ReadProgressUnit::Bytes), Some(ReadProgressUnit::Lines)])
     );
     assert_eq!(
         text, source,
@@ -236,9 +216,12 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
     }
     fs::write(&file, &source).expect("fixture");
     let mut query = q(&file);
-    query.full_content = Some(true);
+
     // The standard view: every line carries its source number (`N\t`).
-    query.minify = Some(MinifyMode::Standard);
+    amend(
+        &mut query,
+        serde_json::json!({"view":Some(ReadView::Compact)}),
+    );
     let mut pages = Vec::new();
     loop {
         let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(20_000), None);
@@ -258,7 +241,7 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
     for page in &pages {
         let content = page.content.clone().unwrap_or_default();
         let unit = page.pagination.as_ref().map(|p| p.unit);
-        if unit == Some(WindowUnit::Lines) {
+        if unit == Some(ReadProgressUnit::Lines) {
             for line in content.lines() {
                 let (number, _) = line.split_once('\t').expect("numbered line");
                 let number: usize = number.parse().expect("number");

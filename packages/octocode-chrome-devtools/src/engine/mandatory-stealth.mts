@@ -1,6 +1,8 @@
 /**
  * Opt-in browser emulation for CDP runs. Native browser settings are the default.
  */
+import type { Payload } from './cdp-connection.mjs';
+import type { StealthSession } from './stealth-session.mjs';
 import { applyStealthPatches, verifyStealth } from './undercover.mjs';
 
 export function stealthEnabled() {
@@ -8,7 +10,7 @@ export function stealthEnabled() {
   return process.env.CDP_STEALTH === '1' && v !== '1' && v !== 'true';
 }
 
-export function isAboutOrDataUrl(url) {
+export function isAboutOrDataUrl(url: string | null | undefined) {
   if (!url) return true;
   return (
     url === 'about:blank' || url.startsWith('about:') || url.startsWith('data:')
@@ -16,8 +18,8 @@ export function isAboutOrDataUrl(url) {
 }
 
 export async function applyMandatoryStealth(
-  cdp,
-  opts: Record<string, any> = {}
+  cdp: StealthSession,
+  opts: { navigateUrl?: string } = {}
 ) {
   if (!stealthEnabled()) {
     console.log('[FINDING] STEALTH_SKIPPED CDP_NO_STEALTH is set');
@@ -42,7 +44,7 @@ export async function applyMandatoryStealth(
       expression: 'location.href',
       returnByValue: true,
     })
-    .then(r => String(r?.result?.value ?? ''))
+    .then((r: Payload) => String(r?.result?.value ?? ''))
     .catch(() => '');
   if (opts.navigateUrl || (href && isAboutOrDataUrl(href))) {
     // The runner navigates next, or the document was never fetched.
@@ -74,10 +76,9 @@ export async function applyMandatoryStealth(
   return result;
 }
 
-async function reloadAndWait(cdp, timeoutMs = 15000) {
-  let done;
-  const loaded = new Promise<void>(r => (done = r));
-  const onLoad = (_params, meta) => {
+async function reloadAndWait(cdp: StealthSession, timeoutMs = 15000) {
+  const { promise: loaded, resolve: done } = Promise.withResolvers<void>();
+  const onLoad = (_params: Payload, meta?: { sessionId?: string }) => {
     if (!meta?.sessionId) done();
   };
   cdp.on('Page.loadEventFired', onLoad);

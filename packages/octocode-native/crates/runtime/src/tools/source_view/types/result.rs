@@ -1,6 +1,6 @@
 //! The read result and its wire form.
-use super::{DeclaredBlock, LineRange, MinifyFallback, NextCalls, Pagination, PartialReason};
-use octocode_contract_types::{ErrorCode, MinifyMode, WindowUnit};
+use super::{DeclaredBlock, LineRange, NextCalls, Pagination, PartialReason, ViewFallback};
+use octocode_contract_types::{ErrorCode, ReadProgressUnit, ReadView};
 use serde::Serialize;
 
 /// What a read produced; the row's wire `status` is its [`Self::row_status`].
@@ -33,8 +33,8 @@ pub struct LocalFetchResult {
     pub source_sha256: Option<String>,
     pub content: Option<String>,
     pub selection: Option<octocode_contract_types::Selection>,
-    pub content_view: Option<MinifyMode>,
-    pub minify_fallback: Option<MinifyFallback>,
+    pub view: Option<ReadView>,
+    pub view_fallback: Option<ViewFallback>,
     pub error_code: Option<ErrorCode>,
     pub error: Option<String>,
     pub warnings: Vec<String>,
@@ -75,8 +75,8 @@ impl LocalFetchResult {
             source_sha256: None,
             content: None,
             selection: None,
-            content_view: None,
-            minify_fallback: None,
+            view: None,
+            view_fallback: None,
             error_code: None,
             error: None,
             warnings: vec![],
@@ -186,13 +186,13 @@ impl Serialize for PaginationWire<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let page = self.page;
         let (unit, total) = match page.unit {
-            WindowUnit::Lines => ("lines", page.total_lines),
-            WindowUnit::Bytes => ("bytes", page.total_bytes),
+            ReadProgressUnit::Lines => ("lines", page.total_lines),
+            ReadProgressUnit::Bytes => ("bytes", page.total_bytes),
         };
         let mut facts =
             crate::response::pages::SpanFacts::window(unit, page.offset, page.length, total)
                 .out_of_range(self.out_of_range);
-        if page.unit == WindowUnit::Lines && self.source_lines == Some(total) {
+        if page.unit == ReadProgressUnit::Lines && self.source_lines == Some(total) {
             facts = facts.without_total();
         }
         let block = facts.to_value();
@@ -249,14 +249,12 @@ impl LocalFetchResult {
                 &crate::tools::match_keys::MatchKeys(&self.match_keys),
             )?;
         }
-        // A stats field: `matchedLines` is a details field, so neither
-        // implies the other once extras project the row.
+        // A source match can cover several lines; its count is distinct.
         opt(map, "selectedMatchCount", &self.selected_match_count)?;
         Ok(())
     }
 
-    /// Explanation counters: the contract classes them verbose, so the
-    /// response keeps them only with `extras: ["stats"]`.
+    /// Source and returned-size measurements when the reader computed them.
     fn serialize_counters<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
         opt(map, "modified", &self.modified)?;
         opt(map, "sourceChars", &self.source_chars)?;
@@ -277,8 +275,8 @@ impl Serialize for LocalFetchResult {
         opt(&mut map, "content", &self.content)?;
         opt(&mut map, "selection", &self.selection)?;
         // The file as is is the default view; only a transformed view is news.
-        opt(&mut map, "contentView", &self.content_view)?;
-        opt(&mut map, "minifyFallback", &self.minify_fallback)?;
+        opt(&mut map, "view", &self.view)?;
+        opt(&mut map, "viewFallback", &self.view_fallback)?;
         opt(&mut map, "errorCode", &self.error_code)?;
         opt(&mut map, "error", &self.error)?;
         list(&mut map, "warnings", &self.warnings)?;
@@ -286,8 +284,7 @@ impl Serialize for LocalFetchResult {
         self.serialize_anchors(&mut map)?;
         list(&mut map, "blocks", &self.blocks)?;
         self.serialize_counters(&mut map)?;
-        // Always stated: the response stage keeps the block only where it
-        // routes (`rows::walks_on`) or the caller asked for `extras: ["echo"]`.
+        // Preserve the reader's pagination facts on every page.
         if let Some(page) = &self.pagination {
             map.serialize_entry(
                 "pagination",
@@ -301,7 +298,12 @@ impl Serialize for LocalFetchResult {
         opt(&mut map, "isPartial", &self.is_partial)?;
         list(&mut map, "partialReasons", &self.partial_reasons)?;
         opt(&mut map, "terminalLimit", &self.terminal_limit)?;
-        opt(&mut map, "next", &self.next)?;
+        let calls =
+            crate::response::result::serialize_calls(&self.next, serde_json::value::Serializer)
+                .map_err(serde::ser::Error::custom)?;
+        for (channel, value) in calls.as_object().into_iter().flatten() {
+            map.serialize_entry(channel, value)?;
+        }
         map.end()
     }
 }

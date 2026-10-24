@@ -96,7 +96,7 @@ fn an_empty_listing_whose_probe_timed_out_still_leads_to_skipped_paths() {
         json!(["skippedPathsUnchecked"]),
         "{out}"
     );
-    let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
+    let retry = &out["calls"]["includeSkipped"]["input"]["queries"][0];
     assert_eq!(retry["defaultExcludes"], false, "{out}");
     assert!(retry.get("page").is_none(), "a fresh first page: {out}");
     assert!(retry.get("includeIgnored").is_none(), "{out}");
@@ -146,7 +146,7 @@ fn an_unproven_lead_over_ignored_paths_lifts_the_default_prune() {
         hint.starts_with("Skipped paths (ignored; default-excluded)"),
         "{out}"
     );
-    let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
+    let retry = &out["calls"]["includeSkipped"]["input"]["queries"][0];
     assert_eq!(retry["includeIgnored"], true, "{out}");
     assert_eq!(retry["defaultExcludes"], false, "{out}");
     assert!(retry.get("includeHidden").is_none(), "{out}");

@@ -25,7 +25,7 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
     };
     let out = run(
         &root.0,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0,"includeHidden":true}),
+        json!({"operation":"tree","path":root.0,"includeHidden":true}),
     )
     .expect("tree");
     assert_eq!(names(&out), [".gitignore", "main.rs"], "{out}");
@@ -37,7 +37,7 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
     crate::tools::test_support::checks::assert_absent(&files, ".git/");
     let all = run(
         &root.0,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0,"includeHidden":true,"includeIgnored":true}),
+        json!({"operation":"tree","path":root.0,"includeHidden":true,"includeIgnored":true}),
     )
     .expect("tree");
     assert_eq!(
@@ -46,11 +46,7 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
         "{all}"
     );
     // Without `hidden`, dot entries are out of view and not counted.
-    let plain = run(
-        &root.0,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0}),
-    )
-    .expect("tree");
+    let plain = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
     crate::tools::test_support::checks::assert_absent(&plain, "withheld");
 }
 
@@ -82,10 +78,10 @@ fn files_follows_gitignore_and_prunes_ignored_directories() {
     };
     let out = run(
         &root.0,
-        json!({"operation":"files","mainGoal":"test","reasoning":"test","path":root.0,"include":["package.json","*.node"]}),
+        json!({"operation":"files","path":root.0,"include":["package.json","*.node"]}),
     )
     .expect("files");
-    let base = root.0.file_name().unwrap().to_string_lossy().into_owned();
+    let base = ".";
     assert_eq!(
         paths(&out),
         [
@@ -96,7 +92,7 @@ fn files_follows_gitignore_and_prunes_ignored_directories() {
     );
     let all = run(
         &root.0,
-        json!({"operation":"files","mainGoal":"test","reasoning":"test","path":root.0,"include":["package.json","*.node"],"includeIgnored":true}),
+        json!({"operation":"files","path":root.0,"include":["package.json","*.node"],"includeIgnored":true}),
     )
     .expect("files");
     assert_eq!(paths(&all).len(), 4, "{all}");
@@ -115,11 +111,7 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
     std::fs::write(root.0.join("repos/notes.txt"), "x\n").expect("file");
     let repos = root.0.join("repos");
 
-    let tree = run(
-        &root.0,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":repos}),
-    )
-    .expect("tree");
+    let tree = run(&root.0, json!({"operation":"tree","path":repos})).expect("tree");
     assert_eq!(tree["status"], "empty", "{tree}");
     // The lead is the next step; the finding is one hint, the summary has the counts.
     assert_eq!(tree["hints"].as_array().map(Vec::len), Some(1), "{tree}");
@@ -129,17 +121,17 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
             .is_some_and(|h| h.contains("repos/*")),
         "{tree}"
     );
-    let retry = &tree["next"]["includeSkipped"];
+    let retry = &related(&tree, "structureSearch");
     assert_eq!(retry["tool"], "structureSearch", "{tree}");
     assert_eq!(
-        retry["query"]["queries"][0]["includeIgnored"], true,
+        retry["input"]["queries"][0]["includeIgnored"], true,
         "{tree}"
     );
     assert!(
-        retry["query"]["queries"][0].get("snapshot").is_none(),
+        retry["input"]["queries"][0].get("snapshot").is_none(),
         "{tree}"
     );
-    let retried = run(&root.0, retry["query"]["queries"][0].clone()).expect("retry");
+    let retried = run(&root.0, retry["input"]["queries"][0].clone()).expect("retry");
     assert!(
         retried["files"]
             .as_array()
@@ -149,18 +141,18 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
 
     let files = run(
         &root.0,
-        json!({"operation":"files","mainGoal":"test","reasoning":"test","path":repos,"extensions":["java"]}),
+        json!({"operation":"files","path":repos,"extensions":["java"]}),
     )
     .expect("files");
     assert_eq!(files["status"], "empty", "{files}");
     assert_eq!(files["hints"].as_array().map(Vec::len), Some(1), "{files}");
     assert!(skipped_count(&files, "ignored") > 0, "{files}");
-    let retry = &files["next"]["includeSkipped"];
+    let retry = &related(&files, "structureSearch");
     assert_eq!(
-        retry["query"]["queries"][0]["includeIgnored"], true,
+        retry["input"]["queries"][0]["includeIgnored"], true,
         "{files}"
     );
-    let found = run(&root.0, retry["query"]["queries"][0].clone()).expect("retry");
+    let found = run(&root.0, retry["input"]["queries"][0].clone()).expect("retry");
     assert_eq!(listed(&found).len(), 1, "{found}");
 }
 
@@ -174,13 +166,13 @@ fn empty_listing_without_ignored_entries_offers_no_ignore_retry() {
     std::fs::create_dir_all(root.0.join("empty")).expect("dir");
     let empty = root.0.join("empty");
     for query in [
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":empty}),
-        json!({"operation":"files","mainGoal":"test","reasoning":"test","path":empty,"extensions":["java"]}),
+        json!({"operation":"tree","path":empty}),
+        json!({"operation":"files","path":empty,"extensions":["java"]}),
     ] {
         let out = run(&root.0, query).expect("listing");
         assert_eq!(out["status"], "empty", "{out}");
         assert!(out.get("hints").is_none(), "{out}");
-        assert!(out["next"].get("includeSkipped").is_none(), "{out}");
+        assert!(related(&out, "structureSearch").is_null(), "{out}");
     }
 }
 
@@ -197,7 +189,7 @@ fn tree_summary_counts_gitignored_entries_it_left_out() {
     std::fs::write(root.0.join("repos/README.md"), "# repos\n").expect("file");
     let out = run(
         &root.0,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0.join("repos")}),
+        json!({"operation":"tree","path":root.0.join("repos")}),
     )
     .expect("tree");
     assert_eq!(out["files"].as_array().map(Vec::len), Some(1), "{out}");
@@ -205,7 +197,7 @@ fn tree_summary_counts_gitignored_entries_it_left_out() {
     assert!(out.get("hints").is_none(), "{out}");
     let all = run(
         &root.0,
-        json!({"operation":"tree","mainGoal":"test","reasoning":"test","path":root.0.join("repos"),"includeIgnored":true}),
+        json!({"operation":"tree","path":root.0.join("repos"),"includeIgnored":true}),
     )
     .expect("tree");
     assert_eq!(skipped_count(&all, "ignored"), 0, "{all}");
@@ -233,7 +225,7 @@ fn an_unfiltered_listing_lead_lifts_every_counted_cause() {
         .expect("listing");
         assert!(skipped_count(&out, "ignored") > 0, "{out}");
         assert!(skipped_count(&out, "hidden") > 0, "{out}");
-        let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
+        let lead = related(&out, "structureSearch")["input"]["queries"][0].clone();
         assert_eq!(lead["includeIgnored"], true, "{out}");
         assert_eq!(lead["includeHidden"], true, "{out}");
         let all = run(&root.0, lead).expect("lead");
@@ -276,7 +268,7 @@ fn include_hidden_alone_lists_hidden_directories_and_leads_to_the_ignored_ones()
         assert!(!listing.contains("scratch.md"), "{operation}: {out}");
         assert_eq!(skipped_count(&out, "ignored"), 1, "{operation}: {out}");
         assert_eq!(skipped_count(&out, "hidden"), 0, "{operation}: {out}");
-        let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
+        let lead = related(&out, "structureSearch")["input"]["queries"][0].clone();
         assert_eq!(lead["includeIgnored"], true, "{operation}: {out}");
         assert!(lead.get("defaultExcludes").is_none(), "{operation}: {out}");
         let all = run(&root.0, lead).expect("lead");
@@ -287,7 +279,7 @@ fn include_hidden_alone_lists_hidden_directories_and_leads_to_the_ignored_ones()
 /// A path-ordered listing is the walk order, so the walk stops once the
 /// requested limit is filled instead of scanning the whole tree.
 #[test]
-fn path_sorted_listing_stops_walking_at_the_limit() {
+fn traversal_sorted_listing_stops_walking_at_the_limit() {
     let root = Fixture::new();
     for dir in ["a", "a-b", "b"] {
         std::fs::create_dir_all(root.0.join(dir)).expect("dir");
@@ -296,14 +288,14 @@ fn path_sorted_listing_stops_walking_at_the_limit() {
         }
     }
     let listing = |limit: Option<u32>| {
-        let mut query = json!({"operation":"files","mainGoal":"test","reasoning":"test","path":root.0,"extensions":["go"],"sort":"path"});
+        let mut query = json!({"operation":"files","path":root.0,"extensions":["go"],"sort":{"by":"traversal","order":"asc"}});
         if let Some(limit) = limit {
             query["maxEntries"] = json!(limit);
         }
         run(&root.0, query).expect("files")
     };
     let full = listing(None);
-    let prefix = format!("{}/", root.0.file_name().unwrap().to_string_lossy());
+    let prefix = "./".to_owned();
     let names = |out: &Value| {
         listed(out)
             .iter()
@@ -328,7 +320,7 @@ fn path_sorted_listing_stops_walking_at_the_limit() {
     assert_eq!(cut["atLeast"], 4, "{cut}");
     assert!(cut.get("terminalLimit").is_none(), "{cut}");
     assert_eq!(
-        cut["next"]["continueWalk"]["query"]["queries"][0]["maxEntries"], 6,
+        cut["next"]["continueWalk"]["input"]["queries"][0]["maxEntries"], 6,
         "{cut}"
     );
 }
@@ -345,17 +337,13 @@ fn tree_filters_names_and_files_lists_ignored_entries_on_request() {
     std::fs::write(root.0.join("gen.rs"), "x\n").expect("gen");
     let tree = run(
         &root.0,
-        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"include":["*_test.rs"]}),
+        json!({"operation":"tree","path":root.0,"include":["*_test.rs"]}),
     )
     .expect("tree");
-    assert_eq!(
-        tree["files"],
-        json!([{"dir":".","files":["a_test.rs (2)"]}]),
-        "{tree}"
-    );
-    let prefix = format!("{}/", root.0.file_name().unwrap().to_string_lossy());
+    assert_eq!(paths(&tree), ["./a_test.rs"], "{tree}");
+    let prefix = "./".to_owned();
     let files = |extra: Value| {
-        let mut query = json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"extensions":["rs"]});
+        let mut query = json!({"operation":"files","path":root.0,"extensions":["rs"]});
         query
             .as_object_mut()
             .expect("query")

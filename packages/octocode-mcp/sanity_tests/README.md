@@ -7,19 +7,19 @@ tool when changing the response/pagination layer or shipping a release.
 Run a built tool directly from the repository root:
 
 ```bash
-node packages/octocode/out/octocode.js <toolName> '<query-or-queries-envelope-json>'
+node packages/octocode/out/octocode.js <toolName> '{"queries":[…]}'
 ```
 
 ## Automated coverage (NOT here — lives under `tests/`)
 
-These run with `npx vitest run` and gate every change:
+These gate every change:
 
 | Concern | Test |
 |---|---|
-| Per-tool pagination declarations and no-silent-loss language | `packages/octocode-mcp/tests/tools/all-tools.pagination-contract.test.ts` |
-| Bulk-envelope numeric bounds (`responseOffset`/`responseLength`, ≤5 queries) | `packages/octocode-mcp/tests/scheme/bulk_envelope_bounds.test.ts` |
-| Native catalog registration and execution boundary | `packages/octocode-mcp/tests/native/node-boundary.mjs` |
-| Shared pagination engine and result continuations | `packages/octocode-native/crates/runtime/src/response/pager.rs`, `packages/octocode-native/crates/runtime/src/response/rows.rs` |
+| Per-tool pagination declarations, schema bounds and no-silent-loss wording | core schema tests (`octocode-core`, `src/__tests__/`) |
+| Launcher start-up, delegation and failure exits | `packages/octocode-mcp/tests/launcher/` |
+| Native response pagination over stdio (`yarn test:boundary`) | `packages/octocode-benchmark/local/e2e/harness/transport.mjs` |
+| Shared pagination engine and result continuations | `packages/octocode-native/crates/runtime/src/response/row_pages`, `packages/octocode-native/crates/runtime/src/response/rows.rs` |
 | GitHub file and history pagination axes | `packages/octocode-native/crates/runtime/src/tools/gh_get_file_content`, `packages/octocode-native/crates/runtime/src/tools/gh_get_history_item` |
 | Package and topology executable page unions | `packages/octocode-native/crates/runtime/src/tools/artifact_search`, `packages/octocode-native/crates/runtime/src/tools/ast_graph` |
 

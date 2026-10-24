@@ -1,6 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ALLOW_ONCE, DENY, DENY_NOTE, NOTE_TITLE, sessionOption } from '../src/permission/dialog.js';
 import { AUDIT_NOTIFY_PREFIX, CHILD_AUDIT_CAP } from '../src/permission/audit.js';
 import { permissionHeader } from '../src/permission/header.js';
@@ -13,25 +12,10 @@ import type { Identity } from '../src/subagents/launch.js';
 import { RELAY_LIMIT_NOTE, type RelayHost } from '../src/subagents/relay.js';
 import { fakePermission, fakePi } from './fake-pi.js';
 import { tmp } from './helpers.js';
+import { useScriptedPi } from './subagent-tool-harness.js';
 
-const FIXTURE = path.join(path.dirname(new URL(import.meta.url).pathname), 'subagent-fake-pi.cjs');
-const savedArgv = process.argv[1];
-const savedEnv = { ...process.env };
 
-beforeAll(() => {
-  const root = tmp('octocode-agent-relay-');
-  for (const key of Object.keys(process.env)) if (key.startsWith('OCTOCODE_')) delete process.env[key];
-  Object.assign(process.env, { OCTOCODE_HOME: path.join(root, 'home'), OCTOCODE_AGENT_DB: path.join(root, 'team.sqlite') });
-  const bin = path.join(root, 'bin');
-  fs.mkdirSync(bin);
-  fs.copyFileSync(FIXTURE, path.join(bin, 'pi'));
-  process.argv[1] = path.join(bin, 'pi');
-});
-
-afterAll(() => {
-  process.argv[1] = savedArgv!;
-  process.env = savedEnv;
-});
+useScriptedPi();
 
 const IDENTITY: Identity = { id: 'a-relay', role: 'implementer', goal: 'fix login', relay: true };
 const LABEL = 'Subagent a-relay · implementer · fix login asks:';

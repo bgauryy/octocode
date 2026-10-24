@@ -1,6 +1,7 @@
 //! Per-file linking: Cargo and entry setup, the per-file pass, language
 //! counts and fact diagnostics.
 use super::*;
+use octocode_engine::graph::{FileGraphNode, GraphFactsDocument};
 
 /// Whether Cargo linking was requested but has no manifest, and the
 /// workspace crates `cargo metadata` names (empty when unavailable).
@@ -48,7 +49,7 @@ pub(super) fn link_entry(
     marks: super::super::store::classify::SourceMarks,
 ) {
     let file = normalize(&entry.relative_path);
-    let parsed: RawFacts = entry.facts;
+    let parsed: GraphFactsDocument = entry.facts;
     if parsed.schema_version != octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION {
         built.files_skipped += 1;
         built.diagnostics.push(Diagnostic::new(
@@ -120,7 +121,7 @@ pub(super) fn link_file(
     b: &mut BuiltGraph,
     inputs: &LinkInputs,
     file: String,
-    p: RawFacts,
+    p: GraphFactsDocument,
     counts: BTreeMap<String, u32>,
 ) {
     let lang = Linker::of(&file);
@@ -142,7 +143,7 @@ pub(super) fn link_file(
         inputs,
         file,
         lang,
-        node: Node::default(),
+        node: FileGraphNode::default(),
         facts,
     };
     linker.declarations(&p.edges, p.declarations);
@@ -227,6 +228,6 @@ pub(super) struct FileLink<'x, 'g> {
     pub(super) inputs: &'x LinkInputs<'x>,
     pub(super) file: String,
     pub(super) lang: Linker,
-    pub(super) node: Node,
+    pub(super) node: FileGraphNode,
     pub(super) facts: FileFacts,
 }

@@ -9,9 +9,9 @@ use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use wiremock::MockServer;
 
-fn url_row(id: &str, url: &str) -> Value {
+fn url_row(url: &str) -> Value {
     json!({
-        "id": id,
+        "operation": "evaluate",
         "source": {"url": url},
         "questions": {"q": {"type":"noul","instructions":"Does the page say to restart?"}}
     })
@@ -29,8 +29,8 @@ async fn memory_storage_refuses_a_url_source_before_any_work() {
             capture_allowed(&workspace),
         ],
     );
-    let out = clasify(&runtime, vec![url_row("page", "https://127.0.0.1:9/guide")]).await;
-    let error = &out["queries"][0]["error"];
+    let out = clasify(&runtime, vec![url_row("https://127.0.0.1:9/guide")]).await;
+    let error = &out["results"][0]["data"];
     assert_eq!(
         error["errorCode"], "classificationContextUnavailable",
         "{out}"
@@ -42,7 +42,7 @@ async fn memory_storage_refuses_a_url_source_before_any_work() {
             .contains("persistent storage"),
         "{out}"
     );
-    assert!(out["queries"][0].get("answers").is_none());
+    assert!(out["results"][0]["data"].get("answers").is_none());
     assert_eq!(sent(&server).await.len(), 0);
     assert!(
         !workspace.home.join("tmp/capture").exists(),
@@ -60,7 +60,7 @@ async fn a_non_https_url_is_rejected_at_validation() {
         .run(
             "clasify-http".into(),
             "clasify".into(),
-            json!({"queries": [url_row("page", "http://docs.example.org/guide")]}),
+            json!({"queries": [url_row("http://docs.example.org/guide")]}),
         )
         .await
         .expect_err("the contract admits only https URLs");
@@ -85,7 +85,7 @@ async fn a_url_source_needs_local_fetch_to_read_its_capture_back() {
         .run(
             "clasify-no-reader".into(),
             "clasify".into(),
-            json!({"queries": [url_row("page", "https://docs.example.org/guide")]}),
+            json!({"queries": [url_row("https://docs.example.org/guide")]}),
         )
         .await
         .expect_err("rejected at validation");
@@ -113,7 +113,7 @@ async fn a_url_with_credentials_is_refused_before_any_work() {
         .run(
             "clasify-creds".into(),
             "clasify".into(),
-            json!({"queries": [url_row("creds", "https://user:hunter2@docs.example.org/guide")]}),
+            json!({"queries": [url_row("https://user:hunter2@docs.example.org/guide")]}),
         )
         .await
         .expect_err("a credential in the URL is refused");
@@ -133,22 +133,22 @@ async fn internal_addresses_are_refused_per_row() {
     let out = clasify(
         &runtime,
         vec![
-            url_row("loopback", "https://127.0.0.1:9/guide"),
-            url_row("localhost", "https://localhost:9/guide"),
-            url_row("metadata", "https://169.254.169.254/latest/meta-data/"),
-            url_row("private", "https://[fd00::1]:9/guide"),
+            url_row("https://127.0.0.1:9/guide"),
+            url_row("https://localhost:9/guide"),
+            url_row("https://169.254.169.254/latest/meta-data/"),
+            url_row("https://[fd00::1]:9/guide"),
         ],
     )
     .await;
-    let rows = out["queries"].as_array().unwrap();
+    let rows = out["results"].as_array().unwrap();
     assert_eq!(rows.len(), 4, "{out}");
     for row in rows {
         assert_eq!(
-            row["error"]["errorCode"], "securityValidationFailed",
+            row["data"]["errorCode"], "securityValidationFailed",
             "{}: {out}",
-            row["id"]
+            row["index"]
         );
-        assert!(row.get("answers").is_none());
+        assert!(row["data"].get("answers").is_none());
     }
     assert_eq!(sent(&server).await.len(), 0);
     let saved = std::fs::read_dir(workspace.home.join("tmp/capture/url"))

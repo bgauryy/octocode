@@ -94,8 +94,7 @@ fn warm_references_repeat_sends_no_requests_and_reads_each_file_once() {
     let path = root.join("a.ts").to_string_lossy().into_owned();
     let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
     let query = serde_json::from_value(json!({
-        "operation":"references", "mainGoal":"test", "reasoning":"test",
-        "path":uri, "symbolName":"foo", "line":1
+        "operation":"references", "path":uri, "symbolName":"foo", "line":1
     }))
     .expect("query");
     let requests = || {

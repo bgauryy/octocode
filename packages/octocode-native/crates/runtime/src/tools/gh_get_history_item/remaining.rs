@@ -44,7 +44,7 @@ pub(super) struct Remainder {
     items: BTreeMap<Axis, u64>,
     /// Files of the patch window not fully delivered.
     unfinished_patches: usize,
-    /// The `pageSize` that starts the next issue comment page at its first
+    /// The private `pageSize` that starts the next issue comment page at its first
     /// unshown comment.
     next_page_size: Option<usize>,
 }
@@ -154,7 +154,7 @@ mod tests {
     fn each_axis_words_what_its_page_leaves() {
         let mut remainder = Remainder::default();
         remainder.unfinished_patches(12);
-        let files = json!({"currentPage": 1, "pageSize": 30, "totalItems": 37, "hasMore": true});
+        let files = json!({"page": 1, "pageSize": 30, "totalItems": 37, "hasMore": true});
         assert_eq!(
             note(
                 &remainder,
@@ -186,7 +186,7 @@ mod tests {
             note(&Remainder::default(), "continueBody", Axis::Body, body).as_deref(),
             Some("2366 more body chars")
         );
-        let reviews = json!({"currentPage": 2, "pageSize": 10, "totalItems": 21, "hasMore": true});
+        let reviews = json!({"page": 2, "pageSize": 10, "totalItems": 21, "hasMore": true});
         assert_eq!(
             note(
                 &Remainder::default(),
@@ -197,7 +197,7 @@ mod tests {
             .as_deref(),
             Some("1 more review")
         );
-        let inline = json!({"currentPage": 1, "pageSize": 30, "totalItems": 600, "hasMore": true});
+        let inline = json!({"page": 1, "pageSize": 30, "totalItems": 600, "hasMore": true});
         assert_eq!(
             note(
                 &Remainder::default(),
@@ -211,7 +211,7 @@ mod tests {
         for (axis, entry) in [
             (
                 Axis::Comments,
-                json!({"hasMore": false, "totalItems": 9, "pageSize": 1, "currentPage": 1}),
+                json!({"hasMore": false, "totalItems": 9, "pageSize": 1, "page": 1}),
             ),
             (Axis::Comments, json!({"hasMore": true})),
             (Axis::Patches, json!({"hasMore": true})),
@@ -225,7 +225,7 @@ mod tests {
     }
 
     /// An issue's comment page counts the provider comments after it,
-    /// though its pages do not tile `currentPage × pageSize`.
+    /// though its pages do not tile `page × pageSize`.
     #[test]
     fn an_issue_comment_page_counts_the_provider_comments_left() {
         let mut remainder = Remainder::default();

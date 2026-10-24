@@ -31,12 +31,14 @@ export function validateFlags(
  * so `--page ""` falls back to the default instead of becoming NaN downstream.
  */
 export function flagArgs(argv: string[]) {
-  const getArg = (flag: string, def?: string) => {
+  function getArg(flag: string): string | undefined;
+  function getArg(flag: string, def: string): string;
+  function getArg(flag: string, def?: string): string | undefined {
     const i = argv.indexOf(flag);
-    return i !== -1 && argv[i + 1] ? argv[i + 1] : def;
-  };
+    return (i === -1 ? undefined : argv[i + 1]) || def;
+  }
   const hasFlag = (flag: string) => argv.includes(flag);
   /** A case-insensitive filter value: lowercase, empty when the flag is absent. */
-  const getLowerArg = (flag: string) => (getArg(flag, '') ?? '').toLowerCase();
+  const getLowerArg = (flag: string) => getArg(flag, '').toLowerCase();
   return { getArg, hasFlag, getLowerArg };
 }

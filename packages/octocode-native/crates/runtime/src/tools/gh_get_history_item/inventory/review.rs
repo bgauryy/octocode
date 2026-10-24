@@ -2,12 +2,13 @@
 //! packed into one call's patch budget.
 use super::missing_patch::is_binary_name;
 use crate::tools::gh_get_history_item::util::{str_at, usize_at};
+use octocode_engine::text::test_paths::is_test_path;
 use serde_json::Value;
 
 /// Review priority of a changed path: source first, then tests, then other
 /// files; docs, changesets, lockfiles, and generated output last.
 fn review_tier(path: &str) -> u8 {
-    use crate::content::{FileType, classify_file_type, is_test_path};
+    use crate::content::{FileType, classify_file_type};
     let lower = path.to_ascii_lowercase();
     let generated = lower.starts_with(".changeset/")
         || lower.contains("/.changeset/")
@@ -33,7 +34,7 @@ const REVIEW_FILE_CHARS: usize = 80;
 /// Files one review read names at most: one provider-sized patch page.
 const MAX_REVIEW_FILES: usize = 30;
 
-/// `next.readSelectedPatches`: the files whose patches answer "what changed" —
+/// Optional patch selection: the files whose patches answer "what changed" —
 /// source files first (then other non-test, non-doc files), most changed
 /// lines first — packed into one call's patch budget. Tests, docs,
 /// changesets, lockfiles and generated output are left to the inventory.

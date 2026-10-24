@@ -36,7 +36,7 @@ fn a_brief_free_local_search_row_runs() {
         .cli()
         .args([
             "localSearch",
-            &json!({"queries":[{"path":root,"matchString":"needle"}]}).to_string(),
+            &json!({"queries":[{"path":root,"matchString": ["needle"]}]}).to_string(),
         ])
         .output()
         .unwrap();

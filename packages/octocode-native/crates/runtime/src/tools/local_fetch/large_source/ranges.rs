@@ -5,8 +5,10 @@ use super::window::{Opened, serve_window, window_span};
 use super::{read_bounded, streamed_warning, unsupported};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
+use crate::tools::source_view::extraction::omission_marker;
+use crate::tools::source_view::local_fetch_query;
 use crate::tools::source_view::*;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
 /// Room an omission marker between two joined spans takes.
 const OMISSION_MARKER_CHARS: usize = 48;
@@ -36,18 +38,32 @@ pub(super) fn fetch_ranges(
         .iter()
         .map(|&(start, end)| {
             let mut one = q.clone();
-            local_fetch_query::set_line_span(&mut one, start, end);
+            local_fetch_query::set_line_span(&mut one, start, end)?;
             let span = window_span(&one);
-            (one, span)
+            Ok::<_, serde_json::Error>((one, span))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>();
+    let ones = match ones {
+        Ok(ones) => ones,
+        Err(error) => {
+            return LocalFetchResult::error(
+                local_fetch_query::path(q).to_owned(),
+                ErrorCode::ExecutionFailed,
+                error.to_string(),
+            );
+        }
+    };
     // One pass over the file holds every range's window: the digest and
     // line count are the file's, not the range's.
     let wants = ones.iter().map(|(_, span)| span.want()).collect::<Vec<_>>();
     let streamed = match source.windows(&wants, cancel) {
         Ok(streamed) => streamed,
         Err(error) => {
-            return LocalFetchResult::error(q.path.to_string(), ErrorCode::FileReadFailed, error);
+            return LocalFetchResult::error(
+                local_fetch_query::path(q).to_owned(),
+                ErrorCode::FileReadFailed,
+                error,
+            );
         }
     };
     let mut parts = Vec::with_capacity(merged.len());
@@ -99,12 +115,27 @@ pub(super) fn fetch_ranges(
         }
         if let Some(mut next) = part.next.take() {
             let after = &merged[index + 1..];
-            next.read_other_ranges = (!after.is_empty()).then(|| {
+            if !after.is_empty() {
                 let mut rest = q.clone();
-                local_fetch_query::set_line_spans(&mut rest, after);
-                rest.snapshot = part.source_sha256.as_deref().and_then(|d| d.parse().ok());
-                FetchCall { query: rest }
-            });
+                local_fetch_query::set_progress(&mut rest, None);
+                if let Err(error) = local_fetch_query::set_line_spans(&mut rest, after) {
+                    return LocalFetchResult::error(
+                        local_fetch_query::path(q).to_owned(),
+                        ErrorCode::ExecutionFailed,
+                        error.to_string(),
+                    );
+                }
+                if let Err(error) =
+                    local_fetch_query::set_snapshot(&mut rest, part.source_sha256.as_deref())
+                {
+                    return LocalFetchResult::error(
+                        local_fetch_query::path(q).to_owned(),
+                        ErrorCode::ExecutionFailed,
+                        error.to_string(),
+                    );
+                }
+                next.read_other_ranges = Some(FetchCall::continued(rest));
+            }
             cut = Some((start, end, next));
             parts.push(part);
             break;
@@ -115,7 +146,22 @@ pub(super) fn fetch_ranges(
     let Some(mut result) = parts.next() else {
         return unsupported(q, len, "no line range was requested.", read_bounded(q));
     };
-    let mut spans_served = served_span(&result).into_iter().collect::<Vec<_>>();
+    join_parts(&mut result, parts);
+    // Each window held its lines; one line says it for all.
+    result.warnings.insert(0, streamed_warning(len));
+    result.pagination = None;
+    if let Some((start, end, next)) = cut {
+        result
+            .warnings
+            .push(cut_note(start, end, next.read_other_ranges.is_some()));
+        result.is_partial = Some(true);
+        result.next = Some(next);
+    }
+    result
+}
+
+fn join_parts(result: &mut LocalFetchResult, parts: impl Iterator<Item = LocalFetchResult>) {
+    let mut spans_served = served_span(result).into_iter().collect::<Vec<_>>();
     for mut part in parts {
         let span = served_span(&part);
         let (Some(content), Some(next_content)) = (result.content.as_mut(), part.content.take())
@@ -155,17 +201,6 @@ pub(super) fn fetch_ranges(
         result.returned_bytes = add(result.returned_bytes, part.returned_bytes);
         result.returned_lines = add(result.returned_lines, part.returned_lines);
     }
-    // Each window held its lines; one line says it for all.
-    result.warnings.insert(0, streamed_warning(len));
-    result.pagination = None;
-    if let Some((start, end, next)) = cut {
-        result
-            .warnings
-            .push(cut_note(start, end, next.read_other_ranges.is_some()));
-        result.is_partial = Some(true);
-        result.next = Some(next);
-    }
-    result
 }
 
 /// The note of a ranges page that ends inside lines `start`-`end`, whose

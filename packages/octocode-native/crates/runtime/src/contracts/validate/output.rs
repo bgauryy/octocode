@@ -1,4 +1,4 @@
-use super::schema::validate_schema;
+use super::schema::{validate_read_only, validate_schema};
 use super::{ContractValidationError, contract_tool};
 use serde_json::Value;
 
@@ -10,7 +10,11 @@ pub fn validate_output(tool_name: &str, output: &Value) -> Result<(), ContractVa
     let (_, tool) = contract_tool(tool_name)?;
     let schema = &tool["outputSchema"];
     let mut candidate = output.clone();
-    validate_schema(schema, schema, &mut candidate, &mut Vec::new())?;
+    if declares_defaults(tool_name, schema) {
+        validate_schema(schema, schema, &mut candidate, &mut Vec::new())?;
+    } else {
+        validate_read_only(schema, schema, &mut candidate, &mut Vec::new())?;
+    }
     #[cfg(test)]
     undeclared_check(schema, &candidate)?;
     Ok(())
@@ -43,9 +47,9 @@ fn undeclared_check(schema: &Value, output: &Value) -> Result<(), ContractValida
 }
 
 /// [`validate_output`] without the copy when validation cannot change the
-/// output: the tool's output schema declares no defaults to insert. Every
-/// other schema step only reads (`not` probes and union branches validate
-/// their own copies), so the response stays byte-identical and is walked once.
+/// output: the tool's output schema declares no defaults to insert, so the
+/// read-only mode writes nothing (`not` probes and union branches check the
+/// response itself) and it stays byte-identical, walked once.
 pub(crate) fn validate_output_in_place(
     tool_name: &str,
     output: &mut Value,
@@ -55,7 +59,7 @@ pub(crate) fn validate_output_in_place(
     if declares_defaults(tool_name, schema) {
         return validate_output(tool_name, output);
     }
-    validate_schema(schema, schema, output, &mut Vec::new())?;
+    validate_read_only(schema, schema, output, &mut Vec::new())?;
     #[cfg(test)]
     undeclared_check(schema, output)?;
     Ok(())

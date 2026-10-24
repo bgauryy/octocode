@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::anchors::{AnchorFilter, Anchored};
 use super::{CompiledMatchers, unsupported_language};
-use crate::error::{Error, Result as EngineResult};
+use crate::error::{Error, Result};
 use crate::search::walk::Stop;
 use crate::signatures::languages;
 use crate::structural::octo::Found;
@@ -39,7 +39,7 @@ pub(super) struct FileScan<'a> {
 
 impl FileScan<'_> {
     /// Gate, read, and match one candidate. `None` when path policy denies it.
-    pub(super) fn file(&self, file_path: &Path) -> EngineResult<FileOutcome> {
+    pub(super) fn file(&self, file_path: &Path) -> Result<FileOutcome> {
         if (self.stop)() {
             return Err(Error::cancelled());
         }
@@ -249,7 +249,10 @@ pub(super) enum SourceSkip {
 /// A candidate's bytes through the one bounded reader: an oversized file is
 /// refused from its handle's size, never read whole. [`admit`] turns them
 /// into the text a parse sees.
-pub(super) fn read_source(path: &Path, max_file_bytes: u64) -> Result<Vec<u8>, SourceSkip> {
+pub(super) fn read_source(
+    path: &Path,
+    max_file_bytes: u64,
+) -> std::result::Result<Vec<u8>, SourceSkip> {
     match crate::text::read_source(path, max_file_bytes) {
         Ok(source) => Ok(source.bytes),
         Err(crate::text::ReadError::TooLarge(len)) => Err(SourceSkip::Large(len)),

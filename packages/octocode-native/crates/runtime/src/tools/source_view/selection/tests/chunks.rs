@@ -1,6 +1,7 @@
 //! Candidate chunks: declaration boundaries, line windows and source
 //! coordinates.
 use super::*;
+use octocode_contract_types::LocalFetchQuery;
 
 #[test]
 fn disjoint_spans_never_spend_candidate_slots_on_omission_markers() {
@@ -9,7 +10,7 @@ fn disjoint_spans_never_spend_candidate_slots_on_omission_markers() {
     let mut runtime = budget_runtime(executor.handle().clone(), calls);
     runtime.limits.max_candidates = 2;
     runtime.limits.max_chars = 20_000;
-    let query = json!({"clasifyContext":{"classifiers":["Find the selected source"]}});
+    let query = json!({"classification":{"predicates":["Find the selected source"]}});
     for width in [8, 2_047] {
         let text = format!(
             "{}\n{}{}\n",
@@ -61,7 +62,7 @@ fn disjoint_spans_never_spend_candidate_slots_on_omission_markers() {
 #[test]
 fn long_line_match_candidates_keep_original_source_coordinates() {
     use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::{LocalFetchQuery, SourceFacts};
+    use crate::tools::source_view::SourceFacts;
     let executor = tokio::runtime::Runtime::new().unwrap();
     let mut runtime = budget_runtime(executor.handle().clone(), Arc::new(AtomicUsize::new(0)));
     runtime.limits.max_chars = 20_000;
@@ -72,8 +73,8 @@ fn long_line_match_candidates_keep_original_source_coordinates() {
         "x".repeat(3_000)
     );
     let query: LocalFetchQuery = serde_json::from_value(json!({
-        "path":"source.txt", "matchString":"needle",
-        "clasifyContext":{"classifiers":["Find needle"]}
+        "path":"source.txt", "matchString":["needle"],
+        "classification":{"predicates":["Find needle"]}
     }))
     .unwrap();
     let extracted = crate::tools::source_view::extraction::extract(&query, &text)
@@ -132,19 +133,13 @@ fn long_line_match_candidates_keep_original_source_coordinates() {
         result.content.as_deref().unwrap().matches("needle").count(),
         2
     );
+    // One intact source line is one candidate even when it has several hits.
     runtime.limits.max_candidates = 1;
-    let partial = read(&query, &runtime);
-    assert_eq!(partial.selection.as_ref().unwrap().unknown_items, 1);
-    let recovery = partial.next.unwrap().unfiltered.unwrap().query;
-    assert!(recovery.clasify_context.is_none());
-    let unfiltered = read(&recovery, &runtime);
-    assert_eq!(unfiltered.content.as_deref(), Some(extracted.text.as_str()));
-    assert!(
-        unfiltered
-            .source_line_ranges
-            .iter()
-            .all(|range| range.start == 1 && range.end == 1)
-    );
+    let single = read(&query, &runtime);
+    let receipt = single.selection.as_ref().expect("selection receipt");
+    assert_eq!(receipt.total_items, 1);
+    assert_eq!(receipt.unknown_items, 0);
+    assert_eq!(single.content.as_deref(), Some(extracted.text.as_str()));
 }
 
 #[test]

@@ -1,6 +1,7 @@
 mod admission;
 mod channel;
 mod construction;
+mod cursors;
 mod execute;
 mod graph;
 mod page_replay;
@@ -87,6 +88,7 @@ pub struct ToolRuntime {
     /// Pre-paging envelopes of recent paged responses (this runtime's config
     /// and workspace only), so a later page skips re-executing the batch.
     page_replays: Arc<PageReplayMemo>,
+    cursors: Arc<cursors::Registry>,
     section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
     /// Registry answers for artifactSearch; `None` under memory storage.
     artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
@@ -132,6 +134,7 @@ impl ToolRuntime {
         }
         self.github_cache.clear_memory();
         self.page_replays.store.clear_memory();
+        self.cursors.clear_memory();
         self.section_sessions.clear_memory();
     }
     pub fn inspect_config(&self) -> config::ConfigInspectorData {
@@ -140,21 +143,7 @@ impl ToolRuntime {
 
     /// Resolved presentation switches shared by MCP and CLI discovery.
     fn presentation(&self) -> Value {
-        let mcp = &self.config.resolved.mcp;
-        let deferred: Vec<&str> = ToolId::ALL
-            .iter()
-            .map(|id| id.as_str())
-            .filter(|name| {
-                mcp.deferred
-                    .as_ref()
-                    .is_some_and(|names| names.iter().any(|deferred| deferred == name))
-                    && self.is_available(name)
-            })
-            .collect();
-        json!({
-            "deferred": deferred,
-            "selection": self.selection_available,
-        })
+        json!({"selection": self.selection_available})
     }
 }
 
@@ -175,6 +164,26 @@ impl ToolRuntime {
     /// The resolved language-server settings `lspSearch` discovers with.
     pub fn lsp_execution_config(&self) -> &crate::tools::lsp_search::LspExecutionConfig {
         &self.lsp_execution_config
+    }
+
+    /// Start the language servers of the runtime's workspace in the
+    /// background, for a host that serves calls from now on (`octocode mcp`
+    /// after `initialize`): none when `lsp.prewarm` is `off` or `lspSearch`
+    /// is unavailable. See
+    /// [`crate::tools::lsp_search::prewarm::workspace::schedule_workspace`].
+    pub fn prewarm_lsp_workspace(&self, handle: &tokio::runtime::Handle) {
+        if self.config.resolved.lsp.prewarm == crate::config::LspPrewarm::Off
+            || !self.is_available(ToolId::LspSearch.as_str())
+        {
+            return;
+        }
+        crate::tools::lsp_search::prewarm::workspace::schedule_workspace(
+            handle,
+            &self.lsp_pool,
+            &self.paths,
+            &self.lsp_execution_config,
+            &self.workspace_root,
+        );
     }
 
     /// The root `lspServers` resolve from: the runtime's workspace (host cwd
@@ -207,10 +216,13 @@ impl ToolRuntime {
                 let name = id.as_str();
                 let mut entry = json!({
                     "name": name,
-                    "shortDescription": id.short_description(),
+                    "title": id.title(),
                     "available": self.is_available(name),
                 });
-                if let Some(reason) = self.availability(name).and_then(|a| a.reason_code()) {
+                if let Some(reason) = self
+                    .availability(name)
+                    .and_then(super::super::execution::availability::Availability::reason_code)
+                {
                     entry["unavailableReason"] = json!(reason);
                 }
                 entry
@@ -234,7 +246,7 @@ fn runtime_execution_error(error: ExecutionError) -> RuntimeError {
 
 impl CancellationCheck for ExecutionContext {
     fn check(&self) -> Result<(), String> {
-        ExecutionContext::check(self).map_err(|error| error.to_string())
+        Self::check(self).map_err(|error| error.to_string())
     }
 }
 

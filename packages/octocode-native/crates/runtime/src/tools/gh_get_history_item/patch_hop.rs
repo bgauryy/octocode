@@ -1,62 +1,55 @@
-//! Patch hops: the whole-patch re-read, selected-patch continuations, and
-//! commit/comparison file-page cursors.
-use super::inventory::file_page_size;
+//! Optional whole-patch reads and required commit/comparison page cursors.
 use super::pr_menu::*;
-use super::{HistoryItemRequest, ItemOperation, Section, Sections};
+use super::{HistoryItemRequest, ItemOperation, Sections};
 use crate::id::ToolId;
-use crate::response::result::{Continuation, query_row};
+use crate::response::result::Continuation;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::commit::commit_pull_request;
-use crate::tools::gh_shared::ensure_next;
+use crate::tools::gh_shared::ensure_calls;
 use serde_json::{Map, Value, json};
 
-/// The whole-patch re-read of every patch row a `matchString` view narrowed
-/// (hit lines, clipped long lines; rows marked `fullPatchChars`, kept on
-/// rows only with `extras: ["details"]`): the opt-in lead `readFullPatches`
-/// reads the selected files whole; more files than one selection holds
-/// continue in `readFullPatches2`, `readFullPatches3`, …. The grep showed
-/// what was asked, so the lead yields to code reads (an approximate lead).
+/// Offer unfiltered patches as related work when a matching view selected
+/// only hit runs (`fullPatchChars`). Batch selected files within the contract limit.
 pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
-    let narrowed = take_reshaped_paths(
-        out.pointer_mut("/pullRequests/0/files"),
-        gh_get_history_item_query::wants(q, octocode_contract_types::ExtraKind::Details),
-    );
+    let narrowed = reshaped_paths(out.pointer("/pullRequests/0/files"));
     if narrowed.is_empty() {
         return;
     }
     let mut nq = base_public_query(q, ItemOperation::PullRequest);
-    for key in ["offset", "length", "page"] {
+    for key in ["offset", "page"] {
         remove_key(&mut nq, key);
     }
-    ensure_next(out);
-    remove_key(&mut nq, "matchString");
-    remove_key(&mut nq, "contextLines");
+    ensure_calls(out);
+    for key in [
+        "matchString",
+        "contextLines",
+        "regexEngine",
+        "caseMode",
+        "wholeWord",
+    ] {
+        remove_key(&mut nq, key);
+    }
     // Each read names its files in the public `include` beside `patches`.
     for (index, files) in narrowed.chunks(selected_patch_files()).enumerate() {
         let read = super::util::merge(
             nq.clone(),
             json!({"include": files, "sections": ["patches"]}),
         );
-        let lead = Continuation::new(ToolId::GhGetHistoryItem, read)
-            .approximate()
-            .build();
-        out["next"][crate::id::numbered("readFullPatches", index)] = lead;
+        let lead = crate::response::result::restart_query(ToolId::GhGetHistoryItem, &read);
+        out["calls"][crate::id::numbered("readFullPatches", index)] = lead;
     }
 }
 
 /// Paths of the rows marked `fullPatchChars` (a view that is not the raw
 /// patch). The marker stays on rows only with `debug`.
-pub(super) fn take_reshaped_paths(rows: Option<&mut Value>, debug: bool) -> Vec<String> {
+fn reshaped_paths(rows: Option<&Value>) -> Vec<String> {
     let mut paths = Vec::new();
-    for file in rows.and_then(Value::as_array_mut).into_iter().flatten() {
-        let Some(fields) = file.as_object_mut() else {
+    for file in rows.and_then(Value::as_array).into_iter().flatten() {
+        let Some(fields) = file.as_object() else {
             continue;
         };
-        let marked = if debug {
-            fields.contains_key("fullPatchChars")
-        } else {
-            fields.remove("fullPatchChars").is_some()
-        };
+        let marked = fields.contains_key("fullPatchChars");
         if marked && let Some(path) = fields.get("path").and_then(Value::as_str) {
             paths.push(path.to_owned());
         }
@@ -96,7 +89,7 @@ pub(super) fn patch_continuation(mut nq: Value, entry: &Value, q: &HistoryItemRe
     if let Some(cursor) = entry.get("nextOffset") {
         nq["offset"] = cursor.clone();
     }
-    clamp_hop_length(&mut nq, q);
+
     continuation(nq)
 }
 
@@ -107,14 +100,6 @@ pub(super) fn patch_continuation(mut nq: Value, entry: &Value, q: &HistoryItemRe
 pub(super) fn pin_file_page_size(nq: &mut Value, q: &HistoryItemRequest, patches: bool) {
     if let Some(size) = super::inventory::pinned_file_page_size(q, patches) {
         nq["pageSize"] = json!(size);
-    }
-}
-
-/// A hop carries the caller's `length` as the window it got, so a length
-/// clamped to the response page is said once, on the call that asked.
-pub(super) fn clamp_hop_length(nq: &mut Value, q: &HistoryItemRequest) {
-    if let Some(length) = gh_get_history_item_query::char_length(q) {
-        nq["length"] = json!(super::window::patch_window(Some(length), q.auto_page_chars));
     }
 }
 
@@ -158,65 +143,24 @@ impl DiffCursors {
 /// `ghGetHistoryItem` commit query at `reference`, with the caller's
 /// page, window and scope.
 pub(super) fn commit_query(q: &HistoryItemRequest, reference: &str) -> Value {
-    use octocode_contract_types::{
-        GhGetHistoryItemQuery, GhGetHistoryItemQueryRef, GhGetHistoryItemQuerySectionsItem,
-        HiInclude, HiIncludeItem, HiMatchString, HiOwner, HiRepo,
-    };
-    let positive = |value: usize| {
-        u64::try_from(value)
-            .ok()
-            .and_then(std::num::NonZeroU64::new)
-    };
-    let typed = || -> Option<GhGetHistoryItemQuery> {
-        Some(GhGetHistoryItemQuery::Commit {
-            // A hop keeps the patch grep that narrowed the row it came from.
-            context_lines: gh_get_history_item_query::match_context(q)
-                .and_then(|lines| i64::try_from(lines).ok())
-                .map(Into::into),
-            extras: Vec::new(),
-            // Page 1 and the contract's page size are what an omitted
-            // field reads: a continuation restates neither.
-            page: gh_get_history_item_query::page(q)
-                .filter(|page| *page > 1)
-                .and_then(positive)
-                .map(Into::into),
-            include: (!gh_get_history_item_query::include_patterns(q).is_empty())
-                .then(|| {
-                    gh_get_history_item_query::include_patterns(q)
-                        .into_iter()
-                        .map(|path| HiIncludeItem::try_from(path).ok())
-                        .collect::<Option<Vec<_>>>()
-                        .map(HiInclude)
-                })
-                .flatten(),
-            length: gh_get_history_item_query::char_length(q)
-                .and_then(positive)
-                .map(Into::into),
-            main_goal: None,
-            match_string: gh_get_history_item_query::match_string(q)
-                .map(|text| HiMatchString(text.to_owned())),
-            offset: gh_get_history_item_query::char_offset(q)
-                .and_then(|offset| u64::try_from(offset).ok())
-                .map(Into::into),
-            owner: HiOwner::try_from(gh_get_history_item_query::owner(q)).ok()?,
-            page_size: gh_get_history_item_query::page_size(q).and_then(positive),
-            reasoning: None,
-            ref_: GhGetHistoryItemQueryRef::try_from(reference).ok()?,
-            repo: HiRepo::try_from(gh_get_history_item_query::repo(q)).ok()?,
-            sections: if q.include_diff() {
-                vec![GhGetHistoryItemQuerySectionsItem::Patches]
-            } else {
-                Vec::new()
-            },
-        })
-    };
-    typed()
-        .map(|query| query_row(&query, &[]))
-        .unwrap_or_default()
+    let mut row = q.public.clone();
+    if let Some(fields) = row.as_object_mut() {
+        for key in ["number", "headSha", "baseRef", "headRef"] {
+            fields.remove(key);
+        }
+    }
+    row["operation"] = serde_json::json!("commit");
+    row["ref"] = serde_json::json!(reference);
+    if q.include_diff() {
+        row["sections"] = serde_json::json!(["patches"]);
+    } else if let Some(fields) = row.as_object_mut() {
+        fields.remove("sections");
+    }
+    row
 }
 
-/// `next.*` for a commit or comparison file page, from the cursors the page
-/// computed.
+/// Required pages from computed cursors, plus optional patch expansion for
+/// a commit or comparison inventory.
 pub(super) fn attach_diff_continuations(
     out: &mut Value,
     q: &HistoryItemRequest,
@@ -242,7 +186,14 @@ pub(super) fn attach_diff_continuations(
         }
         // A commit page carries commits only; patch cursors would be inert.
         nq["sections"] = json!(["commits"]);
-        for key in ["offset", "length", "matchString", "contextLines"] {
+        for key in [
+            "offset",
+            "matchString",
+            "contextLines",
+            "regexEngine",
+            "caseMode",
+            "wholeWord",
+        ] {
             remove_key(&mut nq, key);
         }
         next.insert("nextCommitPage".into(), continuation(nq));
@@ -257,36 +208,29 @@ pub(super) fn attach_diff_continuations(
         pin_file_page_size(&mut nq, q, q.include_diff());
         next.insert("nextFilePage".into(), continuation(nq));
     }
-    // Files were listed without patches: offer their diffs, from the patch
-    // page that holds this page's first file (patch pages are cut on their
-    // own, smaller grid).
+    // Patches expand a file inventory into a fresh section read.
     if !q.include_diff() && base.get("sections").is_none() && cursors.files_listed {
         let mut nq = base.clone();
         nq["sections"] = json!(["patches"]);
         remove_key(&mut nq, "offset");
-        let listed_from = gh_get_history_item_query::page(q)
-            .unwrap_or(1)
-            .saturating_sub(1)
-            * file_page_size(q, false);
-        match listed_from / file_page_size(q, true) + 1 {
-            1 => remove_key(&mut nq, "page"),
-            page => nq["page"] = json!(page),
-        }
-        next.insert("readPatches".into(), continuation(nq));
+        next.insert(
+            "readPatches".into(),
+            crate::response::result::restart_query(ToolId::GhGetHistoryItem, &nq),
+        );
     }
     // The page-stream cursor, not a file's own `patchPagination` offset.
     if let Some(offset) = cursors.patch_offset {
         let mut nq = base;
         nq["offset"] = json!(offset);
         files_only(&mut nq, operation);
-        clamp_hop_length(&mut nq, q);
+
         next.insert("continuePatch".into(), continuation(nq));
     }
     // The page's own continuations join the reads the page already offers
     // (an unpatched file's search), never replace them.
     if !next.is_empty() {
-        crate::tools::gh_shared::ensure_next(out);
-        if let Some(pages) = out["next"].as_object_mut() {
+        crate::tools::gh_shared::ensure_calls(out);
+        if let Some(pages) = out["calls"].as_object_mut() {
             pages.extend(next);
         }
     }
@@ -337,7 +281,7 @@ pub(super) fn commit_pull_request_lead(
     ) {
         return (
             "readPullRequest",
-            Continuation::new(
+            Continuation::related(
                 ToolId::GhGetHistoryItem,
                 json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"number":number}),
             )
@@ -346,7 +290,7 @@ pub(super) fn commit_pull_request_lead(
     }
     (
         "findPullRequest",
-        Continuation::new(
+        Continuation::related(
             ToolId::GhSearchHistory,
             json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"keywords":[sha]}),
         )

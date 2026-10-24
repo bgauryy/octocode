@@ -6,14 +6,6 @@ use support::Workspace;
 
 const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 
-fn row(extra: Value) -> Value {
-    let mut query = json!({"mainGoal":"Find the needle.","reasoning":"Exercise input guards."});
-    for (key, value) in extra.as_object().unwrap() {
-        query[key] = value.clone();
-    }
-    query
-}
-
 fn assert_no_rewrite(output: &Value) {
     let text = output.to_string();
     assert!(!text.contains("REDACTED"), "rewritten value leaked: {text}");
@@ -31,7 +23,7 @@ async fn credential_shaped_search_text_is_rejected_not_rewritten() {
         .run(
             "secret-single".into(),
             "localSearch".into(),
-            json!({"queries":[row(json!({"path":root,"matchString":TOKEN}))]}),
+            json!({"queries":[json!({"path":root,"matchString":[TOKEN]})]}),
         )
         .await
         .expect_err("a credential-shaped query must not execute");
@@ -46,7 +38,7 @@ async fn credential_shaped_search_text_is_rejected_not_rewritten() {
         .run_mcp(
             "secret-mcp".into(),
             "localSearch".into(),
-            json!({"queries":[row(json!({"path":root,"matchString":TOKEN}))]}),
+            json!({"queries":[json!({"path":root,"matchString":[TOKEN]})]}),
         )
         .await
         .expect("MCP reports the rejection in-band");
@@ -64,8 +56,8 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
     let input = json!({"queries":[
-        row(json!({"path":root,"matchString":"needle","pageSize":1})),
-        row(json!({"path":root,"matchString":TOKEN})),
+        json!({"path":root,"matchString":["needle"]}),
+        json!({"path":root,"matchString":[TOKEN]}),
     ]});
     let outcome = runtime
         .run("secret-batch".into(), "localSearch".into(), input)
@@ -92,8 +84,8 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
             "secret-fetch".into(),
             "localFetch".into(),
             json!({"queries":[
-                row(json!({"path":file,"ranges":["1-2"]})),
-                row(json!({"path":file,"matchString":TOKEN})),
+                json!({"path":file,"ranges":[{"startLine":1,"endLine":2}]}),
+                json!({"path":file,"matchString":[TOKEN]}),
             ]}),
         )
         .await
@@ -119,8 +111,8 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
     let input = json!({"queries":[
-        row(json!({"path":root,"matchString":"x".repeat(10_001)})),
-        row(json!({"path":root,"matchString":"needle"})),
+        json!({"path":root,"matchString":["x".repeat(10_001)]}),
+        json!({"path":root,"matchString":["needle"]}),
     ]});
     let mcp = runtime
         .run_mcp("oversized".into(), "localSearch".into(), input.clone())
@@ -139,7 +131,7 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
         .run(
             "oversized-single".into(),
             "localSearch".into(),
-            json!({"queries":[row(json!({"path":root,"matchString":"x".repeat(10_001)}))]}),
+            json!({"queries":[json!({"path":root,"matchString":["x".repeat(10_001)]})]}),
         )
         .await
         .expect_err("no valid row to run");
@@ -148,7 +140,7 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
         .run_mcp(
             "oversized-single-mcp".into(),
             "localSearch".into(),
-            json!({"queries":[row(json!({"path":root,"matchString":"x".repeat(10_001)}))]}),
+            json!({"queries":[json!({"path":root,"matchString":["x".repeat(10_001)]})]}),
         )
         .await
         .expect("MCP reports the reason in-band");
@@ -160,33 +152,26 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
     runtime.close().await;
 }
 
-/// A string for an integer or boolean field is the canonical schema's
-/// rejection, never a repair: the error names the JSON value to send.
 #[tokio::test]
-async fn numeric_and_boolean_strings_are_rejected_with_the_value_to_send() {
+async fn wrong_json_types_are_rejected_without_guessed_replacements() {
     let workspace = Workspace::new();
     let file = workspace.write("src/a.txt", "one\ntwo\nthree\n");
     let runtime = workspace.runtime(&[]);
-    for (field, value, hint) in [
-        ("contextLines", json!("0"), "send 0"),
-        ("fullContent", json!("true"), "send true"),
+    for query in [
+        json!({"path":file,"ranges":[{"startLine":"1","endLine":2}]}),
+        json!({"path":file,"matchString":["two"],"contextLines":{"before":"0","after":0}}),
+        json!({"path":file,"ranges":[{"startLine":1,"endLine":2}],"block":"true"}),
     ] {
-        let mut query = json!({"path":file,"matchString":"two"});
-        query[field] = value;
-        if field == "fullContent" {
-            query.as_object_mut().unwrap().remove("matchString");
-        }
         let error = runtime
             .run(
                 "strict".into(),
                 "localFetch".into(),
-                json!({"queries":[row(query)]}),
+                json!({"queries":[query]}),
             )
             .await
-            .expect_err("a string is not a number or boolean");
-        assert_eq!(error.code, ErrorCode::InvalidInput, "{field}");
-        let payload = error.payload.as_deref().unwrap().to_string();
-        assert!(payload.contains(hint), "{field}: {payload}");
+            .expect_err("no coercion");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+        assert!(support::checks::leads(error.payload.as_deref().expect("rejection")).is_empty());
     }
     runtime.close().await;
 }
@@ -203,10 +188,8 @@ async fn clasify_rejects_a_credential_in_a_source_read() {
     workspace.write("trace.txt", "Evidence is present.\n");
     let runtime = workspace.runtime(&support::provider_env(&server, &[]));
     let input = json!({"queries":[{
-        "id":"decision",
-        "mainGoal":"Decide whether the file states the fact.",
-        "reasoning":"Exercise the source-read input guard.",
-        "source":{"tool":"localFetch","query":{"path":format!("{TOKEN}.txt"),"ranges":["1-1"]}},
+        "operation":"evaluate",
+        "source":{"tool":"localFetch","query":{"path":format!("{TOKEN}.txt"),"ranges":[{"startLine":1,"endLine":1}]}},
         "questions":{"relevant":{"type":"noul","instructions":"Is evidence present?"}}
     }]});
     let error = runtime
@@ -224,26 +207,20 @@ async fn clasify_rejects_a_credential_in_a_source_read() {
     runtime.close().await;
 }
 
-/// A misspelled tool name is answered with the tool it most likely meant,
-/// before the list of every available tool.
 #[tokio::test]
-async fn an_unknown_tool_name_suggests_the_nearest_tool() {
+async fn an_unknown_tool_name_is_rejected_without_a_guessed_target() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     let error = runtime
         .run(
             "unknown-tool".into(),
             "localSerch".into(),
-            json!({"queries":[row(json!({"path":".","matchString":"needle"}))]}),
+            json!({"queries":[json!({"path":".","matchString":["needle"]})]}),
         )
         .await
         .expect_err("an unknown tool never runs");
     assert_eq!(error.code, ErrorCode::InvalidInput);
-    assert!(
-        error.message.contains("Did you mean localSearch?"),
-        "{}",
-        error.message
-    );
+    assert!(!error.message.contains("Did you mean"), "{}", error.message);
     let far = runtime
         .run("far-tool".into(), "zzzz".into(), json!({}))
         .await

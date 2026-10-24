@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Offline regression gate: tool-call examples in skills/octocode-research docs vs live query schemas; not an agent benchmark. */
+/** Offline regression gate: tool-call examples in skills/octocode-research docs vs live input schemas; not an agent benchmark. */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -10,9 +10,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../skills/o
 if (args.includes('--help')) {
   console.log([
     'Usage: node skills-dev/octocode-dev/scripts/check-research-guidance.mjs [--json] [--self-test] [--examples]',
-    'Checks documented JSON tool examples in skills/octocode-research against live query schemas. No tool execution or writes.',
+    'Checks documented JSON tool examples in skills/octocode-research against live input schemas. No tool execution or writes.',
     '--examples  validate examples (the default; combine with --self-test to run both)',
-    '            against the complete live query schema from `octocode schema <tool> --view full`.',
+    '            against the complete live input schema from `octocode schema <tool> --view query`.',
     '            CLI lookup: $OCTOCODE_CLI (a .js file or binary), the monorepo build, then `octocode` on PATH.',
     '            A failing selected CLI is reported without switching to a different installed version.',
     '            An unavailable CLI is reported as an incomplete check and exits nonzero.',
@@ -87,7 +87,6 @@ function extractExamples() {
   const files = ['SKILL.md', 'README.md', ...readdirSync(join(root, 'references')).filter(f => f.endsWith('.md')).map(f => `references/${f}`)]
     .filter(f => existsSync(join(root, f)));
   const examples = [];
-  const rows = (tool, query) => (Array.isArray(query?.queries) ? query.queries : [query]).map(row => ({ tool, query: row }));
   for (const file of files) {
     const text = readFileSync(join(root, file), 'utf8');
     for (const block of text.matchAll(/```json\n([\s\S]*?)```/g)) {
@@ -97,13 +96,13 @@ function extractExamples() {
         parsed = block[1].split('\n').filter(l => l.trim()).map(l => { try { return JSON.parse(l); } catch { return undefined; } });
       }
       for (const item of parsed.flat()) {
-        if (item && typeof item.tool === 'string' && item.query) examples.push(...rows(item.tool, item.query).map(r => ({ ...r, file, line })));
+        if (item && typeof item.tool === 'string' && item.query) examples.push({ tool: item.tool, query: item.query, file, line });
       }
     }
     for (const [i, lineText] of text.split('\n').entries()) {
       const cli = lineText.match(/octocode(?:\.js)?\s+([a-z][A-Za-z]+)\s+'(\{.*\})'/);
       if (!cli) continue;
-      try { examples.push(...rows(cli[1], JSON.parse(cli[2])).map(r => ({ ...r, file, line: i + 1 }))); }
+      try { examples.push({ tool: cli[1], query: JSON.parse(cli[2]), file, line: i + 1 }); }
       catch { examples.push({ tool: cli[1], query: undefined, file, line: i + 1, parseError: true }); }
     }
   }
@@ -120,12 +119,12 @@ function resolveCli() {
   const [cmd, pre] = cli.endsWith('.js') ? [process.execPath, [cli]] : [cli, []];
   try {
     execFileSync(cmd, [...pre, 'schema'], { stdio: 'pipe', timeout: 20000 });
-    return (tool) => JSON.parse(execFileSync(cmd, [...pre, 'schema', tool, '--view', 'full'], {
+    return (tool) => JSON.parse(execFileSync(cmd, [...pre, 'schema', tool, '--view', 'query'], {
       // Schema discovery performs no provider work; expose conditional fields
       // without requiring or using a developer's classification credential.
       stdio: 'pipe', timeout: 20000,
       env: { ...process.env, OCTOCODE_BETA: '1', OCTOCODE_CLASSIFICATION_API: 'schema-validation-only' },
-    }).toString()).querySchema;
+    }).toString()).inputSchema;
   } catch (error) {
     // A failing selected build must not be replaced by another version on PATH.
     resolveCli.lastError = `${cli}: ${commandFailure(error)}`;
@@ -160,7 +159,7 @@ if (!args.includes('--self-test') || args.includes('--examples')) {
         }
         const result = schemas.get(ex.tool);
         errors = result.schema ? validateSchema(result.schema, ex.query, result.schema)
-          : [`schema unavailable for ${ex.tool}: ${result.error || 'querySchema missing from response'}`];
+          : [`schema unavailable for ${ex.tool}: ${result.error || 'inputSchema missing from response'}`];
       }
       checks.push({ name: `example ${ex.tool} valid against live schema${errors.length ? `: ${errors.join('; ')}` : ''}`, file: `${ex.file}:${ex.line}`, pass: errors.length === 0 });
     }

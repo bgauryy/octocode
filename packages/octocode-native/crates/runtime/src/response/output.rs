@@ -20,26 +20,8 @@ pub(crate) fn has_value(query: &Value, key: &str) -> bool {
     }
 }
 
-/// How the envelope names the files a tool's rows point at.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum PathAnchor {
-    /// Rows keep their paths; absolute paths share their common directory
-    /// as `root` (remote tools).
-    Common,
-    /// Local file paths are relative to the workspace root, so localFetch
-    /// and localSearch resolve a copied row path as-is.
-    Workspace,
-    /// Like [`PathAnchor::Workspace`], but rows name files relative to the
-    /// parent of the query root, so they are made absolute first.
-    QueryParent,
-}
-
 /// What the shared response stages ask a tool about its own output.
 pub(crate) trait ToolOutput: Sync {
-    /// Recovery tip for an error row with no tip of its own (an empty row
-    /// carries only its own facts).
-    fn fallback_hint(&self, query: &Value) -> &'static str;
-
     /// Recovery for an `errorCode` only this tool emits, or its own for a
     /// timeout; [`NO_HINT`] when the row's own facts are the whole answer.
     /// `query` is the row's query (`Null` for a request-level failure).
@@ -49,49 +31,8 @@ pub(crate) trait ToolOutput: Sync {
         None
     }
 
-    /// Recovery for an empty row's `category` only this tool emits;
-    /// [`NO_HINT`] when the row's own facts are the whole answer.
-    fn category_hint(&self, _category: &str, _query: &Value) -> Option<&'static str> {
-        None
-    }
-
-    /// Whether the hooks' recovery is stated even on a row that carries
-    /// leads (the leads run the next call; the hint says when or why). The
-    /// response stage then adds the code's or category's hint beside them,
-    /// never the tool's fallback.
-    fn hints_beside_leads(&self) -> bool {
-        false
-    }
-
-    /// Kind of evidence a row is (`meta.evidence.kind`).
-    fn evidence_kind(&self, query: &Value, data: &Value) -> &'static str;
-
-    /// How the envelope anchors this tool's file paths.
-    fn path_anchor(&self) -> PathAnchor {
-        PathAnchor::Common
-    }
-
-    /// Whether rows read the checked-out working tree, so the response
-    /// reports its commit (`shared.commitSha`).
-    fn reads_worktree(&self) -> bool {
-        false
-    }
-
-    /// Whether rows are resource-major matrices (`queries[]` of resources
-    /// whose reads take the resource shape `{tool, query: row}`) instead of
-    /// `results[]` rows. Such a tool answers for its own partiality.
-    fn resource_major(&self) -> bool {
-        false
-    }
-
-    /// The envelope key of this tool's rows: `queries` for resource-major
-    /// matrices, else `results`.
     fn rows_key(&self) -> &'static str {
-        if self.resource_major() {
-            "queries"
-        } else {
-            "results"
-        }
+        "results"
     }
 
     /// Evidence collections in outer-to-inner order. `*` visits a keyed
@@ -112,11 +53,7 @@ pub(crate) trait ToolOutput: Sync {
         false
     }
 
-    /// The tool's own default projection of a successful row's data (never
-    /// without `extras: ["echo"]`): drop what only restates the caller's query.
-    fn compact(&self, _data: &mut serde_json::Map<String, Value>, _query: &Value) {}
-
-    /// Whether `clasifyContext` selects this tool's rows at the shared response
+    /// Whether `classification` selects this tool's rows at the shared response
     /// boundary, over one sanitized provider page (code search), instead of
     /// before the tool's own source pagination.
     fn selects_provider_page(&self) -> bool {
@@ -128,11 +65,6 @@ pub(crate) trait ToolOutput: Sync {
     /// the rows this page judged related or unknown (neither shown nor
     /// excluded), for a judged read of what their rows did not list.
     fn finish_selection(&self, _data: &mut Value, _query: &Value, _hidden: &[Value]) {}
-
-    /// Settle a row of a repair lead (a corrected rejected call) that the
-    /// schema admits but this tool would not serve as asked, so the lead
-    /// reaches the answer in one hop.
-    fn settle_repaired_row(&self, _row: &mut Value) {}
 }
 
 /// Roots are widened only from a trusted source, so the hint names where the
@@ -150,34 +82,3 @@ pub(crate) const NO_HINT: &str = "";
 /// Recovery for a path a local read could not open (`fileAccessFailed`).
 pub(crate) const LIST_FILES_HINT: &str =
     "Verify the path with structureSearch operation:\"files\", then retry the exact path.";
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::id::ToolId;
-    use serde_json::json;
-
-    #[test]
-    fn every_tool_answers_with_a_tip_and_an_evidence_kind() {
-        for tool in ToolId::ALL {
-            let output = tool.output();
-            assert!(!output.fallback_hint(&json!({})).is_empty(), "{tool}");
-            assert!(
-                !output.evidence_kind(&json!({}), &json!({})).is_empty(),
-                "{tool}"
-            );
-            if output.reads_source() {
-                assert!(
-                    output.reads_worktree() || tool.is_github(),
-                    "{tool}: a source read"
-                );
-            }
-            if output.path_anchor() != PathAnchor::Common {
-                assert!(
-                    tool.is_local(),
-                    "{tool}: only local tools anchor local paths"
-                );
-            }
-        }
-    }
-}

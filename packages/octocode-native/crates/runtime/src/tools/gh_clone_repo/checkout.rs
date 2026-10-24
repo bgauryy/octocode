@@ -202,7 +202,7 @@ fn sparse_not_found(
         .join(", ");
     CloneError {
         hints,
-        next: next.map(Box::new),
+        calls: next.map(Box::new),
         ..CloneError::new(
             ErrorCode::PathNotFound,
             format!(

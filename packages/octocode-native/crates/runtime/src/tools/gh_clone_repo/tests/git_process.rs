@@ -16,7 +16,7 @@ fn only_network_git_steps_carry_the_credential() {
     clone_pinned(
         &fixture,
         &GhCloneRepoQuery {
-            path: Some(one("README.md")),
+            paths: one("README.md"),
             ..query()
         },
         &context,
@@ -25,7 +25,7 @@ fn only_network_git_steps_carry_the_credential() {
     let seen = runner
         .seen
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let step = |label: &str| {
         seen.iter()
             .find(|value| value.contains(label))
@@ -204,8 +204,7 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
                 timeout: Duration::from_secs(10),
                 label: "stage fixture".into(),
                 authorization: None,
-                authorization_url: None,
-            },
+                authorization_url: None},
             &control,
         )
         .expect_err("stage fixture");
@@ -271,7 +270,7 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
             &fixture,
             &GhCloneRepoQuery {
                 ref_: Some(reference(branch)),
-                path: sparse.map(one),
+                paths: sparse.map(one).unwrap_or_default(),
                 ..query()
             },
             &context,
@@ -316,7 +315,7 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
     let seen = runner
         .seen
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for step in [
         "initialize commit checkout",
         "fetch requested commit",

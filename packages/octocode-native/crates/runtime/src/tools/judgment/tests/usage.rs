@@ -114,7 +114,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
         Mock::given(method("POST")).respond_with(|request: &Request| {
             let request: Value = request.body_json().unwrap();
             if request["state"]["text"] == "fail" {
-                return ResponseTemplate::new(401);
+                return ResponseTemplate::new(200).set_body_json(json!({"model":"resolved","answers":{}}));
             }
             let criteria = request["questions"]["answer"]["criteria"].as_array().unwrap();
             let legend: serde_json::Map<String,Value> = criteria.iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect();
@@ -141,7 +141,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
         .collect::<Vec<_>>();
     let outcome = selection::select(
         Some(&runtime),
-        &json!({"clasifyContext":{"classifiers":["Does this contain relevant evidence?"]}}),
+        &json!({"classification":{"predicates":["Does this contain relevant evidence?"]}}),
         "test-source",
         None,
         &candidates,

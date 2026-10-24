@@ -3,45 +3,45 @@
 use super::*;
 
 /// A linked call: target symbols, how they were found, and the confidence.
-pub(in super::super) type Linked = (Vec<u32>, &'static str, Confidence);
+type Linked = (Vec<u32>, &'static str, Confidence);
 
 /// Graph-wide lookups a call or base-type link needs.
-pub(in super::super) struct Linker<'r> {
-    pub(in super::super) resolver: &'r ExportResolver<'r>,
-    pub(in super::super) nodes: &'r [NodeRec],
-    pub(in super::super) global_names: &'r HashMap<&'r str, Vec<u32>>,
-    pub(in super::super) members: &'r MemberIndex<'r>,
-    pub(in super::super) scope: &'r LinkScope<'r>,
+pub(crate) struct Linker<'r> {
+    pub(crate) resolver: &'r ExportResolver<'r>,
+    pub(crate) nodes: &'r [NodeRec],
+    pub(crate) global_names: &'r HashMap<&'r str, Vec<u32>>,
+    pub(crate) members: &'r MemberIndex<'r>,
+    pub(crate) scope: &'r LinkScope<'r>,
 }
 
 /// One call site (or base-type clause) to link.
-pub(in super::super) struct Site<'s> {
-    pub(in super::super) bindings: &'s FileBindings<'s>,
-    pub(in super::super) index: &'s FileIndex<'s>,
-    pub(in super::super) caller: u32,
-    pub(in super::super) qualifier: &'s str,
-    pub(in super::super) name: &'s str,
-    pub(in super::super) accept: &'s dyn Fn(u32) -> bool,
-    pub(in super::super) receiver_type: Option<&'s str>,
+pub(crate) struct Site<'s> {
+    pub(crate) bindings: &'s FileBindings<'s>,
+    pub(crate) index: &'s FileIndex<'s>,
+    pub(crate) caller: u32,
+    pub(crate) qualifier: &'s str,
+    pub(crate) name: &'s str,
+    pub(crate) accept: &'s dyn Fn(u32) -> bool,
+    pub(crate) receiver_type: Option<&'s str>,
 }
 
 impl Site<'_> {
     /// `this`/`self`/`super` style receiver.
-    pub(in super::super) fn receiver(&self) -> bool {
+    fn receiver(&self) -> bool {
         matches!(self.qualifier, "this" | "self" | "Self" | "cls" | "super")
     }
     /// The parser saw the receiver's type (`this.a.m()` may be recorded as a
     /// bare `m`): such a call is a member call, never a local/import match.
-    pub(in super::super) fn typed(&self) -> bool {
+    fn typed(&self) -> bool {
         self.receiver_type.is_some() && !self.receiver()
     }
-    pub(in super::super) fn accepted(&self, ids: impl IntoIterator<Item = u32>) -> Vec<u32> {
+    fn accepted(&self, ids: impl IntoIterator<Item = u32>) -> Vec<u32> {
         ids.into_iter().filter(|id| (self.accept)(*id)).collect()
     }
 }
 
 impl Linker<'_> {
-    pub(in super::super) fn link(&self, site: &Site) -> Option<Linked> {
+    pub(crate) fn link(&self, site: &Site) -> Option<Linked> {
         if site.name.is_empty() {
             return None;
         }
@@ -65,7 +65,7 @@ impl Linker<'_> {
 
     /// A declaration of the caller's own file; receiver calls prefer members
     /// of the caller's own container.
-    pub(in super::super) fn local(&self, site: &Site) -> Option<Linked> {
+    fn local(&self, site: &Site) -> Option<Linked> {
         let receiver = site.receiver();
         if site.typed() || !(site.qualifier.is_empty() || receiver) {
             return None;
@@ -92,7 +92,7 @@ impl Linker<'_> {
 
     /// A name the file imports, a Rust module path, or an import binding's
     /// namespace.
-    pub(in super::super) fn scoped(&self, site: &Site, head: &str) -> Option<Linked> {
+    fn scoped(&self, site: &Site, head: &str) -> Option<Linked> {
         let receiver = site.receiver();
         if site.qualifier.is_empty() && !site.typed() {
             return self.imported(site);
@@ -116,7 +116,7 @@ impl Linker<'_> {
         None
     }
 
-    pub(in super::super) fn imported(&self, site: &Site) -> Option<Linked> {
+    fn imported(&self, site: &Site) -> Option<Linked> {
         let sources = site.bindings.named.get(site.name)?;
         let mut targets = Vec::new();
         let mut hopped = false;
@@ -138,7 +138,7 @@ impl Linker<'_> {
 
     /// `ns.fn()`, `pkg.Func()`, `module::func()`: the qualifier's first
     /// segment names an import binding whose target files declare `name`.
-    pub(in super::super) fn namespace(&self, site: &Site, files: &[&str]) -> Option<Linked> {
+    fn namespace(&self, site: &Site, files: &[&str]) -> Option<Linked> {
         let mut targets = Vec::new();
         for target in files {
             targets.extend(site.accepted(self.resolver.exported_or_declared(target, site.name)));
@@ -153,7 +153,7 @@ impl Linker<'_> {
     /// A type-qualified call (`Type::new`, `Type.of`, including the last
     /// segment of a Rust path such as `crate::store::Store::new`) must land
     /// in that type.
-    pub(in super::super) fn global(&self, site: &Site, head: &str) -> Option<Linked> {
+    fn global(&self, site: &Site, head: &str) -> Option<Linked> {
         let (qualifier, name) = (site.qualifier, site.name);
         let receiver = site.receiver();
         let typed = site.typed();
@@ -229,12 +229,7 @@ impl Linker<'_> {
 
     /// `Type::method` / `Type.method`, or `x.method()` with `x: Type`: a
     /// member of a container named `Type`.
-    pub(in super::super) fn member(
-        &self,
-        site: &Site,
-        type_head: &str,
-        via: &'static str,
-    ) -> Option<Linked> {
+    fn member(&self, site: &Site, type_head: &str, via: &'static str) -> Option<Linked> {
         let members = site.accepted(self.members.get(&(type_head, site.name))?.iter().copied());
         let id = match members.as_slice() {
             [] => return None,
@@ -251,7 +246,7 @@ impl Linker<'_> {
 
     /// Scope preference: the caller's package (directory), then files the
     /// caller imports; a choice is made only when it is unique.
-    pub(in super::super) fn pick(&self, site: &Site, pool: &[u32]) -> Option<(u32, &'static str)> {
+    fn pick(&self, site: &Site, pool: &[u32]) -> Option<(u32, &'static str)> {
         let caller_dir = self.dir(self.file_of(site.caller));
         let same_package = pool
             .iter()
@@ -273,22 +268,22 @@ impl Linker<'_> {
     }
 
     /// The target sits in the caller's package or in a file it imports.
-    pub(in super::super) fn near(&self, site: &Site, id: u32) -> bool {
+    fn near(&self, site: &Site, id: u32) -> bool {
         self.dir(self.file_of(id)) == self.dir(self.file_of(site.caller))
             || self.imported_by(site, id)
     }
 
-    pub(in super::super) fn imported_by(&self, site: &Site, id: u32) -> bool {
+    fn imported_by(&self, site: &Site, id: u32) -> bool {
         self.scope
             .path(self.file_of(id))
             .is_some_and(|path| site.bindings.imported_files.contains(path))
     }
 
-    pub(in super::super) fn file_of(&self, id: u32) -> u32 {
+    fn file_of(&self, id: u32) -> u32 {
         self.nodes.get(id as usize).map_or(NONE, |n| n.file)
     }
 
-    pub(in super::super) fn dir(&self, file: u32) -> &str {
+    fn dir(&self, file: u32) -> &str {
         self.scope
             .path(file)
             .map_or("", crate::tools::ast_graph::graph::parent)
@@ -296,18 +291,18 @@ impl Linker<'_> {
 }
 
 /// Per-graph lookups [`Linker`] needs for scope-aware choices.
-pub(in super::super) struct LinkScope<'a> {
+pub(crate) struct LinkScope<'a> {
     /// Root-relative path by file node id (`""` for other nodes).
-    pub(in super::super) file_paths: &'a [&'a str],
+    pub(super) file_paths: &'a [&'a str],
     /// Rust module name → files defining it (`m.rs`, `m/mod.rs`).
-    pub(in super::super) modules: HashMap<&'a str, Vec<&'a str>>,
+    pub(super) modules: HashMap<&'a str, Vec<&'a str>>,
     /// Workspace crate import name (`octocode_engine`) → crate directory.
-    pub(in super::super) crate_dirs: HashMap<String, String>,
+    pub(super) crate_dirs: HashMap<String, String>,
 }
 
 impl LinkScope<'_> {
     /// The root-relative path of file node `id`.
-    pub(in super::super) fn path(&self, id: u32) -> Option<&str> {
+    fn path(&self, id: u32) -> Option<&str> {
         self.file_paths
             .get(id as usize)
             .copied()
@@ -318,11 +313,7 @@ impl LinkScope<'_> {
     /// `other_crate::b`) names, by its last segment, scoped to the caller's
     /// crate (or the named workspace crate) and settled by the longest shared
     /// directory prefix when several files share the module name.
-    pub(in super::super) fn rust_module_file(
-        &self,
-        qualifier: &str,
-        caller_file: &str,
-    ) -> Option<&str> {
+    fn rust_module_file(&self, qualifier: &str, caller_file: &str) -> Option<&str> {
         let segments = qualifier
             .split("::")
             .filter(|s| !s.is_empty())

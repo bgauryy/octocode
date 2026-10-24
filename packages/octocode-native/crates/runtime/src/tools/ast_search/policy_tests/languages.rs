@@ -8,19 +8,11 @@ fn lang_type_is_validated_and_intersected_with_include() {
     let root = Fixture::new();
     root.write("a.ts", "oldCall(x);\n");
     root.write("b.py", "oldCall(x)\n");
-    let unknown = run(
-        &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"klingon","pattern":"oldCall($A)"}),
-    )
-    .expect_err("unknown language");
-    assert_eq!(unknown.code, ErrorCode::LanguageUnsupported);
+    assert!(crate::contracts::validate_query("astSearch", json!({"operation":"match","path":root.0,"parser":"klingon","rule":{"pattern":"oldCall($A)"}})).is_err());
 
     let out = run(
         &root.0,
-        json!({
-            "operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"typescript",
-            "include":["*.ts","*.py"],"pattern":"oldCall($A)"
-        }),
+        json!({"operation":"match","path":root.0,"parser":"typescript","include":["*.ts","*.py"],"rule":{"pattern":"oldCall($A)"}}),
     )
     .expect("intersected include");
     let files = out["files"].as_array().expect("files");
@@ -34,7 +26,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
 
     let mismatch = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0.join("b.py"),"language":"typescript","pattern":"oldCall($A)"}),
+        json!({"operation":"match","path":root.0.join("b.py"),"parser":"typescript","rule":{"pattern":"oldCall($A)"}}),
     )
     .expect_err("single file outside language");
     assert_eq!(mismatch.code, ErrorCode::LanguageMismatch);
@@ -42,7 +34,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
     root.write("notes.txt", "oldCall(x)\n");
     let unsupported = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0.join("notes.txt"),"pattern":"oldCall($A)"}),
+        json!({"operation":"match","path":root.0.join("notes.txt"),"rule":{"pattern":"oldCall($A)"}}),
     )
     .expect("unsupported single file");
     assert_eq!(unsupported["isPartial"], true, "{unsupported}");
@@ -50,14 +42,14 @@ fn lang_type_is_validated_and_intersected_with_include() {
 }
 
 #[test]
-fn dot_prefixed_lang_type_selects_only_that_extension() {
+fn include_selects_an_exact_extension_within_a_parser_family() {
     let root = Fixture::new();
     root.write("a.ts", "oldCall(x);\n");
     root.write("b.mts", "oldCall(y);\n");
 
     let exact = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":".ts","pattern":"oldCall($A)"}),
+        json!({"operation":"match","path":root.0,"parser":"typescript","include":["*.ts"],"rule":{"pattern":"oldCall($A)"}}),
     )
     .expect("exact extension");
     let files = exact["files"].as_array().expect("files");
@@ -70,7 +62,7 @@ fn dot_prefixed_lang_type_selects_only_that_extension() {
 
     let family = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"typescript","pattern":"oldCall($A)"}),
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"oldCall($A)"}}),
     )
     .expect("language family");
     assert_eq!(
@@ -92,21 +84,21 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let selected = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":header,"language":"cpp","rule":{"kind":"class_specifier"}}),
+        json!({"operation":"match","path":header,"parser":"cpp","rule":{"kind":"class_specifier"}}),
     )
     .expect("explicit C++ match");
     assert_eq!(selected["matchCount"], 1, "{selected}");
 
     let selected_directory = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"cpp","include":["*.h"],"rule":{"kind":"class_specifier"}}),
+        json!({"operation":"match","path":root.0,"parser":"cpp","include":["*.h"],"rule":{"kind":"class_specifier"}}),
     )
     .expect("explicit C++ directory match");
     assert_eq!(selected_directory["matchCount"], 1, "{selected_directory}");
 
     let selected_directory_default = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"cpp","rule":{"kind":"class_specifier"}}),
+        json!({"operation":"match","path":root.0,"parser":"cpp","rule":{"kind":"class_specifier"}}),
     )
     .expect("C++ directory includes ambiguous headers");
     assert_eq!(
@@ -116,15 +108,12 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let tree = run(
         &root.0,
-        json!({"operation":"syntaxTree","mainGoal":"test","reasoning":"test","path":header,"language":"cpp"}),
+        json!({"operation":"syntaxTree","path":header,"parser":"cpp"}),
     )
     .expect("explicit C++ tree");
     assert_eq!(tree["isPartial"], false, "{tree}");
-    let default_tree = run(
-        &root.0,
-        json!({"operation":"syntaxTree","mainGoal":"test","reasoning":"test","path":header}),
-    )
-    .expect(".h defaults to C");
+    let default_tree =
+        run(&root.0, json!({"operation":"syntaxTree","path":header})).expect(".h defaults to C");
     assert_eq!(default_tree["isPartial"], true, "{default_tree}");
     assert!(
         tree["nodes"].as_array().is_some_and(|nodes| nodes
@@ -136,7 +125,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
 
     let symbols = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":header,"language":"cpp"}),
+        json!({"operation":"symbols","path":header,"parser":"cpp"}),
     )
     .expect("explicit C++ symbols");
     assert!(
@@ -148,7 +137,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
     std::fs::write(&wrong_file, "int value;\n").expect("C file");
     let mismatch = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":wrong_file,"language":"cpp","rule":{"kind":"declaration"}}),
+        json!({"operation":"match","path":wrong_file,"parser":"cpp","rule":{"kind":"declaration"}}),
     )
     .expect_err("C source is not an ambiguous header");
     assert_eq!(mismatch.code, ErrorCode::LanguageMismatch);
@@ -161,14 +150,20 @@ fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page(
     std::fs::create_dir_all(root.0.join("legacy")).expect("legacy directory");
     root.write("include/widget.h", "namespace Space { class Widget {}; }\n");
     root.write("legacy/plain.h", "struct Plain { int x; };\n");
-    let result = run(&root.0, json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"languageGlobs":{"cpp":["include/**/*.h"]},"pageSize":1})).expect("directory symbols");
+    let result = crate::tools::ast_search::test_rows::run_window(
+        &root.0,
+        json!({"operation":"symbols","path":root.0,"parserGlobs":{"cpp":["include/**/*.h"]}}),
+        1,
+    )
+    .expect("directory symbols");
     assert_eq!(result["filesScanned"], 2, "{result}");
     assert_eq!(
-        result["next"]["nextPage"]["query"]["queries"][0]["languageGlobs"]["cpp"][0],
+        result["next"]["nextPage"]["input"]["queries"][0]["parserGlobs"]["cpp"][0],
         "include/**/*.h"
     );
-    let next_query = result["next"]["nextPage"]["query"]["queries"][0].clone();
-    let next = run(&root.0, next_query).expect("next page");
+    let next_query = result["next"]["nextPage"]["input"]["queries"][0].clone();
+    let next =
+        crate::tools::ast_search::test_rows::run_window(&root.0, next_query, 1).expect("next page");
     let names = [
         outline_name(&result["files"][0]["symbols"][0]),
         outline_name(&next["files"][0]["symbols"][0]),
@@ -178,15 +173,14 @@ fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page(
 }
 
 #[test]
-fn a_bare_include_word_matches_file_names_containing_it() {
+fn authored_include_glob_selects_matching_paths() {
     let root = Fixture::new();
     std::fs::create_dir_all(root.0.join("nested")).expect("dir");
     root.write("nested/handler_test.rs", "fn a() { hit(1); }\n");
     root.write("other.rs", "fn b() { hit(2); }\n");
     let out = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,
-            "language":"rust","pattern":"hit($A)","include":["test"]}),
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"hit($A)"},"include":["**/*test*"]}),
     )
     .expect("match");
     assert_eq!(out["matchCount"], 1, "{out}");

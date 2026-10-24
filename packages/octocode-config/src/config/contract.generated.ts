@@ -20,10 +20,6 @@ export interface RequiredToolsConfig {
   disabled: string[] | null;
 }
 
-export interface RequiredMcpConfig {
-  deferred: string[] | null;
-}
-
 export interface RequiredNetworkConfig {
   allowPrivateRegistry: boolean;
 }
@@ -53,7 +49,6 @@ export interface ResolvedConfigData {
   github: RequiredGitHubConfig;
   local: RequiredLocalConfig;
   tools: RequiredToolsConfig;
-  mcp: RequiredMcpConfig;
   network: RequiredNetworkConfig;
   lsp: RequiredLspConfig;
   output: RequiredOutputConfig;
@@ -206,20 +201,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "description": "Tools removed from the default tool set.",
     "env": {
       "name": "DISABLE_TOOLS"
-    },
-    "defaultValue": null
-  },
-  {
-    "path": "mcp.deferred",
-    "section": "mcp",
-    "key": "deferred",
-    "type": "stringArray",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them.",
-    "env": {
-      "name": "OCTOCODE_DEFER_TOOLS"
     },
     "defaultValue": null
   },
@@ -438,4 +419,4 @@ export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD"
 export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_LSP_CACHE_DIR","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_REDACT_EMAILS","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */
 export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_STORAGE_MODE":"memory"};
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com", "graphqlEnabled": true }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined }, "tools": { "enabled": null, "disabled": null }, "mcp": { "deferred": null }, "network": { "allowPrivateRegistry": false }, "lsp": { "configPath": undefined, "autoInstall": "prompt", "cacheDir": undefined, "trustProjectConfig": false, "prewarm": "targeted" }, "output": { "redactEmails": false }, "storage": { "mode": "persistent", "stats": false }, "classification": { "model": undefined } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com", "graphqlEnabled": true }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined }, "tools": { "enabled": null, "disabled": null }, "network": { "allowPrivateRegistry": false }, "lsp": { "configPath": undefined, "autoInstall": "prompt", "cacheDir": undefined, "trustProjectConfig": false, "prewarm": "targeted" }, "output": { "redactEmails": false }, "storage": { "mode": "persistent", "stats": false }, "classification": { "model": undefined } };

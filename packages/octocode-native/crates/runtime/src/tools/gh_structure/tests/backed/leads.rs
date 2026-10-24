@@ -1,5 +1,9 @@
 //! Materialized pages and the reads a listing leads to.
 use super::*;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::MockServer;
 
 #[tokio::test]
 async fn materialize_skips_binary_files_with_a_warning() {
@@ -42,12 +46,12 @@ async fn materialize_skips_binary_files_with_a_warning() {
     .await;
     let home = crate::tools::test_support::Fixture::new();
     let out = run_at(
-            &server,
-            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":sha,"materialize":true}),
-            &home.0,
-        )
-        .await
-        .expect("materialize continues past binary files");
+        &server,
+        json!({"operation":"tree", "owner":"a","repo":"b","ref":sha,"materialize":true}),
+        &home.0,
+    )
+    .await
+    .expect("materialize continues past binary files");
     let local = out.data["location"]["localPath"]
         .as_str()
         .expect("location");
@@ -83,12 +87,13 @@ async fn a_listing_leads_to_an_outline_read_of_its_entry_file() {
     )
     .await
     .expect("listing");
-    let read = &out.data["next"]["read"];
+    let read =
+        crate::tools::test_support::checks::related_call(&out.data, "ghGetFileContent", |_| true);
     assert_eq!(read["tool"], "ghGetFileContent", "{}", out.data);
-    let row = &read["query"]["queries"][0];
+    let row = &read["input"]["queries"][0];
     assert_eq!(row["path"], "pkg/__init__.py", "{}", out.data);
     assert_eq!(row["ref"], SHA, "{}", out.data);
-    assert_eq!(row["minify"], "symbols", "{}", out.data);
+    assert_eq!(row["view"], "symbols", "{}", out.data);
 }
 
 /// A materialized listing points at the listed directory on disk.

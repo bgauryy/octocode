@@ -2,6 +2,7 @@
 //! through the runtime against a mock GitHub.
 
 mod commits;
+mod continuation_semantics;
 mod failures;
 mod history_a;
 mod issue_comments;

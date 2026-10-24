@@ -5,7 +5,7 @@ use crate::response::result::{Continuation, remove_nulls};
 use crate::tools::gh_get_history_item::HistoryItemRequest;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::util::str_at;
-use crate::tools::gh_shared::ensure_next;
+use crate::tools::gh_shared::ensure_calls;
 use octocode_github::{GitHubTransport, RequestContext};
 use serde_json::{Value, json};
 
@@ -76,8 +76,7 @@ async fn closed_by_references(
         "owner": gh_get_history_item_query::owner(query),
         "repo": gh_get_history_item_query::repo(query),
         "number": gh_get_history_item_query::number(query)?,
-        "first": MAX_CLOSING_REFERENCES,
-    });
+        "first": MAX_CLOSING_REFERENCES});
     let mut page = transport
         .execute_graphql(CLOSING_REFERENCES_DOCUMENT, variables, context)
         .await
@@ -96,8 +95,7 @@ fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
             let mut row = json!({
                 "number": number,
                 "state": str_at(node, "/state").unwrap_or("closed").to_ascii_lowercase(),
-                "mergedAt": node.get("mergedAt").filter(|v| !v.is_null()),
-            });
+                "mergedAt": node.get("mergedAt").filter(|v| !v.is_null())});
             remove_nulls(&mut row);
             let count = |key: &str| node.get(key).and_then(Value::as_u64);
             let small = crate::tools::gh_get_history_item::pr_menu::is_small_pr(
@@ -113,7 +111,7 @@ fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
     prs
 }
 
-/// `next.readPullRequest` reads the first linked (merged-first) pull request;
+/// A related read opens the first linked (merged-first) pull request;
 /// with no link information a closed issue offers the keyword search hop.
 pub(super) fn attach_fix_pr(
     out: &mut Value,
@@ -128,69 +126,28 @@ pub(super) fn attach_fix_pr(
         // Files the caller's goal names: their patches are the evidence, and
         // the filter rides the copied query, so the narrowing is visible.
         Some(pr) => {
-            let named = goal_file_globs(query);
-            let mut read = json!({
+            let read = json!({
                 "operation":"pullRequest","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),
                 "number":pr.row["number"],
-                "sections": if pr.small || !named.is_empty() { json!(["patches"]) } else { json!(["body", "files"]) }});
-            if !named.is_empty() {
-                read["include"] = json!(named);
-            }
+                "sections": if pr.small { json!(["patches"]) } else { json!(["body", "files"]) }});
             (
                 "readPullRequest",
-                Continuation::new(ToolId::GhGetHistoryItem, read).build(),
+                Continuation::related(ToolId::GhGetHistoryItem, read).build(),
             )
         }
         None if closed && closed_by.is_none() => (
             "findPullRequest",
-            Continuation::new(
+            Continuation::related(
                 ToolId::GhSearchHistory,
                 json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),
                     "keywords":[gh_get_history_item_query::number(query).unwrap_or_default().to_string()]}),
             )
             .build(),
         ),
-        None => return,
-    };
-    ensure_next(out);
-    // The fix is new evidence: it leads the issue's own reads, so a
-    // one-lead answer offers it.
-    if let Some(leads) = out["next"].as_object_mut() {
+        None => return};
+    ensure_calls(out);
+    // Related fix evidence precedes optional discussion exploration.
+    if let Some(leads) = out["calls"].as_object_mut() {
         leads.shift_insert(0, next.0.to_owned(), next.1);
     }
-}
-
-/// Most goal-named files one fix-PR read narrows to.
-const MAX_GOAL_FILES: usize = 5;
-
-/// `include` globs for file names the query's goal mentions
-/// (`merge.go`, `pkg/cmd/merge.go`): a word counts only when its name has a
-/// known code, config, doc, or lock file type, so dotted identifiers
-/// (`res.redirect`) and versions never narrow a read.
-fn goal_file_globs(query: &HistoryItemRequest) -> Vec<String> {
-    use crate::content::classify_file_type;
-    let goal = query
-        .public
-        .get("mainGoal")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let mut globs = Vec::new();
-    for word in goal.split(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))) {
-        let path = word.trim_matches(|c| c == '.' || c == '/');
-        let name = path.rsplit('/').next().unwrap_or(path);
-        let has_stem = name
-            .rsplit_once('.')
-            .is_some_and(|(stem, _)| stem.chars().any(char::is_alphanumeric));
-        if !has_stem || classify_file_type(name).is_none() {
-            continue;
-        }
-        let glob = format!("**/{path}");
-        if !globs.contains(&glob) {
-            globs.push(glob);
-        }
-        if globs.len() == MAX_GOAL_FILES {
-            break;
-        }
-    }
-    globs
 }

@@ -109,6 +109,7 @@ describe('Octocode result size budgets', () => {
     ['BMP text', '日'.repeat(50_000)],
     ['astral text', '😀'.repeat(25_000)],
     ['short lines', 'x\n'.repeat(25_000)],
+    ['the largest measured server page (50,052 bytes)', `${'x'.repeat(50_000)}\n${'y'.repeat(51)}`],
   ])('passes a character-bounded page of %s whole, with and without a turn budget', async (_name, body) => {
     const full = `${body}\nnext:\n  continueChars: { charOffset: 50000 }\n`;
     for (const budget of [undefined, new TurnBudget()]) {
@@ -119,12 +120,6 @@ describe('Octocode result size budgets', () => {
   it('keeps the character cap above a server page plus its header', () => {
     expect(TEXT_MAX_CHARS).toBeGreaterThan(50_100);
     expect(TEXT_MAX_CHARS).toBeLessThanOrEqual(64_000);
-  });
-
-  it('passes a server page of 50,052 bytes (the largest measured) whole', async () => {
-    const full = `${'x'.repeat(50_000)}\n${'y'.repeat(51)}`;
-    expect(Buffer.byteLength(full)).toBe(50_052);
-    expect(shownText(await toToolResult('localFetch', { content: [{ type: 'text', text: full }] }, false))).toBe(full);
   });
 
   it('spills a part over the cap whole: the preview keeps the tail where `next` lives and names the file holding all of it', async () => {

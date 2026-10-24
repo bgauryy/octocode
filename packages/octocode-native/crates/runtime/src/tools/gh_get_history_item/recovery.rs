@@ -56,7 +56,7 @@ pub(crate) async fn recover(
     if let Some(hint) = hint {
         failure = failure.hint(hint);
     }
-    failure.next = next.map(Box::new);
+    failure.calls = next.map(Box::new);
     failure
 }
 
@@ -104,7 +104,7 @@ async fn missing_ref(
         "commit" => Some((None, retry(&["ref"]).await?)),
         "compare" => {
             let (owner, repo) = (text("owner"), text("repo"));
-            let sides = [("base", text("base")), ("head", text("head"))];
+            let sides = [("baseRef", text("baseRef")), ("headRef", text("headRef"))];
             let missing = unresolved_refs(provider, owner, repo, &sides, context).await;
             if missing.is_empty() {
                 return None;
@@ -125,8 +125,8 @@ async fn missing_ref(
                 .join(" and ");
             let message = format!(
                 "Cannot compare {}...{} in {owner}/{repo}: {named} not found",
-                text("base"),
-                text("head")
+                text("baseRef"),
+                text("headRef")
             );
             Some((Some(message), retry))
         }
@@ -199,7 +199,7 @@ fn recovery(
         }
     }
     next.insert("operation".into(), json!(operation));
-    let read = Continuation::new(ToolId::GhGetHistoryItem, Value::Object(next)).build();
+    let read = Continuation::related(ToolId::GhGetHistoryItem, Value::Object(next)).build();
     Some(Value::Object(Map::from_iter([(name.to_owned(), read)])))
 }
 
@@ -215,7 +215,7 @@ fn find_item(operation: Option<&str>, query: &Value) -> Option<Value> {
     };
     let owner = query.get("owner").and_then(Value::as_str)?;
     let repo = query.get("repo").and_then(Value::as_str)?;
-    let listing = Continuation::new(
+    let listing = Continuation::related(
         ToolId::GhSearchHistory,
         json!({"operation": search, "owner": owner, "repo": repo}),
     )

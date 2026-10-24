@@ -2,7 +2,7 @@ use serde_json::{Map, Value, json};
 
 /// One page's facts. Every tool builds its `pagination` block from these
 /// (never a hand-written JSON block), so the key set and order are the same
-/// on every tool and every page: `currentPage`, `totalPages` and
+/// on every tool and every page: `page`, `totalPages` and
 /// `totalItems` when the total is known, `pageSize` when pages are cut by
 /// count, `hasMore`, and `outOfRange` on a page past the end. `totalItems`
 /// counts the paged unit only (the rows the pages split), never another
@@ -38,7 +38,8 @@ impl PageFacts {
     }
 
     /// The page before the first: the section states its `total_items` and
-    /// that every page of it is still to read (`hasMore`), with none shown.
+    /// that every page of it is still to read (`hasMore`), with none shown;
+    /// it renders `unshown: true` in place of a page number.
     pub(crate) fn unshown(page_size: usize, total_items: usize) -> Self {
         Self {
             page: 0,
@@ -123,7 +124,11 @@ impl PageFacts {
     /// The `pagination` block.
     pub(crate) fn to_value(self) -> Value {
         let mut block = Map::new();
-        block.insert("currentPage".into(), json!(self.page));
+        if self.page == 0 {
+            block.insert("unshown".into(), json!(true));
+        } else {
+            block.insert("page".into(), json!(self.page));
+        }
         if let Some(pages) = self.total_pages {
             block.insert("totalPages".into(), json!(pages));
         }
@@ -159,18 +164,6 @@ pub(crate) struct SpanFacts {
 }
 
 impl SpanFacts {
-    /// Every key a window block may carry, in block order.
-    #[cfg(test)]
-    pub(crate) const KEYS: [&'static str; 7] = [
-        "unit",
-        "offset",
-        "length",
-        "total",
-        "hasMore",
-        "nextOffset",
-        "outOfRange",
-    ];
-
     /// The window of up to `length` `unit`s from `offset` over a view of
     /// `total`, clamped to the view (past the end it is empty at the end).
     pub(crate) fn window(unit: &'static str, offset: usize, length: usize, total: usize) -> Self {
@@ -238,5 +231,37 @@ impl SpanFacts {
             block.insert("outOfRange".into(), json!(true));
         }
         Value::Object(block)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_and_open_pages_share_the_canonical_page_coordinate() {
+        for (facts, expected_more) in [
+            (PageFacts::counted(2, 10, 25), true),
+            (PageFacts::open(2, None, false), false),
+        ] {
+            let output = facts.to_value();
+            assert_eq!(output["page"], 2);
+            assert_eq!(output["hasMore"], expected_more);
+            assert!(output.get("currentPage").is_none());
+        }
+    }
+    #[test]
+    fn source_spans_preserve_coordinates_and_stop_at_the_end() {
+        let first = SpanFacts::window("lines", 0, 10, 25);
+        assert_eq!(first.next_offset(), Some(10));
+        assert_eq!(first.to_value()["length"], 10);
+        let last = SpanFacts::window("lines", 20, 10, 25);
+        assert!(!last.has_more());
+        assert_eq!(last.to_value()["length"], 5);
+        assert_eq!(last.next_offset(), None);
+        assert_eq!(
+            SpanFacts::window("bytes", 900, 50, 100).to_value(),
+            json!({"unit":"bytes","offset":100,"length":0,"total":100,"hasMore":false})
+        );
     }
 }

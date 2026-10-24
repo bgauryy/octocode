@@ -2,7 +2,7 @@
 //!
 //! Tests construct `ToolRuntime` from an explicit `ConfigInput` so they do not
 //! mutate process environment or race under `cargo test`.
-#![allow(clippy::panic, reason = "test assertions fail by panicking")]
+#![expect(clippy::panic, reason = "test assertions fail by panicking")]
 
 use octocode_native::execution::RuntimeLimits;
 use octocode_native::response::outcome::ToolOutcome;
@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 // The contract, lead and page-walk checks the unit tests use: one copy, by path.
-use octocode_native::contracts::{parsed_contract, validate, validate_output};
+use octocode_native::contracts::{validate, validate_output};
 #[path = "../../src/tools/test_support/checks.rs"]
 #[expect(dead_code, reason = "the unit tests use the rest of the shared checks")]
 pub mod checks;
@@ -20,16 +20,7 @@ mod cursor;
 mod providers;
 mod workspace;
 
-// The cli integration tests mount this module by path and use only part of it.
-#[allow(
-    unused_imports,
-    reason = "the cli integration tests share this support module"
-)]
-pub use cursor::{assert_cursor_only, cursor_at_offset, cursor_offset, cursor_response};
-#[allow(
-    unused_imports,
-    reason = "the cli integration tests share this support module"
-)]
+pub use cursor::assert_cursor_only;
 pub use providers::{PROVIDER_LIMITS, capture_allowed, clasify_runtime, github_api, provider_env};
 pub use workspace::Workspace;
 
@@ -111,67 +102,30 @@ pub async fn call(
     tool: &str,
     query: Value,
 ) -> Result<ToolOutcome, RuntimeError> {
-    runtime
-        .run("test-1".into(), tool.into(), envelope(query))
-        .await
+    let input = envelope(query);
+    let outcome = runtime
+        .run("test-1".into(), tool.into(), input.clone())
+        .await?;
+    checks::assert_output_contract(tool, &outcome.structured_content);
+    Ok(outcome)
 }
 
-/// Every opt-in output kind: the full view integration tests inspect.
-pub const ALL_EXTRAS: [&str; 6] = [
-    "hints",
-    "details",
-    "stats",
-    "receipts",
-    "echo",
-    "diagnostics",
-];
+fn publish_for_assertion(_tool: &str, output: &Value) -> Value {
+    output.clone()
+}
+fn validate_test_input(
+    tool: &str,
+    input: &Value,
+) -> Result<Value, octocode_native::contracts::ContractValidationError> {
+    validate(tool, input.clone())
+}
 
-/// A test row (or a `{queries}` input) as the one input shape tools take:
-/// `{queries:[row]}`, each row briefed, response-paging fields on the
-/// envelope. A row without `extras` asks for every kind (the full view); a
-/// row with `"extras": []` sends none (the default view).
-pub fn envelope(mut input: Value) -> Value {
-    let brief = |row: &mut Value| {
-        if let Some(object) = row.as_object_mut() {
-            object
-                .entry("mainGoal")
-                .or_insert_with(|| json!("Exercise the native runtime integration path."));
-            object
-                .entry("reasoning")
-                .or_insert_with(|| json!("Exercise the native runtime integration path."));
-            match object.get("extras") {
-                None => {
-                    object.insert("extras".into(), json!(ALL_EXTRAS));
-                }
-                Some(Value::Array(kinds)) if kinds.is_empty() => {
-                    object.remove("extras");
-                }
-                Some(_) => {}
-            }
-        }
-    };
-    if let Some(rows) = input.get_mut("queries").and_then(Value::as_array_mut) {
-        rows.iter_mut().for_each(brief);
-        return input;
+pub fn envelope(input: Value) -> Value {
+    if input.get("queries").is_some() || input.get("cursor").is_some() {
+        input
+    } else {
+        json!({"queries":[input]})
     }
-    let Some(row) = input.as_object_mut() else {
-        return input;
-    };
-    let mut envelope = serde_json::Map::new();
-    for key in [
-        "responseOffset",
-        "responseLength",
-        "responseScope",
-        "responseSnapshot",
-    ] {
-        if let Some(value) = row.remove(key) {
-            envelope.insert(key.into(), value);
-        }
-    }
-    let mut row = Value::Object(std::mem::take(row));
-    brief(&mut row);
-    envelope.insert("queries".into(), json!([row]));
-    Value::Object(envelope)
 }
 
 pub fn row_data(outcome: &ToolOutcome) -> &Value {
@@ -233,17 +187,8 @@ impl Row {
     }
 }
 
-/// Run one `row` of `tool` through the full runtime (validation, response
-/// stages, path shaping) with exactly the output kinds `extras` (`&[]` is the
-/// default view; the row itself names none). The row is briefed when it is
-/// not. A runtime error fails the test, and so does an output that breaks the
-/// output contract.
-pub async fn run(runtime: &ToolRuntime, tool: &str, mut row: Value, extras: &[&str]) -> Row {
-    assert!(
-        row.get("extras").is_none(),
-        "pass extras as run's argument, not on the row: {row}"
-    );
-    row["extras"] = json!(extras);
+/// Execute a canonical row or complete request and validate the public output.
+pub async fn run(runtime: &ToolRuntime, tool: &str, row: Value) -> Row {
     let outcome = call(runtime, tool, row.clone())
         .await
         .unwrap_or_else(|error| panic!("{tool} {row}: {error:?}"));

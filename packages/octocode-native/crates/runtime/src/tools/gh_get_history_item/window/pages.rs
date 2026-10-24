@@ -40,7 +40,7 @@ pub(in crate::tools::gh_get_history_item) fn reconcile_file_totals(
     let listable = total.min(MAX_FILE_BATCHES * MAX_PER_PAGE);
     if !state.exhausted && !filtered {
         let per = page["pageSize"].as_u64().unwrap_or(1).max(1) as usize;
-        let current = page["currentPage"].as_u64().unwrap_or(1) as usize;
+        let current = page["page"].as_u64().unwrap_or(1) as usize;
         let more = page["hasMore"] == true;
         // Rebuilt from the facts, so the block keeps the one key order.
         let mut rebuilt = crate::response::pages::PageFacts::open(current, Some(per), more)

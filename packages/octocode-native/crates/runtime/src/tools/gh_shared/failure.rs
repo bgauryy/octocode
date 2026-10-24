@@ -29,7 +29,7 @@ pub struct GhFailure {
     pub error: Box<ProviderError>,
     pub message: String,
     pub hints: Vec<String>,
-    pub next: Option<Box<Value>>,
+    pub calls: Option<Box<Value>>,
     /// Fields the error row names besides the error (a file's identity).
     pub fields: Vec<(&'static str, Value)>,
 }
@@ -40,7 +40,7 @@ impl GhFailure {
             error: Box::new(error),
             message: message.into(),
             hints: Vec::new(),
-            next: None,
+            calls: None,
             fields: Vec::new(),
         }
     }
@@ -151,13 +151,39 @@ pub(crate) fn search_failure(error: ProviderError) -> GhFailure {
 pub(crate) fn ref_recovery(owner: &str, repo: &str) -> Value {
     let mut refs = RepoPath::root(owner, repo).row();
     refs["operation"] = json!("refs");
-    Continuation::new(ToolId::GhStructure, refs).build()
+    Continuation::related(ToolId::GhStructure, refs).build()
 }
 
 /// A repository that did not resolve: a search for its name names the
 /// owner that holds it.
 pub(crate) fn repository_search(repo: &str) -> Value {
-    Continuation::new(ToolId::GhSearchRepo, json!({"keywords": [repo]})).build()
+    Continuation::related(
+        ToolId::GhSearchRepo,
+        json!({"operation":"search","keywords": [repo]}),
+    )
+    .build()
+}
+
+/// A repository that did not resolve under `owner`: the owner's own
+/// repositories, beside the name search (a misspelled owner is not found
+/// by the name; that listing says when no such login exists).
+pub(crate) fn owner_listing(owner: &str) -> Value {
+    Continuation::related(
+        ToolId::GhSearchRepo,
+        json!({"operation":"list","owner": owner}),
+    )
+    .build()
+}
+
+/// `failure` with `findRepository2`, the [`owner_listing`], beside its
+/// `findRepository` name search; any other failure is returned unchanged.
+pub(crate) fn with_owner_listing(mut failure: GhFailure, owner: &str) -> GhFailure {
+    if let Some(next) = failure.calls.as_mut()
+        && next.get("findRepository").is_some()
+    {
+        next["findRepository2"] = owner_listing(owner);
+    }
+    failure
 }
 
 /// The error for an owner-wide search that found no such login. It names the
@@ -172,8 +198,8 @@ pub(crate) fn with_ref_recovery(mut failure: GhFailure, owner: &str, repo: &str)
     if failure.error.reason != Some(ProviderErrorReason::RefNotFound) {
         return failure;
     }
-    let mut next = failure.next.take().unwrap_or_else(|| Box::new(json!({})));
+    let mut next = failure.calls.take().unwrap_or_else(|| Box::new(json!({})));
     next["viewRefs"] = ref_recovery(owner, repo);
-    failure.next = Some(next);
+    failure.calls = Some(next);
     failure
 }

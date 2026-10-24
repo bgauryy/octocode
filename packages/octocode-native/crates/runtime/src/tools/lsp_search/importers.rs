@@ -18,8 +18,10 @@
 //! window, and `next.nextImporterPage` (on the window's last location page)
 //! carries the candidate digest as its `snapshot`, so every candidate is
 //! verified in exactly one window and a changed list restarts the walk.
+//! Before the list is cut, candidates whose imports name only other modules
+//! are set aside as checked (`reach`): only files that may import the
+//! anchor's module are opened.
 
-use super::LspSearchQuery;
 use super::anchor::Position;
 use super::failure::{LspFailure, flag_partial, ignored_text_lead};
 use super::import_stop::{proven_missing, stays_on_import};
@@ -31,20 +33,28 @@ use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
 use crate::tools::lsp_search::lsp_search_query;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
+use octocode_contract_types::LspSearchQuery;
 use octocode_engine::lsp::client::{NativeLspClient, SnippetReadPolicy};
 use serde_json::{Value, json};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
+use std::sync::Arc;
 
 mod coverage;
 mod occurrences;
+mod reach;
 mod search;
 use occurrences::*;
-pub(super) use search::*;
+use reach::{AnchorModule, read_checked, split_reachable};
+#[cfg(test)]
+use search::check_imports;
+pub(super) use search::{
+    ImporterSearch, SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED, imports_name, verified_anchors,
+};
 /// Candidate files opened and verified per request: one importer window.
 pub(super) const MAX_CANDIDATE_FILES: usize = 24;
-/// Windows one request may verify. A later window that holds no verified
-/// importer is skipped in the same request (its page would list no site),
+/// Windows one request may verify. A window that holds no verified
+/// importer is followed by the next in the same request (it adds no site),
 /// up to this many windows or [`SKIP_BUDGET`] of wall time;
 /// `next.nextImporterPage` resumes after them.
 pub(super) const MAX_WINDOWS_PER_REQUEST: usize = 8;
@@ -60,9 +70,10 @@ pub(super) const CAPPED_REASON: &str = "importerScanCapped";
 /// Partial reason of a scan whose ignore rules hid files that import the
 /// name, or that spell it and could not be checked for an import.
 pub(super) const IGNORED_REASON: &str = "importerScanIgnored";
-/// The note of a lifted scan that stopped at its bound before reaching any
-/// evidence: it reads the same on every row of the scope.
-const IGNORED_UNFINISHED_NOTICE: &str = "The scan for gitignored files that spell this name stopped at its time bound, so importers among them are unverified.";
+/// The note of an ignored-file scan that did not finish before reaching any
+/// evidence (its index not ready or incomplete): it reads the same on every
+/// row of the scope, and says how to read those files.
+const IGNORED_UNFINISHED_NOTICE: &str = "The scan for gitignored files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored reads them.";
 /// Settle/ready bounds for the last candidate open of a window; the load it
 /// triggers covers every candidate opened before it. Shorter than a
 /// request's anchor open (the server already loaded the anchor's project),
@@ -99,6 +110,10 @@ pub(super) struct Importers {
     /// the declaration lives elsewhere): neither verified nor rejected, so
     /// they stay out of the answer and count as text-only files.
     pub(super) unverified: Vec<String>,
+    /// Candidate sites whose name binds another declaration (a same-named
+    /// binding of their own file, which shadows the anchor's): never a
+    /// reference, whichever importer's answer lists them.
+    pub(super) elsewhere: HashSet<Site>,
     /// Files that spell the name but that ignore rules kept out of the
     /// candidate scan: never verified, so the row names them.
     pub(super) ignored: IgnoredMentions,

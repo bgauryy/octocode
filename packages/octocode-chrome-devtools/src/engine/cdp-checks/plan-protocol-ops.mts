@@ -6,9 +6,22 @@ import { fileURLToPath } from 'node:url';
 import { jsonPointer } from './plan-validate.mjs';
 import { exceptionMessage, waitCondition } from './plan-condition.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { Handler, Payload } from '../cdp-connection.mjs';
+import { errorMessage } from '../error-message.mjs';
+import type { CheckSession } from '../cdp-runner-session.mjs';
+import type {
+  EventStream,
+  PlanOp,
+  PlanState,
+  StepContext,
+} from './plan-types.mjs';
 
 /** Prints an artifact line and its lossless artifact-query continuation. */
-export function logQueryContinuation(log, label, file) {
+export function logQueryContinuation(
+  log: (line: string) => void,
+  label: string,
+  file: string
+) {
   log(`[ARTIFACT] ${label} ${file}`);
   log(
     '[NEXT] ' +
@@ -27,21 +40,24 @@ export function logQueryContinuation(log, label, file) {
   );
 }
 
-function writeAll(fd, bytes) {
+function writeAll(fd: number, bytes: Buffer) {
   for (let at = 0; at < bytes.length;)
     at += writeSync(fd, bytes, at, bytes.length - at);
 }
 
-async function readChunks(fd, handle, { step, row, target }) {
+async function readChunks(
+  fd: number,
+  handle: string,
+  { step, row, target }: StepContext
+) {
   for (;;) {
     const chunk = await target.send('IO.read', {
       handle,
       size: step.size ?? 65536,
     });
-    writeAll(
-      fd,
-      Buffer.from(JSON.stringify({ index: row.chunks++, ...chunk }) + '\n')
-    );
+    const index = row.chunks ?? 0; // readStream starts the count at 0
+    row.chunks = index + 1;
+    writeAll(fd, Buffer.from(JSON.stringify({ index, ...chunk }) + '\n'));
     if (chunk.eof) {
       row.complete = true;
       return;
@@ -50,7 +66,11 @@ async function readChunks(fd, handle, { step, row, target }) {
 }
 
 // Cleanup has its own bounded deadline, even if the step timed out.
-async function closeStream(connection, handle, { step, row, target }) {
+async function closeStream(
+  connection: CheckSession,
+  handle: string,
+  { step, row, target }: StepContext
+) {
   if (step.close === false) return null;
   try {
     await connection.send('IO.close', { handle }, target.targetInfo.sessionId, {
@@ -58,12 +78,12 @@ async function closeStream(connection, handle, { step, row, target }) {
     });
     return null;
   } catch (error) {
-    row.cleanupError = error.message;
+    row.cleanupError = errorMessage(error);
     return error;
   }
 }
 
-async function readStream(state, current) {
+async function readStream(state: PlanState, current: StepContext) {
   const { index, row } = current;
   const handle = state.resolveParams(current.step.handle);
   if (typeof handle !== 'string')
@@ -74,7 +94,7 @@ async function readStream(state, current) {
   row.chunks = 0;
   row.complete = false;
   let readFailed = false,
-    readError;
+    readError: unknown;
   try {
     await readChunks(fd, handle, current);
   } catch (error) {
@@ -88,20 +108,13 @@ async function readStream(state, current) {
   if (cleanupError) throw cleanupError;
 }
 
-function listen(state, { step, row, target }) {
-  const file = join(state.cdp.outputDir, `events-${step.id}.jsonl`),
+function listen(state: PlanState, { step, row, target }: StepContext) {
+  const { id, event } = step;
+  if (id === undefined || event === undefined)
+    throw new Error('listen needs id and event'); // validatePlan requires both
+  const file = join(state.cdp.outputDir, `events-${id}.jsonl`),
     fd = openSync(file, 'wx', 0o600);
-  const stream = {
-    target,
-    file,
-    fd,
-    observed: 0,
-    matched: 0,
-    last: undefined,
-    event: step.event,
-    handler: undefined,
-  };
-  stream.handler = (params, meta: { sessionId?: string } = {}) => {
+  const handler: Handler = (params, meta: { sessionId?: string } = {}) => {
     writeAll(
       fd,
       Buffer.from(
@@ -122,14 +135,32 @@ function listen(state, { step, row, target }) {
       stream.last = params;
     }
   };
-  target.on(step.event, stream.handler);
-  state.streams.set(step.id, stream);
+  const stream: EventStream = {
+    target,
+    file,
+    fd,
+    observed: 0,
+    matched: 0,
+    last: undefined,
+    event,
+    handler,
+  };
+  target.on(event, handler);
+  state.streams.set(id, stream);
   row.artifact = file;
 }
 
-async function waitEvent(state, { step, timeout, row }) {
-  const stream = state.streams.get(step.listener),
+async function waitEvent(
+  state: PlanState,
+  { step, timeout, row }: StepContext
+) {
+  const stream =
+      step.listener === undefined
+        ? undefined
+        : state.streams.get(step.listener),
     begin = Date.now();
+  // validatePlan only accepts a listener registered by an earlier listen step.
+  if (!stream) throw new Error('waitEvent needs an earlier listener');
   while (stream.matched < (step.count ?? 1)) {
     if (Date.now() - begin >= timeout)
       throw new Error('Event condition timed out');
@@ -139,34 +170,45 @@ async function waitEvent(state, { step, timeout, row }) {
   row.matched = stream.matched;
 }
 
-async function cdpCommand(state, { step, index, timeout, row, target }) {
-  const result = await target.send(
-    step.method,
-    state.resolveParams(step.params || {})
-  );
-  row.artifact = state.cdp.saveArtifact(`cdp-${index + 1}.json`, result).file;
-  state.artifacts.set(index + 1, row.artifact);
+async function cdpCommand(
+  state: PlanState,
+  { step, index, timeout, row, target }: StepContext
+) {
+  if (step.method === undefined) throw new Error('cdp needs Domain.method'); // validatePlan requires it
+  const params = state.resolveParams(step.params || {});
+  if (typeof params !== 'object' || params === null)
+    throw new Error('CDP params must resolve to an object');
+  const result = await target.send(step.method, params);
+  const artifact = state.cdp.saveArtifact(`cdp-${index + 1}.json`, result).file;
+  row.artifact = artifact;
+  state.artifacts.set(index + 1, artifact);
   if (result.exceptionDetails)
     throw new Error(exceptionMessage(result.exceptionDetails));
   if (step.after)
     row.condition = await waitCondition(target, step.after, timeout, state.log);
 }
 
-function protocolMember(domain, member) {
+type ProtocolEntry = { name: string };
+
+function protocolMember(domain: Payload, member: string) {
   return {
     domain: domain.domain,
-    commands: domain.commands?.filter(c => c.name === member) || [],
-    events: domain.events?.filter(e => e.name === member) || [],
+    commands:
+      domain.commands?.filter((c: ProtocolEntry) => c.name === member) || [],
+    events:
+      domain.events?.filter((e: ProtocolEntry) => e.name === member) || [],
     types: domain.types || [],
   };
 }
 
-async function protocol(state, { step, index, row }) {
+async function protocol(state: PlanState, { step, index, row }: StepContext) {
   if (!state.protocol) {
     state.protocol = await state.cdp.protocol();
     state.cdp.saveArtifact('installed-protocol.json', state.protocol);
   }
-  const domain = state.protocol.domains.find(d => d.domain === step.domain);
+  const domain = state.protocol.domains.find(
+    (d: Payload) => d.domain === step.domain
+  );
   if (!domain) throw new Error('Protocol domain not found');
   const selected = step.member ? protocolMember(domain, step.member) : domain;
   if (step.member && !selected.commands.length && !selected.events.length)
@@ -177,7 +219,7 @@ async function protocol(state, { step, index, row }) {
   ).file;
 }
 
-export const protocolOps = {
+export const protocolOps: Record<string, PlanOp> = {
   readStream,
   listen,
   waitEvent,

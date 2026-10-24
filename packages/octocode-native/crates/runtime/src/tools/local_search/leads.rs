@@ -10,20 +10,15 @@ use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
-use crate::response::result::{CURSOR_FIELDS, Continuation, ToolError, query_row};
+use crate::response::result::{Continuation, ToolError, query_row};
 use crate::tools::empty_walk::Cause;
 use crate::tools::leads::skipped::under;
-use octocode_contract_types::{SkippedPathCause, SkippedPaths};
-use octocode_engine::types::{PatternSyntax, SearchOutput, TextSearchOptions};
+use octocode_contract_types::{LocalSearchQuery, SkippedPathCause, SkippedPaths};
+use octocode_engine::types::TextSearchOptions;
 use serde_json::{Value, json};
 
-mod alternation;
 mod reads;
 mod skipped;
-#[cfg(test)]
-mod tests;
-
-use alternation::{regex_engine, regex_lead};
 
 /// What a page's leads disclosed of the paths its walk skipped.
 pub(super) struct Disclosed {
@@ -90,7 +85,7 @@ impl Found<'_> {
         {
             add(
                 crate::tools::leads::lsp::lead_name(&row),
-                Continuation::new(ToolId::LspSearch, row).build(),
+                Continuation::related(ToolId::LspSearch, row).build(),
             );
         }
         for (name, lead) in self.expand_values_leads() {
@@ -134,7 +129,7 @@ impl Found<'_> {
         // Thousands of hits page for dozens of calls: one count call ranks
         // the files first, so the next read or narrowing is chosen, not paged.
         if self.first_page()
-            && !list_view(query.result_view)
+            && !list_view(local_search_query::view(query))
             && let Some(total) = self
                 .scanned
                 .match_count
@@ -142,30 +137,6 @@ impl Found<'_> {
         {
             add("viewFileCount".into(), count_lead(query));
             hints.push(format!("{total} matches."));
-        }
-        // An unset `regex` is literal; an empty literal search whose text has
-        // regex characters says the other reading exists.
-        let literal_missed = self.empty
-            && query.regex.is_none()
-            && local_search_query::pattern(query).contains(super::types::REGEX_METACHARACTERS);
-        // The other reading is offered as the call that runs it, under the
-        // engine the text compiles in (lookaround compiles only in pcre2).
-        let engine = literal_missed
-            .then(|| regex_engine(local_search_query::pattern(query)))
-            .flatten();
-        if let Some(engine) = engine {
-            warnings
-                .push("matchString ran as literal text; a lead reruns it as a regex.".to_owned());
-            add("findSimilar".into(), regex_lead(query, engine));
-        } else if literal_missed {
-            warnings.push("matchString ran as literal text.".to_owned());
-        }
-        // A literal page whose text reads as an alternation (`a|b`) may
-        // answer part of the question: one bounded count of the regex
-        // reading says when it matches more lines.
-        if let Some((engine, warning)) = self.alternation_reading(search_options, cancel) {
-            warnings.push(warning);
-            add("findSimilar".into(), regex_lead(query, engine));
         }
         // Files whose match the `fileHas`/`fileLacks` terms removed: the
         // empty page is the filter's, not the pattern's.
@@ -177,25 +148,10 @@ impl Found<'_> {
             ));
             add("broadenSearch".into(), unfiltered_terms_lead(query));
         }
-        // An empty page's two probes (other spellings, skipped paths) are
-        // independent bounded walks: they run side by side and disclose in
-        // a fixed order.
-        let spellings = self.empty && self.walk_complete && self.first_page();
         let unsearched =
             self.empty && self.walk_complete && first_disclosure && !self.root.is_file();
-        let paths = self.paths;
-        let (variants, tagged) = std::thread::scope(|scope| {
-            let variants = spellings
-                .then(|| scope.spawn(|| probe_variants(query, paths, search_options, cancel)));
-            let tagged = unsearched.then(|| probe_unsearched(query, paths, search_options, cancel));
-            (
-                variants.and_then(|probe| probe.join().ok()).flatten(),
-                tagged,
-            )
-        });
-        if let Some(variants) = variants {
-            disclose_variants(query, variants, next, hints);
-        }
+        let tagged =
+            unsearched.then(|| probe_unsearched(query, self.paths, search_options, cancel));
         let unsearched = match tagged {
             Some(tagged) => disclose_unsearched(
                 query,
@@ -248,30 +204,16 @@ fn unfiltered_terms_lead(query: &LocalSearchQuery) -> Value {
     })
 }
 
-/// Whether the row lists every skipped path (`extras:["details"]`) instead
-/// of one entry per cause and rule.
-pub(super) fn lists_every_skipped_path(query: &LocalSearchQuery) -> bool {
-    crate::tools::leads::skipped::every_path(&query.extras)
-}
-
 /// Matches at which a line view leads to its per-file counts.
 pub(super) const LARGE_RESULT_MATCHES: u32 = 1_000;
 
 /// The same search as per-file match counts, from page 1.
 pub(super) fn count_lead(query: &LocalSearchQuery) -> Value {
     restart_lead(query, |fields| {
-        fields.insert("resultView".into(), json!("countMatches"));
+        fields.insert("view".into(), json!("countMatches"));
         // Fields that shape match rows (or are valid only under matchOnly)
         // have no meaning in a count view.
-        for field in [
-            "contextLines",
-            "contextBefore",
-            "contextAfter",
-            "matchContentLength",
-            "pageSize",
-            "matchPageSize",
-            "unique",
-        ] {
+        for field in ["contextLines", "unique", "classification"] {
             fields.remove(field);
         }
     })
@@ -283,11 +225,17 @@ pub(super) fn restart_lead(
     query: &LocalSearchQuery,
     edit: impl FnOnce(&mut serde_json::Map<String, Value>),
 ) -> Value {
-    let mut lead = query_row(query, &CURSOR_FIELDS);
+    let mut lead = query_row(
+        query,
+        &crate::contracts::state_fields(crate::id::ToolId::LocalSearch)
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    );
     if let Some(fields) = lead.as_object_mut() {
         edit(fields);
     }
-    Continuation::new(ToolId::LocalSearch, lead).build()
+    Continuation::related(ToolId::LocalSearch, lead).build()
 }
 
 /// A structureSearch `files` listing of the searched scope in the query's
@@ -297,7 +245,7 @@ pub(super) fn restart_lead(
 /// out: it never matches, and the row's warning names it). Without, when
 /// those globs matched no file, the listing shows the names that exist.
 pub(super) fn scope_listing(query: &LocalSearchQuery, keep_globs: bool) -> Value {
-    let mut listing = json!({"operation": "files", "path": query.path.as_str()});
+    let mut listing = json!({"operation": "files", "path": local_search_query::path(query)});
     let matchable = |globs: &[String]| {
         globs
             .iter()
@@ -305,7 +253,10 @@ pub(super) fn scope_listing(query: &LocalSearchQuery, keep_globs: bool) -> Value
             .cloned()
             .collect::<Vec<_>>()
     };
-    let (include, exclude) = (matchable(&query.include), matchable(&query.exclude));
+    let (include, exclude) = (
+        matchable(local_search_query::include(query)),
+        matchable(local_search_query::exclude(query)),
+    );
     if !include.is_empty() {
         listing["include"] = json!(include);
     }
@@ -313,15 +264,15 @@ pub(super) fn scope_listing(query: &LocalSearchQuery, keep_globs: bool) -> Value
         listing["exclude"] = json!(exclude);
     }
     walk_scope(query, &mut listing);
-    Continuation::new(ToolId::StructureSearch, listing).build()
+    Continuation::related(ToolId::StructureSearch, listing).build()
 }
 
 /// The search's walk scope on a structureSearch listing.
 fn walk_scope(query: &LocalSearchQuery, listing: &mut Value) {
-    if query.include_ignored == Some(true) {
+    if local_search_query::include_ignored(query) == Some(true) {
         listing["includeIgnored"] = json!(true);
     }
-    if !query.default_excludes.defaults() {
+    if !local_search_query::default_excludes(query).defaults() {
         listing["defaultExcludes"] = json!(false);
     }
 }
@@ -330,7 +281,8 @@ fn walk_scope(query: &LocalSearchQuery, listing: &mut Value) {
 /// deep): a search past the collection cap splits by them, each part
 /// collecting its own files.
 pub(super) fn scope_directories(query: &LocalSearchQuery) -> Value {
-    let mut tree = json!({"operation": "tree", "path": query.path.as_str(), "maxDepth": 1});
+    let mut tree =
+        json!({"operation": "tree", "path": local_search_query::path(query), "maxDepth": 1});
     walk_scope(query, &mut tree);
-    Continuation::new(ToolId::StructureSearch, tree).build()
+    Continuation::related(ToolId::StructureSearch, tree).build()
 }

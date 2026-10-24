@@ -35,9 +35,9 @@ async fn cancellation_keeps_completed_sibling_usage() {
         &server,
         &[("OCTOCODE_ENABLE_STATS", "true".into())],
     ));
-    let fast = json!({"state":"fast","questions":{"fact":{"type":"noul","instructions":"Is this supplied evidence?"}}});
+    let fast = json!({"operation":"evaluate","content":"fast","questions":{"fact":{"type":"noul","instructions":"Is this supplied evidence?"}}});
     let mut slow = fast.clone();
-    slow["state"] = json!("slow");
+    slow["content"] = json!("slow");
     let running = runtime.clone();
     let batch = fast.clone();
     let task = tokio::spawn(async move {
@@ -59,7 +59,7 @@ async fn cancellation_keeps_completed_sibling_usage() {
     // A replay joins the successful sibling's single flight. Its completion
     // proves the original judgment is saved before cancellation, without timing guesses.
     let replay = clasify(&runtime, vec![fast]).await;
-    assert_eq!(replay["queries"][0]["replayed"], true, "{replay}");
+    assert_eq!(replay["results"][0]["data"]["replayed"], true, "{replay}");
     assert!(runtime.requests.cancel("cancelled"));
     let _ = task.await.unwrap();
     let stats: Value =
@@ -107,7 +107,7 @@ async fn image_asset_admission_respects_disabled_reader_and_path_policy() {
     std::fs::write(&file, png()).unwrap();
     let out = clasify(&enabled, vec![row(file.to_str().unwrap())]).await;
     assert_eq!(
-        out["queries"][0]["error"]["errorCode"], "securityValidationFailed",
+        out["results"][0]["data"]["errorCode"], "securityValidationFailed",
         "{out}"
     );
     assert!(requests(&server).await.is_empty());
@@ -126,7 +126,7 @@ async fn memory_mode_refuses_images_without_persistent_evidence() {
     );
     let out = clasify(&runtime, vec![row("one.png")]).await;
     assert_eq!(
-        out["queries"][0]["error"]["errorCode"], "classificationContextUnavailable",
+        out["results"][0]["data"]["errorCode"], "classificationContextUnavailable",
         "{out}"
     );
     assert!(requests(&server).await.is_empty());
@@ -143,12 +143,12 @@ async fn aggregate_bytes_refuse_the_whole_image_row() {
     std::fs::write(workspace.workspace.join("one.png"), bytes).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
     let mut query = row("one.png");
-    query["state"] = json!(["image_a", "image_b", "image_c"]);
+    query["content"] = json!(["image_a", "image_b", "image_c"]);
     query["assets"]["image_b"] = query["assets"]["image_a"].clone();
     query["assets"]["image_c"] = query["assets"]["image_a"].clone();
     let out = clasify(&runtime, vec![query]).await;
     assert_eq!(
-        out["queries"][0]["error"]["errorCode"], "classificationContextTooLarge",
+        out["results"][0]["data"]["errorCode"], "classificationContextTooLarge",
         "{out}"
     );
     assert!(requests(&server).await.is_empty());
@@ -164,11 +164,11 @@ async fn text_source_and_image_share_one_judgment_without_host_body() {
     std::fs::write(workspace.workspace.join("guide.md"), body).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
     let mut query = row("one.png");
-    query.as_object_mut().unwrap().remove("state");
-    query["source"] = json!({"tool":"localFetch","query":{"path":"guide.md","fullContent":true}});
+    query.as_object_mut().unwrap().remove("content");
+    query["source"] = json!({"tool":"localFetch","query":{"path":"guide.md"}});
     let out = clasify(&runtime, vec![query]).await;
     assert_eq!(
-        out["queries"][0]["answers"]["visible"]["noul"], 0.9,
+        out["results"][0]["data"]["answers"]["visible"]["noul"], 0.9,
         "{out}"
     );
     assert!(!out.to_string().contains("UNREAD_EVIDENCE_ONLY_5826"));
@@ -190,8 +190,11 @@ async fn unicode_state_near_character_boundary_is_not_counted_as_utf8_bytes() {
     let workspace = Workspace::new();
     let runtime = runtime(&workspace, &server, &[]);
     let text = "é".repeat(31_998);
-    let out = clasify(&runtime, vec![json!({"state":text,"questions":{"q":{"type":"noul","instructions":"Does the state contain accented letters?"}}})]).await;
-    assert_eq!(out["queries"][0]["answers"]["q"]["noul"], 0.9, "{out}");
+    let out = clasify(&runtime, vec![json!({"operation":"evaluate","content":text,"questions":{"q":{"type":"noul","instructions":"Does the state contain accented letters?"}}})]).await;
+    assert_eq!(
+        out["results"][0]["data"]["answers"]["q"]["noul"], 0.9,
+        "{out}"
+    );
     let sent = requests(&server).await;
     assert_eq!(sent.len(), 1);
     let request: Value = serde_json::from_slice(&sent[0].body).unwrap();
@@ -206,10 +209,10 @@ async fn captured_state_includes_json_escaping_and_identity_in_its_bound() {
     // Source text alone fits 32k, but its JSON representation does not.
     std::fs::write(workspace.workspace.join("quoted.txt"), "\"".repeat(20_000)).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
-    let out = clasify(&runtime, vec![json!({"source":{"tool":"localFetch","query":{"path":"quoted.txt","fullContent":true}},
+    let out = clasify(&runtime, vec![json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"quoted.txt"}},
         "questions":{"q":{"type":"noul","instructions":"Does the source contain quotation marks?"}}})]).await;
     assert_eq!(
-        out["queries"][0]["error"]["errorCode"], "classificationContextTooLarge",
+        out["results"][0]["data"]["errorCode"], "classificationContextTooLarge",
         "{out}"
     );
     assert!(requests(&server).await.is_empty());

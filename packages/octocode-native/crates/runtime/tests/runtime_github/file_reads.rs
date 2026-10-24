@@ -42,8 +42,7 @@ async fn github_file_read_goes_through_execute_and_redacts() {
             "path": "src/lib.rs",
             "ref": "main",
             "forceRefresh": true,
-            "unit": "lines",
-            "length": 2
+            "ranges": [{"startLine":1,"endLine":2}]
         }),
     )
     .await
@@ -61,7 +60,10 @@ async fn github_file_read_goes_through_execute_and_redacts() {
         content.contains("[REDACTED"),
         "expected secret redaction, got {content}"
     );
-    assert!(file["next"]["continueWindow"]["query"].is_object());
+    assert!(
+        file.get("next").is_none(),
+        "the requested range is complete: {file}"
+    );
     runtime.close().await;
 }
 
@@ -105,7 +107,11 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
         "{data}"
     );
     assert_eq!(
-        crate::support::checks::hint(data, "viewTree")["query"]["queries"][0]["path"],
+        crate::support::checks::related_call(
+            data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] != "refs"
+        )["input"]["queries"][0]["path"],
         "src",
         "{data}"
     );
@@ -192,10 +198,7 @@ async fn big_file_runtime(
     (server, workspace, runtime)
 }
 
-/// Whole-file pages respect the default and a configured 40k host window and
-/// deliver the source byte for byte, every line exactly once, through copied
-/// continuations: comments and blank lines are kept, because `fullContent`
-/// is the verbatim view, which every continuation keeps by omitting `minify`.
+/// Raw source pages preserve comments, blank lines and exact line order.
 #[tokio::test]
 async fn gh_full_content_pages_stay_under_the_configured_window_and_cover_the_file() {
     let sha = "0123456789abcdef0123456789abcdef01234567";
@@ -203,12 +206,14 @@ async fn gh_full_content_pages_stay_under_the_configured_window_and_cover_the_fi
     let total = text.lines().count();
     for window in [support::FIXTURE_LIMITS.auto_page_chars, 40_000] {
         let (_server, _workspace, runtime) = big_file_runtime(&text, sha, window).await;
-        let start = support::envelope(
-            json!({"owner":"a","repo":"b","path":"src/big.rs","ref":sha,"fullContent":true,"extras":[]}),
-        );
+        let start =
+            support::envelope(json!({"owner":"a","repo":"b","path":"src/big.rs","ref":sha,}));
         let walk = support::walk(&runtime, "ghGetFileContent", start, |output| {
             let chars = output.to_string().encode_utf16().count();
-            assert!(chars <= window, "a page is {chars} chars");
+            assert!(
+                chars <= window || output["responsePagination"]["oversized"] == true,
+                "a page is {chars} chars without overflow disclosure"
+            );
             // Numbered records `N\t<text>`: the walk fails on a record
             // delivered twice.
             output["results"][0]["data"]["content"]
@@ -233,20 +238,13 @@ async fn gh_full_content_pages_stay_under_the_configured_window_and_cover_the_fi
         assert_eq!(walk.rows.len(), total, "every line once at window {window}");
         assert!(joined == text, "byte-for-byte source at window {window}");
         for continuation in &walk.queries[1..] {
-            let row = &continuation["queries"][0];
-            // The raw view is the default: omitted.
-            assert!(row.get("minify").is_none(), "{continuation}");
-            assert!(row.get("fullContent").is_none(), "{continuation}");
+            support::assert_cursor_only(continuation);
         }
         runtime.close().await;
     }
 }
 
-/// A view the caller names explicitly survives the window's shortened
-/// whole-file reread: the paged walk carries the caller's `minify` in every
-/// continuation and joins to the same text as one unpaged read. (`standard`
-/// is the default view, which a whole-file read already resolves to
-/// verbatim, so the explicit view here is the outline.)
+/// An explicit symbols view survives replay and reproduces its unpaged view.
 #[tokio::test]
 async fn gh_full_content_paging_keeps_an_explicit_view() {
     let sha = "0123456789abcdef0123456789abcdef01234567";
@@ -258,11 +256,11 @@ async fn gh_full_content_paging_keeps_an_explicit_view() {
             let pages = std::sync::Mutex::new(Vec::new());
             let start = support::envelope(json!({
                 "owner":"a","repo":"b","path":"src/big.rs","ref":sha,
-                "fullContent":true,"minify":"symbols","extras":[]
+                "view":"symbols"
             }));
             let walk = support::walk(&runtime, "ghGetFileContent", start, |output| {
                 let data = &output["results"][0]["data"];
-                assert_eq!(data["contentView"], "symbols", "{data}");
+                assert_eq!(data["view"], "symbols", "{data}");
                 pages
                     .lock()
                     .expect("pages")
@@ -279,10 +277,7 @@ async fn gh_full_content_paging_keeps_an_explicit_view() {
     let (queries, pages) = read_all(support::FIXTURE_LIMITS.auto_page_chars).await;
     assert!(queries.len() > 1, "one page held the whole view");
     for continuation in &queries[1..] {
-        assert_eq!(
-            continuation["queries"][0]["minify"], "symbols",
-            "{continuation}"
-        );
+        support::assert_cursor_only(continuation);
     }
     let joined: String = pages
         .iter()

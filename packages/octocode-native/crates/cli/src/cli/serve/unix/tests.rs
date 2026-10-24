@@ -104,7 +104,7 @@ impl Fixture {
     /// The identity a client in `cwd` sends.
     fn identity(&self, cwd: &Path) -> String {
         use octocode_native::config::{RuntimeSurface, acquire_config_input, resolve_config};
-        let os_home = octocode_io::env::home_dir().expect("home");
+        let os_home = std::env::home_dir().expect("home");
         let env = served_env(self.env.clone());
         let input =
             acquire_config_input(env.clone(), cwd.to_path_buf(), os_home, RuntimeSurface::Cli);

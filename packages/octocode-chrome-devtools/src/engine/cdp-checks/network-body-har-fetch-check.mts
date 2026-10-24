@@ -1,6 +1,39 @@
 import { writeFileSync } from 'fs';
 import { join } from 'path';
+import type { Session } from '../cdp-connection.mjs';
+import { errorMessage } from '../error-message.mjs';
 import { observeFrameEvents } from '../frame-events.mjs';
+
+/** One request seen through CDP Network events. */
+type BodyRecord = {
+  requestId: string;
+  frameId?: string;
+  sessionId?: string;
+  url: string;
+  method: string;
+  type?: string;
+  start: number;
+  end?: number;
+  complete: boolean;
+  status?: number;
+  statusText?: string;
+  mimeType?: string;
+  protocol?: string;
+  headersReceived?: number;
+  errorText?: string;
+};
+
+/** A response body read with Network.getResponseBody, or the reason it could not be read. */
+type CapturedBody = {
+  requestId: string;
+  sessionId?: string;
+  url: string;
+  status?: number;
+  mimeType?: string;
+  base64Encoded?: boolean;
+  body?: string;
+  error?: string;
+};
 
 const API_URL = 'https://example.test/api/data';
 const BODY = JSON.stringify({ ok: true, items: [{ id: 1, name: 'alpha' }] });
@@ -12,15 +45,16 @@ const WAIT_MS = Math.max(
   500,
   Math.min(30000, Number.parseInt(process.env.BODY_WAIT_MS ?? '3000', 10))
 );
-const wanted = record =>
+const wanted = (record: BodyRecord) =>
   MATCH
     ? record.url.includes(MATCH)
     : LIVE_URL
-      ? ['XHR', 'Fetch'].includes(record.type) ||
+      ? record.type === 'XHR' ||
+        record.type === 'Fetch' ||
         /json/i.test(record.mimeType || '')
       : record.url.includes('/api/data');
 
-function harEntry(record, captured: Record<string, any> = {}) {
+function harEntry(record: BodyRecord, captured: Partial<CapturedBody>) {
   const bodyText = captured.body || '';
   const size = Buffer.byteLength(
     bodyText,
@@ -75,7 +109,27 @@ function harEntry(record, captured: Record<string, any> = {}) {
   };
 }
 
-export async function run(cdp) {
+/** The hermetic fixture: answers the fixture API request and lets every other request through. */
+function fulfillFixture(cdp: Session) {
+  cdp.on('Fetch.requestPaused', async ({ requestId, request }) => {
+    if (request.url.includes('/api/data')) {
+      await cdp.send('Fetch.fulfillRequest', {
+        requestId,
+        responseCode: 200,
+        responsePhrase: 'OK',
+        responseHeaders: [
+          { name: 'content-type', value: 'application/json' },
+          { name: 'access-control-allow-origin', value: '*' },
+        ],
+        body: Buffer.from(BODY).toString('base64'),
+      });
+    } else {
+      await cdp.send('Fetch.continueRequest', { requestId });
+    }
+  });
+}
+
+export async function run(cdp: Session) {
   await cdp.send('Runtime.enable');
   await cdp.send('Network.enable');
   await cdp.send('Page.enable');
@@ -86,34 +140,18 @@ export async function run(cdp) {
       ],
     });
 
-  const records = new Map();
-  const requestKey = (requestId, meta) =>
+  const records = new Map<string, BodyRecord>();
+  const requestKey = (requestId: string, meta: { sessionId?: string }) =>
     JSON.stringify([meta.sessionId || null, requestId]);
-  const redirects = [];
-  const bodies = [];
-  const pending = [];
-  if (!LIVE_URL)
-    cdp.on('Fetch.requestPaused', async ({ requestId, request }) => {
-      if (request.url.includes('/api/data')) {
-        await cdp.send('Fetch.fulfillRequest', {
-          requestId,
-          responseCode: 200,
-          responsePhrase: 'OK',
-          responseHeaders: [
-            { name: 'content-type', value: 'application/json' },
-            { name: 'access-control-allow-origin', value: '*' },
-          ],
-          body: Buffer.from(BODY).toString('base64'),
-        });
-      } else {
-        await cdp.send('Fetch.continueRequest', { requestId });
-      }
-    });
+  const redirects: BodyRecord[] = [];
+  const bodies: CapturedBody[] = [];
+  const pending: Promise<void>[] = [];
+  if (!LIVE_URL) fulfillFixture(cdp);
   cdp.on(
     'Network.requestWillBeSent',
     (
       { requestId, request, type, frameId, redirectResponse },
-      meta: Record<string, any> = {}
+      meta: { sessionId?: string } = {}
     ) => {
       const prior = records.get(requestKey(requestId, meta));
       if (prior && redirectResponse) {
@@ -168,14 +206,15 @@ export async function run(cdp) {
             `[NETWORK_BODY] ${record.status} ${record.url} chars=${body.body.length}`
           );
         })
-        .catch(error => {
+        .catch((error: unknown) => {
+          const message = errorMessage(error);
           bodies.push({
             requestId,
             sessionId: record.sessionId,
             url: record.url,
-            error: error.message,
+            error: message,
           });
-          console.log(`[NETWORK_BODY_ERROR] ${record.url} ${error.message}`);
+          console.log(`[NETWORK_BODY_ERROR] ${record.url} ${message}`);
         })
     );
   });

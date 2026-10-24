@@ -23,13 +23,20 @@ fn validate_output_normalized(
 }
 
 /// The copy-free validation the response stage runs returns what
-/// `validate_output` returns and leaves the response byte-identical.
+/// `validate_output` and the copying output mode return, and leaves the
+/// response byte-identical.
 fn assert_in_place_matches(tool: &str, output: &Value) {
     let mut in_place = output.clone();
+    let verdict = crate::contracts::validate_output_in_place(tool, &mut in_place);
     assert_eq!(
-        crate::contracts::validate_output_in_place(tool, &mut in_place),
+        verdict,
         crate::contracts::validate_output(tool, output),
         "{tool}: {output}"
+    );
+    assert_eq!(
+        verdict,
+        validate_output_normalized(tool, output).map(|_| ()),
+        "read-only and copying validation differ: {tool}: {output}"
     );
     assert_eq!(
         serde_json::to_string(&in_place).expect("json"),

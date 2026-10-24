@@ -4,8 +4,8 @@ import { INTERNAL_MESSAGE_TYPE, USER_SENDER } from '../src/shared/messages.js';
 import { resolveTarget, sessionTree } from '../src/team/routing.js';
 import type { Member } from '../src/team/model.js';
 import { TeamStore } from '../src/team/store.js';
-import { tmp } from './helpers.js';
-import { agent, closeTeams, fakeClock, mailOf, member, openStore, repo, seen, teamMail } from './team-harness.js';
+import { repo, tmp } from './helpers.js';
+import { agent, closeTeams, fakeClock, mailOf, member, openStore, seen, teamMail } from './team-harness.js';
 
 afterEach(closeTeams);
 

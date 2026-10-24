@@ -1,5 +1,3 @@
-#![allow(clippy::expect_used)]
-
 use octocode_engine::graph::{condense, scc};
 
 #[path = "../benches/support/frozen_graph.rs"]
@@ -14,7 +12,11 @@ fn frozen_graph_correctness_receipt_is_stable() {
     let condensed = condense(&graph);
     assert_eq!(condensed.components.len(), 500);
     assert_eq!(
-        condensed.edges.values().map(|e| e.len()).sum::<usize>(),
+        condensed
+            .edges
+            .values()
+            .map(std::collections::BTreeSet::len)
+            .sum::<usize>(),
         1_494
     );
 }

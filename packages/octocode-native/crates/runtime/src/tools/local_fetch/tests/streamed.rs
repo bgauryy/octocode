@@ -2,26 +2,20 @@
 //! output contracts: byte pages, multi-range reads, redaction.
 
 use super::*;
+use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 fn checked_streamed_page(query: &LocalFetchQuery, paths: &Paths) -> LocalFetchResult {
-    let mut rows = crate::contracts::prepare_many_and_validate(
-        "localFetch",
-        serde_json::json!({"queries":[query]}),
-    )
-    .expect("canonical input contract");
+    let mut rows =
+        crate::contracts::prepare_many_built("localFetch", serde_json::json!({"queries":[query]}))
+            .expect("canonical input contract");
     let query_json = rows.remove(0);
     let admitted = serde_json::from_value(query_json.clone()).expect("admitted query");
     let result = fetch(&admitted, paths);
-    let mut row =
-        serde_json::json!({"index":0,"data":serde_json::to_value(&result).expect("output")});
-    if let Some(status) = result.status.row_status() {
-        row["status"] = serde_json::json!(status);
-    }
-    crate::response::extras::prune_row(&mut row, crate::id::ToolId::LocalFetch, &query_json);
-    crate::response::rows::minimize_row(&mut row, crate::id::ToolId::LocalFetch, &query_json);
-    let mut envelope = serde_json::json!({"results":[row]});
-    crate::response::numbered::number_read_rows(crate::id::ToolId::LocalFetch, &mut envelope);
-    crate::contracts::validate_output("localFetch", &envelope).expect("canonical output contract");
+    crate::tools::test_support::published(
+        crate::id::ToolId::LocalFetch,
+        &query_json,
+        &serde_json::to_value(&result).expect("output"),
+    );
     result
 }
 
@@ -47,7 +41,7 @@ fn streamed_oversized_line_pages_its_bytes_and_later_selected_lines() {
     let paths = Paths(fixture.0.clone());
     let mut query = qj(
         &path,
-        serde_json::json!({"ranges":["1-2"], "unit":"bytes", "length":50_000}),
+        serde_json::json!({"ranges":[{"startLine":1,"endLine":2}]}),
     );
     let view = format!("{longest}{suffix}{selected_tail}");
     let mut collected = String::new();
@@ -57,7 +51,7 @@ fn streamed_oversized_line_pages_its_bytes_and_later_selected_lines() {
         assert_eq!(result.status, ReadStatus::Success, "{result:?}");
         let content = result.content.as_deref().expect("page content");
         let page = result.pagination.as_ref().expect("pagination");
-        if page.unit == WindowUnit::Bytes {
+        if page.unit == ReadProgressUnit::Bytes {
             assert_eq!(page.offset, collected.len(), "pages are contiguous");
             assert_eq!(page.total_bytes, view.len(), "the range's own size");
         }
@@ -69,12 +63,15 @@ fn streamed_oversized_line_pages_its_bytes_and_later_selected_lines() {
             break;
         };
         let wire = serde_json::to_value(next).expect("executable continuation");
-        query = serde_json::from_value(wire["query"]["queries"][0].clone()).expect("copied query");
-        assert!(query.snapshot.is_some(), "source identity persists");
+        query = serde_json::from_value(wire["input"]["queries"][0].clone()).expect("copied query");
+        assert!(
+            local_fetch_query::snapshot(&query).is_some(),
+            "source identity persists"
+        );
         if collected.len() < longest.len() {
             assert_eq!(
-                query.unit,
-                Some(WindowUnit::Bytes),
+                Some(local_fetch_query::unit(&query)),
+                Some(ReadProgressUnit::Bytes),
                 "byte cursor stays in bytes"
             );
         }
@@ -100,7 +97,7 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
     let first = checked_streamed_page(
         &qj(
             &path,
-            serde_json::json!({"ranges":["100-150","150000-157500","300000-300010"]}),
+            serde_json::json!({"ranges":[{"startLine":100,"endLine":150},{"startLine":150000,"endLine":157500},{"startLine":300000,"endLine":300010}]}),
         ),
         &paths,
     );
@@ -124,18 +121,18 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
         .expect("the ranges after the cut")
         .query;
     assert_eq!(
-        serde_json::json!(others.ranges),
-        serde_json::json!(["300000-300010"])
+        serde_json::to_value(&others).expect("query")["ranges"],
+        serde_json::json!([{"startLine":300000,"endLine":300010}])
     );
     let mut page = next.continue_window;
     let mut pages = 1;
     while let Some(call) = page {
         let wire = serde_json::to_value(call).expect("executable continuation");
         let query: LocalFetchQuery =
-            serde_json::from_value(wire["query"]["queries"][0].clone()).expect("copied query");
+            serde_json::from_value(wire["input"]["queries"][0].clone()).expect("copied query");
         assert_eq!(
-            serde_json::json!(query.ranges),
-            serde_json::json!(["150000-157500"])
+            serde_json::to_value(&query).expect("query")["ranges"],
+            serde_json::json!([{"startLine":150000,"endLine":157500}])
         );
         let result = checked_streamed_page(&query, &paths);
         assert_eq!(result.status, ReadStatus::Success, "{result:?}");
@@ -159,20 +156,29 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
 }
 
 #[test]
-fn streamed_byte_pages_reject_source_changes_and_whole_source_byte_reads() {
+fn streamed_byte_pages_reject_source_changes_and_start_from_private_progress() {
     let fixture = Fixture::new();
     let line = "x".repeat(32 * 1024);
     let source = format!("{line}\nselected tail\n{}", "outside\n".repeat(1_400_000));
     let path = fixture.write("large.log", &source);
     let paths = Paths(fixture.0.clone());
-    let first = checked_streamed_page(&qj(&path, serde_json::json!({"ranges":["1-2"]})), &paths);
+    let first = checked_streamed_page(
+        &qj(
+            &path,
+            serde_json::json!({"ranges":[{"startLine":1,"endLine":2}]}),
+        ),
+        &paths,
+    );
     assert_eq!(first.terminal_limit, None);
     let next = first
         .next
         .expect("next")
         .continue_window
         .expect("byte page");
-    assert_eq!(next.query.unit, Some(WindowUnit::Bytes));
+    assert_eq!(
+        Some(local_fetch_query::unit(&next.query)),
+        Some(ReadProgressUnit::Bytes)
+    );
     assert_eq!(local_fetch_query::offset(&next.query), Some(16_384));
     let second = checked_streamed_page(&next.query, &paths);
     assert_eq!(second.status, ReadStatus::Success, "{:?}", second.error);
@@ -180,8 +186,26 @@ fn streamed_byte_pages_reject_source_changes_and_whole_source_byte_reads() {
     fixture.write("large.log", source.replacen('x', "y", 1));
     let stale = checked_streamed_page(&next.query, &paths);
     assert_eq!(stale.error_code, Some(ErrorCode::StaleSnapshot));
-    let unbounded = checked_streamed_page(&qj(&path, serde_json::json!({"unit":"bytes"})), &paths);
-    assert_eq!(unbounded.error_code, Some(ErrorCode::LargeSourceWindowOnly));
+    let unbounded = checked_streamed_page(
+        &qj(
+            &path,
+            serde_json::json!({"readProgress":{"unit":"bytes","offset":0}}),
+        ),
+        &paths,
+    );
+    assert_eq!(unbounded.error_code, None, "{unbounded:?}");
+    assert!(
+        unbounded
+            .content
+            .as_deref()
+            .is_some_and(|text| text.starts_with('y'))
+    );
+    assert!(
+        unbounded
+            .next
+            .and_then(|next| next.continue_window)
+            .is_some()
+    );
 }
 
 #[test]
@@ -196,7 +220,10 @@ fn a_streamed_clipped_private_key_body_stays_redacted_across_windows() {
         ),
     );
     let paths = Paths(fixture.0.clone());
-    let mut query = qj(&path, serde_json::json!({"ranges":["2-4"]}));
+    let mut query = qj(
+        &path,
+        serde_json::json!({"ranges":[{"startLine":2,"endLine":4}]}),
+    );
     let mut collected = String::new();
     for _ in 0..4 {
         let result = checked_streamed_page(&query, &paths);

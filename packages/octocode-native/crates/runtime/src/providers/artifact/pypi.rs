@@ -4,17 +4,20 @@ use super::http::{JSON, RegistryClient};
 use super::util::{
     date_prefix, github_slug, object_for, parse_url, repository_url, required, safe_url, string,
 };
-use super::versions::{VersionSpec, pypi_resolve};
-use super::{ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactSearchQuery, ArtifactType};
-use crate::providers::artifact::types::artifact_search_query;
-use octocode_contract_types::ErrorCode;
+use super::versions::VersionSpec;
+use super::{ArtifactError, ArtifactItem, ArtifactProviderPage};
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
+use pep440::Specifiers;
 use serde_json::Value;
+
+mod pep440;
 
 pub(crate) async fn pypi(
     query: &ArtifactSearchQuery,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    let Some(package_name) = artifact_search_query::bare_package_name(query) else {
+    let Some(package_name) = artifact_search_query::package_name(query) else {
         return Err(ArtifactError::new(
             ErrorCode::CapabilityUnavailable,
             "PyPI has no keyword search; look up an exact packageName.",
@@ -95,7 +98,7 @@ pub(crate) async fn pypi(
     artifact.optional_dependencies = (!optional.is_empty()).then_some(optional);
     // PyPI names no commit; an upstream tag for this release pins the lead.
     if let Some(version) = artifact.version.clone() {
-        let name = artifact.name.clone();
+        let name = artifact.package_name.clone();
         super::release_ref::pin_release_tag(&mut artifact, &name, &version, client).await;
     }
     Ok(ArtifactProviderPage::single(artifact))
@@ -213,6 +216,15 @@ async fn pypi_release_json(
             found
         }
         (Some(specifier), None) => {
+            // A malformed specifier is the caller's to fix; it costs no request.
+            let specifiers = Specifiers::parse(specifier).map_err(|clause| {
+                ArtifactError::new(
+                    ErrorCode::InvalidInput,
+                    format!(
+                        "version \"{specifier}\" is not a PEP 440 specifier (\"{clause}\"); write a release (2.31.0) or clauses such as >=2.31,<3, ~=2.31 or ==2.*"
+                    ),
+                )
+            })?;
             let Some(project_json) = client
                 .json(ArtifactType::Pypi, project("")?, true, None, None, JSON)
                 .await?
@@ -220,11 +232,10 @@ async fn pypi_release_json(
                 return Ok(None);
             };
             let releases = pypi_releases(&project_json, false);
-            let Some(resolved) = pypi_resolve(specifier, releases.iter().map(String::as_str))
-            else {
+            let Some(resolved) = specifiers.resolve(releases.iter().map(String::as_str)) else {
                 let all = pypi_releases(&project_json, true);
                 // Only yanked releases match: name the newest (a pin selects it).
-                if let Some(yanked) = pypi_resolve(specifier, all.iter().map(String::as_str)) {
+                if let Some(yanked) = specifiers.resolve(all.iter().map(String::as_str)) {
                     let mut error = ArtifactError::new(
                         ErrorCode::VersionNotFound,
                         format!(
@@ -232,7 +243,7 @@ async fn pypi_release_json(
                         ),
                     )
                     .with_status(404);
-                    error.nearest = vec![yanked];
+                    error.nearest = vec![yanked.to_owned()];
                     return Err(error);
                 }
                 return Err(super::versions::version_not_found(
@@ -244,7 +255,7 @@ async fn pypi_release_json(
             client
                 .json(
                     ArtifactType::Pypi,
-                    project(&format!("{}/", super::util::encode_component(&resolved)))?,
+                    project(&format!("{}/", super::util::encode_component(resolved)))?,
                     true,
                     None,
                     None,
@@ -280,5 +291,7 @@ fn pypi_releases(project: &Value, include_yanked: bool) -> Vec<String> {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
+mod specifier_tests;
 #[cfg(test)]
 mod tests;

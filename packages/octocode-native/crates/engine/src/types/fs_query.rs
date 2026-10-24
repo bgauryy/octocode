@@ -26,16 +26,15 @@ pub struct FileSystemQueryOptions {
     pub entry_type: Option<EntryType>,
     /// Match only empty files or directories.
     pub empty: Option<bool>,
-    /// Modified within a duration string such as 7d, 2h, 30m.
-    pub modified_within: Option<String>,
-    /// Modified before a duration string such as 30d.
-    pub modified_before: Option<String>,
-    /// Accessed within a duration string such as 7d.
-    pub accessed_within: Option<String>,
-    /// Size greater than a string such as 100k, 1m, 500b.
-    pub size_greater: Option<String>,
-    /// Size less than a string such as 100k, 1m, 500b.
-    pub size_less: Option<String>,
+    /// Inclusive modification-time bounds, as absolute instants.
+    pub modified_from: Option<std::time::SystemTime>,
+    pub modified_to: Option<std::time::SystemTime>,
+    /// Inclusive access-time bounds, as absolute instants.
+    pub accessed_from: Option<std::time::SystemTime>,
+    pub accessed_to: Option<std::time::SystemTime>,
+    /// Inclusive file-size bounds, in bytes; directories never match.
+    pub size_min: Option<u64>,
+    pub size_max: Option<u64>,
     /// Exact octal permissions, e.g. 644.
     pub permissions: Option<String>,
     pub executable: Option<bool>,

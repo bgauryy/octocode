@@ -45,12 +45,10 @@ impl Scope {
                     symbol,
                     policy,
                     cancel,
-                    Ignores::Honored,
                     TEXT_SCAN_BUDGET,
                 )
                 .await?
-                .filter(|scan| scan.complete)
-                .map(|scan| Arc::new(scan.files));
+                .map(Arc::new);
                 if let (Some(key), Some(files)) = (stored, &files) {
                     TEXT_SCANS.insert(key, Arc::clone(files), 1, None);
                 }
@@ -70,15 +68,11 @@ impl Scope {
     /// rules keep out of every lexical scan (default-excluded directories
     /// such as `node_modules/` stay out), with the deciding rules of the
     /// first few; files in `skip` (already in the answer) are left out.
-    /// Scanned per request: the scope fingerprint does not cover ignored
-    /// files, and the walk reads every ignored file the default prune keeps
-    /// (a gitignored `repos/` checkout costs seconds, so measuring it is
-    /// the only way to know). A lifted scan that fails or hits
-    /// [`LIFTED_SCAN_BUDGET`] says so in [`IgnoredMentions::unfinished`],
-    /// with the files it reached before stopping; for
-    /// [`UNBOUNDED_IGNORED_TTL`] the same symbol replays those files, and
-    /// any other symbol of the scope skips the scan, reporting it
-    /// unfinished.
+    /// The files come from the scope's ignored-file index (see
+    /// `ignored_index`), built once per workspace snapshot; an index not
+    /// ready within [`IGNORED_INDEX_WAIT`], incomplete, or read past
+    /// [`IGNORED_READ_BUDGET`] says so in [`IgnoredMentions::unfinished`],
+    /// with the files it reached.
     pub(in super::super) async fn ignored_text_files(
         &self,
         symbol: &str,
@@ -86,7 +80,7 @@ impl Scope {
         policy: &PathPolicy,
         cancel: &dyn CancellationCheck,
     ) -> Result<IgnoredMentions, LspFailure> {
-        self.ignored_text_files_within(symbol, skip, policy, cancel, LIFTED_SCAN_BUDGET)
+        self.ignored_text_files_within(symbol, skip, policy, cancel, IGNORED_INDEX_WAIT)
             .await
     }
 
@@ -96,50 +90,25 @@ impl Scope {
         skip: &std::collections::HashSet<String>,
         policy: &PathPolicy,
         cancel: &dyn CancellationCheck,
-        budget: Duration,
+        wait: Duration,
     ) -> Result<IgnoredMentions, LspFailure> {
         let Some(visible) = self.text_files(symbol, policy, cancel).await? else {
             return Ok(IgnoredMentions::unfinished());
         };
-        let (unbounded, replay) = self.lifted_keys(symbol, policy);
-        let every = match UNFINISHED_LIFTED.get(&replay) {
-            Some(hit) => hit.value,
-            None if UNBOUNDED_IGNORED.get(&unbounded).is_some() => {
-                return Ok(IgnoredMentions::unfinished());
-            }
-            None => {
-                let Some(every) = scan_text(
-                    &self.root,
-                    &self.include,
-                    symbol,
-                    policy,
-                    cancel,
-                    Ignores::Lifted,
-                    budget,
-                )
-                .await?
-                else {
-                    return Ok(IgnoredMentions::unfinished());
-                };
-                let every = Arc::new(every);
-                if !every.complete {
-                    UNBOUNDED_IGNORED.insert(unbounded, (), 1, Some(UNBOUNDED_IGNORED_TTL));
-                    UNFINISHED_LIFTED.insert(
-                        replay,
-                        Arc::clone(&every),
-                        1,
-                        Some(UNBOUNDED_IGNORED_TTL),
-                    );
-                }
-                every
-            }
+        let Some(index) = self.ignored_index(policy, cancel, wait).await? else {
+            return Ok(IgnoredMentions::unfinished());
         };
-        let unfinished = !every.complete;
-        let files = every
-            .files
-            .iter()
-            .filter(|file| !visible.contains(*file) && !skip.contains(*file))
-            .cloned()
+        let (word, read) = (symbol.to_owned(), Arc::clone(&index));
+        let Some((mentions, read_all)) = blocking_cancellable(cancel, move |stopped| {
+            read.mentions(&word, IGNORED_READ_BUDGET, stopped)
+        })
+        .await?
+        else {
+            return Ok(IgnoredMentions::unfinished());
+        };
+        let files = mentions
+            .into_iter()
+            .filter(|file| !visible.contains(file) && !skip.contains(file))
             .collect::<Vec<_>>();
         let root = Path::new(&self.root);
         let mut rules = Vec::new();
@@ -153,23 +122,10 @@ impl Scope {
         Ok(IgnoredMentions {
             files,
             rules,
-            unfinished,
-            nested_repositories: every.nested.clone(),
+            unfinished: !index.complete || !read_all,
+            nested_repositories: index.nested.clone(),
             ..IgnoredMentions::default()
         })
-    }
-
-    /// The memo keys of the lifted scan: the scope's (for
-    /// [`UNBOUNDED_IGNORED`]) and the scope's with `symbol` (for
-    /// [`UNFINISHED_LIFTED`]).
-    pub(super) fn lifted_keys(&self, symbol: &str, policy: &PathPolicy) -> (String, String) {
-        let scope = format!(
-            "{}\u{0}{}\u{0}{policy:?}",
-            self.root,
-            self.include.join("\u{0}")
-        );
-        let symbol = format!("{scope}\u{0}{symbol}");
-        (scope, symbol)
     }
 
     /// Files the text scan of `symbol` found that the server's answer does
@@ -240,14 +196,14 @@ impl Scope {
             .insert(key, uses);
         uses
     }
+}
 
-    /// Whether `file` (canonical, from the text scan) imports `symbol` by
-    /// name; an unreadable or unparsable file does not.
-    pub(in super::super) fn imports_in_code(&self, symbol: &str, file: &str) -> bool {
-        crate::tools::source::read_bounded(Path::new(file), CODE_CHECK_MAX_BYTES)
-            .ok()
-            .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
-            .and_then(|text| super::super::importers::imports_name(&text, file, symbol))
-            .unwrap_or(false)
-    }
+/// Whether `file` (canonical, from the text scan) imports `symbol` by
+/// name; an unreadable or unparsable file does not.
+pub(in super::super) fn imports_in_code(symbol: &str, file: &str) -> bool {
+    crate::tools::source::read_bounded(Path::new(file), CODE_CHECK_MAX_BYTES)
+        .ok()
+        .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
+        .and_then(|text| super::super::importers::imports_name(&text, file, symbol))
+        .unwrap_or(false)
 }

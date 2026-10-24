@@ -7,14 +7,33 @@ use serde::Serialize;
 #[derive(Clone, Debug, PartialEq)]
 pub struct FetchCall {
     pub query: LocalFetchQuery,
+    continuing: bool,
+}
+impl FetchCall {
+    pub fn continued(query: LocalFetchQuery) -> Self {
+        Self {
+            query,
+            continuing: true,
+        }
+    }
+    pub fn related(query: LocalFetchQuery) -> Self {
+        Self {
+            query,
+            continuing: false,
+        }
+    }
 }
 impl Serialize for FetchCall {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::Error;
         let row = serde_json::to_value(&self.query).map_err(S::Error::custom)?;
-        crate::response::result::Continuation::new(crate::id::ToolId::LocalFetch, row)
-            .build()
-            .serialize(serializer)
+        if self.continuing {
+            crate::response::result::Continuation::continued(crate::id::ToolId::LocalFetch, row)
+        } else {
+            crate::response::result::Continuation::related(crate::id::ToolId::LocalFetch, row)
+        }
+        .build()
+        .serialize(serializer)
     }
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -60,13 +79,6 @@ pub struct NextCalls {
     /// Offset-zero recovery for a page requested past the end of the view.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub restart: Option<FetchCall>,
-    /// The whole matched lines a long-line match showed only byte windows of.
-    #[serde(
-        rename = "wholeLines",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub whole_lines: Option<FetchCall>,
     /// The rest of a declaration a `block` range stopped inside.
     #[serde(
         rename = "continueBlock",
@@ -74,13 +86,6 @@ pub struct NextCalls {
         default
     )]
     pub continue_block: Option<FetchCall>,
-    /// The full default match window a byte-bounded window narrowed.
-    #[serde(
-        rename = "expandContext",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub expand_context: Option<FetchCall>,
     /// A structureSearch tree of a path that is a directory, not a file.
     #[serde(rename = "viewTree", skip_serializing_if = "Option::is_none", default)]
     pub view_tree: Option<serde_json::Value>,
@@ -146,18 +151,16 @@ impl NextCalls {
         "nextCandidatePage" Page next_candidate_page,
         "continueWindow" Page continue_window,
         "readBoundedLines" Current read_bounded_lines,
-        "readOtherRanges" Current read_other_ranges,
+        "readOtherRanges" Page read_other_ranges,
         "restart" Current restart,
-        "wholeLines" Page whole_lines,
         "continueBlock" Page continue_block,
-        "expandContext" Current expand_context,
         "ignoreCase" Current ignore_case,
         "read" Current read,
         "repair" Current repair,
     }
 
     /// Add every continuation `other` carries; `self` keeps its own on a clash.
-    pub fn absorb(&mut self, mut other: NextCalls) {
+    pub fn absorb(&mut self, mut other: Self) {
         for ((_, _, mine), (_, _, theirs)) in
             self.reads_slots().into_iter().zip(other.reads_slots())
         {
@@ -180,7 +183,7 @@ impl NextCalls {
     }
 
     pub fn is_empty(&self) -> bool {
-        *self == NextCalls::default()
+        *self == Self::default()
     }
 
     /// The localFetch reads among these continuations.
@@ -202,13 +205,12 @@ impl NextCalls {
     /// to an optional lead such as `read`; only a page makes the row
     /// partial. A call of another tool is a lead, never a page.
     pub fn leaves_more(&self) -> bool {
-        let remaining = |name: &str| crate::id::is_remaining(crate::id::ToolId::LocalFetch, name);
         self.reads()
             .into_iter()
-            .any(|(name, _, read)| read.is_some() && remaining(name))
+            .any(|(_, _, read)| read.as_ref().is_some_and(|read| read.continuing))
             || self
                 .unfiltered_unknown_rest
-                .keys()
-                .any(|name| remaining(name))
+                .values()
+                .any(|call| call["kind"] == "continue")
     }
 }

@@ -1,13 +1,12 @@
 //! Server selection metadata: operation → provider capability, the Rust
 //! build-context overlay, and the provider receipt attached to every row.
 
-use super::LspSearchQuery;
 use super::anchor::is_anchored;
 use crate::tools::lsp_search::lsp_search_query;
+use octocode_contract_types::LspSearchQuery;
 use octocode_engine::digest::{Nulls, canonical_json};
 use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::lsp::types::LspLanguageServerConfig;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -36,23 +35,6 @@ pub(super) fn required_capability(operation: &str) -> Option<&'static str> {
         .flatten()
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct RustBuildContext {
-    #[serde(default)]
-    features: Option<Value>,
-    #[serde(default)]
-    no_default_features: Option<bool>,
-    #[serde(default)]
-    target: Option<String>,
-    #[serde(default)]
-    cfgs: Option<Vec<String>>,
-    #[serde(default)]
-    build_scripts: Option<bool>,
-    #[serde(default)]
-    proc_macros: Option<bool>,
-}
-
 /// rust-analyzer's own defaults for the `rustContext` keys the headless
 /// defaults do not set: an unset key and an explicit default are the same
 /// analysis, so neither changes the server configuration.
@@ -72,14 +54,12 @@ pub(super) fn apply_rust_context(
     config: &mut LspLanguageServerConfig,
     query: &LspSearchQuery,
 ) -> Result<(), String> {
-    let Some(value) = &lsp_search_query::rust_context(query) else {
+    let Some(context) = lsp_search_query::rust_context(query) else {
         return Ok(());
     };
     if config.language_id.as_deref() != Some("rust") {
         return Err("rustContext requires a Rust language server.".into());
     }
-    let context: RustBuildContext =
-        serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
     if context.proc_macros == Some(true) && context.build_scripts != Some(true) {
         return Err(
             "Rust procMacros requires buildScripts:true; rust-analyzer builds procedural macros through Cargo."
@@ -96,7 +76,7 @@ pub(super) fn apply_rust_context(
         }
     };
     if let Some(features) = &context.features {
-        set("/cargo/features", features.clone(), json!([]));
+        set("/cargo/features", json!(features), json!([]));
     }
     if let Some(off) = context.no_default_features {
         set("/cargo/noDefaultFeatures", json!(off), json!(false));
@@ -114,7 +94,12 @@ pub(super) fn apply_rust_context(
     if let Some(proc_macros) = context.proc_macros {
         set("/procMacro/enable", json!(proc_macros), json!(false));
     }
-    if let Some(cfgs) = &context.cfgs {
+    if !context.cfgs.is_empty() {
+        let cfgs = context
+            .cfgs
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
         let effective = options
             .pointer("/cargo/cfgs")
             .and_then(Value::as_array)
@@ -126,7 +111,7 @@ pub(super) fn apply_rust_context(
             })
             .unwrap_or_else(|| RUST_ANALYZER_DEFAULT_CFGS.map(str::to_owned).to_vec());
         let mut merged = effective.clone();
-        for cfg in cfgs {
+        for cfg in &cfgs {
             if !merged.contains(cfg) {
                 merged.push(cfg.clone());
             }
@@ -164,7 +149,7 @@ fn set_pointer(root: &mut Value, pointer: &str, value: Value) {
     *node = value;
 }
 
-pub(super) fn rust_fingerprint(context: &Value) -> String {
+pub(super) fn rust_fingerprint(context: &octocode_contract_types::LspRustContext) -> String {
     format!("rust-v1:{}", crate::digest::json_sha256(context))
 }
 
@@ -175,7 +160,6 @@ pub(super) fn attach_provider_context(
     resolved_symbol: Option<Value>,
     config: &LspLanguageServerConfig,
     client: &NativeLspClient,
-    debug: bool,
 ) {
     let Some(envelope) = value.as_object_mut() else {
         return;
@@ -198,23 +182,12 @@ pub(super) fn attach_provider_context(
         lsp.insert("serverAvailable".into(), json!(true));
         settle_provider(lsp, lsp_search_query::operation(query));
         settle_source(lsp, anchored);
-        // `lsp.receipt` is verbose (core field class): the verbose stage
-        // drops it unless the row's `extras` names `receipts`.
         let mut receipt = resolved_server_receipt(config, client);
         // Anchored rows already carry `workspaceRoot` at the top level.
         if anchored && let Some(receipt) = receipt.as_object_mut() {
             receipt.remove("workspaceRoot");
         }
         lsp.insert("receipt".into(), receipt);
-    }
-    // The provider receipt answers "how", not "what": a healthy language-server
-    // answer omits it unless `debug` asks. A degraded source stays visible.
-    if !debug
-        && envelope.get("lsp").is_some_and(|lsp| {
-            lsp["serverAvailable"] == true && lsp.get("source").is_none_or(|source| source == "lsp")
-        })
-    {
-        envelope.shift_remove("lsp");
     }
     if anchored {
         let mut ordered = serde_json::Map::new();
@@ -273,7 +246,7 @@ pub(super) fn public_resolved_symbol(
         && resolved_symbol.as_object().is_some_and(|fields| {
             fields
                 .keys()
-                .any(|key| !matches!(key.as_str(), "foundAtCharacter" | "orderHint"))
+                .any(|key| !matches!(key.as_str(), "foundAtCharacter" | "occurrence"))
         });
     moved.then_some(resolved_symbol)
 }
@@ -299,21 +272,6 @@ pub(super) fn drop_same_uri(value: &mut Value, canonical_uri: &str) {
         });
         if same {
             object.shift_remove(key);
-        }
-    }
-}
-
-/// Spell the server's `workspaceRoot` (on the row, and in its receipt)
-/// relative to the workspace like every row path; a root outside it stays
-/// absolute.
-pub(super) fn relative_server_roots(row: &mut Value, paths: &crate::policy::path::PathPolicy) {
-    for pointer in ["/workspaceRoot", "/lsp/receipt/workspaceRoot"] {
-        if let Some(root) = row.pointer_mut(pointer)
-            && let Some(relative) = root
-                .as_str()
-                .and_then(|root| paths.workspace_relative(root))
-        {
-            *root = json!(relative);
         }
     }
 }

@@ -59,8 +59,7 @@ fn to_screaming_snake(value: &str) -> String {
             && previous.is_some_and(|value| {
                 value.is_ascii_lowercase()
                     || value.is_ascii_digit()
-                    || (value.is_ascii_uppercase()
-                        && next.is_some_and(|next| next.is_ascii_lowercase()))
+                    || (value.is_ascii_uppercase() && next.is_some_and(char::is_ascii_lowercase))
             });
         if starts_word {
             output.push('_');

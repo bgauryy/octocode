@@ -1,5 +1,11 @@
 //! ghSearchRepo against the mock server: picked rows, owner listings, leads.
+use crate::response::result::ToolData;
+use crate::tools::gh_shared::test_support::backed::run_repo as run;
 use crate::tools::gh_shared::test_support::backed::*;
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
 async fn picked_rows_keep_the_repository_id() {
@@ -14,11 +20,11 @@ async fn picked_rows_keep_the_repository_id() {
     )
     .await;
     let out = run(
-            &server,
-            json!({"operation":"repositories","mainGoal": "test", "reasoning":"test","keywords":["x"],"fields":["stars"]}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({"operation":"search","keywords":["x"],"fields":["stars"]}),
+    )
+    .await
+    .expect("search");
     assert_eq!(
         out.data["repositories"][0]
             .as_object()
@@ -32,8 +38,12 @@ async fn picked_rows_keep_the_repository_id() {
         out.data
     );
     assert_eq!(
-        out.data["next"]["viewRepo"],
-        json!({"tool":"ghStructure","query":{"queries":[{"owner":"o","repo":"r"}]}}),
+        crate::tools::test_support::checks::related_call(
+            &out.data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        ),
+        &json!({"kind":"related","tool":"ghStructure","input":{"queries":[{"owner":"o","repo":"r","operation":"tree"}]}}),
         "{}",
         out.data
     );
@@ -63,32 +73,29 @@ async fn top_repository_leads_to_its_tree() {
         }),
     )
     .await;
-    let out = run(
-        &server,
-        json!({"operation":"repositories","keywords":["x"]}),
-    )
-    .await
-    .expect("search");
-    let lead = &out.data["next"]["viewRepo"];
+    let out = run(&server, json!({"operation":"search","keywords":["x"]}))
+        .await
+        .expect("search");
+    let lead =
+        crate::tools::test_support::checks::related_call(&out.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "tree"
+        });
     assert_eq!(
         lead,
-        &json!({"tool":"ghStructure","query":{"queries":[{"owner":"o","repo":"top"}]}}),
+        &json!({"kind":"related","tool":"ghStructure","input":{"queries":[{"owner":"o","repo":"top","operation":"tree"}]}}),
         "{}",
         out.data
     );
     let replay: octocode_contract_types::GhStructureQuery =
-        serde_json::from_value(lead["query"]["queries"][0].clone())
+        serde_json::from_value(lead["input"]["queries"][0].clone())
             .expect("valid ghStructure query");
     let octocode_contract_types::GhStructureQuery::Tree(replay) = replay else {
         panic!("repository lead must select the tree view");
     };
     assert_eq!(replay.repo.as_str(), "top");
-    let empty = run(
-        &none,
-        json!({"operation":"repositories","keywords":["none"]}),
-    )
-    .await
-    .expect("empty search");
+    let empty = run(&none, json!({"operation":"search","keywords":["none"]}))
+        .await
+        .expect("empty search");
     assert!(
         empty.data.pointer("/next/viewRepo").is_none(),
         "{}",
@@ -105,11 +112,11 @@ async fn owner_listing_updated_sort_tracks_pushes_and_excludes_archived() {
     )
     .await;
     let out = run(
-            &server,
-            json!({"operation":"repositories","mainGoal": "test", "reasoning":"test","owner":"o","sort":"updated:desc"}),
-        )
-        .await
-        .expect("owner listing");
+        &server,
+        json!({"operation":"list","owner":"o","sort":{"by":"pushedAt","order":"desc"}}),
+    )
+    .await
+    .expect("owner listing");
     let names = out.data["repositories"]
         .as_array()
         .expect("rows")
@@ -129,12 +136,9 @@ async fn owner_listing_updated_sort_tracks_pushes_and_excludes_archived() {
 async fn owner_listing_default_sort_is_recent_activity_not_creation() {
     let server = MockServer::builder().start().await;
     recently_pushed_org_repos(&server, json!([repo_item("live", false)])).await;
-    let out = run(
-        &server,
-        json!({"operation":"repositories","mainGoal": "test", "reasoning":"test","owner":"o"}),
-    )
-    .await
-    .expect("owner listing");
+    let out = run(&server, json!({"operation":"list","owner":"o"}))
+        .await
+        .expect("owner listing");
     assert_eq!(out.data["repositories"][0]["repo"], "live", "{}", out.data);
     assert!(out.data.get("order").is_none(), "{}", out.data);
 }
@@ -190,34 +194,13 @@ async fn owner_listing_reads_past_archived_pages_and_follows_the_link_cursor() {
             .map(|row| row["repo"].as_str().unwrap_or_default().to_owned())
             .collect::<Vec<_>>()
     };
-    let first = run(
-            &server,
-            json!({"operation":"repositories","mainGoal": "test", "reasoning":"test","owner":"o","pageSize":3}),
-        )
+    let first = run(&server, json!({"operation":"list","owner":"o"}))
         .await
         .expect("owner listing");
-    assert_eq!(names(&first), vec!["a", "b", "c"], "{}", first.data);
-    let pagination = &first.data["pagination"];
-    assert_eq!(pagination["hasMore"], true, "{}", first.data);
-    // The page cursor lives in next.nextPage only.
-    assert!(pagination.get("nextPage").is_none(), "{}", first.data);
-    assert!(pagination.get("totalItems").is_none(), "{}", first.data);
-    assert!(pagination.get("totalPages").is_none(), "{}", first.data);
-    assert_eq!(
-        first.data["next"]["nextPage"]["query"]["queries"][0]["page"],
-        3
-    );
-    assert_ne!(first.status, Some("empty"));
-
-    let last = run(
-            &server,
-            json!({"operation":"repositories","mainGoal": "test", "reasoning":"test","owner":"o","pageSize":3,"page":3}),
-        )
-        .await
-        .expect("last page");
-    assert_eq!(names(&last), vec!["d"], "{}", last.data);
-    assert_eq!(last.data["pagination"]["hasMore"], false);
-    assert!(last.data["next"].get("nextPage").is_none(), "{}", last.data);
+    assert_eq!(names(&first), vec!["a", "b", "c", "d"], "{}", first.data);
+    assert_eq!(first.data["pagination"]["providerPagesRead"], 3);
+    assert_eq!(first.data["pagination"]["hasMore"], false);
+    assert!(first.data["next"].get("nextPage").is_none());
 }
 
 /// ghSearchRepo rows carry decision facts only, topics
@@ -234,7 +217,7 @@ async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
         .and(path("/api/v3/search/repositories"))
         .and(query_param("page", "1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":25,"incomplete_results":false,"items":[{
+            "total_count":75,"incomplete_results":false,"items":[{
                 "full_name":"httpie/cli","name":"cli","html_url":"h","default_branch":"master",
                 "stargazers_count":38602,"forks_count":4012,"language":"Python",
                 "license":{"spdx_id":"BSD-3-Clause"},"description":long,
@@ -244,8 +227,7 @@ async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
         })))
         .mount(&server)
         .await;
-    let query = json!({"operation":"repositories","mainGoal": "test", "reasoning":"test",
-            "keywords":["http client"],"pageSize":1});
+    let query = json!({"operation":"search","keywords":["http client"]});
     let out = run(&server, query.clone()).await.expect("search");
     let row = &out.data["repositories"][0];
     assert_eq!(row["repo"], "cli", "{row}");
@@ -264,30 +246,15 @@ async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
     assert!(row.get("topicCount").is_none(), "{row}");
     // Forks and the metadata-update date are stats extras: the extras stage
     // drops them by default and `extras:["stats"]` keeps them.
-    for verbose in ["forks", "updatedAt"] {
-        assert!(
-            crate::response::extras::all_paths(crate::id::ToolId::GhSearchRepo)
-                .contains(&format!("results[].data.repositories[].{verbose}").as_str()),
-            "{verbose}"
-        );
+    for field in ["forks", "updatedAt"] {
+        assert!(row.get(field).is_some());
     }
-    // One pagination block with stable keys on every page.
-    let pagination = out.data["pagination"].clone();
+
     assert_eq!(
-        pagination,
-        json!({"currentPage":1,"totalPages":25,"pageSize":1,"totalItems":25,"hasMore":true}),
-        "{}",
-        out.data
-    );
-    assert_eq!(
-        out.data["next"]["nextPage"]["query"]["queries"][0]["page"],
+        out.data["next"]["nextPage"]["input"]["queries"][0]["page"],
         2
     );
 
-    let mut extras = query;
-    extras["extras"] = json!(["details", "stats"]);
-    let out = run(&server, extras).await.expect("extras search");
-    let row = &out.data["repositories"][0];
     assert_eq!(row["forks"], 4012, "{row}");
     assert_eq!(row["createdAt"], "2012-02-25");
 }
@@ -301,7 +268,7 @@ async fn qualifiers_reach_the_search_query() {
         .and(path("/api/v3/search/repositories"))
         .and(query_param(
             "q",
-            "user:o fork:true archived:false forks:>50 good-first-issues:>2",
+            "user:o fork:true forks:>=51 good-first-issues:>=3 archived:false",
         ))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "total_count":1,"incomplete_results":false,"items":[repo_item("r", false)]
@@ -310,8 +277,7 @@ async fn qualifiers_reach_the_search_query() {
         .await;
     let out = run(
         &server,
-        json!({"operation":"repositories","mainGoal": "test", "reasoning":"test",
-                "owner":"o","qualifiers":"forks:>50 good-first-issues:>2"}),
+        json!({"operation":"search","owner":"o","filters":{"forkCount":{"min":51},"goodFirstIssueCount":{"min":3}}}),
     )
     .await
     .expect("qualified search");
@@ -346,32 +312,35 @@ async fn repositories_lead_to_the_tree_and_an_empty_search_broadens() {
         }),
     )
     .await;
-    let out = run(
-        &server,
-        json!({"operation":"repositories","keywords":["needle"]}),
-    )
-    .await
-    .expect("search");
+    let out = run(&server, json!({"operation":"search","keywords":["needle"]}))
+        .await
+        .expect("search");
     // Repo-discovery words are not code keywords; the top
     // repository leads to its tree only.
     assert!(out.data["next"].get("searchCode").is_none(), "{}", out.data);
     assert_eq!(
-        out.data["next"]["viewRepo"]["tool"], "ghStructure",
+        crate::tools::test_support::checks::related_call(
+            &out.data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        )["tool"],
+        "ghStructure",
         "{}",
         out.data
     );
     let empty = run(
         &server,
-        json!({"operation":"repositories","keywords":["needle"],"language":"rust"}),
+        json!({"operation":"search","keywords":["needle"],"filters":{"language":"rust"}}),
     )
     .await
     .expect("search");
     assert_eq!(empty.status, Some("empty"));
-    let broader = &empty.data["next"]["broadenSearch"];
+    let broader =
+        crate::tools::test_support::checks::related_call(&empty.data, "ghSearchRepo", |_| true);
     assert_eq!(broader["tool"], "ghSearchRepo", "{}", empty.data);
     assert_eq!(
-        broader["query"]["queries"][0],
-        json!({"keywords":["needle"]}),
+        broader["input"]["queries"][0],
+        json!({"keywords":["needle"],"operation":"search","sort":{"by":"bestMatch","order":"desc"}}),
         "{}",
         empty.data
     );

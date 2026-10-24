@@ -65,8 +65,7 @@ fn capture_text_preserves_literal_whitespace_line_endings_and_indentation() {
         root.write(file, source);
         let out = run(
             &root.0,
-            json!({"operation":"match","path":root.0.join(file),
-            "rule":rule,"captureText":true,"matchContentLength":1000}),
+            json!({"operation":"match","path":root.0.join(file),"rule":rule,"includeCaptures":true}),
         )
         .expect("source match");
         let rows = out["files"][0]["matches"].as_array().expect("matches");
@@ -77,58 +76,29 @@ fn capture_text_preserves_literal_whitespace_line_endings_and_indentation() {
 }
 
 #[test]
-fn lean_header_previews_are_marked_and_fit_even_a_one_scalar_bound() {
+fn complete_captures_preserve_multiline_and_unicode_source() {
     let root = Fixture::new();
     let source = "function choose(\n  value = \"a  b\",\n) {\n  return value;\n}";
     root.write("header.ts", source);
-    for limit in 1..=12 {
-        let out = run(
-            &root.0,
-            json!({"operation":"match","path":root.0.join("header.ts"),
-            "rule":{"kind":"function_declaration"},"matchContentLength":limit}),
-        )
-        .expect("preview");
-        let row = &out["files"][0]["matches"][0];
-        assert!(
-            row["value"].as_str().expect("preview").chars().count() <= limit,
-            "{limit}: {out}"
-        );
-        assert_eq!(row["clipped"], true, "{out}");
-        let next = &out["next"]["expandCaptures"]["query"]["queries"][0];
-        assert_eq!(next["matchContentLength"], source.chars().count(), "{out}");
-        let full = run(&root.0, next.clone()).expect("copied exact expansion");
-        assert_eq!(full["files"][0]["matches"][0]["value"], source, "{full}");
-    }
-}
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0.join("header.ts"),
+        "rule":{"kind":"function_declaration"},"includeCaptures":true}),
+    )
+    .expect("complete match");
+    assert_eq!(out["files"][0]["matches"][0]["value"], source);
+    assert!(out["next"].get("expandCaptures").is_none());
 
-#[test]
-fn source_scalar_bounds_and_utf16_coordinates_remain_distinct() {
-    let root = Fixture::new();
     let prefix = "const icon = \"😀\"; ";
     let selected = "sink(\"😀  x\")";
     root.write("unicode.ts", format!("{prefix}{selected};\n"));
     let out = run(
         &root.0,
         json!({"operation":"match","path":root.0.join("unicode.ts"),
-        "pattern":"sink($A)","matchContentLength":8}),
+        "rule":{"pattern":"sink($A)"},"includeCaptures":true}),
     )
-    .expect("bounded preview");
+    .expect("unicode capture");
     let row = &out["files"][0]["matches"][0];
-    let value = row["value"].as_str().expect("preview");
-    assert_eq!(value, "sink(\"😀…");
-    assert_eq!(value.chars().count(), 8);
-    assert_eq!(value.encode_utf16().count(), 9);
-    assert_eq!(row["column"], prefix.encode_utf16().count() + 1, "{out}");
-    assert_eq!(row["clipped"], true, "{out}");
-    let next = &out["next"]["expandCaptures"]["query"]["queries"][0];
-    assert_eq!(
-        next["matchContentLength"],
-        selected.chars().count(),
-        "{out}"
-    );
-    let expanded = run(&root.0, next.clone()).expect("copied scalar expansion");
-    assert_eq!(
-        expanded["files"][0]["matches"][0]["value"], selected,
-        "{expanded}"
-    );
+    assert_eq!(row["value"], selected);
+    assert_eq!(row["column"], prefix.encode_utf16().count() + 1);
 }

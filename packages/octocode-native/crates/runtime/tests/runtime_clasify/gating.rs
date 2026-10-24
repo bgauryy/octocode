@@ -1,6 +1,6 @@
 //! Whether clasify is offered: beta and key gating, and inputs rejected at validation before any work.
 
-use super::{noul, provider, state_row};
+use super::{content_row, noul, provider};
 use crate::support::{Run as _, Workspace, clasify_runtime, provider_env};
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
@@ -39,7 +39,7 @@ async fn public_clasify_requires_beta_and_a_nonblank_key_independently() {
             .run(
                 "missing-gate".into(),
                 "clasify".into(),
-                json!({"queries":[state_row()]}),
+                json!({"queries":[content_row()]}),
             )
             .await
             .expect_err("an unmet prerequisite blocks public clasify");
@@ -70,7 +70,7 @@ async fn a_disabled_reader_is_rejected_at_validation_before_any_work() {
         .run(
             "disabled-reader".into(),
             "clasify".into(),
-            json!({"queries":[{"source":{"tool":"localFetch","query":{"path":"a.rs","ranges":["1-2"]}},
+            json!({"queries":[{"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"a.rs","ranges":[{"startLine":1,"endLine":2}]}},
                 "questions":{"q":noul("Anything?")}}]}),
         )
         .await
@@ -94,8 +94,8 @@ async fn removed_matrix_input_is_rejected_not_converted() {
     let runtime = clasify_runtime(&workspace, &server, &[]);
     for legacy in [
         json!({"resources":[{"value":"x"}],"questions":[{"type":"yesno","ask":"Relevant?"}]}),
-        json!({"state":"x","questions":{"q":{"type":"locate","instructions":"Where?"}}}),
-        json!({"state":"x","questions":{"q":noul("x")},"resources":[{"value":"x"}]}),
+        json!({"operation":"evaluate","content":"x","questions":{"q":{"type":"locate","instructions":"Where?"}}}),
+        json!({"operation":"evaluate","content":"x","questions":{"q":noul("x")},"resources":[{"value":"x"}]}),
     ] {
         let error = runtime
             .run(

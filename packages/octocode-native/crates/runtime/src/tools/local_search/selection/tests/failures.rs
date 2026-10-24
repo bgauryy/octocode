@@ -55,17 +55,6 @@ fn a_provider_that_is_down_shows_the_unfiltered_page_as_unavailable() {
         next.is_none_or(|next| next.get("unfiltered").is_none()),
         "the page is the unfiltered view: {next:?}"
     );
-    // The recorded plan replays on the next page: the provider (now
-    // answering) is not asked again, so the page stays unavailable.
-    let first = search(root.path(), json!({"pageSize": 1}), DOWN).expect("first page");
-    let next = first.next.as_ref().expect("a next page")["nextPage"]["query"]["queries"][0].clone();
-    assert!(next.get("selection").is_some(), "{next}");
-    let replay = search(root.path(), next, None).expect("replayed plan");
-    assert_eq!(
-        replay.selection.as_ref().map(|receipt| receipt.status),
-        Some(octocode_contract_types::SelectionStatus::Unavailable)
-    );
-    assert!(!replay.files.is_empty(), "the next page's hits are shown");
 }
 
 /// A refused credential is the caller's to fix: the row fails with the
@@ -92,6 +81,6 @@ fn a_refused_credential_fails_the_row_with_its_typed_error() {
         REFUSED.map(crate::id::error_codes::as_str)
     );
     assert_eq!(receipt.unknown_items, 5);
-    let lead = &error.next.as_ref().expect("evidence stays reachable")["unfiltered"];
-    assert!(lead["query"]["queries"][0].get("clasifyContext").is_none());
+    let lead = &error.calls.as_ref().expect("evidence stays reachable")["unfiltered"];
+    assert!(lead["input"]["queries"][0].get("classification").is_none());
 }

@@ -16,7 +16,7 @@ fn bounded_chunk_admission_reaches_relevant_evidence_after_the_prefix() {
     candidates[99] = Candidate::new(Some(
         json!({"content":"fn connectionRetry() { connection_retry(); }"}),
     ));
-    let query = json!({"clasifyContext":{"classifiers":["retry connection"]}});
+    let query = json!({"classification":{"predicates":["retry connection"]}});
     let outcome = select_source(&runtime, &query, None, &candidates, SelectionUnit::Chunks)
         .unwrap_or_else(|_| panic!("selection failed"));
     assert_eq!(outcome.selected, [75, 99]);
@@ -34,7 +34,7 @@ fn bounded_chunk_admission_reaches_relevant_evidence_after_the_prefix() {
 }
 
 #[test]
-fn inline_usage_is_opt_in_and_plan_replay_reports_no_new_spend() {
+fn inline_usage_is_always_disclosed_and_plan_replay_reports_no_new_spend() {
     struct UsageJudge;
     impl SelectionJudge for UsageJudge {
         fn identity(&self) -> Value {
@@ -51,8 +51,7 @@ fn inline_usage_is_opt_in_and_plan_replay_reports_no_new_spend() {
     }
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = test_runtime(std::sync::Arc::new(UsageJudge), executor.handle().clone());
-    let query =
-        json!({"extras":["stats"],"clasifyContext":{"classifiers":["Does this state the fact?"]}});
+    let query = json!({"classification":{"predicates":["Does this state the fact?"]}});
     let candidates = vec![Candidate::new(Some(json!("the fact")))];
     let run = |query: &Value, token: Option<&str>| {
         select_source(&runtime, query, token, &candidates, SelectionUnit::Files)
@@ -70,9 +69,6 @@ fn inline_usage_is_opt_in_and_plan_replay_reports_no_new_spend() {
     assert_eq!(usage["calls"], 0);
     assert_eq!(usage["inputTokens"], 0);
     assert_eq!(replay.selected, fresh.selected);
-    let mut compact = query;
-    compact.as_object_mut().unwrap().remove("extras");
-    assert!(run(&compact, Some(&fresh.token)).receipt.usage.is_none());
 }
 
 #[test]
@@ -88,7 +84,7 @@ fn candidate_budget_counts_serialized_characters_in_source_order() {
     runtime.limits.max_chars = 32;
     let outcome = select_source(
         &runtime,
-        &json!({"clasifyContext":{"classifiers":["find evidence"]}}),
+        &json!({"classification":{"predicates":["find evidence"]}}),
         None,
         &candidates,
         SelectionUnit::Files,
@@ -113,7 +109,7 @@ fn partial_receipts_distinguish_ineligible_evidence_from_budgets() {
         Candidate::new(Some(json!({"text":"second"}))),
         Candidate::new(None),
     ];
-    let query = json!({"clasifyContext":{"classifiers":["find evidence"]}});
+    let query = json!({"classification":{"predicates":["find evidence"]}});
     let eligible = select_source(&runtime, &query, None, &candidates, SelectionUnit::Files)
         .unwrap_or_else(|_| panic!("partial order"));
     assert_eq!(eligible.selected, [0, 1]);
@@ -160,7 +156,7 @@ fn single_candidate_is_assessed_and_can_be_excluded() {
     let candidate = [Candidate::new(Some(json!({"text":"sole evidence"})))];
     let outcome = select_source(
         &runtime,
-        &json!({"clasifyContext":{"classifiers":["find evidence"]}}),
+        &json!({"classification":{"predicates":["find evidence"]}}),
         None,
         &candidate,
         SelectionUnit::Files,
@@ -181,7 +177,7 @@ fn oversized_candidate_is_terminal_unknown_without_provider_work() {
     })))];
     let outcome = select_source(
         &runtime,
-        &json!({"clasifyContext":{"classifiers":["find evidence"]}}),
+        &json!({"classification":{"predicates":["find evidence"]}}),
         None,
         &candidates,
         SelectionUnit::Chunks,
@@ -219,7 +215,7 @@ fn cancelled_judgment_never_becomes_a_fallback_page() {
     assert!(matches!(
         select_source(
             &runtime,
-            &json!({"clasifyContext":{"classifiers":["find evidence"]}}),
+            &json!({"classification":{"predicates":["find evidence"]}}),
             None,
             &candidates,
             SelectionUnit::Files

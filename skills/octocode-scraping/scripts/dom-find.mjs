@@ -2,7 +2,7 @@
 import { paginate } from './lib/pagination.mjs';
 import { fileURLToPath } from 'node:url';
 import { resolve, join } from 'node:path';
-import { readJson as readJsonFile, readJsonl as readJsonlFile, takeArg, requireSession } from './lib/bridge.mjs';
+import { readJson, readJsonl, takeArg, requireSession } from './lib/bridge.mjs';
 
 function usage(code = 2) {
   console.error('Usage: dom-find.mjs --session-dir <dir> [--kind form|button|table|meta|jsonld|canonical|code-block] [--workflow <type>] [--page-id <id>] [--query <text>] [--limit <n>] [--view <list>] [--cursor-<list> <n>]');
@@ -20,18 +20,16 @@ const workflow = take('--workflow');
 const pageId = take('--page-id');
 const query = (take('--query') || '').toLowerCase();
 const limit = Number(take('--limit') || 50);
-const readJsonl = (rel) => readJsonlFile(dir, rel);
-const readJson = (rel, fallback = null) => readJsonFile(dir, rel, fallback);
-let rows = await readJsonl('extracts/elements.jsonl');
+let rows = await readJsonl(dir, 'extracts/elements.jsonl');
 if (!rows.length) {
   const files = ['meta', 'canonical', 'jsonld', 'forms', 'buttons', 'tables', 'code-blocks'];
-  rows = (await Promise.all(files.map(async (f) => (await readJsonl(`extracts/${f}.jsonl`)).map((r) => ({ ...r, _file: f }))))).flat();
+  rows = (await Promise.all(files.map(async (f) => (await readJsonl(dir, `extracts/${f}.jsonl`)).map((r) => ({ ...r, _file: f }))))).flat();
 }
 if (kind) rows = rows.filter((r) => r.kind === kind || r._file === kind);
 if (workflow) rows = rows.filter((r) => r.workflowHint === workflow);
 if (pageId) rows = rows.filter((r) => r.pageId === pageId);
 if (query) rows = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(query));
-const agent = await readJson('page-map.json', {});
+const agent = await readJson(dir, 'page-map.json', {});
 const pagesById = new Map((agent.pages || []).map((p) => [p.pageId, p]));
 const matches = rows.map((r) => ({ ...r, pageUrl: pagesById.get(r.pageId)?.url || null, evidenceFile: `extracts/${r._file || 'elements'}.jsonl`, textEvidence: pagesById.get(r.pageId)?.files?.textParts?.[0] || null }));
 const paging = await paginate({ lists: { matches }, files: ["AGENT_INDEX.json", "page-map.json", "extracts/elements.jsonl"].map(p => join(dir, p)), dir, args, script: fileURLToPath(import.meta.url), defaultLimit: limit });

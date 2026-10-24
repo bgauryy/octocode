@@ -78,8 +78,10 @@ pub(in super::super) fn flag_partial(
             } else {
                 crate::response::paging::mark_partial(row, reason, &warnings);
             }
-            row["next"]["findText"] =
-                text_search_lead(name, &scope.root, &scope.include, lead_files.as_deref()).build();
+            crate::response::result::attach_related(
+                row,
+                text_search_lead(name, &scope.root, &scope.include, lead_files.as_deref()).build(),
+            );
         }
         // A position anchor has no name to search for: coverage reason and
         // warning only.
@@ -144,15 +146,18 @@ pub(in super::super) fn ignored_text_lead(
     for row in &mut rows {
         row["includeIgnored"] = json!(true);
     }
-    crate::response::result::Continuation::input(ToolId::LocalSearch, json!({"queries": rows}))
-        .build()
+    crate::response::result::Continuation::related_input(
+        ToolId::LocalSearch,
+        json!({"queries": rows}),
+    )
+    .build()
 }
 
 pub(super) fn text_search_row(name: &str, path: &str) -> Value {
     json!({
         "path": path,
-        "matchString": super::super::render::word_pattern(name),
-        "regex": "rust",
+        "matchString": [super::super::render::word_pattern(name)],
+        "regexEngine": "rust",
         "caseMode": "sensitive",
     })
 }
@@ -173,7 +178,7 @@ pub(in super::super) fn text_search_lead(
     let row = |path: &str| text_search_row(name, path);
     if let Some(files) = files.filter(|files| (1..=LISTED_TEXT_FILES).contains(&files.len())) {
         let rows = files.iter().map(|file| row(file)).collect::<Vec<_>>();
-        return crate::response::result::Continuation::input(
+        return crate::response::result::Continuation::related_input(
             ToolId::LocalSearch,
             json!({ "queries": rows }),
         );
@@ -182,7 +187,7 @@ pub(in super::super) fn text_search_lead(
     if !include.is_empty() {
         search["include"] = json!(include);
     }
-    crate::response::result::Continuation::new(ToolId::LocalSearch, search)
+    crate::response::result::Continuation::related(ToolId::LocalSearch, search)
 }
 
 /// The lexical lead of a `workspaceSymbol` query term over `root`: the term
@@ -194,11 +199,11 @@ pub(in super::super) fn term_search_lead(
     root: &str,
     include: &[String],
 ) -> crate::response::result::Continuation {
-    let mut search = json!({"path": root, "matchString": term});
+    let mut search = json!({"path": root, "matchString": [term]});
     if !include.is_empty() {
         search["include"] = json!(include);
     }
-    crate::response::result::Continuation::new(ToolId::LocalSearch, search)
+    crate::response::result::Continuation::related(ToolId::LocalSearch, search)
 }
 
 /// The lexical lead of the query's symbol over `root`: its query term as

@@ -1,5 +1,5 @@
-//! Text scans: text-only files, parse bounds, reuse, ignored and lifted
-//! scans.
+//! Text scans: text-only files, parse bounds, reuse, and ignored files
+//! (the ignored-file index).
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -99,56 +99,11 @@ async fn text_scan_is_reused_under_an_unchanged_fingerprint() {
     assert_eq!(scan(None).await, 4);
 }
 
-/// A lifted scan that finishes lists the ignored files; one that stops at
-/// its bound says so instead of reading as "no ignored file".
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_ignored_scan_past_its_bound_is_unfinished_not_empty() {
-    let (_dir, root) = fixture();
-    std::fs::create_dir_all(root.join(".git")).expect("git");
-    write(&root.join(".gitignore"), "gen/\n");
-    write(&root.join("a.ts"), "export function f() {}\n");
-    write(&root.join("b.ts"), "f();\n");
-    for index in 0..50 {
-        write(&root.join(format!("gen/g{index}.ts")), "f();\n");
-    }
-    let policy = workspace_policy(&root);
-    let cancel = &crate::execution::cancel::NeverCancel;
-    let skip = std::collections::HashSet::new();
-    let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".to_owned()]);
-
-    let finished = scope
-        .ignored_text_files("f", &skip, &policy, cancel)
-        .await
-        .expect("scan");
-    assert!(!finished.unfinished);
-    assert_eq!(finished.files.len(), 50);
-    assert_eq!(finished.rules, [".gitignore:1 'gen/'"]);
-
-    let stopped = scope
-        .ignored_text_files_within("f", &skip, &policy, cancel, Duration::ZERO)
-        .await
-        .expect("scan");
-    assert!(stopped.unfinished, "{stopped:?}");
-    assert!(stopped.files.len() < 50, "{stopped:?}");
-    // The visible files never count as ignored, finished or not.
-    assert!(stopped.files.iter().all(|file| file.contains("/gen/")));
-    // The scope's ignored tree outlasted the bound: later requests skip
-    // the lifted scan, for any name, and report it unfinished.
-    let skipped = scope
-        .ignored_text_files("other", &skip, &policy, cancel)
-        .await
-        .expect("scan");
-    assert!(
-        skipped.unfinished && skipped.files.is_empty(),
-        "{skipped:?}"
-    );
-}
-
-/// The lifted scan does not enter a nested repository (a gitignored
+/// The ignored-file index does not enter a nested repository (a gitignored
 /// checkout of another project): its files are not this repository's
 /// ignored files, and the scan names the repository it left out.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_lifted_scan_skips_nested_repositories_and_names_them() {
+async fn the_ignored_index_skips_nested_repositories_and_names_them() {
     let (_dir, root) = fixture();
     std::fs::create_dir_all(root.join(".git")).expect("git");
     write(&root.join(".gitignore"), "gen/\nrepos/\n");
@@ -177,44 +132,4 @@ async fn the_lifted_scan_skips_nested_repositories_and_names_them() {
         "{found:?}"
     );
     assert_eq!(found.nested_repositories, ["repos/other"], "{found:?}");
-}
-
-/// A warm request answers like the cold one: the symbol whose lifted
-/// scan stopped at its bound replays the files that scan reached, still
-/// unfinished, instead of reading as a skipped scan that found nothing.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_unfinished_ignored_scan_replays_what_it_reached() {
-    let (_dir, root) = fixture();
-    std::fs::create_dir_all(root.join(".git")).expect("git");
-    write(&root.join(".gitignore"), "gen/\n");
-    write(&root.join("a.ts"), "export function f() {}\n");
-    let reached = root.join("gen/g.ts").to_string_lossy().into_owned();
-    write(Path::new(&reached), "f();\n");
-    let policy = workspace_policy(&root);
-    let cancel = &crate::execution::cancel::NeverCancel;
-    let skip = std::collections::HashSet::new();
-    let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".to_owned()]);
-    // What a cold scan reached before its bound (the bound is timing,
-    // so the cold scan's reach is stated rather than raced).
-    let (unbounded, replay) = scope.lifted_keys("f", &policy);
-    UNBOUNDED_IGNORED.insert(unbounded, (), 1, Some(UNBOUNDED_IGNORED_TTL));
-    UNFINISHED_LIFTED.insert(
-        replay,
-        Scanned {
-            files: BTreeSet::from([reached.clone()]),
-            complete: false,
-            nested: Vec::new(),
-        },
-        1,
-        Some(UNBOUNDED_IGNORED_TTL),
-    );
-    for _ in 0..2 {
-        let warm = scope
-            .ignored_text_files("f", &skip, &policy, cancel)
-            .await
-            .expect("scan");
-        assert!(warm.unfinished, "{warm:?}");
-        assert_eq!(warm.files, std::slice::from_ref(&reached), "{warm:?}");
-        assert_eq!(warm.rules, [".gitignore:1 'gen/'"], "{warm:?}");
-    }
 }

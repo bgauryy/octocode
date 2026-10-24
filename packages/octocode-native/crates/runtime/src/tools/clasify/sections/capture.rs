@@ -121,7 +121,7 @@ pub(super) fn create(
     }
     Ok(Session {
         id: new_id(input),
-        query_id: row.id.clone(),
+        context: row.context.clone(),
         questions: input["questions"].clone(),
         keys: row.keys.clone(),
         model: Some(
@@ -162,7 +162,7 @@ fn prepare(
     let line_starts = octocode_engine::text::line_starts(&captured.text);
     let location = |range: &std::ops::Range<usize>| {
         let line = |byte| octocode_engine::text::line_at(&line_starts, byte);
-        json!({"bytes":[range.start,range.end],"lines":[line(range.start),line(range.end.saturating_sub(1).max(range.start))]})
+        json!({"bytes":[range.start,range.end],"lines":{"startLine":line(range.start),"endLine":line(range.end.saturating_sub(1).max(range.start))}})
     };
     let complete = source_sections::visit(
         &captured.text,

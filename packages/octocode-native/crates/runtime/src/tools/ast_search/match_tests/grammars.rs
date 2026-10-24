@@ -18,7 +18,7 @@ fn a_pattern_that_does_not_apply_to_a_grammar_is_named_not_failed() {
     }
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"pattern":"def $F($$$A):\n    $$$B","resultView":"countMatches"}),
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"def $F($$$A):\n    $$$B"},"view":"countMatches"}),
     )
     .expect("python matches");
     assert_eq!(out["matchCount"], 1, "{out}");
@@ -30,14 +30,10 @@ fn a_pattern_that_does_not_apply_to_a_grammar_is_named_not_failed() {
     ] {
         assert!(out.get(field).is_none(), "{field}: {out}");
     }
-    let warnings = out["warnings"].as_array().expect("one warning");
-    assert_eq!(warnings.len(), 1, "{out}");
-    let warning = warnings[0].as_str().expect("text");
-    assert!(
-        warning.starts_with("The query does not apply to rust (3 files: "),
-        "{warning}"
-    );
-    assert!(!warning.contains("python"), "{warning}");
+    // A pattern is written in one grammar: the files of the others are a
+    // quiet count, not a warning.
+    assert!(out.get("warnings").is_none(), "{out}");
+    assert_eq!(out["skippedGrammars"], json!({"rust":3}), "{out}");
     // The grammar that compiles it stays the inferred scope.
     assert_eq!(out["inferredLanguage"], "python", "{out}");
 }
@@ -51,13 +47,13 @@ fn a_pattern_that_compiles_nowhere_errors_and_one_that_compiles_everywhere_is_si
     root.write("a.rs", "// def\nfn x() {}\n");
     let error = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"pattern":"run("}),
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"run("}}),
     )
     .expect_err("no grammar of the scope compiles it");
     assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"pattern":"$A","resultView":"files"}),
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"view":"files"}),
     )
     .expect("every grammar compiles it");
     assert!(out.get("warnings").is_none(), "{out}");
@@ -86,10 +82,8 @@ fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
         "int f() { JSON_ASSERT(1); return 2; }\n",
     );
     root.write("pkg/lib/local.cpp", LOCAL_ERROR_CPP);
-    let row = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0.join("pkg/lib"),
-        "language":"cpp","pattern":"JSON_ASSERT($$$A)","pageSize":1});
-    let (paths, security) = simple_policy(&root.0);
-    let first = execute_row(row, &paths, &security, &NeverCancel).expect("first page");
+    let row = json!({"operation":"match","path":root.0.join("pkg/lib"),"parser":"cpp","rule":{"pattern":"JSON_ASSERT($$$A)"}});
+    let first = run_window(&root.0, row, 1).expect("first page");
     assert_eq!(first["isPartial"], json!(true), "{first}");
     assert_eq!(
         first["partialReasons"],
@@ -116,8 +110,8 @@ fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
     );
     assert!(first.get("coverage").is_none(), "{first}");
     // Every page states the same coverage.
-    let next = first["next"]["nextPage"]["query"]["queries"][0].clone();
-    let second = execute_row(next, &paths, &security, &NeverCancel).expect("second page");
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+    let second = run_window(&root.0, next, 1).expect("second page");
     assert_eq!(second["warnings"], first["warnings"], "{second}");
     assert_eq!(
         second["partialReasons"],
@@ -135,7 +129,7 @@ fn recovered_syntax_away_from_the_match_is_not_disclosed() {
     root.write("clean.cpp", "int f() { JSON_ASSERT(1); return 2; }\n");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"cpp","pattern":"JSON_ASSERT($$$A)"}),
+        json!({"operation":"match","path":root.0,"parser":"cpp","rule":{"pattern":"JSON_ASSERT($$$A)"}}),
     )
     .expect("match runs");
     assert_eq!(out["matchCount"], 2, "{out}");
@@ -150,7 +144,7 @@ fn a_single_file_match_discloses_its_recovered_parse() {
     root.write("src/lexer.cpp", GARBLED_CPP);
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0.join("src/lexer.cpp"),"pattern":"JSON_ASSERT($$$A)"}),
+        json!({"operation":"match","path":root.0.join("src/lexer.cpp"),"rule":{"pattern":"JSON_ASSERT($$$A)"}}),
     )
     .expect("match runs");
     assert_eq!(out["partialReasons"], json!(["parseRecovered"]), "{out}");

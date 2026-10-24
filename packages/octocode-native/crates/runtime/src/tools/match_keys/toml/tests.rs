@@ -28,10 +28,6 @@ multi [line] = text
 path = "src/b.rs"
 "#;
 
-fn keys(text: &str, lines: &[usize]) -> Vec<(usize, String)> {
-    line_key_paths(text, lines)
-}
-
 fn owned(rows: &[(usize, &str)]) -> Vec<(usize, String)> {
     rows.iter()
         .map(|(line, path)| (*line, (*path).to_owned()))
@@ -42,7 +38,7 @@ fn owned(rows: &[(usize, &str)]) -> Vec<(usize, String)> {
 #[test]
 fn hits_name_their_table_and_key() {
     assert_eq!(
-        keys(CARGO, &[1, 2, 12, 13, 15, 16]),
+        line_key_paths(CARGO, &[1, 2, 12, 13, 15, 16]),
         owned(&[
             (1, "package"),
             (2, "package.name"),
@@ -59,7 +55,7 @@ fn hits_name_their_table_and_key() {
 #[test]
 fn multi_line_values_name_their_elements() {
     assert_eq!(
-        keys(CARGO, &[6, 7, 8, 9, 24, 25, 26]),
+        line_key_paths(CARGO, &[6, 7, 8, 9, 24, 25, 26]),
         owned(&[
             (6, "workspace.members"),
             (7, "workspace.members[0]"),
@@ -77,7 +73,7 @@ fn multi_line_values_name_their_elements() {
 #[test]
 fn array_tables_are_indexed() {
     assert_eq!(
-        keys(CARGO, &[18, 19, 21, 22]),
+        line_key_paths(CARGO, &[18, 19, 21, 22]),
         owned(&[
             (18, "bin[0]"),
             (19, "bin[0].name"),
@@ -87,7 +83,7 @@ fn array_tables_are_indexed() {
     );
     let lock = "[[package]]\nname = \"a\"\n[[package.dependencies]]\nname = \"x\"\n[[package]]\nname = \"b\"\n[[package.dependencies]]\nname = \"y\"\ndeps = [\n  { name = \"c\", marker = \"m\" },\n  { name = \"d\" },\n]\n";
     assert_eq!(
-        keys(lock, &[4, 6, 8, 10, 11]),
+        line_key_paths(lock, &[4, 6, 8, 10, 11]),
         owned(&[
             (4, "package[0].dependencies[0].name"),
             (6, "package[1].name"),
@@ -104,7 +100,7 @@ fn array_tables_are_indexed() {
 fn quoted_keys_and_the_root() {
     let text = "# top\ntitle = \"x\"\n[tool.\"my.tool\"]\n\"a b\" = 1\n";
     assert_eq!(
-        keys(text, &[1, 2, 3, 4]),
+        line_key_paths(text, &[1, 2, 3, 4]),
         owned(&[
             (2, "title"),
             (3, r#"tool["my.tool"]"#),
@@ -117,7 +113,7 @@ fn quoted_keys_and_the_root() {
 #[test]
 fn broken_toml_keeps_scanning() {
     let text = "[a]\nx = [1, 2\n[b]\ny = \"unterminated\nz = 1\n";
-    let found = keys(text, &[2, 5]);
+    let found = line_key_paths(text, &[2, 5]);
     assert_eq!(found[0], (2, "a.x".to_owned()));
     assert_eq!(found.len(), 2, "{found:?}");
 }

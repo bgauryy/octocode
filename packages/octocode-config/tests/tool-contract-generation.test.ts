@@ -1,4 +1,4 @@
-import Ajv2020 from 'ajv/dist/2020.js';
+import Ajv2020, { type AnySchema } from 'ajv/dist/2020.js';
 import { rustBundle } from '../scripts/tool-contract/rust.ts';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -8,7 +8,6 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  TOOL_NAMES,
   buildEnforcementContractIr,
   getNativeContractFingerprint,
 } from '@octocodeai/octocode-core/schema';
@@ -48,28 +47,6 @@ describe('generated tool types', () => {
     );
   });
 
-  it('declares query, input, and output types in TypeScript; Rust gets only what native parses', () => {
-    const ts = read('src/contracts/toolTypes.generated.ts');
-    const rust = read('contract/tool_types.rs');
-    for (const tool of Object.values(TOOL_NAMES)) {
-      const base = `${tool.charAt(0).toUpperCase()}${tool.slice(1)}`;
-      for (const suffix of ['Query', 'Input', 'Output']) {
-        expect(ts, `${base}${suffix} (TS)`).toMatch(
-          new RegExp(`^export (?:interface|type) ${base}${suffix}\\b`, 'm')
-        );
-      }
-      // Native checks inputs and outputs against the JSON schema and
-      // decodes rows: envelope and output types would be dead code (the
-      // rest is trimmed to what native names; see rust-reach.test.ts).
-      for (const suffix of ['Input', 'Output']) {
-        expect(rust, `${base}${suffix} (Rust)`).not.toMatch(
-          new RegExp(`^pub (?:struct|enum) ${base}${suffix}\\b`, 'm')
-        );
-      }
-    }
-    expect(rust).toMatch(/^pub struct LocalFetchQuery\b/m);
-  });
-
   it('drops only the per-tool output roots from the Rust bundle', () => {
     const bundle = {
       $defs: {
@@ -104,25 +81,6 @@ describe('generated tool types', () => {
     ]);
   });
 
-  it('names shared types only where core names them (titles and ids)', () => {
-    const defs = buildToolTypesBundle().bundle.$defs as Record<string, unknown>;
-    expect(defs.WindowUnit).toEqual({
-      title: 'WindowUnit',
-      type: 'string',
-      enum: ['lines', 'bytes'],
-    });
-    for (const tool of ['GhGetFileContentQuery', 'LocalFetchQuery']) {
-      expect(JSON.stringify(defs[tool])).toContain(
-        '"$ref":"#/$defs/WindowUnit"'
-      );
-    }
-    expect(defs.AstSearchRule).toBeDefined();
-    // No positional or heuristic names leak out of the bundle.
-    expect(
-      Object.keys(defs).filter(name => /^Shared|__schema/.test(name))
-    ).toEqual([]);
-  });
-
   it('reuses the canonical query type through every tool input envelope', () => {
     const ir = buildEnforcementContractIr();
     const defs = buildToolTypesBundle(ir).bundle.$defs as Record<string, any>;
@@ -150,49 +108,30 @@ describe('generated tool types', () => {
     }
   });
 
-  it('keeps union semantics in the published bundle and enforces string consts', () => {
-    const { bundle } = buildToolTypesBundle();
-    const defs = bundle.$defs as Record<string, Record<string, unknown>>;
-    const refs = [
-      '#/$defs/AstSearchQueryMatchPattern',
-      '#/$defs/AstSearchQueryMatchRule',
-      '#/$defs/AstSearchQuerySyntaxTree',
-      '#/$defs/AstSearchQuerySymbols',
-    ];
-    // Closed objects can overlap, so the canonical union stays `anyOf`
-    // (at least one branch); only the Rust representation becomes `oneOf`.
-    const ast = defs.AstSearchQuery as { anyOf: Array<{ $ref: string }> };
-    expect(ast.anyOf.map(branch => branch.$ref)).toEqual(refs);
-    const rust = (
-      rustBundle(bundle).$defs as Record<
-        string,
-        { oneOf?: Array<{ $ref: string }> }
-      >
-    ).AstSearchQuery;
-    expect(rust?.oneOf?.map(branch => branch.$ref)).toEqual(refs);
-    const symbols = defs.AstSearchQuerySymbols as {
-      properties: Record<string, unknown>;
-    };
-    expect(symbols.properties.operation).toEqual({
-      type: 'string',
-      enum: ['symbols'],
-    });
-    // typify drops a string const (emits a free String); a one-value enum is
-    // enforced. Boolean consts stay a contract-validator check.
-    expect(JSON.stringify(defs)).not.toMatch(/"const":"/);
+  it('preserves branch acceptance when bundling every canonical input', () => {
+    const ir = buildEnforcementContractIr();
+    const { bundle } = buildToolTypesBundle(ir);
+    const fixtures = JSON.parse(read('contract/contract-fixtures.json')) as Array<{tool: string; input: unknown}>;
+    for (const tool of ir.tools) {
+      const name = String(tool.name);
+      const base = name.charAt(0).toUpperCase() + name.slice(1);
+      const ajv = new Ajv2020({ strict: false, validateFormats: false, allErrors: true });
+      const original = ajv.compile(tool.inputSchema as AnySchema);
+      const bundled = ajv.compile({ ...bundle, $ref: `#/$defs/${base}Input` });
+      for (const fixture of fixtures.filter(row => row.tool === name)) {
+        expect(bundled(fixture.input), JSON.stringify(fixture.input)).toBe(original(fixture.input));
+      }
+    }
   });
 
-  it('accepts a query that matches more than one closed branch, as the canonical schema does', () => {
-    const { bundle } = buildToolTypesBundle();
-    const ajv = new Ajv2020({ strict: false, allErrors: true });
-    const validate = ajv.compile({ ...bundle, $ref: '#/$defs/LspSearchQuery' });
-    const overlapping = {
-      operation: 'workspaceSymbol',
-      symbolName: 'thing',
-      path: '/tmp/project/a.ts',
-      workspaceRoot: '/tmp/project',
-    };
-    expect(validate(overlapping), JSON.stringify(validate.errors)).toBe(true);
+  it('keeps overlapping closed unions inclusive in the canonical bundle', () => {
+    const schema = {type:'object',additionalProperties:false,properties:{value:{type:'string'}}};
+    const bundle = {$defs:{ExampleQuery:{anyOf:[schema,{...schema,required:['value']}]}}};
+    const ajv = new Ajv2020({strict:false});
+    const original = ajv.compile({...bundle,$ref:'#/$defs/ExampleQuery'});
+    expect(original({value:'same'})).toBe(true);
+    expect((rustBundle(bundle).$defs as Record<string,unknown>).ExampleQuery).toHaveProperty('oneOf');
+    expect(bundle.$defs.ExampleQuery).toHaveProperty('anyOf');
   });
 
   it('rejects an unnamed recursive schema instead of inventing a name', () => {
@@ -207,25 +146,21 @@ describe('generated tool types', () => {
     ).toThrow(/unnamed recursive schema/);
   });
 
-  it('types tool rows by name at compile time', () => {
-    // Briefs are optional: a bare row and a briefed row both type-check.
-    const query: ToolQuery<'localFetch'> = { path: '/tmp/a.ts' };
-    const briefed: ToolQuery<'localFetch'> = {
-      path: '/tmp/a.ts',
-      mainGoal: 'Read the file.',
-      reasoning: 'Read the file',
+});
+
+describe('generated tool types in use', () => {
+  it('exposes canonical typed rows and exclusive input envelopes', () => {
+    const query: ToolQuery<'localFetch'> = {path:'/tmp/a.ts',ranges:[{startLine:1,endLine:2}]};
+    const input = {queries:[query]} satisfies ToolInput<'localFetch'>;
+    const saved = {cursor:'issued'} satisfies ToolInput<'localFetch'>;
+    const retired: ToolInput<'localFetch'> = {
+      // @ts-expect-error old envelope names are not accepted
+      responseSnapshot:'old',
     };
-    const input = {
-      queries: [query, briefed],
-    } satisfies ToolInput<'localFetch'>;
-    const saved = {
-      responseSnapshot: 'saved',
-      responseOffset: 1,
-    } satisfies ToolInput<'localFetch'>;
-    const output = { results: [] } satisfies Partial<ToolOutput<'localFetch'>>;
+    const output = {results:[]} satisfies Partial<ToolOutput<'localFetch'>>;
     expect(input.queries[0]?.path).toBe('/tmp/a.ts');
-    expect(saved.responseSnapshot).toBe('saved');
-    expect(saved).not.toHaveProperty('queries');
+    expect(saved.cursor).toBe('issued');
+    expect(retired).not.toHaveProperty('cursor');
     expect(output.results).toEqual([]);
   });
 

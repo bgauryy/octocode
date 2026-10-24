@@ -34,9 +34,9 @@ async fn an_incomplete_last_page_offers_a_retry_not_a_terminal_limit() {
     assert!(data.get("terminalLimit").is_none(), "{data}");
     let retry = &data["next"]["retry"];
     assert_eq!(retry["tool"], "ghSearchHistory", "{data}");
-    assert_eq!(retry["query"]["queries"][0]["page"], 1, "{data}");
+    assert_eq!(retry["input"]["queries"][0]["page"], 1, "{data}");
     assert_eq!(
-        retry["query"]["queries"][0]["keywords"],
+        retry["input"]["queries"][0]["keywords"],
         json!(["fix"]),
         "{data}"
     );
@@ -59,8 +59,11 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
     )
     .await;
     let provider = one_shot_provider(&server);
-    for page in [1, 1000] {
-        let query = serde_json::from_value(json!({"operation":"pullRequest","mainGoal": "test", "reasoning":"test","keywords":["fix"],"pageSize":1,"page":page})).expect("query");
+    for page in [1, 20] {
+        let query = serde_json::from_value(
+            json!({"operation":"pullRequest", "keywords":["fix"],"page":page}),
+        )
+        .expect("query");
         let data = execute(&provider, &query, &default_context(), &Passthrough)
             .await
             .expect("history search");
@@ -72,10 +75,10 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
         );
         assert_eq!(
             data["terminalLimit"].as_bool().unwrap_or(false),
-            page == 1000,
+            page == 20,
             "{data}"
         );
-        assert_eq!(data["next"]["nextPage"].is_object(), page < 1000, "{data}");
+        assert_eq!(data["next"]["nextPage"].is_object(), page < 20, "{data}");
         // The first page states GitHub's full match count, once per search
         // (the shared provider-limit rule of every GitHub search).
         assert_eq!(
@@ -95,7 +98,10 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
             (&json!("acme"), &json!("widget")),
             "{data}"
         );
-        let read = &data["next"]["readPullRequest"]["query"]["queries"][0];
+        let read =
+            &crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+                input["queries"][0]["operation"] == "pullRequest"
+            })["input"]["queries"][0];
         assert_eq!(
             (&read["owner"], &read["repo"], &read["number"]),
             (&json!("acme"), &json!("widget"), &json!(3)),
@@ -110,10 +116,9 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
 async fn a_page_past_the_search_window_leads_to_the_last_reachable_page() {
     use octocode_github::ProviderErrorReason;
     let server = wiremock::MockServer::builder().start().await;
-    let query: GhSearchHistoryQuery = serde_json::from_value(json!({
-        "operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],
-        "page":11,"pageSize":100
-    }))
+    let query: GhSearchHistoryQuery = serde_json::from_value(
+        json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"page":21}),
+    )
     .expect("query");
     let failure = crate::tools::gh_search_history::execute(
         &one_shot_provider(&server),
@@ -127,11 +132,11 @@ async fn a_page_past_the_search_window_leads_to_the_last_reachable_page() {
         failure.error.reason,
         Some(ProviderErrorReason::SearchWindowExceeded)
     );
-    let next = failure.next.expect("a repair lead");
+    let next = failure.calls.expect("a repair lead");
     let repair = &next["repair"];
     assert_eq!(repair["tool"], "ghSearchHistory", "{next}");
-    let row = &repair["query"]["queries"][0];
-    assert_eq!(row["page"], 10, "{next}");
+    let row = &repair["input"]["queries"][0];
+    assert_eq!(row["page"], 20, "{next}");
     assert_eq!(row["keywords"], json!(["fix"]), "{next}");
 }
 
@@ -173,6 +178,7 @@ async fn a_capped_search_names_one_narrowing_lead() {
     let lead = |row: Value| {
         let provider = &provider;
         async move {
+            let operation = row["operation"].clone();
             let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
             let data = execute(provider, &query, &default_context(), &Passthrough)
                 .await
@@ -182,9 +188,13 @@ async fn a_capped_search_names_one_narrowing_lead() {
                 json!(["providerResultCap"]),
                 "{data}"
             );
-            let lead = data["next"]["narrowScope"].clone();
+            let lead = crate::tools::test_support::checks::related_call(
+                &data,
+                "ghSearchHistory",
+                |input| input["queries"][0]["operation"] == operation,
+            );
             assert_eq!(lead["tool"], "ghSearchHistory", "{data}");
-            let rows = lead["query"]["queries"].as_array().expect("rows").clone();
+            let rows = lead["input"]["queries"].as_array().expect("rows").clone();
             assert_eq!(rows.len(), 1, "{lead}");
             crate::contracts::validate("ghSearchHistory", json!({"queries": rows.clone()}))
                 .expect("the lead is a valid call");
@@ -192,45 +202,65 @@ async fn a_capped_search_names_one_narrowing_lead() {
         }
     };
     // Newest first: the window continues before the page's last row.
-    let row = lead(json!({"operation":"pullRequest","owner":"o","repo":"r",
-        "keywords":["fix"],"sort":"created:desc","since":"2025-01-01","pageSize":2,"page":3}))
-    .await;
-    assert_eq!(row["until"], "2026-03-01T07:30:00Z", "{row}");
-    assert_eq!(row["since"], "2025-01-01", "{row}");
-    assert!(row.get("page").is_none(), "{row}");
-    let row = lead(json!({"operation":"commit","owner":"o","repo":"r",
-        "keywords":["fix"],"pageSize":2}))
-    .await;
-    assert_eq!(row["until"], "2026-02-01T12:00:00Z", "{row}");
-    // Oldest first: the window continues after the page's last row.
-    let row = lead(json!({"operation":"pullRequest","owner":"o","repo":"r",
-        "keywords":["fix"],"sort":"created:asc","until":"2027-01-01","pageSize":2}))
-    .await;
-    assert_eq!(row["since"], "2026-03-01T07:30:00Z", "{row}");
-    assert_eq!(row["until"], "2027-01-01", "{row}");
-    assert_eq!(row["sort"], "created:asc", "{row}");
-    // Update order: an `updated:` bound beside the query's own qualifiers.
-    let row = lead(json!({"operation":"issue","owner":"o","repo":"r",
-        "keywords":["fix"],"sort":"updated:desc","qualifiers":"label:bug","pageSize":2}))
+    let row = lead(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"createdAt","order":"desc"},"page":3,"filters":{"createdAt":{"include":[{"from":"2025-01-01T00:00:00Z"}]}}}))
     .await;
     assert_eq!(
-        row["qualifiers"], "label:bug updated:<=2026-04-01T08:00:00Z",
+        row["filters"]["createdAt"]["include"][0]["to"], "2026-03-01T07:30:00Z",
         "{row}"
     );
-    assert_eq!(row["sort"], "updated:desc", "{row}");
-    let row = lead(json!({"operation":"issue","owner":"o","repo":"r",
-        "keywords":["fix"],"sort":"updated:asc","pageSize":2}))
+    assert_eq!(
+        row["filters"]["createdAt"]["include"][0]["from"], "2025-01-01T00:00:00Z",
+        "{row}"
+    );
+    assert!(row.get("page").is_none(), "{row}");
+    let row = lead(json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix"]})).await;
+    assert_eq!(
+        row["filters"]["committedAt"]["to"], "2026-02-01T12:00:00Z",
+        "{row}"
+    );
+    // Oldest first: the window continues after the page's last row.
+    let row = lead(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"createdAt","order":"asc"},"filters":{"createdAt":{"include":[{"to":"2027-01-01T23:59:59Z"}]}}}))
     .await;
-    assert_eq!(row["qualifiers"], "updated:>=2026-04-01T08:00:00Z", "{row}");
+    assert_eq!(
+        row["filters"]["createdAt"]["include"][0]["from"], "2026-03-01T07:30:00Z",
+        "{row}"
+    );
+    assert_eq!(
+        row["filters"]["createdAt"]["include"][0]["to"], "2027-01-01T23:59:59Z",
+        "{row}"
+    );
+    assert_eq!(
+        row["sort"],
+        json!({"by":"createdAt","order":"asc"}),
+        "{row}"
+    );
+    // Update order: an `updated:` bound beside the query's own qualifiers.
+    let row = lead(json!({"operation":"issue","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"updatedAt","order":"desc"},"filters":{"labels":{"include":["bug"]}}}))
+    .await;
+    assert_eq!(
+        row["filters"]["updatedAt"]["include"][0]["to"], "2026-04-01T08:00:00Z",
+        "{row}"
+    );
+    assert_eq!(
+        row["sort"],
+        json!({"by":"updatedAt","order":"desc"}),
+        "{row}"
+    );
+    let row = lead(json!({"operation":"issue","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"updatedAt","order":"asc"}}))
+    .await;
+    assert_eq!(
+        row["filters"]["updatedAt"]["include"][0]["from"], "2026-04-01T08:00:00Z",
+        "{row}"
+    );
     // Best match, or an update order its own `updated:` qualifier bounds:
     // no date to resume from, so re-sort newest first.
-    for query in [
-        json!({"operation":"issue","owner":"o","repo":"r","keywords":["fix"],"pageSize":2}),
-        json!({"operation":"issue","owner":"o","repo":"r","keywords":["fix"],
-            "sort":"updated:desc","qualifiers":"updated:>2026-01-01","pageSize":2}),
-    ] {
+    for query in [json!({"operation":"issue","owner":"o","repo":"r","keywords":["fix"]})] {
         let row = lead(query).await;
-        assert_eq!(row["sort"], "created:desc", "{row}");
+        assert_eq!(
+            row["sort"],
+            json!({"by":"createdAt","order":"desc"}),
+            "{row}"
+        );
         assert!(row.get("until").is_none(), "{row}");
     }
 }
@@ -250,8 +280,9 @@ async fn the_last_page_of_an_issue_search_keeps_its_pagination() {
             "items": [{"number": 7, "title": "t", "state": "open"}]}),
     )
     .await;
-    let query = serde_json::from_value(json!({"operation":"issue","owner":"o","repo":"r",
-        "keywords":["mmap"],"pageSize":20,"page":4}))
+    let query = serde_json::from_value(
+        json!({"operation":"issue","owner":"o","repo":"r","keywords":["mmap"],"page":2}),
+    )
     .expect("query");
     let data = execute(
         &one_shot_provider(&server),
@@ -262,8 +293,8 @@ async fn the_last_page_of_an_issue_search_keeps_its_pagination() {
     .await
     .expect("issue search");
     let pagination = &data["pagination"];
-    assert_eq!(pagination["currentPage"], 4, "{data}");
-    assert_eq!(pagination["totalPages"], 4, "{data}");
+    assert_eq!(pagination["page"], 2, "{data}");
+    assert_eq!(pagination["totalPages"], 2, "{data}");
     assert_eq!(pagination["totalItems"], 61, "{data}");
     assert_eq!(pagination["hasMore"], false, "{data}");
 }

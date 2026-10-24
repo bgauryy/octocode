@@ -1,4 +1,5 @@
 import { commandHelp, commandHelpJson, defaultOutput, rootHelp, rootHelpJson, stripAnsi } from './help.js';
+import { isRecord } from './json-schema.js';
 import { parseCommandInput, type CliCommand, type CliSpec, type Flag } from './spec.js';
 
 export interface CliIo {
@@ -18,11 +19,20 @@ function jsonText(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+function errorText(error: unknown): string {
+  return `${error instanceof Error ? error.message : String(error)}\n`;
+}
+
+/** The CLI's own switches every command takes; none takes a value. */
+const SWITCHES = new Set(['json', 'no-input', 'no-color']);
+
+const NUMBER = /^-?(?:\d+|\d*\.\d+)$/;
+
 function isNegativeNumber(flag: Flag, token: string): boolean {
   const numeric = flag.kind === 'number'
     || flag.kind === 'integer'
     || (flag.kind === 'array' && (flag.itemKind === 'number' || flag.itemKind === 'integer'));
-  return numeric && /^-?(?:\d+|\d*\.\d+)$/.test(token);
+  return numeric && NUMBER.test(token);
 }
 
 function coerce(flag: Flag, raw: string, itemKind: Flag['kind'] | Flag['itemKind']): { ok: true; value: unknown } | { ok: false; message: string } {
@@ -32,7 +42,7 @@ function coerce(flag: Flag, raw: string, itemKind: Flag['kind'] | Flag['itemKind
     return { ok: true, value: Number(raw) };
   }
   if (itemKind === 'number') {
-    if (!/^-?(?:\d+|\d*\.\d+)$/.test(raw) || !Number.isFinite(Number(raw))) {
+    if (!NUMBER.test(raw) || !Number.isFinite(Number(raw))) {
       return { ok: false, message: `Invalid number for --${flag.name}: ${raw}` };
     }
     return { ok: true, value: Number(raw) };
@@ -76,14 +86,15 @@ function isScalar(value: unknown): boolean {
   return isRawJson(value) || value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && !isRawJson(value);
+/** An object to format field by field; a raw JSON number is a scalar. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && !isRawJson(value);
 }
 
 /** Full text of MCP content blocks. Plain text stays text. Every other block is its JSON. */
 export function contentText(content: readonly unknown[]): string {
   return content.map(block => {
-    if (!isRecord(block)) return String(block);
+    if (!isPlainRecord(block)) return String(block);
     const plain = block.type === 'text'
       && typeof block.text === 'string'
       && Object.keys(block).every(key => key === 'type' || key === 'text');
@@ -155,8 +166,8 @@ function formatValue(value: unknown, indent: number): string[] {
   if (Array.isArray(value)) {
     if (value.length === 0) return [`${pad}(none)`];
     if (value.every(isScalar)) return [`${pad}${value.map(scalarText).join(', ')}`];
-    if (value.length > 1 && value.every(isRecord) && scalarColumns(value)) return tableLines(value, indent);
-    if (value.every(isRecord)) {
+    if (value.length > 1 && value.every(isPlainRecord) && scalarColumns(value)) return tableLines(value, indent);
+    if (value.every(isPlainRecord)) {
       return value.flatMap((item, index) => {
         const lines = formatRecord(item, indent);
         return index === 0 ? lines : ['', ...lines];
@@ -164,7 +175,7 @@ function formatValue(value: unknown, indent: number): string[] {
     }
     return value.flatMap(item => formatValue(item, indent));
   }
-  if (isRecord(value)) return formatRecord(value, indent);
+  if (isPlainRecord(value)) return formatRecord(value, indent);
   return [`${pad}${String(value)}`];
 }
 
@@ -182,7 +193,7 @@ function renderResult(result: unknown, asJson: boolean, noColor: boolean): strin
     text = jsonText(value === undefined ? null : value);
   } else if (view) {
     const body = view.json;
-    if (isRecord(body) && Object.prototype.hasOwnProperty.call(body, 'structuredContent')) {
+    if (isPlainRecord(body) && Object.prototype.hasOwnProperty.call(body, 'structuredContent')) {
       const structured = humanText(body.structuredContent);
       const content = Array.isArray(body.content) && body.content.length > 0 ? contentText(body.content) : '';
       text = content.length === 0
@@ -211,12 +222,15 @@ export async function runCli(spec: CliSpec, argv: readonly string[], io?: CliIo)
 
   const wantsHelp = argv.some(token => token === '--help' || token === '-h');
   const asJson = argv.includes('--json');
+  const showHelp = (command: CliCommand): void => {
+    stdout(asJson ? jsonText(commandHelpJson(spec, command)) : commandHelp(spec, command));
+  };
   if (wantsHelp) {
     const positionals = argv.filter(token => !token.startsWith('-'));
     const head = positionals[0] === 'help' ? positionals[1] : positionals[0];
     const command = head ? spec.commands.find(item => item.name === head) : undefined;
     if (head && !command) return fail(`Unknown command: ${head}`);
-    if (command) stdout(asJson ? jsonText(commandHelpJson(spec, command)) : commandHelp(spec, command));
+    if (command) showHelp(command);
     else stdout(asJson ? jsonText(rootHelpJson(spec)) : rootHelp(spec));
     return 0;
   }
@@ -239,11 +253,11 @@ export async function runCli(spec: CliSpec, argv: readonly string[], io?: CliIo)
     if (commandName === 'help' && subject) {
       const command = spec.commands.find(item => item.name === subject);
       if (!command) return fail(`Unknown command: ${subject}`);
-      stdout(asJson ? jsonText(commandHelpJson(spec, command)) : commandHelp(spec, command));
+      showHelp(command);
       return 0;
     }
     for (const token of rest) {
-      if (token.startsWith('-') && token !== '--json' && token !== '--no-input' && token !== '--no-color') {
+      if (token.startsWith('-') && !(token.startsWith('--') && SWITCHES.has(token.slice(2)))) {
         return fail(`Unknown flag: ${token.split('=')[0]}`);
       }
     }
@@ -264,7 +278,7 @@ export async function runCli(spec: CliSpec, argv: readonly string[], io?: CliIo)
   try {
     input = parseCommandInput(command, parsed.values);
   } catch (error) {
-    stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+    stderr(errorText(error));
     return 2;
   }
   try {
@@ -272,7 +286,7 @@ export async function runCli(spec: CliSpec, argv: readonly string[], io?: CliIo)
     if (result !== undefined) stdout(renderResult(result, parsed.json, parsed.noColor));
     return 0;
   } catch (error) {
-    stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+    stderr(errorText(error));
     if (error instanceof Error && 'exitCode' in error && typeof error.exitCode === 'number' && Number.isInteger(error.exitCode) && error.exitCode > 0 && error.exitCode < 256) return error.exitCode;
     return 1;
   }
@@ -308,7 +322,7 @@ function parseFlags(command: CliCommand, rest: readonly string[]): FlagParse {
     const eq = token.indexOf('=');
     const body = eq === -1 ? token.slice(2) : token.slice(2, eq);
     const inline = eq === -1 ? undefined : token.slice(eq + 1);
-    if (body === 'json' || body === 'no-input' || body === 'no-color') {
+    if (SWITCHES.has(body)) {
       if (inline !== undefined) return { values, present, json, noColor, error: `Flag --${body} does not take a value` };
       if (body === 'json') json = true;
       if (body === 'no-color') noColor = true;

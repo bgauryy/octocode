@@ -16,10 +16,12 @@ import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 // Tests serve fixtures over plain HTTP on 127.0.0.1; nothing else may relax the rules.
 const testLoopback = (hostname, protocol = 'http:') => process.env.OCTOCODE_NET_GUARD_TEST_LOOPBACK === '1' && protocol === 'http:' && hostname === '127.0.0.1';
 
+// Non-public IPv4 blocks as [first octet, lowest second octet, highest second octet]; 224 and above are refused too.
+const PRIVATE_V4 = [[0, 0, 255], [10, 0, 255], [127, 0, 255], [100, 64, 127], [169, 254, 254], [172, 16, 31], [192, 168, 168], [198, 18, 19]];
+
 function ipv4Private(ip) {
   const [a, b] = ip.split('.').map(Number);
-  return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
+  return a >= 224 || PRIVATE_V4.some(([first, low, high]) => a === first && b >= low && b <= high);
 }
 
 /** An IPv4-mapped IPv6 address (`::ffff:127.0.0.1` or `::ffff:7f00:1`) as dotted IPv4, else null. */
@@ -42,7 +44,7 @@ export function privateAddress(raw) {
   const mapped = mappedIpv4(ip);
   if (mapped) return ipv4Private(mapped);
   const h = ip.toLowerCase();
-  return h === '::' || h === '::1' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || /^ff/.test(h) || h.startsWith('64:ff9b:');
+  return h === '::' || h === '::1' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('ff') || h.startsWith('64:ff9b:');
 }
 
 function privateName(host) {
@@ -129,20 +131,25 @@ function pinnedRequest(url, init, exempt) {
  * connect time. Returns a standard Response with a `finalUrl` property, or throws an Error whose `guard`
  * property names the refused URL.
  */
+const exemptOrigin = (url, allowOrigin) => {
+  const { hostname, protocol, origin } = new URL(url);
+  return testLoopback(hostname, protocol) || (allowOrigin && origin === allowOrigin);
+};
+const isRedirect = (res) => res.status >= 300 && res.status < 400 && res.headers.get('location');
+
 export async function guardedFetch(url, init = {}, { maxRedirects = 5, httpsOnly = false, allowOrigin = null } = {}) {
   let current = url;
   for (let hop = 0; hop <= maxRedirects; hop += 1) {
     const problem = urlProblem(current, { httpsOnly, allowOrigin });
     const refuse = (reason) => Object.assign(new Error(`${hop ? 'redirect target refused' : 'refused'}: ${reason}`), { guard: current });
     if (problem) throw refuse(problem);
-    const { hostname, protocol, origin } = new URL(current);
-    const exempt = testLoopback(hostname, protocol) || (allowOrigin && origin === allowOrigin);
+    const exempt = exemptOrigin(current, allowOrigin);
     let res;
     try { res = await pinnedRequest(current, init, exempt); } catch (error) {
       if (error.code === 'EPRIVATEADDRESS') throw refuse(error.message);
       throw error;
     }
-    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+    if (isRedirect(res)) {
       await res.body?.cancel?.().catch(() => {});
       current = new URL(res.headers.get('location'), current).href;
       continue;

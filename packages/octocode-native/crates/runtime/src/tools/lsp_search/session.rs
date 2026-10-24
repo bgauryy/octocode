@@ -10,8 +10,8 @@ pub(super) fn discover_server(
     paths: &PathPolicy,
     execution_config: &LspExecutionConfig,
 ) -> Result<Target, Exit> {
-    let uri =
-        engine_path_to_uri(&path).map_err(|error| LspFailure::invalid_query(error.to_string()))?;
+    let uri = octocode_engine::lsp::uri::path_to_uri(&path)
+        .map_err(|error| LspFailure::invalid_query(error.to_string()))?;
     let fail =
         |code: ErrorCode, message: &str| Exit::Row(failure(query, &uri, code, message, false));
     let root_only = Path::new(&path).is_dir();

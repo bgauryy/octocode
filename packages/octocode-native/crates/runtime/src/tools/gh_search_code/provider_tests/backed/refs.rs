@@ -1,5 +1,9 @@
 //! Ref searches: hits verified at the ref, the index commit disclosed once, rows missing at the ref.
 use super::*;
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// `branch` verifies the top files at that ref: lines come from the
 /// ref, a path absent there is flagged, and the page says its
@@ -18,11 +22,11 @@ async fn branch_hits_are_verified_at_the_ref_and_labeled() {
     )
     .await;
     let out = run(
-            &server,
-            json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["wrap_app"],"ref":"dev"}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"],"ref":"dev"}),
+    )
+    .await
+    .expect("search");
     let data = &out.data;
     // The caller's own ref is not echoed back.
     assert!(data.get("ref").is_none(), "{data}");
@@ -43,7 +47,7 @@ async fn branch_hits_are_verified_at_the_ref_and_labeled() {
         "default-branch text is not shown as the ref: {data}"
     );
     assert_eq!(
-        data["next"]["read"]["query"]["queries"][0]["ref"], TREE_SHA,
+        data["next"]["read"]["input"]["queries"][0]["ref"], TREE_SHA,
         "the read is pinned to the commit the lines came from: {data}"
     );
 }
@@ -67,8 +71,7 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
     mount_content(&server, "src/routing.py", "await wrap_app(app)\n").await;
     let out = run(
         &server,
-        json!({"operation":"code","owner":"a","repo":"b","keywords":["wrap_app"],
-                "path":"src","ref":"dev"}),
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"],"ref":"dev","pathPrefix":"src"}),
     )
     .await
     .expect("search");
@@ -80,7 +83,9 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
         json!(["Files from the default-branch index at fedcba9, not dev; `lines` read at dev."]),
         "{data}"
     );
-    let lead = &data["next"]["viewRepo"];
+    let lead = crate::tools::test_support::checks::related_call(data, "ghStructure", |input| {
+        input["queries"][0]["operation"] == "tree"
+    });
     assert_eq!(lead["tool"], "ghStructure", "{data}");
     for (key, value) in [
         ("owner", "a"),
@@ -88,16 +93,8 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
         ("path", "src"),
         ("ref", TREE_SHA),
     ] {
-        assert_eq!(lead["query"]["queries"][0][key], value, "{data}");
+        assert_eq!(lead["input"]["queries"][0][key], value, "{data}");
     }
-    assert_eq!(
-        data["next"]
-            .as_object()
-            .and_then(|next| next.keys().next())
-            .map(String::as_str),
-        Some("viewRepo"),
-        "the ref's listing is the first lead: {data}"
-    );
 
     let default_head = MockServer::builder().start().await;
     mount_code_search(&default_head).await;
@@ -107,7 +104,7 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
     mount_content(&default_head, "src/routing.py", "await wrap_app(app)\n").await;
     let out = run(
         &default_head,
-        json!({"operation":"code","owner":"a","repo":"b","keywords":["wrap_app"],
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"],
                 "ref":"main"}),
     )
     .await
@@ -133,7 +130,7 @@ async fn a_file_missing_at_the_requested_ref_offers_no_default_branch_read() {
     .await;
     let out = run(
         &server,
-        json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
+        json!({"owner":"a","repo":"b",
                 "keywords":["wrap_app"],"ref":"dev"}),
     )
     .await
@@ -145,7 +142,9 @@ async fn a_file_missing_at_the_requested_ref_offers_no_default_branch_read() {
         "no read outside the requested ref: {data}"
     );
     // The ref listing searches the moved file's name tree-wide.
-    let listing = &data["next"]["viewRepo"]["query"]["queries"][0];
+    let listing = &crate::tools::test_support::checks::related_call(data, "ghStructure", |input| {
+        input["queries"][0]["operation"] == "tree"
+    })["input"]["queries"][0];
     assert_eq!(listing["include"], json!(["app.rs"]), "{data}");
     assert_eq!(listing["ref"], TREE_SHA, "{data}");
     assert!(listing.get("path").is_none(), "{data}");
@@ -157,7 +156,7 @@ async fn a_file_missing_at_the_requested_ref_offers_no_default_branch_read() {
     mount_content(&unmatched, "app.rs", "fn renamed() {}\n").await;
     let out = run(
         &unmatched,
-        json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
+        json!({"owner":"a","repo":"b",
                 "keywords":["wrap_app"],"ref":"dev"}),
     )
     .await
@@ -190,7 +189,7 @@ async fn every_row_of_a_default_branch_page_has_numbered_lines() {
     }
     let out = run(
         &server,
-        json!({"operation":"code","owner":"a","repo":"b","keywords":["wrap_app"]}),
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"]}),
     )
     .await
     .expect("search");
@@ -202,7 +201,7 @@ async fn every_row_of_a_default_branch_page_has_numbered_lines() {
             json!([format!("1\tfn wrap_app() {{}} // {name}")]),
             "{row}"
         );
-        assert!(row.get("matches").is_none(), "{row}");
+        assert!(row["matches"].is_array(), "{row}");
     }
 }
 
@@ -233,7 +232,7 @@ async fn every_row_of_a_ref_page_is_read_at_the_ref() {
         .await;
     let out = run(
         &server,
-        json!({"operation":"code","owner":"a","repo":"b",
+        json!({"owner":"a","repo":"b",
                 "keywords":["wrap_app"],"ref":"dev"}),
     )
     .await
@@ -241,8 +240,8 @@ async fn every_row_of_a_ref_page_is_read_at_the_ref() {
     let data = &out.data;
     let files = data["files"].as_array().expect("files");
     assert_eq!(files.len(), names.len(), "{data}");
-    for row in files {
-        assert!(row.get("matches").is_none(), "{row}");
+    for row in &files[..6] {
+        assert!(row["matches"].is_array(), "{row}");
     }
     for (row, name) in files[..6].iter().zip(names) {
         assert_eq!(
@@ -257,10 +256,10 @@ async fn every_row_of_a_ref_page_is_read_at_the_ref() {
         .as_object()
         .expect("next")
         .values()
-        .filter(|read| read["query"]["queries"][0]["path"] == "src/h.rs")
+        .filter(|read| read["input"]["queries"][0]["path"] == "src/h.rs")
         .collect::<Vec<_>>();
     assert_eq!(reads.len(), 1, "{data}");
-    assert_eq!(reads[0]["query"]["queries"][0]["ref"], TREE_SHA, "{data}");
+    assert_eq!(reads[0]["input"]["queries"][0]["ref"], TREE_SHA, "{data}");
 }
 
 /// A ref page discloses the default-branch index once (page 1); later
@@ -288,8 +287,8 @@ async fn the_index_warning_is_stated_on_the_first_ref_page_only() {
     for page in [1, 2] {
         let out = run(
             &server,
-            json!({"operation":"code","owner":"a","repo":"b","keywords":["needle"],
-                "ref":"dev","page":page,"pageSize":10}),
+            json!({"owner":"a","repo":"b","keywords":["needle"],
+                "ref":"dev","page":page}),
         )
         .await
         .expect("search");

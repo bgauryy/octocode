@@ -3,7 +3,7 @@
 use tree_sitter::Node;
 
 use crate::structural::kinds::named_kind_id;
-use crate::structural::language::{AgLanguage, Expando, WRAP_MARKER};
+use crate::structural::language::{AgLanguage, Expando, WRAP_MARKER, wrap_in_function_body};
 use crate::structural::octo::error::CompileError;
 use crate::structural::octo::matching::{
     CandidatePlan, children, named_children, node_text, parse_tree,
@@ -159,7 +159,7 @@ impl CompiledPattern {
             let statements = std::iter::once(text.clone())
                 .chain((!text.is_terminated()).then(|| text.terminated()));
             for statement in statements {
-                let wrapped = statement.map(|statement| lang.wrap_in_function_body(statement));
+                let wrapped = statement.map(wrap_in_function_body);
                 let wrapped_tree = parse_tree(&language, &wrapped.source)?;
                 let wrapped_root =
                     effective_pattern_root(wrapped_tree.root_node(), &wrapped.source);

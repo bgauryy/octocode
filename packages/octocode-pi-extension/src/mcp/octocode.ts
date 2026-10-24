@@ -228,10 +228,10 @@ export function registerOctocodeMcp(pi: ExtensionAPI, version?: string): Octocod
   return mcp;
 }
 
-/** Absolute path of the bundled octocode-mcp bin (its `exports` hide package.json, so walk up from the entry). */
+/** Absolute path of the bundled octocode-mcp bin, read from its manifest (the launcher package has no `main` or `exports`). */
 function octocodeMcpEntry(): string | undefined {
   try {
-    const found = findManifest(path.dirname(fileURLToPath(import.meta.resolve(MCP_PACKAGE))), MCP_PACKAGE, 4);
+    const found = findManifest(path.dirname(fileURLToPath(import.meta.resolve(`${MCP_PACKAGE}/package.json`))), MCP_PACKAGE, 1);
     const bin = typeof found?.manifest.bin === 'string' ? found.manifest.bin : found?.manifest.bin?.[MCP_PACKAGE];
     return found && bin ? path.join(found.dir, bin) : undefined;
   } catch {

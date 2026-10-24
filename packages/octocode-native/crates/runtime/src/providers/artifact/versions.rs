@@ -149,9 +149,11 @@ fn highest<'a>(
         .map(|version| version.to_string())
 }
 
-/// PEP 440 release numbers (`2.31.0`, `2.31`); pre/post/dev releases and
-/// local labels do not parse, so ranges resolve to final releases only.
-fn pep440(value: &str) -> Option<Vec<u64>> {
+/// The numeric release of a version (`2.31.0`, `2.31`), for ordering
+/// nearest-version hints across ecosystems; versions with any label
+/// (`1.0-rc.1`, `2.9.0.post0`) have none. Never a resolver: each
+/// ecosystem resolves ranges with its own semantics.
+fn release_numbers(value: &str) -> Option<Vec<u64>> {
     let value = value.trim().trim_start_matches('v');
     let parts = value
         .split('.')
@@ -160,81 +162,14 @@ fn pep440(value: &str) -> Option<Vec<u64>> {
     (!parts.is_empty()).then_some(parts)
 }
 
-fn pep440_cmp(left: &[u64], right: &[u64]) -> std::cmp::Ordering {
+/// Release numbers in order, missing trailing parts read as 0.
+fn cmp_release_numbers(left: &[u64], right: &[u64]) -> std::cmp::Ordering {
     let length = left.len().max(right.len());
     let at = |values: &[u64], index: usize| values.get(index).copied().unwrap_or(0);
     (0..length)
         .map(|index| at(left, index).cmp(&at(right, index)))
         .find(|ordering| ordering.is_ne())
         .unwrap_or(std::cmp::Ordering::Equal)
-}
-
-/// PyPI specifiers (`>=2,<3`, `~=2.31`, `==2.*`, `!=2.30.0`): the highest
-/// final release satisfying every clause.
-pub(crate) fn pypi_resolve<'a>(
-    specifier: &str,
-    versions: impl IntoIterator<Item = &'a str>,
-) -> Option<String> {
-    type Clause = Box<dyn Fn(&[u64]) -> bool>;
-    let mut clauses = Vec::<Clause>::new();
-    for clause in specifier
-        .split(',')
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-    {
-        let (operator, value) = ["~=", "==", "!=", ">=", "<=", ">", "<"]
-            .iter()
-            .find_map(|op| clause.strip_prefix(op).map(|rest| (*op, rest.trim())))?;
-        if let Some(prefix) = value.strip_suffix(".*") {
-            let prefix = pep440(prefix)?;
-            let equal = operator == "==";
-            if !matches!(operator, "==" | "!=") {
-                return None;
-            }
-            clauses.push(Box::new(move |version: &[u64]| {
-                let within = prefix
-                    .iter()
-                    .enumerate()
-                    .all(|(index, part)| version.get(index).copied().unwrap_or(0) == *part);
-                within == equal
-            }));
-            continue;
-        }
-        let bound = pep440(value)?;
-        let compatible_upper = (operator == "~=").then(|| {
-            let mut upper = bound[..bound.len().saturating_sub(1).max(1)].to_vec();
-            if let Some(last) = upper.last_mut() {
-                *last += 1;
-            }
-            upper
-        });
-        clauses.push(Box::new(move |version: &[u64]| {
-            let ordering = pep440_cmp(version, &bound);
-            match operator {
-                "==" => ordering.is_eq(),
-                "!=" => ordering.is_ne(),
-                ">=" => ordering.is_ge(),
-                "<=" => ordering.is_le(),
-                ">" => ordering.is_gt(),
-                "<" => ordering.is_lt(),
-                _ => {
-                    ordering.is_ge()
-                        && compatible_upper
-                            .as_deref()
-                            .is_some_and(|upper| pep440_cmp(version, upper).is_lt())
-                }
-            }
-        }));
-    }
-    if clauses.is_empty() {
-        return None;
-    }
-    versions
-        .into_iter()
-        .filter_map(|value| pep440(value).map(|parts| (parts, value)))
-        .filter(|(parts, _)| clauses.iter().all(|clause| clause(parts)))
-        .max_by(|(left, _), (right, _)| pep440_cmp(left, right))
-        .map(|(_, value)| value.to_owned())
 }
 
 /// A known package without the requested version: typed, with the nearest
@@ -290,10 +225,12 @@ pub(crate) fn nearest<'a>(
     if !prerelease(requested) && picked.iter().any(|version| !prerelease(version)) {
         picked.retain(|version| !prerelease(version));
     }
-    picked.sort_by(|left, right| match (pep440(left), pep440(right)) {
-        (Some(l), Some(r)) => pep440_cmp(&r, &l),
-        _ => right.cmp(left),
-    });
+    picked.sort_by(
+        |left, right| match (release_numbers(left), release_numbers(right)) {
+            (Some(l), Some(r)) => cmp_release_numbers(&r, &l),
+            _ => right.cmp(left),
+        },
+    );
     picked.truncate(5);
     picked
 }
@@ -306,20 +243,20 @@ fn bracketing(requested: &str, versions: &[&str]) -> Vec<String> {
         .trim_start_matches(|c: char| !c.is_ascii_digit())
         .split(['-', '+'])
         .next()
-        .and_then(pep440);
+        .and_then(release_numbers);
     let Some(release) = release else {
         return Vec::new();
     };
     let mut finals = versions
         .iter()
-        .filter_map(|version| pep440(version).map(|parsed| (parsed, *version)))
+        .filter_map(|version| release_numbers(version).map(|parsed| (parsed, *version)))
         .collect::<Vec<_>>();
-    finals.sort_by(|(left, _), (right, _)| pep440_cmp(left, right));
-    let split = finals.partition_point(|(parsed, _)| pep440_cmp(parsed, &release).is_lt());
+    finals.sort_by(|(left, _), (right, _)| cmp_release_numbers(left, right));
+    let split = finals.partition_point(|(parsed, _)| cmp_release_numbers(parsed, &release).is_lt());
     let below = &finals[split.saturating_sub(3)..split];
     let above = finals[split..]
         .iter()
-        .filter(|(parsed, _)| pep440_cmp(parsed, &release).is_gt())
+        .filter(|(parsed, _)| cmp_release_numbers(parsed, &release).is_gt())
         .take(2);
     let mut picked = below
         .iter()

@@ -25,7 +25,7 @@ pub(super) fn evaluate_row(
     let max_chars = max_state_chars(row.long_context);
     let (state, captured) = match target {
         // Admission measured a literal state against the same budget.
-        Target::State(state) => (state.clone(), None),
+        Target::Content(state) => (state.clone(), None),
         Target::Source(source) => {
             let mut captured = match source_capture::capture(source, dispatcher, context, max_chars)
             {
@@ -64,10 +64,11 @@ pub(super) fn evaluate_row(
         Ok(assets) => assets,
         Err(error) => return rejected(error, captured),
     };
+    let questions = super::rows::contextual_questions(&row.questions, row.context.as_deref());
     let judged = dispatcher.handle().block_on(evaluator.evaluate_prepared(
         EvaluationInput {
             state: &state,
-            questions: &row.questions,
+            questions: &questions,
             assets: assets.as_ref().map(|assets| &assets.provider),
             long_context: row.long_context,
         },

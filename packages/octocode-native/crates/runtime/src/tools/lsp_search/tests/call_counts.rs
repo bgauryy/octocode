@@ -36,8 +36,7 @@ async fn builtin_lib_callees_are_listed_not_counted() {
     assert_eq!(names, vec!["map".to_owned(), "toUpperCase".to_owned()]);
     assert_eq!(walk.out_of_policy, 0, "built-ins are not policy failures");
     let q = query(serde_json::json!({
-        "operation": "callees", "mainGoal": "test", "reasoning": "test",
-        "path": "file:///repo/a.ts",
+        "operation": "callees", "path": "file:///repo/a.ts",
         "symbolName": "foo", "line": 1
     }));
     let mut row = serde_json::json!({"status": "hasResults", "kind": "callees", "items": []});
@@ -83,7 +82,8 @@ fn file_level_partial_clears_when_text_files_match() {
     // `next.nextImporterPage` verifies the unchecked candidates.
     assert!(partial.get("terminalLimit").is_none(), "{partial}");
     assert_eq!(partial["coverage"]["textOnlyFiles"], 1, "{partial}");
-    let lead = &partial["next"]["findText"]["query"]["queries"];
+    let lead = &crate::tools::test_support::checks::related_call(&partial, "localSearch", |_| true)
+        ["input"]["queries"];
     assert_eq!(lead.as_array().map(Vec::len), Some(1), "{partial}");
     assert_eq!(
         lead[0]["path"],
@@ -140,7 +140,8 @@ fn site_level_partial_survives_matching_counts() {
     assert!(row["coverage"].get("reason").is_none(), "{row}");
     // No file to list: the lead searches the whole scope.
     assert_eq!(
-        row["next"]["findText"]["query"]["queries"][0]["path"],
+        crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)["input"]["queries"]
+            [0]["path"],
         root.to_string_lossy().as_ref()
     );
 }
@@ -201,13 +202,13 @@ fn site_rows_offer_one_read_of_the_sites_in_context() {
         ]}
     ]});
     attach_read_lead(&mut row);
-    let read = &row["next"]["read"];
+    let read = &crate::tools::test_support::checks::related_call(&row, "localFetch", |_| true);
     assert_eq!(read["tool"], "localFetch", "{row}");
     assert_eq!(
-        read["query"]["queries"],
+        read["input"]["queries"],
         serde_json::json!([
-            {"path": "/repo/a.ts", "ranges": ["353-368"]},
-            {"path": "/repo/b.ts", "ranges": ["1-10", "34-46"]}
+            {"path": "/repo/a.ts", "ranges": [{"startLine":353,"endLine":368}]},
+            {"path": "/repo/b.ts", "ranges": [{"startLine":1,"endLine":10},{"startLine":34,"endLine":46}]}
         ]),
         "{row}"
     );
@@ -216,11 +217,18 @@ fn site_rows_offer_one_read_of_the_sites_in_context() {
         .collect::<Vec<_>>();
     let mut wide = serde_json::json!({"kind": "references", "files": files});
     attach_read_lead(&mut wide);
+    let reads = wide["related"]
+        .as_array()
+        .expect("read batches")
+        .iter()
+        .flat_map(|call| call["input"]["queries"].as_array().expect("read rows"));
     assert_eq!(
-        wide["next"]["read"]["query"]["queries"]
-            .as_array()
-            .map(Vec::len),
-        Some(5)
+        reads
+            .map(|query| query["path"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        (0..7)
+            .map(|index| format!("/repo/{index}.ts"))
+            .collect::<Vec<_>>()
     );
     let mut empty = serde_json::json!({"status": "empty", "kind": "empty"});
     attach_read_lead(&mut empty);

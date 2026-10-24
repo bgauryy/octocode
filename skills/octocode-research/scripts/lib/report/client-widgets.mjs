@@ -1,5 +1,6 @@
 // Page view: interactive graph (Cytoscape.js) and chart (ECharts) widgets with data tables.
 // Inlined into the page via Function#toString: it may use only ctx and browser globals.
+// oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function widgetView(ctx) {
   const { kit, $, $$, esc, slugify, copy } = ctx;
   const widgetDisposers = new Set();
@@ -13,10 +14,11 @@ export function widgetView(ctx) {
     const promise = new Promise((resolve, reject) => {
       if (window[config[1]]) { resolve(window[config[1]]); return; }
       const script = document.createElement('script');
+      const listeners = new AbortController();
       const timer = setTimeout(() => done(new Error('Renderer loading timed out')), 10000);
-      const done = (error) => { clearTimeout(timer); script.onload = script.onerror = null; if (error) { script.remove(); widgetLibraries.delete(kind); reject(error); } else resolve(window[config[1]]); };
-      script.onload = () => window[config[1]] ? done() : done(new Error('Renderer unavailable'));
-      script.onerror = () => done(new Error('Renderer could not load; check your connection'));
+      const done = (error) => { clearTimeout(timer); listeners.abort(); if (error) { script.remove(); widgetLibraries.delete(kind); reject(error); } else resolve(window[config[1]]); };
+      script.addEventListener('load', () => window[config[1]] ? done() : done(new Error('Renderer unavailable')), { signal: listeners.signal });
+      script.addEventListener('error', () => done(new Error('Renderer could not load; check your connection')), { signal: listeners.signal });
       script.src = config[0]; document.head.append(script);
     });
     widgetLibraries.set(kind, promise);
@@ -37,7 +39,7 @@ export function widgetView(ctx) {
         ? '<h3>Nodes</h3><table><thead><tr><th>Node</th><th>Description</th><th>Evidence</th></tr></thead><tbody>' + d.nodes.map(n => `<tr><td>${esc(n.label)}</td><td>${esc(n.description)}</td><td>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">Source</a>` : '—'}</td></tr>`).join('') + '</tbody></table><h3>Connections</h3><table><thead><tr><th>From</th><th>To</th><th>Relationship</th></tr></thead><tbody>' + d.edges.map(e => `<tr><td>${esc(d.nodes.find(n => n.id === e.source).label)}</td><td>${esc(d.nodes.find(n => n.id === e.target).label)}</td><td>${esc(e.label)}</td></tr>`).join('') + '</tbody></table>'
         : '<table><thead><tr><th>Category</th>' + d.series.map(s => `<th>${esc(s.name)}${d.unit ? ' (' + esc(d.unit) + ')' : ''}</th>`).join('') + '</tr></thead><tbody>' + d.labels.map((label,i) => `<tr><td>${esc(label)}</td>${d.series.map(s => `<td>${s.values[i]}</td>`).join('')}</tr>`).join('') + '</tbody></table>';
       $('.widget-data',card).innerHTML = table;
-      const button = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.onclick = fn; actions.append(b); return b; };
+      const button = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', fn); actions.append(b); return b; };
       button('Copy source', () => copy(source, 'Widget data copied'));
       status.textContent = 'Loading interactive ' + kind + '…';
       let instance, observer, disposed = false;
@@ -66,15 +68,15 @@ export function widgetView(ctx) {
             if (data.url) { const a = document.createElement('a'); a.href = data.url; a.target='_blank'; a.rel='noopener noreferrer'; a.textContent='Open source'; detail.append(' ',a); }
             status.textContent = 'Showing ' + data.label + ' and its neighbors';
           };
-          select.onchange = () => focus(select.value);
+          select.addEventListener('change', () => focus(select.value));
           cy.on('tap','node',event => { select.value=event.target.id(); focus(select.value); });
-          search.oninput = () => {
+          search.addEventListener('input', () => {
             const term=search.value.trim().toLowerCase();
             const matches=cy.nodes().filter(n=>n.data('label').toLowerCase().includes(term));
             cy.elements().removeClass('muted focused'); select.value=''; $('.widget-detail',card).replaceChildren();
             if(term) { cy.elements().not(matches).addClass('muted'); matches.addClass('focused'); if(matches.length) cy.fit(matches,60); } else cy.fit(undefined,32);
             status.textContent=term ? `${matches.length} matching nodes` : `${d.nodes.length} nodes · ${d.edges.length} connections`;
-          };
+          });
           button('−',()=>cy.zoom({level:Math.max(cy.minZoom(),cy.zoom()/1.25),renderedPosition:{x:cy.width()/2,y:cy.height()/2}})).setAttribute('aria-label','Zoom out');
           button('+',()=>cy.zoom({level:Math.min(cy.maxZoom(),cy.zoom()*1.25),renderedPosition:{x:cy.width()/2,y:cy.height()/2}})).setAttribute('aria-label','Zoom in');
           button('Reset',()=>{search.value='';select.value='';focus('');});

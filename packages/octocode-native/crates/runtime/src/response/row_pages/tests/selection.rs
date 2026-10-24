@@ -45,8 +45,8 @@ fn the_reserve_is_chosen_before_planning_as_planning_twice_chose_it() {
             }
         };
         let options = ResponsePageOptions {
-            response_length: Some(budget),
-            response_scope: Some(crate::response::cursor::PageScope::Rows),
+            response_chars: Some(budget),
+            paging: true,
             ..Default::default()
         };
         let envelope = octocode_engine::digest::fingerprint_json(&structured).expect("envelope");
@@ -87,9 +87,9 @@ fn the_reserve_is_chosen_before_planning_as_planning_twice_chose_it() {
             );
         }
         if earlier.total_pages == 1 {
-            one_page += 1
+            one_page += 1;
         } else {
-            split += 1
+            split += 1;
         }
     }
     assert!(

@@ -2,7 +2,7 @@
 
 use crate::support::{self};
 use serde_json::json;
-use support::{Workspace, call, row_data, row_status};
+use support::{Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -93,13 +93,15 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
         ]),
         "{data}"
     );
-    let read = &crate::support::checks::hint(data, "readPullRequest");
+    let read = support::checks::related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["operation"] == "pullRequest"
+    });
     assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
     assert_eq!(
-        read["query"]["queries"][0]["operation"], "pullRequest",
+        read["input"]["queries"][0]["operation"], "pullRequest",
         "{data}"
     );
-    assert_eq!(read["query"]["queries"][0]["number"], 13825, "{data}");
+    assert_eq!(read["input"]["queries"][0]["number"], 13825, "{data}");
     runtime.close().await;
 
     // GraphQL unavailable: no closedBy, the search hop instead.
@@ -122,10 +124,12 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     .expect("issue read");
     let data = row_data(&outcome);
     assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-    let find = &crate::support::checks::hint(data, "findPullRequest");
+    let find = support::checks::related_call(data, "ghSearchHistory", |input| {
+        input["queries"][0]["operation"] == "pullRequest"
+    });
     assert_eq!(find["tool"], "ghSearchHistory", "{data}");
     assert_eq!(
-        find["query"]["queries"][0]["keywords"],
+        find["input"]["queries"][0]["keywords"],
         json!(["42"]),
         "{data}"
     );
@@ -138,11 +142,14 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
 #[tokio::test]
 async fn issue_body_windows_keep_closing_reference_coverage() {
     let server = MockServer::builder().start().await;
+    let body = (0..6000)
+        .map(|n| format!("source body {n}\n"))
+        .collect::<String>();
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "number": 42, "title": "synthetic", "state": "closed", "state_reason": "completed",
-            "body": "abcdefghijklmno", "user": {"login": "audit"}, "labels": [], "comments": 0,
+            "body": body, "user": {"login": "audit"}, "labels": [], "comments": 0,
             "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-10-02T00:00:00Z"
         })))
         .mount(&server)
@@ -161,77 +168,38 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let mut query = json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42,
-        "length": 5, "extras": []});
-    let mut bodies = Vec::new();
-    for window in 0..3 {
-        let outcome = call(&runtime, "ghGetHistoryItem", query.clone())
-            .await
-            .expect("issue window");
-        let data = row_data(&outcome);
-        bodies.push(
-            data["issues"][0]["body"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned(),
-        );
-        let reasons = data["partialReasons"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        assert_eq!(
-            reasons.contains(&json!("closingReferenceLimit")),
-            window == 0,
-            "window {window}: {data}"
-        );
-        // `next.continueBody` holds the rest: no separate reason restates it.
-        assert!(
-            !reasons.contains(&json!("contentPagination")),
-            "window {window}: {data}"
-        );
-        let warnings = data["warnings"].to_string();
-        assert_eq!(
-            warnings.contains("25 of 31"),
-            window == 0,
-            "window {window}: {data}"
-        );
-        if window < 2 {
-            // `partialReasons` say why the row is partial; the visible
-            // body pagination and `next.continueBody` reach the remaining
-            // body (no page-note warning restates them).
-            assert!(
-                data["next"]["continueBody"].is_object(),
-                "window {window}: {data}"
-            );
-            assert_eq!(
-                data["issues"][0]["contentPagination"]["body"]["hasMore"],
-                json!(true),
-                "window {window}: {data}"
-            );
-            assert!(
-                !data["warnings"].to_string().contains("(next.continueBody)"),
-                "window {window}: {data}"
-            );
+    let outputs = std::cell::RefCell::new(Vec::new());
+    support::walk(&runtime,"ghGetHistoryItem",json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":42,"sections":["body"]}],"responseChars":2500}),|output| {
+        for row in output["results"].as_array().into_iter().flatten() {
+            assert_ne!(row["status"],"error","{output}");
         }
-        if window == 0 {
-            assert_eq!(
-                data["issues"][0]["closedBy"].as_array().map(Vec::len),
-                Some(25),
-                "{data}"
-            );
-        } else {
-            assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-            assert!(
-                crate::support::checks::hint(data, "readPullRequest").is_null(),
-                "{data}"
-            );
-        }
-        match data["next"]["continueBody"]["query"].as_object() {
-            Some(next) => query = serde_json::Value::Object(next.clone()),
-            None => assert_eq!(window, 2, "{data}"),
-        }
-    }
-    assert_eq!(bodies, ["abcde", "fghij", "klmno"]);
+        outputs.borrow_mut().push(output.clone());
+        Vec::new()
+    }).await;
+    let outputs = outputs.into_inner();
+    let issues = outputs
+        .iter()
+        .flat_map(|output| output["results"].as_array().into_iter().flatten())
+        .flat_map(|row| row["data"]["issues"].as_array().into_iter().flatten())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        issues
+            .iter()
+            .filter_map(|issue| issue["body"].as_str())
+            .collect::<String>(),
+        body
+    );
+    assert!(
+        outputs
+            .iter()
+            .any(|output| output.to_string().contains("closingReferenceLimit"))
+    );
+    let closed = issues
+        .iter()
+        .flat_map(|issue| issue["closedBy"].as_array().into_iter().flatten())
+        .map(|pr| pr["number"].as_u64().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(closed, (101..126).collect());
     let documents = server
         .received_requests()
         .await
@@ -249,7 +217,7 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
 /// read; an issue without comments offers neither.
 #[tokio::test]
 async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
-    for (comments, offered) in [(105, true), (0, false)] {
+    for (comments, offered) in [(1, true), (0, false)] {
         let server = MockServer::builder().start().await;
         Mock::given(method("GET"))
             .and(path("/api/v3/repos/a/b/issues/42"))
@@ -272,18 +240,26 @@ async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
         let data = row_data(&outcome);
         assert_eq!(row_status(&outcome), "success", "{data}");
         let issue = &data["issues"][0];
-        let read = &crate::support::checks::hint(data, "readDiscussion");
+        let read = checks::find_related_call(data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["sections"] == json!(["comments"])
+        });
         if offered {
-            assert_eq!(issue["commentsCount"], 105, "{data}");
+            let read = read.expect("optional discussion");
+            assert_eq!(issue["commentsCount"], 1, "{data}");
             assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
-            let q = &read["query"]["queries"][0];
-            assert_eq!(q["sections"], json!(["comments"]), "{data}");
-            assert_eq!(q["number"], 42, "{data}");
-            octocode_native::contracts::validate_query("ghGetHistoryItem", q.clone())
-                .expect("the discussion read validates");
+            Mock::given(method("GET")).and(path("/api/v3/repos/a/b/issues/42/comments"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!([{"id":17,"body":"discussion","user":{"login":"bob"},"created_at":"2026-09-21T00:00:00Z"}])))
+                .mount(&server).await;
+            let discussion = call(&runtime, "ghGetHistoryItem", read["input"].clone())
+                .await
+                .expect("discussion cursor");
+            assert_eq!(
+                row_data(&discussion)["issues"][0]["comments"][0]["id"],
+                "17"
+            );
         } else {
             assert!(issue.get("commentsCount").is_none(), "{data}");
-            assert!(read.is_null(), "{data}");
+            assert!(read.is_none(), "{data}");
         }
         runtime.close().await;
     }
@@ -333,7 +309,7 @@ async fn an_issue_discussion_loads_beside_the_issue() {
         &runtime,
         "ghGetHistoryItem",
         json!({"operation":"issue","owner":"a","repo":"b","number":7,
-               "sections":["comments"],"extras":[]}),
+               "sections":["comments"]}),
     )
     .await
     .expect("issue comments");

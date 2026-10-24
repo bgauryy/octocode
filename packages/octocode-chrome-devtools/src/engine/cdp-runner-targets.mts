@@ -1,10 +1,12 @@
 // Which Chrome target a runner attaches to: the DevTools HTTP endpoint, target selection by
 // flag (browser, new tab, id, URL, type, first page), the target inventory and the first navigation.
 import { join } from 'path';
+import type { Payload, Session } from './cdp-connection.mjs';
 import { cdpHttp, cdpRequest } from './engine-io.mjs';
+import { errorMessage } from './error-message.mjs';
 import { isAboutOrDataUrl, stealthEnabled } from './mandatory-stealth.mjs';
 import {
-  readJson,
+  readJsonObject,
   writeJson,
   writeTargetSnapshot,
 } from './cdp-runner-session.mjs';
@@ -20,26 +22,44 @@ type ChromeTarget = {
 };
 
 /** The selected target, or the message to print before exiting. */
-type Selection = {
-  targetWsUrl?: string;
-  targetInfo?: ChromeTarget;
-  openedTabId?: string;
-  pendingNavigate?: string | null;
-  error?: string;
+type Selection =
+  | { error: string }
+  | {
+      error?: undefined;
+      targetWsUrl?: string;
+      targetInfo: ChromeTarget;
+      openedTabId?: string;
+      pendingNavigate?: string | null;
+    };
+
+/** The --browser, --new-tab, --target, --target-url, --target-type and --strict-target flags. */
+type TargetFlags = {
+  browser?: boolean;
+  newTab?: string;
+  targetId?: string;
+  targetUrl?: string;
+  targetType?: string;
+  strict?: boolean;
 };
 
+/** A CDP Target.TargetInfo row from Target.getTargets. */
+type CdpTargetInfo = { targetId: string; type: string; parentId?: string };
+
+type Log = (line: string) => void;
+
 /** Chrome's DevTools HTTP endpoint on one port. */
-export function chromeEndpoint(port) {
+export function chromeEndpoint(port: string) {
   return {
-    version: () => cdpHttp(port, '/json/version'),
+    version: (): Promise<{ Browser: string; webSocketDebuggerUrl: string }> =>
+      cdpHttp(port, '/json/version'),
     targets: (): Promise<ChromeTarget[]> => cdpHttp(port, '/json'),
-    open: url =>
+    open: (url: string): Promise<ChromeTarget> =>
       cdpHttp(port, `/json/new?${encodeURIComponent(url)}`, { method: 'PUT' }),
     // Chrome answers /json/activate with the plain text `Target activated` (labelled JSON), so only the status counts.
-    activate: async id => {
+    activate: async (id: string) => {
       await cdpRequest(port, `/json/activate/${id}`);
     },
-    close: async id => {
+    close: async (id: string) => {
       try {
         await cdpRequest(port, `/json/close/${id}`, { timeoutMs: 3000 });
         return true;
@@ -47,11 +67,16 @@ export function chromeEndpoint(port) {
         return false;
       }
     },
-    protocol: () => cdpHttp(port, '/json/protocol'),
+    protocol: (): Promise<Payload> => cdpHttp(port, '/json/protocol'),
   };
 }
 
-function uniqueTarget(matches, strict) {
+type ChromeEndpoint = ReturnType<typeof chromeEndpoint>;
+
+function uniqueTarget(
+  matches: ChromeTarget[],
+  strict: boolean | undefined
+): ChromeTarget | undefined {
   if (strict && matches.length > 1)
     throw new Error(
       `Ambiguous target: ${matches.length} matches. Run targets and select --target <id>.`
@@ -64,7 +89,10 @@ const attach = (t: ChromeTarget): Selection => ({
   targetInfo: t,
 });
 
-async function browserTarget(chrome, sel): Promise<Selection> {
+async function browserTarget(
+  chrome: ChromeEndpoint,
+  sel: TargetFlags
+): Promise<Selection> {
   const pageSelection =
     sel.newTab || sel.targetId || sel.targetUrl || sel.targetType;
   if (pageSelection || stealthEnabled())
@@ -84,7 +112,11 @@ async function browserTarget(chrome, sel): Promise<Selection> {
 }
 
 // A non-blank URL opens on about:blank first and navigates after stealth is applied.
-async function newTabTarget(chrome, tabUrl, note): Promise<Selection> {
+async function newTabTarget(
+  chrome: ChromeEndpoint,
+  tabUrl: string,
+  note: Log
+): Promise<Selection> {
   const openUrl = !isAboutOrDataUrl(tabUrl) ? 'about:blank' : tabUrl;
   const pendingNavigate = openUrl !== tabUrl ? tabUrl : null;
   const tab = await chrome.open(openUrl);
@@ -99,54 +131,72 @@ async function newTabTarget(chrome, tabUrl, note): Promise<Selection> {
   };
 }
 
-async function targetById(chrome, id): Promise<Selection> {
+async function targetById(
+  chrome: ChromeEndpoint,
+  id: string
+): Promise<Selection> {
   const t = (await chrome.targets()).find(x => x.id === id);
   if (!t) return { error: `[CDP_RUNNER] Target ${id} not found` };
   await chrome.activate(id).catch(() => {});
   return attach(t);
 }
 
-async function targetByUrl(chrome, sel, note): Promise<Selection> {
+async function targetByUrl(
+  chrome: ChromeEndpoint,
+  sel: TargetFlags,
+  targetUrl: string,
+  note: Log
+): Promise<Selection> {
   const targets = await chrome.targets();
   const pool = targets.filter(t => t.type === (sel.targetType || 'page'));
   const t = uniqueTarget(
-    pool.filter(x => x.url && x.url.includes(sel.targetUrl)),
+    pool.filter(x => x.url && x.url.includes(targetUrl)),
     sel.strict
   );
   if (!t) {
     const available = targets.map(x => `  [${x.type}] ${x.url}`).join('\n');
     return {
-      error: `[CDP_RUNNER] No target URL matching "${sel.targetUrl}". Available targets:\n${available}`,
+      error: `[CDP_RUNNER] No target URL matching "${targetUrl}". Available targets:\n${available}`,
     };
   }
   note(`[CDP_RUNNER] Matched target [${t.type}]: ${t.url}`);
   return attach(t);
 }
 
-async function targetByType(chrome, sel, note): Promise<Selection> {
+async function targetByType(
+  chrome: ChromeEndpoint,
+  targetType: string,
+  strict: boolean | undefined,
+  note: Log
+): Promise<Selection> {
   const targets = await chrome.targets();
   const t = uniqueTarget(
-    targets.filter(x => x.type === sel.targetType),
-    sel.strict
+    targets.filter(x => x.type === targetType),
+    strict
   );
   if (!t) {
     const available = [...new Set<string>(targets.map(x => x.type))].join(', ');
     return {
-      error: `[CDP_RUNNER] No target of type "${sel.targetType}". Available types: ${available}`,
+      error: `[CDP_RUNNER] No target of type "${targetType}". Available types: ${available}`,
     };
   }
   note(`[CDP_RUNNER] Matched target [${t.type}]: ${t.url}`);
   return attach(t);
 }
 
-async function firstPage(chrome, sel, note): Promise<Selection> {
+async function firstPage(
+  chrome: ChromeEndpoint,
+  strict: boolean | undefined,
+  note: Log
+): Promise<Selection> {
   const pages = (await chrome.targets()).filter(t => t.type === 'page');
-  if (pages.length === 0)
+  const t = uniqueTarget(pages, strict);
+  // No match means no page at all: uniqueTarget only returns undefined for an empty list.
+  if (!t)
     return {
       error:
         '[CDP_RUNNER] No page targets. Open a tab in Chrome first, or use --new-tab <url>',
     };
-  const t = uniqueTarget(pages, sel.strict);
   note(`[CDP_RUNNER] Using tab: ${t.url}`);
   return attach(t);
 }
@@ -155,17 +205,22 @@ async function firstPage(chrome, sel, note): Promise<Selection> {
  * The target to attach to: { targetWsUrl, targetInfo, openedTabId?, pendingNavigate? }, or
  * { error } to print before exiting. An ambiguous match under sel.strict throws.
  */
-export function selectTarget(chrome, sel, note): Promise<Selection> {
+export function selectTarget(
+  chrome: ChromeEndpoint,
+  sel: TargetFlags,
+  note: Log
+): Promise<Selection> {
   if (sel.browser) return browserTarget(chrome, sel);
   if (sel.newTab) return newTabTarget(chrome, sel.newTab, note);
   if (sel.targetId) return targetById(chrome, sel.targetId);
-  if (sel.targetUrl) return targetByUrl(chrome, sel, note);
-  if (sel.targetType) return targetByType(chrome, sel, note);
-  return firstPage(chrome, sel, note);
+  if (sel.targetUrl) return targetByUrl(chrome, sel, sel.targetUrl, note);
+  if (sel.targetType)
+    return targetByType(chrome, sel.targetType, sel.strict, note);
+  return firstPage(chrome, sel.strict, note);
 }
 
 /** How the target was selected, as recorded in the session metadata. */
-export function selectionVia(sel) {
+export function selectionVia(sel: TargetFlags) {
   if (sel.newTab) return 'new-tab';
   if (sel.targetId) return 'target';
   if (sel.targetUrl) return 'target-url';
@@ -173,7 +228,7 @@ export function selectionVia(sel) {
   return 'first-page';
 }
 
-function targetsContinuation(file, count) {
+function targetsContinuation(file: string, count: number) {
   return {
     count,
     artifact: file,
@@ -190,12 +245,18 @@ function targetsContinuation(file, count) {
  * cdp.foreground(): brings the attached page to the front. An iframe target activates its
  * top-level page owner through a short-lived browser session.
  */
-export function attachForeground(cdp, targetInfo, browserSession) {
-  cdp.foreground = async () => {
+export function attachForeground<T extends Session>(
+  cdp: T,
+  targetInfo: ChromeTarget,
+  browserSession: () => Promise<Session>
+): T & { foreground(): Promise<unknown> } {
+  const foreground = async () => {
     if (targetInfo.type !== 'iframe') return cdp.send('Page.bringToFront');
     const browser = await browserSession();
     try {
-      const { targetInfos } = await browser.send('Target.getTargets');
+      const targetInfos: CdpTargetInfo[] = (
+        await browser.send('Target.getTargets')
+      ).targetInfos;
       const owner = pageOwner(
         targetInfos,
         targetInfos.find(info => info.targetId === targetInfo.id)
@@ -210,10 +271,27 @@ export function attachForeground(cdp, targetInfo, browserSession) {
     }
     return undefined;
   };
+  return Object.assign(cdp, { foreground });
 }
 
 /** Records and prints the target inventory; a large one is written to a file with a query continuation. */
-export async function listTargets(chrome, { port, browser, session }, log) {
+export async function listTargets(
+  chrome: ChromeEndpoint,
+  {
+    port,
+    browser,
+    session,
+  }: {
+    port: string;
+    browser: string;
+    session: {
+      sessionMetaDir: string;
+      sessionMetaFile: string;
+      targetSnapshotFile: string;
+    };
+  },
+  log: Log
+) {
   const nowIso = new Date().toISOString();
   const targets = await chrome.targets();
   writeTargetSnapshot(session.targetSnapshotFile, {
@@ -222,7 +300,7 @@ export async function listTargets(chrome, { port, browser, session }, log) {
     targets,
   });
   writeJson(session.sessionMetaFile, {
-    ...readJson(session.sessionMetaFile, {}),
+    ...readJsonObject(session.sessionMetaFile),
     port,
     browser,
     lastListedTargetsAt: nowIso,
@@ -249,12 +327,10 @@ export async function listTargets(chrome, { port, browser, session }, log) {
   log(JSON.stringify(targetsContinuation(file, rows.length)));
 }
 
-async function loadOrTimeout(cdp, url, log) {
-  let onLoad, timer;
-  const loaded = new Promise(resolve => {
-    onLoad = resolve;
-    cdp.on('Page.loadEventFired', onLoad);
-  });
+async function loadOrTimeout(cdp: Session, url: string, log: Log) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const { promise: loaded, resolve: onLoad } = Promise.withResolvers();
+  cdp.on('Page.loadEventFired', onLoad);
   try {
     const navigation = await cdp.send('Page.navigate', { url });
     if (navigation.errorText)
@@ -276,7 +352,11 @@ async function loadOrTimeout(cdp, url, log) {
 }
 
 /** Navigates the attached tab and waits up to 15s for load; returns the URL it reached. */
-export async function navigateTab(cdp, url, log) {
+export async function navigateTab(
+  cdp: Session,
+  url: string,
+  log: Log
+): Promise<string> {
   await cdp.send('Page.enable');
   await loadOrTimeout(cdp, url, log);
   const location = await cdp.send('Runtime.evaluate', {
@@ -284,4 +364,22 @@ export async function navigateTab(cdp, url, log) {
     returnByValue: true,
   });
   return location.result?.value || url;
+}
+
+// A tab opened on about: or data: is usable once its document has loaded.
+export async function confirmTabLoaded(cdp: Session, note: Log) {
+  await cdp
+    .send(
+      'Runtime.evaluate',
+      {
+        expression:
+          "document.readyState === 'complete' || new Promise(resolve => addEventListener('load', resolve, { once: true }))",
+        awaitPromise: true,
+      },
+      undefined,
+      { timeoutMs: 15000 }
+    )
+    .catch((error: unknown) =>
+      note(`[CDP_RUNNER] New tab load not confirmed: ${errorMessage(error)}`)
+    );
 }

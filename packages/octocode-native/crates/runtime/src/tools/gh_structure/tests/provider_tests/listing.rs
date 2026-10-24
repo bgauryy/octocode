@@ -20,7 +20,7 @@ async fn listing_paths_are_normalized_and_escapes_rejected() {
     for requested in ["./src/lib", "src//lib/", "src/x/../lib"] {
         let out = run(
             &provider,
-            &query(json!({"owner":"a","repo":"b","path":requested})),
+            &query(json!({"operation":"tree","owner":"a","repo":"b","path":requested})),
             Ok(&context),
             home.path(),
         )
@@ -36,7 +36,7 @@ async fn listing_paths_are_normalized_and_escapes_rejected() {
     for escape in ["../..", "../../etc", "src/../../x"] {
         let failure = run(
             &provider,
-            &query(json!({"owner":"a","repo":"b","path":escape})),
+            &query(json!({"operation":"tree","owner":"a","repo":"b","path":escape})),
             Ok(&context),
             home.path(),
         )
@@ -68,7 +68,7 @@ async fn a_listing_row_carries_dir_entries_commit_and_resolved_ref() {
         ]),
     )
     .await;
-    let out = list(&server, json!({"owner":"a","repo":"b"}))
+    let out = list(&server, json!({"operation":"tree","owner":"a","repo":"b"}))
         .await
         .expect("listing");
     let data = &out.data;
@@ -82,7 +82,9 @@ async fn a_listing_row_carries_dir_entries_commit_and_resolved_ref() {
     for echo in ["owner", "repo", "path", "operation", "ref"] {
         assert!(data.get(echo).is_none(), "{echo} echoed: {data}");
     }
-    let read = &data["next"]["read"]["query"]["queries"][0];
+    let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {
+        true
+    })["input"]["queries"][0];
     assert_eq!(read["path"], "lib.rs", "{data}");
     assert_eq!(read["ref"], SHA, "{data}");
 }
@@ -131,30 +133,16 @@ async fn a_truncated_tree_is_read_by_subtree_and_pages_without_overlap() {
         .expect(0)
         .mount(&server)
         .await;
-    let base = json!({"owner":"a","repo":"b","ref":"main","include":["handler"],"pageSize":1});
-    let first = list(&server, base.clone()).await.expect("page 1");
-    let next = &first.data["next"]["nextPage"]["query"]["queries"][0];
-    assert_eq!(next["include"], json!(["handler"]), "{}", first.data);
-    assert_eq!(next["ref"], SHA, "{}", first.data);
-    assert_eq!(next["pageSize"], 1, "{}", first.data);
-    assert_eq!(next["page"], 2, "{}", first.data);
-    assert!(first.data.get("terminalLimit").is_none(), "{}", first.data);
-    let second = list(&server, next.clone()).await.expect("page 2");
-    assert!(
-        second.data["next"].get("nextPage").is_none(),
-        "{}",
-        second.data
-    );
-    let rows = [&first.data, &second.data].map(|data| data["files"].clone());
+    let base = json!({"operation":"tree","owner":"a","repo":"b","ref":"main","include":["**/*handler*.rs"]});
+    let out = list(&server, base).await.expect("subtree listing");
+    assert!(out.data.get("terminalLimit").is_none(), "{}", out.data);
+    assert!(out.data["next"].get("nextPage").is_none(), "{}", out.data);
     assert_eq!(
-        json!(rows),
+        out.data["files"],
         json!([
-            [{"dir":"src/a","files":["handler_test.rs (5)"]}],
-            [{"dir":"src/a/b","files":["handler.rs (5)"]}]
-        ]),
-        "{} {}",
-        first.data,
-        second.data
+            {"dir":"src/a","files":["handler_test.rs (5)"]},
+            {"dir":"src/a/b","files":["handler.rs (5)"]}
+        ])
     );
 }
 
@@ -181,8 +169,8 @@ async fn a_directory_past_the_contents_cap_is_listed_whole_and_paged() {
     )
     .await;
     let mut listed = Vec::new();
-    let mut row = json!({"owner":"a","repo":"b","pageSize":500});
-    for page in 1..=3 {
+    let mut row = json!({"operation":"tree","owner":"a","repo":"b"});
+    for page in 1..=12 {
         let out = list(&server, row.clone()).await.expect("listing");
         let data = &out.data;
         assert!(data.get("terminalLimit").is_none(), "page {page}: {data}");
@@ -194,9 +182,15 @@ async fn a_directory_past_the_contents_cap_is_listed_whole_and_paged() {
         for name in data["files"][0]["files"].as_array().expect("files") {
             listed.push(name.as_str().unwrap_or_default().to_owned());
         }
-        match data["next"].get("nextPage") {
-            Some(next) => row = next["query"]["queries"][0].clone(),
-            None => assert_eq!(page, 3, "{data}"),
+        let next = data["next"]
+            .get("expandDates")
+            .or_else(|| data["next"].get("nextPage"));
+        match next {
+            Some(next) => row = next["input"]["queries"][0].clone(),
+            None => {
+                assert_eq!(page, 12, "{data}");
+                break;
+            }
         }
     }
     let expected: Vec<String> = names(1200).map(|name| format!("{name} (1)")).collect();
@@ -231,7 +225,7 @@ async fn a_directory_past_the_contents_cap_is_listed_whole_and_paged() {
     .await;
     let out = list(
         &server,
-        json!({"owner":"a","repo":"b","path":"big","pageSize":500,"page":3}),
+        json!({"operation":"tree","owner":"a","repo":"b","path":"big","page":3}),
     )
     .await
     .expect("scoped listing");
@@ -239,7 +233,7 @@ async fn a_directory_past_the_contents_cap_is_listed_whole_and_paged() {
     assert_eq!(out.data["files"][0]["dir"], "big", "{}", out.data);
     assert_eq!(
         out.data["files"][0]["files"].as_array().map(Vec::len),
-        Some(200),
+        Some(100),
         "{}",
         out.data
     );
@@ -263,7 +257,7 @@ async fn a_listing_of_a_file_leads_to_its_read() {
     let home = tempfile::tempdir().expect("home");
     let failure = run(
         &provider,
-        &query(json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":"main"})),
+        &query(json!({"operation":"tree","owner":"a","repo":"b","path":"src/lib.rs","ref":"main"})),
         Ok(&context),
         home.path(),
     )
@@ -275,10 +269,10 @@ async fn a_listing_of_a_file_leads_to_its_read() {
         "Path \"src/lib.rs\" is a file, not a directory"
     );
     assert!(failure.hints.is_empty(), "{:?}", failure.hints);
-    let next = failure.next.expect("read lead");
+    let next = failure.calls.expect("read lead");
     assert_eq!(next["read"]["tool"], "ghGetFileContent", "{next}");
     assert_eq!(
-        next["read"]["query"]["queries"][0],
+        next["read"]["input"]["queries"][0],
         json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":SHA}),
         "{next}"
     );
@@ -310,14 +304,16 @@ async fn a_listing_of_a_submodule_or_symlink_leads_to_its_content() {
     let provider = mock_provider(&server, RetryPolicy::default());
     let context = default_context();
     let home = tempfile::tempdir().expect("home");
-    let listing = |path: &str| query(json!({"owner":"a","repo":"b","path":path,"ref":"main"}));
+    let listing = |path: &str| {
+        query(json!({"operation":"tree","owner":"a","repo":"b","path":path,"ref":"main"}))
+    };
     let submodule = run(&provider, &listing("vendor/lib"), Ok(&context), home.path())
         .await
         .expect_err("a submodule is not a tree");
     assert_eq!(submodule.error.reason, Some(ProviderErrorReason::Submodule));
     assert!(submodule.hints.is_empty(), "{:?}", submodule.hints);
-    let next = submodule.next.expect("submodule lead");
-    let row = &next["viewTree"]["query"]["queries"][0];
+    let next = submodule.calls.expect("submodule lead");
+    let row = &next["viewTree"]["input"]["queries"][0];
     assert_eq!(next["viewTree"]["tool"], "ghStructure", "{next}");
     assert_eq!(
         (&row["owner"], &row["repo"]),
@@ -332,9 +328,9 @@ async fn a_listing_of_a_submodule_or_symlink_leads_to_its_content() {
         symlink.message,
         "Path \"docs/link\" is a symlink, not a directory"
     );
-    let next = symlink.next.expect("read lead");
+    let next = symlink.calls.expect("read lead");
     assert_eq!(
-        next["read"]["query"]["queries"][0],
+        next["read"]["input"]["queries"][0],
         json!({"owner":"a","repo":"b","path":"docs/link","ref":SHA}),
         "{next}"
     );

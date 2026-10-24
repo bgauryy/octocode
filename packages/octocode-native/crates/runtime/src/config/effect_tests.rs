@@ -116,7 +116,12 @@ async fn redact_emails_masks_github_rows() {
         let rc = json!({"github":{"apiUrl":api},"output":{"redactEmails":redact}});
         let runtime = runtime(home.path(), cwd.path(), &rc);
         async move {
-            let outcome = call(&runtime, "ghSearchRepo", json!({"keywords":["r"]})).await;
+            let outcome = call(
+                &runtime,
+                "ghSearchRepo",
+                json!({"operation":"search","keywords":["r"]}),
+            )
+            .await;
             outcome.structured_content.to_string()
         }
     };
@@ -157,11 +162,22 @@ async fn max_rate_limit_wait_decides_wait_or_fail_fast() {
             ..RuntimeLimits::DEFAULT
         };
         let runtime = runtime_with(home.path(), cwd.path(), &rc, limits);
-        let outcome = call(&runtime, "ghSearchRepo", json!({"keywords":["r"]})).await;
-        data(&outcome)["errorCode"].clone()
+        let outcome = call(
+            &runtime,
+            "ghSearchRepo",
+            json!({"operation":"search","keywords":["r"]}),
+        )
+        .await;
+        outcome.structured_content["results"][0].clone()
     };
-    assert_eq!(outcome(0).await, json!("rateLimited"));
-    assert_eq!(outcome(5_000).await, Value::Null, "waited and answered");
+    let limited = outcome(0).await;
+    assert_eq!(
+        limited["data"]["errorCode"],
+        json!("rateLimited"),
+        "{limited}"
+    );
+    let waited = outcome(5_000).await;
+    assert_eq!(waited["status"], "empty", "waited and answered: {waited}");
 }
 
 /// `lsp.trustProjectConfig` reaches the language-server settings every

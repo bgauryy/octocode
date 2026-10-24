@@ -2,6 +2,7 @@
 //! core's context, field and sibling-stop rules.
 
 use super::*;
+use octocode_contract_types::AstSearchQuery;
 
 /// A rule object that does not decode as a rule (a bad regex, a relation
 /// key without a matcher) is
@@ -14,50 +15,51 @@ fn rule_parse_errors_carry_no_tree_lead() {
     let root = Fixture::new();
     let source = root.0.join("lib.rs");
     std::fs::write(&source, "fn a() {}\n").expect("source");
-    for (rule, message) in [
-        (json!({"regex":"("}), "invalid rule regex"),
-        (json!({"has":{"field":"name"}}), "at least one matcher"),
-    ] {
+    for (rule, message) in [(json!({"regex":"("}), "invalid rule regex")] {
         for path in [&source, &root.0] {
             let error = run(
                 &root.0,
-                json!({"operation":"match","mainGoal":"test","reasoning":"test","path":path,
-                    "language":"rust","rule":rule}),
+                json!({"operation":"match","path":path,"parser":"rust","rule":rule}),
             )
             .expect_err("invalid rule");
             assert_eq!(error.code, ErrorCode::InvalidPattern, "{rule}: {error:?}");
             assert!(error.message.contains(message), "{error:?}");
             assert!(!error.message.starts_with('['), "{error:?}");
             assert!(error.hints.is_empty(), "{error:?}");
-            assert!(error.next.is_none(), "{rule}: {error:?}");
+            assert!(error.calls.is_none(), "{rule}: {error:?}");
         }
     }
+    assert!(
+        crate::contracts::validate_query(
+            "astSearch",
+            json!({"operation":"match","path":source,"rule":{"has":{"field":"name"}}})
+        )
+        .is_err()
+    );
     // Without language, a rule no grammar parses is the rule's error, never
     // a choice between the directory's grammars.
     root.write("b.py", "def b(): pass\n");
     let error = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,
-            "rule":{"regex":"("}}),
+        json!({"operation":"match","path":root.0,"rule":{"regex":"("}}),
     )
     .expect_err("invalid rule");
     assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     assert!(error.message.contains("invalid rule regex"), "{error:?}");
-    assert!(error.next.is_none(), "{error:?}");
+    assert!(error.calls.is_none(), "{error:?}");
     for query in [
         json!({"rule":{"kind":"not_a_real_kind"}}),
-        json!({"pattern":"fn ???"}),
+        json!({"rule":{"pattern":"fn ???"}}),
     ] {
-        let mut row =
-            json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source});
+        let mut row = json!({"operation":"match","path":source});
         row.as_object_mut()
             .expect("object")
             .extend(query.as_object().expect("object").clone());
         let error = run(&root.0, row).expect_err("does not compile");
         assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
-        let next = error.next.as_ref().expect("viewSyntax");
+        let next = error.calls.as_ref().expect("viewSyntax");
         assert_eq!(
-            next["viewSyntax"]["query"]["queries"][0]["path"],
+            next["viewSyntax"]["input"]["queries"][0]["path"],
             json!(source.canonicalize().expect("source").to_string_lossy()),
             "{next}"
         );
@@ -69,20 +71,20 @@ fn rule_parse_errors_carry_no_tree_lead() {
 #[test]
 fn a_rule_object_continues_as_written() {
     let root = Fixture::new();
-    root.write("lib.rs", "fn a() { unsafe { Pin::new_unchecked(&mut x); } }\nfn b() { Pin::new_unchecked(&mut y); }\n");
+    root.write(
+        "lib.rs",
+        "fn a() { Pin::new_unchecked(&mut x); Pin::new_unchecked(&mut y); }\n",
+    );
     let rule = json!({"pattern":"Pin::new_unchecked($A)","not":{"inside":{"kind":"unsafe_block","stopBy":"end"}}});
-    // A short value cut hides the capture, so the page offers expandCaptures.
-    let object = run(
+    let object = crate::tools::ast_search::test_rows::run_window(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"rust","matchContentLength":12,"rule":rule}),
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":rule}),
+        1,
     )
     .expect("object rule");
-    let continuation = object["next"]["expandCaptures"]["query"]["queries"][0].clone();
+    let continuation = object["next"]["nextMatchPage"]["input"]["queries"][0].clone();
     assert_eq!(continuation["rule"], rule, "{object}");
-    assert!(
-        serde_json::from_value::<crate::tools::ast_search::AstSearchQuery>(continuation).is_ok(),
-        "the continuation parses as a typed row"
-    );
+    assert!(serde_json::from_value::<AstSearchQuery>(continuation).is_ok());
 }
 
 /// A rule is the object alone: the object runs, and neither its text nor a
@@ -92,7 +94,7 @@ fn a_rule_is_the_object_alone() {
     let root = Fixture::new();
     root.write("lib.rs", "fn a() { unsafe { Pin::new_unchecked(&mut x); } }\nfn b() { Pin::new_unchecked(&mut y); }\n");
     let bare = json!({"pattern":"Pin::new_unchecked($A)","not":{"inside":{"kind":"unsafe_block","stopBy":"end"}}});
-    let row = |rule: serde_json::Value| json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"rust","rule":rule});
+    let row = |rule: serde_json::Value| json!({"operation":"match","path":root.0,"parser":"rust","rule":rule});
     let expected = run(&root.0, row(bare.clone())).expect("the rule runs");
     assert_eq!(
         expected["files"][0]["matches"].as_array().map(Vec::len),
@@ -104,12 +106,12 @@ fn a_rule_is_the_object_alone() {
         2,
         "{expected}"
     );
-    crate::contracts::validate_query("astSearch", row(bare.clone()))
+    crate::contracts::validate_built_query("astSearch", row(bare.clone()))
         .expect("the rule object is in contract");
     for (spelling, rule) in [
         ("rule text", json!(bare.to_string())),
-        ("rule-file object", json!({ "rule": bare })),
-        ("rule-file text", json!(json!({ "rule": bare }).to_string())),
+        ("rule-file object", json!({"rule":bare})),
+        ("rule-file text", json!(json!({"rule":bare}).to_string())),
     ] {
         assert!(
             crate::contracts::validate_query("astSearch", row(rule)).is_err(),
@@ -131,7 +133,7 @@ fn owned_core_context_and_field_rules_run_as_objects() {
         for path in [&file, &root.0] {
             let out = run(
                 &root.0,
-                json!({"path":path,"operation":"match","rule":rule,"captureText":true}),
+                json!({"path":path,"operation":"match","rule":rule,"includeCaptures":true}),
             )
             .expect("owned rule");
             assert_eq!(out["matchCount"], expected, "{out}");
@@ -144,17 +146,19 @@ fn owned_core_context_continuations_keep_the_entire_query() {
     let root = Fixture::new();
     let file = root.write("fields.ts", "class Actual { value = 42; other = 7; }\n");
     let rule = json!({"pattern":{"context":"class WrapperOnly { $K = $V; }","selector":"public_field_definition"}});
-    let first = run(
+    let first = crate::tools::ast_search::test_rows::run_window(
         &root.0,
-        json!({"path":file,"operation":"match","rule":rule,"matchPageSize":1,"captureText":true}),
+        json!({"path":file,"operation":"match","rule":rule,"includeCaptures":true}),
+        1,
     )
     .expect("first page");
     assert_eq!(first["matchCount"], 2, "{first}");
-    let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+    let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
     assert_eq!(next["rule"], rule, "{first}");
-    crate::contracts::validate_query("astSearch", next.clone())
+    crate::contracts::validate_built_query("astSearch", next.clone())
         .expect("continuation is in contract");
-    let second = run(&root.0, next).expect("second page");
+    let second =
+        crate::tools::ast_search::test_rows::run_window(&root.0, next, 1).expect("second page");
     assert_eq!(
         second["files"][0]["matches"].as_array().map(Vec::len),
         Some(1),

@@ -1,10 +1,10 @@
-use super::super::execute_local_search;
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::security::ContentSecurity;
+use crate::tools::local_search::{LocalSearchResult, SearchStatus, execute_local_search};
 use crate::tools::selection::{JudgeCall, Judgments, SelectionJudge};
 use crate::tools::test_support::selection_fake::{self, DOWN, REFUSED, WordJudge};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalSearchQuery};
 use std::time::Duration;
 
 fn runtime(fail: Option<ErrorCode>, executor: &tokio::runtime::Runtime) -> Runtime {
@@ -39,13 +39,16 @@ fn search_with(
     fail: Option<ErrorCode>,
     max: usize,
 ) -> Result<LocalSearchResult, ToolError> {
-    // Bare hit lines (`contextLines: 0`) unless a test asks for context:
-    // these tests count one judgment per hit, which the clasify context
+    // Bare hit lines (`contextLines: {before: 0, after: 0}`) unless a test asks for context:
+    // these tests count one judgment per hit, which the classification context
     // default would merge into shared windows.
-    let mut query = json!({"path": root, "matchString": "needle",
-            "contextLines": 0, "clasifyContext": {"classifiers": ["Is this kept?"]}});
+    let mut query = json!({"path": root, "matchString": ["needle"],
+            "contextLines": {"before":0,"after":0}, "classification": {"predicates": ["Is this kept?"]}});
     for (key, value) in fields.as_object().into_iter().flatten() {
         query[key] = value.clone();
+    }
+    if query["view"] == "matchOnly" {
+        query.as_object_mut().expect("query").remove("contextLines");
     }
     let query: LocalSearchQuery = serde_json::from_value(query).expect("query");
     let policy = crate::tools::test_support::workspace_policy(root);
@@ -75,33 +78,23 @@ fn fixture() -> tempfile::TempDir {
 }
 
 #[test]
-fn span_selection_ignores_context_controls() {
+fn span_selection_judges_each_occurrence_without_context() {
     let root = fixture();
-    let base = json!({"matchString":"needle (keep|drop)","regex":"rust","resultView":"matchOnly"});
-    let plain = search(root.path(), base.clone(), None).expect("search");
-    assert!(
-        plain
-            .files
-            .iter()
-            .flat_map(|f| f.matches.iter().flatten())
-            .all(|m| !m.value.contains("drop"))
-    );
-    for extra in [
-        json!({"contextBefore":100}),
-        json!({"contextAfter":100}),
-        json!({"contextLines":100}),
-    ] {
-        let mut fields = base.clone();
-        fields
-            .as_object_mut()
-            .expect("fields")
-            .extend(extra.as_object().expect("extra").clone());
-        let contextual = search(root.path(), fields, None).expect("search");
-        assert_eq!(
-            serde_json::to_value(&contextual.files).expect("files"),
-            serde_json::to_value(&plain.files).expect("files")
-        );
-    }
+    let result = search(
+        root.path(),
+        json!({"matchString":["needle (keep|drop)"],"regexEngine":"rust","view":"matchOnly"}),
+        None,
+    )
+    .expect("search");
+    let kept = result
+        .files
+        .iter()
+        .flat_map(|file| file.matches.iter().flatten())
+        .map(|hit| hit.value.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(kept, ["needle keep", "needle keep"]);
+    let receipt = result.selection.expect("receipt");
+    assert_eq!((receipt.selected_items, receipt.excluded_items), (2, 2));
 }
 
 #[test]
@@ -112,7 +105,12 @@ fn oversized_unknown_group_does_not_claim_its_hits_were_judged() {
         "needle keep\n".repeat(30_000),
     )
     .expect("source");
-    let result = search(root.path(), json!({"contextLines":1}), None).expect("search");
+    let result = search(
+        root.path(),
+        json!({"contextLines":{"before":1,"after":1}}),
+        None,
+    )
+    .expect("search");
     let receipt = result.selection.as_ref().expect("receipt");
     assert_eq!(receipt.unknown_items, 1);
     assert_eq!(receipt.selected_items, 0);
@@ -172,28 +170,12 @@ fn each_hit_is_judged_and_counts_describe_the_kept_hits() {
     );
     assert_eq!(result.stats.total_occurrences, Some(2));
     assert_eq!(result.stats.matched_lines, Some(2));
-    assert!(
-        result.warnings.iter().any(|warning| warning
-            == "clasifyContext: the selected chunks hold 2 of 5 hit rows (1 of 3 files)."),
-        "{:?}",
-        result.warnings
-    );
     let next = result.next.as_ref().expect("leads");
-    // The filtered-evidence notice is the response stage's, said once
-    // (`selection_errors::decorate`); the reader states only its counts.
-    assert!(
-        !result
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("not proof of absence")),
-        "{:?}",
-        result.warnings
-    );
-    let unknown = &next["unfilteredUnknown"]["query"]["queries"][0];
+    let unknown = &next["unfilteredUnknown"]["input"]["queries"][0];
     assert_eq!(unknown["include"], json!(["/b.rs"]), "{next}");
-    assert!(unknown.get("clasifyContext").is_none());
+    assert!(unknown.get("classification").is_none());
     assert!(unknown.get("snapshot").is_none());
-    let whole = &next["unfiltered"]["query"]["queries"][0];
+    let whole = &next["unfiltered"]["input"]["queries"][0];
     assert!(whole.get("include").is_none());
     assert!(whole.get("snapshot").is_some());
 }
@@ -202,7 +184,7 @@ fn each_hit_is_judged_and_counts_describe_the_kept_hits() {
 fn the_unknown_lead_reaches_exactly_the_files_holding_unknown_hits() {
     let root = fixture();
     let result = search(root.path(), json!({}), None).expect("selected search");
-    let lead = result.next.expect("leads")["unfilteredUnknown"]["query"]["queries"][0].clone();
+    let lead = result.next.expect("leads")["unfilteredUnknown"]["input"]["queries"][0].clone();
     let query: LocalSearchQuery = serde_json::from_value(lead).expect("executable lead");
     let policy = crate::tools::test_support::workspace_policy(root.path());
     let unfiltered = super::super::execute_local_search(
@@ -271,8 +253,8 @@ fn a_chain_of_candidate_pages_judges_every_group_once() {
         else {
             break;
         };
-        let row = page["query"]["queries"][0].clone();
-        assert!(row.get("clasifyContext").is_some(), "classified: {row}");
+        let row = page["input"]["queries"][0].clone();
+        assert!(row.get("classification").is_some(), "classified: {row}");
         assert!(row.get("snapshot").is_some() && row.get("selection").is_some());
         assert!(row.get("include").is_none(), "the same scan: {row}");
         assert!(totals.len() < 5, "the chain ends");
@@ -283,11 +265,11 @@ fn a_chain_of_candidate_pages_judges_every_group_once() {
     assert_eq!(seen, expected, "every kept hit once, none twice");
 }
 
-/// With no context field the clasify context default applies, and the
+/// With no context field the classification context default applies, and the
 /// candidate page states it: replaying that page binds the same plan as
 /// the first call, whose context was implied.
 #[test]
-fn a_candidate_page_chains_under_the_default_clasify_context() {
+fn a_candidate_page_chains_under_the_default_classification_context() {
     let root = tempfile::tempdir().expect("fixture");
     let gap = "x\n".repeat(20);
     std::fs::write(
@@ -306,9 +288,9 @@ fn a_candidate_page_chains_under_the_default_clasify_context() {
     {
         totals.push(result.selection.as_ref().expect("receipt").total_items);
         assert!(totals.len() < 4, "the chain ends");
-        let mut row = page["query"]["queries"][0].clone();
+        let mut row = page["input"]["queries"][0].clone();
         // The page as sent: without a stated context the helper's
-        // `contextLines: 0` must not fill it in.
+        // `contextLines: {before: 0, after: 0}` must not fill it in.
         row.as_object_mut()
             .expect("row")
             .entry("contextLines")

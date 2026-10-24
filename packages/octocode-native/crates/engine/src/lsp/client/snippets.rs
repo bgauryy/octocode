@@ -8,7 +8,7 @@ use crate::text::LineIndex;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex};
 
 pub(super) const MAX_SNIPPET_SOURCE_BYTES: u64 = crate::lsp::MAX_LSP_SOURCE_BYTES;
 /// Snippet `content` for a location whose file the [`SnippetReadPolicy`]
@@ -25,7 +25,7 @@ pub const SNIPPET_CONTENT_WITHHELD: &str = "[content withheld — path not autho
 pub struct SnippetReadPolicy {
     authorizer: Option<Arc<SnippetPathAuthorizer>>,
     /// See [`Self::shared_reads`].
-    shared: Option<Arc<StdMutex<HashMap<String, CachedRead>>>>,
+    shared: Option<Arc<Mutex<HashMap<String, CachedRead>>>>,
 }
 
 /// See [`SnippetReadPolicy`].

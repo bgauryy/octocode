@@ -12,7 +12,8 @@ use oxc_span::Span;
 use crate::signatures::js_oxc_shared::{SpanPositions, property_key_name};
 
 use super::walk::{collect_statement, function_value_children, nested_in_function, push_opt};
-use super::{DocumentSymbol, kind};
+use super::{DocumentSymbol, TYPE_ALIAS_KIND};
+use crate::lsp::symbol_kind;
 
 pub(super) fn class_symbol(class: &Class, li: &SpanPositions) -> Option<DocumentSymbol> {
     let id = class.id.as_ref()?;
@@ -21,8 +22,8 @@ pub(super) fn class_symbol(class: &Class, li: &SpanPositions) -> Option<Document
         match element {
             ClassElement::MethodDefinition(m) => {
                 let symbol_kind = match m.kind {
-                    MethodDefinitionKind::Constructor => kind::CONSTRUCTOR,
-                    _ => kind::METHOD,
+                    MethodDefinitionKind::Constructor => symbol_kind::CONSTRUCTOR,
+                    _ => symbol_kind::METHOD,
                 };
                 if let Some((name, name_span)) = property_key_name(&m.key) {
                     children.push(container(
@@ -47,15 +48,15 @@ pub(super) fn class_symbol(class: &Class, li: &SpanPositions) -> Option<Document
                         Some(
                             Expression::ArrowFunctionExpression(_)
                             | Expression::FunctionExpression(_),
-                        ) => kind::METHOD,
-                        _ => kind::PROPERTY,
+                        ) => symbol_kind::METHOD,
+                        _ => symbol_kind::PROPERTY,
                     };
                     children.push(container(&name, member_kind, p.span, name_span, nested, li));
                 }
             }
             ClassElement::AccessorProperty(a) => {
                 if let Some((name, name_span)) = property_key_name(&a.key) {
-                    children.push(leaf(&name, kind::PROPERTY, a.span, name_span, li));
+                    children.push(leaf(&name, symbol_kind::PROPERTY, a.span, name_span, li));
                 }
             }
             _ => {}
@@ -70,7 +71,7 @@ pub(super) fn class_symbol(class: &Class, li: &SpanPositions) -> Option<Document
         .fold(class.span.start, u32::min);
     Some(container(
         id.name.as_str(),
-        kind::CLASS,
+        symbol_kind::CLASS,
         Span::new(start, class.span.end),
         id.span,
         children,
@@ -87,12 +88,12 @@ pub(super) fn interface_symbol(
         match signature {
             TSSignature::TSPropertySignature(p) => {
                 if let Some((name, name_span)) = property_key_name(&p.key) {
-                    children.push(leaf(&name, kind::PROPERTY, p.span, name_span, li));
+                    children.push(leaf(&name, symbol_kind::PROPERTY, p.span, name_span, li));
                 }
             }
             TSSignature::TSMethodSignature(m) => {
                 if let Some((name, name_span)) = property_key_name(&m.key) {
-                    children.push(leaf(&name, kind::METHOD, m.span, name_span, li));
+                    children.push(leaf(&name, symbol_kind::METHOD, m.span, name_span, li));
                 }
             }
             _ => {}
@@ -100,7 +101,7 @@ pub(super) fn interface_symbol(
     }
     Some(container(
         iface.id.name.as_str(),
-        kind::INTERFACE,
+        symbol_kind::INTERFACE,
         iface.span,
         iface.id.span,
         children,
@@ -112,12 +113,18 @@ pub(super) fn enum_symbol(decl: &TSEnumDeclaration, li: &SpanPositions) -> Optio
     let mut children = Vec::new();
     for member in &decl.body.members {
         if let Some((name, name_span)) = enum_member_name(&member.id) {
-            children.push(leaf(&name, kind::ENUM_MEMBER, member.span, name_span, li));
+            children.push(leaf(
+                &name,
+                symbol_kind::ENUM_MEMBER,
+                member.span,
+                name_span,
+                li,
+            ));
         }
     }
     Some(container(
         decl.id.name.as_str(),
-        kind::ENUM,
+        symbol_kind::ENUM,
         decl.span,
         decl.id.span,
         children,
@@ -142,7 +149,7 @@ pub(super) fn namespace_symbol(
     }
     Some(container(
         decl.id.name.as_str(),
-        kind::NAMESPACE,
+        symbol_kind::NAMESPACE,
         decl.span,
         decl.id.span,
         children,
@@ -162,7 +169,7 @@ pub(super) fn external_module_symbol(
     }
     Some(container(
         decl.id.value.as_str(),
-        kind::NAMESPACE,
+        symbol_kind::NAMESPACE,
         decl.span,
         decl.id.span,
         children,
@@ -180,7 +187,7 @@ pub(super) fn global_symbol(
     }
     Some(container(
         "global",
-        kind::NAMESPACE,
+        symbol_kind::NAMESPACE,
         decl.span,
         decl.global_span,
         children,
@@ -194,7 +201,7 @@ pub(super) fn type_alias_symbol(
 ) -> Option<DocumentSymbol> {
     Some(leaf(
         decl.id.name.as_str(),
-        kind::TYPE_ALIAS,
+        TYPE_ALIAS_KIND,
         decl.span,
         decl.id.span,
         li,
@@ -263,10 +270,10 @@ pub(super) fn collect_variable(
             BindingPattern::BindingIdentifier(id) => {
                 let symbol_kind = match declarator.init.as_ref().map(bound_value) {
                     Some(Expression::ArrowFunctionExpression(_))
-                    | Some(Expression::FunctionExpression(_)) => kind::FUNCTION,
-                    Some(Expression::ClassExpression(_)) => kind::CLASS,
-                    _ if is_const => kind::CONSTANT,
-                    _ => kind::VARIABLE,
+                    | Some(Expression::FunctionExpression(_)) => symbol_kind::FUNCTION,
+                    Some(Expression::ClassExpression(_)) => symbol_kind::CLASS,
+                    _ if is_const => symbol_kind::CONSTANT,
+                    _ => symbol_kind::VARIABLE,
                 };
                 let nested = declarator
                     .init
@@ -286,9 +293,9 @@ pub(super) fn collect_variable(
             // instead of dropping the whole declarator.
             pattern => {
                 let symbol_kind = if is_const {
-                    kind::CONSTANT
+                    symbol_kind::CONSTANT
                 } else {
-                    kind::VARIABLE
+                    symbol_kind::VARIABLE
                 };
                 push_pattern_leaves(pattern, symbol_kind, li, out);
             }

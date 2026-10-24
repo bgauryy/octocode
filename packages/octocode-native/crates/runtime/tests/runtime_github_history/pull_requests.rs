@@ -24,6 +24,16 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
         })))
         .mount(&server)
         .await;
+    let pr_sha = "d".repeat(40);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/8506"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number":8506,"title":"Linked fix","state":"closed","body":"requested PR",
+            "user":{"login":"Alice"},"head":{"sha":pr_sha,"ref":"fix"},"base":{"ref":"main"}
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
@@ -34,22 +44,35 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
     .await
     .expect("commit read");
     let data = row_data(&outcome);
-    let read = &crate::support::checks::hint(data, "readPullRequest");
+    let read = &crate::support::checks::find_related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["operation"] == "pullRequest"
+    })
+    .unwrap_or(&serde_json::Value::Null);
     assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
-    assert_eq!(read["query"]["queries"][0]["number"], 8506, "{data}");
+    assert_eq!(read["input"]["queries"][0]["number"], 8506, "{data}");
     assert!(
-        crate::support::checks::hint(data, "findPullRequest").is_null(),
+        crate::support::checks::find_related_call(
+            data,
+            "ghSearchHistory",
+            |input| input["queries"][0]["operation"] == "pullRequest"
+        )
+        .unwrap_or(&serde_json::Value::Null)
+        .is_null(),
         "{data}"
     );
+    let linked = call(&runtime, "ghGetHistoryItem", read["input"].clone())
+        .await
+        .expect("linked PR executes");
+    assert_eq!(row_data(&linked)["pullRequests"][0]["number"], 8506);
+    assert_eq!(row_data(&linked)["pullRequests"][0]["headSha"], pr_sha);
     checks::assert_output_contract("ghGetHistoryItem", &outcome.structured_content);
     runtime.close().await;
 }
 
 #[tokio::test]
 async fn gh_get_history_item_pull_request_without_content_passes_output_contract() {
-    // Regression: the per-row `next` menu omitted required pageSize, so every
-    // plain PR fetch tripped outputContractViolation. The summary row carries
-    // a body preview: the multibyte body rides the file-list read whole.
+    // A summary previews text; its issued continuation returns the full
+    // multibyte body unchanged.
     let server = MockServer::builder().start().await;
     let body = "修复并发缓冲区的内存泄漏问题。".repeat(60);
     Mock::given(method("GET"))
@@ -62,7 +85,7 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
             "draft": false,
             "body": body,
             "user": {"login": "bob"},
-            "head": {"sha": "def456", "ref": "feat/buf"},
+            "head": {"sha": "dddddddddddddddddddddddddddddddddddddddd", "ref": "feat/buf"},
             "base": {"ref": "main"},
             "created_at": "2024-01-01T00:00:00Z",
             "updated_at": "2024-01-02T00:00:00Z"
@@ -94,19 +117,20 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
         preview.starts_with("修复并发") && preview.ends_with('…'),
         "{pr}"
     );
-    // The body rides the file-list read.
-    let get_body =
-        &crate::support::checks::hint(row_data(&outcome), "readFiles")["query"]["queries"][0];
-    // Continuations omit defaulted fields; validation restores them on replay.
-    assert!(get_body.get("pageSize").is_none(), "{get_body}");
-    assert!(get_body.get("minify").is_none(), "{get_body}");
-    assert_eq!(get_body["sections"], json!(["body", "files"]), "{get_body}");
-    let replayed = octocode_native::contracts::validate_query("ghGetHistoryItem", get_body.clone())
-        .expect("compact continuation validates");
-    // pageSize has no contract default: each surface sizes its own page.
-    assert!(replayed.get("pageSize").is_none(), "{replayed}");
-    // History text is always verbatim: no minify field exists.
-    assert!(replayed.get("minify").is_none(), "{replayed}");
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/7/files"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let read = checks::related_call(row_data(&outcome), "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"]
+            .as_array()
+            .is_some_and(|sections| sections.contains(&json!("body")))
+    });
+    let full = call(&runtime, "ghGetHistoryItem", read["input"].clone())
+        .await
+        .expect("body replay");
+    assert_eq!(row_data(&full)["pullRequests"][0]["body"], body);
     runtime.close().await;
 }
 
@@ -132,15 +156,25 @@ async fn gh_pull_request_read_of_an_issue_number_offers_read_issue() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"extras":[]}),
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9}),
     )
     .await
     .expect("error row");
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "error", "{data}");
-    let read = &crate::support::checks::hint(data, "readIssue")["query"]["queries"][0];
+    let read = &crate::support::checks::find_related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["operation"] == "issue"
+    })
+    .unwrap_or(&serde_json::Value::Null)["input"]["queries"][0];
     assert_eq!(read["operation"], "issue", "{data}");
     assert_eq!(read["number"], 9, "{data}");
+    let linked = support::checks::related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["operation"] == "issue"
+    });
+    let issue = call(&runtime, "ghGetHistoryItem", linked["input"].clone())
+        .await
+        .expect("corrected issue read");
+    assert_eq!(row_data(&issue)["issues"][0]["number"], 9);
     assert!(
         data["error"].as_str().unwrap_or("").contains("issue"),
         "{data}"
@@ -162,7 +196,7 @@ async fn pr_summary_previews_the_body() {
         .and(path("/api/v3/repos/a/b/pulls/7"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "number": 7, "title": "Fix cache", "state": "open", "draft": false, "body": body,
-            "user": {"login": "bob"}, "head": {"sha": "def456", "ref": "feat"}, "base": {"ref": "main"},
+            "user": {"login": "bob"}, "head": {"sha": "dddddddddddddddddddddddddddddddddddddddd", "ref": "feat"}, "base": {"ref": "main"},
             "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-02T00:00:00Z",
             "changed_files": 2, "additions": 3, "deletions": 1
         })))
@@ -189,12 +223,19 @@ async fn pr_summary_previews_the_body() {
         preview.ends_with('…') && preview.chars().count() <= 301,
         "{preview}"
     );
-    let leads = crate::support::checks::leads(data);
-    assert!(
-        leads.iter().any(|lead| lead.query["queries"][0]["sections"]
+    let read = checks::related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"]
             .as_array()
-            .is_some_and(|sections| sections.contains(&json!("body")))),
-        "no whole-body read: {data}"
-    );
+            .is_some_and(|sections| sections.contains(&json!("body")))
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/7/files"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let full = call(&runtime, "ghGetHistoryItem", read["input"].clone())
+        .await
+        .expect("whole body");
+    assert_eq!(row_data(&full)["pullRequests"][0]["body"], body);
     runtime.close().await;
 }

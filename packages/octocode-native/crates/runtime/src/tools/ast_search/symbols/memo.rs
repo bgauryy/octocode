@@ -42,7 +42,7 @@ pub(super) fn directory_memo_key(
     let shape = json!([
         canonical.to_string_lossy(),
         ast_search_query_symbols::language_globs(q),
-        q.symbol_name,
+        q.symbol_filter,
         ast_search_query_symbols::kinds(q),
         ast_search_query_symbols::exclude(q),
         q.default_excludes.defaults(),
@@ -61,7 +61,7 @@ pub(super) fn directory_memo_key(
 }
 
 /// Digest of the files a directory outline scans (its walk: an outlined
-/// extension or a `languageGlobs` match, under the caller's path policy):
+/// extension or a `parserGlobs` match, under the caller's path policy):
 /// path, size and modification time; and whether every one was last
 /// modified at least [`SourceStamp::SETTLE`] ago.
 ///

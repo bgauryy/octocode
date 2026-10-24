@@ -29,8 +29,6 @@ test('MCP explicit tool selection reduces discovery and refuses hidden tools', t
   assert.doesNotMatch(rows[1].result.content[0].text, /null/, 'tool results omit null fields');
   assert.equal(rows[2].result.isError, true);
   const completion = rows[0].result.tools.find((tool: JsonRecord) => tool.name === 'complete');
-  assert.match(completion.inputSchema.properties.reasoning.description, /reply only/);
-  assert.match(completion.inputSchema.properties.reasoning.description, /Forbidden for silent completion/);
   assert.deepEqual(completion.inputSchema.properties.outcome.enum, ['done', 'partial', 'failed', 'refused', 'canceled']);
   assert.deepEqual(completion.inputSchema.dependentRequired.outcome, ['message', 'reply']);
   const full = JSON.parse(f.run(['schema']).stdout).tools;

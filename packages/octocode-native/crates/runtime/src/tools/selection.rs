@@ -8,6 +8,7 @@ use octocode_contract_types::{Selection, SelectionFailure, SelectionStatus, Sele
 use serde_json::{Value, json};
 
 mod admission;
+mod judge;
 mod plan;
 mod provider_page;
 mod run;
@@ -79,9 +80,8 @@ pub(crate) struct JudgeCall<'a> {
     pub usage: &'a mut crate::tools::judgment::stats::ClassificationUsage,
     pub candidates: &'a [Candidate],
     pub admitted: &'a [usize],
-    pub classifiers: &'a [String],
-    pub(crate) main_goal: Option<&'a str>,
-    pub reasoning: Option<&'a str>,
+    pub predicates: &'a [String],
+    pub(crate) research_context: Option<&'a str>,
     pub(crate) long_context: bool,
     pub limits: SelectionLimits,
     pub handle: &'a tokio::runtime::Handle,
@@ -244,7 +244,7 @@ pub(crate) fn unless_transient(
 /// ("its hits are"); the provider's code, message and hints follow.
 pub(crate) fn unclassified_warning(error: &ProviderError, subject: &str, shown: &str) -> String {
     let mut note = format!(
-        "clasifyContext could not classify {subject} ({}: {}); {shown} shown unfiltered.",
+        "classification could not classify {subject} ({}: {}); {shown} shown unfiltered.",
         error.code, error.message
     );
     for hint in &error.hints {
@@ -265,7 +265,7 @@ impl ProviderFailure {
         } = self.error;
         crate::response::result::ToolError {
             hints,
-            next: Some(Box::new(json!({ "unfiltered": unfiltered }))),
+            calls: Some(Box::new(json!({ "unfiltered": unfiltered }))),
             selection: Some(Box::new(self.outcome.receipt)),
             ..crate::response::result::ToolError::new(code, message)
         }
@@ -279,23 +279,22 @@ impl ProviderFailure {
             data["hints"] = json!(error.hints);
         }
         data["selection"] = serde_json::to_value(error.selection).unwrap_or(Value::Null);
-        data["next"] = error.next.map_or(Value::Null, |next| *next);
+        if let Some(calls) = error.calls {
+            crate::response::result::attach_calls(&mut data, *calls);
+        }
         data
     }
 }
 
 /// The one unfiltered recovery row: the classified read as an ordinary read
-/// from its first window, without `clasifyContext`, any cursor
-/// ([`CURSOR_FIELDS`](crate::response::result::CURSOR_FIELDS)) or window size.
+/// from its first window, without classification or private progress.
 /// `keep` names cursors that are source identity here (a provider `page`).
 pub(crate) fn unfiltered_row(query: &Value, keep: &[&str]) -> Value {
     let mut row = query.clone();
     if let Some(fields) = row.as_object_mut() {
-        fields.remove("clasifyContext");
-        fields.remove("length");
-        fields.remove("unit");
-        for field in crate::response::result::CURSOR_FIELDS {
-            if !keep.contains(&field) {
+        fields.remove("classification");
+        for field in progress_fields() {
+            if !keep.contains(&field.as_str()) {
                 fields.remove(field);
             }
         }
@@ -305,7 +304,18 @@ pub(crate) fn unfiltered_row(query: &Value, keep: &[&str]) -> Value {
 
 /// [`unfiltered_row`] as the `next.unfiltered` lead of `tool`.
 pub(crate) fn unfiltered(tool: ToolId, query: &Value, keep: &[&str]) -> Value {
-    crate::response::result::Continuation::new(tool, unfiltered_row(query, keep)).build()
+    crate::response::result::Continuation::continued(tool, unfiltered_row(query, keep)).build()
+}
+
+fn progress_fields() -> &'static std::collections::BTreeSet<String> {
+    static FIELDS: std::sync::OnceLock<std::collections::BTreeSet<String>> =
+        std::sync::OnceLock::new();
+    FIELDS.get_or_init(|| {
+        ToolId::ALL
+            .iter()
+            .flat_map(|&tool| crate::contracts::state_fields(tool).iter().cloned())
+            .collect()
+    })
 }
 
 /// The receipt and warning helpers every classified reader shares; the

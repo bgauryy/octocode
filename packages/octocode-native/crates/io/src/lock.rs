@@ -56,6 +56,11 @@ pub fn try_lock(file: File) -> std::io::Result<TryLock> {
     }
 }
 
+/// How often a busy lock held across one short file read-modify-write is
+/// retried. A wait on a peer's long operation (a token refresh, a download)
+/// polls slower.
+pub const LOCK_POLL: Duration = Duration::from_millis(10);
+
 /// Take an exclusive lock on `file`, polling every `poll` for at most `wait`.
 /// A zero `wait` tries once.
 pub fn lock_within(

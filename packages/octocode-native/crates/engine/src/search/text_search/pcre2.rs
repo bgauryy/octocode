@@ -8,7 +8,7 @@ use super::state::CollectState;
 use super::{TextSearchPathFilter, to_engine_err};
 use crate::error::{Error, Result};
 use crate::types::{TextSearchOptions, TextSearchResult};
-use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
+use grep_pcre2::RegexMatcherBuilder;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -25,8 +25,8 @@ pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
 /// A PCRE2 builder with the settings every matcher we build shares: UTF and
 /// Unicode properties, JIT when available, and the
 /// [`PCRE2_MAX_JIT_STACK_BYTES`] stack cap.
-pub(crate) fn pcre2_builder() -> Pcre2MatcherBuilder {
-    let mut builder = Pcre2MatcherBuilder::new();
+pub(crate) fn pcre2_builder() -> RegexMatcherBuilder {
+    let mut builder = RegexMatcherBuilder::new();
     builder
         .utf(true)
         .ucp(true)

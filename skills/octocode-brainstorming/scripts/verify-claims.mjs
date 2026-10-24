@@ -87,30 +87,34 @@ export function pageDates(html) {
 
 const CHALLENGE = /checking your browser|just a moment|attention required|are you a robot|access denied|verify you are human|captcha/i;
 const pageCache = new Map();
-function loadPage(url) {
-  if (!pageCache.has(url)) {
-    pageCache.set(url, (async () => {
-      try {
-        const res = await guardedFetch(url, {
-          signal: AbortSignal.timeout(25_000),
-          headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36', accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5' },
-        });
-        const type = res.headers.get('content-type') || '';
-        if (!res.ok) return { error: `HTTP ${res.status}`, status: 'fetch-failed', finalUrl: res.finalUrl };
-        if (/pdf|octet-stream|image|audio|video/i.test(type)) return { status: 'unsupported-content', error: `content-type ${type}; cite the HTML abstract or landing page`, finalUrl: res.finalUrl };
-        const buf = Buffer.from(await res.arrayBuffer()).subarray(0, 4_000_000);
-        const body = buf.toString('utf8');
-        const isHtml = /html|xml/i.test(type) || /<html|<body/i.test(body.slice(0, 2000));
-        const title = isHtml ? (htmlToText((body.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').trim().slice(0, 200) || null) : null;
-        // A bot wall can answer 200; a missing quote there says nothing about the source.
-        if (CHALLENGE.test(title || '') || /cf-challenge|g-recaptcha|challenge-platform|captcha-delivery/i.test(body.slice(0, 20000)) && body.length < 60000) return { status: 'blocked', error: `bot check (${title || 'challenge page'}); verify with the host fetch tool or octocode-scraping`, finalUrl: res.finalUrl };
-        return { text: isHtml ? htmlToText(body) : body, title, ...(isHtml ? pageDates(body) : { published: null, modified: null }), finalUrl: res.finalUrl };
-      } catch (error) {
-        if (error.guard) return { status: 'refused', error: error.message, finalUrl: error.guard };
-        return { status: 'fetch-failed', error: error.name === 'TimeoutError' ? 'timeout after 25 s' : error.message };
-      }
-    })());
+const pageTitle = (body) => htmlToText((body.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').trim().slice(0, 200) || null;
+// A bot wall can answer 200; a missing quote there says nothing about the source.
+const botWall = (title, body) => CHALLENGE.test(title || '') || /cf-challenge|g-recaptcha|challenge-platform|captcha-delivery/i.test(body.slice(0, 20000)) && body.length < 60000;
+
+/** The page text and dates, or a status and error explaining why it cannot be checked. */
+async function readPage(url) {
+  try {
+    const res = await guardedFetch(url, {
+      signal: AbortSignal.timeout(25_000),
+      headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36', accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5' },
+    });
+    const type = res.headers.get('content-type') || '';
+    if (!res.ok) return { error: `HTTP ${res.status}`, status: 'fetch-failed', finalUrl: res.finalUrl };
+    if (/pdf|octet-stream|image|audio|video/i.test(type)) return { status: 'unsupported-content', error: `content-type ${type}; cite the HTML abstract or landing page`, finalUrl: res.finalUrl };
+    const buf = Buffer.from(await res.arrayBuffer()).subarray(0, 4_000_000);
+    const body = buf.toString('utf8');
+    const isHtml = /html|xml/i.test(type) || /<html|<body/i.test(body.slice(0, 2000));
+    const title = isHtml ? pageTitle(body) : null;
+    if (botWall(title, body)) return { status: 'blocked', error: `bot check (${title || 'challenge page'}); verify with the host fetch tool or octocode-scraping`, finalUrl: res.finalUrl };
+    return { text: isHtml ? htmlToText(body) : body, title, ...(isHtml ? pageDates(body) : { published: null, modified: null }), finalUrl: res.finalUrl };
+  } catch (error) {
+    if (error.guard) return { status: 'refused', error: error.message, finalUrl: error.guard };
+    return { status: 'fetch-failed', error: error.name === 'TimeoutError' ? 'timeout after 25 s' : error.message };
   }
+}
+
+function loadPage(url) {
+  if (!pageCache.has(url)) pageCache.set(url, readPage(url));
   return pageCache.get(url);
 }
 
@@ -140,17 +144,26 @@ export async function verifyClaim(row, options = {}) {
   return result;
 }
 
-async function checkClaim(row, { baseDir = process.cwd() } = {}) {
+/** Why a ledger row cannot be checked at all, or null. */
+function rowProblem(row) {
   for (const field of ['url', 'quote', 'claim']) if (!row[field] || typeof row[field] !== 'string') return { status: 'missing-field', reason: `no ${field}` };
   if (!/^https?:\/\//i.test(row.url)) return { status: 'missing-field', reason: 'url must be http(s)' };
   if (normalize(row.quote).replace(/\s*(\.\.\.|…)\s*/g, '').length < 20) return { status: 'quote-too-short', reason: 'quote needs at least 20 characters of the source text' };
-  if (row.asset) {
-    const file = isAbsolute(row.asset) ? row.asset : resolve(baseDir, row.asset);
-    const local = loadAsset(file);
-    if (local.status) return { status: local.status, reason: local.error, asset: file };
-    if (!quoteInText(row.quote, local.text)) return { status: 'quote-not-found', reason: 'the quote is not in the downloaded asset; recopy it exactly', asset: file };
-    return { status: 'verified', asset: file, finalUrl: row.url, title: null, published: null, modified: null };
-  }
+  return null;
+}
+
+function checkAsset(row, baseDir) {
+  const file = isAbsolute(row.asset) ? row.asset : resolve(baseDir, row.asset);
+  const local = loadAsset(file);
+  if (local.status) return { status: local.status, reason: local.error, asset: file };
+  if (!quoteInText(row.quote, local.text)) return { status: 'quote-not-found', reason: 'the quote is not in the downloaded asset; recopy it exactly', asset: file };
+  return { status: 'verified', asset: file, finalUrl: row.url, title: null, published: null, modified: null };
+}
+
+async function checkClaim(row, { baseDir = process.cwd() } = {}) {
+  const problem = rowProblem(row);
+  if (problem) return problem;
+  if (row.asset) return checkAsset(row, baseDir);
   const page = await loadPage(row.url);
   const meta = { finalUrl: page.finalUrl || row.url, title: page.title || null, published: page.published || null, modified: page.modified || null };
   if (page.status) return { status: page.status, reason: page.error, ...meta };
@@ -163,10 +176,11 @@ function readLedger(path) {
   try { text = readFileSync(path, 'utf8'); } catch (error) { fail('notFound', `cannot read ledger: ${error.message}`, 1); }
   const trimmed = text.trim();
   if (!trimmed) fail('invalidArguments', 'the ledger is empty', 2);
+  let rows;
   try {
-    if (trimmed.startsWith('[')) return JSON.parse(trimmed);
-    return trimmed.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+    rows = trimmed.startsWith('[') ? JSON.parse(trimmed) : trimmed.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
   } catch (error) { fail('invalidArguments', `ledger is not JSON or JSONL: ${error.message}`, 2); }
+  return rows;
 }
 
 if (isMainModule(import.meta.url)) {
@@ -182,7 +196,7 @@ if (isMainModule(import.meta.url)) {
   if (!opts.ledger) fail('invalidArguments', '--ledger is required', 2);
   if (!Number.isSafeInteger(opts.concurrency) || opts.concurrency < 1 || opts.concurrency > 8) fail('invalidArguments', '--concurrency must be 1-8', 2);
   const rows = readLedger(resolve(opts.ledger));
-  const results = new Array(rows.length);
+  const results = Array.from({ length: rows.length });
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(opts.concurrency, rows.length) }, async () => {
     while (next < rows.length) { const i = next++; results[i] = await verifyClaim(rows[i], { baseDir: dirname(resolve(opts.ledger)) }); }

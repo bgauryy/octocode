@@ -8,12 +8,13 @@ use crate::tools::gh_get_history_item::graphql::{
     map_graphql_reviews,
 };
 use crate::tools::gh_get_history_item::inventory::file_page_size;
+use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_get_history_item::text::body_matches;
 use crate::tools::gh_get_history_item::window::{
     Batch, Loaded, MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES, WindowSpec,
     load_window,
 };
-use crate::tools::gh_get_history_item::{HistoryItemRequest, Section, Sections, fetch};
+use crate::tools::gh_get_history_item::{HistoryItemRequest, Sections, fetch};
 use octocode_github::{GitHubTransport, MAX_PER_PAGE, ProviderError, RequestContext};
 use serde_json::Value;
 
@@ -176,7 +177,15 @@ pub(super) async fn load_inline(
     .await
 }
 
-/// `inline` is the review-comment window when it already loaded beside
+/// The review-comment (inline) window as `load_pr` receives it.
+pub(super) enum InlineWindow {
+    /// Already loaded beside the GraphQL read.
+    Prefetched(Option<Loaded>),
+    /// Not loaded: `load_pr` loads it when the sections ask for it.
+    Pending,
+}
+
+/// `inline` is the review-comment window, prefetched when it loaded beside
 /// the GraphQL read.
 pub(super) async fn load_pr(
     transport: &GitHubTransport,
@@ -185,7 +194,7 @@ pub(super) async fn load_pr(
     wants: &Sections,
     plan: &PrPlan,
     graphql: Option<&GraphqlPr>,
-    inline: Option<Option<Loaded>>,
+    inline: InlineWindow,
 ) -> Result<PrLoads, ProviderError> {
     let (file_filter, needle) = (plan.file_filter(), plan.needle.as_deref());
     let page_size = gh_get_history_item_query::collection_page_size(query);
@@ -262,12 +271,12 @@ pub(super) async fn load_pr(
         ),
         async {
             match inline {
-                Some(loaded) => Ok(loaded),
-                None if wants.has(Section::ReviewComments) => {
+                InlineWindow::Prefetched(loaded) => Ok(loaded),
+                InlineWindow::Pending if wants.has(Section::ReviewComments) => {
                     let total = provider_count("review_comments");
                     load_inline(transport, query, context, plan, total).await
                 }
-                None => Ok(None),
+                InlineWindow::Pending => Ok(None),
             }
         },
         load_collection(

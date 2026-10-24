@@ -6,11 +6,9 @@ use super::util::{
     required, safe_url, string, total,
 };
 use super::versions::{VersionSpec, cargo_resolve};
-use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactType,
-};
-use crate::providers::artifact::types::artifact_search_query;
+use super::{ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState};
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType};
 use serde_json::Value;
 
 fn crate_item(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
@@ -137,14 +135,12 @@ async fn crate_source_ref(artifact: &mut ArtifactItem, client: &RegistryClient<'
     if !repository.contains("github.com") {
         return;
     }
-    if let Some((sha, directory)) =
-        super::release_ref::crate_vcs(&artifact.name, &version, client).await
-    {
+    if let Some((sha, directory)) = vcs::crate_vcs(&artifact.package_name, &version, client).await {
         artifact.source_ref = Some(sha);
         artifact.repository_directory = directory.filter(|directory| !directory.is_empty());
         return;
     }
-    let name = artifact.name.clone();
+    let name = artifact.package_name.clone();
     super::release_ref::pin_release_tag(artifact, &name, &version, client).await;
 }
 
@@ -198,7 +194,7 @@ async fn crate_release_facts(artifact: &mut ArtifactItem, client: &RegistryClien
     let Some(version) = artifact.version.clone() else {
         return;
     };
-    let name = artifact.name.clone();
+    let name = artifact.package_name.clone();
     let (dependencies, ()) = tokio::join!(
         crate_dependencies(&name, &version, client),
         crate_source_ref(artifact, client)
@@ -214,7 +210,7 @@ pub(crate) async fn crates(
     state: &ArtifactProviderState,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    if let Some(name) = artifact_search_query::bare_package_name(query) {
+    if let Some(name) = artifact_search_query::package_name(query) {
         let release = match artifact_search_query::version(query).map(VersionSpec::parse) {
             Some(VersionSpec::Exact(version)) => crate_release(name, &version, client).await?,
             None => crate_default_release(name, client).await?,
@@ -259,7 +255,7 @@ pub(crate) async fn crates(
             Some(VersionSpec::Exact(version)) => {
                 if !all.contains(&version) {
                     return Err(super::versions::version_not_found(
-                        &artifact.name,
+                        &artifact.package_name,
                         &version,
                         &all,
                     ));
@@ -274,7 +270,7 @@ pub(crate) async fn crates(
                     .collect::<Vec<_>>();
                 Some(
                     cargo_resolve(&spec, releases.iter().map(String::as_str)).ok_or_else(|| {
-                        super::versions::version_not_found(&artifact.name, &spec, &all)
+                        super::versions::version_not_found(&artifact.package_name, &spec, &all)
                     })?,
                 )
             }
@@ -308,3 +304,4 @@ pub(super) const CRATES_RELEVANCE_LIMIT: u64 = 1000;
 
 #[cfg(test)]
 mod tests;
+mod vcs;

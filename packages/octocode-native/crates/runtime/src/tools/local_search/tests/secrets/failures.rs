@@ -38,7 +38,10 @@ fn binary_prefix_matches_mark_a_search_partial_and_terminal() {
     // searched: the cut is a coverage limit no continuation can lift.
     let body = search_fixture(
         &[("bin.dat", "foo\u{0}foo\n"), ("a.txt", "foo\n")],
-        ls_query(serde_json::json!({"matchString": "foo".to_string()}), None),
+        ls_query(
+            serde_json::json!({"matchString": ["foo".to_string()]}),
+            None,
+        ),
     );
     assert_eq!(body["isPartial"], true, "{body}");
     assert_eq!(body["terminalLimit"], true, "{body}");
@@ -50,10 +53,10 @@ fn binary_prefix_matches_mark_a_search_partial_and_terminal() {
     );
     // localFetch rejects binary files, so a binary file is never the read:
     // the read takes the shown text hit.
-    let read = &body["next"]["read"];
+    let read = &crate::tools::test_support::checks::related_call(&body, "localFetch", |_| true);
     assert_eq!(read["tool"], "localFetch", "{body}");
     assert_eq!(
-        read["query"]["queries"][0]["path"]
+        read["input"]["queries"][0]["path"]
             .as_str()
             .map(|path| path.ends_with("a.txt")),
         Some(true),
@@ -69,7 +72,7 @@ fn a_bad_include_glob_is_invalid_glob() {
     let t = tempfile::tempdir().expect("tempdir");
     fs::write(t.path().join("a.rs"), "glob\n").expect("fixture");
     let (policy, security) = policy_for(t.path());
-    let mut fields = serde_json::json!({"matchString": "glob", "include": ["src/{a"]});
+    let mut fields = serde_json::json!({"matchString": ["glob"], "include": ["src/{a"]});
     fields["path"] = t.path().to_string_lossy().into_owned().into();
     let error = execute_local_search(
         &ls_query(fields, None),
@@ -93,7 +96,7 @@ fn a_scope_where_every_path_is_unreadable_is_an_access_error_not_empty() {
     };
     let (policy, security) = policy_for(root.path());
     let request = ls_query(
-        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "needle-only-here".to_string(), "regex": LocalSearchQueryRegex::Literal, "includeIgnored": true}),
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle-only-here".to_string()], "regexEngine": "literal", "includeIgnored": true}),
         None,
     );
     let outcome =
@@ -120,7 +123,7 @@ fn unreadable_paths_beside_readable_misses_make_the_result_partial() {
     };
     let (policy, security) = policy_for(root.path());
     let request = ls_query(
-        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "needle-only-here".to_string(), "regex": LocalSearchQueryRegex::Literal, "includeIgnored": true}),
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle-only-here".to_string()], "regexEngine": "literal", "includeIgnored": true}),
         None,
     );
     let outcome =
@@ -150,7 +153,7 @@ fn a_nul_keeps_the_matches_before_it_and_warns() {
     .expect("fixture");
     let result = search_root(
         root.path(),
-        serde_json::json!({"matchString": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
+        serde_json::json!({"matchString": ["alpha".to_string()], "regexEngine": "literal"}),
     );
     assert_ne!(result.status, SearchStatus::Empty);
     let body = serde_json::to_value(&result).expect("serialize");
@@ -184,7 +187,7 @@ fn every_text_cut_file_is_named_grouped_by_directory() {
     fs::write(root.path().join("top.txt"), b"alpha before\0alpha after\n").expect("fixture");
     let result = search_root(
         root.path(),
-        serde_json::json!({"matchString": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
+        serde_json::json!({"matchString": ["alpha".to_string()], "regexEngine": "literal"}),
     );
     assert!(result.is_partial);
     let warning = result
@@ -221,7 +224,7 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
         .expect("fixture");
     }
     let request = ls_query(
-        serde_json::json!({"path": root.path(), "matchString": "alpha", "regex": "literal", "resultView": "files", "defaultExcludes": false}),
+        serde_json::json!({"path": root.path(), "matchString": ["alpha"], "regexEngine": "literal", "view": "files", "defaultExcludes": false}),
         None,
     );
     let (policy, security) = policy_for(root.path());
@@ -243,7 +246,7 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
         .and_then(|next| next.get("binarySkipped"))
         .expect("listing lead");
     assert_eq!(
-        listing["query"]["queries"][0]["extensions"],
+        listing["input"]["queries"][0]["extensions"],
         serde_json::json!(["rlib"])
     );
     assert!(warning.len() < 200, "{warning}");
@@ -273,7 +276,7 @@ fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
     fs::write(root.path().join("a.txt"), "alpha\n").expect("fixture");
     let (policy, security) = policy_for(root.path());
     let request = ls_query(
-        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "alpha".to_string(), "regex": LocalSearchQueryRegex::Literal}),
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["alpha".to_string()], "regexEngine": "literal"}),
         None,
     );
     let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
@@ -289,9 +292,10 @@ fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
     let text = body.to_string();
     assert!(!text.contains("Font-0"), "{text}");
 
-    let listing = &body["next"]["binarySkipped"];
+    let listing =
+        &crate::tools::test_support::checks::related_call(&body, "structureSearch", |_| true);
     assert_eq!(listing["tool"], "structureSearch", "{body}");
-    let query = listing["query"]["queries"][0].clone();
+    let query = listing["input"]["queries"][0].clone();
     assert_eq!(query["operation"], "files", "{listing}");
     assert_eq!(
         query["extensions"],

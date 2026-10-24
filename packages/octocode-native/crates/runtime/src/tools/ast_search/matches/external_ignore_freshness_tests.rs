@@ -1,7 +1,7 @@
-use super::super::test_rows::run_row;
 use super::*;
 use crate::tools::test_support::{Fixture, simple_policy};
 use serde_json::Value;
+use serde_json::json;
 
 fn sources(root: &std::path::Path) -> std::path::PathBuf {
     let scope = root.join("scope");
@@ -16,8 +16,7 @@ fn settle() {
 }
 
 fn query(scope: &std::path::Path, include_ignored: bool) -> Value {
-    json!({"operation":"match", "path":scope, "pattern":"target($A)",
-            "captureText":true, "matchPageSize":1, "includeIgnored":include_ignored})
+    json!({"operation":"match","path":scope,"rule":{"pattern":"target($A)"},"includeCaptures":true,"includeIgnored":include_ignored})
 }
 
 #[test]
@@ -31,7 +30,7 @@ fn held_memo_is_evicted_when_an_external_ignore_dependency_appears() {
         assert_eq!(first["matchCount"], 3, "{first}");
         let snapshot = first["snapshot"].as_str().expect("snapshot");
         assert!(SCANS.holds(snapshot), "exercise a held no-repository memo");
-        let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+        let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
         assert_eq!(run_row(&next, &paths, &security)["matchCount"], 3);
         assert!(
             SCANS.holds(snapshot),
@@ -116,7 +115,7 @@ fn repository_rules_keep_the_memo_and_an_edit_drops_it() {
         assert_eq!(first["matchCount"], 2, "{kind}: {first}");
         let snapshot = first["snapshot"].as_str().expect("snapshot");
         assert!(SCANS.holds(snapshot), "a repository scan is stored: {kind}");
-        let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+        let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
         let unchanged = run_row(&next, &paths, &security);
         assert_eq!(unchanged["matchCount"], 2, "{kind}: {unchanged}");
         assert!(SCANS.holds(snapshot), "the continuation reuses it: {kind}");
@@ -153,7 +152,7 @@ fn include_ignored_keeps_settled_repository_memo_reuse() {
         SCANS.holds(snapshot),
         "ignored rules cannot affect this selection"
     );
-    let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+    let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
     let unchanged = run_row(&next, &paths, &security);
     std::fs::write(&rules, "").expect("change ignored dependency");
     assert_eq!(unchanged, run_row(&next, &paths, &security));
@@ -183,7 +182,7 @@ fn ignore_symlinks_never_reuse_unobserved_rules() {
         );
         let snapshot = first["snapshot"].as_str().expect("snapshot");
         let held_before = SCANS.holds(snapshot);
-        let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+        let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
         let unchanged = run_row(&next, &paths, &security);
         assert_eq!(unchanged["matchCount"], first["matchCount"]);
         std::fs::write(&rules, "").expect("edit unobserved ignore target");
@@ -230,7 +229,7 @@ fn broken_ignore_symlinks_do_not_pin_absent_external_rules() {
         !SCANS.holds(snapshot),
         "an unobservable rule is not cacheable"
     );
-    let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+    let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
     assert_eq!(run_row(&next, &paths, &security)["matchCount"], 3);
     std::fs::write(&rules, "hidden/\n").expect("create external rules");
     let changed = run_row(&next, &paths, &security);
@@ -252,7 +251,7 @@ fn implicit_grammar_filters_do_not_override_file_ignore_rules() {
             let (paths, security) = simple_policy(&root.0);
             let mut row = query(&scope, false);
             if let Some(language) = language {
-                row["language"] = json!(language);
+                row["parser"] = json!(language);
             }
             let filtered = run_row(&row, &paths, &security);
             assert_eq!(filtered["matchCount"], 2, "{name}/{language:?}: {filtered}");
@@ -267,4 +266,20 @@ fn implicit_grammar_filters_do_not_override_file_ignore_rules() {
             );
         }
     }
+}
+
+fn run_row(
+    row: &serde_json::Value,
+    paths: &crate::policy::path::PathPolicy,
+    security: &crate::security::ContentSecurity,
+) -> serde_json::Value {
+    let query = serde_json::from_value(row.clone()).expect("canonical match");
+    super::super::execute_ast(
+        &query,
+        paths,
+        security,
+        &crate::execution::cancel::NeverCancel,
+        Some(1),
+    )
+    .expect("budgeted source page")
 }

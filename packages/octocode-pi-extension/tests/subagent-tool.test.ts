@@ -37,7 +37,10 @@ describe('agent tool with a scripted pi child', () => {
     expect(text).toContain('(Last screenshot: ');
     expect(result.details).toMatchObject({ profile: 'researcher', toolCalls: 1, input: 100, cacheRead: 0, output: 20, cost: 0.01, unpriced: false, model: 'faux/model' });
     // The child's own facts ride in its task (after the task text), not in its system prompt.
-    expect(facts.task).toBe(`report back\nsecond line\n\n## You\nYour name is \`${facts.id}\` (researcher). Your goal: check things. You work for \`${s.team.id}\`. Your scratch folder, for handoff files and a long report, is \`${facts.scratch}\`.`);
+    const [given, ...you] = facts.task.split('\n\n## You\n');
+    expect(given).toBe('report back\nsecond line');
+    expect(you).toHaveLength(1);
+    for (const fact of [facts.id, 'researcher', 'check things', s.team.id, facts.scratch]) expect(you[0]).toContain(fact);
     expect(result.usage.cost.total).toBeCloseTo(0.01);
     expect(fs.existsSync(result.details.shot)).toBe(true);
     expect(updates.some((update) => update.details.activity.includes('→ bash ls -la'))).toBe(true);
@@ -204,7 +207,15 @@ describe('agent tool with a scripted pi child', () => {
     await expect(s.run({ task: 'report' })).resolves.toMatchObject({ details: { status: 'done' } });
   });
 
-  it('runs in the background, delivers the answer as a message, and /agents kill stops one', async () => {
+});
+
+describe('agent tool with a scripted pi child, in the background', () => {
+  let s: ReturnType<typeof setup>;
+  beforeEach(() => {
+    s = setup();
+  });
+
+  it('runs in the background and delivers its fenced answer as a follow-up message', async () => {
     const started = await s.run({ task: 'report from the background', background: true });
     expect(started.content[0].text).toMatch(/^Started [a-z]+-[a-z]+ \(general: check things\) in the background/);
     expect(started.content[0].text).toMatch(/its report arrives as a message\.$/);
@@ -221,13 +232,19 @@ describe('agent tool with a scripted pi child', () => {
     const shown = rendered(renderer(answer.message, { expanded: false }, theme));
     expect(shown).toMatch(/^ ● Agent\([a-z]+-[a-z]+ · check things\) · background · \S+\n {3}⎿ {2}Done \([a-z]+-[a-z]+ · 1 tool call/);
     expect(shown).toContain('report');
+  });
 
+  it('reports a background failure with its error inside the fence and a retry hint', async () => {
+    const renderer = s.renderers.get('octocode-agent-result');
     await s.run({ task: 'error in background', background: true });
-    await vi.waitFor(() => expect(s.sent.length).toBe(2), { timeout: 10_000 });
-    expect(s.sent[1]!.message.content).toMatch(/failed:\n<<<untrusted-[0-9a-f]{16} [\s\S]*\nError: provider down[\s\S]*>>>\nRetry with a narrower task or do the work yourself/);
-    expect(s.sent[1]!.message.details).toMatchObject({ status: 'failed', outcome: 'failed', summary: 'Failed: provider down' });
-    expect(rendered(renderer(s.sent[1]!.message, { expanded: false }, theme))).toMatch(/^ ✗ Agent\([a-z]+-[a-z]+[^\n]*\n {3}⎿ {2}Failed: provider down/);
+    await vi.waitFor(() => expect(s.sent.length).toBe(1), { timeout: 10_000 });
+    expect(s.sent[0]!.message.content).toMatch(/failed:\n<<<untrusted-[0-9a-f]{16} [\s\S]*\nError: provider down[\s\S]*>>>\nRetry with a narrower task or do the work yourself/);
+    expect(s.sent[0]!.message.details).toMatchObject({ status: 'failed', outcome: 'failed', summary: 'Failed: provider down' });
+    expect(rendered(renderer(s.sent[0]!.message, { expanded: false }, theme))).toMatch(/^ ✗ Agent\([a-z]+-[a-z]+[^\n]*\n {3}⎿ {2}Failed: provider down/);
+  });
 
+  it('/agents kill completes running ids, refuses unknown ones, and cancels a background run, which settle() waits for', async () => {
+    const renderer = s.renderers.get('octocode-agent-result');
     const kill = { handler: (args: string, ctx: unknown) => s.commands.get('agents').handler(`kill ${args}`, ctx), getArgumentCompletions: (prefix: string) => s.commands.get('agents').getArgumentCompletions(`kill ${prefix}`) };
     await kill.handler('', s.ctx);
     expect(s.ctx.ui.notes.at(-1)).toEqual({ message: 'Usage: /agents kill <id>. None is running.', type: 'warning' });
@@ -245,11 +262,11 @@ describe('agent tool with a scripted pi child', () => {
     await kill.handler(id, s.ctx);
     expect(s.ctx.ui.notes.at(-1)).toEqual({ message: `Stopping ${id}…`, type: 'info' });
     await waiting;
-    await vi.waitFor(() => expect(s.sent.length).toBe(3), { timeout: 10_000 });
-    expect(s.sent[2]!.message.content).toBe(`Background subagent ${id} (general: check things) cancelled by the user`);
+    await vi.waitFor(() => expect(s.sent.length).toBe(1), { timeout: 10_000 });
+    expect(s.sent[0]!.message.content).toBe(`Background subagent ${id} (general: check things) cancelled by the user`);
     // A stop the user asked for is an interruption, not a failure; the prompt is one expand away.
-    expect(rendered(renderer(s.sent[2]!.message, { expanded: false }, theme))).toMatch(/^ ◼ Agent.*\n {3}⎿ {2}Cancelled by the user\n {6}… prompt \(ctrl\+o to expand\)$/);
-    expect(s.sent[2]!.options).toEqual({ triggerTurn: false, deliverAs: 'followUp' });
+    expect(rendered(renderer(s.sent[0]!.message, { expanded: false }, theme))).toMatch(/^ ◼ Agent.*\n {3}⎿ {2}Cancelled by the user\n {6}… prompt \(ctrl\+o to expand\)$/);
+    expect(s.sent[0]!.options).toEqual({ triggerTurn: false, deliverAs: 'followUp' });
   });
 
   it('lets the parent agent stop only the background subagents it started, with coordinate stop', async () => {

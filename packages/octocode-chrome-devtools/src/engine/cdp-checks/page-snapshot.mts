@@ -8,6 +8,20 @@ import { fileURLToPath } from 'url';
 
 import { waitForPageReady } from '../dom-actionability.mjs';
 import { collectRefs, clip, flat } from '../ax-snapshot.mjs';
+import { errorMessage } from '../error-message.mjs';
+import type { CheckSession } from '../cdp-runner-session.mjs';
+import type { RefUnit } from './dom-types.mjs';
+
+/** ENRICH_FN's answer per printed ref; null for iframe refs it cannot reach. */
+type Enrichment = {
+  key: number | null;
+  context: string;
+  hint: string;
+  href: string;
+} | null;
+type SavedRef = Pick<RefUnit, 'backendDOMNodeId' | 'role' | 'name'> & {
+  frame?: string;
+};
 
 // Compact, ref-based page view from the accessibility tree: controls, headings, and
 // non-semantic clickables in document order (same-process iframes inlined), each with a
@@ -27,7 +41,7 @@ import { collectRefs, clip, flat } from '../ax-snapshot.mjs';
 //   SNAPSHOT_STDOUT    summary keeps refs on disk
 //   SNAPSHOT_DEPTH     max AX tree depth (default unlimited)
 
-const int = (name, fallback) =>
+const int = (name: string, fallback: number) =>
   Number.parseInt(process.env[name] ?? String(fallback), 10);
 const DEPTH = int('SNAPSHOT_DEPTH', -1);
 const MAX_REFS = Math.max(1, Math.min(300, int('SNAPSHOT_MAX', 60) || 60));
@@ -42,7 +56,7 @@ const SUMMARY = process.env.SNAPSHOT_STDOUT === 'summary';
 const MAX_CONTEXT = 110;
 const TEXT_CHARS = Math.max(0, Math.min(4000, int('SNAPSHOT_TEXT', 0) || 0));
 
-async function rootBackendId(cdp) {
+async function rootBackendId(cdp: CheckSession): Promise<number> {
   if (/^[er]\d+$/.test(ROOT)) {
     const prev = readTargetSnapshot(cdp)?.data;
     const entry = ROOT.startsWith('e')
@@ -114,9 +128,12 @@ const ENRICH_FN = `function(...els) {
   });
 }`;
 
-async function enrich(cdp, nodes) {
+async function enrich(
+  cdp: CheckSession,
+  nodes: RefUnit[]
+): Promise<Enrichment[]> {
   if (!nodes.length) return [];
-  const objectIds = [];
+  const objectIds: (string | null)[] = [];
   for (const n of nodes) {
     if (n.frame) {
       objectIds.push(null);
@@ -152,7 +169,7 @@ async function enrich(cdp, nodes) {
   }
 }
 
-export async function run(cdp) {
+export async function run(cdp: CheckSession) {
   const ready = await waitForPageReady(
     cdp,
     Number(process.env.SNAPSHOT_WAIT_MS || 8000),
@@ -183,7 +200,7 @@ export async function run(cdp) {
   });
   for (const f of findings) console.log(`[FINDING] ${f}`);
 
-  const refs = {};
+  const refs: Record<string, SavedRef> = {};
   useful.forEach((n, i) => {
     refs[`e${i + 1}`] = {
       backendDOMNodeId: n.backendDOMNodeId,
@@ -192,7 +209,7 @@ export async function run(cdp) {
       frame: n.frame,
     };
   });
-  const regionRefs = {};
+  const regionRefs: Record<string, SavedRef> = {};
   regions.forEach((r, i) => {
     regionRefs[`r${i + 1}`] = {
       backendDOMNodeId: r.backendDOMNodeId,
@@ -206,7 +223,7 @@ export async function run(cdp) {
   const shown = useful.slice(first, first + MAX_REFS);
 
   const artifactPath = join(cdp.outputDir, 'page-snapshot.json');
-  const snapshot: Record<string, any> = {
+  const snapshot: Record<string, unknown> = {
     targetId: cdp.targetInfo.id,
     url: cdp.targetInfo.url,
     root: ROOT || null,
@@ -215,7 +232,7 @@ export async function run(cdp) {
     regions: regionRefs,
     coverage: { totalAxNodes: totalNodes, findings },
   };
-  const continuation = view =>
+  const continuation = (view: string) =>
     JSON.stringify({
       command: process.execPath,
       args: [
@@ -260,7 +277,7 @@ export async function run(cdp) {
   );
 
   if (OUTLINE) {
-    const items = [];
+    const items: { at: number; order: number; line: string }[] = [];
     const regionNames = new Set(regions.map(r => r.name).filter(Boolean));
     regions.forEach((r, i) =>
       items.push({
@@ -292,7 +309,7 @@ export async function run(cdp) {
     );
   } else if (!SUMMARY) {
     const extra = CONTEXT || URLS ? await enrich(cdp, shown) : [];
-    const namesByGroup = new Map();
+    const namesByGroup = new Map<number, string[]>();
     shown.forEach((n, i) => {
       const k = extra[i]?.key;
       if (k)
@@ -301,8 +318,8 @@ export async function run(cdp) {
           n.fullName || flat(extra[i]?.hint),
         ]);
     });
-    let lastKey = null;
-    let lastFrame;
+    let lastKey: number | null = null;
+    let lastFrame: string | undefined;
     shown.forEach((n, i) => {
       const e = extra[i];
       if (n.frame !== lastFrame && n.frame)
@@ -336,7 +353,7 @@ export async function run(cdp) {
   console.log(`[ARTIFACT] PAGE_SNAPSHOT ${artifactPath}`);
 
   if (TEXT_CHARS > 0) {
-    let text;
+    let text: string;
     try {
       let response;
       if (selectedRootBackendId !== null) {
@@ -362,7 +379,7 @@ export async function run(cdp) {
         throw new Error('Document or selected root text could not be read');
       text = response.result.value;
     } catch (error) {
-      throw new Error(`PAGE_TEXT_UNAVAILABLE: ${error.message}`);
+      throw new Error(`PAGE_TEXT_UNAVAILABLE: ${errorMessage(error)}`);
     } finally {
       if (selectedRootBackendId !== null)
         await cdp

@@ -1,57 +1,90 @@
-//! Section resume and replay: current query ids, sibling continuations, and one transaction across independent runtimes.
+//! Section resume and replay preserve row indexes, sibling work, and one transaction across independent runtimes.
 
 use super::{provider, provider_calls, sections};
 use crate::support::{Run as _, Workspace, clasify_runtime};
-use serde_json::json;
+use octocode_native::runtime::ToolRuntime;
+use serde_json::{Value, json};
+
+async fn assert_same_resources(
+    first_runtime: &ToolRuntime,
+    first: &Value,
+    replay_runtime: &ToolRuntime,
+    replay: &Value,
+) {
+    let resources = |value: &Value| {
+        let mut facts = value.as_object().expect("resources").clone();
+        for resource in facts.values_mut() {
+            resource.as_object_mut().expect("resource").remove("read");
+        }
+        facts
+    };
+    assert_eq!(resources(first), resources(replay));
+    for (name, original) in first.as_object().expect("resources") {
+        let mut captured = None;
+        for (runtime, resource) in [(first_runtime, original), (replay_runtime, &replay[name])] {
+            let read = &resource["read"];
+            assert_eq!(read["kind"], "continue");
+            crate::support::assert_cursor_only(&read["input"]);
+            let result = runtime
+                .run(
+                    format!("read-{name}"),
+                    read["tool"].as_str().expect("reader").into(),
+                    read["input"].clone(),
+                )
+                .await
+                .expect("captured evidence remains readable")
+                .structured_content;
+            let text = result["results"][0]["data"]["content"]
+                .as_str()
+                .expect("captured text");
+            if let Some(expected) = &captured {
+                assert_eq!(text, expected);
+            } else {
+                captured = Some(text.to_owned());
+            }
+        }
+    }
+}
 
 #[tokio::test]
-async fn section_resume_and_replay_use_each_current_query_id() {
+async fn section_cursor_replays_frozen_work_without_repeating_inference() {
     let provider = provider().await;
     let workspace = Workspace::new();
-    let source = (0..70)
-        .map(|index| format!("pub fn section_{index}() {{ println!(\"restart {index}\"); }}\n"))
-        .collect::<String>();
-    workspace.write("sections.rs", &source);
+    workspace.write(
+        "sections.rs",
+        (0..70)
+            .map(|i| format!("pub fn section_{i}() {{ println!(\"restart {i}\"); }}\n"))
+            .collect::<String>(),
+    );
     let runtime = clasify_runtime(&workspace, &provider, &[]);
     let first = sections(
         &runtime,
-        json!({"file":{"tool":"localFetch","query":{"path":"sections.rs","fullContent":true}}}),
+        json!({"file":{"tool":"localFetch","query":{"path":"sections.rs"}}}),
     )
     .await;
-    assert_eq!(first["id"], "s");
-    let mut resume = first["next"]["nextSectionPage"]["query"]["queries"][0].clone();
-    assert!(resume["assessment"].is_string(), "{first:#}");
-    resume["id"] = json!("resume");
+    let resume = first["next"]["nextSectionPage"]["input"].clone();
+    crate::support::assert_cursor_only(&resume);
     let resumed = runtime
-        .run(
-            "resume-current-id".into(),
-            "clasify".into(),
-            json!({"queries":[resume.clone()]}),
-        )
+        .run("resume".into(), "clasify".into(), resume.clone())
         .await
-        .expect("resumed result")
+        .expect("resume")
         .structured_content;
-    assert_eq!(resumed["queries"][0]["id"], "resume", "{resumed:#}");
+    assert_eq!(resumed["results"][0]["index"], 0);
     let calls = provider_calls(&provider).await;
-    let replays = ["first-replay", "second-replay"].map(|id| {
-        let mut query = resume.clone();
-        query["id"] = json!(id);
-        query
-    });
-    let replayed = runtime
-        .run(
-            "replay-current-ids".into(),
-            "clasify".into(),
-            json!({"queries":replays}),
+    for label in ["first replay", "second replay"] {
+        let replay = runtime
+            .run(label.into(), "clasify".into(), resume.clone())
+            .await
+            .expect("replay")
+            .structured_content;
+        assert_eq!(replay["results"][0]["index"], 0);
+        assert_same_resources(
+            &runtime,
+            &resumed["results"][0]["data"]["resources"],
+            &runtime,
+            &replay["results"][0]["data"]["resources"],
         )
-        .await
-        .expect("replayed result")
-        .structured_content;
-    for (index, id) in ["first-replay", "second-replay"].iter().enumerate() {
-        let row = &replayed["queries"][index];
-        assert_eq!(row["id"], *id, "{replayed:#}");
-        assert_eq!(row["replayed"], true, "{replayed:#}");
-        assert_eq!(row["resources"], resumed["queries"][0]["resources"]);
+        .await;
     }
     assert_eq!(provider_calls(&provider).await, calls);
     runtime.close().await;
@@ -72,7 +105,7 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
         &provider,
         &[("OCTOCODE_STORAGE_MODE", "persistent".into())],
     );
-    let rows = ["a", "b"].map(|id| json!({"id":id,"operation":"sections","resources":{"file":{"tool":"localFetch","query":{"path":"many.rs","fullContent":true}}},"questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}}));
+    let rows = [0, 1].map(|_| json!({"operation":"sections","resources":{"file":{"tool":"localFetch","query":{"path":"many.rs"}}},"questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}}));
     let first = runtime
         .run(
             "shared-sections".into(),
@@ -82,8 +115,8 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
         .await
         .expect("first batch")
         .structured_content;
-    for initial in first["queries"].as_array().expect("rows") {
-        let mut row = initial.clone();
+    for initial in first["results"].as_array().expect("rows") {
+        let mut row = initial["data"].clone();
         let mut seen = std::collections::HashSet::new();
         let mut pages = 0;
         loop {
@@ -105,13 +138,13 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
             }
             row = runtime
                 .run(
-                    format!("resume-{}-{pages}", initial["id"]),
+                    format!("resume-{}-{pages}", initial["index"]),
                     "clasify".into(),
-                    next["query"].clone(),
+                    next["input"].clone(),
                 )
                 .await
                 .expect("resume")
-                .structured_content["queries"][0]
+                .structured_content["results"][0]["data"]
                 .clone();
         }
         assert_eq!(seen.len(), 70, "{row:#}");
@@ -135,11 +168,14 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
     let second_runtime = clasify_runtime(&workspace, &provider, &env);
     let first = sections(
         &first_runtime,
-        json!({"file":{"tool":"localFetch","query":{"path":"many.rs","fullContent":true}}}),
+        json!({"file":{"tool":"localFetch","query":{"path":"many.rs"}}}),
     )
     .await;
-    let next = first["next"]["nextSectionPage"]["query"].clone();
-    assert!(next["queries"][0]["assessment"].is_string(), "{first:#}");
+    let next = first["next"]["nextSectionPage"]["input"].clone();
+    crate::support::assert_cursor_only(&next);
+    let remaining = first["resources"]["file"]["coverage"]["remainingSections"]
+        .as_u64()
+        .unwrap() as usize;
     let before = provider_calls(&provider).await;
     let (a, b) = tokio::join!(
         first_runtime.run("resume-a".into(), "clasify".into(), next.clone()),
@@ -147,13 +183,19 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
     );
     let a = a.expect("first resume").structured_content;
     let b = b.expect("second resume").structured_content;
-    assert_eq!(a["queries"][0]["resources"], b["queries"][0]["resources"]);
+    assert_same_resources(
+        &first_runtime,
+        &a["results"][0]["data"]["resources"],
+        &second_runtime,
+        &b["results"][0]["data"]["resources"],
+    )
+    .await;
     assert_ne!(
-        a["queries"][0]["replayed"] == true,
-        b["queries"][0]["replayed"] == true,
+        a["results"][0]["data"]["replayed"] == true,
+        b["results"][0]["data"]["replayed"] == true,
         "{a:#} {b:#}"
     );
-    assert_eq!(provider_calls(&provider).await - before, 6);
+    assert_eq!(provider_calls(&provider).await - before, remaining);
     first_runtime.close().await;
     second_runtime.close().await;
 }

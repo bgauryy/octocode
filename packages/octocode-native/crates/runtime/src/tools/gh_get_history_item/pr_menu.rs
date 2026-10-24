@@ -2,10 +2,12 @@
 //! the section menu, and the merge-commit read.
 use super::patch::locate::{distinctive_added_lines, parent_windows};
 use super::util::merge;
-use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, Section, Sections};
+use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, Sections};
 use crate::id::ToolId;
-use crate::response::result::{Continuation, remove_nulls};
+use crate::response::result::{Continuation, remove_nulls, restart_query};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_get_history_item::sections::Section;
+use octocode_engine::text::test_paths::is_test_path;
 use serde_json::{Map, Value, json};
 
 /// The caller's query as a working query for `operation`: the public
@@ -28,11 +30,8 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
                 ItemOperation::Compare => "compare",
             }),
         );
-        m.remove("extras");
-        // A continuation restates no default: page 1 and the contract's
-        // page size are what an omitted field reads. Only an issue declares
-        // a pageSize default; a pull request, commit or comparison sizes
-        // each section itself, so its pageSize stays as the caller set it.
+        // Omit private progress equal to the runtime defaults. Other saved
+        // page sizes retain the grid chosen by the preceding read.
         if m.get("page").and_then(Value::as_u64) == Some(1) {
             m.remove("page");
         }
@@ -47,17 +46,23 @@ pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation
 
 /// An executable `ghGetHistoryItem` continuation.
 pub(super) fn continuation(q: Value) -> Value {
-    Continuation::new(ToolId::GhGetHistoryItem, q).build()
+    Continuation::continued(ToolId::GhGetHistoryItem, q).build()
 }
 
 /// The recovery of a `matchString` that hit no patch line (a pull
 /// request's or a commit's): the same read without the literal and the
 /// `contextLines` that only shape its hits.
 pub(super) fn without_match_string(mut q: Value) -> Value {
-    for key in ["matchString", "contextLines"] {
+    for key in [
+        "matchString",
+        "contextLines",
+        "regexEngine",
+        "caseMode",
+        "wholeWord",
+    ] {
         remove_key(&mut q, key);
     }
-    continuation(q)
+    restart_query(ToolId::GhGetHistoryItem, &q)
 }
 
 /// A diff at most this many changed lines reads in one all-patches call, so a
@@ -73,7 +78,18 @@ pub(super) const INVENTORY_ALL_PATCHES_FILES: u64 = 30;
 pub(super) fn fresh_pr_query(query: &HistoryItemRequest) -> Value {
     let mut target = base_public_query(query, ItemOperation::PullRequest);
     if let Some(object) = target.as_object_mut() {
-        for key in ["sections", "offset", "length", "page", "matchString"] {
+        for key in [
+            "sections",
+            "offset",
+            "page",
+            "pageSize",
+            "headSha",
+            "matchString",
+            "contextLines",
+            "regexEngine",
+            "caseMode",
+            "wholeWord",
+        ] {
             object.remove(key);
         }
     }
@@ -132,7 +148,7 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
     let call = |sections: Sections| {
         let mut query = target.clone();
         sections.set_on(&mut query);
-        continuation(query)
+        restart_query(ToolId::GhGetHistoryItem, &query)
     };
     let with_body = |sections: Sections| {
         if want_body {
@@ -155,10 +171,13 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
         if !review.is_empty() && !covers_all {
             // The query is exact; which files answer the question is a
             // ranking guess (source files by churn, packed to one budget).
-            let selected = continuation(merge(
-                target.clone(),
-                json!({"include": review, "sections": ["patches"]}),
-            ));
+            let selected = restart_query(
+                ToolId::GhGetHistoryItem,
+                &merge(
+                    target.clone(),
+                    json!({"include": review, "sections": ["patches"]}),
+                ),
+            );
             next.insert("readSelectedPatches".into(), selected);
             if changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES) {
                 next.insert("readPatches".into(), call(Sections::of([Section::Patches])));
@@ -190,7 +209,7 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
     Value::Object(next.into_iter().take(MENU_CAP).collect())
 }
 
-/// `next.readAtMerge`: a merged pull request whose patches were read offers
+/// A merged pull request whose patches were read offers a related read of
 /// its most-changed code file (not a test) at the merge commit, searched for
 /// one distinctive added line per hunk (at most
 /// [`super::patch::locate::MERGE_MATCH_LINES`]), so
@@ -201,15 +220,15 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
 /// `patch`), not only the patch window shown. `None` for unmerged pull
 /// requests, for a `matchString` read (a targeted answer already), and when
 /// no such file adds a line with something to find. Only files the read selected
-/// (`include`, `status`, `minChanges`) are candidates: `selected`.
+/// (`include`, `fileStatus`, `minChanges`) are candidates: `selected`.
 pub(super) fn read_at_merge(
     query: &HistoryItemRequest,
     raw: &Value,
     files: &[Value],
     selected: impl Fn(&Value) -> bool,
 ) -> Option<Value> {
-    use crate::content::{FileType, classify_file_type, is_test_path};
-    if gh_get_history_item_query::match_string(query).is_some() {
+    use crate::content::{FileType, classify_file_type};
+    if gh_get_history_item_query::match_strings(query).is_some() {
         return None;
     }
     raw.get("merged_at").filter(|merged| !merged.is_null())?;
@@ -233,7 +252,7 @@ pub(super) fn read_at_merge(
         .max_by_key(|(churn, _, _)| *churn)
         .map(|(_, path, lines)| (path, lines))?;
     Some(
-        Continuation::new(
+        Continuation::related(
             ToolId::GhGetFileContent,
             json!({
                 "owner": gh_get_history_item_query::owner(query),
@@ -287,7 +306,8 @@ pub(super) fn first_unpatched(
 /// no code file has a patch), read whole at the new side and, over its
 /// hunks' old-side windows, at the old side (its pre-rename path). An added
 /// file has no parent read, a removed one no new-side read. Only files the
-/// read selected are candidates.
+/// read selected are candidates. Missing patches require source recovery;
+/// delivered patches offer their source as optional related work.
 pub(super) fn change_reads(
     owner: &str,
     repo: &str,
@@ -295,13 +315,14 @@ pub(super) fn change_reads(
     sides: &ChangeSides<'_>,
     selected: impl Fn(&Value) -> bool,
 ) -> Vec<(&'static str, Value)> {
-    use crate::content::{FileType, classify_file_type, is_test_path};
+    use crate::content::{FileType, classify_file_type};
     let rank = |file: &Value| {
         let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
         let code = classify_file_type(path) == Some(FileType::Code) && !is_test_path(path);
         (code, churn(file))
     };
-    let Some(file) = first_unpatched(files, &selected).or_else(|| {
+    let missing_patch = first_unpatched(files, &selected);
+    let Some(file) = missing_patch.or_else(|| {
         files
             .iter()
             .filter(|file| selected(file) && file.get("patch").and_then(Value::as_str).is_some())
@@ -313,15 +334,19 @@ pub(super) fn change_reads(
     let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
     let status = file.get("status").and_then(Value::as_str).unwrap_or("");
     let patch = file.get("patch").and_then(Value::as_str).unwrap_or("");
+    let source_read = |row| {
+        if missing_patch.is_some() {
+            Continuation::continued(ToolId::GhGetFileContent, row)
+        } else {
+            Continuation::related(ToolId::GhGetFileContent, row)
+        }
+        .build()
+    };
     let mut reads = Vec::new();
     if let Some(new_ref) = sides.new_ref.filter(|_| status != "removed") {
         reads.push((
             "readAtCommit",
-            Continuation::new(
-                ToolId::GhGetFileContent,
-                json!({"owner": owner, "repo": repo, "path": path, "ref": new_ref}),
-            )
-            .build(),
+            source_read(json!({"owner": owner, "repo": repo, "path": path, "ref": new_ref})),
         ));
     }
     if let Some(old_ref) = sides.old_ref.filter(|_| status != "added") {
@@ -332,12 +357,14 @@ pub(super) fn change_reads(
         let mut row = json!({"owner": owner, "repo": repo, "path": old_path, "ref": old_ref});
         let ranges = parent_windows(patch);
         if !ranges.is_empty() {
-            row["ranges"] = json!(ranges);
+            row["ranges"] = json!(
+                ranges
+                    .iter()
+                    .map(|(start, end)| json!({"startLine":start,"endLine":end}))
+                    .collect::<Vec<_>>()
+            );
         }
-        reads.push((
-            "readParent",
-            Continuation::new(ToolId::GhGetFileContent, row).build(),
-        ));
+        reads.push(("readParent", source_read(row)));
     }
     reads
 }

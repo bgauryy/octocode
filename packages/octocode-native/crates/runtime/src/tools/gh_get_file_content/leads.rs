@@ -1,42 +1,56 @@
 //! The runnable next steps of a GitHub file read: its own pages rewritten
 //! from the shared localFetch read, and the leads of a match that found
 //! nothing.
-use crate::response::result::is_approximate;
-use crate::tools::source_view::types::local_fetch_query;
+use super::access;
+use crate::tools::source_view::local_fetch_query;
+use octocode_contract_types::{GhGetFileContentQuery, LocalFetchQuery};
 use serde_json::{Value, json};
 
-use super::GhGetFileContentQuery;
 use crate::id::ToolId;
 use crate::response::result::{Continuation, query_row};
-use crate::tools::source_view::LocalFetchQuery;
 
-/// The runnable next step of a match that found nothing: a ghSearchCode of
-/// the repository for the literal (it may live in another file). A regex
-/// has no literal to search.
-pub(super) fn empty_match_lead(
+/// The runnable next steps of a match that found nothing: a ghSearchCode of
+/// the repository for the literal (it may live in another file), and the
+/// file's history, since the text may live only on a branch or pull
+/// request: the commits that changed the path, and pull requests whose
+/// text names the literal (approximate: their discussion, not their
+/// diffs). A regex has no literal to search.
+pub(super) fn empty_match_leads(
     query: &GhGetFileContentQuery,
     local: &LocalFetchQuery,
-) -> Option<(&'static str, Value)> {
+) -> Vec<(&'static str, Value)> {
     let literals = local_fetch_query::match_strings(local);
-    let first = literals.first()?.trim();
+    let Some(first) = literals.first().map(|first| first.trim()) else {
+        return Vec::new();
+    };
     if local_fetch_query::is_regex(local) || first.is_empty() {
-        return None;
+        return Vec::new();
     }
-    let mut row =
-        json!({"owner": query.owner.as_str(), "repo": query.repo.as_str(), "keywords": [first]});
-    // The search reads its hits at the read's ref, not the default branch.
-    if let Some(reference) = query
-        .ref_
-        .as_deref()
-        .map(|r| r.trim())
-        .filter(|r| !r.is_empty())
-    {
-        row["ref"] = json!(reference);
+    let (owner, repo) = (access::owner(query), access::repo(query));
+    let reference = access::reference(query);
+    let mut code = json!({"owner": owner, "repo": repo, "keywords": [first]});
+    let mut commits = json!({"operation": "commit", "owner": owner, "repo": repo, "pathPrefix": access::path(query)});
+    // The search and the history read at the read's ref, not the default branch.
+    if let Some(reference) = reference {
+        code["ref"] = json!(reference);
+        commits["ref"] = json!(reference);
     }
-    Some((
-        "findCode",
-        Continuation::new(ToolId::GhSearchCode, row).build(),
-    ))
+    let pulls =
+        json!({"operation": "pullRequest", "owner": owner, "repo": repo, "keywords": [first]});
+    vec![
+        (
+            "findCode",
+            Continuation::related(ToolId::GhSearchCode, code).build(),
+        ),
+        (
+            "listCommits",
+            Continuation::related(ToolId::GhSearchHistory, commits).build(),
+        ),
+        (
+            "findPullRequest",
+            Continuation::related(ToolId::GhSearchHistory, pulls).build(),
+        ),
+    ]
 }
 
 /// The runnable repair of a `ranges` read whose every range starts past the
@@ -52,31 +66,30 @@ pub(super) fn last_window_repair(
     let (start, end) = local_fetch_query::last_window_span(local, total_lines)?;
     let mut row = query_row(query, &[]);
     row["ref"] = json!(sha);
-    row["ranges"] = json!([format!("{start}-{end}")]);
-    Some(Continuation::new(ToolId::GhGetFileContent, row).build())
+    row["ranges"] = json!([{"startLine":start,"endLine":end}]);
+    Some(Continuation::related(ToolId::GhGetFileContent, row).build())
 }
 
 /// One localFetch continuation row as the same read of the GitHub file at
-/// `resolved_ref`, in the view the shared read chose for it (the caller's,
-/// or none for a lead that reads the text as is). A window (offset, length or unit)
-/// never reads the whole file; a whole-view read (the unfiltered view of a
-/// `fullContent` read) keeps `fullContent`.
+/// `resolved_ref`, preserving the shared reader's canonical view, ranges,
+/// matcher and saved `readProgress`. A whole-source recovery keeps the
+/// corresponding whole-source reader variant.
 fn github_row(
     mut query: serde_json::Map<String, Value>,
     source: &GhGetFileContentQuery,
     resolved_ref: &str,
 ) -> Value {
-    query.insert("owner".into(), Value::String(source.owner.to_string()));
-    query.insert("repo".into(), Value::String(source.repo.to_string()));
+    query.insert(
+        "owner".into(),
+        Value::String(access::owner(source).to_owned()),
+    );
+    query.insert(
+        "repo".into(),
+        Value::String(access::repo(source).to_owned()),
+    );
     query.insert("ref".into(), Value::String(resolved_ref.to_owned()));
     query.remove("snapshot");
-    if ["offset", "length", "unit"]
-        .iter()
-        .any(|field| query.contains_key(*field))
-    {
-        query.remove("fullContent");
-    }
-    if let Some(force) = source.force_refresh {
+    if let Some(force) = access::force_refresh(source) {
         query.insert("forceRefresh".into(), Value::Bool(force));
     }
     Value::Object(query)
@@ -98,7 +111,7 @@ pub(super) fn rewrite_continuations(
     object.retain(|_, continuation| continuation["tool"] == ToolId::LocalFetch.as_str());
     for continuation in object.values_mut() {
         let Some(rows) = continuation
-            .pointer("/query/queries")
+            .pointer("/input/queries")
             .and_then(Value::as_array)
         else {
             continue;
@@ -108,10 +121,11 @@ pub(super) fn rewrite_continuations(
             .filter_map(Value::as_object)
             .map(|row| github_row(row.clone(), source, resolved_ref))
             .collect::<Vec<_>>();
-        let mut call = Continuation::input(ToolId::GhGetFileContent, json!({"queries": rows}));
-        if is_approximate(continuation) {
-            call = call.approximate();
-        }
+        let call = if continuation["kind"] == "continue" {
+            Continuation::continued_input(ToolId::GhGetFileContent, json!({"queries": rows}))
+        } else {
+            Continuation::related_input(ToolId::GhGetFileContent, json!({"queries": rows}))
+        };
         *continuation = call.build();
     }
     (!object.is_empty()).then_some(value)
@@ -127,13 +141,11 @@ mod tests {
         for (key, value) in fields.as_object().into_iter().flatten() {
             row[key] = value.clone();
         }
-        FetchCall {
-            query: serde_json::from_value(row).expect("read"),
-        }
+        FetchCall::continued(serde_json::from_value(row).expect("read"))
     }
 
-    /// The whole-view recovery of a `fullContent` read stays a whole read
-    /// on GitHub; a window (offset/length) never reads the whole file, and
+    /// The whole-source recovery of a whole read keeps that scope
+    /// on GitHub; range and saved-progress reads retain their bounds, and
     /// every row of a multi-row call becomes a GitHub read.
     #[test]
     fn a_whole_view_lead_keeps_full_content_and_every_row_is_rewritten() {
@@ -143,28 +155,28 @@ mod tests {
         let mut rest = serde_json::Map::new();
         rest.insert(
             "unfilteredUnknown2".into(),
-            Continuation::input(
+            Continuation::related_input(
                 ToolId::LocalFetch,
-                json!({"queries":[{"path":"README.md","ranges":["1-2"]},
-                    {"path":"README.md","ranges":["9-9"]}]}),
+                json!({"queries":[{"path":"README.md","ranges":[{"startLine": 1, "endLine": 2}]},
+                    {"path":"README.md","ranges":[{"startLine": 9, "endLine": 9}]}]}),
             )
             .build(),
         );
         let mut result = LocalFetchResult::blank(ReadStatus::Success);
         result.next = Some(NextCalls {
-            unfiltered: Some(read(json!({"fullContent":true}))),
-            unfiltered_unknown: Some(read(json!({"ranges":["3-4"]}))),
-            continue_window: Some(read(json!({"offset":50,"length":50,"unit":"lines"}))),
+            unfiltered: Some(read(json!({}))),
+            unfiltered_unknown: Some(read(json!({"ranges":[{"startLine": 3, "endLine": 4}]}))),
+            continue_window: Some(read(json!({"readProgress":{"offset":50,"unit":"lines"}}))),
             unfiltered_unknown_rest: rest,
             ..NextCalls::default()
         });
         let next = rewrite_continuations(&mut result, &source, "abc123").expect("next");
         let whole = &next["unfiltered"];
         assert_eq!(whole["tool"], "ghGetFileContent");
-        assert_eq!(whole["query"]["queries"][0]["fullContent"], true, "{next}");
-        let window = &next["continueWindow"]["query"]["queries"][0];
-        assert!(window.get("fullContent").is_none() && window["offset"] == 50);
-        let rows = next["unfilteredUnknown2"]["query"]["queries"]
+        assert_eq!(whole["input"]["queries"][0]["view"], "content");
+        let window = &next["continueWindow"]["input"]["queries"][0];
+        assert_eq!(window["readProgress"]["offset"], 50);
+        let rows = next["unfilteredUnknown2"]["input"]["queries"]
             .as_array()
             .expect("rows");
         assert_eq!(rows.len(), 2);

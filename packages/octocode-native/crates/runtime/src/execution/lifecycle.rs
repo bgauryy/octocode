@@ -107,7 +107,7 @@ pub(crate) struct ExecutionContext {
     /// This query's share of the cores for parallel directory walks, set by
     /// the batch budget when several queries walk at once. `None` = all cores.
     pub(crate) walk_threads: Option<u32>,
-    /// This row's share of the response page (an explicit `responseLength`,
+    /// This row's share of the response page (an explicit `responseChars`,
     /// else the runtime's `auto_page_chars`) that a streamed page must
     /// fit, set by the engine per row. `None` = no window; pages take their
     /// default size.
@@ -194,7 +194,7 @@ impl Drop for RequestGuard {
             .inner
             .state
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.requests.remove(&self.id);
         self.inner.drained.notify_waiters();
     }
@@ -226,7 +226,7 @@ impl RequestRuntime {
             .inner
             .state
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(token) = state.requests.get(request_id) {
             token.cancel();
             true
@@ -239,7 +239,7 @@ impl RequestRuntime {
         self.inner
             .state
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .closed
     }
 
@@ -247,7 +247,7 @@ impl RequestRuntime {
         self.inner
             .state
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .requests
             .len()
     }
@@ -257,7 +257,7 @@ impl RequestRuntime {
             .inner
             .state
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.closed = true;
         for token in state.requests.values() {
             token.cancel();
@@ -284,7 +284,7 @@ impl RequestRuntime {
             .inner
             .state
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.closed {
             return Err(ExecutionError::Closed);
         }

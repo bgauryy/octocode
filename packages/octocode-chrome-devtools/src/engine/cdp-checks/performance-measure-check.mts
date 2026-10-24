@@ -5,6 +5,24 @@
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Payload, Session } from '../cdp-connection.mjs';
+
+/** The fields score() and the metric lines read from the page's performance snapshot. */
+type PerfSnapshot = {
+  fcp?: number | null;
+  lcp?: { startTime?: number; element?: string; size?: number; url?: string };
+  cls?: number | null;
+  interactionLatencyMax?: number | null;
+  longTasks?: { duration?: number }[];
+  resources?: { duration: number }[];
+  visibility?: string;
+  navigation?: {
+    domContentLoaded?: number;
+    load?: number;
+    responseStart?: number;
+  };
+  [field: string]: unknown;
+};
 
 const SLOW_RESOURCE_MS = Number(process.env.PERF_SLOW_RESOURCE_MS || 500);
 const FIXTURE = `data:text/html,${encodeURIComponent(`<!doctype html>
@@ -27,7 +45,7 @@ const FIXTURE = `data:text/html,${encodeURIComponent(`<!doctype html>
 <p>Paragraph that will shift.</p><p>Another paragraph that will shift.</p>
 </body></html>`)}`;
 
-async function collect(cdp) {
+async function collect(cdp: Session) {
   return cdp.send('Runtime.evaluate', {
     awaitPromise: true,
     returnByValue: true,
@@ -146,14 +164,12 @@ async function collect(cdp) {
   });
 }
 
-function score(snap, slowMs) {
-  const findings = [];
+function score(snap: PerfSnapshot, slowMs: number) {
+  const findings: { code: string; [field: string]: unknown }[] = [];
   const fcp = snap.fcp;
   const lcp = snap.lcp?.startTime ?? null;
-  const longTaskTotal = (snap.longTasks || []).reduce(
-    (s, t) => s + (t.duration || 0),
-    0
-  );
+  const longTasks = snap.longTasks || [];
+  const longTaskTotal = longTasks.reduce((s, t) => s + (t.duration || 0), 0);
   const slowResources = (snap.resources || []).filter(
     r => r.duration >= slowMs
   );
@@ -167,7 +183,7 @@ function score(snap, slowMs) {
     findings.push({
       code: 'LONG_TASKS',
       totalMs: longTaskTotal,
-      count: snap.longTasks.length,
+      count: longTasks.length,
     });
   if (slowResources.length)
     findings.push({
@@ -195,7 +211,7 @@ function score(snap, slowMs) {
   };
 }
 
-export async function run(cdp) {
+export async function run(cdp: Session) {
   await cdp.send('Runtime.enable');
   await cdp.send('Page.enable');
   await cdp.send('Network.enable');
@@ -206,7 +222,7 @@ export async function run(cdp) {
   await cdp.send('Page.bringToFront').catch(() => {});
   // Headless paints lazily: without frames, late content gets no LCP entry (or one stamped at the
   // next forced paint). A tiny screencast keeps frames coming so paint timings are real.
-  const ackFrame = ({ sessionId }) => {
+  const ackFrame = ({ sessionId }: { sessionId: string }) => {
     cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
   };
   cdp.on('Page.screencastFrame', ackFrame);
@@ -228,7 +244,7 @@ export async function run(cdp) {
     await new Promise(r => setTimeout(r, 300));
   }
 
-  let raw;
+  let raw: Payload;
   try {
     raw = await collect(cdp);
   } finally {
@@ -244,7 +260,7 @@ export async function run(cdp) {
       'Performance evaluation unavailable: ' +
         (raw.exceptionDetails?.text || 'no result')
     );
-  const snap = raw.result.value;
+  const snap: PerfSnapshot = raw.result.value;
   const scored = score(snap, SLOW_RESOURCE_MS);
   const payload = {
     ...snap,

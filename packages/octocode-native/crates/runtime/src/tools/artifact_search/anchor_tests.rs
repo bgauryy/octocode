@@ -1,6 +1,7 @@
 //! Response anchors: exact rows, empty broadening and repair leads.
 use super::*;
 use crate::providers::artifact::ArtifactProviderPage;
+use crate::tools::test_support::checks::related_call;
 
 fn exact_row() -> ArtifactItem {
     let mut item = ArtifactItem::new(
@@ -20,11 +21,11 @@ fn exact_row() -> ArtifactItem {
 /// the release ref with how it was checked. No query field is echoed.
 #[test]
 fn an_exact_row_carries_the_release_source_anchors() {
-    let query = typed(&json!({"ecosystem":"npm","packageName":"zod"}));
+    let query = typed(&json!({"operation":"resolve","ecosystem":"npm","packageName":"zod"}));
     let data = respond(&query, ArtifactProviderPage::single(exact_row())).expect("row");
     let row = data["artifacts"][0].as_object().expect("row");
     for anchor in [
-        "name",
+        "packageName",
         "version",
         "owner",
         "repo",
@@ -41,7 +42,7 @@ fn an_exact_row_carries_the_release_source_anchors() {
         !row.contains_key("ecosystem") && !row.contains_key("type"),
         "{data}"
     );
-    let tree = &data["next"]["viewReleaseSource"]["query"]["queries"][0];
+    let tree = &related_call(&data, "ghStructure", |_| true)["input"]["queries"][0];
     assert_eq!(tree["ref"], row["sourceRef"], "{data}");
 }
 
@@ -50,7 +51,7 @@ fn an_exact_row_carries_the_release_source_anchors() {
 /// homepage that restated it is gone.
 #[test]
 fn a_github_homepage_is_a_discovery_rows_repository() {
-    let query = typed(&json!({"ecosystem":"rubygems","keywords":["jwt"]}));
+    let query = typed(&json!({"operation":"search","ecosystem":"rubygems","keywords":["jwt"]}));
     let mut gem = ArtifactItem::new(
         ArtifactType::Rubygems,
         "json-jwt".into(),
@@ -81,61 +82,67 @@ fn a_github_homepage_is_a_discovery_rows_repository() {
 /// keyword, as one batch; its only prose names what each row drops.
 #[test]
 fn an_empty_discovery_broadens_by_dropping_each_keyword() {
-    let query = typed(&json!({"ecosystem":"crates","keywords":["zzz","async","runtime"]}));
+    let query = typed(
+        &json!({"operation":"search","ecosystem":"crates","keywords":["zzz","async","runtime"]}),
+    );
     let data = respond(&query, ArtifactProviderPage::empty(Some(0))).expect("empty");
     assert_eq!(data["status"], "empty");
-    assert_eq!(
-        data["hints"],
-        json!([
-            "broadenSearch rows: queries[0] drops keyword \"runtime\"; queries[1] drops keyword \"async\"; queries[2] drops keyword \"zzz\""
-        ]),
-        "{data}"
-    );
-    let variants = data["next"]["broadenSearch"]["query"]["queries"]
+    let variants = related_call(&data, "artifactSearch", |_| true)["input"]["queries"]
         .as_array()
         .expect("batch");
     assert_eq!(variants.len(), 3, "{data}");
     assert_eq!(variants[0]["keywords"], json!(["zzz", "async"]), "{data}");
     assert_eq!(variants[0]["ecosystem"], "crates", "{data}");
     // One multi-word keyword drops a word at a time, and says which.
-    let phrase = typed(&json!({"ecosystem":"crates","keywords":["zzz async"]}));
+    let phrase =
+        typed(&json!({"operation":"search","ecosystem":"crates","keywords":["zzz async"]}));
     let data = respond(&phrase, ArtifactProviderPage::empty(Some(0))).expect("empty");
+    let variants = related_call(&data, "artifactSearch", |_| true)["input"]["queries"]
+        .as_array()
+        .expect("variants");
     assert_eq!(
-        data["next"]["broadenSearch"]["query"]["queries"],
-        json!([{"ecosystem":"crates","keywords":["zzz"]},{"ecosystem":"crates","keywords":["async"]}]),
-        "{data}"
+        variants
+            .iter()
+            .map(|row| row["keywords"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!(["zzz"]), json!(["async"])]
     );
-    assert_eq!(
-        data["hints"],
-        json!([
-            "broadenSearch rows: queries[0] drops word \"async\"; queries[1] drops word \"zzz\""
-        ]),
-        "{data}"
-    );
-    let single = typed(&json!({"ecosystem":"crates","keywords":["zzz"]}));
+    for row in variants {
+        crate::contracts::validate_query("artifactSearch", row.clone())
+            .expect("canonical related row");
+    }
+    let single = typed(&json!({"operation":"search","ecosystem":"crates","keywords":["zzz"]}));
     let data = respond(&single, ArtifactProviderPage::empty(Some(0))).expect("empty");
-    assert!(data.get("next").is_none(), "{data}");
+    assert!(data.get("related").is_none(), "{data}");
 }
 
 /// A failure a call repairs carries exactly that one lead and no text.
 #[test]
 fn failures_carry_one_repair_lead() {
-    let unknown = typed(&json!({"ecosystem":"crates","packageName":"no-such-crate@1.0.0"}));
+    let unknown = typed(
+        &json!({"operation":"resolve","ecosystem":"crates","packageName":"no-such-crate","version":"1.0.0"}),
+    );
     let error = respond(&unknown, ArtifactProviderPage::empty(Some(0))).expect_err("missing");
     let error = leads::with_repair(error, &unknown);
-    let next = error.next.expect("lead");
-    assert_eq!(next.as_object().map(|next| next.len()), Some(1), "{next}");
+    let next = error.calls.expect("lead");
     assert_eq!(
-        next["broadenSearch"]["query"]["queries"][0],
-        json!({"ecosystem":"crates","keywords":["no-such-crate"]})
+        next.as_object().map(serde_json::Map::len),
+        Some(1),
+        "{next}"
+    );
+    assert_eq!(
+        next["broadenSearch"]["input"]["queries"][0],
+        json!({"operation":"search","ecosystem":"crates","keywords":["no-such-crate"]})
     );
     assert!(error.hints.is_empty());
 
-    let pinned = typed(&json!({"ecosystem":"npm","packageName":"zod","version":"3.22.9"}));
+    let pinned = typed(
+        &json!({"operation":"resolve","ecosystem":"npm","packageName":"zod","version":"3.22.9"}),
+    );
     let mut missing = ArtifactError::new(ErrorCode::VersionNotFound, "no 3.22.9");
     missing.nearest = vec!["3.22.4".into(), "3.22.0".into()];
-    let next = leads::with_repair(missing, &pinned).next.expect("lead");
-    let versions = next["repair"]["query"]["queries"]
+    let next = leads::with_repair(missing, &pinned).calls.expect("lead");
+    let versions = next["repair"]["input"]["queries"]
         .as_array()
         .expect("batch")
         .iter()
@@ -147,34 +154,24 @@ fn failures_carry_one_repair_lead() {
         ArtifactError::new(ErrorCode::CapabilityUnavailable, "x"),
         &pinned,
     )
-    .next
+    .calls
     .expect("lead");
     assert_eq!(
-        latest["repair"]["query"]["queries"][0],
-        json!({"ecosystem":"npm","packageName":"zod"})
-    );
-    // A bare Maven artifact name is no coordinate: its repair searches it.
-    let bare = typed(&json!({"ecosystem":"maven","packageName":"guava"}));
-    let error = ArtifactError {
-        searchable_name: true,
-        ..ArtifactError::new(ErrorCode::InvalidInput, "not a groupId:artifactId")
-    };
-    let next = leads::with_repair(error, &bare).next.expect("lead");
-    assert_eq!(
-        next["broadenSearch"]["query"]["queries"][0],
-        json!({"ecosystem":"maven","keywords":["guava"]}),
-        "{next}"
+        latest["repair"]["input"]["queries"][0],
+        json!({"operation":"resolve","ecosystem":"npm","packageName":"zod"})
     );
     assert!(
-        leads::with_repair(ArtifactError::new(ErrorCode::InvalidInput, "x"), &bare)
-            .next
-            .is_none()
+        crate::contracts::validate_query(
+            "artifactSearch",
+            json!({"operation":"resolve","ecosystem":"maven","packageName":"guava"})
+        )
+        .is_err()
     );
     // PyPI has no keyword search: an unknown package has no repair, and
     // its hint names the spelling, not the provider configuration.
-    let pypi = typed(&json!({"ecosystem":"pypi","packageName":"nope"}));
+    let pypi = typed(&json!({"operation":"resolve","ecosystem":"pypi","packageName":"nope"}));
     let error = leads::with_repair(ArtifactError::new(ErrorCode::NotFound, "x"), &pypi);
-    assert!(error.next.is_none());
+    assert!(error.calls.is_none());
     assert_eq!(
         error.hints,
         ["Check the exact packageName spelling; pypi has no keyword search."]

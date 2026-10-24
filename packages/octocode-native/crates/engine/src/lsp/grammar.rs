@@ -1,7 +1,7 @@
 use tree_sitter::Language;
 
 use crate::signatures::languages;
-use crate::text::file_extension::extension_of;
+use crate::text::extension_of;
 
 /// The grammar of a file with an LSP language id, read from the single
 /// language registry (`signatures::languages`).

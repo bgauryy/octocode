@@ -1,5 +1,5 @@
 use super::super::result::Remaining;
-use crate::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
+use crate::response::result::{HINTS_KEY, PAGES_KEY};
 use serde_json::{Map, Value, json};
 
 /// Serialized length `rowPart` adds to a non-empty row object.
@@ -9,12 +9,9 @@ pub(super) fn row_part_chars(part: usize, of: usize) -> usize {
         - 1
 }
 
-/// The part of a split row a `next.*` call rides. Page continuations
-/// (`next*`, `continue*`) resume after the row's last shown evidence, so they
-/// ride its last part: following one from an earlier part would silently
-/// skip the parts between. Every other call (drill-down, handoff, recovery)
-/// rides the first part, beside the head of the evidence. Middle parts carry
-/// none, so each call appears exactly once across the part set.
+/// Required continuations ride the last part so following one cannot skip
+/// intermediate evidence. Related calls and guidance ride the first part.
+/// Each call appears exactly once across the part set.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum PartShare {
     Whole,
@@ -36,8 +33,8 @@ impl PartShare {
     /// Whether this part keeps entry `name` of the row's `container`
     /// (`next` or `hints`). Hint leads and text are never pages, so they
     /// ride the first part.
-    fn keeps(self, container: &str, name: &str) -> bool {
-        let page = container == PAGES_KEY && crate::id::resumes_after_shown(name);
+    fn keeps(self, container: &str) -> bool {
+        let page = container == PAGES_KEY;
         match self {
             Self::Whole => true,
             Self::First => !page,
@@ -47,65 +44,45 @@ impl PartShare {
     }
 }
 
-/// The `next` and `hints` objects a row carries under `data` and at its top
-/// level, with their container name.
-fn row_nexts(row: &Value) -> impl Iterator<Item = (&'static str, &Map<String, Value>)> {
+fn row_guidance(row: &Value) -> impl Iterator<Item = (&'static str, &Value)> {
     [row.get("data"), Some(row)]
         .into_iter()
         .flatten()
         .flat_map(|slot| {
-            [PAGES_KEY, HINTS_KEY].into_iter().filter_map(move |key| {
-                slot.get(key)
-                    .and_then(Value::as_object)
-                    .map(|map| (key, map))
-            })
+            [PAGES_KEY, HINTS_KEY, "related"]
+                .into_iter()
+                .filter_map(move |key| slot.get(key).map(|value| (key, value)))
         })
 }
 
-/// Serialized `"next":…,`/`"hints":…,` chars a row's `share` keeps.
 pub(super) fn row_next_chars(row: &Value, share: PartShare) -> usize {
-    row_nexts(row)
-        .map(|(container, entries)| {
-            let kept: Map<String, Value> = entries
-                .iter()
-                .filter(|(name, _)| share.keeps(container, name))
-                .map(|(name, call)| (name.clone(), call.clone()))
-                .collect();
-            if kept.is_empty() {
-                0
-            } else {
-                octocode_engine::json_size::utf16_units(&json!({ container: kept })).unwrap_or(0)
-                    - 1
-            }
+    row_guidance(row)
+        .filter(|(key, _)| share.keeps(key))
+        .map(|(key, value)| {
+            octocode_engine::json_size::utf16_units(&json!({key:value})).unwrap_or(0) - 1
         })
         .sum()
 }
 
-/// Keep only the continuations and hints a row part rides (see
-/// [`PartShare`]); the row's remaining-page `notes` are re-rendered for the
-/// pages the part carries or moved.
 pub(super) fn keep_row_next(value: &mut Value, share: PartShare, notes: &[Remaining]) {
     let retain = |slot: Option<&mut Map<String, Value>>| {
         let Some(slot) = slot else {
             return;
         };
         let mut moved = Vec::new();
-        for container in [PAGES_KEY, HINTS_KEY] {
-            if let Some(entries) = slot.get_mut(container).and_then(Value::as_object_mut) {
-                entries.retain(|name, _| {
-                    let kept = share.keeps(container, name);
-                    if !kept && container == PAGES_KEY {
-                        moved.push(name.clone());
-                    }
-                    kept
-                });
-                if entries.is_empty() {
-                    slot.remove(container);
-                }
+        for key in [PAGES_KEY, HINTS_KEY, "related"] {
+            if !share.keeps(key)
+                && let Some(value) = slot.remove(key)
+                && key == PAGES_KEY
+            {
+                moved.extend(
+                    value
+                        .as_object()
+                        .into_iter()
+                        .flat_map(|map| map.keys().cloned()),
+                );
             }
         }
-        // Only the first part holds the row's base data; its warning names
-        // the pages that moved to the response pager.
         if share == PartShare::First {
             super::super::pages::redisclose(slot, notes, &moved);
         }

@@ -1,11 +1,12 @@
 use super::super::RowPaths;
-use super::scan::parser_extension;
-use super::types::{Group, ScannedFile, Scope};
+use super::scan::{parser_extension, scan_directory};
+use super::types::{Group, Scan, ScannedFile, Scope};
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, simple_policy};
-use octocode_contract_types::AstSearchQueryMatchPattern;
-use serde_json::Value;
+use octocode_contract_types::AstSearchQuery;
+use octocode_engine::structural::FileMatches;
+use serde_json::{Value, json};
 
 /// A nested Rust fixture where `$A` matches every named node.
 fn nested() -> Fixture {
@@ -19,12 +20,16 @@ fn nested() -> Fixture {
     root
 }
 
-fn typed(row: Value) -> AstSearchQueryMatchPattern {
-    let typed: super::super::AstSearchQuery = serde_json::from_value(row).expect("typed row");
-    let super::super::AstSearchQuery::MatchPattern(query) = typed else {
-        panic!("a pattern row");
-    };
-    query
+fn typed(row: Value) -> AstSearchQuery {
+    serde_json::from_value(row).expect("canonical match row")
+}
+
+fn matched(row: &AstSearchQuery) -> MatchQuery<'_> {
+    match row {
+        AstSearchQuery::Match0(query) => MatchQuery::Content(query),
+        AstSearchQuery::MatchView(query) => MatchQuery::Summary(query),
+        _ => panic!("a match row"),
+    }
 }
 
 fn scan_of(q: MatchQuery<'_>, paths: &PathPolicy) -> (Scope, Scan) {
@@ -41,10 +46,10 @@ fn a_scan_keeps_only_what_its_view_shows() {
     let (paths, _) = simple_policy(&root.0);
     let mut totals = Vec::new();
     for view in ["files", "countMatches", "content"] {
-        let query = typed(json!({
-            "operation":"match","path":root.0,"pattern":"$A","language":"rust","resultView":view
-        }));
-        let q = MatchQuery::Pattern(&query);
+        let query = typed(
+            json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"parser":"rust","view":view}),
+        );
+        let q = matched(&query);
         let (_, scan) = scan_of(q, &paths);
         for file in &scan.files {
             assert!(file.matches.held().is_empty(), "{view}: {}", file.path);
@@ -74,20 +79,11 @@ fn a_scan_keeps_only_what_its_view_shows() {
 fn a_priced_scan_pages_exactly_as_a_held_scan() {
     let root = nested();
     let (paths, _) = simple_policy(&root.0);
-    for (budget, page_size, match_page_size) in [
-        (2_000, None, None),
-        (600, None, Some(3)),
-        (100_000, Some(1), Some(5)),
-    ] {
-        let mut row = json!({"operation":"match","path":root.0,"pattern":"$A","language":"rust"});
-        if let Some(size) = page_size {
-            row["pageSize"] = json!(size);
-        }
-        if let Some(size) = match_page_size {
-            row["matchPageSize"] = json!(size);
-        }
+    for budget in [600, 2_000, 100_000] {
+        let row =
+            json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"parser":"rust"});
         let first = typed(row.clone());
-        let q = MatchQuery::Pattern(&first);
+        let q = matched(&first);
         let (scope, priced) = scan_of(q, &paths);
         let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
         let held = priced
@@ -102,7 +98,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                         match octocode_engine::structural::file_matches(
                             &source,
                             &parser_extension(&scope, &source),
-                            q.pattern().as_deref(),
+                            q.pattern_text().as_deref(),
                             None,
                             &digest,
                             super::super::source::MAX_PARSE_SOURCE_BYTES as u64,
@@ -142,7 +138,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                 cursor["page"] = json!(page);
                 cursor["matchPage"] = json!(match_page);
                 let query = typed(cursor);
-                let q = MatchQuery::Pattern(&query);
+                let q = matched(&query);
                 let mut from_prices = group_files(
                     q,
                     &priced.files,
@@ -174,7 +170,6 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                                 group.out_of_range,
                                 group.more_matches,
                                 group.truncated_captures,
-                                group.cut_chars,
                                 group.clipped.clone(),
                             )
                         })
@@ -197,8 +192,9 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
 fn a_priced_file_edited_after_its_scan_rebuilds_no_page() {
     let root = nested();
     let (paths, _) = simple_policy(&root.0);
-    let query = typed(json!({"operation":"match","path":root.0,"pattern":"$A","language":"rust"}));
-    let q = MatchQuery::Pattern(&query);
+    let query =
+        typed(json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"parser":"rust"}));
+    let q = matched(&query);
     let (scope, scan) = scan_of(q, &paths);
     let budget = 100_000;
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
@@ -218,8 +214,9 @@ fn a_priced_file_edited_after_its_scan_rebuilds_no_page() {
 fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
     let root = nested();
     let (paths, _) = simple_policy(&root.0);
-    let query = typed(json!({"operation":"match","path":root.0,"pattern":"$A","language":"rust"}));
-    let q = MatchQuery::Pattern(&query);
+    let query =
+        typed(json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"parser":"rust"}));
+    let q = matched(&query);
     let (scope, mut scan) = scan_of(q, &paths);
     let budget = 100_000;
     let (source, digest) = scan.files[0].source.clone().expect("scanned source");
@@ -243,7 +240,7 @@ fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
     assert_eq!(incomplete.len(), 1);
     assert_eq!(incomplete[0][0].code, "structural.language.unsupported");
     let unevaluated = &grouped.groups[0];
-    assert_eq!(unevaluated.row, json!({"path": scan.files[0].path}));
+    assert_eq!(unevaluated.row, json!({"path":scan.files[0].path}));
     assert!(unevaluated.priced.is_none() && !unevaluated.more_matches);
     assert!(
         grouped.groups[1..window.end]

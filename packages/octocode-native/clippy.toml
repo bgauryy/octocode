@@ -1,9 +1,16 @@
+# Test code may assert with unwrap/expect/panic. Clippy does not count a
+# module mounted under `cfg(all(test, unix))` as test code, so those modules
+# carry their own `#[expect(clippy::expect_used)]`.
 allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
 # Ceiling for non-exempt functions. The structural matcher's recursive
 # `match_multi_capture` (structural/octo/pattern.rs) threads 9 arguments; the
 # two at 10 (`match_multi_split`, `walk_expanding`) carry `#[expect]` with a
 # reason.
 too-many-arguments-threshold = 9
+# `too_many_lines` (Cargo.toml): a longer function splits into named steps.
+too-many-lines-threshold = 150
 disallowed-methods = [
     { path = "alloc::string::String::leak", reason = "leaks per call in a long-lived server process — bind to a local instead" },
 ]

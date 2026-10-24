@@ -1,6 +1,7 @@
 //! Alias-aware reference recovery: renamed imports found by a bounded scan,
 //! and disclosing when that scan was capped.
 use super::*;
+use octocode_contract_types::LspSearchQuery;
 
 /// The references request [`recover_aliases`] extends: the anchor's
 /// `symbol`, whether declarations count, and the references the server
@@ -166,7 +167,7 @@ pub(in super::super) const ALIAS_SCAN_CAPPED_REASON: &str = "aliasScanCapped";
 /// aliases left unchecked.
 pub(in super::super) fn disclose_alias_cap(
     row: &mut Value,
-    query: &super::super::LspSearchQuery,
+    query: &LspSearchQuery,
     scope: &super::super::scope::Scope,
 ) {
     if let Some(coverage) = row.pointer_mut("/coverage") {
@@ -177,7 +178,7 @@ pub(in super::super) fn disclose_alias_cap(
         query,
         ALIAS_SCAN_CAPPED_REASON,
         Some(&format!(
-            "Alias recovery checked at most {MAX_ALIAS_FILES_READ} files and {MAX_ALIAS_IMPORTS} renaming imports; references through the unchecked aliases may be missing. This cap is terminal: no page or retry re-checks them. Confirm with {} (the text-search lead: shown on the last page, or on any page with extras [\"hints\"]).",
+            "Alias recovery checked at most {MAX_ALIAS_FILES_READ} files and {MAX_ALIAS_IMPORTS} renaming imports; references through the unchecked aliases may be missing. This cap is terminal: no page or retry re-checks them. Confirm with {}.",
             super::super::failure::TEXT_CHECK
         )),
         scope,

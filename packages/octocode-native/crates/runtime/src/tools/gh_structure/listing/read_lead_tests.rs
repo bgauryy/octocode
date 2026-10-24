@@ -2,7 +2,7 @@
 use super::*;
 
 fn lead(paths: &[&str], include: &[&str]) -> Option<String> {
-    let query: GhStructureQueryTree = serde_json::from_value(json!({
+    let query: GhStructureQueryTree = serde_json::from_value(json!({"operation":"tree",
         "owner": "o", "repo": "r", "include": include
     }))
     .expect("query");
@@ -15,7 +15,7 @@ fn lead(paths: &[&str], include: &[&str]) -> Option<String> {
         })
         .collect::<Vec<_>>();
     entry_read(&query, &entries, "s").map(|read| {
-        read["query"]["queries"][0]["path"]
+        read["input"]["queries"][0]["path"]
             .as_str()
             .unwrap_or_default()
             .to_owned()

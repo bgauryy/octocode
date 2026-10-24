@@ -11,7 +11,8 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
-import { packageRoot, readJson, repoRoot } from '../scripts/build.ts';
+import { readJson } from '../../octocode/scripts/build-plugin.mjs';
+import { packageRoot, repoRoot } from '../scripts/build.ts';
 
 const names = (root: string) =>
   readdirSync(root)

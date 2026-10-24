@@ -4,10 +4,7 @@ use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::security::scan::{MemoizedScan, SanitizedViewMemo};
 use crate::tools::gh_shared::test_support::{default_context, fixture_context, mock_provider};
-use crate::tools::source_view::WindowUnit;
-use crate::tools::source_view::types::test_local_fetch_query;
-use crate::tools::source_view::wire_positive;
-use crate::tools::source_view::{LocalFetchQuery, ReadStatus, process_fetched_content};
+use crate::tools::source_view::{ReadStatus, process_fetched_content};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_contract_types::ErrorCode;
 use octocode_github::RetryPolicy;
@@ -69,9 +66,7 @@ impl ContentScan for Safe {
 }
 
 async fn read(provider: &GitHubProvider, query: Value) -> GhGetFileContentResult {
-    let mut query = query;
-    query["mainGoal"] = "test".into();
-    query["reasoning"] = "test".into();
+    let query = query;
     let query: GhGetFileContentQuery = serde_json::from_value(query).expect("query");
     execute_default_regex(provider, &query, &default_context(), Some(50_000))
         .await
@@ -82,9 +77,7 @@ async fn run_default(
     provider: &GitHubProvider,
     query: Value,
 ) -> Result<FileRead, crate::tools::gh_shared::GhFailure> {
-    let mut query = query;
-    query["mainGoal"] = "test".into();
-    query["reasoning"] = "test".into();
+    let query = query;
     let query: GhGetFileContentQuery = serde_json::from_value(query).expect("query");
     run(
         provider,

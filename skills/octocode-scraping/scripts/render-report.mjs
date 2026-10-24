@@ -11,8 +11,6 @@ import { fileURLToPath } from 'node:url';
 import { buildReport, defaultOut, manifestPage } from './lib/report/render.mjs';
 import { selfTest } from './lib/report/self-test.mjs';
 
-export { buildManifest, buildReport, manifestPage } from './lib/report/render.mjs';
-
 const HELP = `Render skill Markdown output as one self-contained HTML report. The page stays closed.
 
 Usage:
@@ -53,38 +51,36 @@ function openFile(file) {
   try { spawn(cmd[0], cmd[1], { stdio: 'ignore', detached: true }).unref(); return true; } catch { return false; }
 }
 
+const VALUE_OPTIONS = new Map([['--out', 'out'], ['--title', 'title'], ['--workspace', 'workspace']]);
+const FLAG_OPTIONS = new Map([
+  ['--open', ['open', true]], ['--no-open', ['open', false]], ['--json', ['json', true]], ['--manifest', ['manifest', true]],
+  ['--strict', ['strict', true]], ['--all', ['all', true]], ['--help', ['help', true]], ['-h', ['help', true]], ['--self-test', ['selfTest', true]],
+]);
+
+// Reads the option at argv[i] into args; returns the index of the last argument it consumed.
+function readOption(args, argv, i) {
+  const a = argv[i];
+  if (VALUE_OPTIONS.has(a)) { args[VALUE_OPTIONS.get(a)] = argv[i + 1]; return i + 1; }
+  if (FLAG_OPTIONS.has(a)) { const [key, value] = FLAG_OPTIONS.get(a); args[key] = value; return i; }
+  if (a === '--query') { args.query = argv[i + 1]; if (!args.query || args.query.startsWith('--')) throw new Error('--query requires text'); return i + 1; }
+  if (a === '--limit' || a === '--offset') {
+    const value = Number(argv[i + 1]);
+    if (!Number.isSafeInteger(value) || value < (a === '--limit' ? 1 : 0)) throw new Error(`Invalid ${a}`);
+    args[a.slice(2)] = value;
+    return i + 1;
+  }
+  if (a.startsWith('--')) throw new Error(`Unknown option: ${a}`);
+  args.positional.push(a);
+  return i;
+}
+
 function parseArgs(argv) {
   const args = { positional: [], open: false, json: false };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--out') args.out = argv[++i];
-    else if (a === '--title') args.title = argv[++i];
-    else if (a === '--workspace') args.workspace = argv[++i];
-    else if (a === '--open') args.open = true;
-    else if (a === '--no-open') args.open = false;
-    else if (a === '--json') args.json = true;
-    else if (a === '--manifest') args.manifest = true;
-    else if (a === '--strict') args.strict = true;
-    else if (a === '--all') args.all = true;
-    else if (a === '--query') { args.query = argv[++i]; if (!args.query || args.query.startsWith('--')) throw new Error('--query requires text'); }
-    else if (a === '--limit' || a === '--offset') { const value = Number(argv[++i]); if (!Number.isSafeInteger(value) || value < (a === '--limit' ? 1 : 0)) throw new Error(`Invalid ${a}`); args[a.slice(2)] = value; }
-    else if (a === '--help' || a === '-h') args.help = true;
-    else if (a === '--self-test') args.selfTest = true;
-    else if (a.startsWith('--')) throw new Error(`Unknown option: ${a}`);
-    else args.positional.push(a);
-  }
+  for (let i = 0; i < argv.length; i++) i = readOption(args, argv, i);
   return args;
 }
 
-function main() {
-  let args;
-  try { args = parseArgs(process.argv.slice(2)); } catch (e) { console.error(e.message); return 1; }
-  if (args.help) { console.log(HELP); return 0; }
-  if (args.selfTest) return selfTest(fileURLToPath(import.meta.url));
-  if (args.positional.length !== 1) { console.error(HELP); return 1; }
-  if (args.manifest) {
-    try { console.log(JSON.stringify(manifestPage(args.positional[0], args))); return 0; } catch (e) { console.error(e.message); return 1; }
-  }
+function render(args) {
   try {
     const report = buildReport(args.positional[0], { title: args.title, workspace: args.workspace });
     const out = path.resolve(args.out || defaultOut(report.abs, report.isDir, report.workspace));
@@ -100,6 +96,18 @@ function main() {
     console.error(e.message);
     return 1;
   }
+}
+
+function main() {
+  let args;
+  try { args = parseArgs(process.argv.slice(2)); } catch (e) { console.error(e.message); return 1; }
+  if (args.help) { console.log(HELP); return 0; }
+  if (args.selfTest) return selfTest(fileURLToPath(import.meta.url));
+  if (args.positional.length !== 1) { console.error(HELP); return 1; }
+  if (args.manifest) {
+    try { console.log(JSON.stringify(manifestPage(args.positional[0], args))); return 0; } catch (e) { console.error(e.message); return 1; }
+  }
+  return render(args);
 }
 
 if (isMainModule(import.meta.url)) process.exitCode = main();

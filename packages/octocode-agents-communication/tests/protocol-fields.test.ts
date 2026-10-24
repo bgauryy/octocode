@@ -32,6 +32,10 @@ test('Given the handoff constraints and delta phase slots, when they are sent ov
   assert.equal(rows[2].result.isError, undefined);
   assert.equal(rows[3].result.isError, true);
   assert.match(rows[3].result.content[0].text, /blank/);
-  const bodies = call('inbox', {}, bob).items.map((item: JsonRecord) => item.body);
-  assert.deepEqual(bodies, ['Handoff packet\nState: Half done\nNext: Finish it\nConstraints:\n- read only', 'Delta update\nPhase: verify\nChanges:\n- tests pass']);
+  // store-protocol.test.ts owns the rendered layout; here the slots only have to arrive through MCP.
+  const bodies: string[] = call('inbox', {}, bob).items.map((item: JsonRecord) => item.body);
+  assert.equal(bodies.length, 2, 'the refused blank phase stored nothing');
+  const [stored, phased] = bodies;
+  assert.match(stored, /\nConstraints:\n- read only$/);
+  assert.match(phased, /\nPhase: verify\n/);
 });

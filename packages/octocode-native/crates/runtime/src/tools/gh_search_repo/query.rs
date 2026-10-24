@@ -1,67 +1,66 @@
-//! ghSearchRepo query syntax.
-use super::GhSearchRepoQuery;
-use crate::tools::gh_shared::query::SearchTerms;
+use crate::tools::gh_shared::{query::SearchTerms, ranges};
+use octocode_contract_types::{GhSearchRepoQuery, GitHubArchive};
 
 pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
-    let GhSearchRepoQuery {
-        keywords,
-        owner,
-        language,
-        stars,
-        pushed,
-        created,
-        match_in,
-        include_archived,
-        license,
-        topics,
-        ..
-    } = query;
+    let keywords = super::access::keywords(query);
     let mut terms = SearchTerms::new(keywords.iter().map(String::as_str));
-    // owner+repo with filters searches inside that one repository.
-    terms.scope(
-        owner.as_deref().map(String::as_str),
-        query.repo.as_deref().map(String::as_str),
-    );
-    // Search leaves forks out unless asked; an owner's repositories include
-    // its forks, as its listing does, so every sort covers one set.
-    if owner.is_some() {
+    terms.scope(super::access::owner(query), super::access::repo(query));
+    if super::access::owner(query).is_some() {
         terms.push("fork:true");
     }
-    for topic in topics {
-        terms.text("topic", Some(topic));
+    if let Some(filters) = super::access::filters(query) {
+        for topic in &filters.topics {
+            terms.text("topic", Some(topic));
+        }
+        for (key, value) in [
+            ("stars", &filters.stars),
+            ("forks", &filters.fork_count),
+            ("size", &filters.size_ki_b),
+            ("good-first-issues", &filters.good_first_issue_count),
+            ("help-wanted-issues", &filters.help_wanted_issue_count),
+            ("topics", &filters.topic_count),
+            ("followers", &filters.follower_count),
+        ] {
+            terms.text(key, value.as_ref().and_then(ranges::numeric).as_deref());
+        }
+        for (key, value) in [
+            ("created", &filters.created_at),
+            ("pushed", &filters.pushed_at),
+        ] {
+            terms.text(key, value.as_ref().and_then(ranges::date).as_deref());
+        }
+        terms.text("language", filters.language.as_ref().map(|v| v.as_str()));
+        terms.text("license", filters.license.as_ref().map(|v| v.as_str()));
+        terms.text(
+            "is",
+            filters
+                .visibility
+                .as_ref()
+                .map(ToString::to_string)
+                .as_deref(),
+        );
+        if filters.is_sponsorable == Some(true) {
+            terms.push("is:sponsorable");
+        }
     }
-    terms.range("stars", stars.as_deref().map(String::as_str));
-    terms.range("pushed", pushed.as_deref().map(String::as_str));
-    terms.range("created", created.as_deref().map(String::as_str));
-    terms.text("language", language.as_ref().map(|value| value.as_str()));
-    terms.text("license", license.as_ref().map(|value| value.as_str()));
-    for kind in match_in {
-        terms.text("in", Some(&kind.to_string()));
+    if let GhSearchRepoQuery::Search(q) = query
+        && !q.match_in.is_empty()
+    {
+        terms.text(
+            "in",
+            Some(
+                &q.match_in
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+        );
     }
-    // Repository search ignores `is:archived`/`is:not-archived`; they become
-    // the `archived:` filter it honours, which replaces the default
-    // exclusion. `includeArchived` sends no archive filter at all.
-    let mut archive = None;
-    let qualifiers = query.qualifiers.as_deref().map(|qualifiers| {
-        qualifiers
-            .split_whitespace()
-            .filter(|term| {
-                let filter = match *term {
-                    "is:archived" => "archived:true",
-                    "is:not-archived" => "archived:false",
-                    _ => return true,
-                };
-                archive = Some(filter);
-                false
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    });
-    if *include_archived != Some(true) || archive.is_some() {
-        terms.push(archive.unwrap_or("archived:false"));
-    }
-    if let Some(qualifiers) = qualifiers {
-        terms.qualifiers(&qualifiers);
+    match super::access::archive(query) {
+        GitHubArchive::Exclude => terms.push("archived:false"),
+        GitHubArchive::Only => terms.push("archived:true"),
+        GitHubArchive::Include => {}
     }
     terms.finish()
 }
@@ -70,89 +69,50 @@ pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
 mod tests {
     use super::*;
     use crate::tools::gh_shared::query::parse;
-
+    use serde_json::json;
     #[test]
-    fn repositories_exclude_archived_with_a_real_qualifier() {
+    fn typed_repository_filters_preserve_units_bounds_and_or_locations() {
         let q = repositories(&parse(
-            serde_json::json!({"mainGoal": "test", "reasoning":"test","keywords":["x"]}),
+            json!({"operation":"search", "owner":"o", "matchIn":["name","readme"], "filters":{
+                "archive":"only", "stars":{"min":0,"max":10}, "sizeKiB":{"max":5000}, "visibility":"public",
+                "language":"Common Lisp", "topics":["machine-learning"], "isSponsorable":true,
+                "createdAt":{"from":"2024-01-01T00:00:00Z"}
+            }}),
         ));
-        assert!(q.contains("archived:false"), "{q}");
-        assert!(!q.contains("is:not-archived"), "{q}");
-    }
-
-    /// `includeArchived` sends no archive qualifier. Repository search
-    /// ignores `is:archived`/`is:not-archived`, so those become the
-    /// `archived:` filter it honours, replacing the default.
-    #[test]
-    fn archived_true_includes_and_is_archived_replaces_the_default() {
-        let included = repositories(&parse(
-            serde_json::json!({"mainGoal": "test", "reasoning":"test","keywords":["x"],"includeArchived":true}),
-        ));
-        assert!(!included.contains("archived:"), "{included}");
-        let q = |qualifiers: &str| {
-            repositories(&parse(serde_json::json!({
-                "mainGoal": "test", "reasoning":"test","keywords":["x"],"qualifiers": qualifiers
-            })))
-        };
-        assert_eq!(q("is:archived"), "x archived:true");
-        assert_eq!(q("is:not-archived"), "x archived:false");
-        assert_eq!(q("is:public"), "x archived:false is:public");
-    }
-
-    /// An owner-scoped search covers the forks its listing shows; an
-    /// unscoped search keeps GitHub's fork exclusion.
-    #[test]
-    fn owner_scoped_search_includes_forks() {
-        let q = |row: serde_json::Value| repositories(&parse(row));
-        assert_eq!(
-            q(
-                serde_json::json!({"mainGoal": "test", "reasoning":"test","owner":"o","sort":"stars:desc"})
-            ),
-            "user:o fork:true archived:false"
-        );
-        assert_eq!(
-            q(
-                serde_json::json!({"mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","keywords":["x"]})
-            ),
-            "x repo:o/r fork:true archived:false"
-        );
-        assert!(
-            !q(serde_json::json!({"mainGoal": "test", "reasoning":"test","keywords":["x"]}))
-                .contains("fork:")
-        );
-    }
-
-    #[test]
-    fn topic_and_star_values_are_quoted_or_compacted() {
-        let q = repositories(&parse(
-            serde_json::json!({"mainGoal": "test", "reasoning":"test","keywords":["x"],"topics":["machine learning"],"stars":"> 100"}),
-        ));
-        assert!(q.contains("topic:\"machine learning\""), "{q}");
-        assert!(q.contains("stars:>100"), "{q}");
-    }
-
-    #[test]
-    fn qualifiers_append_normalized_filters() {
-        let with_qualifiers = repositories(&parse(serde_json::json!({
-            "mainGoal": "test", "reasoning":"test","keywords":["http client"],
-            "qualifiers":"forks:>50  size:<5000 followers:>10 is:public"
-        })));
-        for term in ["forks:>50", "size:<5000", "followers:>10", "is:public"] {
-            assert!(with_qualifiers.contains(term), "{with_qualifiers}");
+        for term in [
+            "user:o",
+            "fork:true",
+            "archived:true",
+            "stars:0..10",
+            "size:<=5000",
+            "is:public",
+            "language:\"Common Lisp\"",
+            "topic:machine-learning",
+            "is:sponsorable",
+            "created:>=2024-01-01T00:00:00Z",
+            "in:name,readme",
+        ] {
+            assert!(q.contains(term), "{term}: {q}");
         }
+        assert!(!q.contains("archived:false"));
     }
-
     #[test]
-    fn relative_repository_dates_resolve_to_absolute_ranges() {
-        let q = repositories(&parse(
-            serde_json::json!({"mainGoal": "test", "reasoning":"test","keywords":["x"],"pushed":"30d","created":">2024-01-01"}),
-        ));
-        let pushed = q
-            .split(' ')
-            .find(|part| part.starts_with("pushed:"))
-            .expect("pushed qualifier");
-        assert!(pushed.starts_with("pushed:>="), "{q}");
-        assert_eq!(pushed.len(), "pushed:>=2026-01-01".len(), "{q}");
-        assert!(q.contains("created:>2024-01-01"), "{q}");
+    fn archive_default_and_inclusion_are_distinct() {
+        for (archive, expected) in [
+            (None, Some("archived:false")),
+            (Some("include"), None),
+            (Some("only"), Some("archived:true")),
+        ] {
+            let mut row = json!({"operation":"search","keywords":["client"]});
+            if let Some(archive) = archive {
+                row["filters"] = json!({"archive":archive});
+            }
+            let q = repositories(&parse(row));
+            assert_eq!(
+                q.split_whitespace()
+                    .find(|part| part.starts_with("archived:")),
+                expected
+            );
+        }
     }
 }

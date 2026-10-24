@@ -40,7 +40,7 @@ pub(super) struct CommentPage {
     bodies: BodyWindows,
     /// Provider comments read up to the end of this page.
     consumed: usize,
-    /// The `pageSize` that resumes the next page at its first unshown
+    /// The private `pageSize` that resumes at the first unshown
     /// comment ([`page_starting_at`]).
     resume_size: Option<usize>,
 }
@@ -48,7 +48,7 @@ pub(super) struct CommentPage {
 impl CommentPage {
     /// The comment page on `row` and its page facts. `totalItems` is the
     /// issue's real comment count; the provider comments after this page
-    /// (its pages do not tile `currentPage × pageSize`) stay on `rest`.
+    /// (its pages do not tile `page × pageSize`) stay on `rest`.
     pub(super) fn attach(
         self,
         at: &CommentRead<'_>,
@@ -57,7 +57,9 @@ impl CommentPage {
         remainder: &mut Remainder,
     ) {
         if !self.comments.is_empty() {
-            row["comments"] = Value::Array(self.comments);
+            let mut comments = self.comments;
+            crate::tools::gh_get_history_item::util::humans_first(&mut comments);
+            row["comments"] = Value::Array(comments);
         }
         let mut comments = self.pagination;
         comments["totalItems"] = json!(at.total);
@@ -77,7 +79,7 @@ impl CommentPage {
     }
 }
 
-/// The comment page grid: `pageSize` comments per page.
+/// The saved comment page grid: `pageSize` comments per page.
 fn comment_grid(query: &HistoryItemRequest) -> usize {
     gh_get_history_item_query::page_size(query)
         .unwrap_or(DEFAULT_PAGE_SIZE)
@@ -112,12 +114,12 @@ pub(super) async fn comment_batch(
 
 /// One page of an issue's discussion comments, each body windowed, filling
 /// `budget` characters. The page starts at comment
-/// `(page − 1) × pageSize` and shows at most an explicit `pageSize` (else up
+/// `(page − 1) × pageSize` and shows at most the saved `pageSize` (else up
 /// to one provider batch) of the comments that fit, read from at most two
 /// provider batches. The page resumes at its first unshown comment through a
-/// `page`/`pageSize` pair that starts there: the caller's `pageSize` while
+/// private `page`/`pageSize` pair that starts there: the saved `pageSize` while
 /// pages fill it, else the widest grid that does ([`page_starting_at`]), so
-/// the comment cursor is the response's only cursor.
+/// the public continuation carries only its opaque cursor.
 pub(super) async fn issue_comments(
     transport: &GitHubTransport,
     query: &HistoryItemRequest,

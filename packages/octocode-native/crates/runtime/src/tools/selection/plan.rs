@@ -315,14 +315,14 @@ impl Plan {
             clippy::expect_used,
             reason = "Plan has only serializable fields and compression writes to an in-memory Vec"
         )]
-        let encode = |plan: &Plan| {
+        let encode = |plan: &Self| {
             let mut encoder =
                 flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
             serde_json::to_writer(&mut encoder, plan).expect("selection plan is serializable");
             URL_SAFE_NO_PAD.encode(encoder.finish().expect("in-memory compression"))
         };
         let next_candidates = (!self.unjudged.is_empty()).then(|| {
-            let mut opening = Plan::new(
+            let mut opening = Self::new(
                 self.binding.clone(),
                 self.total as usize,
                 SelectionStatus::Partial,

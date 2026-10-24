@@ -52,7 +52,7 @@ impl Sessions {
                 .deadline
                 .saturating_duration_since(Instant::now())
                 .min(Duration::from_millis(100));
-            match octocode_io::lock::lock_within(file, wait, Duration::from_millis(10)) {
+            match octocode_io::lock::lock_within(file, wait, octocode_io::lock::LOCK_POLL) {
                 Ok(lock) => return Ok(Some(lock)),
                 Err(octocode_io::lock::LockError::Busy) => {
                     context.check().map_err(|_| unavailable("The request stopped before the assessment transaction lock was acquired."))?;

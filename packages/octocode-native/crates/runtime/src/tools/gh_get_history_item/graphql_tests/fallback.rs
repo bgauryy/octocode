@@ -71,24 +71,19 @@ async fn a_failed_graphql_read_falls_back_to_rest() {
             "created_at": "2026-01-01T00:00:00Z"}]),
     )
     .await;
-    let row = |extras: Value| {
+    let row = || {
         json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,
-            "sections":["files","comments"],"extras":extras})
+            "sections":["files","comments"]})
     };
-    let quiet = read(&server, row(json!([]))).await;
+    let quiet = read(&server, row()).await;
     assert_eq!(
         quiet.data.pointer("/pullRequests/0/comments/0/body"),
         Some(&json!("Looks good.")),
         "{}",
         quiet.data
     );
-    assert_eq!(quiet.data.get("graphqlFallback"), None, "{}", quiet.data);
-    let request = HistoryItemRequest::from_row(row(json!(["diagnostics"]))).expect("row");
-    assert!(gh_get_history_item_query::wants(
-        &request,
-        ExtraKind::Diagnostics
-    ));
-    let shown = read(&server, row(json!(["diagnostics"]))).await;
+    assert!(quiet.data["graphqlFallback"].is_string());
+    let shown = read(&server, row()).await;
     let reason = shown.data["graphqlFallback"].as_str().unwrap_or_default();
     assert!(reason.contains("not accessible"), "{}", shown.data);
 }

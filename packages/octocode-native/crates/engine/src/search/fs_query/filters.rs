@@ -12,7 +12,7 @@ use super::compiled::CompiledQuery;
 use super::walker::QueryState;
 use crate::error::{Error, ErrorKind};
 use crate::search::glob;
-use crate::text::file_extension::extension_of;
+use crate::text::extension_of;
 use crate::types::{EntryType, FileKind, FileSystemEntry};
 
 /// Whether the `entry_type` filter lists an entry of `kind`.
@@ -176,17 +176,17 @@ fn matches_metadata(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery)
     }
     // A size filter is about content: a directory's own length (its entry
     // table) is none, so a directory never matches one.
-    let sized = query.size_greater.is_some() || query.size_less.is_some();
+    let sized = query.size_min.is_some() || query.size_max.is_some();
     if sized && metadata.is_dir() {
         return false;
     }
-    if let Some(min_size) = query.size_greater
-        && metadata.len() <= min_size
+    if let Some(min_size) = query.size_min
+        && metadata.len() < min_size
     {
         return false;
     }
-    if let Some(max_size) = query.size_less
-        && metadata.len() >= max_size
+    if let Some(max_size) = query.size_max
+        && metadata.len() > max_size
     {
         return false;
     }
@@ -208,32 +208,26 @@ pub(crate) fn has_extension(name: &str, extensions: &[String]) -> bool {
 }
 
 fn matches_time_filters(metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
-    if let Some(duration) = query.modified_within_secs
-        && !system_time_within(metadata.modified().ok(), duration)
-    {
-        return false;
-    }
-    if let Some(duration) = query.modified_before_secs
-        && !system_time_before(metadata.modified().ok(), duration)
-    {
-        return false;
-    }
-    if let Some(duration) = query.accessed_within_secs
-        && !system_time_within(metadata.accessed().ok(), duration)
-    {
-        return false;
-    }
-    true
+    within_time_bounds(
+        metadata.modified().ok(),
+        query.modified_from,
+        query.modified_to,
+    ) && within_time_bounds(
+        metadata.accessed().ok(),
+        query.accessed_from,
+        query.accessed_to,
+    )
 }
 
-fn system_time_within(time: Option<SystemTime>, seconds: u64) -> bool {
-    time.and_then(|t| SystemTime::now().duration_since(t).ok())
-        .is_some_and(|elapsed| elapsed.as_secs() <= seconds)
-}
-
-fn system_time_before(time: Option<SystemTime>, seconds: u64) -> bool {
-    time.and_then(|t| SystemTime::now().duration_since(t).ok())
-        .is_some_and(|elapsed| elapsed.as_secs() > seconds)
+fn within_time_bounds(
+    time: Option<SystemTime>,
+    from: Option<SystemTime>,
+    to: Option<SystemTime>,
+) -> bool {
+    if from.is_none() && to.is_none() {
+        return true;
+    }
+    time.is_some_and(|time| from.is_none_or(|from| time >= from) && to.is_none_or(|to| time <= to))
 }
 
 #[cfg(unix)]

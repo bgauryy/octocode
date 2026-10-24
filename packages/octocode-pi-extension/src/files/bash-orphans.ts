@@ -4,7 +4,7 @@ import path from 'node:path';
 import { claimSuffix, releaseDeadClaims } from '../shared/claims.js';
 import { sessionsRoot } from '../shared/home.js';
 import { groupAlive, groupStartTimes, processAlive, processMatch, sameProcess, stopTree } from '../shared/process.js';
-import { isRecord, validPid } from '../shared/util.js';
+import { isRecord, parseJson, validPid } from '../shared/util.js';
 
 /**
  * Owner records of background bash jobs (bash-jobs.ts): next to each job log a record names the job and the Pi that
@@ -53,12 +53,8 @@ function isJobRecord(value: unknown): value is JobRecord {
 
 /** A readable owner record, else undefined. */
 function parseRecord(text: string): JobRecord | undefined {
-  try {
-    const record: unknown = JSON.parse(text);
-    return isJobRecord(record) ? record : undefined;
-  } catch {
-    return undefined;
-  }
+  const record = parseJson(text);
+  return isJobRecord(record) ? record : undefined;
 }
 
 const readRecord = (file: string): JobRecord | undefined => {

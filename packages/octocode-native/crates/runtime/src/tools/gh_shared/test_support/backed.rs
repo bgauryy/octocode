@@ -1,63 +1,44 @@
 //! Fixtures of the provider-backed GitHub search-tool tests (ghSearchCode,
 //! ghSearchRepo, ghStructure, and their shared paging table) against one
-//! mock server, with the imports those tests share.
-pub(crate) use crate::response::result::ToolData;
-pub(crate) use crate::security::scan::Passthrough;
-pub(crate) use crate::tools::gh_shared::test_support::{
-    MemoryCache, default_context, one_shot_provider,
-};
-pub(crate) use crate::tools::{gh_search_code, gh_search_repo, gh_structure};
-pub(crate) use base64::{Engine as _, engine::general_purpose::STANDARD};
-pub(crate) use octocode_github::GitHubProvider;
-pub(crate) use octocode_github::mock_http::mount_json;
-pub(crate) use octocode_github::{ProviderError, ProviderErrorKind};
-pub(crate) use serde_json::{Value, json};
-pub(crate) use wiremock::{
+//! mock server.
+use crate::response::result::ToolData;
+use crate::security::scan::Passthrough;
+use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
+use crate::tools::{gh_search_code, gh_search_repo, gh_structure};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_github::ProviderError;
+use octocode_github::mock_http::mount_json;
+use serde_json::{Value, json};
+use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{method, path, query_param, query_param_contains},
+    matchers::{method, path, query_param},
 };
 
-/// One attempt per request: a mock answer is final.
-pub(crate) fn provider(server: &MockServer) -> GitHubProvider {
-    one_shot_provider(server)
+pub(crate) async fn run_code(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {
+    let provider = one_shot_provider(server);
+    let query = serde_json::from_value(query).expect("canonical code query");
+    gh_search_code::execute(&provider, &query, &default_context(), &Passthrough).await
 }
 
-/// Fixtures name their tool with a test-only `operation` key:
-/// code → ghSearchCode, repositories → ghSearchRepo, tree → ghStructure.
-/// A materialized listing's files live under a home removed when the call
-/// returns; [`run_at`] keeps them for the caller.
-pub(crate) async fn run(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {
+pub(crate) async fn run_repo(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {
+    let provider = one_shot_provider(server);
+    let query = serde_json::from_value(query).expect("canonical repository query");
+    gh_search_repo::execute(&provider, &query, &default_context()).await
+}
+
+pub(crate) async fn run_tree(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {
     let home = crate::tools::test_support::Fixture::new();
     run_at(server, query, &home.0).await
 }
 
-/// [`run`] with the Octocode `home` a materialized listing writes under.
 pub(crate) async fn run_at(
     server: &MockServer,
-    mut query: Value,
+    query: Value,
     home: &std::path::Path,
 ) -> Result<ToolData, ProviderError> {
-    let operation = query
-        .as_object_mut()
-        .and_then(|object| object.remove("operation"))
-        .expect("fixture operation");
-    let provider = provider(server);
-    let context = default_context();
-    match operation.as_str() {
-        Some("code") => {
-            let query = serde_json::from_value(query).expect("code query");
-            gh_search_code::execute(&provider, &query, &context, &Passthrough).await
-        }
-        Some("repositories") => {
-            let query = serde_json::from_value(query).expect("repositories query");
-            gh_search_repo::execute(&provider, &query, &context).await
-        }
-        Some("tree") => {
-            let query = serde_json::from_value(query).expect("tree query");
-            gh_structure::execute(&provider, &query, &context, home).await
-        }
-        other => panic!("unknown fixture operation {other:?}"),
-    }
+    let provider = one_shot_provider(server);
+    let query = serde_json::from_value(query).expect("canonical tree query");
+    gh_structure::execute(&provider, &query, &default_context(), home).await
 }
 
 /// An empty code search result, `incomplete` or not.

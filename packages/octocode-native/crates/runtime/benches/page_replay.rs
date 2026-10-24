@@ -19,10 +19,11 @@
 //! continuation `n` times per workload and skips the other measurements, e.g.
 //! `PAGE_REPLAY_PROFILE=300 samply record <bench binary built with
 //! --profile profiling>`.
-#![allow(clippy::expect_used, reason = "benchmark setup")]
+#![expect(clippy::expect_used, reason = "benchmark setup")]
 
 #[expect(
     dead_code,
+    unused_imports,
     reason = "shared integration-test fixture; the benchmark uses part of it"
 )]
 #[path = "../tests/support/mod.rs"]

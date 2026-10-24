@@ -1,5 +1,23 @@
 import { writeFileSync } from 'fs';
 import { join } from 'path';
+import { errorMessage } from '../error-message.mjs';
+import type { CheckSession } from '../cdp-runner-session.mjs';
+
+/** A tool a page registered, as WebMCP.toolsAdded reports it. */
+type WebMcpTool = {
+  frameId: string;
+  name: string;
+  description?: string;
+  inputSchema?: unknown;
+  annotations?: { readOnly?: boolean };
+};
+/** A WebMCP.toolResponded event, or the timeout this check records. */
+type ToolResponse = {
+  status: string;
+  invocationId: string;
+  output?: unknown;
+  errorText?: string;
+};
 
 // webmcp intent: discover and optionally invoke tools a page declared via
 // document.modelContext.registerTool(...), using the CDP WebMCP domain
@@ -23,7 +41,7 @@ const WAIT_MS = Number.parseInt(process.env.WEBMCP_WAIT_MS ?? '2500', 10);
 const SETTLE_MS = Math.min(400, WAIT_MS);
 const INVOKE_TIMEOUT_MS = 10000;
 
-function assertAllowedAction(action) {
+function assertAllowedAction(action: string) {
   if (!['list', 'invoke'].includes(action)) {
     throw new Error(`Unsupported WEBMCP_ACTION=${action}. Use list or invoke.`);
   }
@@ -31,19 +49,19 @@ function assertAllowedAction(action) {
 
 // Unannotated or ambiguous tools default to the riskier label — the Mutation
 // Gate only means something if "unknown" is treated as "assume it mutates".
-function toolRisk(tool) {
+function toolRisk(tool: WebMcpTool) {
   return tool.annotations?.readOnly === true ? 'read-only' : 'mutating';
 }
 
-function toolKey(frameId, name) {
+function toolKey(frameId: string, name: string) {
   return `${frameId}::${name}`;
 }
 
-export async function run(cdp) {
+export async function run(cdp: CheckSession) {
   assertAllowedAction(ACTION);
   await cdp.send('Runtime.enable');
 
-  const tools = new Map();
+  const tools = new Map<string, WebMcpTool>();
   cdp.on('WebMCP.toolsAdded', ({ tools: added }) => {
     for (const tool of added ?? [])
       tools.set(toolKey(tool.frameId, tool.name), tool);
@@ -57,7 +75,7 @@ export async function run(cdp) {
     await cdp.send('WebMCP.enable');
   } catch (error) {
     console.log(
-      `[FINDING] WEBMCP_UNAVAILABLE ${cdp.targetInfo.url} — ${error.message}`
+      `[FINDING] WEBMCP_UNAVAILABLE ${cdp.targetInfo.url} — ${errorMessage(error)}`
     );
     console.log(
       '[REASON] WebMCP CDP domain not supported by this Chrome build/flags. Launch with --enableFeatures WebMCP on Chrome 150+, or fall back to the automate/scrape intents.'
@@ -138,7 +156,7 @@ export async function run(cdp) {
     input = JSON.parse(RAW_INPUT);
   } catch (error) {
     console.log(
-      `[FINDING] WEBMCP_INVALID_INPUT WEBMCP_INPUT is not valid JSON: ${error.message}`
+      `[FINDING] WEBMCP_INVALID_INPUT WEBMCP_INPUT is not valid JSON: ${errorMessage(error)}`
     );
     return;
   }
@@ -151,8 +169,8 @@ export async function run(cdp) {
   // Buffer every toolResponded event from before the invoke call even goes
   // out, so a response that arrives faster than we can attach a filtered
   // listener afterward still gets caught instead of causing a false Timeout.
-  const responseBuffer = new Map();
-  const bufferResponse = params =>
+  const responseBuffer = new Map<string, ToolResponse>();
+  const bufferResponse = (params: ToolResponse) =>
     responseBuffer.set(params.invocationId, params);
   cdp.on('WebMCP.toolResponded', bufferResponse);
 
@@ -165,12 +183,7 @@ export async function run(cdp) {
     `[ACTION] invoked WebMCP tool ${TOOL_NAME} invocationId=${invocationId}`
   );
 
-  const responded = await new Promise<{
-    status: string;
-    invocationId: string;
-    output?: unknown;
-    errorText?: string;
-  }>(resolve => {
+  const responded = await new Promise<ToolResponse>(resolve => {
     const buffered = responseBuffer.get(invocationId);
     if (buffered) {
       cdp.off('WebMCP.toolResponded', bufferResponse);
@@ -183,7 +196,7 @@ export async function run(cdp) {
       cdp.send('WebMCP.cancelInvocation', { invocationId }).catch(() => {});
       resolve({ status: 'Timeout', invocationId });
     }, INVOKE_TIMEOUT_MS);
-    const liveHandler = params => {
+    const liveHandler = (params: ToolResponse) => {
       if (params.invocationId !== invocationId) return;
       clearTimeout(timer);
       cdp.off('WebMCP.toolResponded', bufferResponse);

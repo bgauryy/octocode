@@ -1,10 +1,9 @@
 //! A directory symbols scan holds what its filters keep, not every file's
 //! declarations: peak memory follows the answer, not the repository.
-use super::symbols::{AstSearchQuerySymbols, Outline, outline_directory};
+use super::symbols::{Outline, outline_directory};
 use crate::execution::cancel::NeverCancel;
-use crate::tools::ast_search::symbols::ast_search_query_symbols;
 use crate::tools::test_support::{Fixture, checks, simple_policy};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{AstSearchQuerySymbols, ErrorCode};
 use serde_json::json;
 
 mod filters;
@@ -55,7 +54,9 @@ fn empty_outline(root: &std::path::Path, extra: serde_json::Value) -> serde_json
 /// The astSearch row of a result's `includeSkipped` lead: the same scope
 /// with the walk flags that reach the skipped files.
 fn skipped_lead(out: &serde_json::Value) -> serde_json::Value {
-    let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
+    let lead = super::test_rows::skipped_call(out)
+        .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"))["input"]["queries"][0]
+        .clone();
     assert!(lead.is_object(), "no includeSkipped lead: {out}");
     lead
 }

@@ -76,11 +76,6 @@ pub(crate) fn is_compile_failure(
 /// pattern that parses as no node and a rule object that does not decode.
 pub(crate) const INVALID_PATTERN_HINT: &str = "Make each pattern one parseable node and each rule a rule object; astSearch operation:\"syntaxTree\" shows the shape.";
 
-/// Why a pattern that parsed can still match nothing: astSearch's fallback
-/// hint for a pattern row without its own.
-pub(crate) const PATTERN_SHAPE_HINT: &str =
-    "Patterns match whole nodes; astSearch operation:\"syntaxTree\" shows the shape.";
-
 /// Recovery of an engine structural diagnostic. The engine names no tool or
 /// contract field, so a diagnostic whose repair is another tool or a field
 /// is worded here, by its code; any other keeps the engine's own.
@@ -258,7 +253,8 @@ pub(crate) fn file_grammar(path: &std::path::Path) -> Option<(String, BTreeSet<S
     let extension = octocode_engine::text::extension_of(&path.to_string_lossy(), true, "");
     let entry = languages::find_entry(&extension)?;
     let label = languages::label(entry);
-    let extensions = language_extensions(&label).unwrap_or_else(|| BTreeSet::from([extension]));
+    let extensions =
+        languages::family_extensions(&label).unwrap_or_else(|| BTreeSet::from([extension]));
     Some((label, extensions))
 }
 
@@ -325,7 +321,7 @@ pub(crate) fn count_grammars(
     let mut grammars: BTreeMap<String, (BTreeSet<String>, usize)> = BTreeMap::new();
     for (extension, count) in seen {
         if let Some(entry) = languages::find_entry(&extension)
-            && let Some(extensions) = language_extensions(entry.name)
+            && let Some(extensions) = languages::family_extensions(entry.name)
         {
             grammars
                 .entry(languages::label(entry))
@@ -362,18 +358,12 @@ pub(crate) fn unsupported_language_message(language: &str) -> String {
 pub(crate) fn primary_extension(language: &str) -> Option<String> {
     let selector = language.trim().to_ascii_lowercase();
     if let Some(extension) = selector.strip_prefix('.') {
-        return language_extensions(&selector).map(|_| extension.to_owned());
+        return languages::family_extensions(&selector).map(|_| extension.to_owned());
     }
     languages::select(&selector)
         .next()
         .and_then(|entry| entry.extensions.first())
         .map(|extension| (*extension).to_owned())
-}
-
-/// The extensions a `language` selector's family parses (see
-/// [`languages::family_extensions`]).
-pub(crate) fn language_extensions(language: &str) -> Option<BTreeSet<String>> {
-    languages::family_extensions(language)
 }
 
 pub(crate) fn has_extension_in(path: &std::path::Path, extensions: &BTreeSet<String>) -> bool {

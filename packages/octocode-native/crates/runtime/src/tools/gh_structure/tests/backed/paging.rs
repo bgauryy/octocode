@@ -1,5 +1,13 @@
 //! Listing pages: pinned commits, deep pages, omitted entries, the fetch cap and shared reads.
 use super::*;
+use crate::tools::gh_shared::test_support::{MemoryCache, default_context, one_shot_provider};
+use crate::tools::gh_structure;
+use octocode_contract_types::GhStructureQuery;
+use octocode_github::GitHubProvider;
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// A listing names the commit it read, and its next page reads
 /// that same commit even if the branch moves.
@@ -17,22 +25,16 @@ async fn tree_pins_its_pages_to_the_resolved_commit() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents"))
         .and(query_param("ref", TREE_SHA))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"name":"a.rs","path":"a.rs","type":"file","size":1},
-            {"name":"b.rs","path":"b.rs","type":"file","size":1}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!((0..101).map(|i| json!({"name":format!("f{i:03}.rs"),"path":format!("f{i:03}.rs"),"type":"file","size":1})).collect::<Vec<_>>())))
         .mount(&server)
         .await;
-    let out = run(
-            &server,
-            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","pageSize":1}),
-        )
+    let out = run(&server, json!({"operation":"tree","owner":"a","repo":"b"}))
         .await
         .expect("tree");
     assert_eq!(out.data["resolvedRef"], "main", "{}", out.data);
     assert_eq!(out.data["commitSha"], TREE_SHA, "{}", out.data);
     assert_eq!(
-        out.data["next"]["nextPage"]["query"]["queries"][0]["ref"],
+        out.data["next"]["expandDates"]["input"]["queries"][0]["ref"],
         TREE_SHA
     );
 }
@@ -65,11 +67,11 @@ async fn deep_tree_pages_carry_files_with_their_folders() {
     )
     .await;
     let out = run(
-            &server,
-            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"main","maxDepth":5,"pageSize":20}),
-        )
-        .await
-        .expect("tree");
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b","ref":"main","maxDepth":5}),
+    )
+    .await
+    .expect("tree");
     let files = out.data["summary"]["files"].as_u64().unwrap_or(0);
     assert!(files >= 5, "page 1 lists files: {}", out.data);
 }
@@ -101,16 +103,16 @@ async fn tree_reports_omitted_entries_and_next_page_drops_completed_metadata() {
     )
     .await;
     let out = run(
-            &server,
-            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"main",
-                "pageSize":1}),
-        )
-        .await
-        .expect("tree");
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b","ref":"main"}),
+    )
+    .await
+    .expect("tree");
     assert!(out.data.get("omitted").is_none(), "{}", out.data);
-    assert_eq!(out.data["pagination"]["totalItems"], 5, "{}", out.data);
-    let next = &out.data["next"]["nextPage"]["query"]["queries"][0];
-    assert_eq!(next["page"], 2, "{}", out.data);
+    assert_eq!(out.data["summary"]["files"], 3, "{}", out.data);
+    assert_eq!(out.data["summary"]["dirs"], 2, "{}", out.data);
+    assert!(out.data["next"].get("nextPage").is_none(), "{}", out.data);
+    assert!(out.data.get("pagination").is_none());
 }
 
 #[tokio::test]
@@ -132,11 +134,11 @@ async fn tree_fallback_walk_stops_at_the_directory_fetch_cap() {
         .mount(&server)
         .await;
     let out = run(
-            &server,
-            json!({"operation":"tree","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"main","maxDepth":2}),
-        )
-        .await
-        .expect("tree");
+        &server,
+        json!({"operation":"tree", "owner":"a","repo":"b","ref":"main","maxDepth":2}),
+    )
+    .await
+    .expect("tree");
     assert_eq!(out.data["terminalLimit"], true, "{}", out.data);
     assert_eq!(out.data["providerLimit"]["reason"], "treeFetchLimit");
     let requests = server.received_requests().await.unwrap_or_default();
@@ -168,12 +170,14 @@ async fn the_default_branch_is_looked_up_once_per_repository() {
         json!([{"name":"a.rs","path":"a.rs","type":"file","size":1}]),
     )
     .await;
-    let provider = GitHubProvider::new(provider(&server).transport, MemoryCache::default());
+    let provider =
+        GitHubProvider::new(one_shot_provider(&server).transport, MemoryCache::default());
     let context = default_context();
     let home_dir = crate::tools::test_support::Fixture::new();
     let home = home_dir.0.clone();
     for _ in 0..2 {
-        let query = serde_json::from_value(json!({"owner":"a","repo":"b"})).expect("tree query");
+        let query = serde_json::from_value(json!({"operation":"tree","owner":"a","repo":"b"}))
+            .expect("tree query");
         let out = gh_structure::execute(&provider, &query, &context, &home)
             .await
             .expect("listing");
@@ -199,12 +203,15 @@ async fn concurrent_rows_on_one_commit_read_its_tree_once() {
         .respond_with(tree.clone())
         .mount(&server)
         .await;
-    let provider = GitHubProvider::new(provider(&server).transport, MemoryCache::default());
+    let provider =
+        GitHubProvider::new(one_shot_provider(&server).transport, MemoryCache::default());
     let context = default_context();
     let home = crate::tools::test_support::Fixture::new();
-    let row = |depth: u32| -> gh_structure::GhStructureQuery {
-        serde_json::from_value(json!({"owner":"a","repo":"b","ref":"main","maxDepth":depth}))
-            .expect("tree query")
+    let row = |depth: u32| -> GhStructureQuery {
+        serde_json::from_value(
+            json!({"operation":"tree","owner":"a","repo":"b","ref":"main","maxDepth":depth}),
+        )
+        .expect("tree query")
     };
     let (a, b, c) = (row(5), row(5), row(3));
     let (a, b, c) = tokio::join!(

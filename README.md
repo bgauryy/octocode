@@ -21,8 +21,8 @@ Octocode gives Cursor, Claude, VS Code, Codex, Pi, and any MCP client deep, cite
 - **Evidence, not guesses:** every answer cites exact files and lines.
 - **Research loop:** orient → search → read exact evidence → prove identity with LSP.
 - **Lean context:** reads return only the lines you need ([benchmarks](#benchmarks)).
-- **Filter evidence:** optional `clasifyContext` has an AI judge (Jev) keep only the relevant search hits or passages; the beta `clasify` tool answers typed questions about unread source, then the agent verifies the source.
-- **Next step built in:** every result carries the read or search to run next.
+- **Filter evidence:** optional `classification` has an AI judge (Jev) keep only the relevant search hits or passages; the beta `clasify` tool answers typed questions about unread source, then the agent verifies the source.
+- **Keep researching:** required continuations reach the remaining evidence; related calls offer useful next steps.
 - **Secure by default:** read-only research, secrets redacted, path guardrails.
 - **Free and open source** under the MIT license.
 
@@ -115,24 +115,24 @@ Details: [benchmark method](https://github.com/bgauryy/octocode/blob/main/packag
 
 **14 tools.** Your agent gets 12 tools over MCP and 13 in the CLI (which adds `ghCloneRepo`). Beta (`OCTOCODE_BETA=true`) adds `clasify` to both when a classification key is set.
 
-Every tool runs from the CLI too: `npx octocode <tool> …`, with rg/grep/gh-style flags or one JSON query (`npx octocode <tool> --help` shows its flags, `npx octocode schema <tool>` its fields).
+Every tool runs from the CLI with the same JSON input as MCP: `npx octocode <tool> '{"queries":[…]}'`. Use `npx octocode schema <tool>` to inspect its fields. Resume an issued continuation by passing its `{ "cursor": "…" }` input unchanged.
 
 | You want to | Tool | CLI input |
 |---|---|---|
-| See a project's folders and find files | `structureSearch` | `octocode structureSearch files src -g '*.ts' -d 3` |
-| Search local code for text | `localSearch` | `octocode localSearch registerHandler src -w -C 2` |
-| Find functions, classes, and code patterns | `astSearch` | `octocode astSearch symbols src --symbolName createServer`<br>`octocode astSearch match src -l typescript -p 'function $F($$$A) { $$$B }'` |
-| Read exact lines, or one whole function | `localFetch` | `octocode localFetch src/index.ts:1-40` |
-| Find a symbol's definition, references, and callers | `lspSearch` | `octocode lspSearch references src/index.ts:10 run` |
-| Find a GitHub repository | `ghSearchRepo` | `octocode ghSearchRepo "fuzzy finder" --language Rust --sort stars:desc -L 5` |
-| Search code across GitHub | `ghSearchCode` | `octocode ghSearchCode SearcherBuilder -R BurntSushi/ripgrep` |
-| Browse a repository at any branch or tag | `ghStructure` | `octocode ghStructure tree crates -R BurntSushi/ripgrep` |
-| Read a file from GitHub | `ghGetFileContent` | `octocode ghGetFileContent crates/searcher/src/lib.rs:1-40 -R BurntSushi/ripgrep` |
-| Find pull requests, issues, and commits | `ghSearchHistory` | `octocode ghSearchHistory pullRequest mmap -R BurntSushi/ripgrep -s merged` |
-| Read a pull request, issue, or commit | `ghGetHistoryItem` | `octocode ghGetHistoryItem pullRequest 2000 -R BurntSushi/ripgrep --sections body,files` |
-| Check package versions and dependencies | `artifactSearch` | `octocode artifactSearch zod --ecosystem npm` |
-| Pick the right file without reading them all (beta) | `clasify` | `octocode localSearch timeout src --clasifyContext '{"classifiers":["Sets the default timeout?"]}'` |
-| Clone a repository for deep local work (CLI) | `ghCloneRepo` | `octocode ghCloneRepo BurntSushi/ripgrep --path crates/globset` |
+| See a project's folders and find files | `structureSearch` | `octocode structureSearch '{"queries":[{"operation":"tree","path":"src","maxDepth":3}]}'` |
+| Search local code for text | `localSearch` | `octocode localSearch '{"queries":[{"matchString":["registerHandler"],"path":"src","contextLines":{"before":2,"after":2}}]}'` |
+| Find functions, classes, and code patterns | `astSearch` | `octocode astSearch '{"queries":[{"operation":"match","path":"src","parser":"typescript","rule":{"pattern":"function $F($$$A) { $$$B }"}}]}'` |
+| Read exact lines | `localFetch` | `octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}'` |
+| Find a symbol's definition, references, and callers | `lspSearch` | `octocode lspSearch '{"queries":[{"operation":"references","path":"src/index.ts","line":10,"symbolName":"run"}]}'` |
+| Find a GitHub repository | `ghSearchRepo` | `octocode ghSearchRepo '{"queries":[{"operation":"search","keywords":["fuzzy finder"],"filters":{"language":"Rust"}}]}'` |
+| Search code across GitHub | `ghSearchCode` | `octocode ghSearchCode '{"queries":[{"keywords":["SearcherBuilder"],"owner":"BurntSushi","repo":"ripgrep"}]}'` |
+| Browse a repository at any branch or tag | `ghStructure` | `octocode ghStructure '{"queries":[{"operation":"tree","path":"crates","owner":"BurntSushi","repo":"ripgrep"}]}'` |
+| Read a file from GitHub | `ghGetFileContent` | `octocode ghGetFileContent '{"queries":[{"owner":"BurntSushi","repo":"ripgrep","path":"crates/searcher/src/lib.rs","ranges":[{"startLine":1,"endLine":40}]}]}'` |
+| Find pull requests, issues, and commits | `ghSearchHistory` | `octocode ghSearchHistory '{"queries":[{"operation":"pullRequest","keywords":["mmap"],"owner":"BurntSushi","repo":"ripgrep"}]}'` |
+| Read a pull request, issue, or commit | `ghGetHistoryItem` | `octocode ghGetHistoryItem '{"queries":[{"operation":"pullRequest","number":2000,"owner":"BurntSushi","repo":"ripgrep"}]}'` |
+| Check package versions and dependencies | `artifactSearch` | `octocode artifactSearch '{"queries":[{"operation":"resolve","packageName":"zod","ecosystem":"npm"}]}'` |
+| Answer typed questions about evidence (beta) | `clasify` | `octocode clasify '{"queries":[{"operation":"evaluate","content":"The timeout defaults to 30 seconds.","questions":{"timeout":{"type":"noul","instructions":"Does this define a default timeout?"}}}]}'` |
+| Clone a repository for deep local work (CLI) | `ghCloneRepo` | `octocode ghCloneRepo '{"queries":[{"owner":"BurntSushi","repo":"ripgrep","paths":["crates/globset"]}]}'` |
 | Map imports, callers, cycles and dead code (CLI) | `graph` | `octocode graph ingest src`, then `octocode graph query hubs` |
 
 Full reference: [Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [clasify guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md).
@@ -161,7 +161,7 @@ Everything is optional. Set options in the MCP `env` block, the shell, or `~/.oc
 |---|---|
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | which local directories tools may read |
 | `TOOLS_TO_RUN`, `DISABLE_TOOLS` | choose which tools your agent sees |
-| `OCTOCODE_CLASSIFICATION_API` | enable `clasifyContext` filtering ([get a key](https://docs.typesafe.ai/introduction)) |
+| `OCTOCODE_CLASSIFICATION_API` | enable `classification` filtering ([get a key](https://docs.typesafe.ai/introduction)) |
 | `OCTOCODE_BETA` | enable the beta `clasify` tool (with the key above) |
 | `GITHUB_API_URL` | use GitHub Enterprise |
 
@@ -172,9 +172,9 @@ All settings: [CONFIGURATION.md](https://github.com/bgauryy/octocode/blob/main/d
 ## Security
 
 - Research tools are read-only and never run shell strings.
-- Every byte to the model is scanned, and 300+ kinds of secrets are redacted.
+- Text evidence is scanned for secrets before it reaches the model; explicitly selected images retain their original bytes.
 - Local reads stay inside the workspace and `ALLOWED_PATHS`; secret files such as `.env` are blocked.
-- `clasifyContext` and `clasify` send sanitized evidence to the classification provider, only when its key is set.
+- `classification` and `clasify` send sanitized evidence to the classification provider, only when its key is set.
 
 Details: [SECURITY.md](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md).
 

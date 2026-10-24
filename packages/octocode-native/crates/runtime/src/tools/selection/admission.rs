@@ -8,10 +8,10 @@ pub(super) fn order(candidates: &[Candidate], query: &Value, unit: SelectionUnit
     if unit != SelectionUnit::Chunks {
         return source_order();
     }
-    let Some(classifiers) = query["clasifyContext"]["classifiers"].as_array() else {
+    let Some(predicates) = query["classification"]["predicates"].as_array() else {
         return source_order();
     };
-    let queries = classifiers
+    let queries = predicates
         .iter()
         .filter_map(Value::as_str)
         .map(tokens)
@@ -150,7 +150,7 @@ mod tests {
     fn every_classifier_gets_an_admission_turn_and_ties_keep_source_order() {
         let candidates = ["plain", "socket", "socket", "timer"]
             .map(|content| Candidate::new(Some(json!({"content":content}))));
-        let query = json!({"clasifyContext":{"classifiers":["socket", "timer"]}});
+        let query = json!({"classification":{"predicates":["socket", "timer"]}});
         assert_eq!(
             order(&candidates, &query, SelectionUnit::Chunks),
             [1, 3, 2, 0]
@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(
             order(
                 &candidates,
-                &json!({"clasifyContext":{"classifiers":["absent"]}}),
+                &json!({"classification":{"predicates":["absent"]}}),
                 SelectionUnit::Chunks
             ),
             [0, 1, 2, 3]

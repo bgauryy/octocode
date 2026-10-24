@@ -5,17 +5,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import mcp_probe
+from contract_readers import contract_readers
 
-
-READERS = {
-    'localSearch', 'localFetch', 'structureSearch', 'astSearch', 'lspSearch',
-    'ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent',
-    'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch',
-}
+READERS, LOCAL_READERS, CLASSIFIER_READERS = contract_readers()
+LOCAL_ALLOWLIST = ','.join(sorted(LOCAL_READERS | {'clasify'}))
 
 
 def tool(name, classifiers=False):
-    properties = {'classifiers': {'type': 'array'}} if classifiers else {}
+    properties = {'classification': {'type': 'object', 'properties': {'predicates': {'type': 'array'}}}} if classifiers else {}
     return {'name': name, 'inputSchema': {'properties': {'queries': {'items': {'properties': properties}}}}}
 
 
@@ -31,6 +28,12 @@ class FakeClient:
         if method == 'tools/list': return {'tools': self.tools}
         if method == 'tools/call':
             name = params['name']
+            row = params['arguments']['queries'][0]
+            if name == 'clasify' and row.get('operation') != 'evaluate':
+                return {'isError': True, 'content': [{'text': 'invalidInput'}]}
+            source = row['source']['query'] if name == 'clasify' else row
+            if 'fullContent' in source or any(not isinstance(item, dict) for item in source.get('ranges', [])):
+                return {'isError': True, 'content': [{'text': 'invalidInput'}]}
             if name == 'clasify' and params['arguments']['queries'][0]['source']['tool'] == 'ghGetFileContent':
                 return {'content': [{'text': 'This source reads through ghGetFileContent, which is disabled in this runtime'}]}
             return {'content': [{'text': 'outsideAllowedRoots'}]}
@@ -48,47 +51,51 @@ class McpProbeTests(unittest.TestCase):
             result = mcp_probe.probe(server, enabled, enabled, forbidden=forbidden)
         return result, fake
 
-    def test_full_catalog_expects_classifiers_on_only_four_readers(self):
-        names = READERS | {'clasify'}
-        expected = {'localSearch', 'localFetch', 'ghGetFileContent', 'ghSearchCode'}
-        result, _ = self.receipt(names, expected, True)
-        self.assertTrue(result['ok'], result['problems'])
-        self.assertEqual(set(result['classifiersTools']), expected)
+    def tool_calls(self, fake):
+        return [params['name'] for method, params in fake.calls if method == 'tools/call']
 
-    def test_local_allowlist_has_two_classifier_readers_and_preserves_denials(self):
-        selected = 'localSearch,localFetch,structureSearch,astSearch,lspSearch,clasify'
-        names = set(selected.split(','))
-        result, fake = self.receipt(names, {'localSearch', 'localFetch'}, True,
-                                    selected, Path('/private/forbidden.txt'))
+    def test_probe_classifier_readers_match_the_contract(self):
+        self.assertEqual(mcp_probe.CLASSIFIER_READERS, CLASSIFIER_READERS)
+
+    def test_full_catalog_expects_classifiers_on_exactly_the_contract_classifier_readers(self):
+        result, _ = self.receipt(READERS | {'clasify'}, CLASSIFIER_READERS, True)
         self.assertTrue(result['ok'], result['problems'])
-        self.assertEqual(result['classifiersTools'], ['localFetch', 'localSearch'])
-        self.assertEqual(len(result['denials']), 3)
-        self.assertTrue(all(row['denied'] for row in result['denials']))
-        self.assertEqual([params['name'] for method, params in fake.calls if method == 'tools/call'],
-                         ['localFetch', 'clasify', 'clasify'])
+        self.assertEqual(set(result['classifiersTools']), CLASSIFIER_READERS)
+
+    def test_every_contract_reader_is_required(self):
+        for missing in sorted(READERS):
+            with self.subTest(missing=missing):
+                result, _ = self.receipt(READERS - {missing}, CLASSIFIER_READERS - {missing}, False)
+                self.assertFalse(result['ok'])
+                self.assertIn('required read tools missing: ' + missing, result['problems'])
+
+    def test_local_allowlist_expects_local_classifier_readers_and_preserves_denials(self):
+        local_classifiers = CLASSIFIER_READERS & LOCAL_READERS
+        result, fake = self.receipt(LOCAL_READERS | {'clasify'}, local_classifiers, True,
+                                    LOCAL_ALLOWLIST, Path('/private/forbidden.txt'))
+        self.assertTrue(result['ok'], result['problems'])
+        self.assertEqual(set(result['classifiersTools']), local_classifiers)
+        self.assertEqual([row['tool'] for row in result['denials'] if row['denied']],
+                         ['localFetch', 'clasify', 'clasify:disabledRemote'])
+        self.assertEqual(self.tool_calls(fake), ['localFetch', 'clasify', 'clasify'])
 
     def test_unexpected_classifiers_field_fails_even_on_selected_reader(self):
-        selected = 'localSearch,localFetch,structureSearch,astSearch,lspSearch,clasify'
-        names = set(selected.split(','))
-        result, _ = self.receipt(names, {'localSearch', 'localFetch', 'structureSearch'},
-                                 True, selected)
+        extra = next(iter(sorted(LOCAL_READERS - CLASSIFIER_READERS)))
+        result, _ = self.receipt(LOCAL_READERS | {'clasify'}, (CLASSIFIER_READERS & LOCAL_READERS) | {extra},
+                                 True, LOCAL_ALLOWLIST)
         self.assertFalse(result['ok'])
         self.assertIn('classifiers schema gate differs from eligible read tools', result['problems'])
 
     def test_mixed_allowlist_does_not_probe_enabled_remote_reader_for_denial(self):
         names = READERS | {'clasify'}
-        selected = ','.join(sorted(names))
-        expected = {'localSearch', 'localFetch', 'ghGetFileContent', 'ghSearchCode'}
-        result, fake = self.receipt(names, expected, True, selected,
+        result, fake = self.receipt(names, CLASSIFIER_READERS, True, ','.join(sorted(names)),
                                     Path('/private/forbidden.txt'))
         self.assertTrue(result['ok'], result['problems'])
-        self.assertEqual(len(result['denials']), 2)
-        self.assertEqual([params['name'] for method, params in fake.calls if method == 'tools/call'],
-                         ['localFetch', 'clasify'])
+        self.assertEqual([row['tool'] for row in result['denials'] if row['denied']], ['localFetch', 'clasify'])
+        self.assertEqual(self.tool_calls(fake), ['localFetch', 'clasify'])
 
     def test_off_arm_rejects_any_classifiers_field(self):
-        selected = 'localSearch,localFetch,structureSearch,astSearch,lspSearch'
-        names = set(selected.split(','))
-        result, _ = self.receipt(names, {'localSearch'}, False, selected)
+        selected = ','.join(sorted(LOCAL_READERS))
+        result, _ = self.receipt(LOCAL_READERS, {'localSearch'}, False, selected)
         self.assertFalse(result['ok'])
         self.assertIn('classifiers schema gate differs from eligible read tools', result['problems'])

@@ -214,9 +214,9 @@ impl From<BudgetStop> for ProviderError {
     fn from(stop: BudgetStop) -> Self {
         match stop {
             BudgetStop::Cancelled => {
-                ProviderError::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")
+                Self::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")
             }
-            BudgetStop::Deadline => ProviderError::new(
+            BudgetStop::Deadline => Self::new(
                 ProviderErrorKind::Timeout,
                 "GitHub request deadline exceeded",
             ),
@@ -264,24 +264,27 @@ mod tests {
 
     #[test]
     fn statuses_map_to_one_kind_each() {
-        use ProviderErrorKind as K;
         for (status, kind) in [
-            (401, K::Authentication),
-            (403, K::Permission),
-            (404, K::NotFound),
-            (410, K::NotFound),
-            (400, K::Validation),
-            (422, K::Validation),
-            (429, K::RateLimited),
-            (451, K::Unavailable),
-            (500, K::Server),
-            (503, K::Server),
-            (599, K::Server),
-            (405, K::HttpStatus),
-            (408, K::HttpStatus),
-            (304, K::HttpStatus),
+            (401, ProviderErrorKind::Authentication),
+            (403, ProviderErrorKind::Permission),
+            (404, ProviderErrorKind::NotFound),
+            (410, ProviderErrorKind::NotFound),
+            (400, ProviderErrorKind::Validation),
+            (422, ProviderErrorKind::Validation),
+            (429, ProviderErrorKind::RateLimited),
+            (451, ProviderErrorKind::Unavailable),
+            (500, ProviderErrorKind::Server),
+            (503, ProviderErrorKind::Server),
+            (599, ProviderErrorKind::Server),
+            (405, ProviderErrorKind::HttpStatus),
+            (408, ProviderErrorKind::HttpStatus),
+            (304, ProviderErrorKind::HttpStatus),
         ] {
-            assert_eq!(K::from_status(status), kind, "HTTP {status}");
+            assert_eq!(
+                ProviderErrorKind::from_status(status),
+                kind,
+                "HTTP {status}"
+            );
         }
     }
 }

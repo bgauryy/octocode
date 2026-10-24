@@ -1,6 +1,6 @@
 //! One authorized reader page of a source selection, and a failed read
 //! as the capture's failure.
-use super::{SourceReader, failure, prepare_source};
+use super::{SourceReader, prepare_source};
 use crate::execution::ExecutionContext;
 use crate::id::ToolId;
 use crate::response::rows;
@@ -29,18 +29,18 @@ pub(super) fn read_page(
         let (code, hint) = match stop {
             crate::execution::ExecutionError::Timeout => (
                 ErrorCode::Timeout,
-                "Retry with more time, or supply the source text as state.",
+                "Retry with more time, or supply the source text as content.",
             ),
             _ => (ErrorCode::Cancelled, crate::response::rows::CANCELLED_HINT),
         };
-        failure(
+        ClassificationError::new(
             code,
             "The call stopped before its source was captured.",
             hint,
         )
     })?;
     let result = dispatcher.execute(id, &prepared, context).map_err(|stop| {
-        failure(
+        ClassificationError::new(
             match stop {
                 crate::execution::ExecutionError::Timeout => ErrorCode::Timeout,
                 crate::execution::ExecutionError::Cancelled => ErrorCode::Cancelled,
@@ -52,7 +52,7 @@ pub(super) fn read_page(
     })?;
     let source_digest = result.source_digest.clone();
     let row_value = rows::result_row(id, 0, &prepared, result.data, result.status);
-    let state = rows::envelope_in(vec![row_value], id, &[Some(&*prepared)], dispatcher.paths());
+    let state = rows::envelope(id, vec![row_value]);
     let state = dispatcher
         .security()
         .seal_output(
@@ -61,7 +61,7 @@ pub(super) fn read_page(
             || context.check(),
         )
         .map_err(|_| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::ClassificationContextFailed,
                 "The source read's output could not be sanitized.",
                 RERUN_HINT,
@@ -73,7 +73,7 @@ pub(super) fn read_page(
     }
     let content = data["content"].as_str().unwrap_or_default();
     if content.is_empty() {
-        return Err(failure(
+        return Err(ClassificationError::new(
             ErrorCode::ClassificationContextEmpty,
             format!("The {tool} source selected no text; nothing was judged."),
             "Check the ranges and the path.",
@@ -82,11 +82,15 @@ pub(super) fn read_page(
     let pin = match id {
         ToolId::GhGetFileContent => data["commitSha"]
             .as_str()
-            .or_else(|| state["shared"]["commitSha"].as_str())
+            .or_else(|| {
+                row["ref"]
+                    .as_str()
+                    .filter(|reference| octocode_github::is_full_sha(reference))
+            })
             .map(str::to_owned),
         _ => source_digest,
     };
-    let next = data["next"]["continueWindow"]["query"]["queries"][0]
+    let next = data["next"]["continueWindow"]["input"]["queries"][0]
         .as_object()
         .map(|next| Value::Object(next.clone()));
     Ok(Page {
@@ -109,17 +113,22 @@ const RERUN_HINT: &str = "Run the same read directly to inspect it.";
 fn reader_failure(tool: ToolId, data: &Value) -> ClassificationError {
     use crate::id::error_codes::{ErrorClass, class};
     let declared = crate::id::error_code_of(data).map(|code| (code, class(code)));
-    let leads: Vec<(String, Value)> = ["next", "hints"]
-        .iter()
-        .filter_map(|channel| data[*channel].as_object())
+    let leads: Vec<(String, Value)> = data["next"]
+        .as_object()
+        .into_iter()
         .flatten()
-        .filter(|(_, lead)| lead.get("tool").is_some() && lead.get("query").is_some())
+        .filter(|(_, lead)| crate::response::result::is_call(lead))
         .map(|(name, lead)| (name.clone(), lead.clone()))
+        .chain(
+            data["related"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .map(|(index, lead)| (format!("related{index}"), lead.clone())),
+        )
         .collect();
-    let own = match &data["hints"] {
-        Value::Array(items) => items.as_slice(),
-        hints => hints["text"].as_array().map_or(&[][..], Vec::as_slice),
-    };
+    let own = data["hints"].as_array().map_or(&[][..], Vec::as_slice);
     let mut hints: Vec<String> = own
         .iter()
         .filter_map(Value::as_str)

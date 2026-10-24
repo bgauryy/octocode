@@ -204,13 +204,7 @@ fn jsx_in_plain_js_files_parses() {
 
 #[test]
 fn source_type_follows_the_full_path() {
-    let st = |p: &str| {
-        source_type_for(
-            &crate::text::file_extension::extension_of(p, true, "ts"),
-            p,
-            "",
-        )
-    };
+    let st = |p: &str| source_type_for(&crate::text::extension_of(p, true, "ts"), p, "");
     assert!(st("a.cjs").is_commonjs(), ".cjs is CommonJS");
     assert!(
         st("a.cts").is_commonjs() && st("a.cts").is_typescript(),

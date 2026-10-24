@@ -241,15 +241,11 @@ mod tests {
 }
 "#;
 
-    fn keys(text: &str, lines: &[usize]) -> Vec<(usize, String)> {
-        line_key_paths(text, lines)
-    }
-
     /// The same entry reads differently under each section.
     #[test]
     fn hits_name_their_section() {
         assert_eq!(
-            keys(PACKAGE, &[4, 8, 11, 14]),
+            line_key_paths(PACKAGE, &[4, 8, 11, 14]),
             vec![
                 (4, "keywords[0]".to_owned()),
                 (8, "peerDependencies.vite".to_owned()),
@@ -263,7 +259,7 @@ mod tests {
     #[test]
     fn container_lines_name_the_container() {
         assert_eq!(
-            keys(PACKAGE, &[1, 7, 9, 19]),
+            line_key_paths(PACKAGE, &[1, 7, 9, 19]),
             vec![
                 (7, "peerDependencies".to_owned()),
                 (9, "peerDependencies".to_owned()),
@@ -275,7 +271,7 @@ mod tests {
     #[test]
     fn keys_with_dots_are_quoted() {
         assert_eq!(
-            keys(PACKAGE, &[17]),
+            line_key_paths(PACKAGE, &[17]),
             vec![(17, r#"exports["./node"]"#.to_owned())]
         );
     }
@@ -286,7 +282,7 @@ mod tests {
     fn tolerates_jsonc() {
         let text = "{\n  // a comment, with \"quotes\" {\n  compilerOptions: {\n    /* block\n } */ \"strict\": true,\n  },\n  \"files\": [\"a\", /* x */ \"b\",\n    \"c\",\n  ],\n}\n";
         assert_eq!(
-            keys(text, &[2, 3, 5, 8]),
+            line_key_paths(text, &[2, 3, 5, 8]),
             vec![
                 (3, "compilerOptions".to_owned()),
                 (5, "compilerOptions.strict".to_owned()),
@@ -300,7 +296,7 @@ mod tests {
     fn broken_json_keeps_scanning() {
         let text =
             "{\n  \"a\": {\n    \"b\": [1, 2\n  },\n  \"c\": \"unterminated\n  \"d\": 1\n}\n";
-        let found = keys(text, &[3, 6]);
+        let found = line_key_paths(text, &[3, 6]);
         assert_eq!(found[0], (3, "a.b".to_owned()));
         assert_eq!(found.len(), 2, "{found:?}");
     }

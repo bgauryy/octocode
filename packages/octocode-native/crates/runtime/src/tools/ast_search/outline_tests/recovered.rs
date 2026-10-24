@@ -13,11 +13,7 @@ fn flow_js_symbols_list_hooks_and_mark_a_recovered_parse_partial() {
          export function useRef<T>(v: T): {current: T} {\n  if (x) {\n    y();\n  }\n  return z;\n}\n",
     )
     .expect("source");
-    let out = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
-    )
-    .expect("symbols");
+    let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
     let names = outline_names(&out["symbols"]);
     assert!(
         names.contains(&"useState") && names.contains(&"useRef"),
@@ -54,7 +50,7 @@ fn symbols_count_one_recovery_note_across_files_that_list_declarations() {
     }
     let out = run(
         &root.0,
-        json!({"operation":"symbols","path":root.0,"symbolName":"foo_","pageSize":1}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["foo_"]}}),
     )
     .expect("symbols");
     let diagnostics = out["diagnostics"].as_array().expect("diagnostics");
@@ -86,7 +82,7 @@ fn symbols_group_recovery_notes_of_files_without_a_listed_declaration() {
     }
     let out = run(
         &root.0,
-        json!({"operation":"symbols","path":root.0,"symbolName":"sdsnewlen"}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["sdsnewlen"]}}),
     )
     .expect("symbols");
     let diagnostics = out["diagnostics"].as_array().expect("diagnostics");
@@ -102,10 +98,11 @@ fn symbols_group_recovery_notes_of_files_without_a_listed_declaration() {
         "{out}"
     );
     assert_eq!(out["isPartial"], true, "{out}");
-    let lead = &out["next"]["findText"];
+    let lead = crate::tools::test_support::checks::related_call(&out, "localSearch", |_| true);
     assert_eq!(lead["tool"], "localSearch", "{out}");
     assert_eq!(
-        lead["query"]["queries"][0]["matchString"], "sdsnewlen",
+        lead["input"]["queries"][0]["matchString"],
+        json!(["sdsnewlen"]),
         "{out}"
     );
 }
@@ -126,7 +123,7 @@ fn recovered_notes_only_for_files_whose_errors_spell_the_name() {
     root.write("c.c", "int user(void) {\n  int foo( = 3;\n}\n");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","path":root.0,"symbolName":"foo"}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["foo"]}}),
     )
     .expect("symbols");
     let diagnostics = out["diagnostics"].as_array().cloned().unwrap_or_default();
@@ -150,7 +147,7 @@ fn recovered_notes_only_for_files_whose_errors_spell_the_name() {
     std::fs::remove_file(root.0.join("c.c")).expect("remove c");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","path":root.0,"symbolName":"foo"}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["foo"]}}),
     )
     .expect("symbols");
     assert!(
@@ -175,7 +172,7 @@ fn a_recovered_file_that_lists_the_named_declaration_keeps_its_note() {
     }
     let out = run(
         &root.0,
-        json!({"operation":"symbols","path":root.0,"symbolName":"helper2"}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["helper2"]}}),
     )
     .expect("symbols");
     assert_eq!(

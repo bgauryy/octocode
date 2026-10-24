@@ -108,7 +108,7 @@ pub(super) fn hashed_source(
     use std::io::{Read, Seek, SeekFrom};
     let mut hasher = Sha256::new();
     let mut len = 0u64;
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = vec![0u8; 64 * 1024];
     let mut handle = file;
     handle.seek(SeekFrom::Start(0)).ok()?;
     loop {

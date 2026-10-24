@@ -108,7 +108,7 @@ fn concurrent_writers_preserve_all_hosts_and_permissions() {
             scope.spawn(move || {
                 store
                     .save(&credential(&format!("host-{i}.test"), "synthetic-secret"))
-                    .unwrap()
+                    .unwrap();
             });
         }
     });

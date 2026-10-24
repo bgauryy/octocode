@@ -10,11 +10,12 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { validateFlags } from './cli-flags.mjs';
+import { errorMessage } from './error-message.mjs';
 
 const args = process.argv.slice(2);
-const get = (flag: string, fallback?: string) =>
-  args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
-function fitText(content) {
+const get = (flag: string) =>
+  args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
+function fitText(content: string) {
   if (Buffer.byteLength(JSON.stringify(content)) <= 20000) return content;
   let low = 0,
     high = content.length;
@@ -47,12 +48,13 @@ try {
     '--length',
     '--sha256',
   ]);
-  if (!get('--file')) throw new Error('--file is required');
-  const file = resolve(get('--file')),
-    format = get('--format', 'text'),
-    pointer = get('--pointer', '');
-  const offset = Number(get('--offset', '0')),
-    length = Number(get('--length', '8000'));
+  const fileArg = get('--file');
+  if (!fileArg) throw new Error('--file is required');
+  const file = resolve(fileArg),
+    format = get('--format') ?? 'text',
+    pointer = get('--pointer') ?? '';
+  const offset = Number(get('--offset') ?? '0'),
+    length = Number(get('--length') ?? '8000');
   if (
     !Number.isSafeInteger(offset) ||
     offset < 0 ||
@@ -67,7 +69,10 @@ try {
   const fd = openSync(file, 'r'),
     hash = createHash('sha256'),
     block = Buffer.alloc(1024 * 1024);
-  let sourceBytes, sha256, raw;
+  // `raw` is the whole-file page; it is read, and later used, only without --pointer.
+  let sourceBytes: number,
+    sha256: string,
+    raw = Buffer.alloc(0);
   try {
     const before = fstatSync(fd);
     sourceBytes = before.size;
@@ -174,15 +179,17 @@ try {
     );
     process.exit(0);
   }
-  let value;
+  let value: string;
   if (format === 'json') {
     const bytes = readFileSync(file);
     if (createHash('sha256').update(bytes).digest('hex') !== sha256)
       throw new Error('Capture changed while reading');
-    value = JSON.parse(bytes.toString('utf8'), (_key, item, context) =>
-      typeof item === 'number' && context?.source
-        ? JSON.rawJSON(context.source)
-        : item
+    let node: unknown = JSON.parse(
+      bytes.toString('utf8'),
+      (_key, item, context) =>
+        typeof item === 'number' && context?.source
+          ? JSON.rawJSON(context.source)
+          : item
     );
     if (pointer && !pointer.startsWith('/'))
       throw new Error('JSON pointer must start with /');
@@ -191,15 +198,15 @@ try {
         throw new Error('Invalid JSON pointer escape');
       const key = part.replace(/~1/g, '/').replace(/~0/g, '~');
       if (
-        value === null ||
-        typeof value !== 'object' ||
-        JSON.isRawJSON(value) ||
-        !Object.hasOwn(value, key)
+        node === null ||
+        typeof node !== 'object' ||
+        JSON.isRawJSON(node) ||
+        !Object.hasOwn(node, key)
       )
         throw new Error('JSON pointer not found');
-      value = value[key];
+      node = Reflect.get(node, key);
     }
-    value = JSON.stringify(value, null, 2);
+    value = JSON.stringify(node, null, 2);
   } else {
     throw new Error('--pointer requires --format json');
   }
@@ -253,6 +260,6 @@ try {
     })
   );
 } catch (error) {
-  console.error('[ARTIFACT_QUERY] ' + error.message);
+  console.error('[ARTIFACT_QUERY] ' + errorMessage(error));
   process.exitCode = 1;
 }

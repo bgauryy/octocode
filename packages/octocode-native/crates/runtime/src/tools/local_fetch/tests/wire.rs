@@ -1,97 +1,59 @@
-//! The localFetch wire form: derivable metadata omitted, invalid input
-//! refused.
-
 use super::*;
+use octocode_contract_types::LocalFetchQuery;
 
 #[test]
-fn wire_form_omits_metadata_derivable_from_emitted_fields() {
-    let t = Fixture::new();
-    let p = t.0.join("a.txt");
-    fs::write(&p, "zero\none\nneedle\nthree\nfour\n")
-        .expect("test fixture operation should succeed");
-    let paths = Paths(t.0.clone());
-    let mut req = q(&p);
-    req.match_string = Some(MatchString::String("needle".parse().expect("match string")));
-    req.context_lines = Some(1);
-    let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
+fn canonical_match_wire_keeps_source_coordinates_and_counters() {
+    let fixture = Fixture::new();
+    let path = fixture.write("a.txt", "zero\none\nneedle\nthree\nfour\n");
+    let req = qj(
+        &path,
+        serde_json::json!({"matchString":["needle"],"contextLines":{"before":1,"after":1}}),
+    );
+    let result = fetch(&req, &Paths(fixture.0.clone()));
+    let wire = serde_json::to_value(&result).expect("result");
     assert_eq!(wire["content"], "one\nneedle\nthree\n");
     assert_eq!(
         wire["sourceLineRanges"],
-        serde_json::json!([{"line": 2, "endLine": 4}])
+        serde_json::json!([{"line":2,"endLine":4}])
     );
     assert_eq!(wire["matchedLines"], serde_json::json!([3]));
-    // A stats field: extras project `matchedLines` (details) separately.
     assert_eq!(wire["selectedMatchCount"], 1);
-    assert_eq!(wire["totalLines"], 5);
     assert_eq!(wire["sourceBytes"], 27);
     assert_eq!(wire["returnedBytes"], 17);
-    for redundant in [
-        "contentView",
-        "startLine",
-        "endLine",
-        "matchRanges",
-        "resolvedPath",
-    ] {
-        assert!(wire.get(redundant).is_none(), "{redundant}: {wire}");
-    }
-    // The read always states its window; the response stage keeps the block
-    // only where it routes (a window with more, or past the first), so a
-    // single complete window is absent from the published row.
-    assert_eq!(wire["pagination"]["hasMore"], false, "{wire}");
-    let published = crate::response::rows::finish_row(
+    assert_eq!(wire["totalLines"], 5);
+    crate::tools::test_support::published(
         crate::id::ToolId::LocalFetch,
-        0,
-        &crate::response::result::query_value(&req),
-        wire.clone(),
-        None,
-        crate::response::rows::RowParts::default(),
+        &serde_json::to_value(req).expect("query"),
+        &wire,
     );
-    assert!(published["data"].get("pagination").is_none(), "{published}");
-    // Explanation counters are built for every read; the contract classes
-    // them `stats` extras, so a response shows them only under `extras:["stats"]`.
-    let verbose = crate::response::extras::all_paths(crate::id::ToolId::LocalFetch);
-    for counter in [
-        "modified",
-        "sourceChars",
-        "sourceBytes",
-        "returnedChars",
-        "returnedBytes",
-        "returnedLines",
-    ] {
-        let path = format!("results[].data.{counter}");
-        assert!(verbose.contains(&path.as_str()), "{counter} is not verbose");
-    }
-
-    let mut paged = q(&p);
-    paged.length = wire_positive(2);
-    let wire = serde_json::to_value(fetch(&paged, &paths)).expect("serializable");
-    assert_eq!(
-        wire["pagination"],
-        serde_json::json!({"unit":"lines","offset":0,"length":2,"hasMore":true,"nextOffset":2})
-    );
-    assert!(wire["next"]["continueWindow"].is_object());
-    paged.offset = Some(4);
-    let last = serde_json::to_value(fetch(&paged, &paths)).expect("serializable");
-    assert_eq!(
-        last["pagination"],
-        serde_json::json!({"unit":"lines","offset":4,"length":1,"hasMore":false})
-    );
-
-    let wide = t.0.join("wide.txt");
-    fs::write(&wide, "a😀\n").expect("test fixture operation should succeed");
-    let wire = serde_json::to_value(fetch(&q(&wide), &paths)).expect("serializable");
-    assert_eq!(wire["sourceChars"], 4);
-    assert_eq!(wire["sourceBytes"], 6);
-    assert_eq!(wire["returnedChars"], 4);
 }
 
 #[test]
-fn schema_rejects_unknown_fields_and_invalid_combinations() {
-    assert!(
-        serde_json::from_value::<LocalFetchQuery>(serde_json::json!({"path":"x","madeUp":true}))
-            .is_err()
-    );
-    // The contract is the one validator of selector combinations.
-    let combined = serde_json::json!({"path":"x","fullContent":true,"matchString":"x"});
-    assert!(crate::contracts::validate_query("localFetch", combined).is_err());
+fn canonical_reader_rejects_aliases_and_incompatible_views() {
+    for fields in [
+        serde_json::json!({"fullContent":true}),
+        serde_json::json!({"minify":"symbols"}),
+        serde_json::json!({"offset":0}),
+        serde_json::json!({"unit":"lines"}),
+        serde_json::json!({"length":3}),
+        serde_json::json!({"matchString":"needle"}),
+        serde_json::json!({"matchString":["needle"],"regex":"rust"}),
+        serde_json::json!({"matchString":["needle"],"contextLines":1}),
+        serde_json::json!({"ranges":["1-3"]}),
+        serde_json::json!({"view":"symbols","matchString":["needle"]}),
+        serde_json::json!({"view":"compact","classification":{"predicates":["relevant"]}}),
+    ] {
+        let mut row = serde_json::json!({"path":"file.txt"});
+        row.as_object_mut()
+            .expect("row")
+            .extend(fields.as_object().expect("fields").clone());
+        assert!(
+            serde_json::from_value::<LocalFetchQuery>(row.clone()).is_err(),
+            "{row}"
+        );
+        assert!(
+            crate::contracts::validate_query("localFetch", row.clone()).is_err(),
+            "{row}"
+        );
+    }
 }

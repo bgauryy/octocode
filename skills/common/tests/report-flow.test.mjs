@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { buildReport, manifestPage } from '../scripts/render-report.mjs';
+import { buildReport, manifestPage } from '../scripts/lib/report/render.mjs';
 // Paths from this file, so the test runs from the repo root or its package.
 const skillsRoot = resolve(import.meta.dirname, '../..');
 const renderer = resolve(skillsRoot, 'common/scripts/render-report.mjs');

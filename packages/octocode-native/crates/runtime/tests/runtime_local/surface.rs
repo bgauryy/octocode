@@ -8,42 +8,6 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 #[tokio::test]
-async fn ordinary_tools_take_an_optional_brief() {
-    let workspace = Workspace::new();
-    let path = workspace.write("reasoning.txt", "ok\n");
-    let runtime = workspace.runtime(&[]);
-    let path = path.to_string_lossy().into_owned();
-
-    // The brief is optional: a call without one runs, and a blank one is
-    // dropped rather than rejected.
-    for (label, query) in [
-        ("brief-omitted", json!({"path":path})),
-        (
-            "brief-blank",
-            json!({"path":path,"mainGoal": "  ", "reasoning":"   "}),
-        ),
-        (
-            "brief-valid",
-            json!({"path":path,"mainGoal": "test", "reasoning":"Read the fixture."}),
-        ),
-    ] {
-        let outcome = runtime
-            .run(
-                label.into(),
-                "localFetch".into(),
-                json!({"queries":[query]}),
-            )
-            .await
-            .unwrap_or_else(|error| panic!("{label} must be accepted: {error:?}"));
-        assert_eq!(
-            outcome.structured_content["results"][0]["data"]["content"], "1\tok\n",
-            "{label}"
-        );
-    }
-    runtime.close().await;
-}
-
-#[tokio::test]
 async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
     let workspace = Workspace::new();
     let first = workspace.write("first.txt", "first\n");
@@ -56,8 +20,8 @@ async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
             "bulk-success".into(),
             "localFetch".into(),
             json!({"queries":[
-                {"path":first,"mainGoal": "test", "reasoning":"Read the first fixture."},
-                {"path":second,"mainGoal": "test", "reasoning":"Read the second fixture."}
+                {"path":first},
+                {"path":second}
             ]}),
         )
         .await
@@ -77,8 +41,8 @@ async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
             "bulk-mixed".into(),
             "localFetch".into(),
             json!({"queries":[
-                {"path":missing,"mainGoal": "test", "reasoning":"Exercise one missing fixture."},
-                {"path":first,"mainGoal": "test", "reasoning":"Retain the successful fixture."}
+                {"path":missing},
+                {"path":first}
             ]}),
         )
         .await
@@ -178,7 +142,7 @@ async fn runtime_catalog_lists_available_tools() {
             .expect("public tools")
             .iter()
             .all(|tool| tool["available"].is_boolean()
-                && tool["shortDescription"].is_string()
+                && tool["title"].is_string()
                 && tool.get("inputSchema").is_none()
                 && tool.get("querySchema").is_none()),
         "runtime catalog is names + availability only; schemas ship via core and `scheme`"
@@ -218,49 +182,6 @@ async fn runtime_catalog_lists_available_tools() {
     assert!(
         positions.windows(2).all(|pair| pair[0] < pair[1]),
         "{servers:?}"
-    );
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn continuations_replay_without_the_request_brief() {
-    let workspace = Workspace::new();
-    for name in ["a", "b", "c"] {
-        workspace.write(&format!("{name}.txt"), "needle\n");
-    }
-    let runtime = workspace.runtime(&[]);
-    let first = runtime
-        .run(
-            "page-1".into(),
-            "localSearch".into(),
-            json!({"queries":[{"path":workspace.workspace,"matchString":"needle","pageSize":1,
-                "mainGoal":"Find every needle file for the audit.","reasoning":"List files one page at a time."}]}),
-        )
-        .await
-        .expect("first page");
-    let next = &first.structured_content["results"][0]["data"]["next"]["nextPage"];
-    let query = next["query"].clone();
-    // The brief is request-level (docs/TOOL_DATA_CONTRACT.md): the page
-    // carries the scope and cursor, never the mainGoal or reasoning.
-    assert!(
-        query["queries"][0].get("mainGoal").is_none()
-            && query["queries"][0].get("reasoning").is_none(),
-        "{next}"
-    );
-    // The continuation is the whole call: it runs exactly as emitted.
-    let second = runtime
-        .run(
-            "page-2".into(),
-            next["tool"].as_str().unwrap().into(),
-            query,
-        )
-        .await
-        .expect("the continuation replays unchanged");
-    assert_eq!(
-        second.structured_content["results"][0]["data"]["files"]
-            .as_array()
-            .map(Vec::len),
-        Some(1)
     );
     runtime.close().await;
 }

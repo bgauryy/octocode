@@ -1,4 +1,4 @@
 use super::validate_schema;
-use serde_json::{Value, json};
+use serde_json::json;
 mod composition;
 mod messages;

@@ -112,10 +112,19 @@ describe('profile permissions', () => {
   });
 });
 
-describe('subagents', () => {
-  it('collaborate mode: lists teammates in the task, flags the child and its prompt', () => {
-    expect(teamTask('Fix A', 'main-1', [['researcher-2', 'Trace B']])).toBe('Fix A\n\n## Teammates\nYou collaborate with the other subagents that main-1 started for the same goal. Running now:\n- `researcher-2`: Trace B');
+describe('team task', () => {
+  it('appends one Teammates section that names the parent and lists each running teammate with its goal', () => {
+    const [given, teammates, ...rest] = teamTask('Fix A', 'main-1', [['researcher-2', 'Trace B'], ['coder-3', 'Fix C']]).split('\n\n## Teammates\n');
+    expect(given).toBe('Fix A');
+    expect(rest).toEqual([]);
+    expect(teammates).toContain('main-1');
+    expect(teammates!.split('\n').filter((line) => line.startsWith('- '))).toEqual(['- `researcher-2`: Trace B', '- `coder-3`: Fix C']);
     expect(teamTask('Fix A', 'main-1', [])).toMatch(/none yet; `coordinate list` shows teammates that start later/);
+  });
+});
+
+describe('subagents', () => {
+  it('collaborate mode: flags the child and its prompt', () => {
     expect(subagentProcessEnv(undefined, {}, { id: 'a-1', collaborate: true })['OCTOCODE_AGENT_COLLABORATE']).toBe('1');
     // The parent names its session for backlog ownership; an inherited value from a grandparent never leaks through.
     expect(subagentProcessEnv(undefined, { OCTOCODE_PARENT_SESSION: 'old' }, { id: 'a-1', parentSession: 's-1' })['OCTOCODE_PARENT_SESSION']).toBe('s-1');

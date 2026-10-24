@@ -12,11 +12,11 @@
 //! from the opened file alone, so its incoming-direction rows get reason
 //! `noCompileDatabase` and the same fallback.
 
-use super::LspSearchQuery;
 use super::failure::flag_partial;
 use super::importers::{SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
 use super::scope::Scope;
 use crate::tools::lsp_search::lsp_search_query;
+use octocode_contract_types::LspSearchQuery;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -142,7 +142,7 @@ mod tests {
 
     fn refs_query(uri: &str) -> LspSearchQuery {
         serde_json::from_value(json!({
-            "operation":"references","mainGoal": "test", "reasoning":"test","path":uri,
+            "operation":"references","path":uri,
             "symbolName":"greet","line":1
         }))
         .expect("references query")
@@ -183,16 +183,20 @@ mod tests {
                 .is_some_and(|w| w.contains("tsconfig.json")),
             "{row}"
         );
-        let next = &row["next"]["findText"];
-        assert_eq!(next["tool"], "localSearch");
-        assert_eq!(next["query"]["queries"][0]["path"], root.as_str());
-        assert_eq!(next["query"]["queries"][0]["matchString"], "\\bgreet\\b");
-        // The engine copies the input row's brief onto emitted continuations.
-        let mut replay = next["query"]["queries"][0].clone();
-        replay["mainGoal"] = serde_json::json!("Find greet's references.");
-        replay["reasoning"] = serde_json::json!("Fall back to text search.");
-        crate::contracts::validate_query("localSearch", replay)
-            .expect("fallback query is contract-valid");
+        let next = row["related"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|call| call["tool"] == "localSearch")
+            .expect("text fallback");
+        assert_eq!(next["kind"], "related");
+        assert_eq!(next["input"]["queries"][0]["path"], root.as_str());
+        assert_eq!(
+            next["input"]["queries"][0]["matchString"],
+            json!(["\\bgreet\\b"])
+        );
+        crate::contracts::validate("localSearch", next["input"].clone())
+            .expect("complete fallback");
 
         // With a tsconfig at the workspace root the server loads the project.
         std::fs::write(dir.path().join("tsconfig.json"), "{}").expect("tsconfig");
@@ -225,7 +229,7 @@ mod tests {
         assert_eq!(row, refs_row());
 
         let definition: LspSearchQuery = serde_json::from_value(json!({
-            "operation":"definition","mainGoal": "test", "reasoning":"test",
+            "operation":"definition",
             "path":format!("file://{}", file.display()),"symbolName":"greet","line":1
         }))
         .expect("definition query");
@@ -269,7 +273,10 @@ mod tests {
                 .is_some_and(|warning| warning.contains("compile_commands.json")),
             "{found}"
         );
-        assert_eq!(found["next"]["findText"]["tool"], "localSearch");
+        assert_eq!(
+            crate::tools::test_support::checks::related_call(&found, "localSearch", |_| true)["tool"],
+            "localSearch"
+        );
         // clangd also answers CUDA, with the same single-file limitation.
         let mut cuda = refs_row();
         cuda["matches"] = json!([{"path":"a.hpp","line":1}]);

@@ -34,7 +34,7 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 
 | Concept | Where |
 |---|---|
-| Contracts, descriptions, instructions, budgets | core `src/toolContract/` (`instructions.ts`, `descriptions.ts`, `published*.ts`, `validation/`, `output*.ts`, `limits.ts`) → `packages/octocode-config/contract/` |
+| Contracts, descriptions, instructions, budgets | core `src/toolContract/` (`tools/<tool>.ts`, `instructions.ts`, `published*.ts`, `output*.ts`, `limits.ts`) → `packages/octocode-config/contract/` |
 | MCP server: startup, tool listing from the embedded presentation, call dispatch | `crates/cli/src/cli/mcp_server/` (`mod.rs`, `listing.rs`, `handler.rs`) |
 | MCP launcher: runs `octocode mcp` | `packages/octocode-mcp/src/index.ts` |
 | CLI dispatch and exit codes | `crates/cli/src/cli/mod.rs` |

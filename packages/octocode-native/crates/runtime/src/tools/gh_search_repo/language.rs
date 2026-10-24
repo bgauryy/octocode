@@ -17,7 +17,7 @@ pub(super) async fn ignored_language(
     matched: usize,
     context: &RequestContext,
 ) -> Option<String> {
-    let wanted = query.language.as_deref()?;
+    let wanted = super::access::filters(query)?.language.as_deref()?;
     let languages = rows
         .iter()
         .filter_map(|row| row["language"].as_str())
@@ -35,7 +35,11 @@ pub(super) async fn ignored_language(
         // no count, so the same search without it tells them apart. The
         // probe is advisory: if it fails, nothing is claimed.
         let mut without = query.clone();
-        without.language = None;
+        if let GhSearchRepoQuery::Search(q) = &mut without
+            && let Some(filters) = &mut q.filters
+        {
+            filters.language = None;
+        }
         let probe = provider
             .transport
             .search_repositories(

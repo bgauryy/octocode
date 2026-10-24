@@ -1,11 +1,16 @@
 // `schema [command] [recipe|operation]`: the commands, recipes and plan contract, without connecting.
-import { checks, commands, helpers, launchValues } from './cli-catalog.mjs';
+import { checks, helpers, launchValues } from './cli-catalog.mjs';
 import {
+  chromeCommands,
   chromeExtractionFields,
+  chromePlanOperations,
   chromePlanExamples,
   chromeInputExamples,
 } from './chrome-contract.mjs';
-import { fail } from './cli-options.mjs';
+import { fail, isOwnKey } from './cli-options.mjs';
+
+/** The part of the plan executor the schema reads. */
+type PlanContract = { DOM_ACTIONS: readonly string[] };
 
 const SCHEMA_HELP =
   'Usage: octocode-cdp schema [command] [recipe|operation]\nExamples: schema run extract; schema check page-snapshot. No Chrome connection is made.';
@@ -74,84 +79,113 @@ const PLAN_REFERENCE = {
     'run --plan file|- --dry-run validates with the executor before connecting',
 };
 
-function planSchema(operation, { planOperations, actions }) {
+// schemaOutput rejects an unknown operation first, so a named one is always a key.
+function planSchema(
+  operation: string | undefined,
+  { DOM_ACTIONS }: PlanContract
+) {
+  const known = isOwnKey(chromePlanOperations, operation)
+    ? operation
+    : undefined;
   return {
-    operations: operation
-      ? { [operation]: planOperations[operation] }
-      : planOperations,
-    ...(!operation || operation === 'act' ? { actions } : {}),
+    operations: known
+      ? { [known]: chromePlanOperations[known] }
+      : chromePlanOperations,
+    ...(!operation || operation === 'act' ? { actions: DOM_ACTIONS } : {}),
     ...(!operation || operation === 'extract'
       ? { extraction: EXTRACTION }
       : {}),
     ...PLAN_SCOPES,
-    examples: operation
-      ? [chromePlanExamples[operation]]
+    examples: known
+      ? [chromePlanExamples[known]]
       : Object.values(chromePlanExamples),
     ...PLAN_REFERENCE,
   };
 }
 
-function inputExamples(name) {
+function inputExamples(name: string | undefined) {
   if (!name) return chromeInputExamples;
-  return chromeInputExamples[name]
+  return isOwnKey(chromeInputExamples, name)
     ? { [name]: chromeInputExamples[name] }
     : undefined;
 }
 
 // Raw connection flags and plan inputs live in each command's --help;
 // typed callers follow inputExamples and the tool input schema.
-function commandOptions(name) {
+function commandOptions(name: string | undefined) {
   if (name === 'open')
     return { options: [...launchValues, '--headless', '--dry-run'] };
   if (name === 'cleanup') return { options: ['--port', '--dry-run'] };
   return {};
 }
 
-function helperSchema(name, cliPath) {
-  if (!helpers[name]) return {};
+function helperSchema(name: string | undefined, cliPath: string) {
+  if (name === undefined || !helpers[name]) return {};
   return {
     help: { command: process.execPath, args: [cliPath, name, '--help'] },
     component: helpers[name][0],
   };
 }
 
-function schemaDocument({ name, recipe, operation }, plan, cliPath) {
+type SchemaTarget = {
+  name?: string;
+  recipe?: string;
+  operation?: string;
+};
+
+// schemaTarget rejects an unknown command or recipe first, so a named one is always a key.
+function schemaDocument(
+  { name, recipe, operation }: SchemaTarget,
+  plan: PlanContract,
+  cliPath: string
+) {
   return {
-    commands: name ? { [name]: commands[name] } : commands,
+    commands: isOwnKey(chromeCommands, name)
+      ? { [name]: chromeCommands[name] }
+      : chromeCommands,
     inputExamples: inputExamples(name),
     ...commandOptions(name),
     ...helperSchema(name, cliPath),
     ...(name === 'check' || !name
-      ? { checks: recipe ? { [recipe]: checks[recipe] } : checks }
+      ? {
+          checks: isOwnKey(checks, recipe)
+            ? { [recipe]: checks[recipe] }
+            : checks,
+        }
       : {}),
-    ...(PLAN_COMMANDS.includes(name) || !name
+    ...(!name || PLAN_COMMANDS.includes(name)
       ? { plan: planSchema(operation, plan) }
       : {}),
   };
 }
 
-function schemaTarget(args) {
+function schemaTarget(args: string[]) {
   if (args.length > 2) fail('Usage: schema [command] [recipe|operation]');
   const [name, detail] = args;
   const recipe = name === 'check' ? detail : undefined;
   const operation = ['run', 'step'].includes(name) ? detail : undefined;
-  if (name && !Object.hasOwn(commands, name)) fail(`Unknown command ${name}`);
+  if (name && !Object.hasOwn(chromeCommands, name))
+    fail(`Unknown command ${name}`);
   if (recipe && (name !== 'check' || !Object.hasOwn(checks, recipe)))
     fail(`Unknown recipe ${recipe}`);
   return { name, detail, recipe, operation };
 }
 
 /** The schema command's output text; invalid names fail. */
-export async function schemaOutput(args, planContract, cliPath) {
+export async function schemaOutput(
+  args: string[],
+  planContract: () => Promise<PlanContract>,
+  cliPath: string
+) {
   if (args.includes('--help') || args.includes('-h')) return SCHEMA_HELP;
   const target = schemaTarget(args);
   const { detail, recipe, operation } = target;
   const plan = await planContract();
   if (detail && !recipe && !operation)
     fail('Detail requires check recipe or run/step operation');
-  if (operation && !Object.hasOwn(plan.planOperations, operation))
+  if (operation && !Object.hasOwn(chromePlanOperations, operation))
     fail(
-      `Unknown operation ${operation}; supported operations: ${Object.keys(plan.planOperations).join(', ')}`
+      `Unknown operation ${operation}; supported operations: ${Object.keys(chromePlanOperations).join(', ')}`
     );
   return JSON.stringify(schemaDocument(target, plan, cliPath), null, 2);
 }

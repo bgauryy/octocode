@@ -6,7 +6,7 @@ import { registerHooks } from '../src/hooks/register.js';
 import { failureOf } from '../src/hooks/runner.js';
 import { fingerprint, projectConfigFiles, saveDecision } from '../src/shared/trust.js';
 import { fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 beforeEach(() => {
   vi.stubEnv('OCTOCODE_HOME', tmp('octocode-hooks-home-'));
@@ -16,8 +16,7 @@ type Hook = { type: 'command'; command: string; timeout?: number; failClosed?: b
 
 /** A trusted project with one PreToolUse hook for Bash. */
 function project(hook: Hook): string {
-  const dir = tmp('octocode-hookfail-');
-  fs.mkdirSync(path.join(dir, '.git'));
+  const dir = repo('octocode-hookfail-');
   fs.mkdirSync(path.join(dir, '.codex'));
   fs.writeFileSync(path.join(dir, '.codex', 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hook] }] } }));
   saveDecision(dir, fingerprint(projectConfigFiles(dir)), true);

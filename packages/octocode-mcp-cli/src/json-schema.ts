@@ -2,7 +2,8 @@
 // keyword's schemas, and follow local `$ref`s.
 import type { JsonSchema } from './spec.js';
 
-function isSchema(value: unknown): value is JsonSchema {
+/** A plain JSON object (not an array). */
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -12,7 +13,7 @@ function isIndexable(value: unknown): value is Record<string, unknown> {
 }
 
 export function asSchema(value: unknown): JsonSchema | undefined {
-  return isSchema(value) ? value : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 export function schemaList(value: unknown): JsonSchema[] {

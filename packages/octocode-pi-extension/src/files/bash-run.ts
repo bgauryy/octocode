@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
-import { constants as osConstants } from 'node:os';
+import { constants } from 'node:os';
 import { getShellConfig, type BashOperations } from '@earendil-works/pi-coding-agent';
 import { firstLine } from '../shared/util.js';
 import { adoptTree, groupAlive, groupMembers, killTree, prepareTree, signalTree } from '../shared/process.js';
@@ -135,7 +135,7 @@ export function foregroundOperations(settings: ShellSettings, onGroup: (pid: num
         if (timedOut) throw new Error(`timeout:${timeout}`);
         if (pid) onGroup(pid);
         // A signal-killed shell has no exit code: the shell convention keeps it from reading as success.
-        return { exitCode: code ?? (child.signalCode ? 128 + (osConstants.signals[child.signalCode] ?? 0) : 1) };
+        return { exitCode: code ?? (child.signalCode ? 128 + (constants.signals[child.signalCode] ?? 0) : 1) };
       } finally {
         if (pid) untrack(pid);
         if (timer) clearTimeout(timer);

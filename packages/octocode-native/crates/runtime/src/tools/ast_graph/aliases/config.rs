@@ -22,7 +22,7 @@ pub(super) struct RawTsConfig {
 /// A project manifest or config the graph reads beside its sources: inside
 /// the path policy, a regular file of at most [`MAX_CONFIG_BYTES`], decoded
 /// and scanned by the content policy.
-pub(in super::super) fn read_config_text(
+pub(crate) fn read_config_text(
     paths: &PathPolicy,
     security: &ContentSecurity,
     path: &Path,

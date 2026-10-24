@@ -42,7 +42,7 @@ fn small_single_file_reads_and_stored_provider_pages_admit_as_light() {
     );
     // A judged row waits on the classification provider, so it walks
     // even on a small file.
-    let judged = json!({"path": "small.rs", "clasifyContext": {"classifiers": ["Relevant?"]}});
+    let judged = json!({"path": "small.rs", "classification": {"predicates": ["Relevant?"]}});
     let continued = json!({"path": "small.rs", "selection": "token"});
     for id in [ToolId::LocalFetch, ToolId::LocalSearch] {
         for row in [&judged, &continued] {

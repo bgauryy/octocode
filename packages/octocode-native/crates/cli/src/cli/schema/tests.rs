@@ -1,4 +1,4 @@
-use super::{catalog, grammar_instruction, remove_unavailable_examples, tool_view};
+use super::{catalog, grammar_instruction, tool_view};
 use serde_json::{Value, json};
 
 /// A machine catalog with every presentation tool enabled except `off`.
@@ -39,49 +39,19 @@ fn catalog_lists_only_enabled_tools() {
 }
 
 #[test]
-fn instructions_name_only_the_tools_this_instance_runs() {
-    let all = catalog(&machine(&[]), Some("full")).expect("catalog");
-    let all = all["instructions"].as_str().expect("instructions");
-    assert!(all.contains("<local>") && all.contains("<cli>CLI only: ghCloneRepo."));
+fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
     let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
-    let others = presentation["tools"]
-        .as_array()
-        .expect("tools")
-        .iter()
-        .filter_map(|tool| tool["name"].as_str())
-        .filter(|name| *name != "ghSearchHistory")
-        .collect::<Vec<_>>();
-    let narrowed = catalog(&machine(&others), Some("full")).expect("catalog");
-    let narrowed = narrowed["instructions"].as_str().expect("instructions");
-    assert!(narrowed.contains("<github>Discover: ghSearchHistory/history.</github>"));
-    for absent in [
-        "<local>",
-        "<packages>",
-        "<read>",
-        "ghCloneRepo",
-        "<clasify>",
-    ] {
-        assert!(!narrowed.contains(absent), "{absent} in {narrowed}");
-    }
-    assert!(
-        narrowed.ends_with(
-            "<cli>Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
-        )
-    );
-}
-
-#[test]
-fn classification_instructions_follow_available_routes() {
-    for selection in [false, true] {
-        for clasify in [false, true] {
-            let mut machine = machine(if clasify { &[] } else { &["clasify"] });
-            machine["presentation"] = json!({ "selection": selection });
-            let value = catalog(&machine, Some("full")).expect("catalog");
-            let instructions = value["instructions"].as_str().expect("instructions");
-            assert_eq!(instructions.contains("<clasify>"), selection || clasify);
-            assert_eq!(instructions.contains("clasifyContext"), selection);
-            assert_eq!(instructions.contains("clasify scouts unread"), clasify);
-        }
+    let shared = presentation["instructions"].as_str().expect("instructions");
+    for off in [vec![], vec!["clasify", "ghSearchHistory"]] {
+        let value = catalog(&machine(&off), Some("full")).expect("catalog");
+        let text = value["instructions"].as_str().expect("instructions");
+        assert!(text.starts_with(shared), "{off:?}: {text}");
+        assert!(
+            text.ends_with(
+                "<cli>CLI only: ghCloneRepo. Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
+            ),
+            "{text}"
+        );
     }
 }
 
@@ -91,70 +61,22 @@ fn selection_schema_follows_the_resolved_presentation_switch() {
     for enabled in [false, true] {
         machine["presentation"] = json!({ "selection": enabled });
         for name in ["localSearch", "localFetch"] {
-            for view in ["query", "full"] {
-                let row = tool_view(&machine, name, Some(view), None).expect("schema");
-                assert_eq!(
-                    row["querySchema"]["properties"]
-                        .get("clasifyContext")
-                        .is_some(),
-                    enabled
-                );
-                assert!(
-                    !row["querySchema"]["required"]
-                        .as_array()
-                        .expect("required")
-                        .contains(&json!("clasifyContext"))
-                );
-                if view == "query" {
-                    assert_eq!(
-                        row["continuationFields"].get("selection").is_some(),
-                        enabled
-                    );
-                } else {
-                    assert_eq!(
-                        row["querySchema"]["properties"].get("selection").is_some(),
-                        enabled
-                    );
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn clasify_sources_follow_enabled_readers() {
-    for (off, readers) in [
-        (vec![], vec!["localFetch", "ghGetFileContent"]),
-        (vec!["ghGetFileContent"], vec!["localFetch"]),
-        (vec!["localFetch", "ghGetFileContent"], vec![]),
-    ] {
-        let row = tool_view(&machine(&off), "clasify", Some("query"), None).expect("schema");
-        let source = row["querySchema"]["properties"].get("source");
-        assert_eq!(source.is_some(), !readers.is_empty(), "{off:?}");
-        let text = source.map(Value::to_string).unwrap_or_default();
-        for reader in ["localFetch", "ghGetFileContent"] {
-            assert_eq!(
-                text.contains(reader),
-                readers.contains(&reader),
-                "{off:?} {reader}"
+            let row = tool_view(&machine, name, Some("query"), None).expect("schema");
+            let properties = &row["querySchema"]["properties"];
+            assert_eq!(properties.get("classification").is_some(), enabled);
+            assert!(
+                !row["querySchema"]["required"]
+                    .as_array()
+                    .expect("required")
+                    .contains(&json!("classification"))
             );
+            // Private plan state is never a public row field.
+            assert!(properties.get("selection").is_none(), "{row}");
+            assert!(properties.get("cursor").is_none(), "{row}");
         }
     }
-}
-
-#[test]
-fn clasify_variant_examples_never_suggest_disabled_readers() {
-    let mut view = json!({
-        "variants": [
-            { "name": "source", "example": { "source": { "tool": "localFetch" } } },
-            { "name": "url", "example": { "source": { "url": "https://a.test" } } },
-            { "name": "state", "example": { "state": "known" } }
-        ]
-    });
-    remove_unavailable_examples(&mut view, &["ghGetFileContent"]);
-    assert!(view["variants"][0].get("example").is_none());
-    assert!(view["variants"][1].get("example").is_none());
-    assert_eq!(view["variants"][2]["example"]["state"], "known");
+    let full = tool_view(&machine, "localSearch", Some("full"), None);
+    assert!(message(full).starts_with("A tool's views"));
 }
 
 #[test]
@@ -173,15 +95,7 @@ fn select_reads_one_operation_row() {
         ))
         .starts_with("Unknown operation: nope. Operations: ")
     );
-    assert_eq!(
-        message(tool_view(
-            &m,
-            "lspSearch",
-            Some("full"),
-            Some("operation=callers")
-        )),
-        "--select requires the query view and a tool name"
-    );
+    assert!(tool_view(&m, "lspSearch", Some("full"), Some("operation=callers")).is_err());
     // A JSON-quoted string selects the same row as the bare value.
     let bare = tool_view(&m, "astSearch", Some("query"), Some("operation=symbols")).expect("bare");
     let quoted = tool_view(
@@ -193,7 +107,7 @@ fn select_reads_one_operation_row() {
     .expect("quoted");
     assert_eq!(bare, quoted);
     assert!(
-        bare["querySchema"]["properties"]["symbolName"].is_object(),
+        bare["querySchema"]["properties"]["symbolFilter"].is_object(),
         "{bare}"
     );
 }
@@ -213,16 +127,16 @@ fn grammar_line_states_the_common_feature_set_once() {
 }
 
 #[test]
-fn lsp_search_names_its_servers_before_the_notes() {
+fn lsp_search_names_its_servers_at_the_end_of_when() {
     assert_eq!(
         super::with_lsp_servers(
-            "Resolve symbols. If empty: retry. Next: x.",
+            "<when>Resolve symbols.</when><workflow>Read hits.</workflow>",
             &["rust", "ts/js"]
         ),
-        "Resolve symbols. Servers: rust, ts/js. If empty: retry. Next: x."
+        "<when>Resolve symbols. Servers: rust, ts/js.</when><workflow>Read hits.</workflow>"
     );
     assert_eq!(
-        super::with_lsp_servers("Resolve symbols.", &[]),
-        "Resolve symbols. No language server found."
+        super::with_lsp_servers("<when>Resolve symbols.</when><workflow>x</workflow>", &[]),
+        "<when>Resolve symbols. No language server found.</when><workflow>x</workflow>"
     );
 }

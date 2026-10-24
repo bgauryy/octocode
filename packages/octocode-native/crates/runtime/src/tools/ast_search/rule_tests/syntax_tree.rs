@@ -54,8 +54,8 @@ fn syntax_tree_line_past_the_end_is_invalid_input_with_a_repair() {
     .expect_err("past the end");
     assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
     assert!(error.message.contains("(4 lines)"), "{error:?}");
-    let repair = &error.next.as_deref().expect("repair")["repair"];
-    let row = &repair["query"]["queries"][0];
+    let repair = &error.calls.as_deref().expect("repair")["repair"];
+    let row = &repair["input"]["queries"][0];
     assert_eq!(row["operation"], "syntaxTree", "{repair}");
     assert!(row.get("line").is_none(), "{repair}");
     crate::contracts::validate_query("astSearch", row.clone()).expect("a valid repair row");
@@ -72,9 +72,10 @@ fn syntax_tree_blank_line_snaps_to_the_next_item_and_notes_it_once() {
         "const a = 1;\n\nfunction f() {\n  const b = a;\n  const c = b;\n  return c;\n}\n",
     )
     .expect("file");
-    let first = run(
+    let first = crate::tools::ast_search::test_rows::run_window(
         &root.0,
-        json!({"operation":"syntaxTree","path":file,"line":2,"pageSize":3}),
+        json!({"operation":"syntaxTree","path":file,"line":2}),
+        1,
     )
     .expect("row");
     let node = first["nodes"][0].as_str().expect("node row");
@@ -83,10 +84,9 @@ fn syntax_tree_blank_line_snaps_to_the_next_item_and_notes_it_once() {
         first["diagnostics"][0]["code"], "syntaxTree.options.lineBlank",
         "{first}"
     );
-    let mut next = first["next"]["nextPage"]["query"]["queries"][0].clone();
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     assert_eq!(next["line"], 2, "{first}");
-    next["mainGoal"] = json!("test");
-    let second = run(&root.0, next).expect("page 2");
+    let second = crate::tools::ast_search::test_rows::run_window(&root.0, next, 1).expect("page 2");
     assert!(
         second["nodes"].as_array().is_some_and(|n| !n.is_empty()),
         "{second}"

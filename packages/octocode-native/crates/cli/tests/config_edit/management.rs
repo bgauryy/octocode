@@ -103,133 +103,93 @@ fn management_contract_drift_is_unavailable() {
     assert_eq!(drift["error"]["code"], "UNAVAILABLE", "{drift}");
 }
 
-/// Internal limits are not settings: `config set` and the config view's
-/// `setEnv`/`setSetting` reject a removed name with the reason and write
-/// nothing, while `config unset` still deletes a stale line.
 #[test]
-fn config_set_rejects_a_removed_setting() {
+fn unknown_settings_are_rejected_without_mutating_saved_configuration() {
+    let workspace = Workspace::new();
+    let path = workspace.home.join(".octocoderc");
+    let original = r#"{"lsp":{"prewarm":"off"}}"#;
+    std::fs::write(&path, original).unwrap();
+    let (_, inspected) = manage(&workspace, serde_json::json!({"operation": "inspect"}));
+    let revision = inspected["data"]["files"]["homeSettings"]["revision"].clone();
+    let (code, rejected) = manage(
+        &workspace,
+        serde_json::json!({"operation":"setSetting","scope":"home","key":"unrecognized.option",
+            "value":"private-marker","revision":revision}),
+    );
+    assert_eq!(code, Some(2));
+    assert_eq!(rejected["error"]["code"], "INVALID_INPUT", "{rejected}");
+    assert!(!rejected.to_string().contains("private-marker"));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+}
+
+#[test]
+fn arbitrary_environment_keys_remain_editable_and_values_are_not_disclosed() {
     let workspace = Workspace::new();
     let path = workspace.home.join(".env");
     std::fs::write(&path, "KEEP=original\n").unwrap();
-    for key in [
-        "REQUEST_TIMEOUT",
-        "OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH",
-        "network.timeout",
-        "output.pagination.defaultCharLength",
-    ] {
-        let output = workspace
-            .cli()
-            .args(["config", "set", key, "5000", "--json"])
-            .output()
-            .unwrap();
-        assert_eq!(output.status.code(), Some(2), "{key}");
-        let body: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(body["errorCode"], "invalidInput", "{key}: {body}");
-        assert!(
-            body["error"].as_str().unwrap().contains("removed"),
-            "{key}: {body}"
-        );
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "KEEP=original\n");
-    }
-    let (_, inspected) = manage(&workspace, serde_json::json!({"operation": "inspect"}));
-    for (operation, file, key) in [
-        ("setEnv", "homeEnv", "REQUEST_TIMEOUT"),
-        ("setSetting", "homeSettings", "network.timeout"),
-    ] {
-        let revision = inspected["data"]["files"][file]["revision"].clone();
-        let (code, rejected) = manage(
-            &workspace,
-            serde_json::json!({"operation": operation, "scope": "home", "key": key,
-                "value": if operation == "setEnv" { serde_json::json!("5000") } else { serde_json::json!(5000) },
-                "revision": revision}),
-        );
-        assert_eq!(code, Some(2), "{operation}: {rejected}");
-        assert_eq!(rejected["error"]["code"], "INVALID_INPUT", "{rejected}");
-        assert!(
-            rejected.to_string().contains("removed"),
-            "{operation}: {rejected}"
-        );
-    }
-    assert!(!workspace.home.join(".octocoderc").exists());
-    std::fs::write(&path, "KEEP=original\nREQUEST_TIMEOUT=\"9000\"\n").unwrap();
-    let unset = workspace
+    let set = workspace
         .cli()
-        .args(["config", "unset", "REQUEST_TIMEOUT", "--json"])
+        .args([
+            "config",
+            "set",
+            "CUSTOM_PROVIDER_KEY",
+            "private-marker",
+            "--json",
+        ])
         .output()
         .unwrap();
     assert!(
-        unset.status.success(),
+        set.status.success(),
         "{}",
-        String::from_utf8_lossy(&unset.stdout)
+        String::from_utf8_lossy(&set.stdout)
     );
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "KEEP=original\n");
+    assert!(!String::from_utf8_lossy(&set.stdout).contains("private-marker"));
+    let (_, inspected) = manage(&workspace, serde_json::json!({"operation":"inspect"}));
+    assert!(!inspected.to_string().contains("private-marker"));
+    assert!(
+        inspected["data"]["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|key| key["key"] == "CUSTOM_PROVIDER_KEY" && key["set"] == true)
+    );
+    let unset = workspace
+        .cli()
+        .args(["config", "unset", "CUSTOM_PROVIDER_KEY", "--json"])
+        .output()
+        .unwrap();
+    assert!(unset.status.success());
+    assert_eq!(std::fs::read_to_string(path).unwrap(), "KEEP=original\n");
 }
 
-/// A removed limit is not listed as a setting or a loaded key: `config
-/// --json` reports it once as `removed_setting`, `config get` reads it as
-/// unset, and the config view's settings no longer include it.
 #[test]
-fn config_views_no_longer_list_removed_limits() {
+fn unknown_saved_settings_warn_without_appearing_as_resolved_settings() {
     let workspace = Workspace::new();
     std::fs::write(
-        workspace.home.join(".env"),
-        "REQUEST_TIMEOUT=9000\nOCTOCODE_LSP_PREWARM=off\n",
-    )
-    .unwrap();
-    std::fs::write(
         workspace.home.join(".octocoderc"),
-        r#"{"network":{"timeout":9000},"storage":{"cloneCache":{"maxClones":3}}}"#,
+        r#"{"unrecognized":{"key":"private-marker"},"lsp":{"prewarm":"off"}}"#,
     )
     .unwrap();
     let show = workspace.cli().args(["config", "--json"]).output().unwrap();
     assert!(show.status.success());
     let shown: serde_json::Value = serde_json::from_slice(&show.stdout).unwrap();
-    let env_keys = shown["envKeys"].as_array().unwrap();
+    assert!(!shown.to_string().contains("private-marker"));
+    let diagnostics = shown["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{shown}");
+    assert_eq!(diagnostics[0]["code"], "unknown_or_future_config");
+    let (_, inspected) = manage(&workspace, serde_json::json!({"operation":"inspect"}));
+    let settings = inspected["data"]["settings"].as_array().unwrap();
     assert!(
-        env_keys.iter().any(|key| key == "OCTOCODE_LSP_PREWARM"),
-        "{shown}"
+        settings
+            .iter()
+            .any(|setting| setting["key"] == "lsp.prewarm" && setting["value"] == "off")
     );
     assert!(
-        !env_keys.iter().any(|key| key == "REQUEST_TIMEOUT"),
-        "{shown}"
+        !settings
+            .iter()
+            .any(|setting| setting["key"].as_str().unwrap().starts_with("unrecognized"))
     );
-    let removed: Vec<&serde_json::Value> = shown["diagnostics"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|d| d["code"] == "removed_setting")
-        .collect();
-    assert_eq!(removed.len(), 3, "{shown}");
-    for key in ["REQUEST_TIMEOUT", "network.timeout"] {
-        let get = workspace
-            .cli()
-            .args(["config", "get", key, "--json"])
-            .output()
-            .unwrap();
-        assert_eq!(get.status.code(), Some(1), "{key}");
-        let got: serde_json::Value = serde_json::from_slice(&get.stdout).unwrap();
-        assert_eq!(got["set"], false, "{key}: {got}");
-    }
-    let (_, inspected) = manage(&workspace, serde_json::json!({"operation": "inspect"}));
-    let settings: Vec<&str> = inspected["data"]["settings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|setting| setting["key"].as_str())
-        .collect();
-    assert!(settings.contains(&"lsp.prewarm"), "{settings:?}");
-    for removed in [
-        "network.timeout",
-        "network.maxRetries",
-        "network.maxRateLimitWait",
-        "lsp.maxMemoryMb",
-        "output.pagination.defaultCharLength",
-        "storage.cloneCache.ttl",
-        "classification.maxConcurrency",
-        "classification.timeoutMs",
-    ] {
-        assert!(!settings.contains(&removed), "{removed}: {settings:?}");
-    }
+    assert!(!inspected.to_string().contains("private-marker"));
 }
 
 #[test]

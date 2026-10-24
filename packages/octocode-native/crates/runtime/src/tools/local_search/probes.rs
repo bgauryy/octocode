@@ -1,26 +1,19 @@
 //! Bounded probe searches of an empty page: other spellings of a literal
 //! miss, and matches in the paths the walk skipped.
+use crate::tools::local_search::local_search_query;
+use crate::tools::local_search::local_search_query::View;
 
-use super::leads::*;
-use super::types::*;
 use crate::execution::cancel::CancellationCheck;
-use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
 use crate::tools::empty_walk::{Cause, Globs, Hits, Tagged, Verdict, Walk, diagnose};
 use crate::tools::leads::skipped::{SkippedEntry, skipped_cause, skipped_paths};
-use octocode_contract_types::SkippedPaths;
+use octocode_contract_types::{LocalSearchQuery, SkippedPaths};
 use octocode_engine::search::text_search::search_cancellable;
-use octocode_engine::types::{
-    CaseRule, PatternSyntax, SearchOutput, SpanValues, TextSearchOptions,
-};
+use octocode_engine::types::{SearchOutput, TextSearchOptions};
 use serde_json::{Value, json};
 use std::sync::Arc;
-
-mod spellings;
-
-pub(super) use spellings::*;
 
 /// What the re-run of an empty search over its skipped paths found: the
 /// files, each tagged with the causes that hid it, and what the path policy
@@ -51,9 +44,9 @@ pub(super) fn probe_unsearched(
 /// The walk the query ran: the causes it skipped paths by.
 fn query_walk(query: &LocalSearchQuery) -> Walk {
     Walk {
-        ignored: query.include_ignored == Some(true),
-        hidden: query.include_hidden == Some(true),
-        default_excludes: query.default_excludes.defaults(),
+        ignored: local_search_query::include_ignored(query) == Some(true),
+        hidden: local_search_query::include_hidden(query) == Some(true),
+        default_excludes: local_search_query::default_excludes(query).defaults(),
     }
 }
 
@@ -90,7 +83,7 @@ pub(super) fn disclose_unsearched(
         }
         return Ok(Unsearched::default());
     }
-    let subject = if query.result_view == LocalSearchQueryResultView::FilesWithout {
+    let subject = if local_search_query::view(query) == View::FilesWithout {
         ["file that lacks a match", "files that lack a match"]
     } else {
         ["file that matches", "files that match"]
@@ -129,7 +122,7 @@ pub(super) fn disclose_unsearched(
     Ok(Unsearched {
         may_hold_matches: true,
         unchecked,
-        observed: observed_paths(query, &named)?,
+        observed: observed_paths(&named)?,
     })
 }
 
@@ -148,7 +141,7 @@ fn absent(
     if counts.is_empty() {
         return;
     }
-    let what = if query.result_view == LocalSearchQueryResultView::FilesWithout {
+    let what = if local_search_query::view(query) == View::FilesWithout {
         "file lacking a match"
     } else {
         "match"
@@ -190,12 +183,9 @@ fn insert_lead(next: &mut Option<Value>, lead: Value) {
     }
 }
 
-/// The skipped paths a check named, one entry per cause and rule (its first
-/// path, with `count` when the rule hides more), or every path with
-/// `extras:["details"]`; the `includeSkipped` lead lifts them all either way.
-/// A check's findings are samples (`sampled`).
+/// Every skipped path a check named, with its rule. Findings are samples
+/// (`sampled`); the `includeSkipped` lead searches the entire skipped scope.
 fn observed_paths(
-    query: &LocalSearchQuery,
     skipped: &[crate::tools::empty_walk::Skip],
 ) -> Result<Option<SkippedPaths>, ToolError> {
     skipped_paths(
@@ -206,7 +196,7 @@ fn observed_paths(
             )
             .because(skip.reason.clone())
         }),
-        lists_every_skipped_path(query),
+        true,
         true,
     )
 }
@@ -240,20 +230,7 @@ fn unsearched_ignored(
     skips
 }
 
-/// One bounded probe: `options` over the query's own walk (`paths`, the
-/// default excludes when `defaults`, the include globs), stopped by `cancel`
-/// or the probe budget. `None` when it cannot run; the flag says the budget
-/// cut it, so every count it makes is a floor.
-pub(super) fn probe_search(
-    options: TextSearchOptions,
-    paths: &PathPolicy,
-    defaults: bool,
-    cancel: &impl CancellationCheck,
-) -> Option<(octocode_engine::types::TextSearchResult, bool)> {
-    probe_walked(options, paths, defaults, cancel).map(|(found, cut, _)| (found, cut))
-}
-
-/// [`probe_search`] with what the path policy withheld from its walk.
+/// Run a bounded search over the skipped scope with policy enforcement.
 fn probe_walked(
     options: TextSearchOptions,
     paths: &PathPolicy,
@@ -273,15 +250,13 @@ fn probe_walked(
     let started = std::time::Instant::now();
     let deadline = crate::tools::empty_walk::probe_budget();
     let cut = std::sync::atomic::AtomicBool::new(false);
-    let found = crate::tools::leads::best_effort(|| {
-        search_cancellable(options, walk.clone(), &|| {
-            let late = started.elapsed() > deadline;
-            if late {
-                cut.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
-            cancel.check().is_err() || late
-        })
-    })?
+    let found = search_cancellable(options, walk.clone(), &|| {
+        let late = started.elapsed() > deadline;
+        if late {
+            cut.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        cancel.check().is_err() || late
+    })
     .ok()?;
     Some((
         found,

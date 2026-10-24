@@ -1,6 +1,6 @@
-//! Provider failures: failed rows, recovery, and clasifyContext under a down provider or a refused credential.
+//! Provider failures: failed rows, recovery, and classification under a down provider or a refused credential.
 
-use super::{Typed, clasify, noul, state_row};
+use super::{Typed, clasify, content_row, noul};
 use crate::support::{Run as _, Workspace, clasify_runtime};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -26,16 +26,19 @@ async fn a_provider_failure_fails_the_row_and_the_runtime_recovers() {
         .await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let failed = clasify(&runtime, vec![state_row()]).await;
+    let failed = clasify(&runtime, vec![content_row()]).await;
     assert_eq!(
-        failed["queries"][0]["error"]["errorCode"], "classificationProviderError",
+        failed["results"][0]["data"]["errorCode"], "classificationProviderError",
         "{failed}"
     );
-    assert!(failed["queries"][0].get("answers").is_none());
-    let recovered = clasify(&runtime, vec![state_row()]).await;
-    assert_eq!(recovered["queries"][0]["answers"]["restart"]["noul"], 0.9);
+    assert!(failed["results"][0]["data"].get("answers").is_none());
+    let recovered = clasify(&runtime, vec![content_row()]).await;
+    assert_eq!(
+        recovered["results"][0]["data"]["answers"]["restart"]["noul"],
+        0.9
+    );
     assert!(
-        recovered["queries"][0].get("replayed").is_none(),
+        recovered["results"][0]["data"].get("replayed").is_none(),
         "a failure is never cached"
     );
     runtime.close().await;
@@ -57,27 +60,25 @@ async fn a_provider_failure_keeps_the_pinned_source_inspection_call() {
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let out = clasify(
         &runtime,
-        vec![json!({
-            "source":{"tool":"localFetch","query":{"path":"src/evidence.txt","ranges":["1-1"]}},
+        vec![json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"src/evidence.txt","ranges":[{"startLine":1,"endLine":1}]}},
             "questions":{"restart":noul("Does this state a restart requirement?")}
         })],
     )
     .await;
-    let row = &out["queries"][0];
-    assert_eq!(row["error"]["errorCode"], "classificationProviderError");
+    let row = &out["results"][0]["data"];
+    assert_eq!(row["errorCode"], "classificationProviderError");
     assert!(row.get("answers").is_none());
     assert!(!out.to_string().contains("RECOVERY_SOURCE_SENTINEL"));
-    let lead = &crate::support::checks::hint(&row["error"], "read");
+    let lead = &row["next"]["read"];
     assert_eq!(lead["tool"], "localFetch", "{out}");
-    assert_eq!(lead["query"]["queries"][0]["ranges"], json!(["1-1"]));
-    assert!(lead["query"]["queries"][0]["snapshot"].as_str().is_some());
+    crate::support::assert_cursor_only(&lead["input"]);
     assert!(
-        crate::support::checks::hint(&row["error"], "text")
-            .to_string()
-            .contains("if still needed")
+        row["hints"]
+            .as_array()
+            .is_some_and(|hints| !hints.is_empty())
     );
     let read = runtime
-        .run("inspect".into(), "localFetch".into(), lead["query"].clone())
+        .run("inspect".into(), "localFetch".into(), lead["input"].clone())
         .await
         .expect("inspection call");
     assert!(
@@ -106,9 +107,8 @@ async fn a_provider_that_is_down_under_clasify_context_returns_the_unfiltered_hi
     let row = crate::support::run(
         &runtime,
         "localSearch",
-        json!({"path": file.parent().unwrap(), "matchString": "recovery",
-            "clasifyContext": {"classifiers": ["Does it add hints?"]}}),
-        &[],
+        json!({"path": file.parent().unwrap(), "matchString":["recovery"],
+            "classification": {"predicates": ["Does it add hints?"]}}),
     )
     .await;
     let data = row.data();
@@ -176,26 +176,26 @@ async fn a_provider_that_is_down_under_clasify_context_shows_reads_and_code_page
         &server,
         &[("GITHUB_API_URL", format!("{}/api/v3", github.uri()))],
     );
-    let context = json!({"classifiers": ["Does it add hints?"]});
+    let context = json!({"predicates": ["Does it add hints?"]});
     for (tool, query, shown) in [
         (
             "localFetch",
-            json!({"path": file, "fullContent": true, "clasifyContext": context}),
+            json!({"path": file, "classification": context}),
             "other() { recovery(); }",
         ),
         (
             "ghGetFileContent",
             json!({"owner":"a","repo":"b","path":"src/a.rs","ref":"main",
-                "fullContent": true, "clasifyContext": context}),
+                "classification": context}),
             "other() { recovery(); }",
         ),
         (
             "ghSearchCode",
-            json!({"owner":"a","repo":"b","keywords":["recovery"], "clasifyContext": context}),
+            json!({"owner":"a","repo":"b","keywords":["recovery"], "classification": context}),
             "src/a.rs",
         ),
     ] {
-        let row = crate::support::run(&runtime, tool, query, &[]).await;
+        let row = crate::support::run(&runtime, tool, query).await;
         let data = row.data();
         assert_ne!(row.status(), "error", "{tool}: {data}");
         assert_eq!(data["selection"]["status"], "unavailable", "{tool}: {data}");
@@ -220,7 +220,7 @@ async fn a_provider_that_is_down_under_clasify_context_shows_reads_and_code_page
 }
 
 /// A provider that refuses the credential is not an unsure model: under
-/// clasifyContext the row fails with the provider's typed error, its
+/// classification the row fails with the provider's typed error, its
 /// credential hint, an `unavailable` receipt, and the unfiltered lead, and
 /// the call exits as a failure instead of success.
 #[tokio::test]
@@ -236,9 +236,8 @@ async fn a_refused_credential_under_clasify_context_fails_the_row_with_its_error
     let row = crate::support::run(
         &runtime,
         "localSearch",
-        json!({"path": file.parent().unwrap(), "matchString": "recovery",
-            "clasifyContext": {"classifiers": ["Does it add hints?"]}}),
-        &[],
+        json!({"path": file.parent().unwrap(), "matchString":["recovery"],
+            "classification": {"predicates": ["Does it add hints?"]}}),
     )
     .await;
     assert_eq!(row.status(), "error", "{}", row.data());

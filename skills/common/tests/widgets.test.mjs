@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildReport, buildManifest } from '../scripts/render-report.mjs';
+import { buildReport, buildManifest } from '../scripts/lib/report/render.mjs';
 
 function report(t, body) {
   const dir = mkdtempSync(join(tmpdir(), 'report-widgets-'));

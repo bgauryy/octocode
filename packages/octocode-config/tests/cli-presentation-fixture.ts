@@ -24,6 +24,13 @@ export function list(value: unknown): Json[] {
   return Array.isArray(value) ? value.filter(isJson) : [];
 }
 
+/** The strings of a JSON array (none when `value` is not an array). */
+export function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
 export const presentation = buildCliPresentation();
 export const tools = list(presentation.tools);
 export const tool = (name: string): Json => tools.find(entry => entry.name === name)!;

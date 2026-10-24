@@ -50,7 +50,7 @@ impl ScopeGaps {
     }
 
     /// A scan with no other language to offer (it found matches, it parsed
-    /// files, or no `language` was set): only the skipped walks, no repair.
+    /// files, or no `parser` was set): only the skipped walks, no repair.
     pub(super) fn beside_parsed(
         q: MatchQuery<'_>,
         scope: &Scope,
@@ -129,7 +129,7 @@ pub(super) fn skipped_walk(
 }
 
 /// The grammars of a directory scope that occur in it and compile the query,
-/// without `language` in play.
+/// without `parser` in play.
 pub(super) fn directory_choice(
     q: MatchQuery<'_>,
     root: &std::path::Path,
@@ -164,33 +164,33 @@ pub(super) fn directory_choice(
         &|| cancel.check().is_err(),
     )
     .map_err(super::super::errors::native_error)?;
-    let (pattern, rule) = (q.pattern(), q.rule());
+    let rule = q.rule();
     Ok(choose_grammar(present.into_iter(), |_, extensions| {
-        compile_check(extensions, pattern.as_deref(), rule.as_ref())
+        compile_check(extensions, None, rule.as_ref())
     }))
 }
 
 /// One repair lead that runs the query once per candidate grammar, as a
 /// batch within the input limit (the most frequent grammars lead).
 pub(super) fn language_repair(q: MatchQuery<'_>, languages: &[String]) -> Value {
-    let base = q.to_value();
+    let base = crate::response::result::fresh_query_row(ToolId::AstSearch, &q.to_value());
     let queries = languages
         .iter()
         .take(crate::response::result::rows_per_call(ToolId::AstSearch))
         .map(|language| {
             let mut row = base.clone();
-            row["language"] = json!(language);
-            if let Some(fields) = row.as_object_mut() {
-                fields.remove("snapshot");
-            }
+            row["parser"] = json!(language);
             row
         })
         .collect::<Vec<_>>();
-    crate::response::result::Continuation::input(ToolId::AstSearch, json!({ "queries": queries }))
-        .build()
+    crate::response::result::Continuation::related_input(
+        ToolId::AstSearch,
+        json!({ "queries": queries }),
+    )
+    .build()
 }
 
-/// The repair of a `language` that parsed no file in a directory: the
+/// The repair of a `parser` that parsed no file in a directory: the
 /// grammars the scope does hold, when the query compiles in any of them.
 pub(super) fn other_language_repair(
     q: MatchQuery<'_>,

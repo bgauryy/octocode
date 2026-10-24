@@ -1,21 +1,22 @@
 //! A failed ghGetFileContent read: one message, one hint and one recovery
 //! per row, chosen from the provider error and the missing-path walk.
-use super::GhGetFileContentQuery;
+use super::access;
 use crate::id::ToolId;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::gh_shared::{
     GhFailure, PathRecovery, RepoPath, parent_dir, provider_hint, provider_message,
     repository_not_found, repository_search, tree_recovery, validation_message, with_ref_recovery,
 };
+use octocode_contract_types::GhGetFileContentQuery;
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 use serde_json::{Value, json};
 
 pub(super) fn repo_path(query: &GhGetFileContentQuery) -> RepoPath<'_> {
     RepoPath {
-        owner: query.owner.as_str(),
-        repo: query.repo.as_str(),
-        path: query.path.as_str(),
-        reference: query.ref_.as_ref().map(|value| value.as_str()),
+        owner: access::owner(query),
+        repo: access::repo(query),
+        path: access::path(query),
+        reference: access::reference(query),
     }
 }
 
@@ -76,17 +77,17 @@ pub(crate) fn failure(
     {
         // The provider confirmed this path is a directory: listing it is
         // exact, and the lead is the whole repair.
-        (
-            None,
-            Some(json!({ "viewTree": tree_recovery(&at, None, false) })),
-        )
+        (None, Some(json!({ "viewTree": tree_recovery(&at, None) })))
     } else if repository_not_found(&error) {
         // Listing a tree of the same repository cannot recover; a search
         // for its name names the owner that holds it (as on the search
         // tools).
         (
             None,
-            Some(json!({ "findRepository": repository_search(repo) })),
+            Some(json!({
+                "findRepository": repository_search(repo),
+                "findRepository2": crate::tools::gh_shared::owner_listing(owner),
+            })),
         )
     } else if error.kind == ProviderErrorKind::NotFound {
         path_recovery(query, &at, found)
@@ -97,7 +98,7 @@ pub(crate) fn failure(
     if let Some(hint) = hint {
         failure = failure.hint(hint);
     }
-    failure.next = next.map(Box::new);
+    failure.calls = next.map(Box::new);
     identity(failure)
 }
 
@@ -133,7 +134,7 @@ fn path_recovery(
         };
         return (
             None,
-            Some(json!({ "viewTree": tree_recovery(&listing, None, true) })),
+            Some(json!({ "viewTree": tree_recovery(&listing, None) })),
         );
     };
     let directory = if found.directory.is_empty() {
@@ -151,7 +152,7 @@ fn path_recovery(
         Some(path) => {
             let mut read = query_row(query, &[]);
             read["path"] = json!(path);
-            let read = Continuation::new(ToolId::GhGetFileContent, read).build();
+            let read = Continuation::related(ToolId::GhGetFileContent, read).build();
             (
                 Some("Only the path's case differs."),
                 Some(json!({ "read": read })),
@@ -159,7 +160,7 @@ fn path_recovery(
         }
         None => (
             None,
-            Some(json!({ "viewTree": tree_recovery(&listing, None, false) })),
+            Some(json!({ "viewTree": tree_recovery(&listing, None) })),
         ),
     }
 }

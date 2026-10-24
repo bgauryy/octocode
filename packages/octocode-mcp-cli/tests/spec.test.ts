@@ -187,14 +187,14 @@ describe('flag parity', () => {
 
 describe('commands', () => {
   it('aliases illegal and reserved MCP names', () => {
-    expect(commandToken('search')).toEqual({ token: 'search', aliased: false });
-    expect(commandToken('issues.search')).toEqual({ token: 'issues.search', aliased: false });
-    expect(commandToken('123bad')).toEqual({ token: '123bad', aliased: false });
-    expect(commandToken('...help')).toEqual({ token: '...help', aliased: false });
-    expect(commandToken('help')).toEqual({ token: 'help-command', aliased: true });
-    expect(commandToken('version')).toEqual({ token: 'version-command', aliased: true });
-    expect(commandToken('---')).toEqual({ token: 'tool-command', aliased: true });
-    expect(commandToken('a b')).toEqual({ token: 'a-b', aliased: true });
+    expect(commandToken('search')).toBe('search');
+    expect(commandToken('issues.search')).toBe('issues.search');
+    expect(commandToken('123bad')).toBe('123bad');
+    expect(commandToken('...help')).toBe('...help');
+    expect(commandToken('help')).toBe('help-command');
+    expect(commandToken('version')).toBe('version-command');
+    expect(commandToken('---')).toBe('tool-command');
+    expect(commandToken('a b')).toBe('a-b');
   });
 
   it('rejects duplicate, reserved, and incomplete commands', () => {

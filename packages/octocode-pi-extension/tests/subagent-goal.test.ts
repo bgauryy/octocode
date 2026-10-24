@@ -1,6 +1,4 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { archiveSearch } from '../src/shared/archive.js';
 import { subagentProcessEnv } from '../src/subagents/process.js';
 import { registerAgentTool } from '../src/subagents/tool.js';
@@ -11,26 +9,11 @@ import { AGENT_NAMES } from '../src/team/identity.js';
 import { Team } from '../src/team/session.js';
 import { fakeCtx, fakePi, fakePermission, rendered, theme } from './fake-pi.js';
 import { tmp } from './helpers.js';
+import { useScriptedPi } from './subagent-tool-harness.js';
 
-const FIXTURE = path.join(path.dirname(new URL(import.meta.url).pathname), 'subagent-fake-pi.cjs');
-const savedArgv = process.argv[1];
-const savedEnv = { ...process.env };
 const GOAL = 'audit auth token refresh';
 
-beforeAll(() => {
-  const root = tmp('octocode-agent-goal-');
-  process.env['OCTOCODE_HOME'] = path.join(root, 'home');
-  process.env['OCTOCODE_AGENT_DB'] = path.join(root, 'team', 'team.sqlite');
-  for (const key of ['OCTOCODE_SUBAGENT', 'OCTOCODE_AGENT_ID', 'OCTOCODE_AGENT_ROLE', 'OCTOCODE_AGENT_GOAL', 'OCTOCODE_PARENT_ID', 'OCTOCODE_AGENT_COLLABORATE', 'OCTOCODE_AGENT_SCRATCH', 'OCTOCODE_TEAM_WORKSPACE', 'OCTOCODE_MAX_SUBAGENTS']) delete process.env[key];
-  const bin = path.join(root, 'bin');
-  fs.mkdirSync(bin);
-  fs.copyFileSync(FIXTURE, path.join(bin, 'pi'));
-  process.argv[1] = path.join(bin, 'pi');
-});
-afterAll(() => {
-  process.argv[1] = savedArgv!;
-  process.env = savedEnv;
-});
+useScriptedPi();
 
 const profiles = new Map<string, AgentProfile>([['reviewer', { name: 'reviewer', description: 'reviews', prompt: 'Review only.' }]]);
 

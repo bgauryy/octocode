@@ -47,7 +47,7 @@ fn runtime(workspace: &Workspace, server: &MockServer, extra: &[(&str, String)])
 }
 
 fn row(path: &str) -> Value {
-    json!({"state":"image_a","assets":{"image_a":{"type":"image","source":{"tool":"localFetch","query":{"path":path}}}},
+    json!({"operation":"evaluate","content":"image_a","assets":{"image_a":{"source":{"tool":"localFetch","query":{"path":path}}}},
         "questions":{"visible":{"type":"noul","instructions":"Does image_a contain visible content?"},
         "bounds":{"type":"box","instructions":"Locate the object in image_a."}}})
 }

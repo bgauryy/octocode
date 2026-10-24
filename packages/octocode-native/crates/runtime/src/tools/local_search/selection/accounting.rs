@@ -1,6 +1,10 @@
 //! What a selected page kept and removed: its receipt, token and counts.
+use crate::tools::local_search::local_search_query;
+use crate::tools::local_search::local_search_query::Unique;
+use crate::tools::local_search::local_search_query::View;
 
 use super::*;
+use octocode_contract_types::LocalSearchQuery;
 
 pub(super) fn distinct_lines(file: &TextSearchFile) -> usize {
     file.matches
@@ -24,8 +28,8 @@ pub(super) fn recount(
         return;
     }
     let saturate = |n: usize| u32_of_usize(n);
-    let rows_are_occurrences = query.result_view == LocalSearchQueryResultView::MatchOnly
-        && query.unique == LocalSearchQueryUnique::Off;
+    let rows_are_occurrences = local_search_query::view(query) == View::MatchOnly
+        && local_search_query::unique(query) == Unique::Off;
     let one_per_line = stats.match_count.is_some() && stats.match_count == stats.matched_lines;
     stats.match_count = if rows_are_occurrences {
         stats
@@ -73,12 +77,12 @@ impl Selected {
         if !self.outcome.leaves_out() {
             return Vec::new();
         }
-        let query_json = stated_query(query);
+        let query_json = query_value(query);
         let mut leads = self.unfiltered_leads(&query_json, snapshot, root_is_dir);
         if let Some(token) = self.outcome.next_candidates(ToolId::LocalSearch) {
             let mut row = query_json;
             if let Some(fields) = row.as_object_mut() {
-                for field in crate::response::result::CURSOR_FIELDS {
+                for field in crate::contracts::state_fields(ToolId::LocalSearch) {
                     fields.remove(field);
                 }
             }
@@ -86,17 +90,10 @@ impl Selected {
             row["selection"] = json!(token);
             leads.push((
                 "nextCandidatePage",
-                crate::response::result::Continuation::new(ToolId::LocalSearch, row).build(),
+                crate::response::result::Continuation::continued(ToolId::LocalSearch, row).build(),
             ));
         }
         leads
-    }
-
-    /// The whole unfiltered result of this scan.
-    fn whole(&self, query_json: &Value, snapshot: &str) -> Value {
-        let mut whole = crate::tools::selection::unfiltered_row(query_json, &[]);
-        whole["snapshot"] = json!(snapshot);
-        crate::response::result::Continuation::new(ToolId::LocalSearch, whole).build()
     }
 
     fn unfiltered_leads(
@@ -105,7 +102,7 @@ impl Selected {
         snapshot: &str,
         root_is_dir: bool,
     ) -> Vec<(&'static str, Value)> {
-        let whole = self.whole(query_json, snapshot);
+        let whole = unfiltered_whole(query_json, snapshot);
         let globs = self
             .unknown_files
             .iter()
@@ -123,13 +120,13 @@ impl Selected {
         let mut unknown = crate::tools::selection::unfiltered_row(query_json, &[]);
         unknown["include"] = json!(globs);
         let unknown =
-            crate::response::result::Continuation::new(ToolId::LocalSearch, unknown).build();
+            crate::response::result::Continuation::continued(ToolId::LocalSearch, unknown).build();
         vec![("unfiltered", whole), ("unfilteredUnknown", unknown)]
     }
 
-    /// The provider's error when it failed this page, the hit rows the
-    /// selected chunks hold of the pre-selection totals when selection
-    /// removed hits (when it kept none, why: every chunk judged and none
+    /// The provider's error when it failed this page, the hit rows kept
+    /// (those that pass the classifiers) of the pre-selection totals when
+    /// selection removed hits (when it kept none, why: every chunk judged and none
     /// passed, which is the answer, or some could not be judged), and the
     /// groups the candidate budget left unjudged. That counts describe kept hits is the tool
     /// description's, not repeated here.
@@ -155,15 +152,22 @@ impl Selected {
                 ""
             };
             notes.push(format!(
-                "clasifyContext: {why}, so none of the {} hit rows ({} files) is listed{answer}.",
+                "classification: {why}, so none of the {} hit rows ({} files) is listed{answer}.",
                 self.rows_before, self.files_before,
             ));
         } else if self.rows_kept < self.rows_before {
             notes.push(format!(
-                "clasifyContext: the selected chunks hold {} of {} hit rows ({} of {} files).",
+                "classification kept {} of {} hit rows ({} of {} files) that pass the classifiers.",
                 self.rows_kept, self.rows_before, self.files_kept, self.files_before,
             ));
         }
         notes
     }
+}
+
+/// The whole unfiltered result of the scan `snapshot` names.
+fn unfiltered_whole(query_json: &Value, snapshot: &str) -> Value {
+    let mut whole = crate::tools::selection::unfiltered_row(query_json, &[]);
+    whole["snapshot"] = json!(snapshot);
+    crate::response::result::Continuation::continued(ToolId::LocalSearch, whole).build()
 }

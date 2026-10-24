@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { classifyScript, type Classification, type ScriptCommand } from './winclassify.js';
 import { WINDOWS_HELPER_SCRIPT } from './winhelper-script.js';
-import { validPid } from './util.js';
+import { isRecord, parseJson, validPid } from './util.js';
 import { powerShellCandidates } from './winpath.js';
 
 /**
@@ -45,12 +45,8 @@ interface Response {
 
 /** The parsed JSON object on this line, or undefined for anything else (PowerShell may print stray text). */
 function parseLine(line: string): Response | undefined {
-  try {
-    const value: unknown = JSON.parse(line);
-    return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Response) : undefined;
-  } catch {
-    return undefined;
-  }
+  const value = parseJson(line);
+  return isRecord(value) ? (value as Response) : undefined;
 }
 
 /** The helper's `commands` when they have the shape the classifier reads. */

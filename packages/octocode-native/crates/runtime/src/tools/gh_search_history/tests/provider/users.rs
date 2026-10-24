@@ -23,10 +23,7 @@ async fn search_naming_a_missing_user_is_not_a_missing_repository() {
     )
     .await;
     let provider = one_shot_provider(&server);
-    let query: GhSearchHistoryQuery = serde_json::from_value(json!({
-        "operation":"pullRequest","owner":"o","repo":"r",
-        "qualifiers":"author:ghost -reviewed-by:bot label:bug"
-    }))
+    let query: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"author":{"include":["ghost"]},"reviewedBy":{"exclude":["bot"]},"labels":{"include":["bug"]}}}))
     .expect("query");
     let failure = crate::tools::gh_search_history::execute(
         &provider,
@@ -53,30 +50,30 @@ async fn search_naming_a_missing_user_is_not_a_missing_repository() {
     // The `withoutUsers` lead is the repair; no hint restates the message.
     assert_eq!(hint, None);
     let lead = failure
-        .next
+        .calls
         .expect("a lead")
-        .pointer("/withoutUsers/query/queries/0")
+        .pointer("/withoutUsers/input/queries/0")
         .cloned();
     let lead = lead.expect("withoutUsers is a ghSearchHistory query");
-    assert_eq!(lead["qualifiers"], "label:bug", "{lead}");
+    assert_eq!(lead["filters"]["labels"]["include"], json!(["bug"]));
+    assert!(lead["filters"].get("author").is_none());
+    assert!(lead["filters"].get("reviewedBy").is_none());
     assert_eq!(
         (lead["owner"].as_str(), lead["repo"].as_str()),
         (Some("o"), Some("r"))
     );
 
     // Person qualifiers only: the lead drops `qualifiers` altogether.
-    let only: GhSearchHistoryQuery = serde_json::from_value(json!({
-        "operation":"pullRequest","owner":"o","repo":"r","qualifiers":"author:ghost"
-    }))
+    let only: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"author":{"include":["ghost"]}}}))
     .expect("query");
     let failure =
         crate::tools::gh_search_history::execute(&provider, only, &default_context(), &Passthrough)
             .await
             .expect_err("missing user");
-    let lead = failure.next.expect("a lead");
+    let lead = failure.calls.expect("a lead");
     assert!(
-        lead["withoutUsers"]["query"]["queries"][0]
-            .get("qualifiers")
+        lead["withoutUsers"]["input"]["queries"][0]
+            .pointer("/filters/author")
             .is_none(),
         "{lead}"
     );
@@ -123,7 +120,7 @@ async fn an_empty_commit_list_naming_a_missing_author_is_the_missing_user_failur
     let provider = one_shot_provider(&server);
     let list = |login: &str| -> GhSearchHistoryQuery {
         serde_json::from_value(json!({
-            "operation":"commit","owner":"o","repo":"r","qualifiers": format!("author:{login}")
+            "operation":"commit","owner":"o","repo":"r","filters":{"author":{"include":[login]}}
         }))
         .expect("query")
     };
@@ -143,12 +140,12 @@ async fn an_empty_commit_list_naming_a_missing_author_is_the_missing_user_failur
     );
     assert!(
         failure
-            .next
+            .calls
             .as_ref()
-            .and_then(|next| next.pointer("/withoutUsers/query/queries/0"))
-            .is_some_and(|lead| lead.get("qualifiers").is_none()),
+            .and_then(|next| next.pointer("/withoutUsers/input/queries/0"))
+            .is_some_and(|lead| lead.pointer("/filters/author").is_none()),
         "{:?}",
-        failure.next
+        failure.calls
     );
     assert!(
         crate::tools::gh_search_history::execute(
@@ -198,10 +195,13 @@ async fn commit_search_naming_a_missing_user_fails_before_the_search() {
         .await;
     let provider = one_shot_provider(&server);
     // The missing login may be the author or the committer, next to a real one.
-    for qualifiers in ["author:ghost", "author:dev committer:ghost"] {
+    for filters in [
+        json!({"author":{"include":["ghost"]}}),
+        json!({"author":{"include":["dev"]},"committer":{"include":["ghost"]}}),
+    ] {
         let query: GhSearchHistoryQuery = serde_json::from_value(json!({
             "operation":"commit","owner":"o","repo":"r","keywords":["fix"],
-            "qualifiers": qualifiers
+            "filters": filters
         }))
         .expect("query");
         let failure = crate::tools::gh_search_history::execute(
@@ -212,15 +212,11 @@ async fn commit_search_naming_a_missing_user_fails_before_the_search() {
         )
         .await
         .expect_err("missing user");
-        assert_eq!(
-            failure.error.kind,
-            ProviderErrorKind::NotFound,
-            "{qualifiers}"
-        );
+        assert_eq!(failure.error.kind, ProviderErrorKind::NotFound, "{filters}");
         assert_eq!(
             failure.error.reason,
             Some(ProviderErrorReason::UserNotFound),
-            "{qualifiers}"
+            "{filters}"
         );
         let (message, hint) = history_failure(&failure.error, true);
         assert!(
@@ -229,14 +225,14 @@ async fn commit_search_naming_a_missing_user_fails_before_the_search() {
                 && !message.contains("Repository"),
             "{message}"
         );
-        assert_eq!(hint, None, "{qualifiers}");
+        assert_eq!(hint, None, "{filters}");
         let lead = failure
-            .next
+            .calls
             .expect("a lead")
-            .pointer("/withoutUsers/query/queries/0")
+            .pointer("/withoutUsers/input/queries/0")
             .cloned()
             .expect("withoutUsers is a ghSearchHistory query");
-        assert!(lead.get("qualifiers").is_none(), "{lead}");
+        assert!(lead.pointer("/filters/author").is_none(), "{lead}");
         assert_eq!(lead["keywords"], json!(["fix"]), "{lead}");
     }
 }
@@ -269,10 +265,10 @@ async fn commit_search_confirms_each_named_login_once_and_only_then() {
     )
     .await;
     let provider = one_shot_provider(&server);
-    let run = |qualifiers: Option<&str>| {
+    let run = |filters: Option<Value>| {
         let mut row = json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix"]});
-        if let Some(qualifiers) = qualifiers {
-            row["qualifiers"] = json!(qualifiers);
+        if let Some(filters) = filters {
+            row["filters"] = filters;
         }
         let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
         let provider = &provider;
@@ -288,13 +284,16 @@ async fn commit_search_confirms_each_named_login_once_and_only_then() {
         }
     };
     // One login named as author and committer (case aside): one request.
-    run(Some("author:Dev committer:dev")).await;
+    run(Some(
+        json!({"author":{"include":["Dev"]},"committer":{"include":["dev"]}}),
+    ))
+    .await;
     // No user qualifier, or an email: no /users request (an unmounted route
     // would 404 as a missing user and fail the search).
     run(None).await;
-    run(Some("author:dev@example.com")).await;
+    run(Some(json!({"author":{"include":["dev@example.com"]}}))).await;
     // Any failure but 404 does not block; the search says it was unchecked.
-    let data = run(Some("author:flaky")).await;
+    let data = run(Some(json!({"author":{"include":["flaky"]}}))).await;
     let warnings = data["warnings"].to_string();
     assert!(warnings.contains("flaky"), "{data}");
 }

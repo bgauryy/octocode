@@ -36,7 +36,7 @@ Provenance records the core package version; release order is in `docs/RELEASE.m
 2. `$OCTO schema <tool> --view query` shows the changed contract.
 3. Re-run the reproducing call from the finding via CLI; it now passes.
 4. Re-run via a restarted host server or a fresh stdio MCP session.
-5. Execute any `next.*` pages and `hints` leads the change touches, pages to termination.
+5. Execute required `next.*` and response continuations to termination. Check affected typed `related[]` calls as fresh requests; `hints[]` contains prose.
 6. Re-run `scripts/tool-inventory.mjs <tool>`; the fixed field is no longer flagged.
 7. Package tests + lint green vs baseline.
 

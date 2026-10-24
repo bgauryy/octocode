@@ -1,6 +1,7 @@
 //! Runtime fixtures plus Cargo-owned CLI executable discovery.
-#[allow(
+#[expect(
     dead_code,
+    unused_imports,
     reason = "the CLI tests use a subset of the runtime integration fixtures"
 )]
 #[path = "../../../runtime/tests/support/mod.rs"]

@@ -65,13 +65,10 @@ pub(crate) fn render_page(
     // exact entries left out is a fact of the whole result, so page 1
     // states it once with its lead.
     if page == 1
-        && let Some(shown) = set.skipped_paths.as_ref().and_then(|paths| {
-            skipped::grouped(
-                paths.entries.iter().cloned(),
-                skipped::every_path(&q.extras),
-                paths.sampled,
-            )
-        })
+        && let Some(shown) = set
+            .skipped_paths
+            .as_ref()
+            .and_then(|paths| skipped::grouped(paths.entries.iter().cloned(), true, paths.sampled))
     {
         out["skippedPaths"] = serde_json::to_value(shown).unwrap_or_default();
     }
@@ -98,9 +95,9 @@ pub(crate) fn render_page(
     // outline names its file once. Rows are outline rows (see
     // `response::symbol_outline`).
     if set.directory || rows.iter().any(|row| row.get("path").is_some()) {
-        out["files"] = Value::Array(group_by_file(rows));
+        out["files"] = Value::Array(group_by_file(rows, row_paths));
     } else {
-        out["path"] = json!(set.path);
+        out["path"] = json!(row_paths.delivered(&set.path));
         out["symbols"] = Value::Array(declaration_rows(rows));
     }
     // The snapshot only pins later pages to the same source; a single page
@@ -146,8 +143,7 @@ struct SymbolPage {
 }
 
 impl SymbolPage {
-    /// Page `q.page()` of `set`: top-level rows cut by `pageSize`, else by
-    /// the response window; a page past the end is empty.
+    /// Top-level rows fitting the response budget; a page past the end is empty.
     fn of(
         q: &AstSearchQuerySymbols,
         set: &SymbolSet,
@@ -160,10 +156,7 @@ impl SymbolPage {
             response_window,
             &crate::response::result::query_value(q),
         );
-        let paging = crate::response::page_windows::Paging::of(
-            ast_search_query_symbols::page_size(q),
-            budget,
-        );
+        let paging = crate::response::page_windows::Paging::of(None, budget);
         // Pages count top-level rows; each carries its members.
         let spans = top_level_spans(declarations);
         let sizes = row_sizes(declarations, &spans, set.directory.then_some(row_paths));
@@ -230,7 +223,7 @@ fn attach_symbol_leads(
             &[("snapshot", json!(set.snapshot))],
         )
     {
-        out["next"] = json!({ "nextPage": lead });
+        out["calls"] = json!({ "nextPage": lead });
     }
     if let Some(window) = expand_scan.filter(|_| !more) {
         let mut nq = crate::response::result::query_row(q, &["snapshot"]);
@@ -239,12 +232,12 @@ fn attach_symbol_leads(
         }
         nq["scanOffset"] = json!(window.scan_offset);
         nq["page"] = json!(1);
-        out["next"]["expandScan"] =
-            crate::response::result::Continuation::new(ToolId::AstSearch, nq).build();
+        out["calls"]["expandScan"] =
+            crate::response::result::Continuation::continued(ToolId::AstSearch, nq).build();
     }
     if let Some(lead) = &set.references {
-        let name = crate::tools::leads::lsp::lead_name(&lead["query"]["queries"][0]);
-        out["next"][name] = lead.clone();
+        let name = crate::tools::leads::lsp::lead_name(&lead["input"]["queries"][0]);
+        out["calls"][name] = lead.clone();
     }
     // The kinds that declare an exact name lead first; the names an exact
     // entry cut follow, a list past the schema's item bound in
@@ -254,20 +247,16 @@ fn attach_symbol_leads(
             .kinds_left_out
             .iter()
             .map(|left_out| left_out.lead(q))
-            .chain(
-                set.suppressed
-                    .iter()
-                    .flat_map(|suppressed| suppressed.leads(q)),
-            );
+            .chain(set.suppressed.iter().map(|_| Suppressed::lead(q)));
         for (index, lead) in broaden.enumerate() {
-            out["next"][crate::id::numbered("broadenSearch", index)] = lead;
+            out["calls"][crate::id::numbered("broadenSearch", index)] = lead;
         }
     }
     if let Some(lead) = set.text_search.as_ref().filter(|_| page == 1) {
-        out["next"]["findText"] = lead.clone();
+        out["calls"]["findText"] = lead.clone();
     }
     if let Some(lead) = set.read.as_ref().filter(|_| page == 1) {
-        out["next"]["read"] = lead.clone();
+        out["calls"]["read"] = lead.clone();
     }
 }
 

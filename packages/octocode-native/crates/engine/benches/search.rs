@@ -1,4 +1,7 @@
-#![allow(clippy::expect_used)]
+#![expect(
+    clippy::expect_used,
+    reason = "benchmark setup fails loudly on a broken fixture"
+)]
 //! High-hit parallel search benchmark: many matched files across many
 //! directories, so per-file result collection (not regex evaluation) is a
 //! visible share of the runtime. Guards the worker-local collection path in
@@ -51,10 +54,13 @@ fn high_hit_search(criterion: &mut Criterion) {
     let root = fixture_tree();
     let path = root.display().to_string();
     // `_digest` also hashes every kept file (a second whole-file read after
-    // its search), as localSearch asks (its page cache keeps those digests).
+    // its search), as localSearch asks (its page cache keeps those digests);
+    // `_deferred` keeps anchors and digests instead of snippets, as
+    // localSearch does.
     for (name, values) in [
         ("text_high_hit_collect", SourceValues::Owned),
         ("text_high_hit_collect_digest", SourceValues::Hashed),
+        ("text_high_hit_collect_deferred", SourceValues::Deferred),
     ] {
         criterion.bench_function(name, |bencher| {
             bencher.iter(|| {

@@ -14,7 +14,7 @@ fn candidate_pages_skip_oversized_states_but_judge_every_fitting_state_once() {
         Candidate::new(Some(json!({"content":"second"}))),
         Candidate::new(None),
     ];
-    let query = json!({"clasifyContext":{"classifiers":["find evidence"]}});
+    let query = json!({"classification":{"predicates":["find evidence"]}});
     let run = |prior| {
         select_source(&runtime, &query, prior, &candidates, SelectionUnit::Files)
             .unwrap_or_else(|_| panic!("mixed candidate page"))
@@ -74,7 +74,7 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
         .map(|i| Candidate::new(Some(json!({"content":format!("evidence {i}")}))))
         .collect::<Vec<_>>();
     candidates.push(Candidate::new(None));
-    let query = json!({"clasifyContext":{"classifiers":["evidence"]}});
+    let query = json!({"classification":{"predicates":["evidence"]}});
     let run = |prior: Option<&str>| {
         select_source(&runtime, &query, prior, &candidates, SelectionUnit::Chunks)
             .unwrap_or_else(|_| panic!("candidate page"))
@@ -141,12 +141,12 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
     files.push(json!({"path":"oversized.rs","lines":["x".repeat(2_000)]}));
     let original = json!({"results":[{"index":0,"data":{
         "owner":"o","repo":"r","files":files,
-        "next":{"nextPage":{"tool":"ghSearchCode","query":{"queries":[{
+        "next":{"nextPage":{"kind":"continue","tool":"ghSearchCode","input":{"queries":[{
             "owner":"o","repo":"r","keywords":["fn"],"page":4
         }]}}}
     }}]});
     let mut query = json!({"owner":"o","repo":"r","page":3,"keywords":["fn"],
-        "clasifyContext":{"classifiers":["Does this define a function?"]}});
+        "classification":{"predicates":["Does this define a function?"]}});
     let mut seen = HashSet::new();
     let mut first_next = None;
     for page in 0..3 {
@@ -157,14 +157,14 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
         for file in data["files"].as_array().expect("selected files") {
             assert!(seen.insert(file["path"].as_str().unwrap().to_owned()));
         }
-        assert_eq!(data["next"]["nextPage"]["query"]["queries"][0]["page"], 4);
+        assert_eq!(data["next"]["nextPage"]["input"]["queries"][0]["page"], 4);
         if page == 0 {
             assert_eq!(data["selection"]["totalItems"], 6);
             assert_eq!(data["selection"]["unknownItems"], 4);
             assert_eq!(data["selection"]["reason"], "candidateStateTooLarge");
             assert!(data["next"]["unfiltered"].is_object());
         }
-        let next = data["next"]["nextCandidatePage"]["query"]["queries"][0].clone();
+        let next = data["next"]["nextCandidatePage"]["input"]["queries"][0].clone();
         if page < 2 {
             assert_eq!(next["page"], 3);
             assert!(next["selection"].is_string());

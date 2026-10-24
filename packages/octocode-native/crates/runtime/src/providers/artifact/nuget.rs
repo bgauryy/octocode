@@ -2,12 +2,9 @@ use super::http::{JSON, RegistryClient};
 use super::util::{
     commit_sha, date_prefix, endpoint, object_for, parse_url, required, rows, string, total,
 };
-use super::{
-    ArtifactError, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery, ArtifactType,
-    TerminalLimit,
-};
-use crate::providers::artifact::types::artifact_search_query;
-use octocode_contract_types::ErrorCode;
+use super::{ArtifactError, ArtifactProviderPage, ArtifactProviderState, TerminalLimit};
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
 
@@ -37,7 +34,7 @@ pub(crate) async fn nuget(
     let size =
         artifact_search_query::page_size(query).min(REACHABLE_END.saturating_sub(offset) as usize);
     // NuGet rejects skip > 3000. Past it, fetch one window from skip=3000
-    // (take stays <= 1000) and slice the caller's page out locally.
+    // (take stays <= 1000) and slice the saved page window out locally.
     let (skip, drop) = if offset > MAX_SKIP {
         (MAX_SKIP, (offset - MAX_SKIP) as usize)
     } else {

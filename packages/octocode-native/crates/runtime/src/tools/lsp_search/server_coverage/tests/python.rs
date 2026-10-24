@@ -29,7 +29,11 @@ fn python_incoming_rows_name_dynamic_dispatch_and_offer_text_search() {
         "{PYTHON_WARNING}"
     );
     assert!(row.get("warnings").is_none(), "{row}");
-    assert_eq!(row["next"]["findText"]["tool"], "localSearch", "{row}");
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)["tool"],
+        "localSearch",
+        "{row}"
+    );
     // Outgoing questions are not affected.
     let mut definition = json!({"kind":"definition","matches":[]});
     let q = query(json!({"path":"/w/a.py","operation":"definition","symbolName":"x","line":3}));

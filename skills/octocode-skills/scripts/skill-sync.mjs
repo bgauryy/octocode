@@ -59,6 +59,9 @@ Examples:
 `;
 }
 
+const FLAGS = new Map([['--help', 'help'], ['-h', 'help'], ['--approve', 'approve'], ['--force', 'force'], ['--list-vendors', 'listVendors'], ['--self-test', 'selfTest'], ['--json', 'json']]);
+const VALUES = new Map([['--platforms', 'platforms'], ['--project-root', 'projectRoot'], ['--name', 'name']]);
+
 function parseArgs(argv) {
   const out = {
     skillDir: null,
@@ -75,15 +78,8 @@ function parseArgs(argv) {
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--help' || a === '-h') out.help = true;
-    else if (a === '--approve') out.approve = true;
-    else if (a === '--force') out.force = true;
-    else if (a === '--list-vendors') out.listVendors = true;
-    else if (a === '--self-test') out.selfTest = true;
-    else if (a === '--json') out.json = true;
-    else if (a === '--platforms') out.platforms = argv[++i] || '';
-    else if (a === '--project-root') out.projectRoot = argv[++i] || '';
-    else if (a === '--name') out.name = argv[++i] || '';
+    if (FLAGS.has(a)) out[FLAGS.get(a)] = true;
+    else if (VALUES.has(a)) out[VALUES.get(a)] = argv[++i] || '';
     else if (a.startsWith('-')) {
       console.error(`Unknown flag: ${a}`);
       process.exit(1);
@@ -94,19 +90,18 @@ function parseArgs(argv) {
   return out;
 }
 
-function runSelfTest() {
-  const failures = [];
-  const expectThrow = (label, fn) => {
-    try {
-      fn();
-      failures.push(`${label}: expected rejection`);
-    } catch {
-      // Expected.
-    }
-  };
+const expectThrow = (failures, label, fn) => {
+  try {
+    fn();
+    failures.push(`${label}: expected rejection`);
+  } catch {
+    // Expected.
+  }
+};
 
+function nameAndPathChecks(failures) {
   for (const name of ['', '.', '..', '../escape', 'nested/escape', 'nested\\escape', '\0']) {
-    expectThrow(`unsafe name ${JSON.stringify(name)}`, () => assertSafeSkillName(name));
+    expectThrow(failures, `unsafe name ${JSON.stringify(name)}`, () => assertSafeSkillName(name));
   }
   for (const name of ['safe-skill', 'safe_skill', 'safe.skill', 'Skill2']) {
     try {
@@ -119,8 +114,8 @@ function runSelfTest() {
   const root = resolve(HERE, '.self-test-vendor', 'skills');
   const safe = destinationPath(root, 'safe-skill');
   if (safe !== join(root, 'safe-skill')) failures.push('safe destination resolved incorrectly');
-  expectThrow('parent destination', () => assertDestinationWithin(root, resolve(root, '..')));
-  expectThrow('root destination', () => assertDestinationWithin(root, root));
+  expectThrow(failures, 'parent destination', () => assertDestinationWithin(root, resolve(root, '..')));
+  expectThrow(failures, 'root destination', () => assertDestinationWithin(root, root));
 
   if (JSON.stringify(resolvePlatformIds('all')) !== JSON.stringify(PRIMARY)) {
     failures.push('all must expand to each canonical platform exactly once');
@@ -129,31 +124,39 @@ function runSelfTest() {
   if (JSON.stringify(repeated) !== JSON.stringify(['codex', 'claude'])) {
     failures.push('platform ids must de-duplicate');
   }
+}
 
+function symlinkChecks(failures, temp) {
+  const dangling = join(temp, 'dangling');
+  symlinkSync(join(temp, 'absent'), dangling, isWin ? 'junction' : 'dir');
+  if (inspectDest(dangling).state !== 'symlink') failures.push('dangling symlink must remain a conflict');
+  const result = applyRow({ destDir: temp, destPath: dangling, action: 'conflict-symlink', reason: 'dangling link' }, temp, { force: false });
+  if (result.result !== 'blocked' || !lstatSync(dangling).isSymbolicLink()) failures.push('unapproved conflict was changed');
+  const nested = join(temp, 'parent', 'source');
+  mkdirSync(nested, { recursive: true });
+  const protectedResult = applyRow({ destDir: temp, destPath: join(temp, 'parent'), action: 'conflict-dir', reason: 'contains source' }, nested, { force: true });
+  if (protectedResult.result !== 'blocked' || !existsSync(nested)) failures.push('source-containing destination was not protected');
+  const realSource = join(temp, 'real-skill');
+  mkdirSync(realSource);
+  const aliasSource = join(temp, 'alias-skill');
+  symlinkSync(realSource, aliasSource, isWin ? 'junction' : 'dir');
+  const vendorLink = join(temp, 'vendor-link');
+  symlinkSync(realSource, vendorLink, isWin ? 'junction' : 'dir');
+  if (!linksToSource(inspectDest(vendorLink).resolved, aliasSource)) failures.push('a link to the source reached through a symlinked folder must count as linked');
+}
+
+function runSelfTest() {
+  const failures = [];
+  nameAndPathChecks(failures);
   const temp = mkdtempSync(join(tmpdir(), 'skill-sync-'));
   try {
-    const dangling = join(temp, 'dangling');
-    symlinkSync(join(temp, 'absent'), dangling, isWin ? 'junction' : 'dir');
-    if (inspectDest(dangling).state !== 'symlink') failures.push('dangling symlink must remain a conflict');
-    const result = applyRow({ destDir: temp, destPath: dangling, action: 'conflict-symlink', reason: 'dangling link' }, temp, { force: false });
-    if (result.result !== 'blocked' || !lstatSync(dangling).isSymbolicLink()) failures.push('unapproved conflict was changed');
-    const nested = join(temp, 'parent', 'source');
-    mkdirSync(nested, { recursive: true });
-    const protectedResult = applyRow({ destDir: temp, destPath: join(temp, 'parent'), action: 'conflict-dir', reason: 'contains source' }, nested, { force: true });
-    if (protectedResult.result !== 'blocked' || !existsSync(nested)) failures.push('source-containing destination was not protected');
-    const realSource = join(temp, 'real-skill');
-    mkdirSync(realSource);
-    const aliasSource = join(temp, 'alias-skill');
-    symlinkSync(realSource, aliasSource, isWin ? 'junction' : 'dir');
-    const vendorLink = join(temp, 'vendor-link');
-    symlinkSync(realSource, vendorLink, isWin ? 'junction' : 'dir');
-    if (!linksToSource(inspectDest(vendorLink).resolved, aliasSource)) failures.push('a link to the source reached through a symlinked folder must count as linked');
+    symlinkChecks(failures, temp);
   } finally { rmSync(temp, { recursive: true, force: true }); }
   return { ok: failures.length === 0, failures };
 }
 
-function main() {
-  const args = parseArgs(process.argv.slice(2));
+// --help, --list-vendors, and --self-test answer and exit before any skill is read.
+function runInfoModes(args) {
   if (args.help) {
     console.log(usage());
     process.exit(0);
@@ -167,6 +170,10 @@ function main() {
     console.log(JSON.stringify(result, null, 2));
     process.exit(result.ok ? 0 : 1);
   }
+}
+
+// The source folder and the install name, or an exit with the reason.
+function resolveSkill(args) {
   if (!args.skillDir) {
     console.error('Missing <skill-dir>.\n');
     console.error(usage());
@@ -176,14 +183,12 @@ function main() {
     console.error('--force requires --approve to apply replacements.');
     process.exit(1);
   }
-
   const sourcePath = resolve(args.skillDir);
   const skillMd = join(sourcePath, 'SKILL.md');
   if (!existsSync(skillMd)) {
     console.error(`Not a skill folder (missing SKILL.md): ${sourcePath}`);
     process.exit(1);
   }
-
   const fmName = readFrontmatterName(skillMd);
   let skillName;
   try {
@@ -192,43 +197,32 @@ function main() {
     console.error(err.message || String(err));
     process.exit(1);
   }
+  return { sourcePath, fmName, skillName };
+}
 
-  const platformIds = resolvePlatformIds(args.platforms);
-  const rows = planRows(sourcePath, skillName, platformIds, args.projectRoot);
-
-  const plan = {
-    mode: args.approve ? 'apply' : 'dry-run',
-    sourcePath,
-    skillName,
-    frontmatterName: fmName,
-    nameMismatch: fmName && fmName !== skillName ? true : false,
-    platforms: platformIds,
-    projectRoot: args.projectRoot ? resolve(args.projectRoot) : null,
-    rows,
-  };
-
-  if (!args.approve) {
-    if (args.json) {
-      console.log(JSON.stringify({ ok: true, ...plan, hint: 'Re-run with --approve when the request covers this plan' }, null, 2));
-    } else {
-      console.log('DRY-RUN — no writes. Use --approve to apply the authorized plan.\n');
-      console.log(`Source:  ${sourcePath}`);
-      console.log(`Name:    ${skillName}${fmName && fmName !== skillName ? ` (frontmatter name: ${fmName})` : ''}`);
-      console.log(`Targets: ${platformIds.join(', ')}`);
-      if (plan.projectRoot) console.log(`Project: ${plan.projectRoot}`);
-      console.log('');
-      for (const r of rows) {
-        console.log(`${r.action.padEnd(18)} ${r.platform}/${r.scope}`);
-        console.log(`  → ${r.destPath}`);
-        console.log(`  ${r.reason}`);
-      }
-      console.log('\nTo apply when authorized:');
-      console.log(`  node ${join(HERE, 'skill-sync.mjs')} ${args.skillDir} --platforms ${args.platforms} --approve`);
-    }
-    process.exit(0);
+function printDryRun(args, plan) {
+  const { sourcePath, skillName, frontmatterName: fmName, platforms: platformIds, rows } = plan;
+  if (args.json) {
+    console.log(JSON.stringify({ ok: true, ...plan, hint: 'Re-run with --approve when the request covers this plan' }, null, 2));
+    return;
   }
+  console.log('DRY-RUN — no writes. Use --approve to apply the authorized plan.\n');
+  console.log(`Source:  ${sourcePath}`);
+  console.log(`Name:    ${skillName}${plan.nameMismatch ? ` (frontmatter name: ${fmName})` : ''}`);
+  console.log(`Targets: ${platformIds.join(', ')}`);
+  if (plan.projectRoot) console.log(`Project: ${plan.projectRoot}`);
+  console.log('');
+  for (const r of rows) {
+    console.log(`${r.action.padEnd(18)} ${r.platform}/${r.scope}`);
+    console.log(`  → ${r.destPath}`);
+    console.log(`  ${r.reason}`);
+  }
+  console.log('\nTo apply when authorized:');
+  console.log(`  node ${join(HERE, 'skill-sync.mjs')} ${args.skillDir} --platforms ${args.platforms} --approve`);
+}
 
-  // APPLY
+// Applies every row; returns how many were blocked or failed.
+function applyPlan(args, { sourcePath, skillName, rows }) {
   const results = [];
   for (const row of rows) {
     try {
@@ -252,7 +246,32 @@ function main() {
     const skipped = results.filter((r) => r.result === 'skipped').length;
     console.log(`\nlinked/replaced=${linked} skipped=${skipped} blocked/error=${failed}`);
   }
-  process.exit(failed ? 1 : 0);
+  return failed;
+}
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  runInfoModes(args);
+  const { sourcePath, fmName, skillName } = resolveSkill(args);
+  const platformIds = resolvePlatformIds(args.platforms);
+  const rows = planRows(sourcePath, skillName, platformIds, args.projectRoot);
+
+  const plan = {
+    mode: args.approve ? 'apply' : 'dry-run',
+    sourcePath,
+    skillName,
+    frontmatterName: fmName,
+    nameMismatch: Boolean(fmName && fmName !== skillName),
+    platforms: platformIds,
+    projectRoot: args.projectRoot ? resolve(args.projectRoot) : null,
+    rows,
+  };
+
+  if (!args.approve) {
+    printDryRun(args, plan);
+    process.exit(0);
+  }
+  process.exit(applyPlan(args, plan) ? 1 : 0);
 }
 
 main();

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { errorMessage } from './fail.mjs';
 import { guardedFetch } from './net-guard.mjs';
 
 export async function fetchScrapingAnt({ url, pageId, config, apiKey }) {
@@ -34,7 +35,7 @@ export async function fetchScrapingAnt({ url, pageId, config, apiKey }) {
       ({ body, truncated: bodyTruncated } = await readBodyBounded(res, responseLimit(config)));
     }
   } catch (error) {
-    fetchError = error instanceof Error ? error.message : String(error);
+    fetchError = errorMessage(error);
   }
   return { pageId, url, status, contentType, body, fetchError, bodyTruncated, creditCost, fetchedAt: new Date().toISOString() };
 }
@@ -105,7 +106,7 @@ export async function fetchDirect({ url, pageId, config }) {
       ({ body, truncated: bodyTruncated } = await readBodyBounded(res, responseLimit(config)));
     }
   } catch (error) {
-    fetchError = error instanceof Error ? error.message : String(error);
+    fetchError = errorMessage(error);
   }
   return { pageId, url, status, contentType, body, fetchError, bodyTruncated, retryAfterMs: retryAfter, creditCost: null, fetchedAt: new Date().toISOString() };
 }
@@ -139,17 +140,19 @@ function parseRobots(body, crawlerToken = CRAWLER_TOKEN) {
   return (specific.length ? specific : groups.filter((group) => group.agents.includes('*'))).flatMap((group) => group.rules);
 }
 
+// Percent-encodes non-ASCII and decodes unreserved escapes, so equivalent paths compare equal.
+const normalizeRobotsPath = (value) => String(value)
+  .replace(/[\u0080-\uFFFF]/g, (char) => encodeURIComponent(char))
+  .replace(/%([0-9a-f]{2})/gi, (encoded, hex) => {
+    const char = String.fromCharCode(Number.parseInt(hex, 16));
+    return /[A-Za-z0-9._~-]/.test(char) ? char : encoded.toUpperCase();
+  });
+
 function robotsRuleMatches(rulePath, path) {
   // RFC 9309 is prefix based. Also accept the common '*' and terminal '$'
   // extensions used by major search crawlers.
-  const normalize = (value) => String(value)
-    .replace(/[^\x00-\x7F]/g, (char) => encodeURIComponent(char))
-    .replace(/%([0-9a-f]{2})/gi, (encoded, hex) => {
-      const char = String.fromCharCode(Number.parseInt(hex, 16));
-      return /[A-Za-z0-9._~-]/.test(char) ? char : encoded.toUpperCase();
-    });
-  const normalizedRule = normalize(rulePath);
-  const normalizedPath = normalize(path);
+  const normalizedRule = normalizeRobotsPath(rulePath);
+  const normalizedPath = normalizeRobotsPath(path);
   const terminal = normalizedRule.endsWith('$');
   const source = normalizedRule.replace(/\$$/, '').split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
   return new RegExp(`^${source}${terminal ? '$' : ''}`).test(normalizedPath);
@@ -184,17 +187,17 @@ export async function fetchRobotsPolicy(targetUrl, { allowOrigin = null } = {}) 
       },
     };
   } catch (error) {
-    return { url: robotsUrl, status: 0, fetchedAt, check: () => ({ allowed: false, reason: `robots.txt fetch failed: ${error instanceof Error ? error.message : String(error)}` }) };
+    return { url: robotsUrl, status: 0, fetchedAt, check: () => ({ allowed: false, reason: `robots.txt fetch failed: ${errorMessage(error)}` }) };
   }
 }
 
 // --provider cdp drives the Chrome package through its public executable (`/raw open`,
 // `script`, `cleanup`); this skill never imports package internals. Resolve a workspace
 // checkout first, then an installed npm package; a missing package yields a fetchError.
-const __cdpDir = dirname(fileURLToPath(import.meta.url));
+const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 const CHROME_BIN = 'bin/octocode-chrome-devtools.mjs';
 function chromePackageRoot() {
-  const workspace = resolve(__cdpDir, '../../../../packages/octocode-chrome-devtools');
+  const workspace = resolve(LIB_DIR, '../../../../packages/octocode-chrome-devtools');
   if (existsSync(join(workspace, CHROME_BIN))) return workspace;
   try { return dirname(createRequire(import.meta.url).resolve('@octocodeai/octocode-chrome-devtools/package.json')); }
   catch { return workspace; }
@@ -211,48 +214,14 @@ async function ensureCdpBrowser(port) {
   if (cdpBrowserLaunched) return { ok: true };
   const res = chrome(['open', '--headless', '--port', port, '--url', 'about:blank']);
   let parsed = null;
-  try { parsed = JSON.parse(res.stdout); } catch {}
+  try { parsed = JSON.parse(res.stdout); } catch { /* no JSON status: launch failed */ }
   if (parsed?.status === 'BROWSER_READY') { cdpBrowserLaunched = true; cdpBrowserOwned = parsed.reused !== true; return { ok: true }; }
   return { ok: false, error: (res.stderr || 'failed to launch headless Chrome').slice(0, 300) };
 }
 
-export async function fetchCdp({ url, pageId, config }) {
-  const fetchedAt = new Date().toISOString();
-  // Hermetic mocks must not launch Chrome — same contract as direct/scrapingant.
-  if (config.mockStatus) {
-    return {
-      pageId,
-      url,
-      status: Number(config.mockStatus),
-      contentType: config.mockContentType || 'text/html',
-      body: config.mockBodyFile ? await readFile(config.mockBodyFile, 'utf8') : '',
-      fetchError: null,
-      creditCost: null,
-      fetchedAt,
-    };
-  }
-  if (!existsSync(join(CHROME_DEVTOOLS_DIR, CHROME_BIN))) {
-    return { pageId, url, status: 0, contentType: '', body: '', fetchError: `Chrome runtime not found at ${CHROME_DEVTOOLS_DIR} — install @octocodeai/octocode-chrome-devtools to use --provider cdp`, creditCost: null, fetchedAt };
-  }
-  const port = config.cdpPort || '9331';
-  const launch = await ensureCdpBrowser(port);
-  if (!launch.ok) {
-    return { pageId, url, status: 0, contentType: '', body: '', fetchError: `Chrome launch failed: ${launch.error}`, creditCost: null, fetchedAt };
-  }
-
-  const runnerDir = resolve(process.cwd(), '.octocode', 'octocode-scraping', 'tmp', 'cdp-provider');
-  await mkdir(runnerDir, { recursive: true });
-  const runnerPath = join(runnerDir, `${pageId}-${randomUUID()}-runner.mjs`);
-  // The sandbox writes only below .octocode/octocode-chrome-devtools/tmp; its TMPDIR is there, so the body goes to TMPDIR.
-  const bodyName = `${pageId}-${randomUUID()}-body.html`;
-  const sandboxTree = resolve(process.cwd(), '.octocode', 'octocode-chrome-devtools', 'tmp');
-  let bodyPath = null;
-  const waitMs = config.cdpWaitMs ?? 8000;
-  // The runner's sandbox reads only its own folder, so the guard is staged beside it.
-  const netGuardPath = join(runnerDir, `${pageId}-${randomUUID()}-net-guard.mjs`);
-  await writeFile(netGuardPath, await readFile(join(__cdpDir, 'net-guard.mjs')), { mode: 0o600 });
-  const netGuardUrl = pathToFileURL(netGuardPath).href;
-  await writeFile(runnerPath, `import { writeFileSync } from 'node:fs';
+// The script the Chrome sandbox runs for one page: navigate, wait, and write the HTML to TMPDIR.
+function cdpRunnerSource({ url, config, waitMs, bodyName, netGuardUrl }) {
+  return `import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -283,36 +252,83 @@ export async function run(cdp) {
   writeFileSync(bodyPath, result.result.value, { mode: 0o600 });
   console.log('CDP_FETCH_RESULT:' + JSON.stringify({ status, bodyPath, refused }));
 }
-`);
+`;
+}
 
-  let status = 0, body = '', fetchError = null, refusedRequests = [];
+const realPath = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
+
+const runFailure = (run) => run.error?.message || (run.stderr.match(/\[STEALTH_GATE\][^\n]*/)?.[0]) || run.stderr || 'CDP runner failed';
+const noResultError = (stderr) => (/ERR_ACCESS_DENIED|Access to this API has been restricted/.test(stderr || '')
+  ? 'CDP sandbox ERR_ACCESS_DENIED — the sandbox Permission Model blocked a path. workspace=' + process.cwd() + '. Check the installed Chrome package sandbox read grants.'
+  : (stderr || 'no result from CDP sandbox run').slice(0, 500));
+
+// The page body the run wrote, accepted only from the sandbox tree under the expected name.
+async function readCdpBody(parsed, { sandboxTree, bodyName }) {
+  const result = { status: parsed.status || 0, refusedRequests: parsed.refused || [] };
+  const reported = realPath(String(parsed.bodyPath || ''));
+  if (!reported.startsWith(realPath(sandboxTree) + sep) || basename(reported) !== bodyName) return { ...result, fetchError: 'CDP body artifact path mismatch' };
+  try { return { ...result, bodyPath: reported, body: await readFile(reported, 'utf8') }; }
+  catch (error) { return { ...result, bodyPath: reported, fetchError: errorMessage(error) }; }
+}
+
+// The sandbox run's outcome: status, refused requests, body (and its file), or a fetch error.
+async function readCdpRun(run, paths) {
+  if (run.error || run.status !== 0) return { fetchError: String(runFailure(run)) };
+  const line = (run.stdout || '').split('\n').find((l) => l.startsWith('CDP_FETCH_RESULT:'));
+  if (!line) return { fetchError: noResultError(run.stderr) };
+  return readCdpBody(JSON.parse(line.slice('CDP_FETCH_RESULT:'.length)), paths);
+}
+
+const mockCdpResult = async ({ url, pageId, config }, fetchedAt) => ({
+  pageId,
+  url,
+  status: Number(config.mockStatus),
+  contentType: config.mockContentType || 'text/html',
+  body: config.mockBodyFile ? await readFile(config.mockBodyFile, 'utf8') : '',
+  fetchError: null,
+  creditCost: null,
+  fetchedAt,
+});
+
+export async function fetchCdp({ url, pageId, config }) {
+  const fetchedAt = new Date().toISOString();
+  // Hermetic mocks must not launch Chrome — same contract as direct/scrapingant.
+  if (config.mockStatus) return mockCdpResult({ url, pageId, config }, fetchedAt);
+  const failed = (fetchError) => ({ pageId, url, status: 0, contentType: '', body: '', fetchError, creditCost: null, fetchedAt });
+  if (!existsSync(join(CHROME_DEVTOOLS_DIR, CHROME_BIN))) {
+    return failed(`Chrome runtime not found at ${CHROME_DEVTOOLS_DIR} — install @octocodeai/octocode-chrome-devtools to use --provider cdp`);
+  }
+  const port = config.cdpPort || '9331';
+  const launch = await ensureCdpBrowser(port);
+  if (!launch.ok) return failed(`Chrome launch failed: ${launch.error}`);
+
+  const runnerDir = resolve(process.cwd(), '.octocode', 'octocode-scraping', 'tmp', 'cdp-provider');
+  await mkdir(runnerDir, { recursive: true });
+  const runnerPath = join(runnerDir, `${pageId}-${randomUUID()}-runner.mjs`);
+  // The sandbox writes only below .octocode/octocode-chrome-devtools/tmp; its TMPDIR is there, so the body goes to TMPDIR.
+  const bodyName = `${pageId}-${randomUUID()}-body.html`;
+  const sandboxTree = resolve(process.cwd(), '.octocode', 'octocode-chrome-devtools', 'tmp');
+  const waitMs = config.cdpWaitMs ?? 8000;
+  // The runner's sandbox reads only its own folder, so the guard is staged beside it.
+  const netGuardPath = join(runnerDir, `${pageId}-${randomUUID()}-net-guard.mjs`);
+  await writeFile(netGuardPath, await readFile(join(LIB_DIR, 'net-guard.mjs')), { mode: 0o600 });
+  const netGuardUrl = pathToFileURL(netGuardPath).href;
+  await writeFile(runnerPath, cdpRunnerSource({ url, config, waitMs, bodyName, netGuardUrl }));
+
+  let outcome = { status: 0, body: '', fetchError: null, refusedRequests: [] };
   try {
     // --stealth applies the package's emulation and its self-test gate before run(cdp).
     const run = chrome(['script', runnerPath, '--port', port, '--new-tab', 'about:blank', '--timeout', String(waitMs + 15000), '--no-reload', ...(config.cdpStealth === true ? ['--stealth'] : [])], { timeout: waitMs + 30000, maxBuffer: 16 * 1024 * 1024 });
-    if (run.error || run.status !== 0) throw new Error(run.error?.message || (run.stderr.match(/\[STEALTH_GATE\][^\n]*/)?.[0]) || run.stderr || 'CDP runner failed');
-    const line = (run.stdout || '').split('\n').find((l) => l.startsWith('CDP_FETCH_RESULT:'));
-    if (line) {
-      const parsed = JSON.parse(line.slice('CDP_FETCH_RESULT:'.length));
-      status = parsed.status || 0;
-      refusedRequests = parsed.refused || [];
-      const real = (path) => { try { return realpathSync(path); } catch { return resolve(path); } };
-      const reported = real(String(parsed.bodyPath || ''));
-      if (!reported.startsWith(real(sandboxTree) + sep) || basename(reported) !== bodyName) throw new Error('CDP body artifact path mismatch');
-      bodyPath = reported;
-      body = await readFile(bodyPath, 'utf8');
-    } else if (/ERR_ACCESS_DENIED|Access to this API has been restricted/.test(run.stderr || '')) {
-      fetchError = 'CDP sandbox ERR_ACCESS_DENIED — the sandbox Permission Model blocked a path. workspace=' + process.cwd() + '. Check the installed Chrome package sandbox read grants.';
-    } else {
-      fetchError = (run.stderr || 'no result from CDP sandbox run').slice(0, 500);
-    }
+    outcome = { ...outcome, ...await readCdpRun(run, { sandboxTree, bodyName }) };
   } catch (error) {
-    fetchError = error instanceof Error ? error.message : String(error);
+    outcome = { ...outcome, fetchError: errorMessage(error) };
   } finally {
     await unlink(runnerPath).catch(() => {});
     await unlink(netGuardPath).catch(() => {});
-    if (bodyPath) await unlink(bodyPath).catch(() => {});
+    if (outcome.bodyPath) await unlink(outcome.bodyPath).catch(() => {});
   }
 
+  const { status, body, fetchError, refusedRequests } = outcome;
   return { pageId, url, status, contentType: 'text/html', body, fetchError, refusedRequests, creditCost: null, fetchedAt };
 }
 
@@ -355,10 +371,10 @@ export async function discoverSitemap({ targetUrl, maxPages, spanHosts = false, 
     }
     return { discovered, error: null };
   } catch (error) {
-    return { discovered, error: `Sitemap discovery failed: ${error instanceof Error ? error.message : String(error)}` };
+    return { discovered, error: `Sitemap discovery failed: ${errorMessage(error)}` };
   }
 }
 
 export async function sleep(ms) {
-  if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms));
+  if (ms > 0) await new Promise((done) => setTimeout(done, ms));
 }

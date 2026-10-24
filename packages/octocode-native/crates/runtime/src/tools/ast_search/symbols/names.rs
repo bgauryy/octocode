@@ -1,20 +1,29 @@
 use serde_json::Value;
 
-/// One `name` value; all-lowercase text compares without case.
+/// One symbol-filter term with its resolved case and matching mode.
 pub(super) struct NameEntry {
     pub(super) text: String,
     pub(super) fold: bool,
-    /// The entry equals some declaration, so it matches only equal names.
+    /// Exact mode, either requested or selected by an exact-first match.
     pub(super) exact: bool,
 }
 
 impl NameEntry {
-    pub(super) fn new(text: String) -> Self {
-        let fold = !text.chars().any(char::is_uppercase);
+    pub(super) fn new(
+        text: String,
+        case: octocode_contract_types::CaseMode,
+        mode: octocode_contract_types::AstSymbolFilterMode,
+    ) -> Self {
+        let fold = match case {
+            octocode_contract_types::CaseMode::Smart => !text.chars().any(char::is_uppercase),
+            octocode_contract_types::CaseMode::Sensitive => false,
+            octocode_contract_types::CaseMode::Insensitive => true,
+        };
+        let text = if fold { text.to_lowercase() } else { text };
         Self {
             text,
             fold,
-            exact: false,
+            exact: mode == octocode_contract_types::AstSymbolFilterMode::Exact,
         }
     }
     pub(super) fn equals(&self, name: &str) -> bool {
@@ -48,11 +57,15 @@ impl NameEntry {
 
 pub(super) struct NameFilter {
     pub(super) entries: Vec<NameEntry>,
+    pub(super) mode: octocode_contract_types::AstSymbolFilterMode,
 }
 
 impl NameFilter {
-    /// An entry that equals a declaration name keeps only equal names.
+    /// In exact-first mode, a term equal to a declaration keeps only equal names.
     pub(super) fn settle<'a>(&mut self, names: impl Iterator<Item = &'a str> + Clone) {
+        if self.mode != octocode_contract_types::AstSymbolFilterMode::ExactFirst {
+            return;
+        }
         for entry in &mut self.entries {
             entry.exact = names.clone().any(|name| entry.equals(name));
         }
@@ -82,7 +95,7 @@ impl NameFilter {
     }
 }
 
-/// A row's names a `symbolName` entry can select: its name, and a trait
+/// A row's names a `symbolFilter.terms` entry can select: its name, and a trait
 /// impl's type name.
 pub(super) fn row_names(row: &Value) -> impl Iterator<Item = &str> {
     [row["name"].as_str(), row["typeName"].as_str()]

@@ -8,7 +8,7 @@ import {
   type ExitStatus,
   type CapturedOutput,
 } from './engine/capture-result.mjs';
-import type { Invocation } from './command-inputs.js';
+import type { ChromeInvocation } from '@octocodeai/config/schema';
 const scripts = join(dirname(fileURLToPath(import.meta.url)), 'engine');
 const flags = (input?: Record<string, string | number | boolean | undefined>) =>
   Object.entries(input ?? {})
@@ -37,7 +37,7 @@ function serialized<T>(task: () => Promise<T>): Promise<T> {
 
 async function invokeEngine(
   command: string,
-  input: Invocation,
+  input: ChromeInvocation,
   signal?: AbortSignal
 ) {
   signal?.throwIfAborted();
@@ -64,7 +64,7 @@ async function invokeEngine(
       value => value !== undefined
     );
   if (['artifact', 'query', 'open', 'cleanup'].includes(command)) {
-    const { args: _legacy, ...typed } = input;
+    const { args: _args, ...typed } = input;
     const entries = Object.entries(typed).filter(
       ([, value]) => value !== undefined && value !== false
     );
@@ -176,7 +176,7 @@ async function invokeEngine(
 
 export const invoke = (
   command: string,
-  input: Invocation,
+  input: ChromeInvocation,
   signal?: AbortSignal
 ) => serialized(() => invokeEngine(command, input, signal));
 export function stopEngine() {

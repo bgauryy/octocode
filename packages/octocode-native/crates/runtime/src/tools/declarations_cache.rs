@@ -16,8 +16,17 @@ static CACHE: OnceLock<Store<GraphFactsDocument>> = OnceLock::new();
 /// One parse per key at a time: rows reading one file concurrently wait for
 /// the first parse and take its outcome (a failure too) from the slot,
 /// instead of parsing the file once each.
-static FLIGHT: KeyedFlight<CacheKey, Option<Option<Arc<GraphFactsDocument>>>> =
-    KeyedFlight::transient();
+static FLIGHT: KeyedFlight<CacheKey, Wave> = KeyedFlight::transient();
+
+/// What a key's slot holds during one concurrent wave.
+#[derive(Default)]
+enum Wave {
+    /// No row of the wave has parsed the source yet.
+    #[default]
+    Unparsed,
+    /// The wave's parse: the document, or `None` when extraction failed.
+    Parsed(Option<Arc<GraphFactsDocument>>),
+}
 
 fn cache() -> &'static Store<GraphFactsDocument> {
     CACHE.get_or_init(|| {
@@ -56,7 +65,7 @@ pub(crate) fn document(
     let ticket = FLIGHT.join(key.clone());
     // Declarations parse in blocking row workers, never on an async worker.
     let mut slot = ticket.blocking_turn();
-    if let Some(outcome) = slot.as_ref() {
+    if let Wave::Parsed(outcome) = &*slot {
         return outcome.clone();
     }
     // The previous wave's parse may have landed between the lookup and the
@@ -73,7 +82,7 @@ pub(crate) fn document(
         // stored value is the one returned: no copy, no second lookup.
         cache().put(key, document, bytes, CacheClass::Immutable)
     });
-    *slot = Some(outcome.clone());
+    *slot = Wave::Parsed(outcome.clone());
     outcome
 }
 

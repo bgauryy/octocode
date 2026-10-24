@@ -5,9 +5,10 @@ use crate::num::usize_of;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::inventory::shape_pr_files;
 use crate::tools::gh_get_history_item::pr_menu;
+use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_get_history_item::util::str_at;
 use crate::tools::gh_get_history_item::window::{Loaded, reconcile_file_totals};
-use crate::tools::gh_get_history_item::{HistoryItemRequest, Section, Sections};
+use crate::tools::gh_get_history_item::{HistoryItemRequest, Sections};
 use serde_json::{Map, Value};
 
 /// What the changed-file section of a read found.
@@ -30,7 +31,7 @@ pub(in crate::tools::gh_get_history_item) struct FileOutcome {
     /// read covers it) and at the base.
     pub(in crate::tools::gh_get_history_item) side_reads: Vec<(&'static str, Value)>,
     /// Files whose `matchString` context the hunks cut short.
-    pub(in crate::tools::gh_get_history_item) clipped: Vec<(String, Vec<String>)>,
+    pub(in crate::tools::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
     /// Files of the patch window not fully delivered.
     pub(super) unfinished_patches: usize,
 }

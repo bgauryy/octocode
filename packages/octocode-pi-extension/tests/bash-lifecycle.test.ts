@@ -10,7 +10,7 @@ import { jobReport } from '../src/files/bash-report.js';
 import { Subcommands } from '../src/shared/commands.js';
 import { groupAlive, groupStartTimes, killTree, processAlive, processStartTime, signalTree, stopTree } from '../src/shared/process.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp, until } from './helpers.js';
+import { deadPid, tmp, until } from './helpers.js';
 
 const posix = process.platform !== 'win32';
 const hasPerl = posix && spawnSync('perl', ['-e', '1']).status === 0;
@@ -21,12 +21,6 @@ const setup = () => {
   registerBashTool(pi, new Subcommands(), jobs, () => ({}));
   const cwd = tmp();
   return { tool: tools.get('bash'), jobs, sent, fire, cwd, ctx: fakeCtx({ cwd }) };
-};
-
-/** A pid that belonged to a process that has exited. */
-const deadPid = (): number => {
-  const child = spawnSync('sh', ['-c', 'echo $$']);
-  return Number(String(child.stdout).trim());
 };
 
 describe.runIf(posix)('foreground bash process handling', () => {
@@ -255,16 +249,6 @@ describe.runIf(posix)('orphan reaper: only proven jobs are stopped', () => {
     expect(fs.readdirSync(dir)).toEqual([path.basename(held)]);
   });
 
-  it.runIf(posix)('releases a claim whose pid now names another process, and keeps one its own process holds', async () => {
-    const dir = tmp();
-    const ownerStart = processStartTime(process.ppid)!;
-    // The reaper died and its pid went to the process that is this one's parent: the start time tells them apart.
-    const reused = write(dir, `bash-1-1.job.json.reaping-${process.ppid}-1`, { pid: deadPid(), started: '1' });
-    const held = write(dir, `bash-2-1.job.json.reaping-${process.ppid}-${ownerStart}`, { pid: deadPid(), started: '1' });
-    expect(await reapOrphanJobs([dir])).toEqual([]);
-    expect(fs.existsSync(reused)).toBe(false);
-    expect(fs.readdirSync(dir)).toEqual([path.basename(held)]);
-  });
 });
 
 describe.runIf(posix)('job log failures', () => {

@@ -89,7 +89,7 @@ impl<'a> Walk<'a> {
             match response {
                 Ok(results) => {
                     self.walker
-                        .expand(expansion, level, parent, into_items(results), &mut next)
+                        .expand(expansion, level, parent, into_items(results), &mut next);
                 }
                 Err(error) => self.walker.walk.failures.push(error),
             }

@@ -7,6 +7,7 @@ import { join } from 'path';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { browserMajorVersion, planRealProfile } from './real-profile.mjs';
 import { flagArgs } from './cli-flags.mjs';
+import { errorMessage } from './error-message.mjs';
 import {
   findChrome,
   removeDirWithRetry,
@@ -29,6 +30,7 @@ import {
 
 const argv = process.argv.slice(2);
 const { getArg, hasFlag } = flagArgs(argv);
+// getArg returns the default whenever the flag has no value, so these are never undefined.
 
 if (hasFlag('--help') || hasFlag('-h')) {
   console.log(`Usage: open-browser.mjs [options]
@@ -69,7 +71,7 @@ const PROXY_BYPASS_LIST = getArg('--proxyBypassList', '');
 const PROXY_PAC_URL = getArg('--proxyPacUrl', '');
 const CONFIG_PATH = getArg('--config', '');
 
-function ok(payload) {
+function ok(payload: Record<string, unknown>) {
   console.log(JSON.stringify(payload));
 }
 function err(message: string): never {
@@ -90,7 +92,7 @@ const CHROME_STATE_DIR = join(WORKSPACE, ...STATE_SUBPATH);
 const SESSION_FILE = sessionFileIn(CHROME_STATE_DIR, PORT);
 const HEADLESS_PROFILE_DIR = profileDirIn(CHROME_STATE_DIR, PORT);
 
-function writeSession(pid) {
+function writeSession(pid: number | undefined) {
   writeFileSync(
     SESSION_FILE,
     JSON.stringify({
@@ -112,7 +114,7 @@ async function cleanupSession() {
   let owner: Record<string, unknown> = { workspace: WORKSPACE, sessionFile };
   if (!session) {
     const found = await discoverListenerSession(null, PORT);
-    if (!found.session) {
+    if (found.session === undefined) {
       console.error(
         `[BROWSER] No tracked session found for port ${PORT} (${found.reason})`
       );
@@ -196,7 +198,7 @@ async function cleanupSession() {
       await removeDirWithRetry(session.profileDir);
       console.error(`[BROWSER] Removed profile: ${session.profileDir}`);
     } catch (e) {
-      console.error(`[BROWSER] Could not remove profile: ${e.message}`);
+      console.error(`[BROWSER] Could not remove profile: ${errorMessage(e)}`);
     }
   }
 
@@ -361,10 +363,12 @@ while (attempts < 40) {
 
 if (usingIsolatedProfile && existsSync(HEADLESS_PROFILE_DIR)) {
   // The isolated child is ours: stop it before deleting the profile it holds.
-  try {
-    process.kill(child.pid, 'SIGKILL');
-  } catch {}
-  await waitForExit(child.pid, 2000);
+  if (child.pid !== undefined) {
+    try {
+      process.kill(child.pid, 'SIGKILL');
+    } catch {}
+    await waitForExit(child.pid, 2000);
+  }
   rmSync(HEADLESS_PROFILE_DIR, { recursive: true, force: true });
   rmSync(SESSION_FILE, { force: true });
 }
@@ -372,7 +376,7 @@ if (!usingIsolatedProfile) {
   // The real-profile browser we started never exposed CDP; close it gracefully so the
   // profile is not left held by a window the caller cannot drive.
   try {
-    process.kill(child.pid, 'SIGTERM');
+    if (child.pid !== undefined) process.kill(child.pid, 'SIGTERM');
   } catch {}
   err(
     `Chrome did not expose CDP on port ${PORT} within 20s for the real profile and was asked to quit. This browser build may ignore --remote-debugging-port on its default data directory; use an isolated session with cookies --from-port or --from-storage-state.`

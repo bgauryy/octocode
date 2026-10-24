@@ -2,11 +2,9 @@
 //! a later page replays it without re-executing the batch, and the saved
 //! read that opens one.
 
-use super::{RuntimeError, ToolRuntime};
+use super::RuntimeError;
 use crate::config::{self, ConfigOutput};
-use crate::contracts;
 use crate::response::cursor::Cursor;
-use crate::response::page_model::ResponsePageOptions;
 use crate::response::pager::SavedPages;
 use crate::response::result::FailureKind;
 use crate::security::{CheckedQuery, Sanitized};
@@ -72,14 +70,6 @@ impl PageReplayMemo {
         }
     }
 
-    pub(super) fn storage(&self) -> &'static str {
-        if self.persistent {
-            "persistent"
-        } else {
-            "memory"
-        }
-    }
-
     /// A saved response is stored under its cursor's page-independent
     /// name: one entry per content, scope and page length.
     fn key(cursor: &Cursor, policy: &str) -> crate::cache::CacheKey {
@@ -90,7 +80,7 @@ impl PageReplayMemo {
         }
     }
 
-    fn get(&self, cursor: &Cursor) -> Option<Arc<PageReplay>> {
+    pub(super) fn get(&self, cursor: &Cursor) -> Option<Arc<PageReplay>> {
         self.store
             .get(&Self::key(cursor, &self.policy))
             .map(|hit| hit.value)
@@ -119,7 +109,7 @@ pub(super) fn page_expiry() -> String {
 pub(super) fn snapshot_expired() -> RuntimeError {
     RuntimeError::new(
         ErrorCode::ResponseSnapshotExpired,
-        "The saved response is missing, expired or belongs to another tool, session or configuration. No source or provider was called. Pages expire after 120 seconds or earlier eviction; memory storage lasts only in the current runtime. Use persistent storage across CLI calls, or explicitly rerun without responseSnapshot.",
+        "The saved response is missing, expired or belongs to another tool, session or configuration. No source or provider was called. Pages expire after 120 seconds or earlier eviction; memory storage lasts only in the current runtime. Use persistent storage across CLI calls, or explicitly rerun the original request without cursor.",
     )
 }
 
@@ -151,52 +141,4 @@ pub(super) fn page_replay_key(
             .as_bytes(),
     )
     .into()
-}
-
-impl ToolRuntime {
-    /// The saved response a page read's cursor names, with `options` set to
-    /// the page it asks for: content snapshot, scope, length and offset. A
-    /// read carries no rows, and a `responseLength` or `responseScope` sent
-    /// beside the cursor must match it; anything else, or a cursor this
-    /// caller cannot replay, fails without calling a source or provider.
-    pub(super) fn open_saved(
-        &self,
-        tool: &str,
-        input: &Value,
-        options: &mut ResponsePageOptions,
-        access: [u8; 32],
-    ) -> Result<([u8; 32], Arc<PageReplay>), RuntimeError> {
-        if input.get("queries").is_some() {
-            return Err(RuntimeError::new(
-                ErrorCode::InvalidInput,
-                "Saved response reads take only responseSnapshot; remove queries or start a new call without responseSnapshot.",
-            ));
-        }
-        contracts::validate(tool, input.clone())
-            .map_err(|error| super::admission::invalid_input_error(tool, input, error))?;
-        let cursor = options
-            .response_snapshot
-            .as_deref()
-            .and_then(Cursor::decode)
-            .ok_or_else(snapshot_expired)?;
-        let replay = self
-            .page_replays
-            .get(&cursor)
-            .filter(|replay| replay.access == access)
-            .ok_or_else(snapshot_expired)?;
-        if options
-            .response_length
-            .is_some_and(|length| length != cursor.length)
-            || options
-                .response_scope
-                .is_some_and(|scope| scope != cursor.scope)
-        {
-            return Err(RuntimeError::new(
-                ErrorCode::ResponsePageMismatch,
-                "Keep responseLength and responseScope unchanged when reading a saved response. Copy responsePagination.next; no source or provider was called.",
-            ));
-        }
-        options.open(&cursor);
-        Ok((cursor.key, replay))
-    }
 }

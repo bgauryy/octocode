@@ -1,5 +1,10 @@
 // Pieces both flag builders share: kebab-case flag names that avoid the CLI's own
-// flags, and the sorted, de-duplicated fidelity-note list.
+// flags, the sorted, de-duplicated fidelity-note list, and the flags both build alike.
+import type { Flag } from './spec.js';
+
+/** A flag before its kind is known. */
+export type FlagBase = Omit<Flag, 'kind'>;
+
 const RESERVED_FLAGS = new Set([
   'help',
   'h',
@@ -37,4 +42,24 @@ export function allocateFlag(property: string, used: Set<string>): string {
   }
   used.add(name);
   return name;
+}
+
+/** A boolean flag; an optional one defaulting to false is a bare switch. */
+export function booleanFlag(base: FlagBase): Flag {
+  const presence = !base.required && base.hasDefault && base.defaultValue === false;
+  return { ...base, kind: 'boolean', presence };
+}
+
+/** The one partial JSON flag of a root that is not an object. */
+export function inputFlag(description?: string): Flag {
+  return {
+    property: 'input',
+    name: 'input',
+    kind: 'json',
+    required: true,
+    presence: false,
+    partial: true,
+    hasDefault: false,
+    ...(description ? { description } : {}),
+  };
 }

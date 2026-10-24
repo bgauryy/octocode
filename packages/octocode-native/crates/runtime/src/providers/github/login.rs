@@ -203,10 +203,7 @@ fn mask_token_text(message: &str) -> String {
     for prefix in ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"] {
         while let Some(start) = out.find(prefix) {
             let rest = &out[start + prefix.len()..];
-            let take = rest
-                .chars()
-                .take_while(|ch| ch.is_ascii_alphanumeric())
-                .count();
+            let take = rest.chars().take_while(char::is_ascii_alphanumeric).count();
             if take >= 36 {
                 out.replace_range(start..start + prefix.len() + take, "***MASKED***");
             } else {

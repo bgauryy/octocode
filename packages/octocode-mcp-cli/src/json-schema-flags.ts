@@ -1,10 +1,9 @@
 // Flags from an MCP tool's JSON Schema: one flag per property of an object root, typed
 // by the property's `type` or `enum`. A keyword no flag can hold keeps the property as
 // one partial JSON flag and leaves a fidelity note.
-import { allocateFlag, notesOf } from './flag-names.js';
+import { allocateFlag, booleanFlag, inputFlag, notesOf, type FlagBase } from './flag-names.js';
+import { isRecord } from './json-schema.js';
 import type { Flag, ItemKind, JsonSchema } from './spec.js';
-
-type FlagBase = Omit<Flag, 'kind'>;
 
 function schemaNotes(schema: JsonSchema): string[] {
   const notes: string[] = [];
@@ -21,13 +20,9 @@ function isPrimitiveType(value: unknown): value is ItemKind {
   return value === 'string' || value === 'integer' || value === 'number' || value === 'boolean';
 }
 
-function isPropertyMap(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
 /** The item kind of an array whose items are one plain primitive type. */
 function arrayItemKind(items: unknown): ItemKind | undefined {
-  if (!isPropertyMap(items)) return undefined;
+  if (!isRecord(items)) return undefined;
   const itemType = items.type;
   return isPrimitiveType(itemType) && schemaNotes(items).length === 0 ? itemType : undefined;
 }
@@ -43,10 +38,7 @@ function typedFlag(base: FlagBase, record: JsonSchema, notes: string[]): { flag:
     return { flag: { ...base, kind: 'json', partial: true }, notes: ['union'] };
   }
   if (type === 'string' || type === 'integer' || type === 'number') return { flag: { ...base, kind: type }, notes };
-  if (type === 'boolean') {
-    const presence = !base.required && base.hasDefault && base.defaultValue === false;
-    return { flag: { ...base, kind: 'boolean', presence }, notes };
-  }
+  if (type === 'boolean') return { flag: booleanFlag(base), notes };
   if (type === 'array') {
     const itemKind = arrayItemKind(record.items);
     if (itemKind) return { flag: { ...base, kind: 'array', itemKind }, notes };
@@ -61,7 +53,7 @@ function flagFromJsonProperty(
   required: boolean,
   name: string,
 ): { flag: Flag; notes: string[] } {
-  if (!isPropertyMap(schema)) {
+  if (!isRecord(schema)) {
     return {
       flag: {
         property,
@@ -101,10 +93,10 @@ export function objectProperties(schema: JsonSchema): Record<string, unknown> | 
   const properties = schema.properties;
   if (schema.type === 'object') {
     if (properties === undefined) return {};
-    return isPropertyMap(properties) ? properties : undefined;
+    return isRecord(properties) ? properties : undefined;
   }
   if (schema.type !== undefined) return undefined;
-  if (isPropertyMap(properties)) return properties;
+  if (isRecord(properties)) return properties;
   const known = new Set(['$schema', 'additionalProperties', 'description', 'title', 'required']);
   const extra = Object.keys(schema).filter(key => !known.has(key));
   return extra.length === 0 ? {} : undefined;
@@ -114,20 +106,7 @@ export function flagsFromJsonSchema(schema: JsonSchema): { flags: Flag[]; notes:
   const rootNotes = schemaNotes(schema);
   const properties = objectProperties(schema);
   if (!properties) {
-    return {
-      flags: [
-        {
-          property: 'input',
-          name: 'input',
-          kind: 'json',
-          required: true,
-          presence: false,
-          partial: true,
-          hasDefault: false,
-        },
-      ],
-      notes: notesOf(rootNotes, ['partial']),
-    };
+    return { flags: [inputFlag()], notes: notesOf(rootNotes, ['partial']) };
   }
   const required = new Set(Array.isArray(schema.required) ? schema.required.map(String) : []);
   const used = new Set<string>();

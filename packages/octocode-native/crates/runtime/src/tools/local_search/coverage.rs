@@ -6,6 +6,7 @@ use super::layout::*;
 use super::local_search_query;
 use super::local_search_query::MAX_COLLECTED_FILES;
 use super::types::*;
+use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::types::CapReason;
 
 /// What the scan could not cover, and how the row says so.
@@ -47,23 +48,9 @@ fn inert_fields(query: &LocalSearchQuery, root_is_file: bool) -> Vec<String> {
     };
     let have = |fields: &[&str]| if fields.len() == 1 { "has" } else { "have" };
     let mut warnings = Vec::new();
-    let canonical = local_search_query::canonical(query);
-    let context = set(&[
-        ("contextLines", canonical.context_lines.is_some()),
-        ("contextBefore", canonical.context_before.is_some()),
-        ("contextAfter", canonical.context_after.is_some()),
-    ]);
-    if list_view(query.result_view) && !context.is_empty() {
-        let view = serde_json::to_value(query.result_view).unwrap_or_default();
-        warnings.push(format!(
-            "{} {} no effect with resultView {view}: only line views show context.",
-            context.join(", "),
-            have(&context)
-        ));
-    }
     let globs = set(&[
-        ("include", !query.include.is_empty()),
-        ("exclude", !query.exclude.is_empty()),
+        ("include", !local_search_query::include(query).is_empty()),
+        ("exclude", !local_search_query::exclude(query).is_empty()),
     ]);
     if root_is_file && !globs.is_empty() {
         warnings.push(format!(
@@ -104,12 +91,13 @@ impl Coverage {
             scope_miss: !root.is_file()
                 && stats.files_searched == 0
                 && skip_hint.is_none()
-                && (!query.include.is_empty() || !query.exclude.is_empty()),
+                && (!local_search_query::include(query).is_empty()
+                    || !local_search_query::exclude(query).is_empty()),
             skip_hint,
             withheld: skipped.withheld.total(),
             parent_glob: crate::policy::include::parent_glob_warning(
-                &query.include,
-                &query.exclude,
+                local_search_query::include(query),
+                local_search_query::exclude(query),
             ),
             inert: inert_fields(query, root.is_file()),
             walk_cut: stats.capped == Some(true)

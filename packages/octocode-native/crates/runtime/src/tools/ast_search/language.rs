@@ -57,14 +57,14 @@ pub(super) fn validate_file_language(
                 "language must name a registered grammar.",
             ));
         }
-        if crate::tools::ast_rule::language_extensions(language).is_none() {
+        if octocode_engine::signatures::languages::family_extensions(language).is_none() {
             return Err(ToolError::new(
                 ErrorCode::LanguageUnsupported,
                 format!("language \"{language}\" is not a supported structural grammar."),
             ));
         }
-        // Only an extension of another grammar contradicts `language`; one
-        // that selects no grammar is parsed as `language`, and any spelling
+        // Only an extension of another grammar contradicts `parser`; one
+        // that selects no grammar is parsed as `parser`, and any spelling
         // of the file's own grammar (`.cc` for a `.hpp`) reads it.
         if !octocode_engine::signatures::languages::parses_path(language, &path.to_string_lossy())
             && let Some((grammar, _)) = crate::tools::ast_rule::file_grammar(path)
@@ -85,7 +85,7 @@ pub(super) fn validate_file_language(
 /// Diagnostic code of [`cpp_header_note`].
 pub(super) const CPP_HEADER_NOTE: &str = "structural.header.cpp";
 
-/// A `.h` parsed as C (no `language`) whose source is C++: the C parse has
+/// A `.h` parsed as C (no `parser`) whose source is C++: the C parse has
 /// syntax errors the C++ one has not, or reads a C++ keyword (`class`,
 /// `namespace`, …) as a name, so its declarations are misread. The note
 /// suggests the C++ parser.
@@ -100,13 +100,13 @@ pub(super) fn cpp_header_note(
         return None;
     }
     // An optional note: a parser panic leaves the row's matches intact.
-    crate::tools::leads::best_effort(|| header_parse_note(path, source)).flatten()
+    header_parse_note(path, source)
 }
 
 fn header_parse_note(path: &std::path::Path, source: &str) -> Option<String> {
     let errors = |language| octocode_engine::structural::count_syntax_errors(source, language);
     let (c, cpp) = (errors("c")?, errors("cpp")?);
-    let repair = "set language:\"cpp\" (languageGlobs for a directory).";
+    let repair = "set parser:\"cpp\" (parserGlobs for a directory).";
     if c > cpp {
         return Some(format!(
             "{} parses as C with {c} syntax error(s) and as C++ with {cpp}; {repair}",

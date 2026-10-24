@@ -195,7 +195,7 @@ impl ClientSpec {
     }
 
     pub(super) fn home_path(&self) -> Option<PathBuf> {
-        let home = octocode_io::env::home_dir()?;
+        let home = std::env::home_dir()?;
         let config = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".config"));

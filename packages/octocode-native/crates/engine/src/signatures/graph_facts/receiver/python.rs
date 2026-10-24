@@ -1,92 +1,91 @@
 //! Python receiver bindings.
 use super::*;
 
-impl<'t> ReceiverTypes<'t> {
-    pub(super) fn python_bindings(
-        &self,
-        up: Up<'_, 't>,
-        function: Node<'t>,
-        content: &str,
-        out: &mut Vec<Binding>,
-    ) {
-        let node = up.node;
-        // Python locals live until the end of their function.
-        let function_end = up
-            .ancestor(&["function_definition"])
-            .unwrap_or(function)
-            .end_byte();
-        match node.kind() {
-            "parameters" | "lambda_parameters" => {
-                let until = up.nth(1).unwrap_or(node).end_byte();
-                let mut cursor = node.walk();
-                for child in node.named_children(&mut cursor) {
-                    let (name, ty) = match child.kind() {
-                        "typed_parameter" => {
-                            let mut inner = child.walk();
-                            let name = child
-                                .named_children(&mut inner)
-                                .find(|item| item.kind() == "identifier");
-                            (name, child.child_by_field_name("type"))
-                        }
-                        "default_parameter" => (child.child_by_field_name("name"), None),
-                        "typed_default_parameter" => (
-                            child.child_by_field_name("name"),
-                            child.child_by_field_name("type"),
-                        ),
-                        _ => (None, None),
-                    };
-                    let ty = ty.and_then(|ty| python_type_text(node_text(ty, content)?));
-                    let target = name.unwrap_or(child);
-                    bind_pattern(target, ty, child.end_byte(), until, content, out);
-                }
-            }
-            "assignment" => {
-                let Some(left) = node.child_by_field_name("left") else {
-                    return;
+pub(super) fn python_bindings<'t>(
+    up: Up<'_, 't>,
+    function: Node<'t>,
+    content: &str,
+    out: &mut Vec<Binding>,
+) {
+    let node = up.node;
+    // Python locals live until the end of their function.
+    let function_end = up
+        .ancestor(&["function_definition"])
+        .unwrap_or(function)
+        .end_byte();
+    match node.kind() {
+        "parameters" | "lambda_parameters" => {
+            let until = up.nth(1).unwrap_or(node).end_byte();
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                let (name, ty) = match child.kind() {
+                    "typed_parameter" => {
+                        let mut inner = child.walk();
+                        let name = child
+                            .named_children(&mut inner)
+                            .find(|item| item.kind() == "identifier");
+                        (name, child.child_by_field_name("type"))
+                    }
+                    "default_parameter" => (child.child_by_field_name("name"), None),
+                    "typed_default_parameter" => (
+                        child.child_by_field_name("name"),
+                        child.child_by_field_name("type"),
+                    ),
+                    _ => (None, None),
                 };
-                if !matches!(
-                    left.kind(),
-                    "identifier" | "pattern_list" | "tuple_pattern" | "list_pattern"
-                ) {
-                    return;
-                }
-                let ty = node
-                    .child_by_field_name("type")
-                    .and_then(|ty| python_type_text(node_text(ty, content)?))
-                    .or_else(|| {
-                        node.child_by_field_name("right")
-                            .and_then(|right| python_constructor(right, content))
-                    });
-                bind_pattern(left, ty, node.end_byte(), function_end, content, out);
+                let ty = ty.and_then(|ty| python_type_text(node_text(ty, content)?));
+                let target = name.unwrap_or(child);
+                bind_pattern(target, ty, child.end_byte(), until, content, out);
             }
-            "for_statement" => {
-                if let Some(left) = node.child_by_field_name("left") {
-                    bind_pattern(left, None, left.end_byte(), function_end, content, out);
-                }
-            }
-            "for_in_clause" => {
-                if let Some(left) = node.child_by_field_name("left") {
-                    let until = up.nth(1).unwrap_or(node).end_byte();
-                    bind_pattern(left, None, node.start_byte(), until, content, out);
-                }
-            }
-            "as_pattern" => {
-                if let Some(alias) = node.child_by_field_name("alias") {
-                    bind_pattern(alias, None, node.end_byte(), function_end, content, out);
-                }
-            }
-            "named_expression" => {
-                if let Some(name) = node.child_by_field_name("name") {
-                    let ty = node
-                        .child_by_field_name("value")
-                        .and_then(|value| python_constructor(value, content));
-                    bind_pattern(name, ty, node.end_byte(), function_end, content, out);
-                }
-            }
-            _ => {}
         }
+        "assignment" => {
+            let Some(left) = node.child_by_field_name("left") else {
+                return;
+            };
+            if !matches!(
+                left.kind(),
+                "identifier" | "pattern_list" | "tuple_pattern" | "list_pattern"
+            ) {
+                return;
+            }
+            let ty = node
+                .child_by_field_name("type")
+                .and_then(|ty| python_type_text(node_text(ty, content)?))
+                .or_else(|| {
+                    node.child_by_field_name("right")
+                        .and_then(|right| python_constructor(right, content))
+                });
+            bind_pattern(left, ty, node.end_byte(), function_end, content, out);
+        }
+        "for_statement" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                bind_pattern(left, None, left.end_byte(), function_end, content, out);
+            }
+        }
+        "for_in_clause" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                let until = up.nth(1).unwrap_or(node).end_byte();
+                bind_pattern(left, None, node.start_byte(), until, content, out);
+            }
+        }
+        "as_pattern" => {
+            if let Some(alias) = node.child_by_field_name("alias") {
+                bind_pattern(alias, None, node.end_byte(), function_end, content, out);
+            }
+        }
+        "named_expression" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                let ty = node
+                    .child_by_field_name("value")
+                    .and_then(|value| python_constructor(value, content));
+                bind_pattern(name, ty, node.end_byte(), function_end, content, out);
+            }
+        }
+        _ => {}
     }
+}
 
+impl<'t> ReceiverTypes<'t> {
     /// Class-body annotations (`f: T`) are declared; `self.f = …` assignments
     /// in methods are inferred from a constructor call or a typed parameter,
     /// and any other assignment makes an inferred field unknown.
@@ -161,9 +160,10 @@ impl<'t> ReceiverTypes<'t> {
                             (right.kind() == "identifier")
                                 .then(|| {
                                     let path = ancestors(self.root, right);
-                                    self.local(right, &path, node_text(right, content)?, content)
+                                    self.local(right, &path, node_text(right, content)?, content)?
+                                        .ty
+                                        .clone()
                                 })
-                                .flatten()
                                 .flatten()
                         });
                         merge(&mut inferred, attribute, ty);

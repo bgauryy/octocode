@@ -1,7 +1,8 @@
 //! Exact package lookups through the registry client.
 use super::http::RegistryClient;
+use super::query::exact_query;
 use super::test_http::RouteHttp;
-use super::types::{exact_query, test_budget};
+use super::test_http::test_budget;
 use super::*;
 use serde_json::json;
 
@@ -91,7 +92,7 @@ async fn exact_lookups_parse_one_row_per_registry() {
         .unwrap_or_else(|error| panic!("{name}: {error:?}"));
         assert_eq!(page.artifacts.len(), 1, "{name}");
         let item = &page.artifacts[0];
-        assert_eq!(item.name, name);
+        assert_eq!(item.package_name, name);
         assert_eq!(item.version.as_deref(), Some(version), "{name}");
         assert_eq!(item.registry_url, registry_url, "{name}");
     }

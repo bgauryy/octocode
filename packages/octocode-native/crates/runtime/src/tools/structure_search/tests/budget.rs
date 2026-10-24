@@ -2,7 +2,7 @@
 //! scanned, names where it stopped, and leads to narrower scopes, never an
 //! empty or whole-looking page.
 use super::super::{StructureSearchQuery, execute_structure_within};
-use super::run;
+use super::{related, run};
 use crate::execution::cancel::{CancellationCheck, NeverCancel};
 use crate::id::ToolId;
 use crate::tools::test_support::{Fixture, assert_row_contract, simple_policy, skipped_count};
@@ -55,7 +55,14 @@ impl CancellationCheck for Slow {
 }
 
 fn rows(operation: &str, root: &std::path::Path) -> Value {
-    json!({"operation": operation, "path": root, "include": ["*.rs"]})
+    {
+        let mut row =
+            json!({"operation": operation, "path": root, "include": ["*.rs"], "maxDepth": 10});
+        if operation == "files" {
+            row["sort"] = json!({"by":"traversal","order":"asc"});
+        }
+        row
+    }
 }
 
 #[test]
@@ -83,7 +90,7 @@ fn a_listing_out_of_time_is_partial_names_where_it_stopped_and_leads_narrower() 
             warning.contains("before `a`"),
             "names the first unscanned entry: {warning}"
         );
-        let narrow = &out["next"]["narrowScope"]["query"]["queries"][0];
+        let narrow = &related(&out, "structureSearch")["input"]["queries"][0];
         assert_eq!(narrow["operation"], "tree", "{out}");
         assert_eq!(narrow["maxDepth"], 1, "{out}");
         assert!(out["next"].get("continueWalk").is_none(), "{out}");
@@ -175,7 +182,7 @@ fn follow_outputs(
         );
         let next = out["next"]
             .get("continueWalk")
-            .map(|next| next["query"]["queries"][0].clone());
+            .map(|next| next["input"]["queries"][0].clone());
         resumed.push(
             next.as_ref()
                 .is_some_and(|next| next.get("walkOffset") != query.get("walkOffset")),

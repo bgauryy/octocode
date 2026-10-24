@@ -55,18 +55,16 @@ native platform packages before `octocode-mcp`.
 
 - `tests/launcher/*` (vitest): binary resolution, argv and exit-code
   forwarding, and the startup-failure reply;
-- `yarn test:boundary` (`tests/native/response-pagination.mjs`): response and
-  tool pagination through the native CLI, the npm CLI launcher and the MCP
-  server, stale-cursor rejection and Unicode;
-- `yarn test:acceptance` (`tests/integration/stdio.acceptance.mjs`): the built
-  launcher over real stdio with the v2 MCP client, and CLI/MCP parity
-  (`--cli-mcp-parity`); the runner takes its shared client and receipt from
-  `stdio-harness.mjs` and its checks from the `stdio-*-checks.mjs` modules;
-- `yarn test:contracts:classification`: classification availability and
-  context-selection scenarios;
+- `yarn test:boundary`: the shared hermetic `transport.mjs` suite checks CLI
+  and MCP admission, complete Unicode source walks, opaque cursors and replay
+  authority through the built launchers;
+- `yarn test:acceptance`: runs that boundary suite and the shared `tool-health.mjs`
+  suite, which executes all 14 tools through CLI and MCP with loopback providers,
+  output validation, typed continuations and evidence parity;
+- `yarn test:contracts:classification`: classification capability publication,
+  selection, provider failure and complete unfiltered recovery against a loopback scorer;
 - native Rust tests (`crates/cli/tests/mcp_server.rs` and `listing/tests.rs`
   under `packages/octocode-native`) for protocol eras, listing and shutdown.
 
-Acceptance fixtures live in a normal workspace subtree and are removed after
-the run; placing them under a Git-ignored directory would test ignore rules
-instead of discovery and rewriting.
+The shared suites own their isolated homes, source fixtures and mock providers.
+No registered acceptance command sends evidence to a paid provider.

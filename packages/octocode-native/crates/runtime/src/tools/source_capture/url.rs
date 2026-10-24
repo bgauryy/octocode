@@ -18,7 +18,7 @@ mod extract;
 mod fetch;
 mod store;
 
-use super::{Captured, failure};
+use super::Captured;
 use crate::execution::ExecutionContext;
 use crate::security::ContentSecurity;
 use crate::tools::judgment::ClassificationError;
@@ -100,7 +100,7 @@ fn select_image(
 ) -> Result<(Vec<u8>, serde_json::Value), ClassificationError> {
     let whole_image = |url: &Url| {
         if url.fragment().is_some() {
-            Err(failure(
+            Err(ClassificationError::new(
                 ErrorCode::InvalidClassificationContext,
                 "An image URL cannot select a fragment; the complete image is judged.",
                 "Pass a direct image URL without a fragment.",
@@ -122,7 +122,7 @@ fn select_image(
         .trim()
         .to_ascii_lowercase();
     if !matches!(media.as_str(), "image/png" | "image/jpeg") {
-        return Err(failure(
+        return Err(ClassificationError::new(
             ErrorCode::ClassificationContextUnavailable,
             "The URL did not return PNG or JPEG image content; nothing was judged.",
             "Pass a direct PNG or JPEG URL, not a page embedding the image.",
@@ -134,7 +134,7 @@ fn select_image(
 /// An HTTPS URL without credentials.
 fn parse(address: &str) -> Result<Url, ClassificationError> {
     let url = Url::parse(address).map_err(|_| {
-        failure(
+        ClassificationError::new(
             ErrorCode::InvalidClassificationContext,
             "The source URL does not parse.",
             "Pass an absolute https:// URL.",
@@ -186,15 +186,15 @@ struct Selection {
 /// The call's deadline or cancellation as a capture failure.
 fn stopped(stop: crate::execution::ExecutionError) -> ClassificationError {
     match stop {
-        crate::execution::ExecutionError::Cancelled => failure(
+        crate::execution::ExecutionError::Cancelled => ClassificationError::new(
             ErrorCode::Cancelled,
             "The call stopped before its page was captured.",
             crate::response::rows::CANCELLED_HINT,
         ),
-        _ => failure(
+        _ => ClassificationError::new(
             ErrorCode::Timeout,
             "The page was not captured before the call's deadline.",
-            "Retry with more time, or supply the page text as state.",
+            "Retry with more time, or supply the page text as content.",
         ),
     }
 }
@@ -226,7 +226,7 @@ fn select(
         return Err(super::too_large(
             max_chars,
             "The page text",
-            "Add a #fragment that selects one section, or supply a smaller part as state.",
+            "Add a #fragment that selects one section, or supply a smaller part as content.",
         ));
     }
     Ok(Selection { url, section, text })
@@ -242,7 +242,7 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
             return Ok((url, reply));
         }
         if !(300..400).contains(&reply.status) {
-            return Err(failure(
+            return Err(ClassificationError::new(
                 ErrorCode::ClassificationContextFailed,
                 format!(
                     "The page answered HTTP {}; nothing was judged.",
@@ -255,7 +255,7 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
             break;
         }
         let location = reply.location.as_deref().ok_or_else(|| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::ClassificationContextFailed,
                 format!(
                     "The page answered HTTP {} without a Location.",
@@ -265,7 +265,7 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
             )
         })?;
         let mut next = url.join(location).map_err(|_| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::ClassificationContextFailed,
                 "The page redirected to a URL that does not parse.",
                 "Check the URL.",
@@ -277,7 +277,7 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
         }
         url = next;
     }
-    Err(failure(
+    Err(ClassificationError::new(
         ErrorCode::ClassificationContextFailed,
         format!("The page redirected more than {MAX_REDIRECTS} times; nothing was judged."),
         "Pass the final URL directly.",

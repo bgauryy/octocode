@@ -1,9 +1,9 @@
 //! Where one page of repositories stands: its pagination, partial facts and warnings.
-use super::GhSearchRepoQuery;
 use super::owner_listing::OwnerListing;
 use crate::id::ToolId;
 use crate::response::paging::push_warnings;
 use crate::tools::gh_shared::{SearchCompleteness, SearchWindow, apply_partial};
+use octocode_contract_types::GhSearchRepoQuery;
 use octocode_github::RepositorySearchPage;
 use serde_json::{Value, json};
 

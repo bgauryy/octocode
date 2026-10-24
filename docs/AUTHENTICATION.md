@@ -114,7 +114,7 @@ npx octocode auth login --hostname github.mycompany.com
 
 ## Classification key (`clasify`)
 
-The classification key enables read-tool `clasifyContext`; the beta `clasify` tool also needs `OCTOCODE_BETA` ([availability](OCTOCODE_CLASIFY.md#availability)). Get a key from the [provider docs](https://docs.typesafe.ai/introduction); what is sent: [SECURITY.md](SECURITY.md#classification-egress).
+The classification key enables read-tool `classification`; the beta `clasify` tool also needs `OCTOCODE_BETA` ([availability](OCTOCODE_CLASIFY.md#availability)). Get a key from the [provider docs](https://docs.typesafe.ai/introduction); what is sent: [SECURITY.md](SECURITY.md#classification-egress).
 
 | Variable | Purpose |
 |---|---|

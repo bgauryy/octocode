@@ -3,25 +3,24 @@
 //! and builds the metadata row.
 use super::patch::hunks::match_context;
 use super::patch_hop::attach_full_patch_continuation;
-use super::pr_menu::{continuation, fresh_pr_query, remove_key, without_match_string};
+use super::pr_menu::{fresh_pr_query, remove_key, without_match_string};
 use super::promotion::promote_pr_continuations;
 use super::pull_request::{FileOutcome, PrPlan, ShapedPr};
 use super::util::str_at;
-use super::window::clamp_warning;
-use super::{HistoryItemRequest, Section, Sections};
+use super::{HistoryItemRequest, Sections};
 use crate::id::ToolId;
 use crate::response::paging::{mark_partial, push_warnings};
 use crate::response::result::ToolData;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
-use crate::tools::gh_shared::ensure_next;
-use octocode_contract_types::ExtraKind;
+use crate::tools::gh_get_history_item::sections::Section;
+use crate::tools::gh_shared::ensure_calls;
 use serde_json::{Map, Value, json};
 
 mod metadata;
 #[cfg(test)]
 mod tests;
 
-pub(super) use metadata::{pr_metadata, slim_row};
+pub(super) use metadata::pr_metadata;
 
 /// A scope or literal that matched nothing: an empty row whose leads run the
 /// recovery ([`unmatched_leads`]), or, when other sections hold evidence, a
@@ -37,7 +36,7 @@ fn mark_unmatched(
     if !files.scope_unmatched || !files.unsearched.is_empty() {
         return None;
     }
-    let literal = gh_get_history_item_query::match_string(query).filter(|_| plan.needle.is_some());
+    let literal = gh_get_history_item_query::match_strings(query).filter(|_| plan.needle.is_some());
     let literal_warning = literal
         .filter(|_| files.in_scope > 0)
         .map(|literal| super::filter::match_removed_all_warning(literal, files.in_scope));
@@ -46,8 +45,8 @@ fn mark_unmatched(
     }
     push_warnings(out, literal_warning);
     out["status"] = json!("empty");
-    ensure_next(out);
-    if let Some(next) = out["next"].as_object_mut() {
+    ensure_calls(out);
+    if let Some(next) = out["calls"].as_object_mut() {
         next.extend(unmatched_leads(query, literal.is_some()));
     }
     None
@@ -56,7 +55,7 @@ fn mark_unmatched(
 /// The reads that recover a pull-request read whose literal or file scope
 /// matched no changed file, in rank order: the same read without the
 /// `matchString` (when the literal missed), then the whole file inventory
-/// (`include`/`status`/`minChanges` dropped) to copy a path from.
+/// (`include`/`fileStatus`/`minChanges` dropped) to copy a path from.
 fn unmatched_leads(query: &HistoryItemRequest, literal_missed: bool) -> Map<String, Value> {
     let target = fresh_pr_query(query);
     let mut leads = Map::new();
@@ -66,11 +65,14 @@ fn unmatched_leads(query: &HistoryItemRequest, literal_missed: bool) -> Map<Stri
         leads.insert("withoutMatchString".into(), without_match_string(same));
     }
     let mut inventory = target;
-    for key in ["include", "status", "minChanges", "contextLines"] {
+    for key in ["include", "fileStatus", "minChanges", "contextLines"] {
         remove_key(&mut inventory, key);
     }
     Sections::of([Section::Files]).set_on(&mut inventory);
-    leads.insert("readFiles".into(), continuation(inventory));
+    leads.insert(
+        "readFiles".into(),
+        crate::response::result::Continuation::related(ToolId::GhGetHistoryItem, inventory).build(),
+    );
     leads
 }
 
@@ -100,14 +102,10 @@ pub(super) fn finish_pr(
                 .is_some_and(|items| !items.is_empty())
         });
     let mut out = json!({"pullRequests":[row]});
+    lift_terminal_limits(&mut out);
     let needle_missed = mark_unmatched(&mut out, query, plan, &files, other_evidence);
     if !files.unsearched.is_empty() {
         out["pullRequests"][0]["unsearchedFiles"] = json!(files.unsearched);
-    }
-    if (patches || plan.needle.is_some())
-        && let Some(warning) = clamp_warning(query)
-    {
-        push_warnings(&mut out, [warning]);
     }
     if let Some(warning) = needle_missed {
         push_warnings(&mut out, [warning]);
@@ -121,8 +119,8 @@ pub(super) fn finish_pr(
     let remaining = promote_pr_continuations(&mut out, query, &remainder);
     if !commit_file_pages.is_empty() {
         out["isPartial"] = json!(true);
-        ensure_next(&mut out);
-        if let Some(next) = out["next"].as_object_mut() {
+        ensure_calls(&mut out);
+        if let Some(next) = out["calls"].as_object_mut() {
             next.extend(commit_file_pages);
         }
     }
@@ -143,12 +141,7 @@ pub(super) fn finish_pr(
     let merge_read = files.merge_read.filter(|_| patches);
     attach_leads(&mut out, files.side_reads, menu, merge_read);
     lead_with_comment_reads(&mut out, comment_reads);
-    if !gh_get_history_item_query::wants(query, ExtraKind::Details) {
-        trim_content_pagination(&mut out);
-    }
-    if gh_get_history_item_query::wants(query, ExtraKind::Diagnostics)
-        && let Some(reason) = graphql_fallback
-    {
+    if let Some(reason) = graphql_fallback {
         out["graphqlFallback"] = json!(reason);
     }
     ToolData {
@@ -178,21 +171,21 @@ fn attach_leads(
         .chain(menu)
         .chain(merge_read.map(|read| ("readAtMerge".to_owned(), read)));
     for (name, lead) in leads {
-        ensure_next(out);
-        if let Some(next) = out["next"].as_object_mut() {
+        ensure_calls(out);
+        if let Some(next) = out["calls"].as_object_mut() {
             next.entry(name).or_insert(lead);
         }
     }
 }
 
-/// The review comments' own leads go before the menu's: they are the reads
-/// the comment page asked for, ten anchor ranges each.
+/// Optional source reads for review anchors precede the section menu,
+/// ten anchor ranges each.
 fn lead_with_comment_reads(out: &mut Value, comment_reads: Vec<Value>) {
     if comment_reads.is_empty() {
         return;
     }
-    ensure_next(out);
-    if let Some(next) = out["next"].as_object_mut() {
+    ensure_calls(out);
+    if let Some(next) = out["calls"].as_object_mut() {
         for (index, read) in comment_reads.into_iter().enumerate().rev() {
             next.shift_insert(0, crate::id::numbered("readCommentCode", index), read);
         }
@@ -211,11 +204,11 @@ pub(super) fn attach_unsearched_read(
     sha: Option<&str>,
 ) {
     mark_partial(out, "patchUnavailable", &[]);
-    let (Some(needle), Some(sha)) = (gh_get_history_item_query::match_string(query), sha) else {
+    let (Some(needle), Some(sha)) = (gh_get_history_item_query::match_strings(query), sha) else {
         return;
     };
-    ensure_next(out);
-    out["next"]["searchUnpatchedFile"] = crate::response::result::Continuation::new(
+    ensure_calls(out);
+    out["calls"]["searchUnpatchedFile"] = crate::response::result::Continuation::continued(
         ToolId::GhGetFileContent,
         json!({
             "owner": gh_get_history_item_query::owner(query),
@@ -223,7 +216,9 @@ pub(super) fn attach_unsearched_read(
             "path": path,
             "ref": sha,
             "matchString": needle,
-        }),
+            "caseMode":gh_get_history_item_query::match_options(query).map(|o|o.0),
+            "regexEngine":gh_get_history_item_query::match_options(query).map(|o|o.1),
+            "wholeWord":gh_get_history_item_query::match_options(query).map(|o|o.2)}),
     )
     .build();
 }
@@ -234,7 +229,7 @@ pub(super) fn attach_unsearched_read(
 fn attach_context_reads(
     out: &mut Value,
     query: &HistoryItemRequest,
-    clipped: &[(String, Vec<String>)],
+    clipped: &[(String, Vec<(usize, usize)>)],
 ) {
     let Some(sha) = str_at(out, "/pullRequests/0/headSha").map(str::to_owned) else {
         return;
@@ -246,66 +241,25 @@ fn attach_context_reads(
         out,
         "contextClipped",
         &[format!(
-            "contextLines {} reaches past the diff hunks of {} file(s) (contextClipped).",
+            "contextLines {:?} reaches past the diff hunks of {} file(s) (contextClipped).",
             match_context(query),
             clipped.len()
         )],
     );
-    ensure_next(out);
+    ensure_calls(out);
     for (index, (path, ranges)) in clipped.iter().enumerate() {
-        out["next"][crate::id::numbered("expandContext", index)] =
-            crate::response::result::Continuation::new(
+        out["calls"][crate::id::numbered("expandContext", index)] =
+            crate::response::result::Continuation::continued(
                 ToolId::GhGetFileContent,
                 json!({
                     "owner": gh_get_history_item_query::owner(query),
                     "repo": gh_get_history_item_query::repo(query),
                     "path": path,
                     "ref": sha,
-                    "ranges": ranges,
-                }),
+                    "ranges": ranges.iter().map(|(start, end)| json!({"startLine":start,"endLine":end})).collect::<Vec<_>>()}),
             )
             .build();
     }
-}
-
-/// Default responses drop pagination that adds nothing once `next.*` is
-/// built: a finished single-page list or whole text window, and the patch
-/// cursor, which the cut file's own `patchPagination` already carries.
-/// Provider limits stay.
-fn trim_content_pagination(out: &mut Value) {
-    let Some(row) = out
-        .pointer_mut("/pullRequests/0")
-        .and_then(Value::as_object_mut)
-    else {
-        return;
-    };
-    let Some(pages) = row
-        .get_mut("contentPagination")
-        .and_then(Value::as_object_mut)
-    else {
-        return;
-    };
-    pages.retain(|_, page| {
-        let done =
-            page.get("hasMore") == Some(&Value::Bool(false)) && page.get("terminalLimit").is_none();
-        // A finished first page, or a whole text window (offset zero).
-        let first = page.get("currentPage").and_then(Value::as_u64) == Some(1)
-            || page.get("offset").and_then(Value::as_u64) == Some(0);
-        !(done && first)
-    });
-    if pages
-        .get("patches")
-        .is_some_and(|patches| patches.get("hasMore") != Some(&Value::Bool(true)))
-    {
-        pages.remove("patches");
-    }
-    if let Some(patches) = pages.get_mut("patches").and_then(Value::as_object_mut) {
-        patches.retain(|key, _| key == "hasMore");
-    }
-    if pages.is_empty() {
-        row.remove("contentPagination");
-    }
-    lift_terminal_limits(out);
 }
 
 /// A page's terminal limit is restated on the row (`terminalLimit`,

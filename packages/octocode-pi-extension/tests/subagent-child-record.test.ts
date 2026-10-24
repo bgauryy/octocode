@@ -1,10 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs, SessionManager } from '@earendil-works/pi-coding-agent';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { transcriptNote } from '../src/compaction/summary.js';
 import { archiveFolder, archiveSearch, LIBRARY_FILE } from '../src/shared/archive.js';
-import { MAX_SUBAGENTS_ENV } from '../src/subagents/claim.js';
 import { buildAgentArgs, runSubagent } from '../src/subagents/process.js';
 import { childSession, childSessionFile } from '../src/subagents/launch.js';
 import { registerAgentTool } from '../src/subagents/tool.js';
@@ -12,26 +11,10 @@ import { Subcommands } from '../src/shared/commands.js';
 import { Team } from '../src/team/session.js';
 import { fakeCtx, fakePi, fakePermission, rendered, theme } from './fake-pi.js';
 import { tmp } from './helpers.js';
+import { useScriptedPi } from './subagent-tool-harness.js';
 
-const FIXTURE = path.join(path.dirname(new URL(import.meta.url).pathname), 'subagent-fake-pi.cjs');
-const savedArgv = process.argv[1];
-const savedEnv = { ...process.env };
 
-beforeAll(() => {
-  const root = tmp('octocode-agent-record-');
-  process.env['OCTOCODE_HOME'] = path.join(root, 'home');
-  process.env['OCTOCODE_AGENT_DB'] = path.join(root, 'team', 'team.sqlite');
-  for (const key of [MAX_SUBAGENTS_ENV, 'OCTOCODE_SUBAGENT', 'OCTOCODE_AGENT_ID', 'OCTOCODE_PARENT_ID', 'OCTOCODE_AGENT_GOAL', 'OCTOCODE_AGENT_COLLABORATE', 'OCTOCODE_AGENT_SCRATCH', 'OCTOCODE_TEAM_WORKSPACE', 'OCTOCODE_SUBAGENT_LINGER_SECONDS']) delete process.env[key];
-  const bin = path.join(root, 'bin');
-  fs.mkdirSync(bin);
-  fs.copyFileSync(FIXTURE, path.join(bin, 'pi'));
-  process.argv[1] = path.join(bin, 'pi');
-});
-
-afterAll(() => {
-  process.argv[1] = savedArgv!;
-  process.env = savedEnv;
-});
+useScriptedPi();
 
 function setup(cwd = tmp('octocode-agent-cwd-')) {
   const f = fakePi();

@@ -23,13 +23,9 @@ pub(super) fn temp_workspace() -> (
     (dir, root, paths)
 }
 
-pub(super) fn engine_error(message: &str) -> octocode_engine::error::Error {
-    octocode_engine::error::Error::new(message)
-}
-
 /// A server request failure as a hierarchy walk records it.
 pub(super) fn expansion_error(message: &str) -> LspFailure {
-    LspFailure::from(engine_error(message))
+    LspFailure::from(octocode_engine::error::Error::new(message))
 }
 
 /// A fake call graph: `callers[name]` lists the names calling `name`. Each

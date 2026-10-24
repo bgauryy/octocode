@@ -113,7 +113,7 @@ impl ContentSecurity {
     ) -> Result<Sanitized, E> {
         check()?;
         sanitize_json(&mut value, &mut |text, path| {
-            Ok(self.sanitize_leaf(text, path).content)
+            Ok(self.sanitize_leaf(text, path))
         })?;
         if emails {
             check()?;
@@ -138,7 +138,7 @@ fn assert_gate_fixed_point(value: &Value) {
     let mut again = value.clone();
     let security = ContentSecurity::new();
     let _ = sanitize_json(&mut again, &mut |text, path| {
-        Ok::<_, std::convert::Infallible>(security.sanitize_leaf(text, path).content)
+        Ok::<_, std::convert::Infallible>(security.sanitize_leaf(text, path))
     });
     assert!(
         again == *value,

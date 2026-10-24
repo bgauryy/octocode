@@ -25,8 +25,6 @@ const SERVER_INFO_META_KEY: &str = "io.modelcontextprotocol/serverInfo";
 pub(super) struct Handler {
     runtime: Arc<ToolRuntime>,
     tools: Vec<Tool>,
-    /// The tool that runs deferred tools: `{tool, query}`, verbatim.
-    dispatcher: Option<String>,
     config: ServerConfig,
     next_request: AtomicU64,
 }
@@ -58,7 +56,6 @@ impl Handler {
         Ok(Self {
             runtime,
             tools,
-            dispatcher: listing.dispatcher,
             config,
             next_request: AtomicU64::new(1),
         })
@@ -124,25 +121,6 @@ impl Handler {
             )]))
         })
     }
-
-    /// The tool and query a listed tool name runs: itself with its
-    /// arguments, or, for the dispatcher, the `{tool, query}` it names,
-    /// verbatim.
-    fn target(&self, name: &str, arguments: Option<JsonObject>) -> (String, Value) {
-        if self.dispatcher.as_deref() != Some(name) {
-            return (
-                name.to_owned(),
-                arguments.map_or(Value::Null, Value::Object),
-            );
-        }
-        let mut arguments = arguments.unwrap_or_default();
-        let tool = match arguments.remove("tool") {
-            Some(Value::String(tool)) => tool,
-            Some(other) => other.to_string(),
-            None => String::new(),
-        };
-        (tool, arguments.remove("query").unwrap_or(Value::Null))
-    }
 }
 
 impl ServerHandler for Handler {
@@ -165,8 +143,7 @@ impl ServerHandler for Handler {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        // Only listed tools are callable; a deferred tool runs through the
-        // dispatcher, as a client that never saw it listed would have to.
+        // Only the enabled, individually listed tools are callable.
         if !self.tools.iter().any(|tool| tool.name == request.name) {
             return Err(ErrorData::invalid_params(
                 format!("Tool {} not found", request.name),
@@ -174,7 +151,8 @@ impl ServerHandler for Handler {
             ));
         }
         let meta = self.response_meta(&context);
-        let (tool, input) = self.target(&request.name, request.arguments);
+        let tool = request.name;
+        let input = request.arguments.map_or(Value::Null, Value::Object);
         let response = self
             .run(&tool, input, context.ct)
             .await

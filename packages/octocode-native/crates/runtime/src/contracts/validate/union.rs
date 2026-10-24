@@ -1,4 +1,4 @@
-//! Canonical union branch selection, matching validation/unionIssues.ts.
+//! Union branch selection and actionable diagnostics from the embedded schema.
 mod failures;
 mod selectors;
 mod siblings;
@@ -12,29 +12,11 @@ use failures::{
 };
 use selectors::{
     annotate_forbidden_fields, annotate_sibling_selectors, render_selector, selector_literals,
-    selectors_accept, sibling_selector_values, single_literal,
+    selectors_accept, sibling_selector_values,
 };
 use serde_json::Value;
 use siblings::{annotate_sibling_branch_fields, branch_object};
 use std::cell::Cell;
-
-const SELECTORS: &[&str] = &[
-    "operation",
-    "type",
-    "ecosystem",
-    "resultView",
-    "fullContent",
-    "matchString",
-    "ranges",
-    "regex",
-    "caseMode",
-    "packageName",
-    "keywords",
-];
-
-/// Fields that name a branch outright: a branch rejecting one is never the
-/// closest match, and their issues lead the chosen branch's errors.
-const DISCRIMINATORS: &[&str] = &["tool", "operation", "type", "ecosystem"];
 
 thread_local! {
     /// Depth of speculative validation on this thread: a branch tried only
@@ -102,8 +84,9 @@ pub(super) fn validate(
 
 /// The acceptance `reference` reaches, without its failure diagnosis.
 /// Branches that certainly reject the value are skipped (`reference` fails
-/// them too); the rest validate speculatively on copies. On success the value
-/// becomes the first accepting branch's normalized copy, as in `reference`.
+/// them too); the rest validate speculatively, on copies unless the mode
+/// only reads. On success the value becomes the first accepting branch's
+/// normalized copy, as in `reference`.
 fn accept(
     root: &Value,
     branches: &[Value],
@@ -114,30 +97,64 @@ fn accept(
 ) -> bool {
     let _speculation = Speculation::enter();
     let mut accepted = None;
-    for branch in branches
-        .iter()
-        .filter(|branch| !certainly_rejects(root, branch, value))
-    {
-        let mut candidate = value.clone();
-        if validate_with_mode(root, branch, &mut candidate, &mut path.to_vec(), mode).is_err() {
+    for branch in branches {
+        if certainly_rejects(root, branch, value) {
             continue;
         }
+        let Some(result) = try_branch(root, branch, value, path, mode) else {
+            continue;
+        };
         if accepted.is_some() {
             // A second match fails an exclusive union.
             return false;
         }
         if !exclusive {
-            *value = candidate;
+            keep(value, result);
             return true;
         }
-        accepted = Some(candidate);
+        accepted = Some(result);
     }
     match accepted {
-        Some(candidate) => {
-            *value = candidate;
+        Some(result) => {
+            keep(value, result);
             true
         }
         None => false,
+    }
+}
+
+/// What a branch that accepts the value leaves.
+enum Accepted {
+    /// A read-only mode checked the value in place: it is the result.
+    InPlace,
+    /// The value's normalized copy.
+    Normalized(Value),
+}
+
+/// `value` validated against `branch`: `None` when the branch rejects it.
+/// A read-only mode checks the value in place because nothing is written.
+fn try_branch(
+    root: &Value,
+    branch: &Value,
+    value: &mut Value,
+    path: &[String],
+    mode: ValidationMode,
+) -> Option<Accepted> {
+    if mode == ValidationMode::ReadOnly {
+        return validate_with_mode(root, branch, value, &mut path.to_vec(), mode)
+            .is_ok()
+            .then_some(Accepted::InPlace);
+    }
+    let mut candidate = value.clone();
+    validate_with_mode(root, branch, &mut candidate, &mut path.to_vec(), mode)
+        .is_ok()
+        .then_some(Accepted::Normalized(candidate))
+}
+
+/// Take an accepting branch's result.
+fn keep(value: &mut Value, accepted: Accepted) {
+    if let Accepted::Normalized(normalized) = accepted {
+        *value = normalized;
     }
 }
 
@@ -250,6 +267,7 @@ fn reference(
                     "schema.unknown-field"
                         | "schema.size"
                         | "schema.range"
+                        | "schema.order"
                         | "schema.pattern"
                         | "schema.uri"
                         | "schema.repository-url"
@@ -274,7 +292,7 @@ fn reference(
     // allowed literals for every field across the branches the value selects
     // (all branches when its selectors match none) before one branch is
     // chosen, so the surfaced error lists the full set for the chosen form,
-    // never another form's literals (parity: validation/unionIssues.ts).
+    // never another form's literals.
     let allowed = aggregate_allowed_literals(&selected_failures(&failures, path));
     let missing_sets = failures
         .iter()
@@ -301,10 +319,7 @@ fn reference(
     selected.sort_by_key(|item| {
         let leads = item.path.len() == depth + 1
             && (matches!(item.rule_id.as_str(), "schema.const" | "schema.enum")
-                || missing_literal(item, depth))
-            && item.path.get(depth).is_some_and(|name| {
-                DISCRIMINATORS.contains(&name.as_str()) || SELECTORS.contains(&name.as_str())
-            });
+                || missing_literal(item, depth));
         !leads
     });
     // Branch scoring may group key errors for parity, but the selected branch

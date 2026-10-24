@@ -3,6 +3,7 @@ use super::index::{VIEW_POINT_BYTES, read_windows};
 use super::stream::stream;
 use super::*;
 use crate::execution::cancel::NeverCancel;
+use octocode_contract_types::LocalFetchQuery;
 use sha2::{Digest, Sha256};
 
 fn opened(path: &Path) -> std::fs::File {

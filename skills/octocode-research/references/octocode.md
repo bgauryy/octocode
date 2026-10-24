@@ -1,25 +1,26 @@
-Load when constructing a research query. For invocation, availability, configuration, paging, and recovery, use the [shared Octocode guide](octocode-usage.md).
+Load for Octocode request examples. [Shared usage](octocode-usage.md) owns transport, availability and continuation rules. Discover the live schema before selecting a variant.
 
-## Templates
+## Local examples
 
-- Replace paths, lines, refs, and numbers with observed values; wrap per [shared invocation](octocode-usage.md#discover-and-invoke).
-- File graphs are a CLI command, not a tool row: `npx octocode graph ingest /ABS/repo`, then `npx octocode graph query issues --detector unreachable-file --entry src/index.ts` (refs are relative to the ingested root).
-
-```json
-[
-  {"tool":"localSearch","query":{"path":"/ABS/repo/src","matchString":"withDataCache|createDataCache","regex":"rust","resultView":"files"}},
-  {"tool":"structureSearch","query":{"operation":"files","path":"/ABS/repo","include":["*.config.*"]}},
-  {"tool":"localFetch","query":{"path":"/ABS/repo/src/example.ts","matchString":["export function","throw new"],"block":true}},
-  {"tool":"localFetch","query":{"path":"/ABS/repo/src/example.ts","ranges":["10-30","120-140"]}},
-  {"tool":"astSearch","query":{"operation":"symbols","path":"/ABS/repo/src","symbolName":["createServer","listen"]}},
-  {"tool":"lspSearch","query":{"path":"/ABS/repo/src/example.ts","operation":"references","symbolName":"example","line":10,"includeDeclaration":false,"groupByFile":true}},
-  {"tool":"ghSearchCode","query":{"owner":"tokio-rs","repo":"tokio","keywords":["max_blocking_threads"],"path":"tokio/src/runtime"}},
-  {"tool":"ghGetFileContent","query":{"owner":"tokio-rs","repo":"tokio","path":"tokio/src/runtime/builder.rs","matchString":"max_blocking_threads: 512","block":true}},
-  {"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":"cli","repo":"cli","number":14404}},
-  {"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":"cli","repo":"cli","number":13541,"matchString":"MatchCategory","contextLines":0,"include":["pkg/"]}},
-  {"tool":"ghGetHistoryItem","query":{"operation":"compare","owner":"octokit","repo":"octokit.js","base":"v4.0.0","head":"v5.0.0"}},
-  {"tool":"artifactSearch","query":{"ecosystem":"npm","packageName":"express","version":"4.21.2"}},
-  {"tool":"ghCloneRepo","query":{"owner":"octokit","repo":"octokit.js","ref":"main","path":["src","test"]}},
-  {"tool":"clasify","query":{"source":{"tool":"ghGetFileContent","query":{"owner":"psf","repo":"requests","path":"src/requests/sessions.py","ref":"v2.32.3","fullContent":true}},"questions":{"auth":{"type":"noul","instructions":"Does the file remove the Authorization header when a redirect changes host?"}}}}
-]
+```bash
+npx -y octocode localSearch '{"queries":[{"path":"src","matchString":["createCache","withCache"],"view":"files"}]}'
+npx -y octocode localFetch '{"queries":[{"path":"src/cache.ts","ranges":[{"startLine":1,"endLine":60}]}]}'
+npx -y octocode astSearch '{"queries":[{"operation":"match","path":"src","parser":"typescript","rule":{"pattern":"eval($X)"}}]}'
+npx -y octocode lspSearch '{"queries":[{"operation":"references","path":"src/cache.ts","symbolName":"createCache","line":10,"includeDeclaration":false,"view":"files"}]}'
 ```
+
+Replace illustrative paths, symbols and lines with observed evidence. Each string-array matcher has the same explicit regex/case semantics across supported tools. `workspaceSymbol` uses symbolQuery, not symbolName.
+
+## Remote examples
+
+```bash
+npx -y octocode ghSearchRepo '{"queries":[{"operation":"search","keywords":["cache"],"filters":{"language":"TypeScript"}}]}'
+npx -y octocode artifactSearch '{"queries":[{"operation":"resolve","ecosystem":"npm","packageName":"zod"}]}'
+npx -y octocode ghCloneRepo '{"queries":[{"owner":"bgauryy","repo":"octocode"}]}'
+```
+
+Clone is CLI-only and requires persistent storage. Use a discovered repository and revision for real work; run local tools at the returned path. Partial materialization limits local coverage.
+
+## Verification
+
+Follow emitted input unchanged. Public schemas contain authored selectors; private offsets and snapshots are encapsulated by cursor handles. Check actual CLI/MCP behavior after rebuilding a changed contract. Run the dev skill for monorepo checks and the [workflow guide](workflows.md) for research/review procedure.

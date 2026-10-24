@@ -4,7 +4,9 @@ use octocode_native::response::exit::ExitClass;
 use octocode_native::response::outcome::ToolOutcome;
 use octocode_native::runtime::error::tool_error_result;
 use octocode_native::runtime::{FailureKind, RuntimeError};
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(unix)]
+use serde_json::json;
 use std::io::{self, Write};
 
 /// Where a finished call's output goes.
@@ -87,18 +89,7 @@ impl Printed {
                     let envelope = projected.envelope.to_string();
                     (Stream::Stdout, envelope, Some(projected.text), None)
                 } else {
-                    // A repair lead prints as the command that runs it.
-                    let repairs = super::lines::follow_ups(&projected.envelope)
-                        .iter()
-                        .map(|line| format!("# {line}"))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    (
-                        Stream::Stderr,
-                        projected.text,
-                        None,
-                        Some(repairs).filter(|r| !r.is_empty()),
-                    )
+                    (Stream::Stderr, projected.text, None, None)
                 };
                 Self {
                     exit: exit_code(error.exit_class()),

@@ -14,41 +14,6 @@ fn missing_local_path_is_not_found_other_errors_are_execution() {
     );
 }
 
-#[test]
-fn clasify_whose_every_row_failed_exits_like_its_failure() {
-    let not_found = Some(ExitClass::Failed(FailureKind::NotFound));
-    let execution = Some(ExitClass::Failed(FailureKind::Execution));
-    let failed =
-        |code: &str| json!({"queries":[{"id":"q","error":{"errorCode":code,"error":"m"}}]});
-    // localFetch reports a missing source as pathNotFound + NotFound.
-    let missing = failed("pathNotFound");
-    assert_eq!(
-        clasify_failure(&missing, Some(FailureKind::NotFound)),
-        not_found
-    );
-    assert_eq!(clasify_failure(&missing, None), not_found);
-    assert_eq!(
-        clasify_failure(&failed("fileAccessFailed"), None),
-        execution
-    );
-    assert_eq!(
-        clasify_failure(&failed("classificationProviderError"), None),
-        execution
-    );
-    assert_eq!(
-        clasify_failure(&failed("rateLimited"), None),
-        Some(ExitClass::Failed(FailureKind::RateLimited))
-    );
-    assert_eq!(
-        clasify_failure(&failed("invalidInput"), Some(FailureKind::NotFound)),
-        Some(ExitClass::InvalidInput),
-        "a rejected request stays a caller error"
-    );
-    assert_eq!(clasify_failure(&json!({"queries":[]}), None), None);
-    let answered = json!({"queries":[{"id":"q","answers":{}}]});
-    assert_eq!(clasify_failure(&answered, None), None);
-}
-
 /// A row failed after execution (classification of a provider page)
 /// carries no execution failure kind: its code decides, as on a row
 /// that failed while executing.
@@ -142,9 +107,9 @@ fn every_declared_code_maps_to_one_exit_class() {
         );
         let runtime = RuntimeError::new(code, "m");
         assert_eq!(runtime.exit_class(), expected, "runtime {code}");
-        let mixed_clasify = json!({"queries":[
-            {"id":"ok","answers":{"q":{"type":"noul","noul":0.9}}},
-            {"id":"failed","error":{"errorCode":code,"error":"failed"}}
+        let mixed_clasify = json!({"results":[
+            {"index":0,"data":{"answers":{"q":{"type":"noul","noul":0.9}}}},
+            {"index":1,"status":"error","data":{"errorCode":code,"error":"failed"}}
         ]});
         assert_eq!(
             outcome(mixed_clasify, None, false).exit_class(),
@@ -177,8 +142,8 @@ fn rows_rejecting_caller_input_are_invalid_input() {
 
 #[test]
 fn mixed_clasify_rows_follow_worst_row_precedence() {
-    let good = json!({"id":"good", "answers":{"ok":{"type":"noul","noul":0.8}}});
-    let bad = |code| json!({"id":"bad", "error":{"errorCode":code,"error":"failed"}});
+    let good = json!({"index":0,"data":{"answers":{"ok":{"type":"noul","noul":0.8}}}});
+    let bad = |code| json!({"index":1,"status":"error","data":{"errorCode":code,"error":"failed"}});
     for (code, expected) in [
         ("notFound", ExitClass::Failed(FailureKind::NotFound)),
         ("rateLimited", ExitClass::Failed(FailureKind::RateLimited)),
@@ -186,14 +151,14 @@ fn mixed_clasify_rows_follow_worst_row_precedence() {
     ] {
         for rows in [vec![good.clone(), bad(code)], vec![bad(code), good.clone()]] {
             assert_eq!(
-                outcome(json!({"queries":rows}), None, false).exit_class(),
+                outcome(json!({"results":rows}), None, false).exit_class(),
                 expected
             );
         }
     }
     assert_eq!(
         outcome(
-            json!({"queries":[good,bad("notFound"),bad("invalidInput")]}),
+            json!({"results":[good,bad("notFound"),bad("invalidInput")]}),
             None,
             false
         )

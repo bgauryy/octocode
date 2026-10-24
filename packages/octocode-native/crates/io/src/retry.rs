@@ -31,8 +31,9 @@ impl Backoff {
     }
 }
 
-/// What an HTTP status says about retrying. Each client decides which
-/// classes it retries; the classification itself is shared.
+/// What an HTTP status says about retrying. The classification and its
+/// retry verdict ([`StatusClass::is_retryable`]) are shared; each client
+/// only bounds how often it retries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StatusClass {
     /// 2xx.

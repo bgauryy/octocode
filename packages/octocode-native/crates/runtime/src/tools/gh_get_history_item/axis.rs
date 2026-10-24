@@ -2,7 +2,7 @@
 //! `next.*` page that continues it, the cursor it carries, the sections a
 //! page continuation reads, and how its leftover is worded. One table, so
 //! promotion, notes and shaping never spell an axis apart.
-use super::Section;
+use crate::tools::gh_get_history_item::sections::Section;
 
 /// One `contentPagination` axis of a pull request or issue page.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

@@ -117,5 +117,3 @@ export const openFor = async (browser: BrowserTool, url: string): Promise<void> 
 /** A tab's frame navigated, as Chrome reports it; the main frame unless `frame` names a parent. */
 export const navigates = (page: { emit: (method: string, params?: Record<string, unknown>) => void }, url: string, frame: Record<string, unknown> = {}) => page.emit('Page.frameNavigated', { frame: { id: 'main', url, ...frame } });
 
-export const paused = (requestId: string, url: string, resourceType: string, extra: Record<string, unknown> = {}) => ({ requestId, request: { url }, resourceType, frameId: 'f', ...extra });
-export const answered = (cdp: CdpStub, method: 'Fetch.failRequest' | 'Fetch.continueRequest'): string[] => cdp.commands.filter((command) => command.method === method).map((command) => String(command.params['requestId']));

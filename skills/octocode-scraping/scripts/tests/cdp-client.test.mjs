@@ -15,7 +15,7 @@ function fixture(failedChecks) {
   mkdirSync(lib, { recursive: true });
   mkdirSync(bin, { recursive: true });
   mkdirSync(join(root, 'node_modules'));
-  for (const file of ['client.mjs', 'providers.mjs', 'net-guard.mjs']) copyFileSync(join(scripts, 'lib', file), join(lib, file));
+  for (const file of ['client.mjs', 'fail.mjs', 'providers.mjs', 'net-guard.mjs']) copyFileSync(join(scripts, 'lib', file), join(lib, file));
   // Only the Chrome package's public executable is a fixture. The client generates and
   // executes its real runner through real child processes; the fake executable plays the
   // package's `/raw open|script|cleanup` contract, including the --stealth gate.

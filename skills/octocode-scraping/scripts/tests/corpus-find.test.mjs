@@ -132,7 +132,9 @@ test('corpus queries refuse a folder that is not a scrape session instead of rep
   const scripts = fileURLToPath(new URL('../', import.meta.url));
   const empty = mkdtempSync(join(tmpdir(), 'not-a-session-'));
   try {
-    for (const [name, extra] of [['corpus-find.mjs', ['--query', 'x']], ['dom-find.mjs', []], ['resource-list.mjs', []], ['graph-navigate.mjs', []]]) {
+    /** @type {[string, string[]][]} */
+    const readers = [['corpus-find.mjs', ['--query', 'x']], ['dom-find.mjs', []], ['resource-list.mjs', []], ['graph-navigate.mjs', []]];
+    for (const [name, extra] of readers) {
       for (const dir of [join(empty, 'missing'), empty]) {
         const res = spawnSync(process.execPath, [join(scripts, name), '--session-dir', dir, ...extra], { encoding: 'utf8' });
         assert.equal(res.status, 1, `${name} ${dir}: ${res.stdout}`);

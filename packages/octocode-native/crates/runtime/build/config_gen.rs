@@ -9,7 +9,7 @@ use config_fields::{
     Field, default_literal, direct_children, enum_type_name, enum_values, field_type, fields,
     own_default, rust_field_type, rust_type_name, write_string_slice,
 };
-use config_render_metadata::{environment_arrays, render_field_metadata, render_removed};
+use config_render_metadata::{environment_arrays, render_field_metadata};
 use config_render_types::{render_enums, render_structs};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -116,7 +116,6 @@ fn render(contract: &Value) -> Result<String, Box<dyn Error>> {
         writeln!(output, "    ({name:?}, {value:?}),")?;
     }
     writeln!(output, "];\n")?;
-    render_removed(&mut output, root)?;
     render_field_metadata(&mut output, &all_fields)?;
     render_enums(&mut output, &all_fields)?;
     render_structs(&mut output, contract, &all_fields)?;

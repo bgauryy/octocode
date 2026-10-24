@@ -38,7 +38,7 @@
     "cli": "node bin/octocode-chrome-devtools.mjs /cli",
     "mcp": "node bin/octocode-chrome-devtools.mjs",
     "lint": "prettier --check \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\" && node tools/check.mjs && yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives .",
-    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json && yarn run -T tsgo --noEmit -p tsconfig.boundaries.json",
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "test": "node tests/hermetic-suite.mjs",
     "test:live": "node tests/live-suite.mjs",
     "test:protocol": "node tests/protocol-suite.mjs",

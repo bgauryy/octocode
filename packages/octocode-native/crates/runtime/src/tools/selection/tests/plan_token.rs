@@ -73,7 +73,7 @@ fn partial_provider_failures_survive_replay_without_losing_successful_evidence()
     let mut runtime = test_runtime(std::sync::Arc::new(PartialJudge), executor.handle().clone());
     runtime.limits.max_candidates = 64;
     runtime.limits.max_chars = 100_000;
-    let query = json!({"clasifyContext":{"classifiers":["States the fact?"]}});
+    let query = json!({"classification":{"predicates":["States the fact?"]}});
     let candidates: Vec<_> = (0..64)
         .map(|i| Candidate::new(Some(json!(format!("candidate {i}")))))
         .collect();
@@ -138,7 +138,7 @@ fn token_preserves_disjoint_partitions_and_rejects_drift() {
         timeout: Duration::from_secs(1),
     };
     let bound = binding(
-        &json!({"clasifyContext":{"classifiers":["find it"]},"page":1}),
+        &json!({"classification":{"predicates":["find it"]},"page":1}),
         "source",
         limits,
         None,

@@ -5,6 +5,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { createAjv } from '../../../octocode-benchmark/local/e2e/harness/query-defaults.mjs';
+const ajv = createAjv();
 
 const root = process.cwd();
 const base = path.join(root, '.octocode/octocode-dev/clasify-availability');
@@ -44,58 +46,29 @@ function schema(project, env, args) {
   return result.json;
 }
 
-function hasEveryBranch(value, field) {
-  if (value?.properties) return Object.hasOwn(value.properties, field);
-  const branches = value?.oneOf ?? value?.anyOf;
-  return (
-    !!branches?.length &&
-    branches.every(branch => hasEveryBranch(branch, field))
-  );
-}
+const selection = { predicates: ['Does this contain selected evidence?'] };
+const queryFor = name =>
+  ({
+    localFetch: { path: 'evidence.txt' },
+    localSearch: { path: '.', matchString: ['SELECTED'] },
+    ghGetFileContent: { owner: 'octo', repo: 'demo', path: 'evidence.txt' },
+    ghSearchCode: { owner: 'octo', repo: 'demo', keywords: ['selected'] },
+  })[name];
 
-function resolveLocalRef(root, value) {
-  const prefix = '#/$defs/';
-  return value?.$ref?.startsWith(prefix)
-    ? root.$defs?.[value.$ref.slice(prefix.length)]
-    : value;
-}
-
-function assertSelectionSchema(value, enabled, label, compact = false) {
+function checkAdmission(schema, row, { enabled, envelope, label }) {
+  const validate = ajv.compile(schema);
+  const input = query => (envelope ? { queries: [query] } : query);
+  assert.equal(validate(input(row)), true, `${label}: ordinary read admitted`);
   assert.equal(
-    hasEveryBranch(value, 'clasifyContext'),
+    validate(input({ ...row, classification: selection })),
     enabled,
-    `${label}: clasifyContext`
+    `${label}: classification capability`
   );
   assert.equal(
-    hasEveryBranch(value, 'selection'),
-    enabled && !compact,
-    `${label}: selection`
-  );
-  assert.equal(
-    hasEveryBranch(value, 'classifiers'),
+    validate(input({ ...row, selection: 'caller-state' })),
     false,
-    `${label}: removed classifiers alias`
+    `${label}: private state rejected`
   );
-  assert.equal(
-    hasEveryBranch(value, 'ranking'),
-    false,
-    `${label}: removed ranking alias`
-  );
-  if (enabled) {
-    const branches = value.oneOf ?? value.anyOf ?? [value];
-    for (const branch of branches) {
-      const context = resolveLocalRef(value, branch.properties?.clasifyContext);
-      assert.ok(
-        context?.properties?.classifiers,
-        `${label}: nested classifiers`
-      );
-      assert.ok(context?.properties?.longContext, `${label}: longContext`);
-      assert.ok(
-        !branch.required?.includes('clasifyContext'),
-        `${label}: context remains optional`
-      );
-    }
-  }
 }
 
 const cases = [
@@ -130,16 +103,6 @@ const cases = [
       OCTOCODE_CLASSIFICATION_API: 'fixture-key',
       OCTOCODE_BETA: 'true',
       DISABLE_TOOLS: 'clasify',
-    },
-    context: true,
-    clasify: false,
-  },
-  {
-    name: 'removed-ranking-gate-cannot-disable-context',
-    env: {
-      OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-      OCTOCODE_BETA: 'false',
-      OCTOCODE_RANKING_ENABLED: 'false',
     },
     context: true,
     clasify: false,
@@ -226,6 +189,7 @@ try {
       WORKSPACE_ROOT: project,
       ALLOWED_PATHS: project,
       OCTOCODE_STORAGE_MODE: 'memory',
+      OCTOCODE_CLASSIFICATION_API_HOST: 'http://127.0.0.1:9',
       DISABLE_TOOLS: '',
       TOOLS_TO_RUN: '',
       ...row.env,
@@ -256,26 +220,6 @@ try {
         row.clasify,
         `${row.name}: CLI clasify`
       );
-      const mcpInstructions = client.getInstructions() ?? '';
-      assert.ok(cliCatalog.instructions.startsWith(`${mcpInstructions}\n`));
-      for (const instructions of [cliCatalog.instructions, mcpInstructions]) {
-        assert.equal(
-          instructions.includes('<clasify>'),
-          row.context || row.clasify,
-          row.name
-        );
-        assert.equal(
-          instructions.includes('clasifyContext'),
-          row.context,
-          row.name
-        );
-        assert.equal(
-          instructions.includes('clasify scouts unread'),
-          row.clasify,
-          row.name
-        );
-      }
-
       for (const name of selectionTools) {
         const mcpTool = catalog.tools.find(tool => tool.name === name);
         if (row.readers === false) {
@@ -283,39 +227,27 @@ try {
           continue;
         }
         assert.ok(mcpTool, `${row.name}: MCP ${name}`);
-        assertSelectionSchema(
-          mcpTool.inputSchema.properties.queries.items,
-          row.context,
-          `${row.name}: MCP ${name}`,
-          true
+        checkAdmission(mcpTool.inputSchema, queryFor(name), {
+          enabled: row.context,
+          envelope: true,
+          label: `${row.name}: MCP ${name}`,
+        });
+        checkAdmission(
+          schema(project, env, [name]).querySchema,
+          queryFor(name),
+          {
+            enabled: row.context,
+            envelope: false,
+            label: `${row.name}: CLI ${name}`,
+          }
         );
-        for (const view of ['query', 'full']) {
-          const cliTool = schema(project, env, [name, '--view', view]);
-          assertSelectionSchema(
-            cliTool.querySchema,
-            row.context,
-            `${row.name}: CLI ${name} ${view}`,
-            view === 'query'
-          );
-          assert.ok(
-            !cliTool.moreFields?.some(field =>
-              [
-                'clasifyContext',
-                'selection',
-                'classifiers',
-                'ranking',
-              ].includes(field)
-            ),
-            `${row.name}: selection controls are exposed or absent, never hidden in moreFields`
-          );
-        }
       }
 
       if (!row.context && row.readers !== false) {
         const query = {
           path: 'evidence.txt',
-          clasifyContext: {
-            classifiers: ['Does this contain selected evidence?'],
+          classification: {
+            predicates: ['Does this contain selected evidence?'],
           },
         };
         const rejected = cli(project, env, [
@@ -330,7 +262,7 @@ try {
         );
         assert.match(
           rejected.stdout + rejected.stderr,
-          /clasifyContext|classification.*unavailable|invalidInput/i
+          /classification|invalidInput/i
         );
         const mcpRejected = await client.callTool({
           name: 'localFetch',

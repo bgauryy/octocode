@@ -31,7 +31,7 @@ fn owner_wide_rows_hoist_shared_repository_and_commit() {
 #[test]
 fn repo_scoped_pages_carry_no_owner_repo_echo() {
     let query: GhSearchCodeQuery = serde_json::from_value(json!({
-        "mainGoal":"test","reasoning":"test","owner":"o","repo":"r","keywords":["x"],"ref":"dev"
+        "owner":"o","repo":"r","keywords":["x"],"ref":"dev"
     }))
     .expect("query");
     let mut value = json!({});
@@ -51,24 +51,24 @@ fn repo_scoped_pages_carry_no_owner_repo_echo() {
     );
     assert!(unsearched_ref_read(&query).is_none());
     let mut named = query.clone();
-    named.filename = Some("Cargo.toml".parse().expect("filename"));
-    named.path = Some("crates/x".parse().expect("path"));
+    named.name_contains = Some("Cargo.toml".parse().expect("filename"));
+    named.path_prefix = Some("crates/x".parse().expect("path"));
     let read = unsearched_ref_read(&named).expect("read at the ref");
     assert_eq!(read["tool"], "ghGetFileContent", "{read}");
     assert_eq!(
-        read["query"]["queries"][0]["path"], "crates/x/Cargo.toml",
+        read["input"]["queries"][0]["path"], "crates/x/Cargo.toml",
         "{read}"
     );
-    assert_eq!(read["query"]["queries"][0]["ref"], "dev", "{read}");
+    assert_eq!(read["input"]["queries"][0]["ref"], "dev", "{read}");
     let plain: GhSearchCodeQuery = serde_json::from_value(json!({
-        "mainGoal":"test","reasoning":"test","owner":"o","keywords":["x"]
+        "owner":"o","keywords":["x"]
     }))
     .expect("query");
     assert!(empty_hints(&plain).is_empty());
     // A requested ref plus a path scope are two hints, never one composed
     // sentence.
     let mut both = query.clone();
-    both.path = Some("crates/x".parse().expect("path"));
+    both.path_prefix = Some("crates/x".parse().expect("path"));
     let hints = empty_hints(&both);
     assert_eq!(hints.len(), 2, "{hints:?}");
     assert!(
@@ -101,6 +101,31 @@ fn identical_files_are_listed_once_with_every_path() {
             json!({"path": "c/README.md", "lines": header, "matchCount": 40}),
             json!({"path": "p1"}),
             json!({"path": "p2"}),
+        ]
+    );
+}
+
+/// Evidence is every field but `pathPrefix`, wherever `pathPrefix` sits in the row and
+/// in the row's order; a row without a `pathPrefix` is never merged.
+#[test]
+fn identical_evidence_ignores_only_the_path_entry() {
+    let lines = json!(["1\tfn main()"]);
+    let mut items = vec![
+        json!({"lines": lines, "path": "a.rs", "matchCount": 1}),
+        json!({"lines": lines, "path": "b.rs", "matchCount": 1}),
+        json!({"lines": lines, "matchCount": 1, "path": "c.rs"}),
+        json!({"matchCount": 1, "lines": lines, "path": "d.rs"}),
+        json!({"lines": lines, "matchCount": 1}),
+        json!({"lines": lines, "matchCount": 1}),
+    ];
+    merge_identical(&mut items);
+    assert_eq!(
+        items,
+        vec![
+            json!({"path": "a.rs", "alsoAt": ["b.rs", "c.rs"], "lines": lines, "matchCount": 1}),
+            json!({"matchCount": 1, "lines": lines, "path": "d.rs"}),
+            json!({"lines": lines, "matchCount": 1}),
+            json!({"lines": lines, "matchCount": 1}),
         ]
     );
 }

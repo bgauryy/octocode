@@ -9,7 +9,7 @@ fn directory_path_is_not_a_file_with_tree_lead() {
     let t = Fixture::new();
     fs::create_dir_all(t.0.join("src")).expect("dir");
     let mut req = test_local_fetch_query();
-    req.path = "src".parse().expect("path");
+    local_fetch_query::set_path(&mut req, "src").expect("path");
     for result in [
         fetch(&req, &workspace_policy(&t.0)),
         fetch(&q(&t.0.join("src")), &Paths(t.0.clone())),
@@ -18,7 +18,7 @@ fn directory_path_is_not_a_file_with_tree_lead() {
         let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
         assert_eq!(next["viewTree"]["tool"], "structureSearch", "{next}");
         assert_eq!(
-            next["viewTree"]["query"]["queries"][0]["operation"], "tree",
+            next["viewTree"]["input"]["queries"][0]["operation"], "tree",
             "{next}"
         );
     }
@@ -38,7 +38,7 @@ fn a_policy_refusal_keeps_the_shared_code() {
         (".env", ErrorCode::PathPolicyDenied),
     ] {
         let mut req = test_local_fetch_query();
-        req.path = path.parse().expect("path");
+        local_fetch_query::set_path(&mut req, path).expect("path");
         let result = fetch(&req, &workspace_policy(&t.0));
         assert_eq!(result.error_code, Some(code), "{result:?}");
     }
@@ -54,7 +54,7 @@ fn missing_file_leads_to_files_by_stem() {
     fs::create_dir_all(t.0.join("pkg/docs")).expect("dirs");
     fs::write(t.0.join("pkg/docs/blok.ts"), "x\n").expect("moved");
     let mut req = test_local_fetch_query();
-    req.path = "src/a/blok.rs".parse().expect("path");
+    local_fetch_query::set_path(&mut req, "src/a/blok.rs").expect("path");
     let result = fetch(&req, &workspace_policy(&t.0));
     assert_eq!(
         result.error_code,
@@ -62,7 +62,7 @@ fn missing_file_leads_to_files_by_stem() {
         "{result:?}"
     );
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let listing = &next["findFile"]["query"]["queries"][0];
+    let listing = &next["findFile"]["input"]["queries"][0];
     assert_eq!(listing["operation"], "files", "{next}");
     assert_eq!(listing["path"], ".", "{next}");
     assert_eq!(listing["include"], serde_json::json!(["blok.*"]), "{next}");
@@ -101,13 +101,11 @@ fn missing_file_lead_never_widens_to_names_containing_the_stem() {
         fs::write(t.0.join("docs").join(name), "x\n").expect("fixture");
     }
     let mut req = test_local_fetch_query();
-    req.path = "docs/x.md".parse().expect("path");
+    local_fetch_query::set_path(&mut req, "docs/x.md").expect("path");
     let result = fetch(&req, &workspace_policy(&t.0));
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let listing = &next["findFile"]["query"]["queries"][0];
+    let listing = &next["findFile"]["input"]["queries"][0];
     assert_eq!(listing["include"], serde_json::json!(["x.*"]), "{next}");
-    let globs = crate::policy::include::include_globs(&["x.*".to_owned()]);
-    assert_eq!(globs, vec!["x.*".to_owned()], "a glob is not widened");
 }
 
 /// The row names the file it read: `.` and `..` segments of the requested
@@ -179,7 +177,7 @@ fn reads_through_a_symlink_keep_the_requested_path() {
         ("other/./a.rs", None, false),
     ] {
         let mut req = test_local_fetch_query();
-        req.path = requested.parse().expect("path");
+        local_fetch_query::set_path(&mut req, requested).expect("path");
         let result = fetch(&req, &policy);
         assert_eq!(
             result.status,
@@ -212,7 +210,7 @@ fn reads_through_a_symlink_keep_the_requested_path() {
         let mut next = result.next.clone().unwrap_or_default();
         let reads = next
             .reads_mut()
-            .map(|read| read.query.path.to_string())
+            .map(|read| local_fetch_query::path(&read.query).to_owned())
             .collect::<Vec<_>>();
         assert_eq!(!reads.is_empty(), streamed, "{requested}: {reads:?}");
         assert!(
@@ -252,7 +250,7 @@ fn a_case_only_difference_is_not_a_symlink() {
     }
     let policy = workspace_policy(&root);
     let mut req = test_local_fetch_query();
-    req.path = "SRC/README.MD".parse().expect("path");
+    local_fetch_query::set_path(&mut req, "SRC/README.MD").expect("path");
     let result = fetch(&req, &policy);
     assert_eq!(result.status, ReadStatus::Success, "{:?}", result.error);
     assert!(
@@ -278,7 +276,7 @@ fn a_missing_file_leads_to_its_parents_tree() {
     );
     assert_eq!(r.error_code, Some(ErrorCode::PathNotFound), "{r:?}");
     let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
-    let tree = &next["viewTree"]["query"]["queries"][0];
+    let tree = &next["viewTree"]["input"]["queries"][0];
     assert_eq!(tree["operation"], "tree", "{next}");
     assert_eq!(tree["path"], "src", "{next}");
     assert!(next.get("findFile").is_some(), "{next}");
@@ -292,7 +290,7 @@ fn a_missing_file_leads_to_its_parents_tree() {
         .expect("read")
         .query;
     assert_eq!(
-        read.path.as_str(),
+        local_fetch_query::path(read),
         t.0.join("src/executor.rs").to_string_lossy(),
         "{next}"
     );

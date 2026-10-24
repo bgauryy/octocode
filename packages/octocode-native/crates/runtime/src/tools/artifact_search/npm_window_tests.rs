@@ -39,14 +39,12 @@ async fn npm_window(total: u64, reachable: u64) -> wiremock::MockServer {
     server
 }
 
-fn npm_page(server: &wiremock::MockServer, page: u64, page_size: u64) -> ArtifactSearchQuery {
-    typed(&json!({
+fn npm_page(server: &wiremock::MockServer, page: u64) -> ArtifactSearchQuery {
+    typed(&json!({"operation":"search",
         "ecosystem": "npm",
         "keywords": ["x"],
-        "pageSize": page_size,
         "page": page,
-        "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
-    }))
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())}))
 }
 
 /// npm restarts a window whose `from` passes its undocumented reach,
@@ -58,17 +56,21 @@ async fn a_repeated_npm_window_is_a_terminal_limit_with_the_reachable_count() {
     let server = npm_window(100_000, 50).await;
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
     // Pages inside the reach are their own rows and continue.
-    for page in [1, 3, 6] {
-        let data = execute(npm_page(&server, page, 10), call(deadline, true))
+    for page in [1, 2, 3] {
+        let data = execute(npm_page(&server, page), call(deadline, true))
             .await
             .expect("discovery succeeds");
-        let first = (page - 1) * 10;
-        assert_eq!(data["artifacts"][0]["name"], format!("p{first}"), "{data}");
+        let first = (page - 1) * 20;
+        assert_eq!(
+            data["artifacts"][0]["packageName"],
+            format!("p{first}"),
+            "{data}"
+        );
         assert!(data["next"]["nextPage"].is_object(), "{data}");
         assert!(data.get("terminalLimit").is_none(), "{data}");
     }
     // Past the reach, the window repeats from the first row.
-    let data = execute(npm_page(&server, 7, 10), call(deadline, true))
+    let data = execute(npm_page(&server, 4), call(deadline, true))
         .await
         .expect("discovery succeeds");
     assert_eq!(data["artifacts"], json!([]), "{data}");
@@ -84,39 +86,11 @@ async fn a_repeated_npm_window_is_a_terminal_limit_with_the_reachable_count() {
     assert!(warning.contains("at most 60 of 100000"), "{data}");
     // The boundary page: its probe is still honored, the page is not.
     let server = npm_window(100_000, 59).await;
-    let data = execute(npm_page(&server, 7, 10), call(deadline, true))
+    let data = execute(npm_page(&server, 4), call(deadline, true))
         .await
         .expect("discovery succeeds");
     assert_eq!(data["artifacts"], json!([]), "{data}");
     assert_eq!(data["terminalLimit"], true, "{data}");
-}
-
-/// The last page the contract accepts offers no next page: it states
-/// the terminal limit instead of a lead the tool would reject.
-#[tokio::test]
-async fn the_last_requestable_page_states_a_terminal_limit_not_a_next_page() {
-    let server = npm_window(100_000, 100_000).await;
-    let query = json!({
-        "ecosystem": "npm",
-        "keywords": ["x"],
-        "pageSize": 1,
-        "page": 1000,
-        "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
-    });
-    let deadline = Instant::now() + std::time::Duration::from_secs(300);
-    let data = execute(typed(&query), call(deadline, true))
-        .await
-        .expect("discovery succeeds");
-    assert!(data["next"].get("nextPage").is_none(), "{data}");
-    assert_eq!(data["pagination"]["hasMore"], false, "{data}");
-    assert_eq!(data["terminalLimit"], true, "{data}");
-    assert_eq!(
-        data["partialReasons"],
-        json!([paging::CURSOR_MAXIMUM]),
-        "{data}"
-    );
-    let warning = data["warnings"][0].as_str().unwrap_or_default();
-    assert!(warning.contains("page:1000"), "{data}");
 }
 
 /// A next page the registry cannot serve (its first result past the
@@ -127,20 +101,21 @@ async fn the_last_requestable_page_states_a_terminal_limit_not_a_next_page() {
 async fn a_next_page_past_the_registry_reach_states_a_terminal_limit() {
     let server = npm_window(100_000, 100_000).await;
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
-    let inside = execute(npm_page(&server, 50, 100), call(deadline, true))
+    let inside = execute(npm_page(&server, 250), call(deadline, true))
         .await
         .expect("discovery succeeds");
     assert_eq!(
-        inside["next"]["nextPage"]["query"]["queries"][0]["page"], 51,
+        inside["next"]["nextPage"]["input"]["queries"][0]["page"], 251,
         "{inside}"
     );
-    let data = execute(npm_page(&server, 51, 100), call(deadline, true))
+    let data = execute(npm_page(&server, 251), call(deadline, true))
         .await
         .expect("discovery succeeds");
-    assert_eq!(data["artifacts"][0]["name"], "p5000", "{data}");
+    assert_eq!(data["artifacts"][0]["packageName"], "p5000", "{data}");
     assert!(data["next"].get("nextPage").is_none(), "{data}");
     assert_eq!(data["pagination"]["hasMore"], false, "{data}");
-    assert_eq!(data["pagination"]["totalItems"], 5100, "{data}");
+    // The matched total, not the reach: the warning states the reach.
+    assert_eq!(data["pagination"]["totalItems"], 100_000, "{data}");
     assert_eq!(data["terminalLimit"], true, "{data}");
     assert_eq!(
         data["partialReasons"],
@@ -150,11 +125,11 @@ async fn a_next_page_past_the_registry_reach_states_a_terminal_limit() {
     assert_eq!(
         data["warnings"],
         json!([
-            "npm matched 100000 results; paging reaches only the first 5100, which end on this page."
+            "npm matched 100000 results; paging reaches only the first 5020, which end on this page."
         ]),
         "{data}"
     );
-    crate::contracts::validate_output(
+    crate::tools::test_support::validate_sealed(
         ToolId::ArtifactSearch.as_str(),
         &json!({"results": [{"index": 0, "data": data}]}),
     )
@@ -170,27 +145,25 @@ async fn discovery_pagination_states_the_shared_page_facts() {
         .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
             "objects": [{"package": {"name": "a", "version": "1.0.0"}},
                         {"package": {"name": "b", "version": "1.0.0"}}],
-            "total": 9
+            "total": 29
         })))
         .mount(&server)
         .await;
-    let query = json!({
+    let query = json!({"operation":"search",
         "ecosystem": "npm",
         "keywords": ["x"],
-        "pageSize": 2,
-        "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
-    });
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())});
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
     let data = execute(typed(&query), call(deadline, true))
         .await
         .expect("discovery succeeds");
     assert_eq!(
         data["pagination"],
-        json!({"currentPage": 1, "pageSize": 2, "totalItems": 9, "hasMore": true}),
+        json!({"page": 1, "pageSize": 20, "totalItems": 29, "hasMore": true}),
         "{data}"
     );
     assert_eq!(
-        data["next"]["nextPage"]["query"]["queries"][0]["pageSize"], 2,
+        data["next"]["nextPage"]["input"]["queries"][0]["page"], 2,
         "{data}"
     );
     // Every row of this total is reachable: nothing is partial.
@@ -205,10 +178,11 @@ async fn discovery_pagination_states_the_shared_page_facts() {
 async fn a_total_past_the_reach_states_the_reachable_window() {
     let server = npm_window(146_295, 146_295).await;
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
-    let data = execute(npm_page(&server, 1, 100), call(deadline, true))
+    let data = execute(npm_page(&server, 1), call(deadline, true))
         .await
         .expect("discovery succeeds");
-    assert_eq!(data["pagination"]["totalItems"], 5100, "{data}");
+    // The matched total whatever the page size; the notice states the reach.
+    assert_eq!(data["pagination"]["totalItems"], 146_295, "{data}");
     assert!(data["next"]["nextPage"].is_object(), "{data}");
     assert!(data.get("terminalLimit").is_none(), "{data}");
     assert_eq!(data["isPartial"], true, "{data}");
@@ -221,7 +195,7 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
     assert_eq!(
         data[crate::response::paging::NOTICES],
         json!([
-            "npm matched 146295 results; paging reaches only the first 5100 (through page 51)."
+            "npm matched 146295 results; paging reaches only the first 5020 (through page 251)."
         ]),
         "{data}"
     );
@@ -231,9 +205,9 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
     assert_eq!(
         placed["results"][0]["data"]["warnings"],
         json!([
-            "npm matched 146295 results; paging reaches only the first 5100 (through page 51)."
+            "npm matched 146295 results; paging reaches only the first 5020 (through page 251)."
         ])
     );
-    crate::contracts::validate_output(ToolId::ArtifactSearch.as_str(), &placed)
+    crate::tools::test_support::validate_sealed(ToolId::ArtifactSearch.as_str(), &placed)
         .expect("contract-valid capped page");
 }

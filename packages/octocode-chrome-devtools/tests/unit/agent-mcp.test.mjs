@@ -2,8 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { connectStdio, cliFromMcp, runCli, spec } from '../../dist/runtime.js';
-import { commands } from '../../dist/engine/cli-catalog.mjs';
+import {
+  connectStdio,
+  cliFromMcp,
+  runCli,
+  spec,
+  researchSpec,
+} from '../../dist/runtime.js';
+import { chromeCommands } from '../../dist/engine/chrome-contract.mjs';
 import { fixture, data, typedCli } from './agent-fixture.mjs';
 
 test('copied standalone MCP handshakes and exports the entire CLI registry', async () =>
@@ -11,7 +17,7 @@ test('copied standalone MCP handshakes and exports the entire CLI registry', asy
     const tools = (await client.listTools()).tools;
     assert.deepEqual(
       tools.map(tool => tool.name),
-      Object.keys(commands)
+      Object.keys(chromeCommands)
     );
     assert.match(client.getInstructions(), /Plans stop at failure/);
     const command = tools.find(tool => tool.name === 'cdp');
@@ -153,7 +159,7 @@ test('closing the MCP session cancels the active CLI child', async () =>
     assert.equal(readFileSync(join(cwd, 'stopped'), 'utf8'), 'yes');
   }));
 
-test('research preset exports ten tools with typed filters and preserves the full default registry', async () => {
+test('research preset exports exactly the research registry with typed filters and leaves the default registry whole', async () => {
   const client = await connectStdio({
     command: process.execPath,
     args: [
@@ -164,15 +170,25 @@ test('research preset exports ten tools with typed filters and preserves the ful
   });
   try {
     const tools = (await client.listTools()).tools;
-    assert.equal(tools.length, 10);
-    assert(!tools.some(tool => tool.name === 'cookies'));
+    const names = tools.map(tool => tool.name);
+    assert.deepEqual(
+      new Set(names),
+      new Set(researchSpec.commands.map(command => command.name))
+    );
+    assert.equal(names.length, new Set(names).size);
+    assert(names.length < Object.keys(chromeCommands).length);
+    assert(names.every(name => Object.hasOwn(chromeCommands, name)));
+    assert(!names.includes('cookies'));
     assert(
       tools.find(tool => tool.name === 'query').inputSchema.properties.where
     );
     assert(
       tools.find(tool => tool.name === 'artifact').inputSchema.properties.file
     );
-    assert.equal(spec.commands.length, 25);
+    assert.deepEqual(
+      spec.commands.map(command => command.name),
+      Object.keys(chromeCommands)
+    );
   } finally {
     await client.close();
   }

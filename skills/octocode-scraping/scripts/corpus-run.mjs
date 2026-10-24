@@ -85,7 +85,7 @@ if (sessionDir && (concatParts || writeFullClean)) {
     const m = f.rel.match(/^(page-\d+)\.clean\.part-/);
     if (m && !pageIds.includes(m[1])) pageIds.push(m[1]);
   }
-  for (const pageId of [...new Set(pageIds)]) {
+  for (const pageId of new Set(pageIds)) {
     const result = await concatCleanParts(sessionDir, pageId, { writeFull: writeFullClean || concatParts });
     if (result.fullRel) fullCleanWritten.push(result.fullRel);
   }

@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 use tokio::time::{Duration, Instant, timeout};
 
@@ -28,7 +28,7 @@ struct PushDiagnosticsState {
 
 #[derive(Default)]
 pub(super) struct PushDiagnosticsStore {
-    state: StdMutex<PushDiagnosticsState>,
+    state: Mutex<PushDiagnosticsState>,
     changed: Notify,
 }
 

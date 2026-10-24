@@ -14,7 +14,7 @@ fn local_fetch_fills_the_rows_share_and_other_tools_the_automatic_page() {
     assert_eq!(fetch(Some(50_000)), Some(50_000));
     assert_eq!(fetch(None), Some(20_000));
     // Every other local tool, lspSearch included, pages under the one
-    // automatic window whatever the batch's own `responseLength`.
+    // automatic window whatever the batch's own `responseChars`.
     for tool in [
         ToolId::LocalSearch,
         ToolId::StructureSearch,

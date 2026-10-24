@@ -1,4 +1,4 @@
-//! clasifyContext for localSearch: each snippet group (one hit with its
+//! classification for localSearch: each snippet group (one hit with its
 //! context window; overlapping or touching windows in a file are one group)
 //! is a candidate, judged before paging. A file stays when any of its groups
 //! is selected and shows only those hits; the counts describe the kept hits,
@@ -6,18 +6,15 @@
 //! lead to exactly the files holding them.
 use super::cursor::stale_snapshot;
 use super::local_search_query;
-use super::local_search_query::normalized_query;
-use super::local_search_query::streamed_layout;
-use super::types::SearchContext;
-use super::types::*;
 use super::verify::{PageScope, Redacted, verify_candidate};
 use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
+use crate::response::result::query_value;
 use crate::tools::selection::{Candidate, Decision, Failure, Outcome, ProviderError, Runtime};
 use octocode_contract_types::SelectionUnit;
-use octocode_engine::types::{TextSearchFile, TextSearchResult};
+use octocode_engine::types::{SearchContext, TextSearchFile, TextSearchResult};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -46,22 +43,6 @@ pub(super) struct Selected {
     /// The provider's error when it failed this page: the hits are shown
     /// unfiltered under an `unavailable` receipt.
     provider: Option<ProviderError>,
-}
-
-/// The query as the plan binds it and its leads carry it, with the clasify
-/// context default (`local_search_query::context`) stated: an unfiltered
-/// lead drops `clasifyContext` and must keep the windows the snapshot
-/// captured, and a candidate page that states the default binds the same
-/// plan as the call that implied it.
-fn stated_query(query: &LocalSearchQuery) -> Value {
-    let mut query_json = normalized_query(query, streamed_layout(query));
-    if query.context_lines.is_none()
-        && query.context_before.is_none()
-        && query.context_after.is_none()
-    {
-        query_json["contextLines"] = json!(local_search_query::CLASIFY_CONTEXT_LINES);
-    }
-    query_json
 }
 
 /// The snippet groups of one file: indices into its `matches`, each group
@@ -94,17 +75,19 @@ pub(super) fn select_hits(
     redacted: &mut Redacted,
 ) -> Result<Option<Selected>, ToolError> {
     let query = scope.query;
-    if query.clasify_context.is_none() {
-        return match query.selection {
+    if !local_search_query::has_classification(query) {
+        return match local_search_query::selection(query) {
             Some(_) => Err(stale_snapshot(query)),
             None => Ok(None),
         };
     }
-    if query.snapshot.is_some() && query.selection.is_none() {
+    if local_search_query::snapshot(query).is_some()
+        && local_search_query::selection(query).is_none()
+    {
         return Err(stale_snapshot(query));
     }
-    let prior = query.selection.as_ref().map(|token| token.as_str());
-    let context = if super::local_search_query::uses_context(query.result_view) {
+    let prior = local_search_query::selection(query);
+    let context = if super::local_search_query::uses_context(local_search_query::view(query)) {
         local_search_query::context(query)
     } else {
         SearchContext::default()
@@ -150,7 +133,7 @@ pub(super) fn select_hits(
             candidates.push(Candidate::new(state));
         }
     }
-    let query_json = stated_query(query);
+    let query_json = query_value(query);
     // The search succeeded: a provider that cannot answer now never
     // withholds its hits ([`crate::tools::selection::unless_transient`]).
     // A refused credential or request stays the row's error, with its

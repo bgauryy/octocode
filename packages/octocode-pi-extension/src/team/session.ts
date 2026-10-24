@@ -11,7 +11,7 @@ import { Mail } from './mail.js';
 import { LEASE_IDLE_MS } from './held.js';
 import { Delivery } from './delivery.js';
 import type { EditLog } from './edits.js';
-import { AgentDbError } from '../agentdb/db.js';
+import { AgentDbError } from '../agentdb/schema.js';
 import { agentDbPath } from '../shared/home.js';
 import { agentName, LINE_MAX, newMember } from './identity.js';
 import { TeamTicker, type TeamView } from './ticker.js';
@@ -20,7 +20,6 @@ import { Outbox, type MessageHook, type Resumer, type SendRequest, type SendResu
 import { Reservations } from './reservations.js';
 import { watchParentProcess } from './parent.js';
 
-export type { TeamView } from './ticker.js';
 /** Refresh the agent's row at least this often so peers can tell it is alive (and its leases stay valid). */
 const HEARTBEAT_MS = 5_000;
 /** Names drawn in turn when other processes keep taking them. */

@@ -3,19 +3,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createFauxCore, fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from '@earendil-works/pi-ai';
+import { createFauxCore, type fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from '@earendil-works/pi-ai';
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory } from '@earendil-works/pi-coding-agent';
+import { DEFAULT_BASH_TIMEOUT } from '../src/files/bash.js';
 import { Team } from '../src/team/session.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { calls, E2E_ENTRY, say, tmp } from './helpers.js';
 
 /**
  * README feature check through the real Pi runtime with a scripted model. Runs the source by default;
  * `OCTOCODE_E2E_ENTRY=dist` loads the built extension (`dist/index.js`) instead.
  */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ENTRY = process.env['OCTOCODE_E2E_ENTRY'] === 'dist' ? path.join(HERE, '..', 'dist', 'index.js') : path.join(HERE, '..', 'src', 'index.ts');
-const octocode = (await import(ENTRY)).default as ExtensionFactory;
+const octocode = (await import(E2E_ENTRY)).default as ExtensionFactory;
 
 const savedEnv = { ...process.env };
 const savedArgv = process.argv[1];
@@ -42,8 +42,6 @@ function snapshot(context: TranscriptContext): Turn {
   return { tools: getCurrentTools(context.messages).map((tool) => tool.name), context: `${getCurrentSystemPrompt(context.messages)}\n${JSON.stringify(context.messages)}`, results };
 }
 
-const calls = (...toolCalls: ReturnType<typeof fauxToolCall>[]) => () => fauxAssistantMessage(toolCalls, { stopReason: 'toolUse' });
-const say = (text: string) => () => fauxAssistantMessage(text);
 type Reply = () => ReturnType<typeof fauxAssistantMessage>;
 
 let session: Awaited<ReturnType<typeof createAgentSession>>['session'];
@@ -139,7 +137,7 @@ afterAll(async () => {
   process.argv[1] = savedArgv!;
 });
 
-describe(`Octocode features through Pi (${path.relative(path.join(HERE, '..'), ENTRY)})`, () => {
+describe(`Octocode features through Pi (${path.relative(path.join(HERE, '..'), E2E_ENTRY)})`, () => {
   it('registers every tool and command, keeps the banner out of the session and picks up ~/.claude skills', async () => {
     const [turn] = await run('hello', [say('ready')]);
     for (const name of ['read', 'file', 'bash', 'web', 'agent', 'askUser', 'coordinate', 'sendMessage', 'backlog', 'memory']) expect(turn!.tools).toContain(name);
@@ -205,7 +203,7 @@ describe(`Octocode features through Pi (${path.relative(path.join(HERE, '..'), E
   });
 
   it('replaces Pi bash: a deadline in its schema, and a background job wakes the session with its result', async () => {
-    expect(JSON.stringify(session.getAllTools().find((tool) => tool.name === 'bash')?.parameters)).toContain('foreground default 900s');
+    expect(JSON.stringify(session.getAllTools().find((tool) => tool.name === 'bash')?.parameters)).toContain(`foreground default ${DEFAULT_BASH_TIMEOUT}s`);
     const start = turns.length;
     await run('bash in the background', [calls(fauxToolCall('bash', { command: 'echo bg-output', background: true })), say('started'), say('saw it')]);
     const deadline = Date.now() + 5_000;

@@ -7,18 +7,7 @@ use super::*;
 fn cut_page(resume: u32) -> serde_json::Value {
     let root = Fixture::new();
     let q = query(&root.0, json!({}));
-    let set: super::super::symbols::SymbolSet = serde_json::from_value(json!({
-        "path": root.0.to_string_lossy(),
-        "snapshot": "s",
-        "declarations": [],
-        "diagnostics": [],
-        "files_scanned": resume,
-        "skipped": 0,
-        "truncated": true,
-        "scan_resume": resume,
-        "recovered": false,
-        "directory": true,
-    }))
+    let set: super::super::symbols::SymbolSet = serde_json::from_value(json!({"path":root.0.to_string_lossy(),"snapshot":"s","declarations":[],"diagnostics":[],"files_scanned":resume,"skipped":0,"truncated":true,"scan_resume":resume,"recovered":false,"directory":true}))
     .expect("symbol set");
     let (paths, _) = crate::tools::test_support::simple_policy(&root.0);
     let row_paths = super::super::RowPaths::new(&paths, &root.0, false);
@@ -43,7 +32,7 @@ fn a_scan_cut_past_the_scan_offset_bound_is_terminal() {
         let page = cut_page(u32::try_from(resume).expect("offset"));
         let offered = resume <= SCAN_OFFSET_MAXIMUM && resume < ceiling;
         assert_eq!(
-            page["next"].get("expandScan").is_some(),
+            page["calls"].get("expandScan").is_some(),
             offered,
             "resume {resume}: {page}"
         );
@@ -78,7 +67,7 @@ fn write_settled(path: &std::path::Path, source: &str, age_secs: u64) {
 fn an_edit_to_a_language_globs_file_is_not_served_from_the_page_memo() {
     let root = Fixture::new();
     let mapped = root.0.join("lib.inc");
-    let globs = json!({"languageGlobs":{"cpp":["*.inc"]}});
+    let globs = json!({"parserGlobs":{"cpp":["*.inc"]}});
     write_settled(&mapped, "int zzBefore() { return 1; }\n", 0);
     let before = empty_outline(&root.0, globs.clone());
     assert!(declares(&before, "zzBefore"), "{before}");
@@ -86,22 +75,6 @@ fn an_edit_to_a_language_globs_file_is_not_served_from_the_page_memo() {
     let after = empty_outline(&root.0, globs);
     assert!(declares(&after, "zzAfterEdit"), "{after}");
     assert!(!declares(&after, "zzBefore"), "{after}");
-}
-
-/// `pageSize` is held to the contract's `symbols` maximum (the generated
-/// fact, not a literal), and a size within it is kept exactly.
-#[test]
-fn a_symbols_page_size_is_held_to_the_contract_maximum() {
-    use crate::contracts::query_limits::ast_search::symbols::PAGE_SIZE_MAXIMUM;
-    let root = Fixture::new();
-    for (asked, kept) in [(PAGE_SIZE_MAXIMUM + 1, PAGE_SIZE_MAXIMUM), (7, 7)] {
-        let q = query(&root.0, json!({ "pageSize": asked }));
-        assert_eq!(
-            ast_search_query_symbols::page_size(&q),
-            Some(kept),
-            "pageSize {asked}"
-        );
-    }
 }
 
 /// A directory outline takes each file's declarations from the one

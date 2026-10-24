@@ -1,16 +1,19 @@
 use super::super::row_pages::RowSource;
 use super::{
-    ResponseError, ResponseInput, ResponsePageOptions, ResponsePagination, build_continuation,
-    cursor_at, is_saved_replay, paginate_window, rows_key,
+    PreparedPage, ResponseError, ResponseInput, ResponsePageOptions, ResponsePagination,
+    build_continuation, is_saved_replay, page_cursor,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 /// One row page of `source`, with its pagination block and continuation.
-pub(super) fn cut_rows(source: &RowSource, input: &ResponseInput) -> Result<Value, ResponseError> {
+pub(super) fn cut_rows(
+    source: &RowSource,
+    input: &ResponseInput,
+) -> Result<PreparedPage, ResponseError> {
     let (mut envelope, mut pagination) =
         source.page(&input.options, &input.remaining, &|pagination| {
             pagination_block_chars(input, pagination)
-        });
+        })?;
     pagination.next = continuation(input, &pagination);
     if pagination.should_emit() || is_saved_replay(&input.options) {
         envelope.insert(
@@ -18,34 +21,12 @@ pub(super) fn cut_rows(source: &RowSource, input: &ResponseInput) -> Result<Valu
             pagination_value(&pagination, &input.options)?,
         );
     }
-    Ok(Value::Object(envelope))
-}
-
-/// One structured window of the serialized envelope `full`.
-pub(super) fn cut_window(full: &str, input: &ResponseInput) -> Result<Value, ResponseError> {
-    let page = paginate_window(full, &input.options);
-    let mut windowed = Map::new();
-    windowed.insert(rows_key(&input.tool).into(), Value::Array(Vec::new()));
-    // A restart page carries a diagnostic message, not envelope
-    // bytes — keep it out of the concatenable window.
-    let restarting = page
-        .pagination
-        .as_ref()
-        .is_some_and(|p| p.restart == Some(true));
-    windowed.insert(
-        "responseWindow".into(),
-        json!(if restarting { "" } else { page.text.as_str() }),
-    );
-    if let Some(mut pagination) = page.pagination {
-        pagination.next = continuation(input, &pagination);
-        if pagination.should_emit() || is_saved_replay(&input.options) {
-            windowed.insert(
-                "responsePagination".into(),
-                pagination_value(&pagination, &input.options)?,
-            );
-        }
-    }
-    Ok(Value::Object(windowed))
+    let mut output = Value::Object(envelope);
+    measure_page(&mut output, input.options.response_chars)?;
+    Ok(PreparedPage {
+        value: output,
+        next: page_cursor(&input.options, &pagination),
+    })
 }
 
 /// Chars the `responsePagination` entry adds to a page of `pagination`
@@ -84,41 +65,42 @@ fn pagination_value(
     pagination: &ResponsePagination,
     options: &ResponsePageOptions,
 ) -> Result<Value, ResponseError> {
-    let mut value = serde_json::to_value(pagination).map_err(|_| ResponseError::Unserializable)?;
-    let Some(block) = value.as_object_mut() else {
-        return Err(ResponseError::Unserializable);
-    };
-    // The cursor rides `next`; a page without one names its own page.
-    block.remove("snapshot");
-    if pagination.next.is_none()
-        && let Some(cursor) = cursor_at(
-            options,
-            pagination,
-            &pagination.snapshot,
-            pagination.char_offset,
-        )
-    {
-        block.insert("snapshot".into(), json!(cursor));
+    let mut value = json!({
+        "page": pagination.page,
+        "totalPages": pagination.total_pages,
+        "hasMore": pagination.has_more,
+        "returnedChars": pagination.returned_chars,
+        "totalChars": pagination.total_chars,
+    });
+    if let Some(next) = &pagination.next {
+        value["next"] = next.clone();
     }
-    block.remove("expectedSnapshot");
-    if let Some(cursor) = pagination
-        .expected_snapshot
-        .as_deref()
-        .and_then(|expected| {
-            cursor_at(
-                options,
-                pagination,
-                expected,
-                options.response_offset.unwrap_or(0),
-            )
-        })
-    {
-        block.insert("expectedSnapshot".into(), json!(cursor));
+    if let Some(oversized) = pagination.oversized {
+        value["oversized"] = json!(oversized);
     }
     if let Some(saved) = &options.saved {
-        block.insert("expiresAt".into(), json!(saved.expires_at));
-        block.insert("storage".into(), json!(saved.storage));
-        block.insert("replayed".into(), json!(saved.replayed));
+        value["expiresAt"] = json!(saved.expires_at);
+        value["replayed"] = json!(saved.replayed);
     }
     Ok(value)
+}
+
+pub(crate) fn measure_page(output: &mut Value, budget: Option<usize>) -> Result<(), ResponseError> {
+    if output.get("responsePagination").is_some() {
+        if let Some(page) = output["responsePagination"].as_object_mut() {
+            page.remove("oversized");
+        }
+        for _ in 0..3 {
+            let rendered = octocode_engine::json_size::utf16_units(output)
+                .ok_or(ResponseError::Unserializable)?;
+            output["responsePagination"]["returnedChars"] = json!(rendered);
+            if budget.is_some_and(|budget| rendered > budget) {
+                output["responsePagination"]["oversized"] = json!(true);
+            }
+        }
+        let rendered =
+            octocode_engine::json_size::utf16_units(output).ok_or(ResponseError::Unserializable)?;
+        output["responsePagination"]["returnedChars"] = json!(rendered);
+    }
+    Ok(())
 }

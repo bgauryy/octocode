@@ -33,7 +33,7 @@ impl RequestFailures {
     /// Record an engine request error.
     pub(in super::super) fn record_engine(
         &mut self,
-        error: &EngineError,
+        error: &octocode_engine::error::Error,
     ) -> Result<(), LspFailure> {
         self.record(LspFailure::from_engine(error))
     }

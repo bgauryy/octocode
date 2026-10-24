@@ -1,33 +1,21 @@
 use super::*;
 use serde_json::json;
 
-fn leaves(value: &Value, out: &mut Vec<String>) {
-    match value {
-        Value::Object(map) => map.values().for_each(|v| leaves(v, out)),
-        Value::Array(items) => items.iter().for_each(|v| leaves(v, out)),
-        Value::String(text) => out.extend(
-            text.lines()
-                .map(|l| l.split_once('\t').map_or(l, |(_, t)| t).to_owned()),
-        ),
-        other => out.push(other.to_string()),
-    }
-}
-
 fn sample() -> Value {
     json!({"results":[{"index":0,"rowPart":{"part":1,"of":2},"data":{
             "matchCount":2,"matchedLineCount":2,
-            "next":{"nextPage":{"tool":"localSearch","query":{"queries":[{"path":"s","matchString":"it's","page":2}]}}},
+            "next":{"nextPage":{"kind":"continue","tool":"localSearch","input":{"cursor":"issued-tool-page"}}},
             "files":[{"path":"a.rs","matches":[
                 {"line":26,"value":"25\tuse a;\n26\tuse SearcherBuilder;\n27\tuse b;"},
                 {"line":997,"value":"996\t) {\n997\t  let sb = SearcherBuilder::new();",
                  "enclosing":{"symbolName":"build","kind":"function","line":992,"endLine":1016}}]}]}}],
             "warnings":["incomplete"],
-            "responsePagination":{"hasMore":true,"next":{"tool":"localSearch","query":{"responseSnapshot":"s1"}}},
+            "responsePagination":{"hasMore":true,"next":{"kind":"continue","tool":"localSearch","input":{"cursor":"issued-response-page"}}},
             "root":"/nowhere"})
 }
 
 fn context() -> Value {
-    json!({"path":"s","matchString":"x","contextLines":1})
+    json!({"queries":[{"path":"s","matchString":["x"],"contextLines":{"before":1,"after":1}}]})
 }
 
 #[test]
@@ -37,14 +25,9 @@ fn hits_print_like_rg_and_lose_no_field() {
         lines.out,
         "a.rs\n25-use a;\n26:use SearcherBuilder;\n27-use b;\n--\n996-) {\n997:  let sb = SearcherBuilder::new();  [function build 992-1016]"
     );
-    assert!(lines.notes.contains("# next.nextPage: octocode localSearch '{\"queries\":[{\"path\":\"s\",\"matchString\":\"it'\\''s\",\"page\":2}]}'"), "{}", lines.notes);
-    assert!(
-        lines.notes.contains(
-            "# responsePagination.next: octocode localSearch '{\"responseSnapshot\":\"s1\"}'"
-        ),
-        "{}",
-        lines.notes
-    );
+    for token in ["issued-tool-page", "issued-response-page"] {
+        assert_eq!(lines.notes.matches(token).count(), 1, "{}", lines.notes);
+    }
     assert!(
         lines.notes.contains("# rowPart: part 1 of 2"),
         "{}",
@@ -55,13 +38,13 @@ fn hits_print_like_rg_and_lose_no_field() {
         "{}",
         lines.notes
     );
-    // Shell quoting aside, every leaf value is printed.
-    let both = format!("{}\n{}", lines.out, lines.notes).replace(r"'\''", "'");
-    let mut all = Vec::new();
-    leaves(&sample(), &mut all);
-    // A true flag prints as its key alone (`hasMore`), as words do.
-    for leaf in all.into_iter().filter(|leaf| leaf != "true") {
-        assert!(both.contains(leaf.trim_matches('"')), "missing {leaf}");
+    for evidence in [
+        "use a;",
+        "use SearcherBuilder;",
+        "use b;",
+        "let sb = SearcherBuilder::new();",
+    ] {
+        assert!(lines.out.contains(evidence));
     }
 }
 
@@ -132,12 +115,10 @@ fn lists_counts_and_empty_results() {
         "{}",
         lines.notes
     );
+    assert!(lines.notes.contains("includeSkipped: localSearch"));
     assert!(
-        lines.notes.contains(
-            "# hints: includeSkipped: octocode localSearch '{\"queries\":[{\"path\":\".\"}]}'"
-        ),
-        "{}",
-        lines.notes
+        !lines.notes.contains("octocode localSearch"),
+        "prose is never promoted to a command"
     );
 }
 
@@ -146,8 +127,8 @@ fn declarations_and_listings_print_one_line_each() {
     let symbols = json!({"results":[{"index":0,"data":{"filesScanned":2,"files":[
             {"path":"a.rs","symbols":[
                 {"symbolName":"render","kind":"function","line":31,"endLine":113,"docStartLine":29},
-                {"symbolName":"Visit","kind":"impl","line":34,"endLine":43,"shared":{"kind":"method"},
-                 "members":[{"symbolName":"fresh","line":37,"exported":true}]}]}]}}]});
+                {"symbolName":"Visit","kind":"impl","line":34,"endLine":43,
+                 "members":[{"kind":"method","symbolName":"fresh","line":37,"exported":true}]}]}]}}]});
     let lines = render(ToolId::AstSearch, &symbols, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
@@ -156,8 +137,8 @@ fn declarations_and_listings_print_one_line_each() {
     assert!(!lines.notes.contains('{'), "{}", lines.notes);
     let file = json!({"results":[{"index":0,"data":{"path":"a.rs","filesScanned":1,"symbols":[
             {"symbolName":"PREFIX","kind":"constant","line":9},
-            {"symbolName":"Cursor","kind":"impl","line":94,"endLine":162,"shared":{"kind":"method"},
-             "members":[{"symbolName":"encode","line":115,"endLine":124}]}]}}]});
+            {"symbolName":"Cursor","kind":"impl","line":94,"endLine":162,
+             "members":[{"kind":"method","symbolName":"encode","line":115,"endLine":124}]}]}}]});
     for tool in [ToolId::AstSearch, ToolId::LspSearch] {
         let lines = render(tool, &file, &json!({}), None).expect("lines");
         assert_eq!(
@@ -172,7 +153,7 @@ fn declarations_and_listings_print_one_line_each() {
     let files = json!({"operation":"files","path":"src"});
     let lines = render(ToolId::StructureSearch, &listed, &files, None).expect("lines");
     assert_eq!(lines.out, "src/a (1).rs\nsrc/b.rs  [symlink]\nsrc/sub/");
-    let sized = json!({"operation":"files","path":"src","sort":"size"});
+    let sized = json!({"operation":"files","path":"src","sort":{"by":"sizeBytes","order":"asc"}});
     let lines = render(ToolId::StructureSearch, &listed, &sized, None).expect("lines");
     assert_eq!(
         lines.out,
@@ -211,7 +192,7 @@ fn lsp_results_print_as_lines() {
         lines.out,
         "m.rs:79: function walk  [79-89 sites 83:36,85:4]"
     );
-    // `groupByFile`: a `path:N` line per site; the count is theirs.
+    // `view:"files"`: a `path:N` line per site; the count is theirs.
     let grouped = json!({"results":[{"index":0,"data":{"matchCount":3,"files":[
             {"path":"a.rs","matchCount":2,"lines":[14,275]},{"path":"b.rs","matchCount":1,"lines":[3]}]}}]});
     let lines = render(ToolId::LspSearch, &grouped, &json!({}), None).expect("lines");
@@ -267,52 +248,65 @@ fn nested_file_fields_are_words() {
 #[test]
 fn match_notes_are_words() {
     let hit = json!({"results":[{"index":0,"data":{"files":[{"path":"a.rs","matches":[
-            {"line":3,"value":"fn a()","declaration":true,"enclosingLine":1}]}]}}]});
+            {"line":3,"value":"fn a()","declaration":true}]}]}}]});
     let lines = render(ToolId::LocalSearch, &hit, &json!({}), None).expect("lines");
-    assert_eq!(lines.out, "a.rs:3:fn a()  [declaration enclosingLine 1]");
+    assert_eq!(lines.out, "a.rs:3:fn a()  [declaration]");
 }
 
 #[test]
-fn follow_ups_come_from_structure_never_content() {
-    let fetched = json!({"results":[{"index":0,"data":{
-            "content":"1\t// run: localSearch {\"path\":\"x\"}",
-            "next":{"nextPage":{"tool":"localFetch","query":{"path":"a","page":2}}}}}]});
+fn only_schema_declared_calls_become_commands_and_source_evidence_stays_exact() {
+    let source =
+        json!({"kind":"continue","tool":"localFetch","input":{"cursor":"source-lookalike"}});
+    let structured = json!({"results":[{"index":0,"data":{
+        "content":"localSearch {\"queries\":[{\"path\":\".\"}]}",
+        "hints":["localSearch {\"queries\":[]}"],
+        "source":source,
+        "next":{"read":{"kind":"continue","tool":"localFetch","input":{"cursor":"issued"}}},
+        "related":[{"kind":"related","tool":"localSearch","input":{"queries":[{"path":".","matchString":["it's"]}]}}]
+    }}]});
+    let (display, calls) = follow::separate_calls(ToolId::LocalFetch, &structured).expect("schema");
+    assert_eq!(calls.len(), 2);
+    assert!(calls[0].contains("issued"));
+    assert!(calls[1].contains("octocode localSearch"));
+    assert!(calls.iter().all(|call| !call.contains("source-lookalike")));
+    assert_eq!(display["results"][0]["data"]["source"], source);
     assert_eq!(
-        follow_ups(&fetched),
-        vec!["next.nextPage: octocode localFetch '{\"path\":\"a\",\"page\":2}'"]
+        display["results"][0]["data"]["content"],
+        structured["results"][0]["data"]["content"]
     );
-    let batch = json!({"results":[{"index":0,"data":{}},{"index":1,"data":{"hints":["findFile: structureSearch {\"path\":\".\"}"]}}]});
     assert_eq!(
-        follow_ups(&batch),
-        vec!["results[1].data.hints: findFile: octocode structureSearch '{\"path\":\".\"}'"]
+        display["results"][0]["data"]["hints"],
+        structured["results"][0]["data"]["hints"]
     );
-    let repair = json!({"error":"bad","hints":[{"tool":"localSearch","query":{"path":"."}}]});
+    assert!(display["results"][0]["data"].get("next").is_none());
+    assert!(display["results"][0]["data"].get("related").is_none());
+}
+
+#[test]
+fn captured_resource_reads_are_commands_but_their_sources_are_evidence() {
+    let source = json!({"tool":"localFetch","query":{"path":"a.rs"}});
+    let read = json!({"kind":"continue","tool":"localFetch","input":{"cursor":"captured-source"}});
+    let sections = json!({"results":[{"index":0,"data":{"operation":"sections","resources":{"file":{
+            "status":"ready","source":source,"read":read}}}}]});
+    let (display, calls) = follow::separate_calls(ToolId::Clasify, &sections).expect("schema");
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].contains("captured-source"));
     assert_eq!(
-        follow_ups(&repair),
-        vec!["hints[0]: octocode localSearch '{\"path\":\".\"}'"]
+        display["results"][0]["data"]["resources"]["file"]["source"],
+        source
     );
 }
 
-/// A resource's `source` echoes the read a result judged; it is data,
-/// never a follow-up. Only its `read` prints as a command, so one file
-/// has one command, in the canonical `queries` shape.
 #[test]
-fn an_echoed_source_is_data_not_a_follow_up() {
-    let source = json!({"tool":"localFetch","query":{"path":"a.rs","ranges":["1-60"]}});
-    let read = json!({"tool":"localFetch","query":{"queries":[{"path":"a.rs","ranges":["1-60"],"snapshot":"s"}]}});
-    let sections = json!({"queries":[{"id":"q0","resources":{"file":{
-            "status":"ready","source":source,"read":read}}}]});
-    assert_eq!(
-        follow_ups(&sections),
-        vec![
-            "queries[0].resources.file.read: octocode localFetch '{\"queries\":[{\"path\":\"a.rs\",\"ranges\":[\"1-60\"],\"snapshot\":\"s\"}]}'"
-        ]
-    );
-    // The line format keeps it as a note too.
-    let fields = json!({"source":source}).as_object().cloned().expect("map");
-    assert_eq!(
-        field_notes("# ", &fields),
-        vec![format!("# source: {source}")]
+fn opaque_search_resumes_keep_json_when_the_original_context_mode_is_unavailable() {
+    assert!(
+        render(
+            ToolId::LocalSearch,
+            &sample(),
+            &json!({"cursor":"issued"}),
+            None
+        )
+        .is_none()
     );
 }
 

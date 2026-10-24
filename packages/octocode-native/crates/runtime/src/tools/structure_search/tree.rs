@@ -2,7 +2,7 @@
 //! rows grouped by directory ([`super::listing`] runs it).
 use super::probe::FilterProbe;
 
-use crate::num::{u32_of, u32_of_usize};
+use crate::num::u32_of;
 use crate::response::result::ToolError;
 use octocode_contract_types::{
     StructureSearchQueryFilesSort, StructureSearchQueryTree, StructureSearchQueryTreeEntryType,
@@ -16,16 +16,7 @@ use octocode_engine::types::{EntryType, FileSystemQueryOptions};
 /// Omitted, a listing shows `path`'s children; a filter (`include`,
 /// `extensions`, `entryType`) searches every level, like ghStructure.
 fn walk_depth(query: &StructureSearchQueryTree) -> u32 {
-    query.max_depth.map_or_else(
-        || {
-            if super::listing::Listing::filtered(query) {
-                u32_of_usize(crate::contracts::query_limits::structure_search::MAX_DEPTH_MAXIMUM)
-            } else {
-                1
-            }
-        },
-        |depth| u32_of(depth.get()),
-    )
+    u32_of(query.max_depth.get())
 }
 
 super::listing::listing_fields!(StructureSearchQueryTree {
@@ -33,7 +24,7 @@ super::listing::listing_fields!(StructureSearchQueryTree {
     const LAYOUT: &'static str = "workspaceRelativeTreeGroups";
     /// An outline lists in walk order.
     fn sort(&self) -> StructureSearchQueryFilesSort {
-        StructureSearchQueryFilesSort::Path
+        StructureSearchQueryFilesSort::Variant1 { by: octocode_contract_types::StructureSearchQueryFilesSortVariant1By::Traversal, order: octocode_contract_types::StructureSearchQueryFilesSortVariant1Order::Asc }
     }
     /// An outline walks to its ceiling, so it knows how many rows matched.
     fn early_exit(&self) -> bool {
@@ -42,13 +33,13 @@ super::listing::listing_fields!(StructureSearchQueryTree {
     fn filter_probe(&self, root: &std::path::Path) -> Result<FilterProbe, ToolError> {
         FilterProbe::new(
             root,
-            &crate::policy::include::include_globs(&self.include),
-            &self.extensions,
+            &self.include,
+            &self.extensions.iter().map(ToString::to_string).collect::<Vec<_>>(),
             None,
         )
     }
     fn engine_options(&self, root: &std::path::Path) -> FileSystemQueryOptions {
-        let include = crate::policy::include::include_globs(&self.include);
+        let include = self.include.clone();
         FileSystemQueryOptions {
             path: root.to_string_lossy().into_owned(),
             include_root: Some(false),
@@ -56,10 +47,10 @@ super::listing::listing_fields!(StructureSearchQueryTree {
             max_depth: Some(walk_depth(self)),
             ignore: IgnorePolicy::new(self.include_ignored, Some(self.include_hidden == Some(true))),
             names: (!include.is_empty()).then_some(include),
-            extensions: (!self.extensions.is_empty()).then(|| self.extensions.clone()),
+            extensions: (!self.extensions.is_empty()).then(|| self.extensions.iter().map(ToString::to_string).collect()),
             entry_type: self.entry_type.map(|kind| match kind {
-                StructureSearchQueryTreeEntryType::F => EntryType::File,
-                StructureSearchQueryTreeEntryType::D => EntryType::Directory,
+                StructureSearchQueryTreeEntryType::File => EntryType::File,
+                StructureSearchQueryTreeEntryType::Directory => EntryType::Directory,
             }),
             exclude: (!self.exclude.is_empty()).then(|| self.exclude.clone()),
             ..Default::default()
@@ -68,9 +59,7 @@ super::listing::listing_fields!(StructureSearchQueryTree {
     /// Without its name filters an unbounded tree would list one level:
     /// the broadened listing keeps the depth this one walked.
     fn broadening(&self) -> Self {
-        let mut walked = self.clone();
-        walked.max_depth = std::num::NonZeroU64::new(u64::from(walk_depth(self)));
-        walked
+        self.clone()
     }
     /// A file names no outline: the call leads to its read instead.
     fn check_root(

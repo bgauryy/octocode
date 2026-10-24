@@ -100,9 +100,14 @@ fn review_comments_lead_to_the_code_they_discuss() {
         panic!("one code read: {shape:?}");
     };
     assert_eq!(read["tool"], "ghGetFileContent", "{read}");
-    let q = &read["query"]["queries"][0];
+    assert_eq!(read["kind"], "related", "{read}");
+    let q = &read["input"]["queries"][0];
     assert_eq!(q["ref"], "head1", "{read}");
-    assert_eq!(q["ranges"], json!(["2770-2779"]), "{read}");
+    assert_eq!(
+        q["ranges"],
+        json!([{"startLine":2770,"endLine":2779}]),
+        "{read}"
+    );
     assert_eq!(q["path"], "src/a.ts", "{read}");
 }
 
@@ -125,10 +130,14 @@ fn review_comment_read_covers_every_anchor_on_its_file() {
     let [read] = shape.as_slice() else {
         panic!("one code read: {shape:?}");
     };
-    let q = &read["query"]["queries"][0];
+    let q = &read["input"]["queries"][0];
     assert_eq!(q["path"], "src/a.ts", "{read}");
     assert_eq!(q["ref"], "h", "{read}");
-    assert_eq!(q["ranges"], json!(["1-5", "37-48"]), "{read}");
+    assert_eq!(
+        q["ranges"],
+        json!([{"startLine":1,"endLine":5},{"startLine":37,"endLine":48}]),
+        "{read}"
+    );
     // Rows carry the evidence: no summary restates their counts.
     assert_eq!(row.get("reviewSummary"), None, "{row}");
     assert_eq!(row.pointer("/reviewComments/0/commentType"), None, "{row}");
@@ -184,7 +193,7 @@ fn review_comments_and_the_discussion_are_separate_sections() {
 fn body_continuation_lists_only_unfinished_bodies() {
     let query = HistoryItemRequest::from_row(json!({
         "operation":"pullRequest","owner":"o","repo":"r","number":1,
-        "sections":["comments"],"offset":10,"length":10
+        "sections":["comments"],"offset":12_000
     }))
     .expect("pull request row");
     let mut row = json!({});
@@ -192,7 +201,7 @@ fn body_continuation_lists_only_unfinished_bodies() {
     let mut windows = BodyWindows::default();
     let comments = map_comments(vec![
         raw(json!({"id":1,"body":"short"})),
-        raw(json!({"id":2,"body":"x".repeat(25)})),
+        raw(json!({"id":2,"body":"x".repeat(24_005)})),
         raw(json!({"id":3,"body":"y".repeat(10)})),
         // An empty body was whole on the first window too.
         raw(json!({"id":4,"body":""})),
@@ -209,7 +218,7 @@ fn body_continuation_lists_only_unfinished_bodies() {
     let listed = array(row["comments"].clone());
     assert_eq!(listed.len(), 1, "{row}");
     assert_eq!(listed[0]["id"], "2", "{row}");
-    assert_eq!(listed[0]["body"], "x".repeat(10), "{row}");
+    assert_eq!(listed[0]["body"], "x".repeat(12_000), "{row}");
     let mut remainder = super::super::remaining::Remainder::default();
     remainder.bodies(Axis::CommentBody, windows, &mut pagination);
     assert_eq!(

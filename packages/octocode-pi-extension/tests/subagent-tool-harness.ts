@@ -1,17 +1,14 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll } from 'vitest';
-import { MAX_SUBAGENTS_ENV } from '../src/subagents/claim.js';
 import { registerAgentTool } from '../src/subagents/tool.js';
 import type { AgentProfile } from '../src/subagents/profiles.js';
 import { Subcommands } from '../src/shared/commands.js';
 import { Team } from '../src/team/session.js';
 import { fakeCtx, fakePi, fakePermission } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { git, tmp } from './helpers.js';
 
 const FIXTURE = path.join(path.dirname(new URL(import.meta.url).pathname), 'subagent-fake-pi.cjs');
-export const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
 export function repo(): string {
   const dir = fs.realpathSync(tmp('octocode-agent-repo-'));
@@ -24,16 +21,16 @@ export function repo(): string {
   return dir;
 }
 
-/** Runs the file's subagents with the scripted `pi` stand-in, under a fresh Octocode home and team database. */
-export function useScriptedPi(): void {
+/**
+ * Runs the file's subagents with the scripted `pi` stand-in, under a fresh Octocode home and team database plus `env`.
+ * `setup-env.ts` already cleared any inherited OCTOCODE_* identity.
+ */
+export function useScriptedPi(env: Record<string, string> = {}): void {
   const savedArgv = process.argv[1];
   const savedEnv = { ...process.env };
   beforeAll(() => {
     const root = tmp('octocode-agent-tool-');
-    process.env['OCTOCODE_HOME'] = path.join(root, 'home');
-    process.env['OCTOCODE_AGENT_DB'] = path.join(root, 'team', 'team.sqlite');
-    // Tests may run inside an Octocode subagent: start from a clean team identity.
-    for (const key of [MAX_SUBAGENTS_ENV, 'OCTOCODE_SUBAGENT', 'OCTOCODE_AGENT_ID', 'OCTOCODE_PARENT_ID', 'OCTOCODE_AGENT_GOAL', 'OCTOCODE_AGENT_COLLABORATE', 'OCTOCODE_AGENT_SCRATCH', 'OCTOCODE_TEAM_WORKSPACE']) delete process.env[key];
+    Object.assign(process.env, { OCTOCODE_HOME: path.join(root, 'home'), OCTOCODE_AGENT_DB: path.join(root, 'team', 'team.sqlite'), ...env });
     // runSubagent re-runs the current `pi` script: point it at the scripted stand-in.
     const bin = path.join(root, 'bin');
     fs.mkdirSync(bin);

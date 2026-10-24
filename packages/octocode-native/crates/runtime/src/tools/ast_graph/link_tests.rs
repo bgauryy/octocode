@@ -1,6 +1,7 @@
 //! Linking across languages, asked the way a caller asks: `graph ingest`
 //! a fixture, then `graph query` its edges, cycles and import tallies.
 use super::test_support::*;
+use crate::tools::test_support::Fixture;
 use serde_json::{Value, json};
 use std::path::Path;
 

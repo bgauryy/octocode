@@ -92,7 +92,7 @@ async fn local_tools_never_discover_github_credentials() {
     let result = call(
         &runtime,
         "localFetch",
-        json!({"path":workspace.workspace.join("readme.txt"),"fullContent":true}),
+        json!({"path":workspace.workspace.join("readme.txt")}),
     )
     .await
     .unwrap();

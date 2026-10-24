@@ -40,12 +40,7 @@ pub(super) struct ListingPage<'a> {
 impl<'a> ListingPage<'a> {
     pub(super) fn of(query: &GhStructureQueryTree, all: &'a [TreeEntry]) -> Self {
         let current = query.page.map_or(1, crate::num::usize_of);
-        let per_page = crate::num::usize_of(
-            query
-                .page_size
-                .map_or(DEFAULT_ENTRIES_PER_PAGE, std::num::NonZeroU64::get),
-        )
-        .clamp(1, max_entries_per_page());
+        let per_page = crate::id::gh_structure_policy::TREE_PAGE_SIZE.min(max_entries_per_page());
         let total_entries = all.len();
         let total_pages = crate::response::page_windows::count_pages(total_entries, per_page);
         let start = current
@@ -163,7 +158,7 @@ pub(super) fn clone_lead(query: &GhStructureQueryTree, scope: &Scope, commit_sha
 /// structureSearch shares): a source file a bare-word `include` names, else
 /// the shallowest code entry file, a manifest, a README, a guide, then other
 /// source. A small listing falls back to its first file. Source and docs are outlined
-/// (`minify:"symbols"`).
+/// (`view:"symbols"`).
 pub(super) fn entry_read(
     query: &GhStructureQueryTree,
     entries: &[TreeEntry],
@@ -194,9 +189,9 @@ pub(super) fn entry_read(
         "ref": commit_sha,
     });
     if crate::tools::outlines(&path) {
-        read["minify"] = json!("symbols");
+        read["view"] = json!("symbols");
     }
-    Some(crate::response::result::Continuation::new(ToolId::GhGetFileContent, read).build())
+    Some(crate::response::result::Continuation::related(ToolId::GhGetFileContent, read).build())
 }
 
 /// `include` entries that are bare words (no glob metacharacter or `/`),
@@ -288,35 +283,32 @@ pub(super) fn attach_continuations(
         let page_cursor = cursor(value, "page", resume.page);
         let offset_cursor = cursor(value, "materializeOffset", resume.offset);
         if let (Some(next_page), Some(offset)) = (page_cursor, offset_cursor) {
-            let mut next_query = query_row(query, &[]);
+            let mut next_query = query_row(query, &["dateOffset"]);
             next_query["page"] = json!(next_page);
-            next_query["pageSize"] = json!(page.per_page);
             next_query["materialize"] = json!(true);
             next_query["materializeOffset"] = json!(offset);
-            value["next"]["continueMaterialize"] = continuation(next_query);
+            value["calls"]["continueMaterialize"] = continuation(next_query);
         }
         mark_materialize_partial(value);
     } else if has_more
         && !materialize
         && let Some(next_page) = cursor(value, "page", current + 1)
     {
-        let mut next_query = query_row(query, &[]);
+        let mut next_query = query_row(query, &["dateOffset"]);
         next_query["page"] = json!(next_page);
-        next_query["pageSize"] = json!(page.per_page);
-        value["next"]["nextPage"] = continuation(next_query);
+        value["calls"]["nextPage"] = continuation(next_query);
     }
     if retry_tree {
         let mut retry = query_row(query, &[]);
         retry["page"] = json!(current);
-        retry["pageSize"] = json!(page.per_page);
-        value["next"]["retry"] = continuation(retry);
+        value["calls"]["retry"] = continuation(retry);
     }
     Ok(())
 }
 
 /// An exact `ghStructure` call of `query` (a page, retry or ref listing).
 pub(super) fn continuation(query: Value) -> Value {
-    crate::response::result::Continuation::new(ToolId::GhStructure, query).build()
+    crate::response::result::Continuation::continued(ToolId::GhStructure, query).build()
 }
 
 pub(super) fn structure_is_empty(value: &Value) -> bool {

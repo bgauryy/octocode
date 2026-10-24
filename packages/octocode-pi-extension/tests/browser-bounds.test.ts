@@ -137,9 +137,12 @@ describe('browser page events are bounded', () => {
     const { text } = register();
     await text({ action: 'screenshot' });
     const consoleText = await text({ action: 'console' });
-    expect(consoleText.startsWith('[log] start-')).toBe(true);
-    expect(consoleText.length).toBeLessThan(2_400);
-    expect(consoleText).toMatch(/… \[\d+ more characters cut; the whole line is in \S+\]$/);
+    // The kept head plus the count the note reports add up to the whole line; the tail (and its end) is cut.
+    const whole = `[log] start-${'x'.repeat(10_000)}-end`;
+    const [, kept, cut] = /^([\s\S]*)… \[(\d+) more characters cut; the whole line is in \S+\]$/.exec(consoleText) ?? [];
+    expect(whole.startsWith(kept!)).toBe(true);
+    expect(kept!.length + Number(cut)).toBe(whole.length);
+    expect(Number(cut)).toBeGreaterThan(0);
     const listing = (await text({ action: 'download' })).split('\n');
     expect(listing.some((line) => line.includes('file-149.bin'))).toBe(true);
     expect(listing.some((line) => line.includes('file-0.bin'))).toBe(false);

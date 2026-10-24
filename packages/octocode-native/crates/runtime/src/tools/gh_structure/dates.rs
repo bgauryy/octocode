@@ -5,7 +5,7 @@
 // per entry for an ordering no listing reader asked for.
 use super::*;
 use crate::response::paging::push_warnings;
-use crate::tools::gh_shared::dates::utc_day as day;
+use crate::tools::gh_shared::dates::utc_day;
 use std::collections::HashMap;
 
 /// Dates of one listing page.
@@ -64,11 +64,11 @@ pub(super) async fn page_dates(
         .path_commit_dates(owner, repo, commit_sha, &paths, context)
         .await;
     let mut dates = PageDates {
-        commit: answer.commit_date.as_deref().and_then(day),
+        commit: answer.commit_date.as_deref().and_then(utc_day),
         entries: paths
             .iter()
             .zip(&answer.dates)
-            .filter_map(|(path, date)| Some(((*path).to_owned(), day(date.as_deref()?)?)))
+            .filter_map(|(path, date)| Some(((*path).to_owned(), utc_day(date.as_deref()?)?)))
             .collect(),
         warning: None,
         undated,
@@ -108,11 +108,9 @@ pub(super) async fn page_dates(
     dates
 }
 
-/// `next.expandDates` for a page whose entries past the first
-/// [`DATED_PER_PAGE`] are undated: the same listing pinned to its SHA at
-/// `pageSize:` [`DATED_PER_PAGE`], one row per page that holds an undated
-/// entry (overlap with dated entries is allowed, a gap never), plus one
-/// warning naming the count. Each row dates its whole page inline.
+/// Continue dating the same listing at its pinned SHA. Private `dateOffset`
+/// advances by [`DATED_PER_PAGE`] while the semantic scope and listing page
+/// stay fixed. The warning names the entries whose dates remain unread.
 pub(super) fn expand(
     value: &mut Value,
     pinned: &GhStructureQueryTree,
@@ -122,28 +120,23 @@ pub(super) fn expand(
     if undated == 0 {
         return Ok(());
     }
-    let start = page.current.saturating_sub(1) * page.per_page;
-    let first_undated = start + page.entries.len() - undated;
-    let end = start + page.entries.len();
-    let pages = (first_undated / DATED_PER_PAGE + 1)..=end.div_ceil(DATED_PER_PAGE);
-    let mut rows = Vec::new();
-    for number in pages {
-        let mut row = query_row(pinned, &[]);
-        row["page"] = json!(number);
-        row["pageSize"] = json!(DATED_PER_PAGE);
-        rows.push(row);
+    let offset = pinned.date_offset.map_or(0, crate::num::usize_of_signed);
+    let next_offset = offset
+        .saturating_add(DATED_PER_PAGE)
+        .min(page.entries.len());
+    let mut row = query_row(pinned, &[]);
+    row["dateOffset"] = json!(next_offset);
+    if let Some(next) = value.get_mut("calls").and_then(Value::as_object_mut) {
+        next.remove("nextPage");
     }
     push_warnings(
         value,
         [format!(
-            "Dates cover the first {DATED_PER_PAGE} entries; {undated} more are undated."
+            "Last-commit dates remain for {undated} entries on this page."
         )],
     );
-    value["next"]["expandDates"] = crate::response::result::Continuation::input(
-        ToolId::GhStructure,
-        json!({ "queries": rows }),
-    )
-    .build();
+    value["calls"]["expandDates"] =
+        crate::response::result::Continuation::continued(ToolId::GhStructure, row).build();
     Ok(())
 }
 

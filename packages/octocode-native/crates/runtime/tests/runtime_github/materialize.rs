@@ -21,10 +21,7 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents"))
         .and(query_param("ref", sha))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"name":"one.rs","path":"one.rs","type":"file","size":4,"sha":"1".repeat(40)},
-            {"name":"two.rs","path":"two.rs","type":"file","size":4,"sha":"2".repeat(40)}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!((0..60).map(|n| json!({"name":format!("f{n:02}.rs"),"path":format!("f{n:02}.rs"),"type":"file","size":9,"sha":"1".repeat(40)})).collect::<Vec<_>>())))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -32,7 +29,7 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
         .mount(&server)
         .await;
-    for name in ["one.rs", "two.rs"] {
+    for name in (0..60).map(|n| format!("f{n:02}.rs")) {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
             .and(query_param("ref", sha))
@@ -54,6 +51,7 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
         &runtime,
         "ghStructure",
         json!({
+            "operation": "tree",
             "owner": "a",
             "repo": "b",
             "materialize": true
@@ -69,50 +67,29 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     );
     let data = row_data(&outcome);
     assert!(data["location"]["localPath"].as_str().is_some(), "{}", data);
-    // Only the path and coverage: kind/source/cached are constants, hasMore
-    // restates `complete`, and the ref is the snapshot the path names.
-    let mut keys: Vec<&str> = data["location"]
-        .as_object()
-        .expect("location")
-        .keys()
-        .map(String::as_str)
-        .collect();
-    keys.sort_unstable();
-    assert_eq!(keys, ["coverage", "localPath"], "{data}");
-    let exhausted = call(&runtime, "ghStructure", json!({"owner":"a","repo":"b","ref":sha,"pageSize":1,"materialize":true,"materializeOffset":1})).await.expect("boundary offset");
-    let boundary = row_data(&exhausted);
-    assert_eq!(boundary["pagination"]["hasMore"], true, "{boundary}");
-    // A materialize resumed inside its page does not re-send the
-    // entries its first call listed; `location` anchors it.
-    let resumed = call(
-        &runtime,
-        "ghStructure",
-        json!({"owner":"a","repo":"b","ref":sha,"materialize":true,"materializeOffset":1}),
-    )
-    .await
-    .expect("mid-page offset");
-    let resumed = row_data(&resumed);
-    assert!(resumed.get("files").is_none(), "{resumed}");
-    assert!(
-        resumed["location"]["localPath"].as_str().is_some(),
-        "{resumed}"
-    );
-    assert_eq!(
-        resumed["location"]["coverage"]["state"], "complete",
-        "{resumed}"
-    );
-    let next = &boundary["next"]["continueMaterialize"]["query"]["queries"][0];
-    assert_eq!(next["ref"], sha, "{boundary}");
-    assert_eq!(next["page"], 2, "{boundary}");
-    assert_eq!(next["materializeOffset"], 0, "{boundary}");
-    let last = call(&runtime, "ghStructure", next.clone())
+    assert_eq!(data["location"]["coverage"]["state"], "partial", "{data}");
+    let local = std::path::PathBuf::from(data["location"]["localPath"].as_str().expect("checkout"));
+    let next = &data["next"]["continueMaterialize"];
+    assert_eq!(next["kind"], "continue", "{data}");
+    assert!(next["input"]["cursor"].is_string(), "{data}");
+    let last = call(&runtime, "ghStructure", next["input"].clone())
         .await
-        .expect("replay boundary continuation");
+        .expect("issued materialization continuation");
     let completed = row_data(&last);
     assert_eq!(
         completed["location"]["coverage"]["state"], "complete",
         "{completed}"
     );
+    assert_eq!(
+        completed["location"]["localPath"],
+        data["location"]["localPath"]
+    );
+    for name in (0..60).map(|n| format!("f{n:02}.rs")) {
+        assert_eq!(
+            std::fs::read_to_string(local.join(name)).expect("materialized source"),
+            "fn x(){}\n"
+        );
+    }
     runtime.close().await;
 }
 
@@ -155,7 +132,7 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"owner": "a", "repo": "b", "materialize": true}),
+        json!({"operation":"tree","owner": "a", "repo": "b", "materialize": true}),
     )
     .await
     .expect("tree materialize");
@@ -170,10 +147,42 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
     );
     let deeper = &data["next"]["expandDepth"];
     assert_eq!(deeper["tool"], "ghStructure", "{data}");
-    let row = &deeper["query"]["queries"][0];
-    assert_eq!(row["maxDepth"], 20, "{data}");
-    assert_eq!(row["materialize"], true, "{data}");
-    assert_eq!(row["ref"], sha, "{data}");
+    assert!(deeper["input"]["cursor"].is_string(), "{data}");
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/git/trees/{sha}")))
+        .and(query_param("recursive", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"sha":sha,"truncated":false,"tree":[
+                {"path":"one.rs","type":"blob","mode":"100644","sha":"a".repeat(40)},
+                {"path":"router","type":"tree","mode":"040000","sha":"b".repeat(40)},
+                {"path":"router/inside.rs","type":"blob","mode":"100644","sha":"c".repeat(40)}
+            ]}),
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/router%2Finside.rs"))
+        .and(query_param("ref",sha))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","encoding":"base64","content":STANDARD.encode("fn inside() {}\n"),"size":15,"sha":"c".repeat(40),"path":"router/inside.rs"})))
+        .expect(1).mount(&server).await;
+    let expanded = call(&runtime, "ghStructure", deeper["input"].clone())
+        .await
+        .expect("issued depth expansion");
+    let completed = row_data(&expanded);
+    assert_eq!(
+        completed["location"]["coverage"]["state"], "complete",
+        "{completed}"
+    );
+    let local = std::path::Path::new(
+        completed["location"]["localPath"]
+            .as_str()
+            .expect("checkout"),
+    );
+    assert_eq!(
+        std::fs::read_to_string(local.join("router/inside.rs")).expect("nested source"),
+        "fn inside() {}\n"
+    );
     runtime.close().await;
 }
 
@@ -186,7 +195,7 @@ async fn github_clone_is_cli_only() {
         .run_mcp(
             "mcp-clone".into(),
             "ghCloneRepo".into(),
-            json!({"queries":[{"owner":"a","repo":"b","mainGoal": "test", "reasoning":"check MCP gate"}]}),
+            json!({"queries":[{"owner":"a","repo":"b"}]}),
         )
         .await
         .expect("MCP answers a refused call as a tool error");

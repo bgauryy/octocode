@@ -162,11 +162,12 @@ const ICONS = {
   print: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/></svg>',
 };
 
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
 export function pageHtml(payload, title) {
   const json = JSON.stringify(payload).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   const views = `{ documentView: ${documentView.toString()}, widgetView: ${widgetView.toString()}, diagramView: ${diagramView.toString()}, searchView: ${searchView.toString()} }`;
   const script = `(${client.toString()})((${mdKit.toString()})(), ${JSON.stringify(MERMAID_URL)}, ${JSON.stringify(PANZOOM_URL)}, ${views});`.replace(/<\/(script)/gi, '<\\/$1');
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   return `<!doctype html>
 <html lang="en">
 <head>

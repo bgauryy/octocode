@@ -282,7 +282,7 @@ fn run(
     let args = hardened(args);
     let authorization = context
         .credential
-        .map(|credential| credential.expose_secret());
+        .map(octocode_github::ResolvedCredential::expose_secret);
     // Network git operations share the host/token executor: honor its
     // secondary-limit cooldown and cap concurrent clones via the `git` group.
     let _git_permit = match authorization_url {

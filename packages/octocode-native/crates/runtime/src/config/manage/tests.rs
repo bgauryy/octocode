@@ -29,42 +29,29 @@ fn strict_environment_types() {
     assert!(validate_env_value("OCTOCODE_ENABLE_LOCAL", "perhaps").is_err());
     assert!(validate_env_value("CUSTOM_PROVIDER_KEY", "anything").is_ok());
 }
-/// A removed name cannot be saved, in either file, and names its reason;
-/// removing it stays allowed so a stale line can be deleted.
 #[test]
-fn removed_names_cannot_be_saved_but_can_be_removed() {
+fn unknown_settings_cannot_mutate_the_configuration_file() {
     let dir = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(dir.path()).unwrap();
-    let env = root.join(".env");
-    let error = super::super::edit_scoped_env(&env, "REQUEST_TIMEOUT", Some("5000"), false, None)
-        .unwrap_err();
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-    assert!(error.to_string().contains("removed"), "{error}");
-    assert!(!env.exists());
-    let rc = root.join(".octocoderc");
-    let text = r#"{"network":{"timeout":5000},"output":{"pagination":{"defaultCharLength":4000}}}"#;
+    let rc = std::fs::canonicalize(dir.path())
+        .unwrap()
+        .join(".octocoderc");
+    let text = r#"{"lsp":{"prewarm":"off"},"unrecognized":"private-marker"}"#;
     std::fs::write(&rc, text).unwrap();
-    for key in ["network.timeout", "output.pagination.defaultCharLength"] {
+    for value in [Some(json!("replacement")), None] {
         let error = edit_setting(
             &rc,
-            key,
-            Some(&json!(6000)),
+            "unrecognized",
+            value.as_ref(),
             &config_revision(Some(text)),
             false,
         )
         .unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{key}");
-        assert!(error.to_string().contains("removed"), "{key}: {error}");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(!error.to_string().contains("private-marker"));
+        assert_eq!(std::fs::read_to_string(&rc).unwrap(), text);
     }
-    for key in ["network.timeout", "output.pagination"] {
-        let current = std::fs::read_to_string(&rc).unwrap();
-        assert!(edit_setting(&rc, key, None, &config_revision(Some(&current)), false).unwrap());
-    }
-    assert_eq!(
-        parse_config_json(&std::fs::read_to_string(&rc).unwrap()).unwrap(),
-        json!({})
-    );
 }
+
 #[test]
 fn inspect_never_discloses_unknown_or_invalid_values() {
     let dir = tempfile::tempdir().unwrap();
@@ -208,11 +195,11 @@ fn removing_the_last_key_prunes_its_empty_section() {
     let path = std::fs::canonicalize(dir.path())
         .unwrap()
         .join(".octocoderc");
-    let text = r#"{"mcp":{"deferred":["astSearch"]},"lsp":{"prewarm":"off","autoInstall":"auto"}}"#;
+    let text = r#"{"local":{"enabled":true},"lsp":{"prewarm":"off","autoInstall":"auto"}}"#;
     std::fs::write(&path, text).unwrap();
     edit_setting(
         &path,
-        "mcp.deferred",
+        "local.enabled",
         None,
         &config_revision(Some(text)),
         false,

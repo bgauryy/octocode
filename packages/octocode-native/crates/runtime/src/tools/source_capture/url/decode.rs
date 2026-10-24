@@ -1,5 +1,4 @@
 //! The reply decoded to page text, and why a page yields none.
-use super::failure;
 use super::{Reply, extract, stopped};
 use crate::tools::judgment::ClassificationError;
 use octocode_contract_types::ErrorCode;
@@ -50,10 +49,10 @@ pub(super) fn decode(reply: &Reply) -> Result<(String, String), ClassificationEr
 }
 
 fn unsupported(message: &str) -> ClassificationError {
-    failure(
+    ClassificationError::new(
         ErrorCode::ClassificationContextUnavailable,
         message,
-        "Capture an HTML or text page, or supply the content as state.",
+        "Capture an HTML or text page, or supply the content as content.",
     )
 }
 
@@ -68,27 +67,27 @@ pub(super) fn extraction_failure(
         extract::Failure::Stopped => check()
             .err()
             .unwrap_or_else(|| stopped(crate::execution::ExecutionError::Timeout)),
-        extract::Failure::Empty { scripted: true } => failure(
+        extract::Failure::Empty { scripted: true } => ClassificationError::new(
             ErrorCode::ClassificationContextUnavailable,
             "The page has no static text: it builds its content with scripts.",
-            "Read the rendered page in a browser and supply its text as state.",
+            "Read the rendered page in a browser and supply its text as content.",
         ),
-        extract::Failure::Empty { scripted: false } => failure(
+        extract::Failure::Empty { scripted: false } => ClassificationError::new(
             ErrorCode::ClassificationContextEmpty,
             "The page has no text; nothing was judged.",
             "Check the URL.",
         ),
-        extract::Failure::MissingAnchor => failure(
+        extract::Failure::MissingAnchor => ClassificationError::new(
             ErrorCode::ClassificationContextEmpty,
             format!("No element on the page is anchored #{fragment}; nothing was judged."),
             "Use an anchor the page defines, or drop the fragment to capture the whole page.",
         ),
-        extract::Failure::AmbiguousAnchor(count) => failure(
+        extract::Failure::AmbiguousAnchor(count) => ClassificationError::new(
             ErrorCode::ClassificationContextEmpty,
             format!("{count} elements on the page are anchored #{fragment}; nothing was judged."),
             "Use an anchor the page defines once, or drop the fragment.",
         ),
-        extract::Failure::EmptySection => failure(
+        extract::Failure::EmptySection => ClassificationError::new(
             ErrorCode::ClassificationContextEmpty,
             format!("The section anchored #{fragment} has no text; nothing was judged."),
             "Use another anchor, or drop the fragment to capture the whole page.",

@@ -80,8 +80,14 @@ const SCALA_BODY_QUERY: &str = r#"[
 pub(super) static LANGUAGE_TABLE: LazyLock<Vec<LanguageEntry>> = LazyLock::new(init_language_table);
 
 fn init_language_table() -> Vec<LanguageEntry> {
-    // Feature-gated grammars sit inside the literal behind `#[cfg]`, so the
-    // table is built in one expression with no mutable binding.
+    built_in_languages()
+        .into_iter()
+        .chain(feature_languages())
+        .collect()
+}
+
+/// The grammars every build carries.
+fn built_in_languages() -> Vec<LanguageEntry> {
     vec![
         LanguageEntry {
             name: "TypeScript",
@@ -183,6 +189,13 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: C_BODY_QUERY,
             comment_style: CommentStyle::C,
         },
+    ]
+}
+
+/// The grammars behind cargo features, each in the literal behind its
+/// `#[cfg]`, so the list is one expression with no mutable binding.
+fn feature_languages() -> Vec<LanguageEntry> {
+    vec![
         #[cfg(feature = "tree-sitter-asm")]
         LanguageEntry {
             name: "Assembly",

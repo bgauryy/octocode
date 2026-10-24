@@ -1,6 +1,6 @@
 //! Captured sources: local ranges, multi-page captures, the read lead, oversized sources and GitHub refs.
 
-use super::{clasify, noul, provider, sent, state_row};
+use super::{clasify, content_row, noul, provider, sent};
 use crate::support::{Run as _, Workspace, clasify_runtime, github_api};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -19,8 +19,7 @@ async fn a_local_source_judges_exactly_its_ranges_and_leads_to_the_same_read() {
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let out = clasify(
         &runtime,
-        vec![json!({
-            "source":{"tool":"localFetch","query":{"path":"docs/guide.md","ranges":["2-4","40-41"]}},
+        vec![json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"docs/guide.md","ranges":[{"startLine":2,"endLine":4},{"startLine":40,"endLine":41}]}},
             "questions":{"inside":noul("Does the selection say inside?")}
         })],
     )
@@ -36,15 +35,11 @@ async fn a_local_source_judges_exactly_its_ranges_and_leads_to_the_same_read() {
             "line {line} is outside: {text}"
         );
     }
-    let result = &out["queries"][0];
+    let result = &out["results"][0]["data"];
     assert_eq!(result["answers"]["inside"]["noul"], 0.9);
-    let read = &crate::support::checks::hint(result, "read");
+    let read = &result["next"]["read"];
     assert_eq!(read["tool"], "localFetch");
-    let row = &read["query"]["queries"][0];
-    assert_eq!(row["path"], "docs/guide.md");
-    assert_eq!(row["ranges"], json!(["2-4", "40-41"]));
-    assert!(row.get("minify").is_none(), "{row}");
-    assert_eq!(row["snapshot"].as_str().map(str::len), Some(64), "{row}");
+    crate::support::assert_cursor_only(&read["input"]);
     assert!(
         !out.to_string().contains("line 3 inside"),
         "no source body is returned"
@@ -72,13 +67,12 @@ async fn a_multi_page_capture_keeps_disjoint_ranges_on_every_page() {
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let out = clasify(
         &runtime,
-        vec![json!({
-            "source":{"tool":"localFetch","query":{"path":"data/rows.txt","ranges":["1-400","600-1000"]}},
+        vec![json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"data/rows.txt","ranges":[{"startLine":1,"endLine":400},{"startLine":600,"endLine":1000}]}},
             "questions":{"q":noul("Does every selected row say in?")}
         })],
     )
     .await;
-    assert!(out["queries"][0].get("answers").is_some(), "{out}");
+    assert!(out["results"][0]["data"].get("answers").is_some(), "{out}");
     let text = sent(&server).await[0]["state"]["text"]
         .as_str()
         .unwrap()
@@ -105,18 +99,17 @@ async fn the_read_lead_returns_the_classified_capture() {
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let out = clasify(
         &runtime,
-        vec![json!({
-            "source":{"tool":"localFetch","query":{"path":"src/a.rs","fullContent":true}},
+        vec![json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"src/a.rs"}},
             "questions":{"b":noul("Does the file define b?")}
         })],
     )
     .await;
-    let read = crate::support::checks::hint(&out["queries"][0], "read").clone();
+    let read = out["results"][0]["data"]["next"]["read"].clone();
     let replay = runtime
         .run(
             "read-lead".into(),
             read["tool"].as_str().unwrap().into(),
-            read["query"].clone(),
+            read["input"].clone(),
         )
         .await
         .expect("lead runs");
@@ -130,7 +123,7 @@ async fn the_read_lead_returns_the_classified_capture() {
         .run(
             "stale-lead".into(),
             "localFetch".into(),
-            read["query"].clone(),
+            read["input"].clone(),
         )
         .await
         .expect("typed row");
@@ -154,23 +147,23 @@ async fn an_oversized_or_missing_source_fails_its_row_without_provider_work() {
     let out = clasify(
         &runtime,
         vec![
-            json!({"id":"big","source":{"tool":"localFetch","query":{"path":"big.txt","fullContent":true}},
+            json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"big.txt"}},
                 "questions":{"q":noul("Is it big?")}}),
-            json!({"id":"gone","source":{"tool":"localFetch","query":{"path":"missing.txt","ranges":["1-2"]}},
+            json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"missing.txt","ranges":[{"startLine":1,"endLine":2}]}},
                 "questions":{"q":noul("Is it there?")}}),
-            state_row(),
+            content_row(),
         ],
     )
     .await;
-    let rows = out["queries"].as_array().unwrap();
+    let rows = out["results"].as_array().unwrap();
     assert_eq!(
-        rows[0]["error"]["errorCode"], "classificationContextTooLarge",
+        rows[0]["data"]["errorCode"], "classificationContextTooLarge",
         "{out}"
     );
-    assert!(rows[0].get("answers").is_none());
-    assert_eq!(rows[1]["error"]["errorCode"], "pathNotFound", "{out}");
+    assert!(rows[0]["data"].get("answers").is_none());
+    assert_eq!(rows[1]["data"]["errorCode"], "pathNotFound", "{out}");
     assert_eq!(
-        rows[2]["answers"]["restart"]["noul"], 0.9,
+        rows[2]["data"]["answers"]["restart"]["noul"], 0.9,
         "a sibling keeps its answer"
     );
     assert_eq!(
@@ -216,8 +209,8 @@ async fn a_github_source_reads_its_requested_ref_and_pins_the_lead_to_that_commi
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &provider, &github_api(&github));
     let row = |reference: &str| {
-        json!({"id":reference,"source":{"tool":"ghGetFileContent","query":{
-            "owner":"a","repo":"b","path":"src/lib.rs","ref":reference,"fullContent":true}},
+        json!({"operation":"evaluate","source":{"tool":"ghGetFileContent","query":{
+            "owner":"a","repo":"b","path":"src/lib.rs","ref":reference}},
             "questions":{"q":noul("Does the file say body?")}})
     };
     let out = clasify(&runtime, vec![row("v1"), row("v2")]).await;
@@ -234,13 +227,23 @@ async fn a_github_source_reads_its_requested_ref_and_pins_the_lead_to_that_commi
         states.iter().any(|state| state.contains("new body")),
         "{states:?}"
     );
-    for (index, (_, sha, _)) in shas.iter().enumerate() {
-        let lead = &crate::support::checks::hint(&out["queries"][index], "read");
+    for (index, (_, _, text)) in shas.iter().enumerate() {
+        let lead = &out["results"][index]["data"]["next"]["read"];
         assert_eq!(lead["tool"], "ghGetFileContent");
-        assert_eq!(lead["query"]["queries"][0]["ref"], *sha, "{lead}");
+        crate::support::assert_cursor_only(&lead["input"]);
+        let read = runtime
+            .run(
+                format!("inspect-{index}"),
+                "ghGetFileContent".into(),
+                lead["input"].clone(),
+            )
+            .await
+            .expect("pinned source read");
         assert!(
-            lead["query"]["queries"][0].get("minify").is_none(),
-            "{lead}"
+            read.structured_content["results"][0]["data"]["content"]
+                .as_str()
+                .unwrap()
+                .contains(text)
         );
     }
     runtime.close().await;

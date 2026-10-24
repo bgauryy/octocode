@@ -1,5 +1,7 @@
 // DOM operation inputs: run options (from the caller or DOM_* env) and validated steps.
+import { errorMessage } from '../error-message.mjs';
 import { buildKeyPressEvents } from '../human-input.mjs';
+import type { DomConfig, DomOptions, DomStep, RawStep } from './dom-types.mjs';
 
 /** Every DOM step action, in documented order. */
 export const DOM_ACTIONS = [
@@ -21,7 +23,7 @@ export const DOM_ACTIONS = [
 ];
 
 /** The operation an acting step reports once it succeeded. */
-export const DONE = {
+export const DONE: Record<string, string> = {
   click: 'clicked',
   dblclick: 'double-clicked',
   fill: 'filled',
@@ -41,14 +43,14 @@ export const DONE = {
 const DEFAULT_SELECTOR =
   'button, [role="button"], input, textarea, select, a[href]';
 
-function integerOption(value, min, name) {
+function integerOption(value: unknown, min: number, name: string) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < min)
     throw new Error(`Invalid ${name}`);
   return parsed;
 }
 
-function timing(options) {
+function timing(options: DomOptions) {
   const env = process.env;
   return {
     stabilityMs: integerOption(
@@ -70,7 +72,7 @@ function timing(options) {
 }
 
 /** Run-wide settings; an option wins over its DOM_* environment variable. */
-export function readDomConfig(options) {
+export function readDomConfig(options: DomOptions): DomConfig {
   const env = process.env;
   const mode = (options.input ?? env.DOM_INPUT) === 'js' ? 'js' : 'trusted';
   return {
@@ -84,12 +86,12 @@ export function readDomConfig(options) {
   };
 }
 
-function parseEnvSteps(text) {
-  let steps;
+function parseEnvSteps(text: string): RawStep[] {
+  let steps: unknown;
   try {
     steps = JSON.parse(text);
   } catch (error) {
-    throw new Error(`DOM_STEPS is not valid JSON: ${error.message}`, {
+    throw new Error(`DOM_STEPS is not valid JSON: ${errorMessage(error)}`, {
       cause: error,
     });
   }
@@ -98,7 +100,7 @@ function parseEnvSteps(text) {
   return steps;
 }
 
-function envStep() {
+function envStep(): RawStep {
   const env = process.env;
   return {
     ref: env.DOM_REF,
@@ -113,13 +115,13 @@ function envStep() {
   };
 }
 
-function stepSource(options) {
+function stepSource(options: DomOptions) {
   if (options.steps) return options.steps;
   if (process.env.DOM_STEPS) return parseEnvSteps(process.env.DOM_STEPS);
   return [envStep()];
 }
 
-function normalizeStep(s, i) {
+function normalizeStep(s: RawStep, i: number): DomStep {
   const targeted = Boolean(s.selector || s.ref || s.role || s.name);
   return {
     ref: s.ref || '',
@@ -136,7 +138,7 @@ function normalizeStep(s, i) {
   };
 }
 
-function validateStep(step, waitText) {
+function validateStep(step: DomStep, waitText: string) {
   if (!DOM_ACTIONS.includes(step.action))
     throw new Error(
       `Unsupported action "${step.action}" (step ${step.index}). Use ${DOM_ACTIONS.join(', ')}.`
@@ -153,7 +155,7 @@ function validateStep(step, waitText) {
 }
 
 /** The steps to run, normalized; throws on the first invalid one. */
-export function readSteps(options, waitText) {
+export function readSteps(options: DomOptions, waitText: string) {
   const steps = stepSource(options);
   if (!Array.isArray(steps) || !steps.length)
     throw new Error('steps must be a non-empty array');

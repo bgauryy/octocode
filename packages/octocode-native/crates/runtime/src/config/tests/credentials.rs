@@ -26,7 +26,7 @@ fn inspector_exposes_names_and_counts_without_values() {
     let printed = serde_json::to_string(&view).expect("test fixture operation should succeed");
     assert!(!printed.contains("private-"));
     assert!(!format!("{out:?}").contains("private-"));
-    assert_eq!(view.config_keys, vec!["local", "storage"])
+    assert_eq!(view.config_keys, vec!["local", "storage"]);
 }
 #[test]
 fn inspector_reports_skipped_env_keys_with_source_file() {
@@ -151,7 +151,9 @@ fn trusted_dotenv_credentials_use_process_then_project_then_home() {
             assert_eq!(out.env_value("HOME_ONLY"), Some("home"));
             if ENV_TOKEN_VARS.contains(&key) {
                 assert_eq!(
-                    out.token.as_ref().map(|token| token.token()),
+                    out.token
+                        .as_ref()
+                        .map(super::super::types::PrivateTokenSelection::token),
                     Some(expected.as_str())
                 );
             }
@@ -251,7 +253,12 @@ fn token_variables_obey_source_precedence_before_token_priority() {
                         }),
                         "{higher_alias} vs {lower_alias}"
                     );
-                    assert_eq!(out.token.as_ref().map(|token| token.token()), selected);
+                    assert_eq!(
+                        out.token
+                            .as_ref()
+                            .map(super::super::types::PrivateTokenSelection::token),
+                        selected
+                    );
                     assert!(!format!("{out:?}").contains("-secret"));
                 }
             }

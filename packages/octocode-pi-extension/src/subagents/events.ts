@@ -3,7 +3,7 @@ import { NEEDS_APPROVAL } from '../permission/dialog.js';
 import { AUDIT_NOTIFY_PREFIX } from '../permission/audit.js';
 import { redactSecrets, visibleControls } from '../shared/sanitize.js';
 import { Thought, thoughtGist } from '../shared/thought.js';
-import { addUsage, contentText, emptyUsage, finiteNumber, isRecord, toolHint } from '../shared/util.js';
+import { addUsage, contentText, emptyUsage, finiteNumber, isRecord, parseJson, toolHint } from '../shared/util.js';
 import { imagesOf } from './screenshots.js';
 
 export interface WatchdogLimits {
@@ -139,12 +139,8 @@ export type ChildEffect =
   | { kind: 'answer'; text: string | undefined; stopReason: unknown; errorMessage: unknown };
 
 export function parseEvent(line: string): Record<string, unknown> | undefined {
-  try {
-    const value = JSON.parse(line) as unknown;
-    return isRecord(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
+  const value = parseJson(line);
+  return isRecord(value) ? value : undefined;
 }
 
 export function assistantText(message: unknown): string | undefined {

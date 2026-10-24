@@ -4,9 +4,9 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ROOT } from './lib/workspaces.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '..', '..', '..');
 // CI never builds native: native artifacts are built locally (`build:all` / `build:publish`).
 const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-benchmark', '--exclude', '@octocodeai/octocode-native'];
 
@@ -37,7 +37,7 @@ const TASKS = {
   'skills:check': ['Skill lint, shared report viewer, and skill script tests', [...SKILL_CHECKS, ...SKILLS_COMMON]],
   // Not in test:ci: it drives the built native binary, so CI runs it in its own `e2e` job after build:dev.
   'test:tools': ['End-to-end health of every tool via CLI and MCP, hermetic: driver self-test, then every lead explored (needs build:dev; [tool,...] [--deep])', [
-    ['node', ['--test', path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health/driver.test.mjs')]],
+    ['node', ['--test', path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health/*.test.mjs')]],
     ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health.mjs')]],
   ]],
   lint: ['File-length and oxlint baselines, then every workspace lint script', [...BASELINES, health('run', 'lint')]],

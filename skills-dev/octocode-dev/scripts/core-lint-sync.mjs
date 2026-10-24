@@ -3,22 +3,20 @@
 // scripts/oxlint-baseline.mjs and .oxlintrc.json beside its own baseline. This repo owns both.
 // Fails when the core copy drifts: the baseline script must be byte-identical, and the config
 // must carry the same rules (only `$schema`, `ignorePatterns` and overrides scoped to this repo's
-// `packages/...` paths are layout-specific). Skips with a note when the sibling checkout is absent.
+// `packages/...` or `skills/...` paths are layout-specific). Skips with a note when the sibling checkout is absent.
 // Usage: node skills-dev/octocode-dev/scripts/core-lint-sync.mjs
 import { isDeepStrictEqual } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { isMainModule } from './lib/entrypoint.mjs';
+import { ROOT } from './lib/workspaces.mjs';
 import { parse } from './oxlint-baseline.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '..', '..', '..');
 const CORE = path.resolve(ROOT, '..', 'octocode-mcp-host', 'packages', 'octocode-core');
 const LAYOUT_KEYS = new Set(['$schema', 'ignorePatterns']);
 
-/** An override is layout-specific when every glob names a path under this repo's `packages/`. */
-const repoScoped = override => (override.files ?? []).every(glob => glob.startsWith('packages/'));
+/** An override is layout-specific when every glob names a path under this repo's `packages/` or `skills/`. */
+const repoScoped = override => (override.files ?? []).every(glob => /^(packages|skills)\//.test(glob));
 
 /** The rule-bearing part of an oxlint config: layout keys and repo-scoped overrides removed. */
 export function ruleView(config) {

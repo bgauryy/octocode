@@ -10,13 +10,7 @@ import { readRecordHeader, writeSessionRecord } from '../src/shared/session-reco
 import { PARENT_SESSION_ENV } from '../src/shared/env.js';
 import { setCurrentSession } from '../src/shared/home.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
-
-function repo(): string {
-  const cwd = tmp();
-  fs.mkdirSync(path.join(cwd, '.git'));
-  return cwd;
-}
+import { repo, tmp } from './helpers.js';
 
 const segment = (session: string): Omit<Segment, 'n'> => ({ session, entry: `e-${session}`, tokensBefore: 1_000, method: 'cache-shared', tldr: `work of ${session}`, topics: [], readFiles: [], modifiedFiles: [], messages: 1 });
 

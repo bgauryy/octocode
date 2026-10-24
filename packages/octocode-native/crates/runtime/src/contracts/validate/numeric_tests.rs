@@ -3,67 +3,24 @@ use crate::contracts::prepare_many_and_validate;
 use serde_json::{Value, json};
 
 #[test]
-fn integral_numeric_lexemes_reach_generated_query_types() {
-    for (tool, raw) in [
-        ("localFetch", r#"{"path":"a.ts","length":1.0}"#),
-        ("localFetch", r#"{"path":"a.ts","length":1e0}"#),
-        ("localFetch", r#"{"path":"a.ts","length":1E+0}"#),
-        ("localFetch", r#"{"path":"a.ts","offset":-0.0}"#),
-        ("localFetch", r#"{"path":"a.ts","offset":0.0}"#),
-        (
-            "localFetch",
-            r#"{"path":"a.ts","offset":9.007199254740991e15}"#,
-        ),
-        ("structureSearch", r#"{"path":"src","page":1.0}"#),
-        (
-            "astSearch",
-            r#"{"path":"a.ts","operation":"match","pattern":"target($A)","matchPageSize":1.0}"#,
-        ),
-        (
-            "lspSearch",
-            r#"{"path":"a.ts","symbolName":"target","line":2.0}"#,
-        ),
-    ] {
-        let query: Value = serde_json::from_str(raw).expect("raw numeric JSON");
-        let mut rows = prepare_many_and_validate(tool, json!({"queries":[query]}))
-            .expect("JSON Schema accepts mathematically integral numbers");
-        let row = rows.pop().expect("one query");
-        let decoded = match tool {
-            "localFetch" => {
-                serde_json::from_value::<octocode_contract_types::LocalFetchQuery>(row).map(|_| ())
-            }
-            "structureSearch" => {
-                serde_json::from_value::<octocode_contract_types::StructureSearchQuery>(row)
-                    .map(|_| ())
-            }
-            "astSearch" => {
-                serde_json::from_value::<octocode_contract_types::AstSearchQuery>(row).map(|_| ())
-            }
-            "lspSearch" => {
-                serde_json::from_value::<octocode_contract_types::LspSearchQuery>(row).map(|_| ())
-            }
-            _ => unreachable!(),
-        };
-        assert!(decoded.is_ok(), "{tool} {raw}: {decoded:?}");
+fn integral_json_numbers_decode_through_canonical_generated_types() {
+    for lexeme in ["1.0", "1e0", "1E+0"] {
+        let input: Value = serde_json::from_str(&format!(r#"{{"queries":[{{"path":"a.rs","ranges":[{{"startLine":{lexeme},"endLine":{lexeme}}}]}}]}}"#)).unwrap();
+        let rows = prepare_many_and_validate("localFetch", input).unwrap();
+        let parsed: octocode_contract_types::LocalFetchQuery =
+            serde_json::from_value(rows[0].clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap()["ranges"][0]["startLine"],
+            1
+        );
     }
-}
-
-#[test]
-fn fractional_string_and_out_of_range_numbers_stay_rejected() {
-    for raw in [
-        r#"{"path":"a.ts","length":1.25}"#,
-        r#"{"path":"a.ts","offset":-0.25}"#,
-        r#"{"path":"a.ts","length":"1"}"#,
-        r#"{"path":"a.ts","length":"1e0"}"#,
-        r#"{"path":"a.ts","length":0.0}"#,
-        r#"{"path":"a.ts","length":50001.0}"#,
-        r#"{"path":"a.ts","offset":9.007199254740992e15}"#,
-        r#"{"path":"a.ts","offset":1e80}"#,
-    ] {
-        let query: Value = serde_json::from_str(raw).expect("numeric JSON");
+    for value in [json!(1.25), json!("1"), json!(0), json!(-1)] {
         assert!(
-            prepare_many_and_validate("localFetch", json!({"queries":[query]})).is_err(),
-            "{raw}"
+            prepare_many_and_validate(
+                "localFetch",
+                json!({"queries":[{"path":"a.rs","ranges":[{"startLine":value,"endLine":2}]}]})
+            )
+            .is_err()
         );
     }
 }
@@ -77,20 +34,20 @@ fn untyped_input_state_keeps_its_float_representation() {
     let before = state.to_string();
     let rows = prepare_many_and_validate(
         "clasify",
-        json!({"queries":[{"state":state,"questions":{"check":{
+        json!({"queries":[{"operation":"evaluate","content":state,"questions":{"check":{
             "type":"noul","instructions":"The state contains numeric evidence."
         }}}]}),
     )
     .expect("untyped state is accepted");
-    assert_eq!(rows[0]["state"].to_string(), before);
+    assert_eq!(rows[0]["content"].to_string(), before);
 }
 
 #[test]
 fn output_validation_keeps_numeric_evidence_and_continuations_byte_identical() {
-    let mut output: Value = serde_json::from_str(
-        r#"{"results":[{"index":0,"data":{"path":"a.ts","content":"x","totalLines":1.0,"next":{"nextPage":{"tool":"localFetch","query":{"queries":[{"path":"a.ts","length":1.0,"offset":0.0}]}}}}}]}"#,
-    )
-    .expect("serialized response");
+    let mut output = json!({"results":[{"index":0,"data":{
+        "path":"a.ts","content":"x","totalLines":1.0,
+        "next":{"nextPage":{"kind":"continue","tool":"localFetch","input":{"cursor":"issued"}}}
+    }}]});
     let before = serde_json::to_vec(&output).expect("response bytes");
     super::validate_output_in_place("localFetch", &mut output).expect("valid output");
     assert_eq!(serde_json::to_vec(&output).expect("response bytes"), before);

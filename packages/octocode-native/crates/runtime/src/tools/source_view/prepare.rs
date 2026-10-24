@@ -5,7 +5,8 @@ use super::types::*;
 use super::view::*;
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
-use octocode_contract_types::ErrorCode;
+use crate::tools::source_view::local_fetch_query;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
 /// A returned window shows a private-key block redacted over the whole
 /// source before the window was cut.
@@ -199,14 +200,14 @@ pub(super) fn prepare_source(
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
 ) -> Result<Source, Box<LocalFetchResult>> {
-    if let Some(expected) = q.snapshot.as_deref()
-        && **expected != sha256
+    if let Some(expected) = local_fetch_query::snapshot(q)
+        && expected != sha256
     {
         return Err(Box::new(stale_snapshot(q)));
     }
     let cancelled = |e| {
         Box::new(LocalFetchResult::error(
-            q.path.to_string(),
+            local_fetch_query::path(q).to_owned(),
             ErrorCode::Cancelled,
             e,
         ))
@@ -222,19 +223,24 @@ pub(super) fn prepare_source(
     )
     .map_err(cancelled)?;
     let key_blocks_redacted = prepared.key_blocks_redacted;
-    // matchString runs on redacted text: sanitize the whole source (line-count
-    // preserving) before matching so a probe cannot confirm a secret that the
-    // returned window would redact (exact-prefix oracle).
-    let (text, match_redacted) = if q.match_string.is_some() {
-        let (text, redacted) = security
-            .redact_source_lines(&prepared.keyed, source_path, &sha256)
-            .map_err(|(code, message)| {
-                Box::new(LocalFetchResult::error(q.path.to_string(), code, message))
-            })?;
-        (std::sync::Arc::new(text), redacted)
-    } else {
-        (std::sync::Arc::clone(&prepared.keyed), false)
-    };
+    // Sanitize before selection: match probes cannot confirm secrets, and a
+    // range cannot detach a secret value from its identifying source context.
+    // The shared sanitizer preserves line counts and memoizes source versions.
+    let (text, match_redacted) =
+        if local_fetch_query::has_matches(q) || local_fetch_query::has_ranges(q) {
+            let (text, redacted) = security
+                .redact_source_lines(&prepared.keyed, source_path, &sha256)
+                .map_err(|(code, message)| {
+                    Box::new(LocalFetchResult::error(
+                        local_fetch_query::path(q).to_owned(),
+                        code,
+                        message,
+                    ))
+                })?;
+            (std::sync::Arc::new(text), redacted)
+        } else {
+            (std::sync::Arc::clone(&prepared.keyed), false)
+        };
     // Both passes keep the line count, so their changes map onto lines.
     let mut redacted = prepared.key_block_lines.clone();
     if match_redacted {
@@ -253,23 +259,33 @@ pub(super) fn prepare_source(
     })
 }
 
-/// A failed selection; an invalid regex carries its repaired read (the
-/// message names the item and the parser's reason), and ranges that all start
-/// past the file end carry the same read of the file's last window.
+/// A failed selection retains its typed error. Ranges past the file end
+/// offer a related read of the last window.
 pub(crate) fn extraction_error(
     q: &LocalFetchQuery,
     error: ExtractionError,
     total_lines: usize,
 ) -> LocalFetchResult {
-    let mut result = LocalFetchResult::error(q.path.to_string(), error.code, error.message());
+    let mut result = LocalFetchResult::error(
+        local_fetch_query::path(q).to_owned(),
+        error.code,
+        error.message(),
+    );
     let repair = match error.code {
-        ErrorCode::InvalidPattern => super::pattern_repair::repair(q),
         ErrorCode::InvalidInput => {
-            local_fetch_query::last_window_span(q, total_lines).map(|(start, end)| {
+            if let Some((start, end)) = local_fetch_query::last_window_span(q, total_lines) {
                 let mut query = q.clone();
-                local_fetch_query::set_line_span(&mut query, start, end);
-                FetchCall { query }
-            })
+                if let Err(error) = local_fetch_query::set_line_span(&mut query, start, end) {
+                    return LocalFetchResult::error(
+                        local_fetch_query::path(q).to_owned(),
+                        ErrorCode::ExecutionFailed,
+                        error.to_string(),
+                    );
+                }
+                Some(FetchCall::related(query))
+            } else {
+                None
+            }
         }
         _ => None,
     };

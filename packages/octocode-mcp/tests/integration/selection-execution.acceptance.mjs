@@ -18,7 +18,7 @@ const fixture = await fs.mkdtemp(
 const selectedMarker = 'SELECTED_SELECTION_EVIDENCE';
 const unknownMarker = 'UNKNOWN_SELECTION_EVIDENCE';
 const excludedMarker = 'EXCLUDED_SELECTION_EVIDENCE';
-const classifiers = [
+const predicates = [
   'Does this directly state that a queued request is cancelled before work starts?',
 ];
 const searchPath = path.join(fixture, 'search');
@@ -40,7 +40,10 @@ const lines = Array.from(
   { length: 1200 },
   (_, index) => `line ${index + 1}: ordinary context`
 );
-lines[99] = `${selectedMarker} A queued request is cancelled before work starts.`;
+for (let index = 0; index < 400; index++) {
+  lines[index] =
+    `${selectedMarker} Request ${index + 1} is cancelled before work starts.`;
+}
 lines[599] = `${unknownMarker} The relationship to cancellation is unclear.`;
 lines[999] = `${excludedMarker} Routine bookkeeping does not cancel work.`;
 await fs.writeFile(fetchPath, `${lines.join('\n')}\n`);
@@ -63,7 +66,7 @@ const baseEnv = {
   HOME: isolated.OCTOCODE_HOME,
   OCTOCODE_CLASSIFICATION_API: 'fixture-key',
   OCTOCODE_CLASSIFICATION_API_HOST: `http://127.0.0.1:${scorer.port}`,
-  OCTOCODE_STORAGE_MODE: 'memory',
+  OCTOCODE_STORAGE_MODE: 'persistent',
   OCTOCODE_LSP_PREWARM: 'off',
   DISABLE_TOOLS: '',
   TOOLS_TO_RUN: '',
@@ -71,11 +74,11 @@ const baseEnv = {
   ALLOWED_PATHS: fixture,
 };
 
-async function cli(tool, query, { env = baseEnv, status = 0 } = {}) {
+async function cli(tool, input, { env = baseEnv, status = 0 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      [cliPath, tool, JSON.stringify({ queries: [query] }), '--json'],
+      [cliPath, tool, JSON.stringify(input), '--json'],
       {
         cwd: fixture,
         env,
@@ -124,12 +127,14 @@ async function mcp(env = baseEnv) {
 
 // A refused provider credential fails the row: the CLI exits 5 (execution
 // error, docs/OCTOCODE_CLI.md "Exit codes") and MCP marks the call isError.
-const callCli = (tool, query) => cli(tool, query);
-const refusedCli = (tool, query) => cli(tool, query, { status: 5 });
-const mcpCall = isError => client => async (tool, query) => {
+const cliEnv = { ...baseEnv, OCTOCODE_CLASSIFICATION_API: 'fixture-cli-key' };
+const callCli = (tool, input) => cli(tool, input, { env: cliEnv });
+const refusedCli = (tool, input) =>
+  cli(tool, input, { env: cliEnv, status: 5 });
+const mcpCall = isError => client => async (tool, input) => {
   const response = await client.callTool({
     name: tool,
-    arguments: { queries: [query] },
+    arguments: input,
   });
   assert.equal(response.isError, isError, JSON.stringify(response));
   return response.structuredContent;
@@ -141,8 +146,6 @@ function data(result) {
   assert.notEqual(result.results[0].status, 'error', JSON.stringify(result));
   return result.results[0].data;
 }
-// A localSearch hit with context (contextLines > 0, the clasify default its
-// unfiltered lead keeps) numbers its window; its hit line is `<line>\t<text>`.
 function hitText(match) {
   const value = String(match.value ?? '');
   const numbered = value
@@ -152,9 +155,6 @@ function hitText(match) {
     ? value
     : numbered.slice(numbered.indexOf('\t') + 1);
 }
-// Evidence as shown (`hits: false`: whole windows, so hidden markers cannot
-// leak through context) or as source hits (`hits: true`: the hit line, the
-// same in a bare and a context view).
 function evidence(tool, row, { hits = false } = {}) {
   return tool === 'localFetch'
     ? String(row.content ?? '')
@@ -172,11 +172,7 @@ function receipt(tool, row) {
   assert.ok(value, `${tool}: selection receipt`);
   assert.ok(['complete', 'partial', 'unavailable'].includes(value.status));
   assert.equal(value.scope, 'selectedView');
-  // Both local readers judge chunks: localFetch line windows, localSearch
-  // each hit row (not its file).
   assert.equal(value.unit, 'chunks');
-  // Hidden near-misses (relatedItems, omitted when none) are a decided
-  // part of the partition, apart from unknownItems.
   assert.equal(
     value.selectedItems +
       value.excludedItems +
@@ -187,9 +183,9 @@ function receipt(tool, row) {
   return value;
 }
 
-const pageNames = ['continueWindow', 'nextPage', 'nextMatchPage'];
-async function walk(call, tool, query, { selected = false } = {}) {
-  const pending = [query];
+const initial = query => ({ queries: [query], responseChars: 4000 });
+async function walk(call, tool, input, { selected = false } = {}) {
+  const pending = [input];
   const seen = new Set();
   const rows = [];
   const hits = [];
@@ -201,7 +197,8 @@ async function walk(call, tool, query, { selected = false } = {}) {
     const key = JSON.stringify(current);
     assert.ok(!seen.has(key), `${tool}: continuation repeats`);
     seen.add(key);
-    const row = data(await call(tool, current));
+    const result = await call(tool, current);
+    const row = data(result);
     responses.push(row);
     rows.push(...evidence(tool, row));
     hits.push(...evidence(tool, row, { hits: true }));
@@ -214,28 +211,18 @@ async function walk(call, tool, query, { selected = false } = {}) {
         `${tool}: selected paging never re-scores`
       );
     }
-    for (const name of pageNames) {
-      const lead = row.next?.[name];
-      if (!lead) continue;
+    const continuations = result.responsePagination?.next
+      ? [result.responsePagination.next]
+      : Object.entries(row.next ?? {})
+          .filter(
+            ([name]) => !['unfiltered', 'unfilteredUnknown'].includes(name)
+          )
+          .map(([, lead]) => lead);
+    for (const lead of continuations) {
+      assert.equal(lead.kind, 'continue');
       assert.equal(lead.tool, tool);
-      assert.ok(Array.isArray(lead.query?.queries));
-      if (selected) {
-        for (const nextQuery of lead.query.queries) {
-          assert.ok(
-            nextQuery.mainGoal?.trim(),
-            `${tool} ${name}: copied mainGoal`
-          );
-          assert.ok(
-            nextQuery.reasoning?.trim(),
-            `${tool} ${name}: copied reasoning`
-          );
-          assert.ok(
-            nextQuery.clasifyContext?.classifiers?.length,
-            `${tool} ${name}: copied clasifyContext`
-          );
-        }
-      }
-      pending.push(...lead.query.queries);
+      assert.deepEqual(Object.keys(lead.input), ['cursor']);
+      pending.push(lead.input);
     }
   }
   return { first: responses[0], responses, rows, hits, pages: seen.size };
@@ -245,37 +232,28 @@ async function recover(call, tool, selectedRun) {
   const lead = selectedRun.first.next?.unfiltered;
   assert.ok(lead, `${tool}: next.unfiltered`);
   assert.equal(lead.tool, tool);
-  assert.ok(Array.isArray(lead.query?.queries));
+  assert.equal(lead.kind, 'continue');
+  assert.deepEqual(Object.keys(lead.input), ['cursor']);
   const before = requests.length;
-  const runs = [];
-  for (const query of lead.query.queries)
-    runs.push(await walk(call, tool, query));
+  const recovered = await walk(call, tool, lead.input);
   assert.equal(
     requests.length,
     before,
     `${tool}: recovery performs no JEV work`
   );
-  return {
-    hits: runs.flatMap(run => run.hits),
-    pages: runs.reduce((total, run) => total + run.pages, 0),
-  };
+  return recovered;
 }
 
 const context = suffix => ({
-  clasifyContext: {
-    classifiers: [`${classifiers[0]}${suffix ? ` ${suffix}` : ''}`],
+  classification: {
+    predicates: [`${predicates[0]}${suffix ? ` ${suffix}` : ''}`],
+    context:
+      'Find direct cancellation evidence; preserve unknown evidence for recovery.',
   },
-  mainGoal: 'Explain cancellation behavior from current source evidence.',
-  reasoning:
-    'Select direct evidence and keep ambiguous evidence out of the default body.',
 });
 const cases = [
-  [
-    'localSearch',
-    { path: searchPath, matchString: 'topic', pageSize: 1, matchPageSize: 100 },
-    3,
-  ],
-  ['localFetch', { path: fetchPath, unit: 'lines', length: 40 }, lines.length],
+  ['localSearch', { path: searchPath, matchString: ['topic'] }, 3, 1],
+  ['localFetch', { path: fetchPath }, lines.length, 2],
 ];
 const reports = [];
 try {
@@ -285,12 +263,12 @@ try {
       ['CLI', callCli],
       ['MCP', callMcp(client)],
     ]) {
-      for (const [tool, ordinaryQuery, ordinaryItems] of cases) {
+      for (const [tool, query, items, minPages] of cases) {
         const beforeOrdinary = requests.length;
-        const ordinary = await walk(call, tool, ordinaryQuery);
+        const ordinary = await walk(call, tool, initial(query));
         assert.equal(
           ordinary.rows.length,
-          ordinaryItems,
+          items,
           `${surface} ${tool}: complete ordinary view`
         );
         assert.equal(
@@ -304,7 +282,7 @@ try {
         const selectedRun = await walk(
           call,
           tool,
-          { ...ordinaryQuery, ...context('') },
+          initial({ ...query, ...context('') }),
           { selected: true }
         );
         const selectedBody = selectedRun.rows.join('\n');
@@ -320,6 +298,7 @@ try {
           !selectedBody.includes(excludedMarker),
           `${surface} ${tool}: excluded body hidden`
         );
+        assert.ok(selectedRun.pages >= minPages, 'selected cursor coverage');
         const firstReceipt = receipt(tool, selectedRun.first);
         assert.ok(firstReceipt.selectedItems > 0);
         assert.ok(firstReceipt.excludedItems > 0);
@@ -329,6 +308,23 @@ try {
           `${surface} ${tool}: scorer called`
         );
 
+        const beforeUnknown = requests.length;
+        const unknown = await walk(
+          call,
+          tool,
+          selectedRun.first.next.unfilteredUnknown.input
+        );
+        assert.equal(
+          requests.length,
+          beforeUnknown,
+          'unknown evidence recovery performs no inference'
+        );
+        const unknownBody = unknown.rows.join('\n');
+        assert.ok(unknownBody.includes(unknownMarker));
+        assert.ok(
+          !unknownBody.includes(selectedMarker) &&
+            !unknownBody.includes(excludedMarker)
+        );
         const recovered = await recover(call, tool, selectedRun);
         assert.deepEqual(
           [...recovered.hits].sort(),
@@ -344,20 +340,21 @@ try {
       }
     }
 
-    // A refused credential is not transient: it stays the row's error (with
-    // its receipt and next.unfiltered lead) instead of a page, so the caller
-    // fixes it; nothing judged or unjudged is shown.
+    // Provider refusal must fail closed and preserve executable recovery.
     scorer.failure = true;
     for (const [surface, call, refused] of [
       ['CLI', callCli, refusedCli],
       ['MCP', callMcp(client), refusedMcp(client)],
     ]) {
-      for (const [tool, ordinaryQuery] of cases) {
+      for (const [tool, query] of cases) {
         const before = requests.length;
-        const result = await refused(tool, {
-          ...ordinaryQuery,
-          ...context('UNJUDGED_FAILURE_PROBE'),
-        });
+        const result = await refused(
+          tool,
+          initial({
+            ...query,
+            ...context('UNJUDGED_FAILURE_PROBE'),
+          })
+        );
         assert.equal(result.results?.length, 1, JSON.stringify(result));
         const [failedRow] = result.results;
         assert.equal(failedRow.status, 'error');
@@ -376,7 +373,7 @@ try {
           `${surface} ${tool}: failed attempt is accounted`
         );
         scorer.failure = false;
-        const ordinary = await walk(call, tool, ordinaryQuery);
+        const ordinary = await walk(call, tool, initial(query));
         const recovered = await recover(call, tool, failed);
         assert.deepEqual(
           [...recovered.hits].sort(),

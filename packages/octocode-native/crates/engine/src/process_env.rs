@@ -13,9 +13,11 @@ pub const PROCESS_ENV: &[&str] = &[
     "XDG_CONFIG_HOME",
     "GIT_CONFIG_GLOBAL",
     "GIT_CONFIG_SYSTEM",
-    // The Rust toolchain home and the PATH a language server is found on
-    // (`lsp::config`).
+    // Language-server discovery and startup share toolchain locations and
+    // selection, including rustup proxies (`lsp::config`, `lsp::client`).
     "RUSTUP_HOME",
+    "CARGO_HOME",
+    "RUSTUP_TOOLCHAIN",
     "PATH",
     // What a spawned language server is given (`lsp::client`); `HOME` is
     // also what `std::env::home_dir` reads.

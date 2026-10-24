@@ -5,7 +5,7 @@ use crate::support;
 
 use serde_json::{Value, json};
 use support::{Workspace, call, github_api, row_data, row_status};
-use wiremock::matchers::{method, path_regex, query_param};
+use wiremock::matchers::{method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const BASE_SHA: &str = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -15,22 +15,22 @@ fn commit_row(sha: &str, message: &str) -> Value {
     json!({"sha":sha,"commit":{"message":message,"author":{"name":"a","date":"2024-01-01T00:00:00Z"}}})
 }
 
-/// A fork comparison `base...fork:main`: 8 commits at 5 per page, 300 files.
-/// The head commit is the last of the range, on page 8 at one per page.
+/// A fork comparison `base...fork:main`: 108 commits at 100 per page, 300 files.
+/// The head commit is the last of the range, on page 108 at one per page.
 async fn mount_fork_compare(server: &MockServer) {
     let files = (0..300)
         .map(|n| json!({"filename":format!("src/f{n:03}.rs"),"status":"modified","additions":1,"deletions":1,"sha":"3".repeat(40)}))
         .collect::<Vec<_>>();
     let body = |commits: Vec<Value>, files: Vec<Value>| {
         json!({
-            "status":"ahead","ahead_by":8,"behind_by":2,"total_commits":8,
+            "status":"ahead","ahead_by":108,"behind_by":2,"total_commits":108,
             "permalink_url":"https://github.com/a/b/compare/a:1111111...fork:4444444",
             "base_commit":{"sha":BASE_SHA},
             "merge_base_commit":{"sha":BASE_SHA,"commit":{"committer":{"date":"2024-03-01T10:00:00Z"}}},
             "commits":commits,"files":files
         })
     };
-    let first = (0..5)
+    let first = (0..100)
         .map(|n| commit_row(&format!("{:040x}", 100 + n), &format!("c{n}")))
         .collect();
     Mock::given(method("GET"))
@@ -45,7 +45,7 @@ async fn mount_fork_compare(server: &MockServer) {
         .and(path_regex(
             "^/api/v3/repos/a/b/compare/main\\.\\.\\.fork(:|%3A)main$",
         ))
-        .and(query_param("page", "8"))
+        .and(query_param("page", "108"))
         .and(query_param("per_page", "1"))
         .respond_with(
             ResponseTemplate::new(200)
@@ -67,21 +67,36 @@ async fn a_cross_fork_compare_pins_its_head_to_a_commit() {
     let out = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"fork:main",
-               "pageSize":5,"include":["lib/**"],"extras":["hints"]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"fork:main",
+               "include":["lib/**"]}),
     )
     .await
     .expect("fork compare");
     let data = row_data(&out).clone();
     assert_eq!(row_status(&out), "success", "{data}");
     assert_eq!(data["headSha"], FORK_HEAD_SHA, "{data}");
-    let narrow = &crate::support::checks::hint(&data, "narrowScope")["query"]["queries"][0];
-    assert_eq!(narrow["ref"], FORK_HEAD_SHA, "{data}");
-    // The path walk starts at the range's merge base, so it lists no
-    // commit from before the range.
-    assert_eq!(narrow["since"], "2024-03-01T10:00:00Z", "{data}");
-    let next = &data["next"]["nextCommitPage"]["query"]["queries"][0];
-    assert_eq!(next["head"], FORK_HEAD_SHA, "{data}");
+    let narrow = support::checks::related_call(&data, "ghSearchHistory", |input| {
+        input["queries"][0]["operation"] == "commit" && input["queries"][0]["pathPrefix"] == "lib/"
+    });
+    assert_eq!(narrow["kind"], "related", "{data}");
+    assert_eq!(narrow["input"]["queries"][0]["ref"], FORK_HEAD_SHA);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .and(query_param("sha", FORK_HEAD_SHA))
+        .and(query_param("path", "lib/"))
+        .and(query_param("since", "2024-03-01T10:00:00Z"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!([commit_row(FORK_HEAD_SHA, "scoped change")])),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let scoped = call(&runtime, "ghSearchHistory", narrow["input"].clone())
+        .await
+        .expect("pinned scope continuation");
+    assert_eq!(row_status(&scoped), "success", "{}", row_data(&scoped));
+    assert_eq!(row_data(&scoped)["commits"][0]["commitSha"], FORK_HEAD_SHA);
     runtime.close().await;
 }
 
@@ -126,16 +141,25 @@ async fn a_commit_patch_read_keeps_its_pull_request_lead() {
             &runtime,
             "ghGetHistoryItem",
             json!({"operation":"commit","owner":"a","repo":"b","ref":sha,
-                   "sections":["patches"],"extras":["hints"]}),
+                   "sections":["patches"]}),
         )
         .await
         .expect("commit patches");
         let data = row_data(&out).clone();
-        let read = &crate::support::checks::hint(&data, "readPullRequest");
+        let read = &crate::support::checks::find_related_call(&data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        })
+        .unwrap_or(&serde_json::Value::Null);
         assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
-        assert_eq!(read["query"]["queries"][0]["number"], number, "{data}");
+        assert_eq!(read["input"]["queries"][0]["number"], number, "{data}");
         assert!(
-            crate::support::checks::hint(&data, "findPullRequest").is_null(),
+            crate::support::checks::find_related_call(
+                &data,
+                "ghSearchHistory",
+                |input| input["queries"][0]["operation"] == "pullRequest"
+            )
+            .unwrap_or(&serde_json::Value::Null)
+            .is_null(),
             "{data}"
         );
     }
@@ -153,8 +177,8 @@ async fn a_capped_compare_states_the_file_cap() {
     let out = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"fork:main",
-               "sections":["files"],"pageSize":5,"extras":["hints"]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"fork:main",
+               "sections":["files"]}),
     )
     .await
     .expect("capped compare");
@@ -168,10 +192,7 @@ async fn a_capped_compare_states_the_file_cap() {
         json!(["providerFileLimit"]),
         "{data}"
     );
-    assert!(
-        !crate::support::checks::hint(&data, "listCommits").is_null(),
-        "{data}"
-    );
+    assert!(!data["next"]["listCommits"].is_null(), "{data}");
     runtime.close().await;
 }
 
@@ -204,7 +225,7 @@ async fn a_directory_at_the_contents_limit_leads_to_a_clone() {
     let out = call(
         &runtime,
         "ghStructure",
-        json!({"owner":"a","repo":"b","pageSize":5,"extras":["hints"]}),
+        json!({"operation":"tree","owner":"a","repo":"b"}),
     )
     .await
     .expect("listing");
@@ -213,9 +234,10 @@ async fn a_directory_at_the_contents_limit_leads_to_a_clone() {
         data["providerLimit"]["maxEntriesPerDirectory"], 1000,
         "{data}"
     );
-    let clone = &crate::support::checks::hint(&data, "cloneRepo");
+    let clone = &crate::support::checks::find_related_call(&data, "ghCloneRepo", |_| true)
+        .unwrap_or(&serde_json::Value::Null);
     assert_eq!(clone["tool"], "ghCloneRepo", "{data}");
-    let query = &clone["query"]["queries"][0];
+    let query = &clone["input"]["queries"][0];
     assert_eq!(query["owner"], "a", "{data}");
     assert_eq!(query["ref"], sha, "{data}");
     runtime.close().await;
@@ -245,7 +267,7 @@ async fn an_unknown_owner_is_not_found_not_an_empty_search() {
     let out = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"nobody","keywords":["foo"],"extras":["hints"]}),
+        json!({"owner":"nobody","keywords":["foo"]}),
     )
     .await
     .expect("unknown owner");
@@ -285,8 +307,8 @@ async fn a_compare_scope_that_matches_no_file_is_empty() {
     let out = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":BASE_SHA,"head":FORK_HEAD_SHA,
-               "sections":["files"],"include":["docs/**"],"extras":["hints"]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":BASE_SHA,"headRef":FORK_HEAD_SHA,
+               "sections":["files"],"include":["docs/**"]}),
     )
     .await
     .expect("compare");

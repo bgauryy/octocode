@@ -57,36 +57,40 @@ async fn pages_at(server: &MockServer, reference: &str) {
             "ghGetFileContent".into(),
             json!({
                 "queries":[{"owner":"a","repo":"b","path":"src/lib.rs","ref":reference,
-                    "forceRefresh":true,"offset":0,"length":6000,"unit":"bytes",
-                    "mainGoal":"Read the file.","reasoning":"Exercise page replay."}],
-                "responseLength": 800, "responseScope": "structured"
+                    "forceRefresh":true}],
+                "responseChars": 800
             }),
         )
         .await
         .expect("first page");
-    let pagination = first.structured_content["responsePagination"].clone();
-    assert_eq!(pagination["hasMore"], true, "{pagination}");
-    // Page 2 is not the last page, so it carries the snapshot it continues.
-    assert!(pagination["totalPages"].as_u64() >= Some(3), "{pagination}");
-    let next = pagination["next"]["query"].clone();
-    assert!(next.get("queries").is_none(), "{next}");
+    let next = support::checks::leads(&first.structured_content)
+        .into_iter()
+        .find(|call| call.kind == "continue" && call.tool == "ghGetFileContent")
+        .expect("source evidence continuation")
+        .query;
+    support::assert_cursor_only(&next);
+    let mut captured = None;
 
     for page in ["gh-page-2", "gh-page-2-again"] {
         let replayed = runtime
             .run(page.into(), "ghGetFileContent".into(), next.clone())
             .await
             .expect("replayed page");
-        let page = &replayed.structured_content["responsePagination"];
-        assert_eq!(
-            support::cursor_response(page),
-            support::cursor_response(&pagination),
-            "{page}"
+        let content = replayed.structured_content["results"][0]["data"]["content"].clone();
+        assert!(
+            content.as_str().is_some_and(|text| text.contains("remote")),
+            "{}",
+            replayed.structured_content
         );
-        assert_ne!(page["restart"], true, "{page}");
+        if let Some(previous) = &captured {
+            assert_eq!(&content, previous);
+        } else {
+            captured = Some(content);
+        }
     }
 
     let mut stale = next;
-    stale["responseSnapshot"] = json!("response-rows-v2:stale");
+    stale["cursor"] = json!(format!("cursor1.{}", "0".repeat(64)));
     let error = runtime
         .run("gh-page-stale".into(), "ghGetFileContent".into(), stale)
         .await
@@ -134,14 +138,14 @@ async fn saved_github_pages_check_current_home_credentials_without_network_repla
         ];
         let runtime = workspace.runtime(&env);
         let source = json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":SHA,
-            "forceRefresh":true,"offset":0,"length":6000,"unit":"bytes"});
+            "forceRefresh":true});
         let row = if tool == "clasify" {
             let criteria: serde_json::Map<_, _> = (0..64)
                 .map(|index| (format!("label{index:02}"), json!("criterion")))
                 .collect();
             let questions: serde_json::Map<_, _> = (0..12).map(|index| (format!("q{index}"),
                 json!({"type":"choice","instructions":"Choose a label.","criteria":criteria}))).collect();
-            json!({"source":{"tool":"ghGetFileContent","query":{"owner":"a","repo":"b","path":"src/lib.rs","ref":SHA,"fullContent":true}},"questions":questions})
+            json!({"operation":"evaluate","source":{"tool":"ghGetFileContent","query":{"owner":"a","repo":"b","path":"src/lib.rs","ref":SHA}},"questions":questions})
         } else {
             source
         };
@@ -149,29 +153,29 @@ async fn saved_github_pages_check_current_home_credentials_without_network_repla
             .run(
                 "auth-first".into(),
                 tool.into(),
-                json!({"queries":[row],"responseLength":800,"responseScope":"structured"}),
+                json!({"queries":[row],"responseChars":800}),
             )
             .await
             .expect("first");
-        let next = first.structured_content["responsePagination"]["next"]["query"].clone();
-        assert!(next.is_object(), "{}", first.structured_content);
-        assert!(
-            next["responseSnapshot"]
-                .as_str()
-                .is_some_and(|snapshot| snapshot.len() <= 128),
-            "saved continuation must contain a snapshot string of at most 128 bytes: {next}"
-        );
+        let next = support::checks::leads(&first.structured_content)
+            .into_iter()
+            .find(|call| call.kind == "continue" && call.tool == tool)
+            .unwrap_or_else(|| panic!("continuation: {}", first.structured_content))
+            .query;
+        support::assert_cursor_only(&next);
         octocode_native::contracts::validate(tool, next.clone()).expect("public snapshot contract");
+        let before_replay = server
+            .received_requests()
+            .await
+            .expect("initial requests")
+            .len();
         runtime.close().await;
         let runtime = workspace.runtime(&env);
         let same = runtime
             .run("auth-same".into(), tool.into(), next.clone())
             .await
             .expect("same local identity");
-        assert_eq!(
-            same.structured_content["responsePagination"]["replayed"],
-            true
-        );
+        support::checks::assert_output_contract(tool, &same.structured_content);
         save("switched-local-token");
         let changed = runtime
             .run("auth-switched".into(), tool.into(), next.clone())
@@ -192,7 +196,7 @@ async fn saved_github_pages_check_current_home_credentials_without_network_repla
             .expect("recorded provider requests");
         assert_eq!(
             requests.len(),
-            1 + usize::from(tool == "clasify"),
+            before_replay,
             "saved reads must not call either provider"
         );
     }
@@ -229,7 +233,7 @@ async fn saved_history_item_pages_replay_after_a_persistent_restart() {
             "ghGetHistoryItem".into(),
             json!({
                 "queries":[{"operation":"commit","owner":"a","repo":"b","ref":SHA,"sections":["files"]}],
-                "responseLength":1000,"responseScope":"rows"
+                "responseChars":1000
             }),
         )
         .await
@@ -241,7 +245,7 @@ async fn saved_history_item_pages_replay_after_a_persistent_restart() {
     let mut files = filenames(&first.structured_content);
     let mut page = 1;
     while pagination["hasMore"] == true {
-        let next = pagination["next"]["query"].clone();
+        let next = pagination["next"]["input"].clone();
         support::assert_cursor_only(&next);
         let runtime = workspace.runtime(&env);
         let replayed = runtime
@@ -256,7 +260,7 @@ async fn saved_history_item_pages_replay_after_a_persistent_restart() {
         page += 1;
         pagination = replayed.structured_content["responsePagination"].clone();
         files.extend(filenames(&replayed.structured_content));
-        assert_eq!(pagination["currentPage"], page, "{pagination}");
+        assert_eq!(pagination["page"], page, "{pagination}");
         assert_eq!(pagination["totalPages"], total_pages, "{pagination}");
         assert_eq!(pagination["replayed"], true, "{pagination}");
         assert_ne!(pagination["restart"], true, "{pagination}");

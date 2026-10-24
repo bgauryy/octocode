@@ -1,3 +1,5 @@
+import type { Payload, Session } from './cdp-connection.mjs';
+
 // Shared browser-side actionability checks, interpolated into Runtime.evaluate
 // expressions across the DOM-inspection checks.
 export const ACTIONABILITY_HELPERS_JS = `
@@ -11,16 +13,24 @@ export const ACTIONABILITY_HELPERS_JS = `
   }
 `;
 
+// The page navigated mid-evaluation, so the next poll retries. Staged standalone as a sandbox
+// helper, so it narrows here instead of importing a shared error helper.
+const isNavigationRace = (error: unknown) =>
+  error instanceof Error &&
+  /context.*destroyed|Cannot find context|Inspected target navigated/i.test(
+    error.message
+  );
+
 // Wait past the initial about:blank document; SPA rendering may continue afterward.
 export async function waitForPageReady(
-  cdp,
+  cdp: Session,
   timeoutMs = 8000,
   { selector = '', text = '', state = 'interactive' } = {}
 ) {
   await cdp.send('Page.enable');
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    let evaluated;
+    let evaluated: Payload | undefined;
     try {
       evaluated = await cdp.send('Runtime.evaluate', {
         expression: `(() => {
@@ -33,12 +43,7 @@ export async function waitForPageReady(
         returnByValue: true,
       });
     } catch (error) {
-      if (
-        !/context.*destroyed|Cannot find context|Inspected target navigated/i.test(
-          error.message
-        )
-      )
-        throw error;
+      if (!isNavigationRace(error)) throw error;
     }
     if (evaluated?.exceptionDetails)
       throw new Error(

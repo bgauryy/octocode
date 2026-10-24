@@ -1,30 +1,6 @@
-//! Admission rules for clasify rows that the row schema cannot express.
+//! Admission rules for clasify rows that the row schema cannot express:
+//! a source reader this runtime does not enable.
 use serde_json::Value;
-
-/// The batch rule the row schema cannot express: query ids stay unique so
-/// every answer row is correlatable. Core authors the wording (parity
-/// fixture `clasify.unique-query-ids`).
-pub(crate) fn admit<'a>(
-    queries: impl IntoIterator<Item = &'a Value>,
-) -> Result<(), crate::contracts::ContractValidationError> {
-    let mut seen = std::collections::HashSet::new();
-    for (index, query) in queries.into_iter().enumerate() {
-        if let Some(id) = query.get("id").and_then(Value::as_str)
-            && !seen.insert(id)
-        {
-            return Err(crate::contracts::ContractValidationError {
-                issues: vec![crate::contracts::ValidationIssue {
-                    rule_id: "clasify.unique-query-ids".into(),
-                    path: vec!["queries".into(), index.to_string(), "id".into()],
-                    message: format!("Duplicate query id: {id}"),
-                    schema: None,
-                    received: None,
-                }],
-            });
-        }
-    }
-    Ok(())
-}
 
 /// The reader a row's source needs: its tool, or localFetch for a URL (its
 /// capture is read back through localFetch).
@@ -64,14 +40,14 @@ pub(crate) fn unavailable_source_issues(
     if availability.is_available(reader) { return None; }
     let reason = availability
         .get(reader)
-        .map_or_else(|| "no such tool.".to_owned(), |entry| entry.reason_text());
+        .map_or_else(|| "no such tool.".to_owned(), crate::execution::availability::Availability::reason_text);
     let mut path = prefix.to_vec();
     path.extend(suffix);
     Some(crate::contracts::ValidationIssue {
         rule_id: "clasify.source-reader-available".into(),
         path,
         message: format!(
-            "This source reads through {reader}, which is disabled in this runtime: {reason} Supply the data as state instead."
+            "This source reads through {reader}, which is disabled in this runtime: {reason} Supply the data as content instead."
         ),
         schema: None,
         received: None,

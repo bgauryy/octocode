@@ -6,13 +6,7 @@ import { writeSessionRecord, type SessionRecord } from '../src/shared/session-re
 import { PARENT_SESSION_ENV } from '../src/shared/env.js';
 import { historyFiles, historyScope, listHistory, PAGE_CHARS, READ_LINES, readableHistory, readableSessionFolder, readHistory, searchHistory } from '../src/shared/history.js';
 import { sessionFolder, setCurrentSession } from '../src/shared/home.js';
-import { tmp } from './helpers.js';
-
-function repo(): string {
-  const cwd = tmp();
-  fs.mkdirSync(path.join(cwd, '.git'));
-  return cwd;
-}
+import { repo, tmp } from './helpers.js';
 
 const segment = (session: string, tldr: string): Omit<Segment, 'n'> => ({ session, entry: `e-${session}`, tokensBefore: 1_000, method: 'cache-shared', tldr, topics: [], readFiles: [], modifiedFiles: [], messages: 1 });
 

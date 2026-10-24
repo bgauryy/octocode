@@ -10,11 +10,10 @@ fn exact_line_and_continuation_union() {
     fs::write(&p, "one\ntwo 😀\nthree\n").expect("test fixture operation should succeed");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.unit = Some(WindowUnit::Lines);
-    req.length = wire_positive(1);
+
     let mut joined = String::new();
     loop {
-        let r = fetch(&req, &paths);
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(4), None);
         assert_eq!(r.status, ReadStatus::Success);
         joined.push_str(
             r.content
@@ -24,9 +23,9 @@ fn exact_line_and_continuation_union() {
         let Some(next) = r.next.and_then(|n| n.continue_window) else {
             break;
         };
-        req = next.query
+        req = next.query;
     }
-    assert_eq!(joined, "one\ntwo 😀\nthree\n")
+    assert_eq!(joined, "one\ntwo 😀\nthree\n");
 }
 
 #[test]
@@ -37,11 +36,18 @@ fn regex_line_anchors_match_every_line() {
         .expect("test fixture operation should succeed");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some(MatchString::String(
-        "^version.*\"$".parse().expect("match string"),
-    ));
-    req.regex = Some(octocode_contract_types::ReadRegex::Rust);
-    req.context_lines = Some(0);
+    amend(
+        &mut req,
+        serde_json::json!({"matchString":["^version.*\"$"]}),
+    );
+    amend(
+        &mut req,
+        serde_json::json!({"regexEngine":Some(octocode_contract_types::RegexEngine::Rust)}),
+    );
+    amend(
+        &mut req,
+        serde_json::json!({"contextLines":{"before":0,"after":0}}),
+    );
     let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
     assert_eq!(wire["matchedLines"], serde_json::json!([2, 4]));
 }
@@ -87,8 +93,11 @@ fn omission_marker_survives_redaction() {
     .expect("test fixture operation should succeed");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some(MatchString::String("hit".parse().expect("match string")));
-    req.context_lines = Some(0);
+    amend(&mut req, serde_json::json!({"matchString":["hit"]}));
+    amend(
+        &mut req,
+        serde_json::json!({"contextLines":{"before":0,"after":0}}),
+    );
     let r = fetch(&req, &paths);
     assert_eq!(
         r.content.as_deref(),
@@ -113,138 +122,66 @@ fn omission_marker_survives_redaction() {
 #[test]
 fn paged_match_windows_map_source_ranges_around_marker() {
     let t = Fixture::new();
-    let (paths, mut req) = hit_lines(&t, 30, &[3, 25]);
-    req.unit = Some(WindowUnit::Lines);
-    req.length = wire_positive(4);
-    let first = fetch(&req, &paths);
-    assert_eq!(
-        first.content.as_deref(),
-        Some("l2\nhit3\nl4\n... [lines 5-23 not requested] ...\n")
-    );
-    assert_eq!(
-        first.source_line_ranges,
-        vec![LineRange { start: 2, end: 4 }]
-    );
-    let next = first
-        .next
-        .and_then(|n| n.continue_window)
-        .expect("second page")
-        .query;
-    let second = fetch(&next, &paths);
-    assert_eq!(second.content.as_deref(), Some("l24\nhit25\nl26\n"));
-    assert_eq!(
-        second.source_line_ranges,
-        vec![LineRange { start: 24, end: 26 }]
-    );
+    let (paths, req) = hit_lines(&t, 30, &[3, 25]);
+    let expected = fetch(&req, &paths);
+    let mut query = req;
+    let mut content = String::new();
+    let mut lines = Vec::new();
+    let mut pages = 0;
+    loop {
+        let row = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(56), None);
+        assert_eq!(row.error_code, None, "{row:?}");
+        content.push_str(row.content.as_deref().expect("content"));
+        for range in &row.source_line_ranges {
+            lines.extend(range.start..=range.end);
+        }
+        pages += 1;
+        assert!(pages < 10);
+        let Some(next) = row.next.and_then(|next| next.continue_window) else {
+            break;
+        };
+        query = next.query;
+    }
+    assert!(pages > 1);
+    assert_eq!(Some(content), expected.content);
+    assert_eq!(lines, vec![2, 3, 4, 24, 25, 26]);
 }
 
 #[test]
-fn matches_on_minified_lines_default_to_byte_windows() {
-    let t = Fixture::new();
-    let p = t.0.join("bundle.min.js");
-    let filler = "x".repeat(3_000);
-    let source = format!("{filler}needle{filler}needle{filler}\nshort needle\n");
-    fs::write(&p, &source).expect("fixture");
-    let paths = Paths(t.0.clone());
-    let mut req = q(&p);
-    req.match_string = Some(MatchString::String("needle".parse().expect("match string")));
-    let r = fetch(&req, &paths);
-    let content = r.content.expect("content");
-    assert_eq!(content.matches("needle").count(), 3, "{content:?}");
-    assert!(content.len() < 2_000, "{} bytes", content.len());
-    for part in content.split('\n').filter(|part| !part.is_empty()) {
-        assert!(
-            part.starts_with("... [") || source.contains(part),
-            "{part:?}"
+fn long_line_matches_preserve_every_byte_and_explicit_context() {
+    let fixture = Fixture::new();
+    let line = format!(
+        "{}needle{}needle{}\n",
+        "x".repeat(6000),
+        "y".repeat(6000),
+        "z".repeat(6000)
+    );
+    let source = format!("before\n{line}after\n");
+    let path = fixture.write("bundle.min.js", &source);
+    let paths = Paths(fixture.0.clone());
+    for context in [0, 1] {
+        let mut request = qj(
+            &path,
+            serde_json::json!({"matchString":["needle"],"contextLines":{"before":context,"after":context}}),
+        );
+        let mut joined = String::new();
+        loop {
+            let out = execute_local_fetch(&request, &paths, &Safe, &NeverCancel, Some(1000), None);
+            joined.push_str(out.content.as_deref().expect("content"));
+            let Some(next) = out.next.and_then(|next| next.continue_window) else {
+                break;
+            };
+            request = next.query;
+        }
+        assert_eq!(
+            joined,
+            if context == 0 {
+                line.clone()
+            } else {
+                source.clone()
+            }
         );
     }
-    // The cut windows are not the whole lines: one read reaches them.
-    let next = r.next.clone().expect("next");
-    assert_eq!(
-        next.whole_lines
-            .as_ref()
-            .map(|read| read.query.context_lines),
-        Some(Some(0)),
-        "{next:?}"
-    );
-    assert!(next.continue_window.is_none(), "{next:?}");
-    assert_eq!(
-        r.source_line_ranges,
-        vec![LineRange { start: 1, end: 2 }],
-        "anchor kept"
-    );
-    assert!(
-        r.warnings
-            .iter()
-            .any(|w| w.starts_with("longMatchedLines:")),
-        "{:?}",
-        r.warnings
-    );
-    assert!(
-        !r.warnings.iter().any(|w| w.contains("next.wholeLines")),
-        "the warning does not restate the continuation: {:?}",
-        r.warnings
-    );
-    // An explicit contextLines keeps whole lines.
-    req.context_lines = Some(0);
-    let r = fetch(&req, &paths);
-    assert!(
-        r.warnings.iter().all(|w| !w.contains("contextLines")),
-        "{:?}",
-        r.warnings
-    );
-}
-
-/// An explicit `contextLines` on a minified line still starts the match
-/// window at the hit: neighbouring whole lines cannot be shown without the
-/// line's kilobytes, so the window is the hit's bytes and `next.wholeLines`
-/// reads the whole line. Only `contextLines:0` asks for the matched line itself,
-/// paged from its start.
-#[test]
-fn an_explicit_context_on_a_minified_line_still_windows_the_hit() {
-    let t = Fixture::new();
-    let p = t.0.join("bundle.min.js");
-    let filler = "x".repeat(30_000);
-    fs::write(&p, format!("{filler}needle{filler}\nshort line\n")).expect("fixture");
-    let paths = Paths(t.0.clone());
-    let mut req = q(&p);
-    req.match_string = Some(MatchString::String("needle".parse().expect("match string")));
-    for context in [1, 5] {
-        req.context_lines = Some(context);
-        let r = fetch(&req, &paths);
-        let content = r.content.as_deref().expect("content");
-        assert!(content.len() < 1_000, "{} bytes", content.len());
-        assert!(content.contains("needle"), "{content:?}");
-        assert!(
-            content.starts_with("... [29800 bytes omitted] ...\n"),
-            "{content:?}"
-        );
-        let next = r.next.expect("next");
-        assert!(next.whole_lines.is_some(), "{next:?}");
-        assert!(next.continue_window.is_none(), "{next:?}");
-    }
-    req.context_lines = Some(0);
-    let whole = fetch(&req, &paths);
-    let content = whole.content.as_deref().expect("content");
-    assert!(content.starts_with("xxxx"), "the line from its start");
-    assert!(!content.contains("omitted"), "{content:.80}");
-    assert!(whole.next.expect("next").continue_window.is_some());
-}
-
-/// Byte windows (the long-line match view) never fabricate text where
-/// windows overlap.
-#[test]
-fn byte_windows_overlapping_do_not_duplicate_source() {
-    let source = "aaa needle bbb\nline2\nline3\nline4\nccc needle ddd\nneedle x needle\n";
-    let spans = crate::tools::source_view::extraction::literal_ranges(source, "needle", true);
-    let (content, _) = crate::tools::source_view::extraction::byte_windows(source, spans, 4);
-    for part in content.split("\n").filter(|part| !part.is_empty()) {
-        assert!(
-            part.starts_with("... [") || source.contains(part),
-            "fabricated text {part:?} in {content:?}"
-        );
-    }
-    assert!(content.contains("bytes omitted"), "{content:?}");
 }
 
 #[test]
@@ -255,9 +192,15 @@ fn multiline_matches_preserve_every_matched_source_line() {
     let paths = Paths(t.0.clone());
     for (pattern, is_regex) in [("first\nsecond", false), (r"first\nsecond", true)] {
         let mut req = q(&p);
-        req.match_string = Some(MatchString::String(pattern.parse().expect("match string")));
-        req.regex = is_regex.then_some(octocode_contract_types::ReadRegex::Rust);
-        req.context_lines = Some(0);
+        amend(&mut req, serde_json::json!({"matchString":[pattern]}));
+        amend(
+            &mut req,
+            serde_json::json!({"regexEngine":is_regex.then_some(octocode_contract_types::RegexEngine::Rust)}),
+        );
+        amend(
+            &mut req,
+            serde_json::json!({"contextLines":{"before":0,"after":0}}),
+        );
         let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
         assert_eq!(wire["content"], "first\nsecond\n", "{pattern:?}: {wire}");
         assert_eq!(wire["matchedLines"], serde_json::json!([2, 3]));
@@ -272,34 +215,32 @@ fn multiline_matches_preserve_every_matched_source_line() {
 /// page never restates what an earlier page sent.
 #[test]
 fn match_ranges_cover_only_the_page_that_shows_them() {
-    let t = Fixture::new();
-    let p = t.0.join("a.txt");
-    let mut text = numbered(300);
-    text = text
+    let fixture = Fixture::new();
+    let source = numbered(300)
         .replace("\nl10\n", "\nl10 needle\n")
         .replace("\nl250\n", "\nl250 needle\n");
-    fs::write(&p, &text).expect("fixture");
-    let paths = Paths(t.0.clone());
-    let req = qj(
-        &p,
-        serde_json::json!({"matchString": "needle", "contextLines": 2, "unit": "lines", "length": 5}),
+    let path = fixture.write("a.txt", &source);
+    let paths = Paths(fixture.0.clone());
+    let mut query = qj(
+        &path,
+        serde_json::json!({"matchString":["needle"],"contextLines":{"before":2,"after":2}}),
     );
-    let first = fetch(&req, &paths);
-    assert_eq!(first.error, None, "{first:?}");
-    let wire = serde_json::to_value(&first).expect("serialize");
-    // The page's windows are its source lines: nothing to restate.
-    assert!(wire.get("matchRanges").is_none(), "{wire}");
-    assert_eq!(wire["matchedLines"], serde_json::json!([10]), "{wire}");
-    let next = first
-        .next
-        .and_then(|next| next.continue_window)
-        .expect("second page")
-        .query;
-    let second = serde_json::to_value(fetch(&next, &paths)).expect("serialize");
-    assert!(
-        !second.to_string().contains("\"start\":8"),
-        "page 2 never restates page 1's window: {second}"
-    );
-    assert!(second.get("matchRanges").is_none(), "{second}");
-    assert_eq!(second["matchedLines"], serde_json::json!([250]), "{second}");
+    let mut matched = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let out = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(32), None);
+        assert_eq!(out.error_code, None);
+        for range in &out.source_line_ranges {
+            for line in range.start..=range.end {
+                assert!(seen.insert(line), "duplicate source line {line}");
+            }
+        }
+        matched.extend(out.matched_lines);
+        let Some(next) = out.next.and_then(|next| next.continue_window) else {
+            break;
+        };
+        query = next.query;
+    }
+    assert_eq!(matched, vec![10, 250]);
+    assert_eq!(seen, (8..=12).chain(248..=252).collect());
 }

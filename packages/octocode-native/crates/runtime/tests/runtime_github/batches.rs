@@ -6,7 +6,7 @@ use base64::engine::general_purpose::STANDARD;
 use octocode_github::mock_http::{Arrivals, Delayed};
 use serde_json::json;
 use std::time::Duration;
-use support::{ALL_EXTRAS, Workspace, call, row_data, row_status};
+use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -49,9 +49,7 @@ async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
             "repo": "b",
             "path": name,
             "ref": sha,
-            "forceRefresh": true,
-            "mainGoal": "test", "reasoning": format!("Read {name} through the GitHub bulk path."),
-            "extras": ALL_EXTRAS
+            "forceRefresh": true
         })
     });
     let outcome = runtime
@@ -164,7 +162,7 @@ async fn gh_search_picked_repositories_are_contract_valid() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"keywords":["x"],"fields":["stars"]}),
+        json!({"operation":"search","keywords":["x"],"fields":["stars"]}),
     )
     .await
     .expect("picked repositories");
@@ -173,12 +171,14 @@ async fn gh_search_picked_repositories_are_contract_valid() {
         json!([{"owner":"o","repo":"r","stars":0}])
     );
     // The top repository's tree lead is a hint, not a page.
-    let lead = &crate::support::checks::hint(row_data(&outcome), "viewRepo");
+    let lead = &crate::support::checks::related_call(row_data(&outcome), "ghStructure", |input| {
+        input["queries"][0]["operation"] != "refs"
+    });
     assert_eq!(lead["tool"], "ghStructure", "{}", row_data(&outcome));
     assert_eq!(
         (
-            &lead["query"]["queries"][0]["owner"],
-            &lead["query"]["queries"][0]["repo"]
+            &lead["input"]["queries"][0]["owner"],
+            &lead["input"]["queries"][0]["repo"]
         ),
         (&json!("o"), &json!("r"))
     );

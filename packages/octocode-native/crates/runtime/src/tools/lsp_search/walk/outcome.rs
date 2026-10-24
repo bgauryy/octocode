@@ -52,8 +52,7 @@ pub(in crate::tools::lsp_search) fn mark_partial_expansion(
             None => distinct.push((message, 1)),
         }
     }
-    // The disclosure is one count; the error list is verbose (core field
-    // class `expansionFailures`), listed whole under `debug: true`.
+    // Keep every distinct provider failure beside the summary count.
     let total = failures.len();
     let items = if total == 1 { "item" } else { "items" };
     let warning = match distinct.as_slice() {
@@ -193,8 +192,8 @@ fn offer_deeper_walk(
         .get("next")
         .and_then(Value::as_object)
         .is_some_and(|next| {
-            next.keys()
-                .any(|name| crate::id::is_remaining(crate::id::ToolId::LspSearch, name))
+            next.values()
+                .any(|call| call.get("kind").and_then(Value::as_str) == Some("continue"))
         });
     if frontier == 0 || depth >= MAX_HIERARCHY_DEPTH || pages_remain {
         return;
@@ -203,11 +202,14 @@ fn offer_deeper_walk(
     let Some(object) = next.as_object_mut() else {
         return;
     };
-    for field in crate::response::result::CURSOR_FIELDS {
+    for field in crate::contracts::state_fields(crate::id::ToolId::LspSearch) {
         object.remove(field);
     }
     object.insert("graphDepth".into(), json!(depth + 1));
-    row["next"]["walkDeeper"] = continuation(next);
+    crate::response::result::attach_related(
+        row,
+        crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, next).build(),
+    );
 }
 
 /// Every walk's TypeScript built-in library callees, each named once.
@@ -299,7 +301,7 @@ fn limit_warnings(
 
 /// An executable query that walks `resume.depth` levels from `resume.node`:
 /// the same operation re-anchored on the node by its name and 1-based selection line, with
-/// `orderHint` when the name repeats on that line before the node (no
+/// `occurrence` when the name repeats on that line before the node (no
 /// 0-based coordinate reaches an input).
 fn resume_query(query: &LspSearchQuery, resume: &Resume) -> Option<Value> {
     let uri = resume.node.get("uri").and_then(Value::as_str)?;
@@ -311,7 +313,7 @@ fn resume_query(query: &LspSearchQuery, resume: &Resume) -> Option<Value> {
     let mut next = lsp_search_query::to_row(query);
     let object = next.as_object_mut()?;
     object.insert("path".into(), json!(path));
-    for field in ["orderHint", "page", "snapshot", "importerPage"] {
+    for field in ["occurrence", "page", "snapshot", "importerPage"] {
         object.remove(field);
     }
     object.insert("symbolName".into(), json!(name));
@@ -321,14 +323,14 @@ fn resume_query(query: &LspSearchQuery, resume: &Resume) -> Option<Value> {
         .and_then(|text| order_on_line(&text, line, name, character))
         .filter(|order| *order > 0)
     {
-        object.insert("orderHint".into(), json!(order));
+        object.insert("occurrence".into(), json!(order));
     }
     object.insert("graphDepth".into(), json!(resume.depth));
     Some(next)
 }
 
 /// How many whole-word occurrences of `name` start before the UTF-16
-/// `character` on 0-based `line` of `text`: the `orderHint` that re-anchors
+/// `character` on 0-based `line` of `text`: the `occurrence` that re-anchors
 /// the node. `None` when the line is absent.
 fn order_on_line(text: &str, line: u32, name: &str, character: u32) -> Option<u32> {
     let row = text.lines().nth(usize::try_from(line).ok()?)?;

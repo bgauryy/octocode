@@ -8,7 +8,7 @@ use crate::providers::artifact::ArtifactProviderPage;
 /// than `null`, and the row passes the output contract.
 #[test]
 fn a_discovery_without_a_registry_total_omits_total_items() {
-    let query = typed(&json!({"ecosystem":"rubygems","keywords":["jwt"],"pageSize":1}));
+    let query = typed(&json!({"operation":"search","ecosystem":"rubygems","keywords":["jwt"]}));
     let gem = ArtifactItem::new(
         ArtifactType::Rubygems,
         "jwt".into(),
@@ -30,10 +30,10 @@ fn a_discovery_without_a_registry_total_omits_total_items() {
     .expect("rows");
     assert_eq!(
         data["pagination"],
-        json!({"currentPage": 1, "pageSize": 1, "hasMore": true}),
+        json!({"page": 1, "pageSize": 20, "hasMore": true}),
         "{data}"
     );
-    crate::contracts::validate_output(
+    crate::tools::test_support::validate_sealed(
         ToolId::ArtifactSearch.as_str(),
         &json!({"results": [{"index": 0, "data": data}]}),
     )
@@ -45,8 +45,9 @@ fn a_discovery_without_a_registry_total_omits_total_items() {
 /// cursor of the page just read is not carried on.
 #[test]
 fn a_next_page_carries_the_provider_cursor() {
-    let query = typed(&json!({"ecosystem":"go","keywords":["http"],"page":2,
-        "pageSize":1,"cursor":"page-two"}));
+    let query = typed(
+        &json!({"operation":"search","ecosystem":"go","keywords":["http"],"page":2,"registryCursor":"page-two"}),
+    );
     let row = ArtifactItem::new(
         ArtifactType::Go,
         "example.com/a".into(),
@@ -64,22 +65,22 @@ fn a_next_page_carries_the_provider_cursor() {
         registry: None,
     };
     let data = respond(&query, page(Some("page-three"))).expect("rows");
-    let next = &data["next"]["nextPage"]["query"]["queries"][0];
+    let next = &data["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(
-        (&next["page"], &next["cursor"]),
+        (&next["page"], &next["registryCursor"]),
         (&json!(3), &json!("page-three")),
         "{data}"
     );
-    crate::contracts::validate_output(
+    crate::tools::test_support::validate_sealed(
         ToolId::ArtifactSearch.as_str(),
         &json!({"results": [{"index": 0, "data": data}]}),
     )
     .expect("contract-valid cursor page");
     // A registry that pages by number issues no cursor.
     let data = respond(&query, page(None)).expect("rows");
-    let next = &data["next"]["nextPage"]["query"]["queries"][0];
+    let next = &data["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(next["page"], 3, "{data}");
-    assert!(next.get("cursor").is_none(), "{data}");
+    assert!(next.get("registryCursor").is_none(), "{data}");
 }
 
 /// Maven Central answers rows only from its first, so a discovery
@@ -100,8 +101,9 @@ fn maven_discovery_pages_through_its_one_window() {
             .collect::<Vec<_>>()
     };
     let page = |page: u64, total: u64| {
-        let query = typed(&json!({"ecosystem":"maven","keywords":["yaml"],
-            "pageSize":20,"page":page}));
+        let query = typed(
+            &json!({"operation":"search","ecosystem":"maven","keywords":["yaml"],"page":page}),
+        );
         let offset = page * 20;
         let data = respond(
             &query,
@@ -121,14 +123,14 @@ fn maven_discovery_pages_through_its_one_window() {
         .expect("rows");
         let mut placed = json!({"results": [{"index": 0, "data": data.clone()}]});
         crate::response::notices::place(&mut placed, "results");
-        crate::contracts::validate_output(ToolId::ArtifactSearch.as_str(), &placed)
+        crate::tools::test_support::validate_sealed(ToolId::ArtifactSearch.as_str(), &placed)
             .expect("contract-valid maven page");
         data
     };
     // 87 matches: every row is on a page, and nothing is partial.
     let first = page(1, 87);
     assert_eq!(
-        first["next"]["nextPage"]["query"]["queries"][0]["page"], 2,
+        first["next"]["nextPage"]["input"]["queries"][0]["page"], 2,
         "{first}"
     );
     assert!(first.get("isPartial").is_none(), "{first}");
@@ -159,13 +161,14 @@ fn maven_discovery_pages_through_its_one_window() {
 #[test]
 fn bounded_discovery_ends_at_its_reach() {
     for (artifact_type, by_offset, last_page, reach) in [
-        (ArtifactType::Nuget, true, 40, 4000),
-        (ArtifactType::Crates, false, 10, 1000),
+        (ArtifactType::Nuget, true, 200, 4000),
+        (ArtifactType::Crates, false, 50, 1000),
     ] {
         let page = |page: u64| {
-            let query = typed(&json!({"ecosystem":artifact_type,"keywords":["json"],
-                "pageSize":100,"page":page}));
-            let offset = page * 100;
+            let query = typed(
+                &json!({"operation":"search","ecosystem":artifact_type,"keywords":["json"],"page":page}),
+            );
+            let offset = page * 20;
             let next_state = if by_offset {
                 crate::providers::artifact::ArtifactProviderState {
                     offset: Some(offset),
@@ -180,7 +183,7 @@ fn bounded_discovery_ends_at_its_reach() {
             let data = respond(
                 &query,
                 ArtifactProviderPage {
-                    artifacts: (offset as usize - 100..offset as usize)
+                    artifacts: (offset as usize - 20..offset as usize)
                         .map(|n| {
                             ArtifactItem::new(
                                 artifact_type,
@@ -198,7 +201,7 @@ fn bounded_discovery_ends_at_its_reach() {
             .expect("rows");
             let mut placed = json!({"results": [{"index": 0, "data": data.clone()}]});
             crate::response::notices::place(&mut placed, "results");
-            crate::contracts::validate_output(ToolId::ArtifactSearch.as_str(), &placed)
+            crate::tools::test_support::validate_sealed(ToolId::ArtifactSearch.as_str(), &placed)
                 .expect("contract-valid bounded page");
             data
         };

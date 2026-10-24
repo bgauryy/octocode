@@ -2,8 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fauxAssistantMessage, fauxToolCall, type TranscriptContext } from '@earendil-works/pi-ai';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { McpClient, StdioTransport } from '@earendil-works/pi-mcp';
+import { octocodeLaunch } from '../src/mcp/octocode.js';
+import { OCTOCODE_TOOL_PREFIX } from '../src/shared/octocode-tools.js';
 import { Mail } from '../src/team/mail.js';
-import { calls, OCTOCODE_OFF, say, startSession } from './e2e-harness.js';
+import { OCTOCODE_OFF, startSession } from './e2e-harness.js';
+import { calls, say } from './helpers.js';
 
 /**
  * Asserts a localFetch result (MCP text is the JSON of its structured content) holds one row per path, in order, each
@@ -18,10 +22,21 @@ function expectRowsWithOwnContinuations(text: string, paths: string[]): void {
       data: {
         path,
         pagination: { unit: 'lines', offset: 0, hasMore: true, nextOffset: expect.any(Number) },
-        next: { continueWindow: { tool: 'localFetch', query: { queries: [expect.objectContaining({ path, ranges: ['1-600'], offset: expect.any(Number) })] } } },
+        next: { continueWindow: { kind: 'continue', tool: 'localFetch', input: { cursor: expect.any(String) } } },
       },
     })),
   });
+}
+
+/** The tool names a fresh Octocode MCP server, launched as the extension launches it, answers `tools/list` with. */
+async function serverToolNames(cwd: string): Promise<string[]> {
+  const client = new McpClient({ name: 'e2e-tools-list', version: '0' });
+  try {
+    await client.connect(new StdioTransport({ ...octocodeLaunch(cwd), stderr: 'pipe' }));
+    return (await client.listTools()).map((tool) => tool.name);
+  } finally {
+    await client.close();
+  }
 }
 
 describe('with Octocode MCP (default)', () => {
@@ -35,21 +50,16 @@ describe('with Octocode MCP (default)', () => {
 
   it('exposes MCP tools and Octocode guidance from the first request', async () => {
     const turn = (await s.run('hello', [say('ready')])).at(-1)!;
-    // Real Pi + the local MCP, before provider-specific encoding. Project context and user skills are disabled here.
-    // The separate prompt-size test guards only extension-owned prose/schemas, not this complete fixture prefix.
-    const fixedChars = turn.systemPrompt.length + JSON.stringify(turn.toolContracts).length;
-    console.log(`default Pi + Octocode prefix: ${fixedChars} chars (prompt ${turn.systemPrompt.length}, ${turn.tools.length} tools)`);
-    // 2026-10-23: 49,794 (was 45,699): the Octocode MCP published contract grew (structureSearch filters, localSearch caseMode/
-    // wholeWord, lspSearch contextLines/includeDeclaration, descriptions). Tight bound beside the stability checks below.
-    expect(fixedChars, 'default runtime prompt and declarations grew beyond their headroom').toBeLessThan(50_100);
+    // Real Pi + the local MCP, before provider-specific encoding. Core owns the server's surface size; the
+    // extension-owned prose is guarded by prompt-size.test.ts.
     expect(turn.tools).toContain('file');
     expect(turn.tools).toContain('read');
-    expect(turn.tools).toContain('mcp__octocode__localFetch');
-    expect(turn.tools).toContain('mcp__octocode__localSearch');
     for (const name of ['edit', 'write']) expect(turn.tools).not.toContain(name);
     expect(turn.systemPrompt).toContain('<octocode>');
     // Every tool the server lists, GitHub and package registry ones included, is declared from the first request.
-    for (const name of ['ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch', 'localSearch', 'structureSearch', 'astSearch', 'localFetch', 'lspSearch']) expect(turn.tools).toContain(`mcp__octocode__${name}`);
+    const declared = turn.tools.filter((name) => name.startsWith(OCTOCODE_TOOL_PREFIX)).map((name) => name.slice(OCTOCODE_TOOL_PREFIX.length));
+    expect(declared.length).toBeGreaterThan(0);
+    expect(declared.toSorted()).toEqual((await serverToolNames(s.cwd)).toSorted());
     expect(turn.tools).not.toContain('tool_search');
     // The extension's client connects before the first request is built, so the guidance and the server's own
     // instructions (which Pi puts in no prompt for direct tools) are there from the start, unchanged on the next request.
@@ -78,7 +88,7 @@ describe('with Octocode MCP (default)', () => {
   it('researches through Octocode, reads with read, then edits, writes and deletes with batched file calls', async () => {
     const appPath = path.join(s.cwd, 'app.ts');
     const turns = await s.run('fix the answer', [
-      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ path: appPath, fullContent: true }] }), fauxToolCall('read', { path: 'app.ts' })),
+      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ path: appPath }] }), fauxToolCall('read', { path: 'app.ts' })),
       calls(
         fauxToolCall('file', {
           queries: [
@@ -123,7 +133,7 @@ describe('with Octocode MCP (default)', () => {
     const seen = path.join(s.cwd, 'seen.ts');
     fs.writeFileSync(seen, 'export const seen = 1;\n');
     const turns = await s.run('read then edit', [
-      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ path: seen, fullContent: true }] })),
+      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ path: seen }] })),
       calls(fauxToolCall('file', { queries: [{ reasoning: 'bump', type: 'edit', path: 'seen.ts', edits: [{ oldText: 'seen = 1', newText: 'seen = 2' }] }] })),
       say('done'),
     ]);
@@ -140,7 +150,7 @@ describe('with Octocode MCP (default)', () => {
       fs.writeFileSync(file, Array.from({ length: 3_000 }, (_, index) => `export const ${name}${index} = '${'日本語のテキスト'.repeat(4)}';\n`).join(''));
       return file;
     });
-    const turns = await s.run('read both', [calls(fauxToolCall('mcp__octocode__localFetch', { queries: files.map((file) => ({ path: file, ranges: ['1-600'] })) })), say('done')]);
+    const turns = await s.run('read both', [calls(fauxToolCall('mcp__octocode__localFetch', { queries: files.map((file) => ({ path: file, ranges: [{ startLine: 1, endLine: 600 }] })) })), say('done')]);
     const text = turns.at(-1)!.lastResults[0]!.text;
     expect(Buffer.byteLength(text)).toBeGreaterThan(20 * 1024);
     expect(text).not.toMatch(/truncated|fullOutputPath|pi-mcp/i);

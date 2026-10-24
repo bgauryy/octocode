@@ -1,12 +1,8 @@
 use super::*;
-
 use octocode_contract_types::ErrorCode;
 
 mod failures;
-mod page_routes;
 mod ranking;
-mod widening;
-mod windows;
 
 #[test]
 fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
@@ -40,7 +36,7 @@ fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
     let verified = verify::guard_clipped_secrets(
         &mut file,
         &missing,
-        None,
+        crate::tools::local_search::sources::Expected::Fresh,
         0..10,
         &verify::ValueCheck {
             security: &security,
@@ -87,7 +83,7 @@ fn clipped_secret_guard_fails_closed_when_the_match_line_is_gone() {
     let verified = verify::guard_clipped_secrets(
         &mut file,
         &source,
-        None,
+        crate::tools::local_search::sources::Expected::Fresh,
         0..10,
         &verify::ValueCheck {
             security: &security,
@@ -123,19 +119,19 @@ fn clipped_values_never_leak_partial_secrets() {
     let file = format!("token: {token} end\n");
     let cases = [
         ls_query(
-            serde_json::json!({"matchString": "ghp_[0-9a-z]{20}".to_string(), "regex": "rust", "resultView": LocalSearchQueryResultView::MatchOnly}),
+            serde_json::json!({"matchString": ["ghp_[0-9a-z]{20}".to_string()], "regexEngine": "rust", "view": "matchOnly"}),
             None,
         ),
         ls_query(
-            serde_json::json!({"matchString": "token".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly, "matchContentLength": 4}),
+            serde_json::json!({"matchString": ["token".to_string()], "view": "matchOnly"}),
             None,
         ),
         ls_query(
-            serde_json::json!({"matchString": "end".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly, "matchContentLength": 2}),
+            serde_json::json!({"matchString": ["end".to_string()], "view": "matchOnly"}),
             None,
         ),
         ls_query(
-            serde_json::json!({"matchString": "token".to_string(), "matchContentLength": 30}),
+            serde_json::json!({"matchString": ["token".to_string()]}),
             None,
         ),
     ];
@@ -151,7 +147,7 @@ fn clipped_values_never_leak_partial_secrets() {
     let body = search_fixture(
         &[("sec.txt", &format!("{file}plain needle line\n"))],
         ls_query(
-            serde_json::json!({"matchString": "needle".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly}),
+            serde_json::json!({"matchString": ["needle".to_string()], "view": "matchOnly"}),
             None,
         ),
     );
@@ -164,7 +160,7 @@ fn short_spans_inside_private_key_bodies_are_redacted() {
     let body = search_fixture(
         &[("key.rs", file)],
         ls_query(
-            serde_json::json!({"matchString": "interior".to_string(), "resultView": LocalSearchQueryResultView::MatchOnly}),
+            serde_json::json!({"matchString": ["interior".to_string()], "view": "matchOnly"}),
             None,
         ),
     );
@@ -180,7 +176,7 @@ fn code_after_a_literal_key_marker_stays_readable() {
     let body = search_fixture(
         &[("src.rs", literal)],
         ls_query(
-            serde_json::json!({"matchString": "needle_", "resultView": LocalSearchQueryResultView::MatchOnly}),
+            serde_json::json!({"matchString": ["needle_"], "view": "matchOnly"}),
             None,
         ),
     );
@@ -190,7 +186,7 @@ fn code_after_a_literal_key_marker_stays_readable() {
     let body = search_fixture(
         &[("key.rs", key)],
         ls_query(
-            serde_json::json!({"matchString": "interior|needle_after", "regex": "rust", "resultView": LocalSearchQueryResultView::MatchOnly}),
+            serde_json::json!({"matchString": ["interior|needle_after"], "regexEngine": "rust", "view": "matchOnly"}),
             None,
         ),
     );
@@ -214,11 +210,11 @@ fn late_key_bodies_in_large_sources_stay_redacted() {
         format!("{innocent}\n{filler}-----BEGIN OPENSSH PRIVATE KEY-----\n{body}\n{body}\n");
     for content in [&terminated, &unterminated] {
         assert!(content.len() as u64 > 10 * 1024 * 1024);
-        for view in ["matchOnly", "paginated"] {
+        for view in ["matchOnly", "content"] {
             let found = search_fixture(
                 &[("big.txt", content.as_str())],
                 ls_query(
-                    serde_json::json!({"matchString": "interior", "resultView": view, "contextLines": 0}),
+                    serde_json::json!({"matchString": ["interior"], "view": view}),
                     None,
                 ),
             );
@@ -228,7 +224,7 @@ fn late_key_bodies_in_large_sources_stay_redacted() {
         let readable = search_fixture(
             &[("big.txt", content.as_str())],
             ls_query(
-                serde_json::json!({"matchString": "innocentB64", "resultView": "paginated", "contextLines": 0}),
+                serde_json::json!({"matchString": ["innocentB64"], "view": "content", "contextLines": {"before":0,"after":0}}),
                 None,
             ),
         );
@@ -283,8 +279,8 @@ fn classification_candidates_never_receive_clipped_secrets_even_when_excluded() 
     let (policy, security) = policy_for(root.path());
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     for fields in [
-        json!({"matchString":"ghp_[0-9a-z]{20}|needle", "regex":"rust", "resultView":"matchOnly"}),
-        json!({"matchString":"token|needle", "regex":"rust", "matchContentLength":30}),
+        json!({"matchString":["ghp_[0-9a-z]{20}|needle"], "regexEngine":"rust", "view":"matchOnly"}),
+        json!({"matchString":["token|needle"], "regexEngine":"rust"}),
     ] {
         let recorded = Arc::new(Mutex::new(Vec::new()));
         let selection = crate::tools::test_support::selection_fake::runtime(
@@ -295,7 +291,7 @@ fn classification_candidates_never_receive_clipped_secrets_even_when_excluded() 
         let request = ls_query(
             json!({
                 "path": root.path(),
-                "clasifyContext": {"classifiers":["Does this contain needle?"]}
+                "classification": {"predicates":["Does this contain needle?"]}
             }),
             Some(&ls_query(fields, None)),
         );

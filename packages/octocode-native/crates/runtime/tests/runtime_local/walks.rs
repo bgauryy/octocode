@@ -54,7 +54,7 @@ async fn structure_search_dispatches_on_both_surfaces_and_owns_file_discovery() 
     let files = call(
         &runtime,
         "structureSearch",
-        json!({"operation":"files","path":workspace.workspace,"include":["*.ts"],"entryType":"f"}),
+        json!({"operation":"files","path":workspace.workspace,"include":["**/*.ts"],"entryType":"file"}),
     )
     .await
     .expect("files");
@@ -106,7 +106,7 @@ async fn local_walks_share_one_default_prune_and_exclude_adds() {
     workspace.write(".github/lib.rs", source);
     let runtime = workspace.runtime(&[]);
     let root = workspace.workspace.clone();
-    let exclude = json!(["extra"]);
+    let exclude = json!(["extra", "extra/**"]);
     let workspace_name = root
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -155,7 +155,7 @@ async fn local_walks_share_one_default_prune_and_exclude_adds() {
     let searched = call(
         &runtime,
         "localSearch",
-        json!({"path":root,"matchString":"needle","includeHidden":true,"exclude":exclude}),
+        json!({"path":root,"matchString":["needle"],"includeHidden":true,"exclude":exclude}),
     )
     .await
     .expect("localSearch");
@@ -169,7 +169,7 @@ async fn local_walks_share_one_default_prune_and_exclude_adds() {
     let files = call(
         &runtime,
         "structureSearch",
-        json!({"operation":"files","path":root,"include":["*.rs"],"entryType":"f","includeHidden":true,"exclude":exclude}),
+        json!({"operation":"files","path":root,"include":["**/*.rs"],"entryType":"file","includeHidden":true,"exclude":exclude}),
     )
     .await
     .expect("structureSearch files");
@@ -203,7 +203,7 @@ async fn local_walks_share_one_default_prune_and_exclude_adds() {
     let matched = call(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":root,"language":"rust","pattern":"pub fn needle() {}","includeHidden":true,"exclude":exclude}),
+        json!({"operation":"match","path":root,"parser":"rust","rule":{"pattern":"pub fn needle() {}"},"includeHidden":true,"exclude":exclude}),
     )
     .await
     .expect("astSearch match");
@@ -244,7 +244,7 @@ async fn default_excludes_false_walks_dependency_directories() {
     let pruned = call(
         &runtime,
         "localSearch",
-        json!({"path":workspace.workspace,"matchString":"needle"}),
+        json!({"path":workspace.workspace,"matchString":["needle"]}),
     )
     .await
     .expect("default prune");
@@ -258,7 +258,7 @@ async fn default_excludes_false_walks_dependency_directories() {
     );
     assert_eq!(
         row_data(&pruned)["skippedPaths"],
-        json!({"entries":[{"path":"node_modules","cause":"default-excluded"}],"sampled":false}),
+        json!({"entries":[{"path":workspace.workspace.join("node_modules"),"cause":"default-excluded"}],"sampled":false}),
         "{}",
         names(&pruned)
     );
@@ -275,7 +275,7 @@ async fn default_excludes_false_walks_dependency_directories() {
     let all = call(
         &runtime,
         "localSearch",
-        json!({"path":workspace.workspace,"matchString":"needle","defaultExcludes":false}),
+        json!({"path":workspace.workspace,"matchString":["needle"],"defaultExcludes":false}),
     )
     .await
     .expect("defaults off");

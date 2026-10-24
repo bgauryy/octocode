@@ -15,7 +15,7 @@ pub(super) struct PatchStream<'a> {
     /// Hit-line starts of each narrowed view (`None`: not narrowed).
     pub(super) hits: &'a [Option<Vec<usize>>],
     /// New-side windows each view's context could not reach.
-    pub(super) clipped: &'a [Vec<String>],
+    pub(super) clipped: &'a [Vec<(usize, usize)>],
     pub(super) starts: &'a [usize],
     pub(super) lengths: &'a [usize],
     pub(super) offset: usize,
@@ -32,7 +32,7 @@ impl PatchStream<'_> {
     pub(super) fn rows(
         &self,
         files: &[Value],
-    ) -> (Vec<Value>, Vec<String>, Vec<(String, Vec<String>)>) {
+    ) -> (Vec<Value>, Vec<String>, Vec<(String, Vec<(usize, usize)>)>) {
         let (offset, end) = (self.offset, self.end);
         let first_window = offset == 0;
         let mut rows = Vec::new();

@@ -1,9 +1,5 @@
 //! Native execution shared by the CLI and the MCP addon. Every tool runs
 //! here; the interfaces have no execution fallback.
-// Test-compiled code may assert with unwrap/expect/panic. A crate attribute,
-// not clippy.toml's `allow-*-in-tests`: clippy does not treat modules mounted
-// under `cfg(all(test, unix))` as test code.
-#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 
 pub mod cache;
 mod civil_date;
@@ -12,7 +8,6 @@ pub(crate) mod content;
 pub mod contracts;
 mod digest;
 pub mod execution;
-mod git_head;
 pub mod id;
 pub(crate) mod num;
 pub(crate) mod policy;
@@ -22,7 +17,6 @@ mod process_fixture;
 #[cfg(test)]
 mod process_status;
 pub mod providers;
-mod regex_repair;
 pub mod response;
 pub mod runtime;
 pub mod security;

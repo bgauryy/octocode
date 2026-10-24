@@ -55,14 +55,12 @@ fn didopen_read_is_capped_to_avoid_oversized_document_sync() {
 fn document_wide_operations_do_not_require_a_position_anchor() {
     for operation in ["documentSymbols", "workspaceSymbol", "diagnostic"] {
         let mut row = serde_json::json!({
-            "operation": operation, "mainGoal": "test", "reasoning": "test",
-            "path": "/repo/src/lib.rs",
-            "page": 1,
-            "pageSize": 40
+            "operation": operation, "path": "/repo/src/lib.rs",
+            "page": 1
         });
         // The contract requires a query name for workspaceSymbol; it is still unanchored.
         if operation == "workspaceSymbol" {
-            row["symbolName"] = serde_json::json!("Lib");
+            row["symbolQuery"] = serde_json::json!("Lib");
         }
         let query: LspSearchQuery = serde_json::from_value(row).expect("document-wide lsp query");
         assert_eq!(
@@ -137,18 +135,11 @@ fn hover_rejects_walk_controls_with_the_operations_that_take_them() {
                     && issue.path.last().is_some_and(|part| part == field)
             })
             .expect("unsupported operation field");
-        let guidance = issue.schema.as_ref().expect("sibling operation guidance");
-        assert_eq!(guidance["siblingConflict"], true);
         assert!(
-            guidance["siblingRequires"]
-                .as_array()
-                .expect("allowed operations")
-                .iter()
-                .any(|requirement| requirement
-                    .as_str()
-                    .is_some_and(|text| text.contains(applies))),
-            "{guidance}"
+            issue.message.contains(field),
+            "field-specific rejection: {issue:?}"
         );
+        let _ = applies;
     }
 }
 
@@ -206,14 +197,13 @@ fn anchor_file_uri_is_stated_once_per_row() {
 #[test]
 fn page_two_query_hashes_like_page_one() {
     let first: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "path":"/tmp/a.rs","symbolName":"is_alive","line":1,"operation":"references",
-        "pageSize":1,"mainGoal": "test", "reasoning":"r"
+    "path":"/tmp/a.rs","symbolName":"is_alive","line":1,"operation":"references",
     }))
     .expect("page 1");
     // A continuation lists the same fields in another order.
     let second: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "pageSize":1,"page":2,"snapshot":"lsp-v1:abc","operation":"references",
-        "line":1,"mainGoal": "test", "reasoning":"r","symbolName":"is_alive","path":"/tmp/a.rs"
+        "page":2,"snapshot":"lsp-v1:abc","operation":"references",
+        "line":1,"symbolName":"is_alive","path":"/tmp/a.rs"
     }))
     .expect("page 2");
     let items = [serde_json::json!({"uri":"file:///tmp/a.rs"})];
@@ -237,7 +227,7 @@ fn relative_and_absolute_anchors_share_one_query_identity() {
     std::fs::create_dir_all(root.join("src")).expect("dir");
     std::fs::write(root.join("src/a.ts"), "export const a = 1;\n").expect("file");
     let paths = crate::tools::test_support::workspace_policy(&root);
-    let base = |uri: String, workspace: &str| serde_json::json!({"operation":"documentSymbols","mainGoal":"t","reasoning":"t","path":uri,"workspaceRoot":workspace,"page":2,"pageSize":1});
+    let base = |uri: String, workspace: &str| serde_json::json!({"operation":"documentSymbols","path":uri,"workspaceRoot":workspace,"page":2});
     let mut absolute = query(base(
         root.join("src/a.ts").to_string_lossy().into_owned(),
         &root.to_string_lossy(),
@@ -272,7 +262,7 @@ fn resolved_symbol_receipt_shows_only_a_moved_anchor() {
     let named = query(serde_json::json!({
         "operation": "references", "path": uri, "symbolName": "foo", "line": 3
     }));
-    let column = serde_json::json!({"uri": uri, "foundAtCharacter": 5, "orderHint": 1});
+    let column = serde_json::json!({"uri": uri, "foundAtCharacter": 5, "occurrence": 1});
     let moved = serde_json::json!({"uri": uri, "foundAtCharacter": 5, "foundAtLine": 4, "lineDeviation": 1});
     assert_eq!(public_resolved_symbol(&named, Some(column), uri), None);
     assert_eq!(

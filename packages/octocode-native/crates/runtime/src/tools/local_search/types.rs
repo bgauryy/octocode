@@ -1,15 +1,6 @@
-pub(super) use octocode_engine::types::SearchContext;
 use serde::Serialize;
-use std::path::PathBuf;
-
-pub use octocode_contract_types::{
-    LocalSearchQuery, LocalSearchQueryCaseMode, LocalSearchQueryMultiline, LocalSearchQueryRegex,
-    LocalSearchQueryResultView, LocalSearchQuerySort, LocalSearchQueryUnique,
-};
 
 /// Characters that give a text a regex reading besides its literal one.
-pub(super) const REGEX_METACHARACTERS: [char; 11] =
-    ['.', '(', '|', '[', '*', '+', '?', '^', '$', '{', '\\'];
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SearchStatus {
@@ -51,16 +42,9 @@ pub struct SearchMatch {
     pub original_bytes: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_chars: Option<usize>,
-    /// The innermost declaration around the hit (its name, kind, name line
-    /// and last line: an lspSearch anchor and a localFetch span), on the
-    /// first row of this file inside it; later rows inside it carry
-    /// `enclosing_line` instead.
+    /// Complete declaration around this hit, usable on every response page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enclosing: Option<Enclosing>,
-    /// The name line of the declaration enclosing this hit: the `enclosing`
-    /// of the nearest earlier row of this file whose `enclosing.line` is it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub enclosing_line: Option<u32>,
     /// `true` on a row whose hit line declares a name (the lspSearch
     /// anchor among same-name hits); absent on every other row.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,7 +56,7 @@ pub struct SearchMatch {
 pub struct ItemPagination {
     /// Match-page position; a streamed page has no per-file match pages.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_page: Option<u32>,
+    pub page: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_pages: Option<u32>,
     /// Omitted on a streamed page where it equals the shown rows plus
@@ -178,7 +162,7 @@ pub struct FilePagination {
     /// streamed line pages; absent (items) for matchOnly span rows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit: Option<octocode_contract_types::OutputPaginationVariant0Unit>,
-    pub current_page: u32,
+    pub page: u32,
     /// The match page this file page shows, past the first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_page: Option<u32>,
@@ -208,7 +192,7 @@ pub struct LocalSearchResult {
     pub selection: Option<octocode_contract_types::Selection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub hints: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten, serialize_with = "crate::response::result::serialize_calls")]
     pub next: Option<serde_json::Value>,
     /// Some candidate content was not searched (unreadable paths, or a binary
     /// file cut at its first NUL) or is past a cursor maximum, so the returned
@@ -223,6 +207,4 @@ pub struct LocalSearchResult {
     pub skipped_paths: Option<octocode_contract_types::SkippedPaths>,
     #[serde(skip)]
     pub source_snapshot: Option<String>,
-    #[serde(skip)]
-    pub source_root: PathBuf,
 }

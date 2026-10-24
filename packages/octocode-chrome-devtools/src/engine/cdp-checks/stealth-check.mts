@@ -14,8 +14,10 @@ import { join } from 'path';
 const TARGET_URL =
   process.env.STEALTH_CHECK_URL ?? 'https://bot.sannysoft.com/';
 import { verifyStealth } from '../undercover.mjs';
+import type { Payload } from '../cdp-connection.mjs';
+import type { StealthSession } from '../stealth-session.mjs';
 
-export async function run(cdp) {
+export async function run(cdp: StealthSession) {
   await cdp.send('Page.enable', {});
   await cdp.send('Runtime.enable', {});
 
@@ -23,11 +25,10 @@ export async function run(cdp) {
     throw new Error('Use --stealth for this dedicated emulation check');
 
   console.log(`[STATUS] Navigating to ${TARGET_URL}`);
-  let loaded;
-  const onLoad = (_params, meta) => {
+  const { promise: load, resolve: loaded } = Promise.withResolvers<void>();
+  const onLoad = (_params: Payload, meta?: { sessionId?: string }) => {
     if (!meta?.sessionId) loaded();
   };
-  const load = new Promise(r => (loaded = r));
   cdp.on('Page.loadEventFired', onLoad);
   await cdp.send('Page.navigate', { url: TARGET_URL });
   await Promise.race([load, new Promise(r => setTimeout(r, 15000))]);

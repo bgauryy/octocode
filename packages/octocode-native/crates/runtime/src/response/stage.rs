@@ -29,6 +29,11 @@ pub(crate) struct StageInput {
     pub(crate) allow_auto_paging: bool,
 }
 
+pub(crate) struct Staged {
+    pub result: Result<ToolOutcome, ContractValidationError>,
+    pub next: Option<super::cursor::Cursor>,
+}
+
 /// The page-independent half of the stage: selection receipts, line
 /// numbers, output validation (row violations isolated, marking `failure`)
 /// and continuation shaping. Returns the remaining-notes the pager words.
@@ -51,7 +56,6 @@ fn settle_value(
 ) -> Result<Vec<Vec<super::result::Remaining>>, ContractValidationError> {
     crate::response::selection_errors::decorate(tool, structured, response_query);
     super::notices::place(structured, tool.output().rows_key());
-    super::channels::publish_hints(structured, tool);
     // The notes stay with the pager for the pages a split row moves.
     let remaining = super::pages::take_remaining_notes(structured);
     // Hosts show agents this JSON: source reads carry their line numbers in
@@ -63,7 +67,6 @@ fn settle_value(
     if isolate_output_rows(tool.as_str(), structured)? && failure.is_none() {
         *failure = Some(FailureKind::Execution);
     }
-    super::channels::lead_continuations(structured, tool);
     Ok(remaining)
 }
 
@@ -76,10 +79,10 @@ pub(crate) fn respond(
     remaining: Vec<Vec<super::result::Remaining>>,
     keep: Option<&mut Option<Sanitized>>,
     context: &ExecutionContext,
-) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
+) -> Result<Staged, ExecutionError> {
     let StageInput {
         tool,
-        mut structured,
+        structured,
         mut options,
         failure,
         auto_page_chars,
@@ -90,27 +93,18 @@ pub(crate) fn respond(
     if allow_auto_paging {
         options.auto_paginate(&structured, auto_page_chars);
     }
-    if options.scoped() {
-        if let Some(slot) = keep {
-            *slot = Some(structured.clone());
-        }
-        // A structured window hashes and slices serialized bytes, so
-        // transient telemetry leaves first (row pages keep per-call facts
-        // outside their snapshot; the pager handles both).
-        if !options.rows_scope() {
-            structured.edit(|structured| {
-                if let Some(envelope) = structured.as_object_mut() {
-                    super::pager::strip_transient_telemetry(envelope);
-                }
-            });
-        }
+    if options.scoped()
+        && let Some(slot) = keep
+    {
+        *slot = Some(structured.clone());
     }
     context.check()?;
-    let reshaped = options.rows_scope() || options.structured_scope();
+    let reshaped = options.rows_scope();
     let mut structured_content = structured;
+    let mut next = None;
     structured_content
         .edit(|structured| {
-            *structured = super::pager::prepare(
+            let prepared = super::pager::prepare(
                 ResponseInput {
                     tool: tool.as_str().into(),
                     structured: std::mem::take(structured),
@@ -119,17 +113,16 @@ pub(crate) fn respond(
                 },
                 &context.cancellation,
             )?;
+            *structured = prepared.value;
+            next = prepared.next;
             Ok(())
         })
         .map_err(response_failure)?;
     context.check()?;
-    Ok(finish(
-        tool,
-        structured_content,
-        reshaped,
-        failure,
-        all_failed,
-    ))
+    Ok(Staged {
+        result: finish(tool, structured_content, reshaped, failure, all_failed),
+        next,
+    })
 }
 
 /// A later page of a saved response: cut from `pages`, the memo built from
@@ -141,7 +134,7 @@ pub(crate) fn respond_saved(
     remaining: &[Vec<super::result::Remaining>],
     pages: &SavedPages,
     context: &ExecutionContext,
-) -> Result<Result<ToolOutcome, ContractValidationError>, ExecutionError> {
+) -> Result<Staged, ExecutionError> {
     let StageInput {
         tool,
         options,
@@ -150,10 +143,11 @@ pub(crate) fn respond_saved(
     } = input;
     let all_failed = response_all_failed(envelope);
     context.check()?;
-    let reshaped = options.rows_scope() || options.structured_scope();
+    let reshaped = options.rows_scope();
+    let mut next = None;
     let structured_content = envelope
         .cut(|envelope| {
-            super::pager::prepare_saved(
+            let prepared = super::pager::prepare_saved(
                 &ResponseInput {
                     tool: tool.as_str().into(),
                     structured: Value::Null,
@@ -163,17 +157,16 @@ pub(crate) fn respond_saved(
                 envelope,
                 pages,
                 &context.cancellation,
-            )
+            )?;
+            next = prepared.next;
+            Ok(prepared.value)
         })
         .map_err(response_failure)?;
     context.check()?;
-    Ok(finish(
-        tool,
-        structured_content,
-        reshaped,
-        failure,
-        all_failed,
-    ))
+    Ok(Staged {
+        result: finish(tool, structured_content, reshaped, failure, all_failed),
+        next,
+    })
 }
 
 /// The paged shape's contract check, then the outcome. Page shaping crosses
@@ -186,9 +179,7 @@ fn finish(
     failure: Option<FailureKind>,
     all_failed: bool,
 ) -> Result<ToolOutcome, ContractValidationError> {
-    let paged = reshaped
-        || structured_content.get("responsePagination").is_some()
-        || structured_content.get("responseWindow").is_some();
+    let paged = reshaped || structured_content.get("responsePagination").is_some();
     if paged {
         structured_content
             .edit(|structured| contracts::validate_output_in_place(tool.as_str(), structured))?;
@@ -203,9 +194,9 @@ fn finish(
 fn response_failure(error: ResponseError) -> ExecutionError {
     match error {
         ResponseError::Cancelled => ExecutionError::Cancelled,
-        ResponseError::StructuredContentMustBeObject | ResponseError::Unserializable => {
-            ExecutionError::WorkerFailed
-        }
+        ResponseError::StructuredContentMustBeObject
+        | ResponseError::Unserializable
+        | ResponseError::InvalidPage => ExecutionError::WorkerFailed,
     }
 }
 
@@ -226,19 +217,10 @@ pub(crate) fn isolate_output_rows(
 }
 
 pub(crate) fn response_all_failed(structured: &Value) -> bool {
-    if let Some(rows) = structured.get("results").and_then(Value::as_array) {
-        return rows.iter().all(|row| row["status"] == "error");
-    }
     structured
-        .get("queries")
+        .get("results")
         .and_then(Value::as_array)
-        .is_some_and(|queries| {
-            // A clasify row failed when it carries an error and no answers.
-            !queries.is_empty()
-                && queries
-                    .iter()
-                    .all(|query| query.get("error").is_some() && query.get("answers").is_none())
-        })
+        .is_some_and(|rows| !rows.is_empty() && rows.iter().all(|row| row["status"] == "error"))
 }
 
 #[cfg(test)]

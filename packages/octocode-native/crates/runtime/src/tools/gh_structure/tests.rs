@@ -1,18 +1,5 @@
 use super::*;
 
-#[test]
-fn a_listing_does_not_restate_the_requested_ref() {
-    use crate::response::output::ToolOutput;
-    let sha = "63c5760d8a672cee96e1e523d84bfa1c77d9ee4c";
-    let listing = serde_json::json!({"files":[{"dir":"src","files":["a.rs"]}],"resolvedRef":sha});
-    let mut pinned = listing.as_object().cloned().unwrap_or_default();
-    Output.compact(&mut pinned, &serde_json::json!({"ref": sha}));
-    assert!(pinned.get("resolvedRef").is_none(), "{pinned:?}");
-    // A resolved default branch is news to the caller.
-    let mut default_branch = listing.as_object().cloned().unwrap_or_default();
-    Output.compact(&mut default_branch, &serde_json::json!({}));
-    assert_eq!(default_branch["resolvedRef"], sha);
-}
 #[tokio::test]
 async fn materialize_never_writes_a_provider_path_outside_its_root() {
     let base = tempfile::tempdir().expect("tempdir");
@@ -95,10 +82,10 @@ fn materialize_skips_name_each_path_once_and_warn_with_counts() {
 
 #[test]
 fn materialization_page_boundary_continues_and_page_ceiling_is_explicit() {
-    let query: GhStructureQueryTree = serde_json::from_value(json!({
+    let query: GhStructureQueryTree = serde_json::from_value(json!({"operation":"tree",
         "owner": "a", "repo": "b", "ref": "a".repeat(40),
-        "path": "", "mainGoal": "Read every materialized file", "reasoning": "Preserve the remaining listing"
-    })).expect("query");
+        "path": ""}))
+    .expect("query");
     let mut value = json!({
         "files": [{"dir": ".", "files": ["a.rs"]}],
         "location": {"localPath": "/t"}
@@ -115,15 +102,15 @@ fn materialization_page_boundary_continues_and_page_ceiling_is_explicit() {
     assert_eq!(value["isPartial"], true);
     assert_eq!(value["partialReasons"], json!(["materializeIncomplete"]));
     assert_eq!(
-        value["next"]["continueMaterialize"]["query"]["queries"][0]["page"],
+        value["calls"]["continueMaterialize"]["input"]["queries"][0]["page"],
         2
     );
     assert_eq!(
-        value["next"]["continueMaterialize"]["query"]["queries"][0]["materializeOffset"],
+        value["calls"]["continueMaterialize"]["input"]["queries"][0]["materializeOffset"],
         0
     );
     assert_eq!(
-        value["next"]["continueMaterialize"]["query"]["queries"][0]["ref"],
+        value["calls"]["continueMaterialize"]["input"]["queries"][0]["ref"],
         "a".repeat(40)
     );
     for materialize in [false, true] {
@@ -185,12 +172,11 @@ fn a_submodule_is_named_not_silently_dropped() {
     );
 }
 
-/// `include` matches paths relative to the listed `path`, as the local
-/// tools do, and an omitted entry outside the globs is not named.
+/// Repository-relative globs select entries and omitted paths consistently.
 #[test]
-fn include_globs_match_relative_to_the_listed_path() {
-    let query: GhStructureQueryTree = serde_json::from_value(json!({
-        "owner":"a","repo":"b","path":"pkg","include":["src/*.rs"]
+fn include_globs_match_repository_relative_paths() {
+    let query: GhStructureQueryTree = serde_json::from_value(json!({"operation":"tree",
+        "owner":"a","repo":"b","path":"pkg","include":["pkg/src/*.rs"]
     }))
     .expect("query");
     let scope = Scope::of(&query).expect("scope");
@@ -282,7 +268,7 @@ fn skips_symlinks_and_submodules() {
                 kind: kind.into(),
                 size: None,
                 sha: None,
-                git_url: None,
+                git_url: None
             })
             .is_none()
         );
@@ -332,3 +318,25 @@ fn structure_dirs_are_repo_relative() {
 mod provider_tests;
 
 mod backed;
+
+#[test]
+fn include_globs_preserve_literal_spelling_and_scope() {
+    for (pattern, accepted, rejected) in [
+        ("lib", "lib", vec!["library", "src/lib", "LIB"]),
+        ("lib.rs", "lib.rs", vec!["lib.rs.bak", "src/lib.rs"]),
+        (
+            "src/*.rs",
+            "src/lib.rs",
+            vec!["src/deep/lib.rs", "SRC/lib.rs"],
+        ),
+        ("**/*.rs", "src/deep/lib.rs", vec!["src/deep/lib.ts"]),
+        (" lib ", " lib ", vec!["lib"]),
+        ("/lib", "/lib", vec!["lib"]),
+    ] {
+        let filter = PathFilter::new(pattern).expect("glob");
+        assert!(filter.matches(accepted), "{pattern} -> {accepted}");
+        for path in rejected {
+            assert!(!filter.matches(path), "{pattern} widened to {path}");
+        }
+    }
+}

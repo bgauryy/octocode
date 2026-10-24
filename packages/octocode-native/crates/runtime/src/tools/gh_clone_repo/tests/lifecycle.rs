@@ -352,7 +352,7 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
     let missing = clone_pinned(
         &fixture,
         &GhCloneRepoQuery {
-            path: Some(one("missing/path")),
+            paths: one("missing/path"),
             ..query()
         },
         &context,
@@ -364,7 +364,7 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
     // `path` exists at the root, so it lists the root at the commit.
     assert!(missing.hints.is_empty(), "{missing:?}");
     test_support::checks::assert_absent(&serde_json::json!(missing.message), "ghStructure");
-    let next = missing.next.as_deref().expect("recovery lead");
+    let next = missing.calls.as_deref().expect("recovery lead");
     assert_eq!(next["viewTree"]["tool"], "ghStructure", "{next}");
     assert!(Path::new(&tag.location.local_path).is_dir());
 }

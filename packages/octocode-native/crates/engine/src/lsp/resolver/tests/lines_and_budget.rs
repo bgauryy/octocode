@@ -152,9 +152,8 @@ fn oversized_position_source_returns_limit_instead_of_a_symbol() {
             order_hint: None,
         },
     );
-    let error = match result {
-        Err(error) => error,
-        Ok(_) => panic!("oversized source must be bounded"),
+    let Err(error) = result else {
+        panic!("oversized source must be bounded")
     };
     assert!(
         error.reason.contains("[lspSourceTooLarge]"),
@@ -176,9 +175,8 @@ fn expired_position_budget_does_not_fall_back_to_a_lexical_hit() {
             },
             std::time::Instant::now(),
         );
-        let error = match result {
-            Err(error) => error,
-            Ok(_) => panic!("expired analysis must fail"),
+        let Err(error) = result else {
+            panic!("expired analysis must fail")
         };
         assert!(error.reason.contains("[lspPositionTimeout]"));
     }

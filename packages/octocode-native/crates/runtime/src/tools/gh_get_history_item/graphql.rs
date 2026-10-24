@@ -7,8 +7,9 @@
 //! with per-collection completeness state.
 
 use super::window::{MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES};
-use super::{HistoryItemRequest, ItemOperation, Section};
+use super::{HistoryItemRequest, ItemOperation};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
+use crate::tools::gh_get_history_item::sections::Section;
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
 

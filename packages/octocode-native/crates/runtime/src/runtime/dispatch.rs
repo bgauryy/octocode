@@ -6,11 +6,12 @@ use crate::policy::path::PathPolicy;
 use crate::response::outcome::{DomainResult, Upstream};
 use crate::response::result::failure_kind;
 use crate::security::ContentSecurity;
-use crate::tools::ast_search::{AstSearchQuery, execute_ast};
-use crate::tools::local_search::{LocalSearchQuery, SearchStatus, execute_local_search};
-use crate::tools::source_view::LocalFetchQuery;
-use crate::tools::structure_search::{StructureSearchQuery, execute_structure};
-use octocode_contract_types::ErrorCode;
+use crate::tools::ast_search::execute_ast;
+use crate::tools::local_search::{SearchStatus, execute_local_search};
+use crate::tools::structure_search::execute_structure;
+use octocode_contract_types::{
+    AstSearchQuery, ErrorCode, LocalFetchQuery, LocalSearchQuery, StructureSearchQuery,
+};
 use octocode_io::retry::classify_status;
 use serde_json::Value;
 
@@ -81,14 +82,7 @@ pub(super) fn execute_local(
                 selection,
             );
             match result {
-                Ok(mut result) => {
-                    for file in &mut result.files {
-                        file.path = result
-                            .source_root
-                            .join(&file.path)
-                            .to_string_lossy()
-                            .into_owned();
-                    }
+                Ok(result) => {
                     let status = (result.status == SearchStatus::Empty).then_some("empty");
                     let source_digest = result.source_snapshot.clone();
                     let data =
@@ -185,10 +179,7 @@ pub(super) fn offer_retry(tool: ToolId, query: &Value, data: &mut Value) {
     if data["retryable"] != serde_json::json!(true) {
         return;
     }
-    let mut retry = crate::response::result::Continuation::new(tool, query.clone()).build();
-    if let Some(seconds) = data.pointer("/rateLimit/retryAfterSeconds").cloned() {
-        retry["retryAfterSeconds"] = seconds;
-    }
+    let retry = crate::response::result::Continuation::continued(tool, query.clone()).build();
     data["next"]["retry"] = retry;
 }
 

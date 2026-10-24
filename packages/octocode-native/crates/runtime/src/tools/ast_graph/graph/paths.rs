@@ -2,27 +2,27 @@
 use super::*;
 
 /// The directory of slash path `p`; `.` for a root-level file.
-pub(in super::super) fn dirname(p: &str) -> &str {
+pub(crate) fn dirname(p: &str) -> &str {
     p.rsplit_once('/').map_or(".", |(dir, _)| dir)
 }
 
 /// The directory of slash path `p`; the empty root for a root-level file
 /// (the form [`join_within_root`] and workspace keys use).
-pub(in super::super) fn parent(p: &str) -> &str {
+pub(crate) fn parent(p: &str) -> &str {
     p.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
-pub(in super::super) fn join(a: &str, b: &str) -> String {
+pub(crate) fn join(a: &str, b: &str) -> String {
     normalize(&format!("{a}/{b}"))
 }
 
-pub(in super::super) fn join_within_root(a: &str, b: &str) -> Option<String> {
+pub(crate) fn join_within_root(a: &str, b: &str) -> Option<String> {
     climb(Vec::new(), &format!("{a}/{b}")).map(|parts| parts.join("/"))
 }
 
 /// The relative `path` walked from `parts`; `None` when a `..` climbs above
 /// them or `path` is absolute.
-pub(in super::super) fn climb(mut parts: Vec<String>, path: &str) -> Option<Vec<String>> {
+pub(crate) fn climb(mut parts: Vec<String>, path: &str) -> Option<Vec<String>> {
     for component in Path::new(path).components() {
         match component {
             Component::CurDir => {}

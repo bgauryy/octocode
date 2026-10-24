@@ -10,8 +10,8 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
         "files":[{"path":"a","matches":matches.clone()},{"path":"b","matches":matches}]
     }}]});
     let options = ResponsePageOptions {
-        response_length: Some(2000),
-        response_scope: Some(crate::response::cursor::PageScope::Rows),
+        response_chars: Some(2000),
+        paging: true,
         ..Default::default()
     };
     let (first, pagination) = paginate_rows(
@@ -53,70 +53,8 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
         }
     }
     assert_eq!(seen, 400, "every match appears exactly once");
-    let stale = ResponsePageOptions {
-        response_offset: Some(1),
-        response_snapshot: Some("response-rows-v1:stale".into()),
-        ..options
-    };
-    let (_, restart) = paginate_rows(
-        structured.as_object().unwrap().clone(),
-        &stale,
-        Vec::new(),
-        &[],
-        None,
-    );
-    assert_eq!(restart.restart, Some(true));
-    assert_eq!(restart.next_char_offset, Some(0));
 }
 
-/// A rows-scope offset past the last page is a restart that names the
-/// page asked for ("page 51 of N"), not page 1, and says so in `warnings`.
-#[test]
-fn rows_offset_past_the_end_restarts_naming_the_requested_page() {
-    let matches = (1..=200)
-        .map(|line| json!({"line":line,"value":"x".repeat(40)}))
-        .collect::<Vec<_>>();
-    let structured = json!({"results":[{"index":0,"data":{
-        "files":[{"path":"a","matches":matches}]
-    }}]});
-    let options = ResponsePageOptions {
-        response_length: Some(2000),
-        response_scope: Some(crate::response::cursor::PageScope::Rows),
-        ..Default::default()
-    };
-    let (_, first) = paginate_rows(
-        structured.as_object().unwrap().clone(),
-        &options,
-        Vec::new(),
-        &[],
-        None,
-    );
-    let past = ResponsePageOptions {
-        response_offset: Some(50),
-        response_snapshot: Some(first.snapshot.clone()),
-        ..options
-    };
-    let (envelope, restart) = paginate_rows(
-        structured.as_object().unwrap().clone(),
-        &past,
-        Vec::new(),
-        &[],
-        None,
-    );
-    assert_eq!(restart.restart, Some(true));
-    assert_eq!(restart.current_page, 51, "the page asked for");
-    assert_eq!(restart.total_pages, first.total_pages);
-    let reason = format!("page 51 of {}", first.total_pages);
-    assert!(
-        envelope["warnings"].as_array().is_some_and(|w| w
-            .iter()
-            .any(|w| w.as_str().is_some_and(|w| w.contains(&reason)))),
-        "{envelope:?}"
-    );
-}
-
-/// A later slice of a split pull request names it (its required
-/// fields) and continues its comments; the long body rides part 1 once.
 #[test]
 fn later_slices_of_an_element_do_not_repeat_its_description() {
     let comments = (0..80)
@@ -128,8 +66,8 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
             "headSha":"h","comments":comments,"reviews":[{"author":"r","state":"approved"}]}]
     }}]});
     let options = ResponsePageOptions {
-        response_length: Some(3_000),
-        response_scope: Some(crate::response::cursor::PageScope::Rows),
+        response_chars: Some(3_000),
+        paging: true,
         ..Default::default()
     };
     let mut offset = 0;
@@ -187,8 +125,8 @@ fn rows_scope_never_repeats_a_second_large_array_per_fragment() {
     }}]});
     let full = structured.to_string();
     let options = ResponsePageOptions {
-        response_length: Some(6_000),
-        response_scope: Some(crate::response::cursor::PageScope::Rows),
+        response_chars: Some(6_000),
+        paging: true,
         ..Default::default()
     };
     let (_, first) = paginate_rows(
@@ -239,8 +177,8 @@ fn rows_scope_does_not_repeat_a_dominant_skeleton_per_item() {
         "files":[{"path":"a","matches":matches}]
     }}]});
     let options = ResponsePageOptions {
-        response_length: Some(600),
-        response_scope: Some(crate::response::cursor::PageScope::Rows),
+        response_chars: Some(600),
+        paging: true,
         ..Default::default()
     };
     let (first, pagination) = paginate_rows(

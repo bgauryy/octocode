@@ -2,8 +2,8 @@
 //! view, keeping offsets in raw-view coordinates.
 use super::{PAGE_SCAN_MARGIN_BYTES, Page, advance_lines};
 use crate::security::scan::ContentScan;
+use crate::tools::source_view::Pagination;
 use crate::tools::source_view::extraction::line_count;
-use crate::tools::source_view::types::Pagination;
 use octocode_contract_types::ErrorCode;
 use octocode_engine::security::REDACTION_PREFIX;
 

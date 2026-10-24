@@ -51,22 +51,10 @@ pub(super) fn binding(
 ) -> String {
     let mut selected = query.clone();
     if let Some(map) = selected.as_object_mut() {
-        for field in [
-            "snapshot",
-            "selection",
-            "page",
-            "matchPage",
-            "pageSize",
-            "matchPageSize",
-            "offset",
-            "length",
-            "unit",
-            "fullContent",
-            "extras",
-            "path",
-        ] {
+        for field in super::progress_fields() {
             map.remove(field);
         }
+        map.remove("path");
     }
     crate::digest::json_sha256(&octocode_engine::digest::canonical_json(
         json!({
@@ -115,12 +103,7 @@ pub(super) fn select_scoped(
 ) -> Result<Outcome, Failure> {
     let finish = |plan: Plan, usage: &ClassificationUsage| {
         let mut outcome = plan.finish();
-        if query["extras"]
-            .as_array()
-            .is_some_and(|extras| extras.iter().any(|extra| extra == "stats"))
-        {
-            outcome.receipt.usage = Some(usage.output());
-        }
+        outcome.receipt.usage = Some(usage.output());
         outcome
     };
     let mut usage = ClassificationUsage::default();
@@ -207,8 +190,8 @@ pub(super) fn select_scoped(
     let Some(runtime) = runtime else {
         return Ok(finish(plan, &usage));
     };
-    let context = &query["clasifyContext"];
-    let classifiers = context["classifiers"]
+    let context = &query["classification"];
+    let predicates = context["predicates"]
         .as_array()
         .filter(|v| !v.is_empty())
         .ok_or(Failure::Stale)?
@@ -222,9 +205,8 @@ pub(super) fn select_scoped(
         usage: &mut usage,
         candidates,
         admitted: &admitted,
-        classifiers: &classifiers,
-        main_goal: query["mainGoal"].as_str(),
-        reasoning: query["reasoning"].as_str(),
+        predicates: &predicates,
+        research_context: context["context"].as_str(),
         long_context: context["longContext"].as_bool().unwrap_or(false),
         limits: runtime.limits,
         handle: &runtime.handle,

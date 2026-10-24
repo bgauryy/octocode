@@ -20,10 +20,14 @@ pub(super) const GRACEFUL_EXIT_TIMEOUT_MS: u64 = 2_000;
 /// servers after `env_clear()`. Deliberately excludes everything octocode-
 /// specific or credential-bearing (OCTOCODE_*, GITHUB_TOKEN, AWS_*, …). PATH is
 /// required to resolve/launch servers; HOME (and its Windows equivalents) lets
-/// servers find their per-user caches/toolchains (e.g. rust-analyzer → ~/.cargo).
+/// servers find their per-user caches/toolchains. Rust's explicit toolchain
+/// homes and selection must match discovery even when HOME is isolated.
 /// Any additional environment must be requested explicitly via the server config.
 pub(super) const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
+    "RUSTUP_HOME",
+    "CARGO_HOME",
+    "RUSTUP_TOOLCHAIN",
     "HOME",
     "USERPROFILE",
     "HOMEDRIVE",

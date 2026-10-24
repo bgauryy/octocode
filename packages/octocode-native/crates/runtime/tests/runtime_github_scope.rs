@@ -34,14 +34,9 @@ async fn mount_pull_request(server: &MockServer) {
         .await;
 }
 
-fn reviews_query(diagnostics: bool) -> Value {
-    let extras = if diagnostics {
-        json!(["diagnostics"])
-    } else {
-        json!([])
-    };
+fn reviews_query() -> Value {
     json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7,
-        "sections":["body","reviews"], "extras": extras})
+        "sections":["body","reviews"]})
 }
 
 /// A GraphQL document GitHub rejects falls back to REST with the cause in
@@ -57,7 +52,7 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
             "extensions": {"code": "undefinedField", "typeName": "PullRequest"},
             "message": "Field 'isMerged' doesn't exist on type 'PullRequest'"
         }]})))
-        .expect(2)
+        .expect(1)
         .mount(&rejected)
         .await;
     mount_pull_request(&rejected).await;
@@ -73,7 +68,7 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&github_api(&rejected));
-    let outcome = call(&runtime, "ghGetHistoryItem", reviews_query(true))
+    let outcome = call(&runtime, "ghGetHistoryItem", reviews_query())
         .await
         .expect("REST fallback");
     let data = row_data(&outcome);
@@ -83,14 +78,6 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
     let rest_reviews = data["pullRequests"][0]["reviews"].clone();
     assert_eq!(rest_reviews[0]["id"], "11", "{data}");
     assert_eq!(rest_reviews[1]["id"], "12", "{data}");
-    let quiet = call(&runtime, "ghGetHistoryItem", reviews_query(false))
-        .await
-        .expect("REST fallback without diagnostics");
-    assert!(
-        row_data(&quiet).get("graphqlFallback").is_none(),
-        "{}",
-        row_data(&quiet)
-    );
     runtime.close().await;
 
     let served = MockServer::builder().start().await;
@@ -117,7 +104,7 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
         .mount(&served)
         .await;
     let runtime = workspace.runtime(&github_api(&served));
-    let outcome = call(&runtime, "ghGetHistoryItem", reviews_query(true))
+    let outcome = call(&runtime, "ghGetHistoryItem", reviews_query())
         .await
         .expect("GraphQL read");
     let data = row_data(&outcome);
@@ -166,7 +153,7 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42, "extras": []}),
+        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
     )
     .await
     .expect("issue read");
@@ -190,9 +177,7 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
         "{data}"
     );
     assert!(
-        crate::support::checks::hint(data, "readPullRequest")
-            .get("confidence")
-            .is_none(),
+        data["next"]["readPullRequest"].get("confidence").is_none(),
         "leads carry no confidence: {data}"
     );
     runtime.close().await;
@@ -230,7 +215,7 @@ async fn archived_pull_request_listing_enforces_the_filter() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "qualifiers": "archived:true", "pageSize": 1}),
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "filters":{"archive":"only"}}),
     )
     .await
     .expect("archived listing");
@@ -251,9 +236,9 @@ async fn archived_pull_request_listing_enforces_the_filter() {
 }
 
 /// A non-empty code-search page GitHub marks incomplete keeps its partial
-/// coverage in default (no extras) output.
+/// coverage beside the returned evidence.
 #[tokio::test]
-async fn incomplete_code_search_page_is_partial_without_extras() {
+async fn incomplete_code_search_page_discloses_partial_coverage() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
@@ -271,7 +256,7 @@ async fn incomplete_code_search_page_is_partial_without_extras() {
     let outcome = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner": "a", "keywords": ["app"], "matchIn": "path", "extras": []}),
+        json!({"owner": "a", "keywords": ["app"], "matchIn": ["path"]}),
     )
     .await
     .expect("code search");

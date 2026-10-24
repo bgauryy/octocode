@@ -26,49 +26,52 @@ async fn the_text_lead_reads_misses_inside_the_anchor_file() {
     let user_path = package.join("src/user.rs").to_string_lossy().into_owned();
     let policy = crate::tools::test_support::workspace_policy(&root);
     let root_text = root.to_string_lossy().into_owned();
-    let lead_paths = |covered: Vec<u32>| {
-        let scope = Scope::new(root_text.clone(), vec!["*.rs".into()]);
-        let (lib_path, user_path, root_text, policy) = (
-            lib_path.clone(),
-            user_path.clone(),
-            root_text.clone(),
-            &policy,
-        );
-        async move {
-            scope
-                .text_files(
-                    "include_diff",
-                    policy,
-                    &crate::execution::cancel::NeverCancel,
-                )
-                .await
-                .expect("scan");
-            scope.answer([lib_path.clone()]);
-            scope.answer_anchor_lines(&lib_path, 1, covered);
-            let mut row = json!({"kind":"references","matches":[{"path":"pkg/src/lib.rs"}]});
-            annotate(
-                &mut row,
-                &query(json!({"path": lib_path, "operation": "references",
-                    "symbolName": "include_diff", "line": 2})),
-                Some("rust"),
-                Server {
-                    anchor: &lib_path,
-                    root: &root_text,
-                },
-                &scope,
+    let lead_paths =
+        |covered: Vec<u32>| {
+            let scope = Scope::new(root_text.clone(), vec!["*.rs".into()]);
+            let (lib_path, user_path, root_text, policy) = (
+                lib_path.clone(),
+                user_path.clone(),
+                root_text.clone(),
+                &policy,
             );
-            assert_eq!(row["coverage"]["textOnlyFiles"], 1, "{row}");
-            let mut paths = row["next"]["findText"]["query"]["queries"]
-                .as_array()
-                .expect("lead rows")
-                .iter()
-                .map(|search| search["path"].as_str().expect("path").to_owned())
-                .collect::<Vec<_>>();
-            paths.sort();
-            assert!(paths.contains(&user_path), "{row}");
-            paths
-        }
-    };
+            async move {
+                scope
+                    .text_files(
+                        "include_diff",
+                        policy,
+                        &crate::execution::cancel::NeverCancel,
+                    )
+                    .await
+                    .expect("scan");
+                scope.answer([lib_path.clone()]);
+                scope.answer_anchor_lines(&lib_path, 1, covered);
+                let mut row = json!({"kind":"references","matches":[{"path":"pkg/src/lib.rs"}]});
+                annotate(
+                    &mut row,
+                    &query(json!({"path": lib_path, "operation": "references",
+                    "symbolName": "include_diff", "line": 2})),
+                    Some("rust"),
+                    Server {
+                        anchor: &lib_path,
+                        root: &root_text,
+                    },
+                    &scope,
+                );
+                assert_eq!(row["coverage"]["textOnlyFiles"], 1, "{row}");
+                let mut paths =
+                    crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)
+                        ["input"]["queries"]
+                        .as_array()
+                        .expect("lead rows")
+                        .iter()
+                        .map(|search| search["path"].as_str().expect("path").to_owned())
+                        .collect::<Vec<_>>();
+                paths.sort();
+                assert!(paths.contains(&user_path), "{row}");
+                paths
+            }
+        };
     // Line 3 (zero-based 2) uses the name; the answer lists only the
     // declaration.
     let missed = lead_paths(vec![1]).await;
@@ -150,7 +153,14 @@ async fn shared_module_files_flag_the_unanswered_copy() {
         }),
         "{missed}"
     );
-    assert!(missed["next"].get("findText").is_some(), "{missed}");
+    assert!(
+        missed["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "localSearch"),
+        "{missed}"
+    );
     let complete = row_for(vec![support_path.clone(), path(&test), path(&bench)]).await;
     assert!(complete.get("isPartial").is_none(), "{complete}");
     assert_eq!(complete["coverage"]["textOnlyFiles"], 0, "{complete}");

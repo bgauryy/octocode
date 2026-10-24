@@ -161,8 +161,9 @@ async fn repeated_repository_and_history_searches_are_cache_hits() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let repo = json!({"keywords": ["ripgrep"], "pageSize": 5});
-    let history = json!({"operation": "pullRequest", "owner": "a", "repo": "b", "state": "merged"});
+    let repo = json!({"operation":"search","keywords": ["ripgrep"]});
+    let history =
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "filters":{"isMerged":true}});
     let mut first = Vec::new();
     for (tool, query) in [("ghSearchRepo", &repo), ("ghSearchHistory", &history)] {
         let outcome = call(&runtime, tool, query.clone()).await.unwrap();

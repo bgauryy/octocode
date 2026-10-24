@@ -13,30 +13,32 @@ fn unfinished_patch_pages_open_with_a_per_file_summary() {
         json!({"filename":"README.md","status":"renamed","additions":1,"deletions":0,"sha":"3",
                "previous_filename":"OLD.md","patch":"@@ -1 +1,2 @@\n x\n+y"}),
     ];
-    let summary = |fields: Value| {
+    let summary = |fields: Value, budget: Option<usize>| {
         let mut row = json!({});
         let mut pagination = Map::new();
+        let mut query = patch_request(fields);
+        query.auto_page_chars = budget;
         shape_pr_files(
             &mut row,
             &mut pagination,
             files.clone(),
             WindowState::COMPLETE,
-            &patch_request(fields),
+            &query,
             true,
             None,
         );
         row.get("fileSummary").cloned()
     };
     assert_eq!(
-        summary(json!({"length":20})),
+        summary(json!({}), Some(50)),
         Some(json!([
             {"src/": ["M +2 -1 2 hunks a.rs", "A +900 -0 !tooLarge b.rs"]},
             "R +1 -0 1 hunk README.md <- OLD.md"
         ]))
     );
-    assert_eq!(summary(json!({})), None);
+    assert_eq!(summary(json!({}), None), None);
     // A continuation window does not repeat it.
-    assert_eq!(summary(json!({"offset":5,"length":20})), None);
+    assert_eq!(summary(json!({"offset":5}), Some(50)), None);
 }
 
 /// (PR microsoft/TypeScript#51387 file page 6 at a 40k page): a

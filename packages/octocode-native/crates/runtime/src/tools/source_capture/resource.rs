@@ -1,5 +1,5 @@
 //! Complete authorized text for source-coordinate planning, before redaction.
-use super::{ClassificationError, ExecutionContext, SourceReader, ToolId, failure};
+use super::{ClassificationError, ExecutionContext, SourceReader, ToolId};
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::ops::Range;
@@ -24,7 +24,7 @@ pub(crate) fn acquisition_key(
         .as_str()
         .and_then(ToolId::from_name)
         .ok_or_else(|| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::InvalidClassificationContext,
                 "The source reader is invalid.",
                 "Use an authorized text reader.",
@@ -43,9 +43,6 @@ pub(crate) fn acquisition_key(
     }
     if let Some(query) = query.as_object_mut() {
         query.remove("ranges");
-        query.remove("fullContent");
-        query.remove("mainGoal");
-        query.remove("reasoning");
     }
     Ok(crate::digest::json_sha256(
         &json!({"tool":tool.as_str(),"query":query}),
@@ -86,14 +83,14 @@ pub(crate) fn capture(
         .and_then(ToolId::from_name)
         .filter(|tool| matches!(tool, ToolId::LocalFetch | ToolId::GhGetFileContent))
         .ok_or_else(|| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::InvalidClassificationContext,
                 "A resource must name an authorized text reader or HTTPS URL.",
                 "Use localFetch, ghGetFileContent, or url.",
             )
         })?;
     if !dispatcher.availability().is_available(tool.as_str()) {
-        return Err(failure(
+        return Err(ClassificationError::new(
             ErrorCode::ClassificationContextUnavailable,
             "The resource reader is disabled in this runtime.",
             "Enable the reader before assessing this source.",
@@ -105,7 +102,7 @@ pub(crate) fn capture(
             let (text, canonical, snapshot) = dispatcher
                 .capture_local_text(&query, context)
                 .map_err(|error| local_recovery(error, &query, dispatcher))?;
-            let check = json!({"tool":"localFetch","query":{"path":query["path"],"snapshot":snapshot,"fullContent":true},"canonical":canonical});
+            let check = json!({"tool":"localFetch","query":{"path":query["path"],"snapshot":snapshot},"canonical":canonical});
             (text, canonical, snapshot, Some(check))
         }
         ToolId::GhGetFileContent => {
@@ -120,14 +117,14 @@ pub(crate) fn capture(
             ) {
                 Ok(decoded) => decoded.text.into_owned(),
                 Err(octocode_engine::text::Refusal::Binary) => {
-                    return Err(failure(
+                    return Err(ClassificationError::new(
                         ErrorCode::ClassificationContextUnavailable,
                         "Section assessment requires text; this resource is binary.",
                         "Use an explicit image asset for image questions.",
                     ));
                 }
                 Err(octocode_engine::text::Refusal::NotUnicode) => {
-                    return Err(failure(
+                    return Err(ClassificationError::new(
                         ErrorCode::ClassificationContextUnavailable,
                         "The source is not valid UTF-8 text (or BOM-marked UTF-16); no sections were inferred.",
                         "Use a text representation with known encoding.",
@@ -142,7 +139,7 @@ pub(crate) fn capture(
             )
         }
         _ => {
-            return Err(failure(
+            return Err(ClassificationError::new(
                 ErrorCode::InvalidClassificationContext,
                 "The resource reader is unsupported.",
                 "Use localFetch, ghGetFileContent, or url.",
@@ -195,7 +192,7 @@ pub(crate) fn validate_local(
         .capture_local_text(&query, context)
         .map_err(|mut error| {
             if error.code == ErrorCode::InvalidClassificationContext {
-                return failure(
+                return ClassificationError::new(
                     ErrorCode::ClassificationContextUnavailable,
                     "The retained local source identity is invalid.",
                     "Start a fresh sections request.",
@@ -210,7 +207,7 @@ pub(crate) fn validate_local(
             if source["canonical"] == json!(canonical) {
                 Ok(())
             } else {
-                Err(failure(ErrorCode::SourceMismatch, "The original local source locator now resolves to a different file; no new inference ran.", "Start a fresh sections request to assess the changed source."))
+                Err(ClassificationError::new(ErrorCode::SourceMismatch, "The original local source locator now resolves to a different file; no new inference ran.", "Start a fresh sections request to assess the changed source."))
             }
         })
 }
@@ -235,16 +232,23 @@ pub(crate) fn selected_ranges(
     }));
     let mut selected = Vec::new();
     for range in requested {
-        let (start, end): (usize, usize) = range
-            .as_str()
-            .and_then(crate::tools::line_spans::parse_span)
-            .ok_or_else(|| {
-                failure(
-                    ErrorCode::InvalidClassificationContext,
-                    "The source contains an invalid line range.",
-                    "Use the reader's canonical ranges field.",
-                )
-            })?;
+        let (start, end): (usize, usize) =
+            serde_json::from_value::<octocode_contract_types::SourceLineRange>(range.clone())
+                .ok()
+                .map(|range| {
+                    (
+                        crate::num::usize_of(range.start_line.get()),
+                        crate::num::usize_of(range.end_line.get()),
+                    )
+                })
+                .filter(|(start, end)| start <= end)
+                .ok_or_else(|| {
+                    ClassificationError::new(
+                        ErrorCode::InvalidClassificationContext,
+                        "The source contains an invalid line range.",
+                        "Use the reader's canonical ranges field.",
+                    )
+                })?;
         if let Some(&start_byte) = starts.get(start.saturating_sub(1)) {
             let end_byte = starts.get(end).copied().unwrap_or(text.len());
             if start_byte < end_byte {
@@ -264,10 +268,10 @@ pub(crate) fn selected_ranges(
         }
     }
     if merged.is_empty() && !text.is_empty() {
-        return Err(failure(
+        return Err(ClassificationError::new(
             ErrorCode::ClassificationContextEmpty,
             "The requested resource ranges select no text.",
-            "Check the source ranges or use fullContent.",
+            "Check the source ranges or omit them to select the complete text.",
         ));
     }
     Ok(merged)
@@ -281,7 +285,7 @@ mod tests {
     fn selected_ranges_merge_overlap_without_repeating_or_inventing_bytes() {
         let text = "α\r\n🙂\n三\nlast";
         let ranges =
-            selected_ranges(text, &json!({"ranges":["3-4","1-1","3-3"]})).expect("valid ranges");
+            selected_ranges(text, &json!({"ranges":[{"startLine":3,"endLine":4},{"startLine":1,"endLine":1},{"startLine":3,"endLine":3}]})).expect("valid ranges");
         assert_eq!(ranges, vec![0..4, 9..text.len()]);
         assert_eq!(
             ranges
@@ -302,24 +306,45 @@ mod tests {
             assert_eq!(selected_ranges("a\nb", &query).unwrap(), vec![0..3]);
             assert!(selected_ranges("", &query).unwrap().is_empty());
         }
-        assert!(spans("", json!(["1-1"])).is_empty());
+        assert!(spans("", json!([{"startLine":1,"endLine":1}])).is_empty());
     }
 
     #[test]
     fn adjacent_ranges_join_and_an_end_past_the_text_is_clamped() {
-        assert_eq!(spans("a\nb\nc", json!(["1-1", "2-2"])), vec![0..4]);
-        assert_eq!(spans("a\nb\nc", json!(["3-3", "1-1"])), vec![0..2, 4..5]);
-        assert_eq!(spans("a\nb\nc", json!(["2-99"])), vec![2..5]);
+        assert_eq!(
+            spans(
+                "a\nb\nc",
+                json!([{"startLine":1,"endLine":1}, {"startLine":2,"endLine":2}])
+            ),
+            vec![0..4]
+        );
+        assert_eq!(
+            spans(
+                "a\nb\nc",
+                json!([{"startLine":3,"endLine":3}, {"startLine":1,"endLine":1}])
+            ),
+            vec![0..2, 4..5]
+        );
+        assert_eq!(
+            spans("a\nb\nc", json!([{"startLine":2,"endLine":99}])),
+            vec![2..5]
+        );
     }
 
     #[test]
     fn ranges_that_select_no_text_are_an_error_not_an_empty_success() {
         // A final newline ends line 2; it does not start a line 3.
-        for ranges in [json!(["3-3"]), json!(["9-12"])] {
+        for ranges in [
+            json!([{"startLine":3,"endLine":3}]),
+            json!([{"startLine":9,"endLine":12}]),
+        ] {
             let error = selected_ranges("a\nb\n", &json!({ "ranges": ranges })).unwrap_err();
             assert_eq!(error.code, ErrorCode::ClassificationContextEmpty);
         }
-        assert_eq!(spans("a\nb\n", json!(["2-3"])), vec![2..4]);
+        assert_eq!(
+            spans("a\nb\n", json!([{"startLine":2,"endLine":3}])),
+            vec![2..4]
+        );
     }
 
     #[test]
@@ -343,7 +368,7 @@ mod tests {
             metadata: json!({"status": "ready", "snapshot": snapshot}),
             local_check: None,
         };
-        let local = json!({"tool":"localFetch","query":{"path":"a.rs","fullContent":true}});
+        let local = json!({"tool":"localFetch","query":{"path":"a.rs"}});
         let metadata = selection_metadata(&captured, &local);
         assert_eq!(metadata["status"], "ready");
         assert_eq!(metadata["source"], local);

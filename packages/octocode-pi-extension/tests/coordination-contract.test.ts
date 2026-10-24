@@ -6,7 +6,7 @@ import { CASE_FOLDING_UNICODE_VERSION } from '../src/team/casefold-table.generat
 import { foldComponent, keysOverlap, leaseKey, type LeaseKind } from '../src/team/lease-key.js';
 import { pathKey, TeamStore } from '../src/team/store.js';
 import type { Member } from '../src/team/model.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 /**
  * The reservation rules Pi's team shares with the octocode-agents-communication package. The vectors live in
@@ -28,8 +28,7 @@ afterEach(() => {
 });
 
 function open() {
-  const cwd = tmp();
-  fs.mkdirSync(path.join(cwd, '.git'));
+  const cwd = repo();
   const store = TeamStore.open(cwd, path.join(tmp(), 'team.sqlite'), {});
   stores.push(store);
   for (const id of ['one', 'two']) store.save({ id, role: id, pid: process.pid, status: 'idle', joinedAt: 1_000, updatedAt: Date.now(), toolCalls: 0, input: 0, cacheRead: 0, output: 0, cost: 0, unpriced: false } as Member);

@@ -1,8 +1,8 @@
 //! The NuGet service index: the official endpoint each resource kind is served from.
+use super::super::ArtifactError;
 use super::super::http::{JSON, RegistryClient};
 use super::super::util::{object_for, parse_url, rows};
-use super::super::{ArtifactError, ArtifactType};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ArtifactType, ErrorCode};
 use serde_json::Value;
 use url::Url;
 

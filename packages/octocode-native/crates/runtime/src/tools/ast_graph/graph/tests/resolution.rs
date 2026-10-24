@@ -1,6 +1,7 @@
 //! Import resolution: Python packages, JS/TS extensions and aliases, C
 //! include directories.
 use super::*;
+use crate::tools::test_support::Fixture;
 
 #[test]
 fn python_parent_imports_climb_the_declared_number_of_packages() {

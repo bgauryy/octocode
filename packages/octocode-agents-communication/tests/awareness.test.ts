@@ -8,6 +8,7 @@ import { binary, tempWorkspace, jsonCall } from './helpers.ts';
 import { boundTool, type BoundTool } from './helpers.ts';
 import { registerBoundTools } from '../dist/hosts/pi-extension.js';
 import type { JsonRecord } from './json-record.ts';
+const { hostHooks: { HOST_CONTEXT_LIMIT } } = await import('../dist/runtime.js');
 
 function fixture(t: TestContext) {
   const workspace = tempWorkspace(t, 'communication-awareness-'), database = join(workspace, 'db.sqlite');
@@ -78,7 +79,7 @@ test('Pi re-executions reuse host call IDs, including across bridge registration
 test('bounded directory updates give a continuation and signal changes outside the first page', t => {
   const f=fixture(t);f.hook('sessionStart');
   for(let i=0;i<20;i++) f.call('join',{name:`peer-${i}`,vendor:'generic',task:'x'.repeat(256)});
-  const context=f.hook().additional_context;assert.ok(context.length<9000);assert.ok(context.includes('"next"'));
+  const context=f.hook().additional_context;assert.ok(Buffer.byteLength(context)<=HOST_CONTEXT_LIMIT);assert.ok(context.includes('"next"'));
   const peers=f.call('peers',{}).items.filter((x: JsonRecord)=>x.vendor==='generic');
   f.call('heartbeat',{task:'Changed outside first page'},peers.at(-1).id);
   const changed=f.hook().additional_context;assert.ok(changed.includes('"refresh"'));assert.deepEqual(f.hook(),{});

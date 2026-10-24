@@ -119,7 +119,7 @@ async fn admitted_sections_are_judged_concurrently_and_all_answer() {
     );
     let out = sections(
         &runtime,
-        json!({"file":{"tool":"localFetch","query":{"path":"four.rs","fullContent":true}}}),
+        json!({"file":{"tool":"localFetch","query":{"path":"four.rs"}}}),
     )
     .await;
     let file = &out["resources"]["file"];

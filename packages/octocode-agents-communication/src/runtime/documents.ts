@@ -1,13 +1,13 @@
 /** Immutable workspace documents and bounded, scoped context discovery. */
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, constants, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, unlinkSync, writeSync } from 'node:fs';
 import { isAbsolute, join, normalize } from 'node:path';
 import * as catalog from './catalog.js';
 import { query, readTransaction, rowInteger, rowOptionalText, rowText, transaction } from './database.js';
 import type { CommandResults, ContextInput, DocumentData, ReadDocumentInput, ShareDocumentInput } from './catalog-types.generated.js';
 import { leaseKind } from './rows.js';
 import { ValidationError } from './errors.js';
-import { overlap, resolvePath } from './paths.js';
+import { isFile, lexists, overlap, resolvePath } from './paths.js';
 import { append } from './records.js';
 import { isWithin, relativePath, type StoreHost } from './store-types.js';
 import { isBlank } from './text.js';
@@ -18,23 +18,6 @@ import { compact, decodeUtf8, dumps } from './json-text.js';
 const MAX_BYTES = 1024 * 1024;
 const CONTEXT_SCAN = 200;
 const NAME = /^[a-z0-9][a-z0-9._-]{0,127}$/;
-
-function lexists(path: string): boolean {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
 
 function scopePath(workspace: string, path: string): string {
   const resolved = resolvePath(workspace, path);

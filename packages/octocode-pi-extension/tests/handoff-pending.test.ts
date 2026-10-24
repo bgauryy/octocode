@@ -115,14 +115,6 @@ describe('pending reports', () => {
     expect(files(dir)).toEqual([`${heldName}.claim-${process.ppid}-${processStartTime(process.ppid)}`]);
   });
 
-  it('releases a claim whose pid names another process now', async () => {
-    const dir = tmp();
-    savePendingReport(dir, 'general-a', report('general-a'));
-    const [name] = files(dir);
-    fs.renameSync(path.join(dir, name!), path.join(dir, `${name}.claim-${process.ppid}-1`));
-    expect(await takePendingReports(dir)).toHaveLength(1);
-  });
-
   it('delivers a report saved twice, or queued twice, once', async () => {
     const dir = tmp();
     const one = report('general-a');

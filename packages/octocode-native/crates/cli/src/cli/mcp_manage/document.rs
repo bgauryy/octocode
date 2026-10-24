@@ -182,7 +182,7 @@ pub(super) fn render_toml(
     if next.is_none()
         && expected
             .pointer("/mcp_servers")
-            .is_some_and(|value| value.as_object().is_some_and(|object| object.is_empty()))
+            .is_some_and(|value| value.as_object().is_some_and(serde_json::Map::is_empty))
         && parse_document(ConfigFormat::Toml, &rendered)?
             .get("mcp_servers")
             .is_none()

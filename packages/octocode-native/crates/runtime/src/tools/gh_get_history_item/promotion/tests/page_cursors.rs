@@ -7,7 +7,7 @@ use super::*;
 #[test]
 fn a_cut_comment_body_continues_with_offset_on_its_comment_page() {
     let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"a","repo":"b","number":1,
+        "operation":"pullRequest","owner":"a","repo":"b","number":1,
         "sections":["body","comments"],"page":2
     }))
     .expect("pr query");
@@ -15,7 +15,7 @@ fn a_cut_comment_body_continues_with_offset_on_its_comment_page() {
         "commentBody":{"hasMore":true,"nextOffset":500}
     }}]});
     promote_pr_continuations(&mut out, &query, &Remainder::default());
-    let next = &out["next"]["continueCommentBody"]["query"]["queries"][0];
+    let next = &out["calls"]["continueCommentBody"]["input"]["queries"][0];
     assert_eq!(next["offset"], 500, "{out}");
     assert_eq!(next["page"], 2, "{out}");
     assert_eq!(next["sections"], json!(["comments"]), "{next}");
@@ -29,8 +29,8 @@ fn a_cut_comment_body_continues_with_offset_on_its_comment_page() {
 fn compare_pages_are_offered_once_with_their_own_cursor_only() {
     let compare = |fields: Value| {
         HistoryItemRequest::from_row(crate::tools::gh_get_history_item::util::merge(
-            json!({"operation":"compare","owner":"a","repo":"b","base":"x","head":"y",
-                "sections":["patches"],"length":5000}),
+            json!({"operation":"compare","owner":"a","repo":"b","baseRef":"x","headRef":"y",
+                "sections":["patches"]}),
             fields,
         ))
         .expect("compare query")
@@ -38,8 +38,8 @@ fn compare_pages_are_offered_once_with_their_own_cursor_only() {
     let mut first = json!({
         "commits":[{"sha":"1"}],
         "files":[{"path":"a.rs","patch":"x"}],
-        "contentPagination":{"commits":{"currentPage":1,"hasMore":true,"nextPage":2},
-            "files":{"currentPage":1,"hasMore":true,"nextPage":2}}
+        "contentPagination":{"commits":{"page":1,"hasMore":true,"nextPage":2},
+            "files":{"page":1,"hasMore":true,"nextPage":2}}
     });
     let cursors = DiffCursors {
         commit_page: Some(2),
@@ -52,20 +52,20 @@ fn compare_pages_are_offered_once_with_their_own_cursor_only() {
         None,
         cursors,
     );
-    let next = first["next"].as_object().expect("next");
+    let next = first["calls"].as_object().expect("next");
     assert!(next.get("nextFilePage").is_none(), "{first}");
-    let commits = &first["next"]["nextPage"]["query"]["queries"][0];
+    let commits = &first["calls"]["nextPage"]["input"]["queries"][0];
     for key in ["page", "offset", "length"] {
         assert!(commits.get(key).is_none(), "{key}: {commits}");
     }
     assert_eq!(
-        first["next"]["continuePatch"]["query"]["queries"][0]["offset"],
+        first["calls"]["continuePatch"]["input"]["queries"][0]["offset"],
         5000
     );
 
     let mut last = json!({
         "files":[{"path":"b.rs","patch":"y"}],
-        "contentPagination":{"files":{"currentPage":1,"hasMore":true,"nextPage":2}}
+        "contentPagination":{"files":{"page":1,"hasMore":true,"nextPage":2}}
     });
     let cursors = DiffCursors::of_file_page(&mut last["contentPagination"]["files"], None, true);
     attach_diff_continuations(
@@ -75,11 +75,11 @@ fn compare_pages_are_offered_once_with_their_own_cursor_only() {
         None,
         cursors,
     );
-    let names = last["next"]
+    let names = last["calls"]
         .as_object()
         .map(|next| next.keys().cloned().collect::<Vec<_>>());
     assert_eq!(names, Some(vec!["nextFilePage".to_owned()]), "{last}");
-    let files = &last["next"]["nextFilePage"]["query"]["queries"][0];
+    let files = &last["calls"]["nextFilePage"]["input"]["queries"][0];
     assert_eq!(files["page"], 2, "{files}");
     assert!(files.get("offset").is_none(), "{files}");
 }
@@ -89,7 +89,7 @@ fn char_offset_continuations_narrow_content_to_their_own_surface() {
     // `offset` is one shared field: continuing the body must not skew
     // review bodies or patches by the body offset (and vice versa).
     let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","number":5,
+        "operation":"pullRequest", "owner":"o","repo":"r","number":5,
         "sections":["body","patches","comments","reviews"],
         "offset":0
     }))
@@ -101,26 +101,26 @@ fn char_offset_continuations_narrow_content_to_their_own_surface() {
         "comments":{"hasMore":true,"nextPage":2}
     }}]});
     promote_pr_continuations(&mut out, &query, &Remainder::default());
-    let next = &out["next"];
+    let next = &out["calls"];
     assert_eq!(
-        next["continueBody"]["query"]["queries"][0]["sections"],
+        next["continueBody"]["input"]["queries"][0]["sections"],
         json!(["body"])
     );
-    assert_eq!(next["continueBody"]["query"]["queries"][0]["offset"], 12000);
+    assert_eq!(next["continueBody"]["input"]["queries"][0]["offset"], 12000);
     assert_eq!(
-        next["continueReviewBody"]["query"]["queries"][0]["sections"],
+        next["continueReviewBody"]["input"]["queries"][0]["sections"],
         json!(["reviews"])
     );
     assert_eq!(
-        next["continuePatch"]["query"]["queries"][0]["sections"],
+        next["continuePatch"]["input"]["queries"][0]["sections"],
         json!(["patches"])
     );
     assert!(
-        next["continuePatch"]["query"]["queries"][0]
+        next["continuePatch"]["input"]["queries"][0]
             .get("content")
             .is_none()
     );
-    let comments = &next["nextCommentPage"]["query"]["queries"][0];
+    let comments = &next["nextCommentPage"]["input"]["queries"][0];
     assert!(comments.get("offset").is_none(), "{comments}");
     assert_eq!(comments["page"], 2);
 }
@@ -138,10 +138,10 @@ fn issue_pages_use_the_published_include_spelling() {
         "comments":{"hasMore":true,"nextPage":2}
     }}]});
     promote_issue_continuations(&mut out, &query, &Remainder::default());
-    let body = &out["next"]["continueBody"]["query"]["queries"][0];
+    let body = &out["calls"]["continueBody"]["input"]["queries"][0];
     assert_eq!(body["sections"], json!(["body"]), "{out}");
     assert!(body.get("content").is_none(), "{out}");
-    let comments = &out["next"]["nextCommentPage"]["query"]["queries"][0];
+    let comments = &out["calls"]["nextCommentPage"]["input"]["queries"][0];
     assert_eq!(comments["sections"], json!(["comments"]), "{out}");
     assert!(comments.get("content").is_none(), "{out}");
 }
@@ -163,7 +163,7 @@ fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
             "files":{"hasMore":true,"nextPage":2}
         }}]});
         promote_pr_continuations(&mut out, query, &Remainder::default());
-        out["next"]["nextFilePage"]["query"]["queries"][0].clone()
+        out["calls"]["nextFilePage"]["input"]["queries"][0].clone()
     };
     let pr = |fields: Value| {
         crate::tools::gh_get_history_item::util::merge(
@@ -192,28 +192,29 @@ fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
 
     let compare = |page: u64, share: usize| {
         let query = request(
-            json!({"operation":"compare","owner":"a","repo":"b","base":"x","head":"y","page":page}),
+            json!({"operation":"compare","owner":"a","repo":"b","baseRef":"x","headRef":"y","page":page}),
             share,
         );
         let mut out = json!({"files":["M +1 -1 a.rs"],
-            "contentPagination":{"files":{"currentPage":page,"hasMore":true,"nextPage":page + 1}}});
+            "contentPagination":{"files":{"page":page,"hasMore":true,"nextPage":page + 1}}});
         let cursors = DiffCursors::of_file_page(&mut out["contentPagination"]["files"], None, true);
         attach_diff_continuations(&mut out, &query, ItemOperation::Compare, None, cursors);
         out
     };
     let out = compare(2, 10_000);
-    let files = &out["next"]["nextFilePage"]["query"]["queries"][0];
+    let files = &out["calls"]["nextFilePage"]["input"]["queries"][0];
     assert_eq!(
         (&files["page"], &files["pageSize"]),
         (&json!(3), &json!(166)),
         "{out}"
     );
-    // Inventory page 2 (files 166..332) starts on patch page 2 (100..200).
-    let patches = &out["next"]["readPatches"]["query"]["queries"][0];
-    assert_eq!(patches["page"], 2, "{out}");
+    // Optional patches start a fresh request; the inventory page grid is private.
+    let patches = &out["calls"]["readPatches"]["input"]["queries"][0];
+    assert!(patches.get("page").is_none(), "{out}");
+    assert_eq!(out["calls"]["readPatches"]["kind"], "related");
     assert!(patches.get("pageSize").is_none(), "{out}");
     let first = compare(1, 10_000);
-    let patches = &first["next"]["readPatches"]["query"]["queries"][0];
+    let patches = &first["calls"]["readPatches"]["input"]["queries"][0];
     assert!(patches.get("page").is_none(), "{first}");
 }
 
@@ -230,16 +231,16 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
     .expect("query");
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "body":{"offset":0,"length":10,"total":30,"hasMore":true,"nextOffset":10},
-        "files":{"currentPage":1,"hasMore":true,"nextPage":2}
+        "files":{"page":1,"hasMore":true,"nextPage":2}
     }}]});
     promote_pr_continuations(&mut out, &pr, &Remainder::default());
     assert!(out.get("isPartial").is_none(), "{out}");
     assert_eq!(
-        out["next"]["nextFilePage"]["query"]["queries"][0]["page"],
+        out["calls"]["nextFilePage"]["input"]["queries"][0]["page"],
         2
     );
     assert_eq!(
-        out["next"]["continueBody"]["query"]["queries"][0]["offset"],
+        out["calls"]["continueBody"]["input"]["queries"][0]["offset"],
         10
     );
     let pages = &out["pullRequests"][0]["contentPagination"];
@@ -248,23 +249,23 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
     assert_eq!(pages["files"]["hasMore"], true, "{out}");
     // More to read and no cursor: nothing reaches it.
     let mut out = json!({"pullRequests":[{"contentPagination":{
-        "files":{"currentPage":1,"hasMore":true}
+        "files":{"page":1,"hasMore":true}
     }}]});
     promote_pr_continuations(&mut out, &pr, &Remainder::default());
     assert_eq!(out["isPartial"], true, "{out}");
-    assert!(out.get("next").is_none(), "{out}");
+    assert!(out.get("calls").is_none(), "{out}");
 
     let issue = HistoryItemRequest::from_row(json!({
         "operation":"issue","owner":"a","repo":"b","number":1,"sections":["comments"]
     }))
     .expect("query");
     let mut out = json!({"issues":[{"contentPagination":{
-        "comments":{"currentPage":1,"hasMore":true,"nextPage":2}
+        "comments":{"page":1,"hasMore":true,"nextPage":2}
     }}]});
     promote_issue_continuations(&mut out, &issue, &Remainder::default());
     assert!(out.get("isPartial").is_none(), "{out}");
     assert_eq!(
-        out["next"]["nextCommentPage"]["query"]["queries"][0]["page"],
+        out["calls"]["nextCommentPage"]["input"]["queries"][0]["page"],
         2
     );
     assert!(

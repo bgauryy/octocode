@@ -11,12 +11,10 @@ use std::time::Duration;
 async fn a_page_past_the_paging_range_is_rejected_before_provider_work() {
     let dead = Instant::now() - Duration::from_secs(1);
     let run = |page: u64| {
-        let query = json!({
+        let query = json!({"operation":"search",
             "ecosystem": "npm",
             "keywords": ["http"],
-            "page": page,
-            "mainGoal": "test", "reasoning": "test",
-        });
+            "page": page});
         async move {
             execute(typed(&query), call(dead, false))
                 .await
@@ -34,29 +32,33 @@ async fn a_page_past_the_paging_range_is_rejected_before_provider_work() {
 #[tokio::test]
 async fn a_page_past_the_paging_range_repairs_to_the_last_reachable_page() {
     let dead = Instant::now() - Duration::from_secs(1);
-    let query = json!({"ecosystem":"npm","keywords":["schema","validation"],
-        "page":200,"pageSize":100});
+    let query = json!({"operation":"search","ecosystem":"npm","keywords":["schema","validation"],
+        "page":300});
     let error = execute(typed(&query), call(dead, false))
         .await
         .expect_err("past the paging range");
     assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
     assert!(
-        error.message.contains("page 200 starts past result 5000"),
+        error.message.contains("page 300 starts past result 5000"),
         "{error:?}"
     );
-    let next = error.next.expect("a repair lead");
-    assert_eq!(next.as_object().map(|next| next.len()), Some(1), "{next}");
-    let row = &next["repair"]["query"]["queries"][0];
+    let next = error.calls.expect("a repair lead");
+    assert_eq!(
+        next.as_object().map(serde_json::Map::len),
+        Some(1),
+        "{next}"
+    );
+    let row = &next["repair"]["input"]["queries"][0];
     assert_eq!(
         row,
-        &json!({"ecosystem":"npm","keywords":["schema","validation"],
-            "page":51,"pageSize":100}),
+        &json!({"operation":"search","ecosystem":"npm","keywords":["schema","validation"],
+            "page":251}),
         "{next}"
     );
     let mut last = typed(&query);
-    artifact_search_query::set_page(&mut last, 51);
+    artifact_search_query::set_page(&mut last, 251);
     assert!(page_out_of_range(&last).is_none());
-    artifact_search_query::set_page(&mut last, 52);
+    artifact_search_query::set_page(&mut last, 252);
     assert!(page_out_of_range(&last).is_some());
 }
 
@@ -64,27 +66,8 @@ async fn a_page_past_the_paging_range_repairs_to_the_last_reachable_page() {
 /// page sizes, the contract's `page` maximum at small ones.
 #[test]
 fn the_last_reachable_page_follows_the_page_size() {
-    for (ecosystem, page_size, last) in [
-        ("npm", 100, 51),
-        ("npm", 10, 501),
-        ("npm", 1, 1000),
-        // Central serves the rows of one start-0 answer only.
-        ("maven", 100, 1),
-        ("maven", 20, 5),
-        ("maven", 30, 4),
-        ("maven", 1, 100),
-        // NuGet serves `skip <= 3000` with `take <= 1000`: rows end at 4,000.
-        ("nuget", 100, 40),
-        ("nuget", 30, 134),
-        ("nuget", 7, 572),
-        ("nuget", 1, 1000),
-        // crates.io serves relevance results below 1,000.
-        ("crates", 100, 10),
-        ("crates", 30, 34),
-        ("crates", 1, 1000),
-    ] {
-        let query = typed(&json!({"ecosystem":ecosystem,"keywords":["x"],
-            "pageSize":page_size}));
-        assert_eq!(last_reachable_page(&query), last, "{ecosystem} {page_size}");
+    for (ecosystem, last) in [("npm", 251), ("maven", 5), ("nuget", 200), ("crates", 50)] {
+        let query = typed(&json!({"operation":"search","ecosystem":ecosystem,"keywords":["x"]}));
+        assert_eq!(last_reachable_page(&query), last, "{ecosystem}");
     }
 }

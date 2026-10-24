@@ -23,14 +23,14 @@ fn strip_features(content: &str) -> String {
                 continue;
             }
             if c == q {
-                quote = None
+                quote = None;
             }
             i += 1;
             continue;
         }
         if c == '/' && next == Some('/') {
             while i < chars.len() && chars[i] != '\n' {
-                i += 1
+                i += 1;
             }
             continue;
         }
@@ -41,7 +41,7 @@ fn strip_features(content: &str) -> String {
                     i += 2;
                     break;
                 }
-                i += 1
+                i += 1;
             }
             continue;
         }
@@ -62,7 +62,7 @@ fn strip_features(content: &str) -> String {
                 continue;
             }
             if c == q {
-                quote = None
+                quote = None;
             }
             i += 1;
             continue;
@@ -76,7 +76,7 @@ fn strip_features(content: &str) -> String {
         if c == ',' {
             let mut j = i + 1;
             while j < chars.len() && chars[j].is_whitespace() {
-                j += 1
+                j += 1;
             }
             if j < chars.len() && (chars[j] == '}' || chars[j] == ']') {
                 i += 1;
@@ -84,7 +84,7 @@ fn strip_features(content: &str) -> String {
             }
         }
         clean.push(c);
-        i += 1
+        i += 1;
     }
     clean
 }

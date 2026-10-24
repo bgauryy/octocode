@@ -13,24 +13,15 @@ pub(super) fn max_listing_depth() -> usize {
     crate::contracts::query_schema_max(ToolId::GhStructure, None, "maxDepth")
 }
 
-/// One `include` glob: a case-insensitive glob over paths relative to the
-/// listed `path`. Without a `/` it matches entry names at any depth; a bare
-/// word (no glob metacharacters) matches names containing it.
+/// One `include` glob over repository-relative paths, matched as authored.
 pub(super) struct PathFilter {
     pub(super) matcher: globset::GlobMatcher,
-    pub(super) by_name: bool,
 }
 
 impl PathFilter {
     pub(super) fn new(pattern: &str) -> Result<Self, ProviderError> {
-        // The shared `include` coercion: a bare word matches names containing
-        // it; anything else is a glob as written.
-        let glob = crate::policy::include::include_glob(pattern.trim().trim_start_matches('/'));
-        let pattern = glob.as_str();
-        let by_name = !pattern.contains('/');
         let matcher = globset::GlobBuilder::new(pattern)
             .literal_separator(true)
-            .case_insensitive(true)
             .build()
             .map_err(|error| {
                 ProviderError::new(
@@ -39,16 +30,11 @@ impl PathFilter {
                 )
             })?
             .compile_matcher();
-        Ok(Self { matcher, by_name })
+        Ok(Self { matcher })
     }
 
     pub(super) fn matches(&self, path: &str) -> bool {
-        if self.by_name {
-            self.matcher
-                .is_match(path.rsplit('/').next().unwrap_or(path))
-        } else {
-            self.matcher.is_match(path)
-        }
+        self.matcher.is_match(path)
     }
 }
 

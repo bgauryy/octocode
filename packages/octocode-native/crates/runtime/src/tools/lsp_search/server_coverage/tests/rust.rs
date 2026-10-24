@@ -37,7 +37,9 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
         "{row}"
     );
     assert!(row.get("warnings").is_none(), "{row}");
-    let rerun = &row["next"]["expandFeatures"]["query"]["queries"][0];
+    let rerun = &crate::tools::test_support::checks::related_call(&row, "lspSearch", |input| {
+        input["queries"][0]["rustContext"]["features"] == "all"
+    })["input"]["queries"][0];
     assert_eq!(rerun["rustContext"]["features"], "all", "{row}");
     assert_eq!(rerun["symbolName"], "spawn_blocking", "{row}");
     // A later page of the same walk keeps the reason; the rerun lead
@@ -63,7 +65,15 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
             &scope,
         );
         assert_eq!(page["partialReasons"], json!([CFG_REASON]), "{page}");
-        assert!(page.pointer("/next/expandFeatures").is_none(), "{page}");
+        assert!(
+            !page["related"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|call| call["tool"] == "lspSearch"
+                    && call["input"]["queries"][0]["rustContext"]["features"] == "all"),
+            "{page}"
+        );
     }
     // An all-features run is not flagged again.
     let mut all = json!({"kind":"references","matches":[]});
@@ -109,8 +119,20 @@ fn all_features_run_flags_negated_feature_gates() {
         &scope,
     );
     assert_eq!(row["partialReasons"], json!([CFG_NEGATED_REASON]), "{row}");
-    assert_eq!(row["next"]["findText"]["tool"], "localSearch", "{row}");
-    assert!(row["next"].get("expandFeatures").is_none(), "{row}");
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)["tool"],
+        "localSearch",
+        "{row}"
+    );
+    assert!(
+        !row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["rustContext"]["features"] == "all"),
+        "{row}"
+    );
     assert!(has_negated_feature_gate(
         "#[cfg(all(unix, not( feature = \"x\")))]"
     ));

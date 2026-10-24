@@ -89,10 +89,7 @@ async fn picked_keys_survive_the_implied_drop() {
         }]}),
     )
     .await;
-    let query = serde_json::from_value(json!({
-        "operation":"pullRequest","owner":"o","repo":"r","keywords":["x"],
-        "state":"merged","fields":["state","createdAt"]
-    }))
+    let query = serde_json::from_value(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["x"],"fields":["state","createdAt"],"filters":{"isMerged":true}}))
     .expect("query");
     let data = execute(
         &one_shot_provider(&server),
@@ -131,7 +128,10 @@ async fn since_until_reach_the_request_of_every_operation() {
         Mock::given(method("GET"))
             .and(path(route))
             .and(query_param_contains("q", scope))
-            .and(query_param_contains("q", "created:2026-10-01..2026-10-03"))
+            .and(query_param_contains(
+                "q",
+                "created:2026-10-01T00:00:00Z..2026-10-03T23:59:59Z",
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(empty.clone()))
             .expect(1)
             .mount(&server)
@@ -141,7 +141,7 @@ async fn since_until_reach_the_request_of_every_operation() {
         .and(path("/api/v3/search/commits"))
         .and(query_param_contains(
             "q",
-            "committer-date:2026-10-01..2026-10-03",
+            "committer-date:2026-10-01T00:00:00Z..2026-10-03T23:59:59Z",
         ))
         .respond_with(ResponseTemplate::new(200).set_body_json(empty.clone()))
         .expect(1)
@@ -149,7 +149,7 @@ async fn since_until_reach_the_request_of_every_operation() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/commits"))
-        .and(query_param("since", "2026-10-01"))
+        .and(query_param("since", "2026-10-01T00:00:00Z"))
         .and(query_param("until", "2026-10-03T23:59:59Z"))
         .and(query_param("path", "src"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
@@ -161,11 +161,15 @@ async fn since_until_reach_the_request_of_every_operation() {
         json!({"operation":"pullRequest","owner":"o","repo":"r"}),
         json!({"operation":"issue","owner":"o","repo":"r"}),
         json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix"]}),
-        json!({"operation":"commit","owner":"o","repo":"r","path":"src"}),
+        json!({"operation":"commit","owner":"o","repo":"r","pathPrefix":"src"}),
     ] {
         let mut row = row;
-        row["since"] = json!("2026-10-01");
-        row["until"] = json!("2026-10-03");
+        let range = json!({"from":"2026-10-01T00:00:00Z","to":"2026-10-03T23:59:59Z"});
+        row["filters"] = if row["operation"] == "commit" {
+            json!({"committedAt":range})
+        } else {
+            json!({"createdAt":{"include":[range]}})
+        };
         let query = serde_json::from_value(row.clone()).expect("query");
         let data = execute(&provider, &query, &default_context(), &Passthrough)
             .await
@@ -174,11 +178,15 @@ async fn since_until_reach_the_request_of_every_operation() {
         // An empty window states no static note; the broadened search
         // without the window is the per-call repair.
         assert!(data.get("warnings").is_none(), "{row}: {data}");
-        let broader = &data["next"]["broadenSearch"]["query"]["queries"];
+        let broader = &crate::tools::test_support::checks::related_call(
+            &data,
+            "ghSearchHistory",
+            |_| true,
+        )["input"]["queries"];
         assert!(
             broader
                 .as_array()
-                .is_some_and(|rows| rows.iter().any(|row| row.get("since").is_none())),
+                .is_some_and(|rows| rows.iter().any(|row| row.get("filters").is_none())),
             "{row}: {data}"
         );
     }

@@ -9,7 +9,7 @@ use crate::graph::{GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphFa
 use crate::signatures::js_oxc_shared::SpanPositions;
 
 use super::module_facts::collect_module_facts;
-use super::{DocumentSymbol, LocalExports, kind};
+use super::{DocumentSymbol, LocalExports, TYPE_ALIAS_KIND};
 
 /// Declarations (with export names, doc lines, and containment edges) plus
 /// the import and export facts of a parsed module, from its `symbols`.
@@ -182,7 +182,7 @@ fn flatten_symbols(
 /// of [`DECLARATION_KINDS`](crate::signatures::DECLARATION_KINDS), else
 /// `symbol`.
 pub(super) fn symbol_kind_name(kind: u8) -> &'static str {
-    if kind == kind::TYPE_ALIAS {
+    if kind == TYPE_ALIAS_KIND {
         return "type";
     }
     crate::lsp::symbol_kind::name(u64::from(kind))

@@ -306,5 +306,5 @@ pub(super) struct Document<'a, 't> {
     pub(super) content: &'a str,
     pub(super) deadline: Instant,
     pub(super) root: Node<'t>,
-    pub(super) line_index: &'a crate::text::utf8_offsets::LineIndex,
+    pub(super) line_index: &'a crate::text::LineIndex,
 }

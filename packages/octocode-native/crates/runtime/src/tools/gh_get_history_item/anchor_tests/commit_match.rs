@@ -19,7 +19,7 @@ async fn commit_match_string_without_sections_reads_its_patches() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":"new"}),
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["new"]}),
     )
     .await;
     let files = out["files"].as_array().expect("files");
@@ -55,7 +55,7 @@ async fn commit_match_string_that_removes_every_file_says_so() {
     let out = read(
         &server,
         json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,
-            "include":["src/"],"matchString":"zzqx"}),
+            "include":["src/**"],"matchString":["zzqx"]}),
     )
     .await;
     assert_eq!(out["files"], json!([]), "{out}");
@@ -67,17 +67,20 @@ async fn commit_match_string_that_removes_every_file_says_so() {
         "{out}"
     );
     assert!(warnings.contains("drop matchString"), "{out}");
-    let lead = &out["next"]["withoutMatchString"];
+    let lead =
+        crate::tools::test_support::checks::related_call(&out, "ghGetHistoryItem", |input| {
+            input["queries"][0].get("matchString").is_none()
+        });
     assert_eq!(lead["tool"], "ghGetHistoryItem", "{out}");
-    let query = &lead["query"]["queries"][0];
+    let query = &lead["input"]["queries"][0];
     assert!(query.get("matchString").is_none(), "{query}");
-    assert_eq!(query["include"], json!(["src/"]), "{query}");
+    assert_eq!(query["include"], json!(["src/**"]), "{query}");
     assert_eq!(query["ref"], HEAD, "{query}");
     assert_eq!(query["sections"], json!(["files"]), "{query}");
 
     let out = read(
         &server,
-        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":"url_for"}),
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["url_for"]}),
     )
     .await;
     let files = out["files"].as_array().expect("files");
@@ -112,7 +115,7 @@ async fn commit_match_string_drops_path_only_hits_and_counts_them() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":"NEW"}),
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["NEW"],"caseMode":"insensitive"}),
     )
     .await;
     let files = out["files"].as_array().expect("files");
@@ -163,13 +166,13 @@ async fn commit_and_compare_match_pages_are_pages_of_hits() {
     .await;
     for row in [
         json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD}),
-        json!({"operation":"compare","owner":"o","repo":"r","base":BASE,"head":HEAD,
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
             "sections":["patches"]}),
     ] {
         let mut paths = Vec::new();
         for page in [1, 2] {
             let mut query = row.clone();
-            query["matchString"] = json!("new");
+            query["matchString"] = json!(["new"]);
             query["pageSize"] = json!(1);
             query["page"] = json!(page);
             let out = read(&server, query).await;
@@ -206,7 +209,7 @@ async fn commit_match_string_lists_patchless_files_as_unsearched() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":"new"}),
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["new"]}),
     )
     .await;
     let paths = out["files"]
@@ -228,16 +231,16 @@ async fn commit_match_string_lists_patchless_files_as_unsearched() {
     );
     assert_eq!(out["isPartial"], true, "{out}");
     assert_eq!(out["partialReasons"], json!(["patchUnavailable"]), "{out}");
-    let search = &out["next"]["searchUnpatchedFile"]["query"]["queries"][0];
+    let search = &out["next"]["searchUnpatchedFile"]["input"]["queries"][0];
     assert_eq!(search["path"], "src/big.rs", "{out}");
     assert_eq!(search["ref"], HEAD, "{out}");
-    assert_eq!(search["matchString"], "new", "{out}");
+    assert_eq!(search["matchString"], json!(["new"]), "{out}");
 
     // A literal no searched patch holds, beside an unsearched file, is no
     // empty answer: the unsearched file may hold it.
     let out = read(
         &server,
-        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":"zzqx"}),
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["zzqx"]}),
     )
     .await;
     assert_eq!(out["files"], json!([]), "{out}");

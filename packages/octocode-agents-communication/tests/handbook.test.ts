@@ -69,5 +69,5 @@ test('referenced examples communicate and search from a standalone copied skill'
   call('unlock', { leaseId: leased.lease.id }, author);
   call('leave', {}, recipient); call('leave', {}, author);
   assert.equal(call('peers').items.length, 0);
-  assert.ok(sent);
+  assert.equal(sent.recipients, 1);
 });

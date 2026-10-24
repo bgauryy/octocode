@@ -8,7 +8,7 @@
 //! fed by the walk's admission ledger (`policy::discovery::WalkAdmission`).
 
 use crate::id::ToolId;
-use crate::response::result::{CURSOR_FIELDS, Continuation, ToolError, query_row};
+use crate::response::result::{Continuation, ToolError, query_row};
 use crate::tools::empty_walk::{Cause, Verdict, lift};
 use octocode_contract_types::{ErrorCode, SkippedPath, SkippedPathCause, SkippedPaths};
 use serde_json::Value;
@@ -51,11 +51,6 @@ pub(crate) fn under<'a>(
         let path = path.strip_suffix('/').unwrap_or(path);
         SkippedEntry::path(root.join(path).to_string_lossy().into_owned(), cause)
     })
-}
-
-/// `extras:["details"]` lists every path behind a grouped skip entry.
-pub(crate) fn every_path(extras: &[octocode_contract_types::ExtraKind]) -> bool {
-    extras.contains(&octocode_contract_types::ExtraKind::Details)
 }
 
 /// A walk's skip cause as `skippedPaths` names it.
@@ -170,7 +165,7 @@ pub(crate) fn skipped_paths(
 
 /// `entries` first seen first, one per cause and rule: its first path with
 /// `count` when more sit behind it, or with `every_path`
-/// (`extras:["details"]`) each path on its own. `sampled` when entries were
+/// each path on its own. `sampled` when entries were
 /// collapsed or the walk did not finish (`incomplete`). A result stored with
 /// every path is shown either way through this. `None` when empty.
 pub(crate) fn grouped(
@@ -252,15 +247,7 @@ pub(crate) fn disclose(
                     subject[usize::from(found.count != 1)],
                 )
             };
-            // The rules and entries by name, or by cause when naming them
-            // would outgrow one hint's guidance budget (`skippedPaths` and
-            // the lead keep them).
-            let named = say(&diagnosis.because());
-            let text = if named.chars().count() <= crate::response::rows::MAX_GUIDANCE_CHARS {
-                named
-            } else {
-                say(&diagnosis.labels())
-            };
+            let text = say(&diagnosis.because());
             Some(Disclosure {
                 causes: diagnosis.causes().to_vec(),
                 text,
@@ -281,16 +268,22 @@ pub(crate) fn disclose(
 /// The `includeSkipped` lead: `query` as a fresh first call (no cursor
 /// field) with exactly `causes` lifted.
 pub(crate) fn lead(tool: ToolId, query: &impl serde::Serialize, causes: &[Cause]) -> Value {
-    let mut row = query_row(query, &CURSOR_FIELDS);
+    let mut row = query_row(
+        query,
+        &crate::contracts::state_fields(tool)
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    );
     lift(&mut row, causes);
-    Continuation::new(tool, row).build()
+    Continuation::related(tool, row).build()
 }
 
-/// Place `disclosure` on a result `out` whose `next`, `hints` and `warnings`
-/// are JSON: the lead under `next.includeSkipped`, the sentence as a hint,
+/// Place `disclosure` on an internal result: the explicit related call in
+/// its call bundle, the sentence as a hint,
 /// or, for a cut check, as a warning with the result marked partial.
 pub(crate) fn attach(out: &mut Value, disclosure: &Disclosure, lead: Value) {
-    out["next"]["includeSkipped"] = lead;
+    out["calls"]["includeSkipped"] = lead;
     if disclosure.unchecked {
         crate::response::paging::mark_partial(
             out,
@@ -382,7 +375,8 @@ mod tests {
                 .expect("warning")
                 .contains("unproven")
         );
-        let row = &out["next"]["includeSkipped"]["query"]["queries"][0];
+        assert_eq!(out["calls"]["includeSkipped"]["kind"], "related");
+        let row = &out["calls"]["includeSkipped"]["input"]["queries"][0];
         assert_eq!(row["includeIgnored"], true, "{row}");
         assert_eq!(row["defaultExcludes"], false, "{row}");
         assert!(

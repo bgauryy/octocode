@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn merged_pull_requests_offer_no_merge_commit_read_beside_the_shown_sha() {
     let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"o","repo":"r","number":5
+        "operation":"pullRequest", "owner":"o","repo":"r","number":5
     }))
     .expect("pr query");
     for raw in [
@@ -26,7 +26,7 @@ fn merged_pull_requests_offer_no_merge_commit_read_beside_the_shown_sha() {
 #[test]
 fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
     let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"cli","repo":"cli","number":14429
+        "operation":"pullRequest","owner":"cli","repo":"cli","number":14429
     }))
     .expect("pr query");
     let merged = json!({"merged_at":"2026-09-11T15:55:40Z","merge_commit_sha":"8fcd6a6"});
@@ -59,11 +59,12 @@ fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
     ];
     let all = |_: &Value| true;
     let read = read_at_merge(&query, &merged, &files, all).expect("offer");
+    assert_eq!(read["kind"], "related", "{read}");
     assert_eq!(read["tool"], "ghGetFileContent");
     // The diff numbers `headSha`; the merge commit is searched
     // for one distinctive added line per hunk, never read by number.
     assert_eq!(
-        read["query"],
+        read["input"],
         json!({"queries":[{"owner":"cli","repo":"cli","ref":"8fcd6a6",
             "path":"pkg/cmd/pr/merge/merge.go",
             "matchString":["crossRepoPR:        pr.IsCrossRepository,"]}]})
@@ -71,7 +72,7 @@ fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
     // An `include` read offers only a file it selected.
     let view = |file: &Value| file["filename"] == "pkg/cmd/pr/view.go";
     let read = read_at_merge(&query, &merged, &files, view).expect("selected offer");
-    assert_eq!(read["query"]["queries"][0]["path"], "pkg/cmd/pr/view.go");
+    assert_eq!(read["input"]["queries"][0]["path"], "pkg/cmd/pr/view.go");
     let docs = |file: &Value| {
         file["filename"]
             .as_str()
@@ -90,7 +91,7 @@ fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
     let short = [file("a.go", 1, 0, "@@ -1 +1 @@\n+\tok := true")];
     let read = read_at_merge(&query, &merged, &short, all).expect("short offer");
     assert_eq!(
-        read["query"]["queries"][0]["matchString"],
+        read["input"]["queries"][0]["matchString"],
         json!(["ok := true"])
     );
     // Docs and tests are not the shipped fix: no code file, no offer.
@@ -131,12 +132,12 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     let names = reads.iter().map(|(name, _)| *name).collect::<Vec<_>>();
     assert_eq!(names, ["readAtCommit", "readParent"]);
     assert_eq!(
-        reads[0].1["query"],
+        reads[0].1["input"],
         json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"c0ffee"}]})
     );
     assert_eq!(
-        reads[1].1["query"],
-        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":["30-52"]}]})
+        reads[1].1["input"],
+        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":[{"startLine": 30, "endLine": 52}]}]})
     );
     // A rename reads its parent under the old path; an added file has
     // no parent side, a removed one no new side.
@@ -144,7 +145,7 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     renamed["status"] = json!("renamed");
     renamed["previous_filename"] = json!("src/old.rs");
     let reads = change_reads("o", "r", &[renamed], &sides, |_| true);
-    assert_eq!(reads[1].1["query"]["queries"][0]["path"], "src/old.rs");
+    assert_eq!(reads[1].1["input"]["queries"][0]["path"], "src/old.rs");
     let added = file("src/new.rs", "added", "@@ -0,0 +1,2 @@\n+x\n+y");
     let reads = change_reads("o", "r", &[added], &sides, |_| true);
     assert_eq!(
@@ -157,7 +158,10 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
         reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
         ["readParent"]
     );
-    assert_eq!(reads[0].1["query"]["queries"][0]["ranges"], json!(["1-2"]));
+    assert_eq!(
+        reads[0].1["input"]["queries"][0]["ranges"],
+        json!([{"startLine":1,"endLine":2}])
+    );
     // Without a parent ref only the new side is offered.
     let no_parent = ChangeSides {
         old_ref: None,

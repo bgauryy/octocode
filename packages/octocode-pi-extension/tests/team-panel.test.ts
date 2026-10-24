@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
@@ -8,7 +7,8 @@ import type { Member } from '../src/team/model.js';
 import { TeamStore } from '../src/team/store.js';
 import { describeMembers } from '../src/team/routing.js';
 import { fakeCtx, fakePi, theme } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
+import { sent } from './team-harness.js';
 
 const NOW = 1_000_000;
 const member = (id: string, extra: Partial<Member> = {}): Member => ({
@@ -89,13 +89,7 @@ describe('agents panel', () => {
 
 /** A member whose heartbeat is current in wall-clock time (the store stamps real times). */
 const live = (id: string, extra: Partial<Member> = {}): Member => member(id, { updatedAt: Date.now(), ...extra });
-const repo = () => {
-  const dir = tmp();
-  fs.mkdirSync(path.join(dir, '.git'));
-  return dir;
-};
 const open = (cwd: string, db: string) => TeamStore.open(cwd, db);
-const sent = (result: { id: number | undefined }) => result.id!;
 
 describe('agent model', () => {
   it('stores each agent\'s model and shows it in `coordinate list`', () => {

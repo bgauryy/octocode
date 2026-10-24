@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { commands } from '../../dist/engine/cli-catalog.mjs';
+import { chromeCommands } from '../../dist/engine/chrome-contract.mjs';
 const skill = join(dirname(fileURLToPath(import.meta.url)), '../..');
 function fixture(fn) {
   const cwd = mkdtempSync(join(tmpdir(), 'octo-cdp-cli-'));
@@ -51,7 +51,7 @@ test('help and schema discover generic operations without creating browser state
   }));
 test('every registered command exposes help', () =>
   fixture(call => {
-    for (const name of Object.keys(commands)) {
+    for (const name of Object.keys(chromeCommands)) {
       const r = call([name, '--help']);
       assert.equal(r.status, 0, `${name}: ${r.stderr}`);
       assert(r.stdout.length + r.stderr.length > 0);

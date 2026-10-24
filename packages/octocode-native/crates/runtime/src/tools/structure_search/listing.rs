@@ -4,20 +4,17 @@
 //! query: the walk it asks the engine for ([`Listing`]).
 use super::cut::page_ranges;
 use super::probe::{FilterProbe, broaden_empty, lead_to_skipped, probe_listing};
-use super::walked::Walked;
-use super::{
-    StructureResult, Walking, listing_prefix, memo, restart_if_stale, rows, validated_root, walked,
-};
+use super::walked::{Walked, push_warnings};
+use super::{Walking, listing_prefix, memo, restart_if_stale, rows, validated_root, walked};
 use crate::response::result::ToolError;
-use crate::tools::display_name;
 use crate::tools::empty_walk::Walk;
 use serde_json::{Value, json};
 
-use crate::contracts::listing_roles::structure_search::FIELDS as LISTING_FIELDS;
+use crate::contracts::listing_roles::structure_search;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use octocode_contract_types::StructureSearchQueryFilesSort as Sort;
+use octocode_contract_types::StructureSearchQueryFilesSort;
 use octocode_engine::types::FileSystemQueryOptions;
 
 mod walk;
@@ -38,8 +35,7 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     /// This query with `relaxed` lifting skips, walking from its first
     /// entry: the resume cursors of the request's own walk do not apply.
     fn relaxed(&self, relaxed: Walk) -> Self;
-    /// The caller's page size; `None` pages by the response budget.
-    fn page_size(&self) -> Option<usize>;
+    /// Private page position within the saved listing.
     fn page(&self) -> usize;
     fn snapshot(&self) -> Option<&str>;
     /// Listing rows (walk or sort order) earlier windows listed.
@@ -48,8 +44,6 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     fn walk_offset(&self) -> u32;
     /// Rows the walk lists: `maxEntries`, at most the walk ceiling.
     fn requested(&self) -> usize;
-    /// Line counts and modified times in each entry (`extras: ["details"]`).
-    fn details(&self) -> bool;
     fn show_hidden(&self) -> bool;
     /// The default prune applies (`defaultExcludes`).
     fn default_excludes(&self) -> bool;
@@ -60,12 +54,12 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     /// listing, so what it skipped may hold the entries asked for.
     fn filtered(&self) -> bool {
         let row = serde_json::to_value(self).unwrap_or_default();
-        LISTING_FIELDS
+        structure_search::FIELDS
             .iter()
             .any(|(field, role)| role.selects() && crate::response::output::has_value(&row, field))
     }
     /// The order rows are listed in.
-    fn sort(&self) -> Sort;
+    fn sort(&self) -> StructureSearchQueryFilesSort;
     /// The walk stops at the first match past `maxEntries`: in walk order
     /// the first matches are final once found.
     fn early_exit(&self) -> bool;
@@ -78,7 +72,7 @@ pub(super) trait Listing: Clone + serde::Serialize + serde::de::DeserializeOwned
     /// request spells them.
     fn walk_identity(&self, root: &std::path::Path) -> Value {
         let row = serde_json::to_value(self).unwrap_or_default();
-        let fields = LISTING_FIELDS
+        let fields = structure_search::FIELDS
             .iter()
             .filter_map(|(field, _)| Some(((*field).to_owned(), row.get(*field)?.clone())))
             .collect::<serde_json::Map<_, _>>();
@@ -122,13 +116,6 @@ macro_rules! listing_fields {
                 query.walk_offset = None;
                 query
             }
-            fn page_size(&self) -> Option<usize> {
-                crate::response::paging::page_size(
-                    crate::id::ToolId::StructureSearch,
-                    None,
-                    self.page_size.map(|size| size.get()),
-                )
-            }
             fn page(&self) -> usize {
                 crate::num::usize_of(self.page.get()).max(1)
             }
@@ -148,10 +135,6 @@ macro_rules! listing_fields {
                 self.max_entries
                     .map_or(ceiling, |limit| crate::num::usize_of(limit.get()))
                     .min(ceiling)
-            }
-            fn details(&self) -> bool {
-                use octocode_contract_types::ExtraKind;
-                self.extras.contains(&ExtraKind::Details)
             }
             fn show_hidden(&self) -> bool {
                 self.include_hidden == Some(true)
@@ -176,7 +159,7 @@ pub(super) fn execute_listing<Q: Listing>(
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
     budget: std::time::Duration,
-) -> StructureResult {
+) -> Result<Value, ToolError> {
     let validated = validated_root(q.path(), paths, cancel)?;
     let root = validated.canonical.as_path();
     q.check_root(root, paths)?;
@@ -190,11 +173,9 @@ pub(super) fn execute_listing<Q: Listing>(
     let identity = json!([
         q.walk_identity(root),
         q.sort(),
-        q.details(),
         requested,
         q.scan_offset(),
         q.walk_offset(),
-        q.page_size(),
     ]);
     let policy = paths.identity();
     let page = q.page();
@@ -219,12 +200,9 @@ pub(super) fn execute_listing<Q: Listing>(
         return Ok(restart);
     }
     let prefix = listing_prefix(paths, root);
-    let deferred_detail = q.details() && q.sort() != Sort::Lines;
-    let pages = page_ranges(
-        &rows::costs(&walk.rows, &prefix, deferred_detail),
-        q.page_size(),
-        budget,
-    );
+    let deferred_detail = super::files::sort_key(&q.sort())
+        != Some(octocode_contract_types::StructureSearchQueryFilesSortVariant0By::LineCount);
+    let pages = page_ranges(&rows::costs(&walk.rows, &prefix, deferred_detail), budget);
     if !stored && pages.len() > 1 {
         memo::put(snapshot.clone(), policy, paths, root, &walk);
     }
@@ -273,18 +251,15 @@ fn listing_page<Q: Listing>(
         .collect::<Result<Vec<_>, ToolError>>()?;
     let files = rows::dir_groups(&shown_rows, prefix);
     let mut out = json!({
-        "path": display_name(root),
+        "path": prefix,
         "files": files,
         "snapshot": snapshot,
     });
     // Every page states its block; the response stage keeps it where it
     // routes (`response::rows::walks_on`).
-    let mut facts =
+    let facts =
         crate::response::pages::PageFacts::sized(page, cut.total_pages, total, cut.has_more())
             .out_of_range(cut.out_of_range());
-    if let Some(size) = q.page_size() {
-        facts = facts.with_page_size(size);
-    }
     out["pagination"] = facts.to_value();
     // A walk cut by time proved nothing about what it did not scan, and a
     // resumed window past every entry of its filters is no empty listing.
@@ -296,16 +271,16 @@ fn listing_page<Q: Listing>(
     // The walk's summary, what it skipped, its retries and its read
     // describe the whole listing: page 1 states them once.
     if page == 1 {
-        walk.meta.disclose(&mut out, root, q.details())?;
+        walk.meta.disclose(&mut out, root, true)?;
         lead_to_skipped(&mut out, q, &walk.meta.uncovered, q.walk(), q.filtered());
         if let Some(read) = rows::read_lead(&walk.rows[shown], root) {
-            out["next"]["read"] = read;
+            out["calls"]["read"] = read;
         }
     }
     let (include, exclude) = q.globs();
     let query_notes = crate::policy::include::parent_glob_warning(include, exclude)
         .into_iter()
         .collect();
-    walk.meta.warn(&mut out, query_notes, warnings);
+    push_warnings(&mut out, query_notes, warnings);
     Ok(out)
 }

@@ -15,10 +15,23 @@ import { flagArgs, validateFlags } from '../cli-flags.mjs';
 import {
   filterHar,
   harRows,
+  MEASURE_VALUE_FLAGS,
   measurePaths,
   nextPageArgs,
   readMeasure,
 } from './measure-artifacts.mjs';
+import { errorMessage } from '../error-message.mjs';
+import type {
+  JsonScalar,
+  MeasureFinding,
+  MeasureRow,
+  NetMeasure,
+  PageInfo,
+  PerfMeasure,
+  QueryExtras,
+  QueryHint,
+  StorageMeasure,
+} from './measure-types.mjs';
 
 const argv = process.argv.slice(2);
 const { getArg, hasFlag, getLowerArg } = flagArgs(argv);
@@ -47,30 +60,7 @@ Stdout: compact JSON { ok, summary, findings, … }.`);
   process.exit(0);
 }
 
-validateFlags(
-  argv,
-  [
-    '--dir',
-    '--under',
-    '--perf',
-    '--net',
-    '--storage',
-    '--har-file',
-    '--view',
-    '--code',
-    '--kind',
-    '--domain',
-    '--url-regex',
-    '--name-regex',
-    '--min-ms',
-    '--min-health',
-    '--max-health',
-    '--limit',
-    '--page',
-    '--filter',
-  ],
-  ['--help', '-h', '--latest', '--har']
-);
+validateFlags(argv, MEASURE_VALUE_FLAGS, ['--help', '-h', '--latest', '--har']);
 const view = getArg('--view', 'summary');
 const codeFilter = getArg('--code', '');
 const kindFilter = getLowerArg('--kind');
@@ -81,8 +71,8 @@ const minMs = Math.max(
   0,
   Number.parseInt(getArg('--min-ms', '1000'), 10) || 1000
 );
-const minHealth = getArg('--min-health', null);
-const maxHealth = getArg('--max-health', null);
+const minHealth = getArg('--min-health');
+const maxHealth = getArg('--max-health');
 const limit = Math.max(
   1,
   Math.min(200, Number.parseInt(getArg('--limit', '25'), 10) || 25)
@@ -90,7 +80,7 @@ const limit = Math.max(
 const page = Number(getArg('--page', '1'));
 if (!Number.isSafeInteger(page) || page < 1)
   throw new Error('--page must be a positive integer');
-const pagination = {};
+const pagination: Record<string, PageInfo> = {};
 const includeHar = hasFlag('--har');
 const harFilter = getArg('--filter', 'all');
 
@@ -100,11 +90,11 @@ const nameRe = nameRegexStr ? new RegExp(nameRegexStr, 'i') : null;
 const paths = measurePaths({
   latest: hasFlag('--latest'),
   under: getArg('--under', '.octocode/octocode-chrome-devtools/tmp'),
-  dir: getArg('--dir', null),
-  perf: getArg('--perf', null),
-  net: getArg('--net', null),
-  storage: getArg('--storage', null),
-  har: getArg('--har-file', null),
+  dir: getArg('--dir'),
+  perf: getArg('--perf'),
+  net: getArg('--net'),
+  storage: getArg('--storage'),
+  har: getArg('--har-file'),
 });
 
 if (!paths.perf && !paths.net && !paths.storage && !(includeHar && paths.har)) {
@@ -119,39 +109,42 @@ if (!paths.perf && !paths.net && !paths.storage && !(includeHar && paths.har)) {
   process.exit(1);
 }
 
-const perf = readMeasure(paths.perf);
-const net = readMeasure(paths.net);
-const storage = readMeasure(paths.storage);
+// The measure checks in this folder wrote these artifacts; their fields are read as optional.
+const perf: PerfMeasure | null = readMeasure(paths.perf);
+const net: NetMeasure | null = readMeasure(paths.net);
+const storage: StorageMeasure | null = readMeasure(paths.storage);
 
-function healthOf(kind) {
+type HealthKind = 'perf' | 'net' | 'storage';
+
+function healthOf(kind: HealthKind) {
   if (kind === 'perf') return perf?.score?.health ?? null;
   if (kind === 'net') return net?.health ?? null;
   if (kind === 'storage') return storage?.score?.health ?? null;
   return null;
 }
 
-function healthPass(h) {
+function healthPass(h: number | null) {
   if (h == null) return true;
   if (minHealth != null && h < Number(minHealth)) return false;
   if (maxHealth != null && h > Number(maxHealth)) return false;
   return true;
 }
 
-function matchUrl(url) {
+function matchUrl(url: JsonScalar | undefined) {
   if (!url) return !urlRe && !domainFilter;
   if (domainFilter) {
     try {
-      const host = new URL(url).hostname.toLowerCase();
+      const host = new URL(String(url)).hostname.toLowerCase();
       if (!host.includes(domainFilter)) return false;
     } catch {
       if (!String(url).toLowerCase().includes(domainFilter)) return false;
     }
   }
-  if (urlRe && !urlRe.test(url)) return false;
+  if (urlRe && !urlRe.test(String(url))) return false;
   return true;
 }
 
-function matchKind(row) {
+function matchKind(row: MeasureRow) {
   if (!kindFilter) return true;
   return String(row.kind || row.type || '')
     .toLowerCase()
@@ -159,12 +152,13 @@ function matchKind(row) {
 }
 
 function collectFindings() {
-  const out = [];
-  for (const [source, findings, kind] of [
+  const out: MeasureFinding[] = [];
+  const sources: [string, MeasureFinding[] | undefined, HealthKind][] = [
     ['performance', perf?.score?.findings, 'perf'],
     ['network', net?.findings, 'net'],
     ['storage', storage?.score?.findings, 'storage'],
-  ]) {
+  ];
+  for (const [source, findings, kind] of sources) {
     if (!findings || !healthPass(healthOf(kind))) continue;
     for (const f of findings)
       if (!codeFilter || f.code === codeFilter) out.push({ source, ...f });
@@ -172,7 +166,7 @@ function collectFindings() {
   return out;
 }
 
-function slice(rows, name) {
+function slice<T>(rows: T[], name: string) {
   const totalPages = Math.max(1, Math.ceil(rows.length / limit));
   pagination[name] = {
     page,
@@ -184,7 +178,7 @@ function slice(rows, name) {
   return rows.slice((page - 1) * limit, page * limit);
 }
 
-function filterRows(rows) {
+function filterRows(rows: MeasureRow[] | undefined) {
   return (rows || []).filter(r => matchUrl(r.url) && matchKind(r));
 }
 
@@ -219,9 +213,11 @@ const summary = {
   byStatus: net?.byStatus ?? null,
 };
 
-const result: Record<string, any> = { ...summary };
+type QueryResult = typeof summary & QueryExtras;
 
-const want = name =>
+const result: QueryResult = { ...summary };
+
+const want = (name: string) =>
   view === 'all' || view === name || (view === 'summary' && name === 'summary');
 
 if (want('summary') && view === 'summary') {
@@ -280,7 +276,7 @@ if (want('resources') || view === 'all') {
 if (want('cookies') || view === 'all') {
   result.cookies = slice(
     (storage?.cookies?.rows || []).filter(c => {
-      if (nameRe && !nameRe.test(c.name || '')) return false;
+      if (nameRe && !nameRe.test(String(c.name || ''))) return false;
       if (
         domainFilter &&
         !String(c.domain || '')
@@ -343,7 +339,7 @@ if (includeHar && paths.har) {
       rows: slice(rows, 'har.rows'),
     };
   } catch (err) {
-    result.har = { path: paths.har, error: String(err?.message || err) };
+    result.har = { path: paths.har, error: errorMessage(err) || String(err) };
   }
 }
 
@@ -360,30 +356,31 @@ if (minHealth != null || maxHealth != null) {
   };
 }
 
-result.hints = [];
-if ((result.findings?.length || 0) > 0 && view === 'summary') {
-  result.hints.push({ view: 'findings', code: result.findings[0]?.code });
+const hints: QueryHint[] = [];
+result.hints = hints;
+const firstFinding = result.findings?.[0];
+if (firstFinding && view === 'summary') {
+  hints.push({ view: 'findings', code: firstFinding.code });
 }
 if (
-  (result.failures?.length || result.counts?.failures || 0) > 0 &&
+  (result.failures?.length || result.counts.failures || 0) > 0 &&
   view === 'summary'
 ) {
-  result.hints.push({ view: 'failures' });
+  hints.push({ view: 'failures' });
 }
 if ((storage?.score?.findings?.length || 0) > 0 && view === 'summary') {
-  result.hints.push({ view: 'cookies' }, { view: 'keys' });
+  hints.push({ view: 'cookies' }, { view: 'keys' });
 }
 
 result.pagination = pagination;
-result.next = {};
-if (
-  Object.values(pagination).some((list: { hasMore: boolean }) => list.hasMore)
-) {
+const next: QueryResult['next'] = {};
+result.next = next;
+if (Object.values(pagination).some(list => list.hasMore)) {
   const args = nextPageArgs(
     { script: process.argv[1], view, limit, page, paths, includeHar },
     getArg
   );
-  result.next.continue = { command: process.execPath, args };
+  next.continue = { command: process.execPath, args };
 }
 console.log(JSON.stringify(result, null, 2));
 console.error(

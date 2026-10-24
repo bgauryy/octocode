@@ -16,13 +16,15 @@ async fn owner_listing_counts_skipped_archived_repositories() {
         ])))
         .mount(&server)
         .await;
-    let out = run(&server, json!({"owner":"o"})).await;
+    let out = run(&server, json!({"owner":"o","operation":"list"})).await;
     assert_eq!(out.data["repositories"].as_array().map(Vec::len), Some(1));
     let warnings = out.data["warnings"].to_string();
     assert!(warnings.contains("2 archived repositories"), "{}", out.data);
     assert_eq!(
-        out.data["next"]["includeArchived"]["query"]["queries"][0],
-        json!({"owner":"o","includeArchived":true}),
+        crate::tools::test_support::checks::related_call(&out.data, "ghSearchRepo", |input| input
+            ["queries"][0]["filters"]["archive"]
+            == "include")["input"]["queries"][0],
+        json!({"owner":"o","operation":"list","filters":{"archive":"include"}}),
         "{}",
         out.data
     );
@@ -40,7 +42,11 @@ async fn owner_listing_counts_skipped_archived_repositories() {
         ])))
         .mount(&with_fork)
         .await;
-    let lead = out.data["next"]["includeArchived"]["query"]["queries"][0].clone();
+    let lead =
+        crate::tools::test_support::checks::related_call(&out.data, "ghSearchRepo", |input| {
+            input["queries"][0]["filters"]["archive"] == "include"
+        })["input"]["queries"][0]
+            .clone();
     let all = run(&with_fork, lead).await;
     let repos = all.data["repositories"]
         .as_array()
@@ -63,7 +69,7 @@ async fn owner_listing_counts_skipped_archived_repositories() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([repo_item("live", false)])))
         .mount(&clean)
         .await;
-    let out = run(&clean, json!({"owner":"o"})).await;
+    let out = run(&clean, json!({"owner":"o","operation":"list"})).await;
     assert!(out.data.get("warnings").is_none(), "{}", out.data);
     assert!(
         out.data["next"].get("includeArchived").is_none(),
@@ -100,14 +106,14 @@ async fn an_owner_listing_page_never_exceeds_its_page_size() {
             .mount(&server)
             .await;
     }
-    let mut row = json!({"owner":"o","pageSize":2});
+    let mut row = json!({"owner":"o","operation":"list"});
     let mut listed = Vec::new();
     for _ in 0..3 {
         let out = run(&server, row.clone()).await;
         let rows = out.data["repositories"].as_array().expect("rows");
-        assert!(rows.len() <= 2, "{}", out.data);
+        assert!(rows.len() <= 50, "{}", out.data);
         listed.extend(rows.iter().map(|row| row["repo"].clone()));
-        match out.data.pointer("/next/nextPage/query/queries/0") {
+        match out.data.pointer("/next/nextPage/input/queries/0") {
             Some(next) => row = next.clone(),
             None => break,
         }
@@ -165,7 +171,7 @@ async fn an_owner_listing_of_the_token_user_includes_private_repositories() {
     let provider = one_shot_provider(&server);
     let context = default_context();
     let listing = |owner: &str| {
-        serde_json::from_value::<GhSearchRepoQuery>(json!({"owner": owner, "pageSize": 1}))
+        serde_json::from_value::<GhSearchRepoQuery>(json!({"operation":"list","owner": owner}))
             .expect("query")
     };
     let mine = execute(&provider, &listing("me"), &context)
@@ -229,7 +235,7 @@ async fn a_failed_viewer_lookup_is_not_remembered() {
     let provider = one_shot_provider(&server);
     let context = default_context();
     let query: GhSearchRepoQuery =
-        serde_json::from_value(json!({"owner": "me", "pageSize": 1})).expect("query");
+        serde_json::from_value(json!({"owner":"me","operation":"list"})).expect("query");
     let first = execute(&provider, &query, &context).await.expect("first");
     assert_eq!(
         first.data["repositories"][0]["repo"], "public",
@@ -258,7 +264,7 @@ async fn owner_listing_marks_forks_only() {
         )
         .mount(&server)
         .await;
-    let out = run(&server, json!({"owner":"o"})).await;
+    let out = run(&server, json!({"owner":"o","operation":"list"})).await;
     let rows = out.data["repositories"].as_array().expect("rows");
     assert_eq!(rows.len(), 2, "{}", out.data);
     assert!(rows[0].get("fork").is_none(), "{}", out.data);

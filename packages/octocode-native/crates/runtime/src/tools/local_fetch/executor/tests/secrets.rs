@@ -22,11 +22,10 @@ fn interior_private_key_window_does_not_leak_in_non_key_named_file() {
     fs::write(&path, &file).expect("write file");
 
     // Select only the interior body lines (4..=5) — no BEGIN/END in view.
-    let req = LocalFetchQuery {
-        path: path.to_string_lossy().parse().expect("path"),
-        ranges: vec![format!("{}-{}", 4, 5).parse().expect("range")],
-        ..test_local_fetch_query()
-    };
+    let req = qj(
+        &path,
+        serde_json::json!({"ranges":[{"startLine":4,"endLine":5}]}),
+    );
     let result = fetch(&req, &Paths(dir.clone()));
 
     let content = result.content.clone().unwrap_or_default();
@@ -54,12 +53,7 @@ fn match_string_cannot_probe_line_level_secrets() {
     .expect("write file");
     let security = ContentSecurity::new();
     let probe = |needle: &str| {
-        let req = LocalFetchQuery {
-            path: path.to_string_lossy().parse().expect("path"),
-            match_string: Some(MatchString::String(needle.parse().expect("match string"))),
-            context_lines: Some(0),
-            ..test_local_fetch_query()
-        };
+        let req = qj(&path, serde_json::json!({"matchString":[needle]}));
         execute_local_fetch(
             &req,
             &Paths(dir.clone()),
@@ -90,11 +84,7 @@ fn match_string_cannot_probe_line_level_secrets() {
     let clean = dir.join("clean.txt");
     fs::write(&clean, "nothing secret\n").expect("write clean");
     let miss = execute_local_fetch(
-        &LocalFetchQuery {
-            path: clean.to_string_lossy().parse().expect("path"),
-            match_string: Some(MatchString::String("absent".parse().expect("match string"))),
-            ..test_local_fetch_query()
-        },
+        &qj(&clean, serde_json::json!({"matchString":["absent"]})),
         &Paths(dir.clone()),
         &security,
         &NeverCancel,
@@ -123,11 +113,10 @@ fn innocent_base64_window_is_returned_byte_identical() {
     let file = format!("header\n{blob}\nfooter\n");
     fs::write(&path, &file).expect("write file");
 
-    let req = LocalFetchQuery {
-        path: path.to_string_lossy().parse().expect("path"),
-        ranges: vec![format!("{}-{}", 2, 2).parse().expect("range")],
-        ..test_local_fetch_query()
-    };
+    let req = qj(
+        &path,
+        serde_json::json!({"ranges":[{"startLine":2,"endLine":2}]}),
+    );
     let result = fetch(&req, &Paths(dir.clone()));
 
     let content = result.content.clone().unwrap_or_default();

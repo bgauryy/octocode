@@ -1,15 +1,16 @@
 //! The file import graph and the file and directory cycle detectors.
 use super::*;
+use octocode_engine::graph::FileGraphNode;
 
 /// The file graph the stored tables hold, over the files `keep` admits:
 /// each production `imports` edge between them under its kind, and each
 /// Rust `mod` declaration (a `contains` edge) as a module-tree edge — the
 /// input of the one cycle engine ([`Cycles`]). Test edges close no cycle.
-pub(in super::super) fn file_graph(
+pub(crate) fn file_graph(
     t: &GraphTables,
     keep: &dyn Fn(u32) -> bool,
-) -> BTreeMap<String, Node> {
-    let mut graph = BTreeMap::<String, Node>::new();
+) -> BTreeMap<String, FileGraphNode> {
+    let mut graph = BTreeMap::<String, FileGraphNode>::new();
     for (id, node) in t.nodes.iter().enumerate() {
         let Ok(id) = u32::try_from(id) else { break };
         if node.kind != NodeKind::File || !keep(id) {

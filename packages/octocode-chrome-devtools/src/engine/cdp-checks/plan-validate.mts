@@ -4,8 +4,18 @@ import {
   chromeExtractionFields,
 } from '../chrome-contract.mjs';
 import { DOM_ACTIONS, readDomConfig, readSteps } from './dom-config.mjs';
+import type { RawStep } from './dom-types.mjs';
+import type { Plan } from './plan-types.mjs';
 
-export const planOperations = chromePlanOperations;
+type Json = Record<string, unknown>;
+/** A record whose op is a supported plan operation. */
+type StepRecord = Json & { op: PlanOperation };
+type PlanOperation = keyof typeof chromePlanOperations;
+type ReferenceScope = {
+  index: number;
+  steps: unknown[];
+  listeners: Set<unknown>;
+};
 
 const protocolMember = /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/;
 const PLAN_FIELDS = [
@@ -60,28 +70,44 @@ const TEXT_FIELDS = [
   'toSelector',
 ];
 const SCALARS = ['string', 'number', 'boolean'];
+const isScalar = (value: unknown): value is string | number | boolean =>
+  SCALARS.includes(typeof value);
 
-const integer = (value, name, min = 0) => {
-  if (!Number.isSafeInteger(value) || value < min)
+function integer(
+  value: unknown,
+  name: string,
+  min = 0
+): asserts value is number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min)
     throw new Error(`Invalid ${name}`);
-};
-const isRecord = value =>
+}
+const isRecord = (value: unknown): value is Json =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const object = (value, label) => {
+/** Objects and arrays: anything whose own keys a JSON pointer can step through. */
+const indexable = (value: unknown): value is Json =>
+  value !== null && typeof value === 'object';
+const isPlanOperation = (op: unknown): op is PlanOperation =>
+  typeof op === 'string' && Object.hasOwn(chromePlanOperations, op);
+function object(value: unknown, label: string): asserts value is Json {
   if (!isRecord(value)) throw new Error(`${label} must be an object`);
-};
-const fields = (value, allowed, label) => {
+}
+function fields(
+  value: unknown,
+  allowed: readonly string[],
+  label: string
+): asserts value is Json {
   object(value, label);
   for (const key of Object.keys(value))
     if (!allowed.includes(key))
       throw new Error(`Unknown ${label} field: ${key}`);
-};
-const nonemptyText = value => typeof value === 'string' && Boolean(value);
-const allNonemptyText = value =>
+}
+const nonemptyText = (value: unknown): value is string =>
+  typeof value === 'string' && Boolean(value);
+const allNonemptyText = (value: Json) =>
   Object.keys(value).length > 0 &&
   Object.values(value).every(v => nonemptyText(v));
 
-const pointerKeys = path =>
+const pointerKeys = (path: string) =>
   path
     ? path
         .slice(1)
@@ -90,7 +116,7 @@ const pointerKeys = path =>
     : [];
 
 /** The value at a JSON pointer, or undefined when a key is missing. */
-export function jsonPointer(value, path = '') {
+export function jsonPointer(value: unknown, path: unknown = ''): unknown {
   if (
     typeof path !== 'string' ||
     (path && !path.startsWith('/')) ||
@@ -100,24 +126,27 @@ export function jsonPointer(value, path = '') {
   let current = value;
   for (const key of pointerKeys(path))
     current =
-      current !== null &&
-      typeof current === 'object' &&
-      Object.hasOwn(current, key)
+      indexable(current) && Object.hasOwn(current, key)
         ? current[key]
         : undefined;
   return current;
 }
 
-function validateReference(value, { index, steps, listeners }) {
+/** True when ref is the 1-based number of an earlier `cdp` step. */
+const earlierCdpStep = (ref: unknown, index: number, steps: unknown[]) =>
+  typeof ref === 'number' &&
+  Number.isSafeInteger(ref) &&
+  ref >= 1 &&
+  ref <= index &&
+  jsonPointer(steps[ref - 1], '/op') === 'cdp';
+
+function validateReference(
+  value: unknown,
+  { index, steps, listeners }: ReferenceScope
+) {
   fields(value, ['$step', '$event', 'pointer'], 'reference');
   jsonPointer({}, value.pointer ?? '');
-  if (
-    value.$step !== undefined &&
-    (!Number.isSafeInteger(value.$step) ||
-      value.$step < 1 ||
-      value.$step > index ||
-      steps[value.$step - 1]?.op !== 'cdp')
-  )
+  if (value.$step !== undefined && !earlierCdpStep(value.$step, index, steps))
     throw new Error('$step must reference an earlier CDP result');
   if (value.$event !== undefined && !listeners.has(value.$event))
     throw new Error('$event must reference an earlier listener');
@@ -126,14 +155,16 @@ function validateReference(value, { index, steps, listeners }) {
 }
 
 /** Checks every { $step | $event, pointer } reference nested in value. */
-function validateReferences(value, scope) {
+function validateReferences(value: unknown, scope: ReferenceScope) {
   if (!value || typeof value !== 'object') return;
   if (Object.hasOwn(value, '$step') || Object.hasOwn(value, '$event'))
     validateReference(value, scope);
   else for (const v of Object.values(value)) validateReferences(v, scope);
 }
 
-function validatePlanOptions(plan) {
+function validatePlanOptions(
+  plan: unknown
+): asserts plan is Json & { steps: unknown[] } {
   if (!isRecord(plan)) throw new Error('Plan must be an object');
   fields(plan, PLAN_FIELDS, 'plan');
   if (!Array.isArray(plan.steps) || !plan.steps.length)
@@ -153,25 +184,29 @@ function validatePlanOptions(plan) {
   integer(plan.observe.afterMs ?? 0, 'afterMs');
 }
 
-const opFields = op => [
+const opFields = (op: PlanOperation) => [
   'op',
   'timeoutMs',
   ...(AFTER_OPS.includes(op) ? ['after'] : []),
   ...(FRAME_OPS.includes(op) ? ['frame'] : []),
   ...(SESSION_OPS.includes(op) ? ['session'] : []),
-  ...planOperations[op],
+  ...chromePlanOperations[op],
 ];
 
-function validateStepShape(plan, step, index) {
+function validateStepShape(
+  plan: Json,
+  step: unknown,
+  index: number
+): asserts step is StepRecord {
   if (!isRecord(step)) throw new Error(`Invalid step ${index + 1}`);
   fields(step, STEP_FIELDS, 'step');
-  if (!Object.hasOwn(planOperations, step.op))
-    throw new Error(`Unsupported op: ${step.op}`);
+  if (!isPlanOperation(step.op))
+    throw new Error(`Unsupported op: ${String(step.op)}`);
   fields(step, opFields(step.op), step.op);
   integer(step.timeoutMs ?? plan.waitMs ?? 8000, 'timeoutMs', 1);
 }
 
-function validateSession(step, scope) {
+function validateSession(step: StepRecord, scope: ReferenceScope) {
   if (step.frame !== undefined) throw new Error('Use one of frame or session');
   const reference =
     isRecord(step.session) &&
@@ -183,7 +218,7 @@ function validateSession(step, scope) {
   validateReferences(step.session, scope);
 }
 
-function validateListen(step, listeners) {
+function validateListen(step: StepRecord, listeners: Set<unknown>) {
   if (
     typeof step.id !== 'string' ||
     !/^[a-zA-Z][a-zA-Z0-9-]*$/.test(step.id) ||
@@ -201,21 +236,24 @@ function validateListen(step, listeners) {
   listeners.add(step.id);
 }
 
-function validateReadStream(step) {
+function validateReadStream(step: StepRecord) {
   const reference =
     isRecord(step.handle) &&
     (step.handle.$step !== undefined || step.handle.$event !== undefined);
   if (typeof step.handle !== 'string' && !reference)
     throw new Error('readStream needs a handle or result reference');
-  integer(step.size ?? 65536, 'size', 1);
-  if ((step.size ?? 65536) > 1048576)
-    throw new Error('Stream size must be <= 1048576');
+  const size = step.size ?? 65536;
+  integer(size, 'size', 1);
+  if (size > 1048576) throw new Error('Stream size must be <= 1048576');
   if (step.close !== undefined && typeof step.close !== 'boolean')
     throw new Error('close must be boolean');
 }
 
-function validateDomTarget(step) {
-  if (step.op === 'act' && !DOM_ACTIONS.includes(step.action))
+function validateDomTarget(step: StepRecord) {
+  if (
+    step.op === 'act' &&
+    (typeof step.action !== 'string' || !DOM_ACTIONS.includes(step.action))
+  )
     throw new Error('act needs a supported action');
   const target = step.ref || step.selector || step.role || step.name;
   if (!target && !(step.op === 'wait' && step.value))
@@ -225,23 +263,44 @@ function validateDomTarget(step) {
       throw new Error(`${key} needs nonempty text`);
 }
 
-function validateDomValue(plan, step) {
+const textField = (value: unknown) =>
+  typeof value === 'string' ? value : undefined;
+
+/** The DOM fields of an act/wait step; validateDomTarget has checked each one. */
+function domStep(step: StepRecord): RawStep {
+  return {
+    ref: textField(step.ref),
+    role: textField(step.role),
+    name: textField(step.name),
+    selector: textField(step.selector),
+    action: step.op === 'wait' ? 'wait' : textField(step.action),
+    value: isScalar(step.value) ? step.value : undefined,
+    key: textField(step.key),
+    toRef: textField(step.toRef),
+    toSelector: textField(step.toSelector),
+  };
+}
+
+function validateDomValue(plan: Json, step: StepRecord) {
   if (
     step.value !== undefined &&
-    (!SCALARS.includes(typeof step.value) ||
+    (!isScalar(step.value) ||
       (typeof step.value === 'number' && !Number.isFinite(step.value)))
   )
     throw new Error('value needs text, a number or boolean');
+  const waitMs = step.timeoutMs ?? plan.waitMs ?? 8000;
+  integer(waitMs, 'timeoutMs', 1); // already checked by validateStepShape
+  const afterText = jsonPointer(step.after, '/text');
   const options = {
-    steps: [{ ...step, action: step.op === 'wait' ? 'wait' : step.action }],
-    waitMs: step.timeoutMs ?? plan.waitMs ?? 8000,
-    waitText: step.after?.text ?? '',
+    steps: [domStep(step)],
+    waitMs,
+    waitText: typeof afterText === 'string' ? afterText : '',
     diff: false,
   };
   readSteps(options, readDomConfig(options).waitText);
 }
 
-function validateExtract(step) {
+function validateExtract(step: StepRecord) {
   if (!nonemptyText(step.selector)) throw new Error('extract needs selector');
   if (
     step.fields !== undefined &&
@@ -254,7 +313,7 @@ function validateExtract(step) {
     );
 }
 
-function validateStepOps(plan, step, scope) {
+function validateStepOps(plan: Json, step: StepRecord, scope: ReferenceScope) {
   if (step.session !== undefined) validateSession(step, scope);
   if (step.op === 'listen') validateListen(step, scope.listeners);
   if (step.op === 'waitEvent') {
@@ -274,7 +333,7 @@ function validateStepOps(plan, step, scope) {
   if (step.op === 'extract') validateExtract(step);
 }
 
-function validateCdpFields(step) {
+function validateCdpFields(step: StepRecord) {
   if (
     step.op === 'cdp' &&
     (typeof step.method !== 'string' || !protocolMember.test(step.method))
@@ -293,7 +352,7 @@ function validateCdpFields(step) {
     throw new Error('member needs nonempty text');
 }
 
-function validateFrame(step) {
+function validateFrame(step: StepRecord) {
   fields(step.frame, ['id', 'url', 'selector'], 'frame');
   if (!allNonemptyText(step.frame))
     throw new Error('frame needs nonempty id, URL substring or selector');
@@ -308,9 +367,15 @@ function validateFrame(step) {
 }
 
 /** Validates the whole plan and returns it; throws the first problem found. */
-export function validatePlan(plan) {
+export function validatePlan(plan: unknown): Plan {
+  assertPlan(plan);
+  return plan;
+}
+
+// The checks narrow the input step by step; together they establish every Plan field.
+function assertPlan(plan: unknown): asserts plan is Plan {
   validatePlanOptions(plan);
-  const listeners = new Set();
+  const listeners = new Set<unknown>();
   for (const [index, step] of plan.steps.entries()) {
     validateStepShape(plan, step, index);
     validateStepOps(plan, step, { index, steps: plan.steps, listeners });
@@ -322,5 +387,4 @@ export function validatePlan(plan) {
     }
     if (step.frame !== undefined) validateFrame(step);
   }
-  return plan;
 }

@@ -55,7 +55,7 @@ const FILE_WRAPPER_CHARS: usize = 24;
 
 /// Consecutive rows of one file become `{path, declarations}` with outline
 /// rows; rows arrive in path order, so each file appears once per page.
-pub(super) fn group_by_file(rows: &[Value]) -> Vec<Value> {
+pub(super) fn group_by_file(rows: &[Value], row_paths: RowPaths<'_>) -> Vec<Value> {
     let mut files: Vec<(Value, Vec<Value>)> = Vec::new();
     for row in rows {
         let mut row = row.clone();
@@ -70,7 +70,7 @@ pub(super) fn group_by_file(rows: &[Value]) -> Vec<Value> {
     }
     files
         .into_iter()
-        .map(|(path, rows)| json!({"path":path,"symbols":declaration_rows(&rows)}))
+        .map(|(path, rows)| json!({"path":path.as_str().map(|path| row_paths.delivered(path)),"symbols":declaration_rows(&rows)}))
         .collect()
 }
 
@@ -133,7 +133,7 @@ pub(super) fn name_impl_traits<'a>(
 /// equal to `line`; `startLine` appears only when the declaration starts
 /// before its name line (decorators, attributes); `docStartLine` is the first
 /// line of the comment block directly above, when present. `parent` names the
-/// containing declaration and stays meaningful when a `kinds` or `name`
+/// containing declaration and stays meaningful when a `symbolKinds` or `name`
 /// filter drops the parent row; `parentLine` is added only when another
 /// declaration in the file has the same name and kind (two `impl A` blocks). `exported` appears only when true, with
 /// `exportedAs` listing public names that differ from `name`. Rows are

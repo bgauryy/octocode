@@ -7,7 +7,7 @@ fn context_selection_activates_without_optional_research_metadata() {
     let (runtime, calls) = selecting_runtime(&executor);
     let query = json!({
         "owner":"a", "repo":"b", "keywords":["retry"],
-        "clasifyContext":{"classifiers":["Does this evidence state when retries stop?"]}
+        "classification":{"predicates":["Does this evidence state when retries stop?"]}
     });
     let mut structured = json!({"results":[{"index":0,"data":{"files":[
         {"path":"a.rs","matches":[{"line":1,"value":"stop after three attempts"}]},
@@ -29,7 +29,7 @@ fn context_selection_activates_without_optional_research_metadata() {
 fn code_page_selects_in_source_order_and_replays_without_a_second_judgment() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
-    let query = json!({"owner":"a","repo":"b","keywords":["target"],"clasifyContext":{"classifiers":["wanted evidence"]}});
+    let query = json!({"owner":"a","repo":"b","keywords":["target"],"classification":{"predicates":["wanted evidence"]}});
     let baseline = json!({"results":[{"index":0,"data":{"files":[
         {"path":"one.rs","lines":["source evidence"]},{"path":"two.rs","lines":["source evidence"]},{"path":"three.rs","lines":["source evidence"]}
     ],"pagination":{"currentPage":1,"hasMore":true}}}]});
@@ -58,49 +58,42 @@ fn code_page_selects_in_source_order_and_replays_without_a_second_judgment() {
 }
 
 #[test]
-fn every_tool_continuation_starts_a_new_candidate_plan() {
-    let mut data = json!({"next":{"nextPage":{"tool":"ghSearchCode","query":{"queries":[{"page":2,"selection":"old"}]}},
-        "read":{"tool":"ghGetFileContent","query":{"queries":[{"path":"a.rs","clasifyContext":{"classifiers":["old"]},"selection":"old"}]}}},
-        "hints":{"verify":{"tool":"ghGetFileContent","query":{"queries":[{"path":"a.rs","clasifyContext":{"classifiers":["old"]},"selection":"old"}]}}},
-        "files":[{"evidence":{"tool":"ghSearchCode","query":{"queries":[{"clasifyContext":{"classifiers":["source"]},"selection":"source"}]},"next":{"sourceValue":{"tool":"ghSearchCode","query":{"queries":[{"selection":"source"}]}}}},"next":{"nextMatchPage":{"tool":"ghSearchCode","query":{"queries":[{"matchPage":2,"clasifyContext":{"classifiers":["old"]},"selection":"old"}]}}}}]});
+fn new_candidate_pages_drop_prior_decisions_without_mutating_source_evidence() {
+    use crate::response::result::{Continuation, continuation_row};
+    let query =
+        json!({"page":2,"classification":{"predicates":["wanted"]},"selection":"prior-plan"});
+    let page = Continuation::continued(ToolId::GhSearchCode, query.clone()).build();
+    let read = Continuation::continued(ToolId::GhGetFileContent, query.clone()).build();
+    let related = Continuation::related(ToolId::GhSearchCode, query).build();
+    let source =
+        json!({"next":{"sourceValue":page},"query":{"selection":"literal source content"}});
+    let mut data = json!({"next":{"nextPage":page,"read":read},"related":[related],"files":[{"evidence":source,"next":{"nextMatchPage":page}}]});
     strip_plan_from_tool_continuations(&mut data, ToolId::GhSearchCode);
-    assert!(
-        data["next"]["nextPage"]["query"]["queries"][0]
-            .get("selection")
-            .is_none()
-    );
-    assert!(
-        data["next"]["read"]["query"]["queries"][0]
-            .get("selection")
-            .is_none()
-    );
-    assert!(
-        data["next"]["read"]["query"]["queries"][0]
-            .get("clasifyContext")
-            .is_none()
-    );
-    assert!(
-        data["hints"]["verify"]["query"]["queries"][0]
-            .get("clasifyContext")
-            .is_none()
-    );
-    assert!(
-        data["files"][0]["next"]["nextMatchPage"]["query"]["queries"][0]
-            .get("selection")
-            .is_none()
-    );
+    for call in [
+        &data["next"]["nextPage"],
+        &data["next"]["read"],
+        &data["related"][0],
+        &data["files"][0]["next"]["nextMatchPage"],
+    ] {
+        assert!(continuation_row(call).unwrap().get("selection").is_none());
+    }
     assert_eq!(
-        data["files"][0]["next"]["nextMatchPage"]["query"]["queries"][0]["clasifyContext"]["classifiers"],
-        json!(["old"])
+        continuation_row(&data["next"]["nextPage"]).unwrap()["classification"]["predicates"],
+        json!(["wanted"])
     );
-    assert_eq!(
-        data["files"][0]["evidence"]["query"]["queries"][0]["selection"],
-        "source"
+    assert!(
+        continuation_row(&data["next"]["read"])
+            .unwrap()
+            .get("classification")
+            .is_none()
     );
-    assert_eq!(
-        data["files"][0]["evidence"]["next"]["sourceValue"]["query"]["queries"][0]["selection"],
-        "source"
+    assert!(
+        continuation_row(&data["related"][0])
+            .unwrap()
+            .get("classification")
+            .is_none()
     );
+    assert_eq!(data["files"][0]["evidence"], source);
 }
 
 #[test]
@@ -108,7 +101,7 @@ fn rejected_rows_do_not_misalign_goal_queries() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
     let plain = json!({"owner":"a","repo":"b","keywords":["target"]});
-    let goal = json!({"owner":"a","repo":"b","keywords":["target"],"clasifyContext":{"classifiers":["wanted"]}});
+    let goal = json!({"owner":"a","repo":"b","keywords":["target"],"classification":{"predicates":["wanted"]}});
     let mut structured = json!({"results":[
         {"index":0,"status":"error","data":{"errorCode":"invalidInput"}},
         {"index":1,"data":{"files":[{"path":"one.rs","lines":["source evidence"]},{"path":"two.rs","lines":["source evidence"]}]}},
@@ -150,7 +143,7 @@ fn only_code_search_selects_at_the_response_boundary() {
 fn selected_page_rejects_null_evidence_drift_but_accepts_key_reordering() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
-    let query = json!({"owner":"o","repo":"r","keywords":["queue"],"clasifyContext":{"classifiers":["find queue"]}});
+    let query = json!({"owner":"o","repo":"r","keywords":["queue"],"classification":{"predicates":["find queue"]}});
     let original = json!({"results":[{"index":0,"data":{"files":[
         {"path":"a.rs","detail":null,"lines":["source evidence"]},
         {"path":"b.rs","lines":["source evidence"]}

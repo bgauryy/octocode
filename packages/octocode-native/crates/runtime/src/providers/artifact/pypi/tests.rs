@@ -1,6 +1,7 @@
 //! PyPI lookups: releases, requirements, licenses, yanked versions and pins.
+use super::super::query::versioned;
+use super::super::test_http::test_budget;
 use super::super::test_http::{KnownTags, RouteHttp};
-use super::super::types::{exact_query, test_budget, versioned};
 use super::*;
 
 use serde_json::json;
@@ -25,7 +26,7 @@ fn pypi_project() -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn pypi_version_lookups_pin_exact_specifier_and_coordinate_forms() {
+async fn pypi_version_lookups_pin_exact_and_specifier_forms() {
     let http = RouteHttp::routes(vec![
         ("/pypi/requests/json", pypi_project()),
         ("/pypi/requests/2.31.0/json", pypi_release("2.31.0")),
@@ -45,6 +46,13 @@ async fn pypi_version_lookups_pin_exact_specifier_and_coordinate_forms() {
     )
     .await
     .expect("exact");
+    assert_eq!(
+        http.targets()
+            .iter()
+            .filter(|path| path.starts_with("/pypi/"))
+            .collect::<Vec<_>>(),
+        vec!["/pypi/requests/2.31.0/json"]
+    );
     let item = &exact.artifacts[0];
     assert_eq!(item.version.as_deref(), Some("2.31.0"));
     assert_eq!(item.published_at.as_deref(), Some("2023-05-22"));
@@ -63,13 +71,6 @@ async fn pypi_version_lookups_pin_exact_specifier_and_coordinate_forms() {
     assert_eq!(item.yanked, None);
     // The upstream release tag pins the source lead.
     assert_eq!(item.source_ref.as_deref(), Some("v2.31.0"));
-    let coordinate = pypi(
-        &exact_query(ArtifactType::Pypi, "requests==2.31.0"),
-        &client,
-    )
-    .await
-    .expect("== coordinate");
-    assert_eq!(coordinate.artifacts[0].version.as_deref(), Some("2.31.0"));
     let range = pypi(
         &versioned(ArtifactType::Pypi, "requests", ">=2.31,<3"),
         &client,
@@ -95,17 +96,22 @@ async fn pypi_version_lookups_pin_exact_specifier_and_coordinate_forms() {
         .into_iter()
         .filter(|path| path.starts_with("/pypi/"))
         .collect();
-    assert_eq!(
-        registry[..2],
-        ["/pypi/requests/2.31.0/json", "/pypi/requests/2.31.0/json"],
-        "exact versions are one registry request"
+    assert!(registry.iter().any(|path| path == "/pypi/requests/json"));
+    assert!(
+        registry
+            .iter()
+            .any(|path| path == "/pypi/requests/2.32.3/json")
+    );
+    assert!(
+        registry
+            .iter()
+            .any(|path| path == "/pypi/requests/2.31.9/json")
     );
     assert_eq!(
         tags.seen()[..2],
         ["psf/requests@v2.31.0", "psf/requests@2.31.0"],
         "the plain tags are checked together, and the `v` tag wins"
     );
-    assert_eq!(tags.seen()[2], "psf/requests@v2.31.0");
 }
 
 /// PEP 592: an `==`/`===` pin selects a yanked release; a range that

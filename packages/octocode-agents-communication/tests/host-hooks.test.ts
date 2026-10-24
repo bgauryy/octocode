@@ -8,6 +8,7 @@ import { createServer } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { binary, tempWorkspace, withReasoning, only } from './helpers.ts';
 import type { TestContext } from 'node:test';
+const { hostHooks: { CODEX_CONTEXT_LIMIT, HOST_CONTEXT_LIMIT } } = await import('../dist/runtime.js');
 import type { JsonRecord } from './json-record.ts';
 
 function fixture(t: TestContext, vendor: string, paths?: { workspace?: string; database?: string }) {
@@ -63,7 +64,7 @@ for (const vendor of ['grok', 'codex']) test(`${vendor} context cap uses explici
   const body = 'x'.repeat(vendor === 'codex' ? 6500 : 16000);
   const sent = f.cli('send_message', { to: recipient, body }, sender.id);
   const content = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
-  assert.ok(Buffer.byteLength(content) <= (vendor === 'codex' ? 5000 : 9000));
+  assert.ok(Buffer.byteLength(content) <= (vendor === 'codex' ? CODEX_CONTEXT_LIMIT : HOST_CONTEXT_LIMIT));
   assert.ok(content.includes('bodyOmitted'));
   assert.ok(content.includes('fetch {type:"message",where:{messageId:ID}}'));
   const references = JSON.parse(content.slice(content.indexOf('New message references: ') + 'New message references: '.length));
@@ -87,7 +88,7 @@ for (const vendor of ['grok', 'codex']) test(`${vendor}: oversized batches offer
   const offered = [];
   for (let attempt = 0; attempt < 16 && offered.length < messages.length; attempt++) {
     const content = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
-    assert.ok(Buffer.byteLength(content) <= (vendor === 'codex' ? 5000 : 9000));
+    assert.ok(Buffer.byteLength(content) <= (vendor === 'codex' ? CODEX_CONTEXT_LIMIT : HOST_CONTEXT_LIMIT));
     if (content.includes('bodyOmitted'))
       assert.equal(content.includes('r'.repeat(100)), false, 'References omit repeated reasoning');
     offered.push(...[...content.matchAll(/"messageId":(\d+)/g)].map(match => Number(match[1])));
@@ -109,10 +110,10 @@ test('Codex offers deferred mail after a large first binding without changing pe
   for (let i=0;i<10;i++) f.cli('join', {vendor:'raw', name:String(i)+'p'.repeat(60), task:'t'.repeat(250)});
   const sent = f.cli('send_message', {to:recipient,body:'x'.repeat(6500)},sender);
   const first = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
-  assert.ok(Buffer.byteLength(first)<=5000); assert.equal(first.includes('bodyOmitted'),false);
+  assert.ok(Buffer.byteLength(first)<=CODEX_CONTEXT_LIMIT); assert.equal(first.includes('bodyOmitted'),false);
   assert.equal(f.cli('fetch',{type:'dispatch.staged',current:true},recipient).items.length,0);
   const second = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
-  assert.ok(Buffer.byteLength(second)<=5000); assert.ok(second.includes(`"messageId":${sent.id}`));
+  assert.ok(Buffer.byteLength(second)<=CODEX_CONTEXT_LIMIT); assert.ok(second.includes(`"messageId":${sent.id}`));
   assert.equal(f.cli('fetch',{type:'dispatch.submitted',current:true},recipient).items[0].data.messageId,sent.id);
   assert.deepEqual(f.hook('PostToolUse'),{});
   assert.equal(f.cli('inbox',{},recipient).items[0].id,sent.id);
@@ -150,7 +151,7 @@ test('native config previews have timeouts, supported events and no writes', t =
     const handler = vendor === 'cursor' ? result.hooks[event][0] : result.hooks[event][0].hooks[0];
     assert.equal(handler.timeout,10);
     if (vendor === 'codex') {
-      assert.equal(handler.additionalContextLimit, 5000);
+      assert.equal(handler.additionalContextLimit, CODEX_CONTEXT_LIMIT);
       assert.equal(result.hooks.PostToolUseFailure, undefined);
     }
     assert.ok(handler.command.includes('host-hook'));

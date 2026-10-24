@@ -24,6 +24,11 @@ async fn issue_row_carries_number_state_author_and_discussion_size() {
     assert_eq!(issue["author"], "bob", "{out}");
     assert_eq!(issue["commentsCount"], 3, "{out}");
     assert_eq!(issue["body"], "It crashes.", "{out}");
+    let discussion = checks::related_call(&out, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"] == json!(["comments"])
+    });
+    assert_eq!(discussion["input"]["queries"][0]["number"], 7);
+    assert!(out.get("next").is_none(), "{out}");
 }
 
 /// The wrong operation for an existing number is one failure class both
@@ -94,7 +99,7 @@ async fn issue_comment_pages_keep_the_callers_page_size() {
         let block = &issue["contentPagination"]["comments"];
         assert!(block.get("pageSize").is_none(), "call {call}: {data}");
         ids.extend(shown.iter().map(|comment| comment["id"].to_string()));
-        let Some(next) = data.pointer("/next/nextCommentPage/query/queries/0") else {
+        let Some(next) = data.pointer("/next/nextCommentPage/input/queries/0") else {
             break;
         };
         assert_eq!(next["pageSize"], 4, "call {call}: {data}");

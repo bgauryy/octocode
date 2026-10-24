@@ -7,9 +7,7 @@ use serde_json::json;
 #[test]
 fn a_summary_read_selects_no_section() {
     let query = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest", "owner":"o", "repo":"r", "number":1,
-        "mainGoal":"Read the pull request.","reasoning":"No section named."
-    }))
+        "operation":"pullRequest", "owner":"o", "repo":"r", "number":1}))
     .expect("summary read");
     assert!(query.sections().is_empty());
     assert_eq!(query.sections().wire(), None);
@@ -22,7 +20,7 @@ fn a_summary_read_selects_no_section() {
 fn sections_resolve_from_the_typed_query() {
     let row = |fields: Value| {
         HistoryItemRequest::from_row(super::util::merge(
-            json!({"operation":"pullRequest","mainGoal":"g","reasoning":"r",
+            json!({"operation":"pullRequest",
                 "owner":"o","repo":"r","number":1}),
             fields,
         ))
@@ -30,7 +28,7 @@ fn sections_resolve_from_the_typed_query() {
     };
     let read = row(json!({
         "sections":["reviews","patches","body","comments","files","reviewComments"],
-        "include":["src/**"],"status":["modified"]
+        "include":["src/**"],"fileStatus":["modified"]
     }));
     // Published order on the wire, whatever order the caller named.
     assert_eq!(
@@ -46,11 +44,11 @@ fn sections_resolve_from_the_typed_query() {
     );
     assert!(!read.sections().lists_commits());
     assert_eq!(
-        row(json!({"matchString":"needle"})).sections(),
+        row(json!({"matchString":["needle"]})).sections(),
         Sections::of([Section::Patches])
     );
     let commit = HistoryItemRequest::from_row(json!({
-        "operation":"commit","mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
+        "operation":"commit","owner":"o","repo":"r",
         "ref":"head-sha","sections":["patches"],"include":["src/*.rs"]
     }))
     .expect("commit");
@@ -60,7 +58,7 @@ fn sections_resolve_from_the_typed_query() {
     );
     assert!(
         HistoryItemRequest::from_row(json!({
-            "operation":"commit","owner":"o","repo":"r","ref":"h","base":"b"
+            "operation":"commit","owner":"o","repo":"r","ref":"h","baseRef":"b"
         }))
         .is_err()
     );
@@ -70,12 +68,12 @@ fn sections_resolve_from_the_typed_query() {
         ["src/*.rs"]
     );
     let grep = HistoryItemRequest::from_row(json!({
-        "operation":"compare","owner":"o","repo":"r","base":"a","head":"b","matchString":"x"
+        "operation":"compare","owner":"o","repo":"r","baseRef":"a","headRef":"b","matchString":["x"]
     }))
     .expect("compare grep");
     assert!(grep.include_diff());
     let issue = HistoryItemRequest::from_row(json!({
-        "operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":2,
+        "operation":"issue","owner":"o","repo":"r","number":2,
         "sections":["comments"]
     }))
     .expect("issue include");
@@ -97,22 +95,22 @@ impl ContentScan for ReplacingScan {
 fn missing_identity_is_rejected() {
     // The wire contract requires each operation's identity.
     for row in [
-        json!({"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b"}),
-        json!({"operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b"}),
-        json!({"operation":"compare","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","base":"x"}),
+        json!({"operation":"commit", "owner":"a","repo":"b"}),
+        json!({"operation":"pullRequest", "owner":"a","repo":"b"}),
+        json!({"operation":"compare", "owner":"a","repo":"b","baseRef":"x"}),
     ] {
         assert!(HistoryItemRequest::from_row(row).is_err());
     }
     assert!(
         HistoryItemRequest::from_row(
-            json!({"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","ref":"x"}),
+            json!({"operation":"commit", "owner":"a","repo":"b","ref":"x"}),
         )
         .is_ok()
     );
     // The wire contract rejects a blank comparison ref.
     assert!(
         HistoryItemRequest::from_row(json!({
-            "operation":"compare","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","base":"","head":"x"
+            "operation":"compare", "owner":"a","repo":"b","baseRef":"","headRef":"x"
         }))
         .is_err()
     );

@@ -110,7 +110,7 @@ fn position_dependent(query: &Value) -> Option<String> {
     };
     let mut globs = strings(&query["include"]);
     globs.extend(strings(&query["exclude"]));
-    if let Some(by_language) = query["languageGlobs"].as_object() {
+    if let Some(by_language) = query["parserGlobs"].as_object() {
         globs.extend(by_language.values().flat_map(strings));
     }
     globs.into_iter().find(|glob| !independent(glob))
@@ -237,7 +237,7 @@ impl Unwalked {
             let call = (named < MAX_LEADS).then(|| lead(reach)).flatten();
             match call {
                 Some(call) => {
-                    out["next"][crate::id::numbered("narrowScope", named)] = call;
+                    out["calls"][crate::id::numbered("narrowScope", named)] = call;
                     named += 1;
                 }
                 None => unled.push(reach),
@@ -261,7 +261,7 @@ impl Unwalked {
         );
         if let Some(dir) = listed_in {
             let key = crate::id::numbered("narrowScope", named);
-            out["next"][&key] = crate::response::result::Continuation::new(
+            out["calls"][&key] = crate::response::result::Continuation::related(
                 ToolId::StructureSearch,
                 json!({"operation":"tree","path":dir.to_string_lossy(),"maxDepth":1}),
             )
@@ -342,7 +342,7 @@ pub(super) fn narrowed(query: &Value, reach: &Reach) -> Option<Value> {
         }
     }
     let narrowed = crate::response::result::with_changes(query.clone(), &changes);
-    Some(crate::response::result::Continuation::new(ToolId::AstSearch, narrowed).build())
+    Some(crate::response::result::Continuation::continued(ToolId::AstSearch, narrowed).build())
 }
 
 #[cfg(test)]
@@ -365,7 +365,7 @@ mod numbering_tests {
         };
         let mut out = json!({});
         unwalked.attach(&mut out, |_| None);
-        let names = out["next"]
+        let names = out["calls"]
             .as_object()
             .expect("next")
             .keys()

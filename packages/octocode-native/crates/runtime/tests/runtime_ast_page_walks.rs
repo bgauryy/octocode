@@ -152,7 +152,7 @@ async fn walk_input(
                 break;
             }
             walk.splits += 1;
-            input = response["next"]["query"].clone();
+            input = response["next"]["input"].clone();
             assert!(input.is_object(), "mcp={mcp}: {response}");
         }
         walk.pages.push(rows);
@@ -160,8 +160,8 @@ async fn walk_input(
             // Pages remain: the envelope says so and leads to the next.
             let next = next_page.unwrap_or_else(|| panic!("mcp={mcp}: hasMore without nextPage"));
             assert_eq!(next["tool"], "astSearch", "mcp={mcp}: {next}");
-            input = next["query"].clone();
-            assert!(input["queries"][0].is_object(), "mcp={mcp}: {next}");
+            input = next["input"].clone();
+            assert!(input["cursor"].is_string(), "mcp={mcp}: {next}");
         } else {
             assert!(
                 next_page.is_none(),
@@ -190,9 +190,7 @@ async fn a_directory_outline_states_its_remaining_pages_and_walks_every_symbol_o
     let root = fixture(&workspace);
     let runtime = workspace.runtime(&[]);
     for mcp in [false, true] {
-        let first = json!({"operation": "symbols", "path": root,
-            "mainGoal": "Outline every declaration.",
-            "reasoning": "Follow next.nextPage to the end."});
+        let first = json!({"operation": "symbols", "path": root});
         let walked = walk(&runtime, mcp, first, |data| {
             rows(data, "symbols", "symbolName")
         })
@@ -228,10 +226,8 @@ async fn a_directory_match_walk_from_an_absolute_path_reaches_every_match_once()
     let runtime = workspace.runtime(&[]);
     for mcp in [false, true] {
         let first = json!({"operation": "match",
-            "pattern": "export function $NAME(): number { $$$BODY }",
-            "language": "typescript", "path": root,
-            "mainGoal": "Find every exported function.",
-            "reasoning": "Follow next.nextPage to the end."});
+            "rule": {"pattern": "export function $NAME(): number { $$$BODY }"},
+            "parser": "typescript", "path": root});
         let walked = walk(&runtime, mcp, first, |data| rows(data, "matches", "line")).await;
         assert_each_once(&walked.rows(), SMALL_FILES, &format!("match mcp={mcp}"));
         // Match pages count files.

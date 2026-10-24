@@ -1,7 +1,7 @@
 //! Fixtures the code-graph test modules share: a temporary tree, ingested
 //! into its own workspace and asked through `graph query`.
 use super::store::{GraphOutput, IngestOptions, QueryOptions};
-pub(super) use crate::tools::test_support::Fixture;
+use crate::tools::test_support::Fixture;
 use serde_json::Value;
 use std::path::Path;
 

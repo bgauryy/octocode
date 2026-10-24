@@ -1,13 +1,12 @@
 //! Leads from an exact registry row to its source on GitHub.
 use crate::id::ToolId;
-use crate::providers::artifact::types::artifact_search_query;
+use crate::providers::artifact::query::artifact_search_query;
 use crate::providers::artifact::{
-    ArtifactError, ArtifactItem, ArtifactSearchQuery, ArtifactType, github_repo_dir, github_slug,
-    page_out_of_range, release_ref_in,
+    ArtifactError, ArtifactItem, github_repo_dir, github_slug, page_out_of_range, release_ref_in,
 };
 use crate::response::result::{Continuation, query_row};
 use crate::tools::leads::broaden::{Broaden, broaden};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use serde_json::{Map, Value, json};
 
 /// Labels a row's release source, the one place the label is decided: a
@@ -61,8 +60,8 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
         None => return None,
     };
     let package = match artifact.version.as_deref() {
-        Some(version) => format!("{} {version}", artifact.name),
-        None => artifact.name.clone(),
+        Some(version) => format!("{} {version}", artifact.package_name),
+        None => artifact.package_name.clone(),
     };
     let source = if default_branch {
         "; its source on the default branch may be another version"
@@ -81,8 +80,8 @@ pub(super) fn property_warning(artifact: &ArtifactItem) -> Option<String> {
         return None;
     }
     let package = match artifact.version.as_deref() {
-        Some(version) => format!("{} {version}", artifact.name),
-        None => artifact.name.clone(),
+        Some(version) => format!("{} {version}", artifact.package_name),
+        None => artifact.package_name.clone(),
     };
     Some(format!(
         "{package}: dependency versions {} are properties its POM does not define (a parent POM sets them); shown as declared.",
@@ -126,10 +125,8 @@ pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
 /// The query as a lead copies it: every field the caller set except the
 /// brief and the walk position (every cursor field).
 fn copied(query: &ArtifactSearchQuery) -> Map<String, Value> {
-    let omit = crate::response::result::CURSOR_FIELDS
-        .into_iter()
-        .chain(["mainGoal", "reasoning"])
-        .collect::<Vec<_>>();
+    let fields = crate::contracts::state_fields(ToolId::ArtifactSearch);
+    let omit = fields.iter().map(String::as_str).collect::<Vec<_>>();
     match query_row(query, &omit) {
         Value::Object(row) => row,
         _ => Map::new(),
@@ -151,11 +148,11 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
         let mut last = copied(query);
         last.insert("page".into(), json!(super::last_reachable_page(query)));
         error.message = limit.warning;
-        let lead = Continuation::new(ToolId::ArtifactSearch, Value::Object(last)).build();
-        error.next = Some(Box::new(json!({ "repair": lead })));
+        let lead = Continuation::related(ToolId::ArtifactSearch, Value::Object(last)).build();
+        error.calls = Some(Box::new(json!({ "repair": lead })));
         return error;
     }
-    let Some(name) = artifact_search_query::bare_package_name(query) else {
+    let Some(name) = artifact_search_query::package_name(query) else {
         return error;
     };
     let mut exact = copied(query);
@@ -165,12 +162,11 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
     let lead = match error.code {
         _ if searchable && artifact_search_query::artifact_type(query) != ArtifactType::Pypi => {
             exact.remove("packageName");
+            exact.insert("operation".into(), json!("search"));
             exact.insert("keywords".into(), json!([name]));
             Some((
                 "broadenSearch",
-                Continuation::new(ToolId::ArtifactSearch, Value::Object(exact))
-                    .approximate()
-                    .build(),
+                Continuation::related(ToolId::ArtifactSearch, Value::Object(exact)).build(),
             ))
         }
         ErrorCode::VersionNotFound if !error.nearest.is_empty() => {
@@ -185,7 +181,8 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
                 .collect::<Vec<_>>();
             Some((
                 "repair",
-                Continuation::input(ToolId::ArtifactSearch, json!({ "queries": queries })).build(),
+                Continuation::related_input(ToolId::ArtifactSearch, json!({ "queries": queries }))
+                    .build(),
             ))
         }
         ErrorCode::VersionNotFound | ErrorCode::CapabilityUnavailable
@@ -193,19 +190,19 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
         {
             Some((
                 "repair",
-                Continuation::new(ToolId::ArtifactSearch, Value::Object(exact)).build(),
+                Continuation::related(ToolId::ArtifactSearch, Value::Object(exact)).build(),
             ))
         }
         _ => None,
     };
     match lead {
-        Some((name, lead)) => error.next = Some(Box::new(json!({ name: lead }))),
+        Some((name, lead)) => error.calls = Some(Box::new(json!({ name: lead }))),
         // PyPI has no keyword search to broaden an unknown name into.
         None if error.code == ErrorCode::NotFound && error.hints.is_empty() => {
             error.hints.push(format!(
                 "Check the exact packageName spelling; {} has no keyword search.",
                 artifact_search_query::artifact_type(query)
-            ))
+            ));
         }
         None => {}
     }

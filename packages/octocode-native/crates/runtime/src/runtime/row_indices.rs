@@ -2,7 +2,6 @@
 
 use crate::response::outcome::ToolOutcome;
 use crate::response::result::Remaining;
-use crate::security::CheckedQuery;
 use serde_json::{Value, json};
 
 /// Original indices of the admitted rows: every input position not rejected.
@@ -10,23 +9,6 @@ pub(crate) fn admitted_indices(admitted: usize, rejected: &[usize]) -> Vec<usize
     (0..admitted + rejected.len())
         .filter(|position| !rejected.contains(position))
         .take(admitted)
-        .collect()
-}
-
-/// Each input position's admitted query, `None` at a rejected position.
-pub(crate) fn by_position<'a>(
-    queries: &'a [CheckedQuery],
-    rejected: &[usize],
-) -> Vec<Option<&'a Value>> {
-    let mut admitted = queries.iter().map(|query| &**query);
-    (0..queries.len() + rejected.len())
-        .map(|position| {
-            if rejected.contains(&position) {
-                None
-            } else {
-                admitted.next()
-            }
-        })
         .collect()
 }
 

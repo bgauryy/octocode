@@ -180,7 +180,7 @@ pub fn family_extensions(selector: &str) -> Option<std::collections::BTreeSet<St
 /// `hpp`, `.cc`), owns or also parses `path`'s extension: the file can be
 /// read as that grammar.
 pub fn parses_path(selector: &str, path: &str) -> bool {
-    let extension = crate::text::file_extension::extension_of(path, true, "");
+    let extension = crate::text::extension_of(path, true, "");
     selected(selector).any(|entry| {
         entry
             .extensions
@@ -196,7 +196,7 @@ pub fn parses_path(selector: &str, path: &str) -> bool {
 /// also parses it (`.h` under any C++ selector parses as `cpp`), else the
 /// selector itself.
 pub fn parser_for_path(selector: &str, path: &str) -> String {
-    let extension = crate::text::file_extension::extension_of(path, true, "");
+    let extension = crate::text::extension_of(path, true, "");
     if extension.is_empty() {
         return selector.to_owned();
     }

@@ -34,7 +34,7 @@ fn names(tools: &[Value]) -> Vec<&str> {
 fn lists_available_tools_in_catalog_order_with_published_inputs() {
     let catalog = catalog(
         &["localSearch", "localFetch"],
-        json!({"deferred": [], "selection": false}),
+        json!({"selection": false}),
         json!([]),
     );
     let listing = build(presentation(), &catalog).expect("listing");
@@ -46,23 +46,22 @@ fn lists_available_tools_in_catalog_order_with_published_inputs() {
     for tool in &listing.tools {
         assert!(tool["title"].is_string(), "{tool}");
         assert!(tool["description"].is_string(), "{tool}");
-        assert_eq!(tool["inputSchema"]["type"], "object", "{tool}");
+        assert!(tool["inputSchema"].is_object(), "{tool}");
         assert_eq!(tool["annotations"]["readOnlyHint"], true, "{tool}");
     }
 }
 
 #[test]
-fn instructions_name_only_available_tools_and_omit_cli_sections() {
-    let catalog = catalog(
-        &["localSearch"],
-        json!({"deferred": [], "selection": false}),
-        json!([]),
-    );
+fn instructions_are_the_one_core_string_without_cli_notes() {
+    let catalog = catalog(&["localSearch"], json!({"selection": false}), json!([]));
     let text = build(presentation(), &catalog)
         .expect("listing")
         .instructions;
-    assert!(text.contains("<local>"), "{text}");
-    assert!(!text.contains("<github>"), "{text}");
+    assert_eq!(text, presentation()["instructions"].as_str().expect("text"));
+    assert!(
+        text.contains("<local>") && text.contains("<github>"),
+        "{text}"
+    );
     assert!(!text.contains("<cli>"), "{text}");
 }
 
@@ -70,73 +69,47 @@ fn instructions_name_only_available_tools_and_omit_cli_sections() {
 fn lsp_search_names_the_resolved_language_servers() {
     let catalog = catalog(
         &["lspSearch"],
-        json!({"deferred": [], "selection": false}),
+        json!({"selection": false}),
         json!(["rust", "ts/js"]),
     );
     let listing = build(presentation(), &catalog).expect("listing");
     let description = listing.tools[0]["description"].as_str().expect("text");
     assert!(
-        description.contains("Servers: rust, ts/js."),
+        description.contains(" Servers: rust, ts/js.</when><workflow>"),
         "{description}"
     );
 }
 
 #[test]
 fn selection_lists_the_context_selection_variant() {
-    let plain = catalog(
-        &["localSearch"],
-        json!({"deferred": [], "selection": false}),
-        json!([]),
-    );
-    let ranked = catalog(
-        &["localSearch"],
-        json!({"deferred": [], "selection": true}),
-        json!([]),
-    );
+    let plain = catalog(&["localSearch"], json!({"selection": false}), json!([]));
+    let ranked = catalog(&["localSearch"], json!({"selection": true}), json!([]));
     let plain = build(presentation(), &plain).expect("plain").tools;
     let ranked = build(presentation(), &ranked).expect("ranked").tools;
     assert_ne!(plain[0]["inputSchema"], ranked[0]["inputSchema"]);
 }
 
 #[test]
-fn deferred_tools_leave_the_list_and_run_through_the_dispatcher() {
-    let catalog = catalog(
-        &["localSearch", "localFetch"],
-        json!({"deferred": ["localFetch"], "selection": false}),
-        json!([]),
-    );
-    let tools = build(presentation(), &catalog).expect("listing").tools;
-    assert_eq!(names(&tools), ["localSearch", "run"]);
-    let run = &tools[1];
-    assert_eq!(
-        run["inputSchema"]["properties"]["tool"]["enum"],
-        json!(["localFetch"])
-    );
-    let description = run["description"].as_str().expect("text");
-    assert!(description.contains("\nlocalFetch: "), "{description}");
-    assert!(!description.contains("localSearch:"), "{description}");
-}
-
-#[test]
-fn clasify_lists_the_variant_for_the_exposed_source_readers() {
-    let both = catalog(
-        &["clasify", "localFetch", "ghGetFileContent"],
-        json!({"deferred": [], "selection": false}),
-        json!([]),
-    );
-    let none = catalog(
-        &["clasify"],
-        json!({"deferred": [], "selection": false}),
-        json!([]),
-    );
-    let both = build(presentation(), &both).expect("both").tools;
-    let none = build(presentation(), &none).expect("none").tools;
-    assert_ne!(both[0]["inputSchema"], none[0]["inputSchema"]);
+fn every_enabled_tool_is_listed_with_its_exact_schema() {
+    let available = presentation_tools();
+    let names = available.iter().map(String::as_str).collect::<Vec<_>>();
+    let catalog = catalog(&names, json!({"selection":false}), json!([]));
+    let listing = build(presentation(), &catalog).unwrap();
+    assert_eq!(listing.tools.len(), available.len());
+    for listed in listing.tools {
+        let source = presentation()["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == listed["name"])
+            .unwrap();
+        assert_eq!(listed["inputSchema"], source["mcp"]["inputSchema"]);
+    }
 }
 
 #[test]
 fn a_catalog_without_available_tools_is_an_error() {
-    let catalog = catalog(&[], json!({"deferred": [], "selection": false}), json!([]));
+    let catalog = catalog(&[], json!({"selection": false}), json!([]));
     assert!(build(presentation(), &catalog).is_err());
 }
 
@@ -144,7 +117,7 @@ fn a_catalog_without_available_tools_is_an_error() {
 fn a_catalog_tool_without_a_presentation_is_an_error() {
     let catalog = json!({
         "tools": [{"name": "unknownTool", "available": true}],
-        "presentation": {"deferred": [], "selection": false},
+        "presentation": {"selection": false},
         "lspServers": [],
     });
     let Err(message) = build(presentation(), &catalog) else {

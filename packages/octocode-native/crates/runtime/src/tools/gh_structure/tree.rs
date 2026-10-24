@@ -37,8 +37,20 @@ pub(super) async fn execute_tree(
         undated: page_dates.undated,
         failed: page_dates.warning.is_some(),
     };
+    let date_offset = query
+        .date_offset
+        .map_or(0, crate::num::usize_of_signed)
+        .min(page.entries.len());
+    let shown_entries = if query.materialize != Some(true) {
+        &page.entries[date_offset
+            ..date_offset
+                .saturating_add(dates::DATED_PER_PAGE)
+                .min(page.entries.len())]
+    } else {
+        page.entries
+    };
     let mut value = json!({
-        "files": build_structure(page.entries, &page_dates.entries),
+        "files": build_structure(shown_entries, &page_dates.entries),
         "summary": summary(&traversal.entries),
         "resolvedRef": resolved_branch,
     });
@@ -66,7 +78,7 @@ pub(super) async fn execute_tree(
     };
     disclose_limits(&traversal, &page, &mut value, &mut output);
     if traversal.contents_limit {
-        value["next"]["cloneRepo"] = clone_lead(query, &scope, &commit_sha);
+        value["calls"]["cloneRepo"] = clone_lead(query, &scope, &commit_sha);
     }
     if let Some(warning) = renamed_warning {
         push_warning_front(&mut value, warning);
@@ -110,11 +122,13 @@ pub(super) async fn execute_tree(
         // A materialized listing continues with the local tools at
         // `location.localPath`; re-listing the tree it just returned adds
         // nothing.
-    } else if page.current == 1
+    } else if date_offset == 0
+        && page.current == 1
         && let Some(read) = entry_read(&pinned, &traversal.entries, &commit_sha)
     {
-        value["next"]["read"] = read;
+        value["calls"]["read"] = read;
     }
+    crate::tools::gh_shared::finish_calls(&mut value);
     output.data = value;
     Ok(output)
 }
@@ -142,7 +156,7 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Value> {
         .filter(|root| !root.is_empty());
     if let Some(root) = root
         && let Some(queries) = lead
-            .pointer_mut("/query/queries")
+            .pointer_mut("/input/queries")
             .and_then(Value::as_array_mut)
     {
         let prefix = format!("{root}/");
@@ -166,9 +180,9 @@ struct PageDating {
     failed: bool,
 }
 
-/// With `extras: ["details"]` a listing states when each entry last changed
-/// (one GraphQL request per page, so only when asked); a materialized page
-/// hands its files to local tools and stays undated.
+/// A listing includes last-change dates in bounded GraphQL batches.
+/// Saved `dateOffset` progress reaches entries beyond the current batch.
+/// A materialized page hands its files to local tools and stays undated.
 async fn date_page(
     provider: &GitHubProvider,
     query: &GhStructureQueryTree,
@@ -176,7 +190,7 @@ async fn date_page(
     page: &ListingPage<'_>,
     context: &RequestContext,
 ) -> dates::PageDates {
-    if !query.extras.contains(&ExtraKind::Details) || query.materialize == Some(true) {
+    if query.materialize == Some(true) {
         return dates::PageDates::default();
     }
     dates::page_dates(
@@ -184,7 +198,10 @@ async fn date_page(
         &query.owner,
         &query.repo,
         commit_sha,
-        page.entries,
+        &page.entries[query
+            .date_offset
+            .map_or(0, crate::num::usize_of_signed)
+            .min(page.entries.len())..],
         context,
     )
     .await

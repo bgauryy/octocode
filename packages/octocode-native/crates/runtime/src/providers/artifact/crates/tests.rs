@@ -1,6 +1,7 @@
 //! crates.io lookups: exact releases, defaults, dependencies, source refs and discovery.
+use super::super::query::{exact_query, versioned};
+use super::super::test_http::test_budget;
 use super::super::test_http::{KnownTags, RouteHttp};
-use super::super::types::{exact_query, test_budget, versioned};
 use super::*;
 use octocode_contract_types::ErrorCode;
 use octocode_io::budget::RequestBudget;
@@ -26,7 +27,7 @@ async fn crates_exact_versions_carry_the_packaging_commit_or_release_tag() {
         br#"{"git":{"sha1":"b6a77c4413f902523646be0d7f5520631df53ff6"},"path_in_vcs":"serde"}"#;
     let http = RouteHttp::routes(vec![("/api/v1/crates/serde", serde_crate_document())]).bytes(
         "/crates/serde/serde-1.0.100.crate",
-        super::super::release_ref::test_archive(&[
+        super::vcs::test_archive(&[
             ("serde-1.0.100/Cargo.toml", b"[package]", b'0'),
             ("serde-1.0.100/.cargo_vcs_info.json", info, b'0'),
         ]),
@@ -280,10 +281,6 @@ async fn crates_exact_versions_read_the_version_record_with_the_same_fields() {
     for (query, version) in [
         (
             versioned(ArtifactType::Crates, "serde", "1.0.100"),
-            "1.0.100",
-        ),
-        (
-            exact_query(ArtifactType::Crates, "serde@1.0.100"),
             "1.0.100",
         ),
         (

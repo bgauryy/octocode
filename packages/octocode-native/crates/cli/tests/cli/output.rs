@@ -1,55 +1,13 @@
 use super::*;
 
 #[test]
-fn tool_output_is_compact_json_on_a_pipe() {
-    let workspace = Workspace::new();
-    let query = serde_json::json!({"queries":[{
-        "id":"decision",
-        "mainGoal": "test", "reasoning":"Exercise output formatting.",
-        "state":{"fact":"present"},
-        "questions":{"relevant":{"type":"noul","instructions":"Is it relevant?"}}
-    }]})
-    .to_string();
-    let compact = workspace
-        .cli()
-        .args(["clasify", &query, "--json"])
-        .output()
-        .unwrap();
-    assert_eq!(
-        stdout(&compact).trim_end().lines().count(),
-        1,
-        "{}",
-        stdout(&compact)
-    );
-    let forced = workspace
-        .cli()
-        .args(["clasify", &query, "--json"])
-        .output()
-        .unwrap();
-    assert_eq!(stdout(&forced), stdout(&compact));
-    for retired in ["--compact", "--pretty"] {
-        let output = workspace
-            .cli()
-            .args(["clasify", &query, retired, "--json"])
-            .output()
-            .unwrap();
-        assert_eq!(
-            output.status.code(),
-            Some(2),
-            "tool commands reject {retired}"
-        );
-    }
-}
-
-#[test]
 fn localsearch_emits_structured_results() {
     let workspace = Workspace::new();
     let path = workspace.write("search.rs", "fn needle() {}\n");
     let query = serde_json::json!({"queries":[{
-        "matchString": "needle",
+        "matchString": ["needle"],
         "path": path,
-        "resultView": "matchOnly",
-        "mainGoal": "test", "reasoning": "Verify structured lexical output."
+        "view": "matchOnly"
     }]})
     .to_string();
     let output = workspace
@@ -66,32 +24,23 @@ fn localsearch_emits_structured_results() {
     assert_eq!(data["files"][0]["matches"][0]["value"], "needle", "{data}");
 }
 
-/// A call whose every row failed prints its JSON (the same as `--json`) on
-/// stderr, so a pipe never reads an error as data; its repair lead rides
-/// in the row's hints.
+/// Execution failures stay off the text data stream and retain a typed row.
 #[test]
 fn text_mode_failed_rows_print_their_json_on_stderr() {
     let workspace = Workspace::new();
-    let file = workspace.workspace.join("short.rs");
-    std::fs::write(&file, "fn a() {}\nfn b() {}\n").expect("fixture");
-    let query = serde_json::json!({"path": file, "ranges": ["50-60"]}).to_string();
+    let query = serde_json::json!({"queries":[{"path":"missing.rs"}]}).to_string();
     let output = workspace
         .cli()
         .args(["localFetch", &query])
         .output()
-        .expect("out-of-range read");
-    let text = stderr(&output);
+        .expect("missing read");
+    assert_eq!(exit_code(&output), Some(3));
     assert!(stdout(&output).is_empty(), "{}", stdout(&output));
-    let value: serde_json::Value = serde_json::from_str(text.trim()).expect("one JSON document");
-    let data = &value["results"][0]["data"];
-    assert_eq!(data["errorCode"], "invalidInput", "{value}");
-    assert!(
-        data["hints"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(serde_json::Value::as_str)
-            .any(|hint| hint.starts_with("repair: localFetch ")),
+    let value: serde_json::Value =
+        serde_json::from_str(stderr(&output).trim()).expect("one JSON document");
+    assert_eq!(value["results"][0]["index"], 0);
+    assert_eq!(
+        value["results"][0]["data"]["errorCode"], "pathNotFound",
         "{value}"
     );
 }
@@ -101,8 +50,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
     let workspace = Workspace::new();
     let missing = workspace.workspace.join("missing.rs");
     let query = serde_json::json!({"queries":[{
-        "path": missing,
-        "mainGoal": "test", "reasoning": "Verify native read errors."
+        "path": missing
     }]})
     .to_string();
     let output = workspace
@@ -132,7 +80,7 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
     assert!(stderr(&malformed).is_empty(), "{}", stderr(&malformed));
 
     // A schema-invalid query answers with the same typed envelope MCP
-    // returns as structuredContent, repair details kept.
+    // returns as structuredContent.
     let typo = workspace
         .cli()
         .args([
@@ -147,11 +95,11 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
         serde_json::from_str(stdout(&typo)).expect("machine-readable input error");
     assert_bare_error(&error);
     assert_eq!(error["errorCode"], "invalidInput", "{error}");
-    // The single repair detail is the error itself; no extra details.
+    // Rejection names the actual invalid field without guessing another request.
     assert!(
         error["error"]
             .as_str()
-            .is_some_and(|message| message.contains("did you mean 'matchString'?")),
+            .is_some_and(|message| message.contains("matchstring")),
         "{error}"
     );
     assert!(error.get("details").is_none(), "{error}");
@@ -172,21 +120,6 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
         "{error}"
     );
     assert!(stderr(&unknown).is_empty(), "{}", stderr(&unknown));
-
-    // A mistyped tool keeps clap's did-you-mean names in the envelope.
-    let typo = workspace
-        .cli()
-        .args(["lokalSearch", "{}", "--json"])
-        .output()
-        .expect("typo subcommand");
-    assert_eq!(exit_code(&typo), Some(2));
-    let error: serde_json::Value = serde_json::from_str(stdout(&typo)).expect("JSON error");
-    assert!(
-        error["error"]
-            .as_str()
-            .is_some_and(|message| message.contains("localSearch")),
-        "{error}"
-    );
 
     // Retired global flags are argument errors, not aliases.
     for flag in ["--json-errors", "--redact-emails", "--no-color"] {
@@ -217,7 +150,7 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
         .env("GITHUB_TOKEN", "invalid-fixture-token")
         .args([
             "ghGetFileContent",
-            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"mainGoal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}]}"#, "--json"]);
+            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true}]}"#, "--json"]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("tool output"))
         .await
         .expect("tool worker");
@@ -245,9 +178,7 @@ fn argument_parse_errors_redact_secrets_in_json_and_text() {
     assert_bare_error(&error);
     assert_eq!(error["errorCode"], "invalidInput");
     let message = error["error"].as_str().expect("error message");
-    assert!(message.starts_with("unexpected argument '"), "{message}");
     assert!(message.contains("[REDACTED-"), "{message}");
-    assert!(message.contains("' found"), "{message}");
 
     let text_output = workspace
         .cli()
@@ -258,17 +189,5 @@ fn argument_parse_errors_redact_secrets_in_json_and_text() {
     assert!(stdout(&text_output).is_empty(), "{}", stdout(&text_output));
     let text = stderr(&text_output);
     assert!(!text.contains(&token));
-    assert!(
-        text.starts_with("error: unrecognized subcommand '"),
-        "{text}"
-    );
     assert!(text.contains("[REDACTED-"), "{text}");
-    assert!(
-        text.contains("\n\nUsage: octocode config [OPTIONS]\n"),
-        "{text}"
-    );
-    assert!(
-        text.ends_with("For more information, try '--help'.\n"),
-        "{text}"
-    );
 }

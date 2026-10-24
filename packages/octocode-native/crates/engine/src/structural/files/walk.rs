@@ -3,13 +3,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::error::{Error, Result as EngineResult};
+use crate::error::{Error, Result};
 use crate::search::glob::Globs;
 use crate::search::walk::{IgnorePolicy, Prune, RootedPrune, Stop, walk_builder};
 use crate::structural::types::WalkErrors;
 
 /// Loud existence check shared by every entry point.
-pub(super) fn check_root_exists(root: &Path) -> EngineResult<std::fs::Metadata> {
+pub(super) fn check_root_exists(root: &Path) -> Result<std::fs::Metadata> {
     fs::metadata(root).map_err(|err| {
         Error::io(
             &err,
@@ -42,7 +42,7 @@ pub(super) fn collect_files(
     walked: &Walked<'_>,
     admit: &(dyn Fn(&Path) -> bool + Sync),
     stop: &Stop<'_>,
-) -> EngineResult<(Vec<PathBuf>, WalkErrors)> {
+) -> Result<(Vec<PathBuf>, WalkErrors)> {
     let metadata = check_root_exists(root)?;
     let mut errors = WalkErrors::default();
     if metadata.is_file() {

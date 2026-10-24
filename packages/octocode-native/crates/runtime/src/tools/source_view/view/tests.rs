@@ -1,37 +1,60 @@
-//! Unit tests of the view pipeline: paging, line windows and selection binding.
-
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::security::ContentSecurity;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
+use serde_json::json;
 use std::path::Path;
 
-fn security() -> ContentSecurity {
-    ContentSecurity::new()
+fn query(fields: serde_json::Value) -> LocalFetchQuery {
+    let mut row = json!({"path":"/fixture/app.ts"});
+    row.as_object_mut()
+        .expect("query")
+        .extend(fields.as_object().expect("fields").clone());
+    serde_json::from_value(row).expect("canonical reader query")
 }
-fn fetch(source: &str, q: &LocalFetchQuery) -> LocalFetchResult {
+
+fn fetch_window(source: &str, q: &LocalFetchQuery, window: usize) -> LocalFetchResult {
     process_fetched_content(
         q,
         source.as_bytes(),
         Path::new("/fixture/app.ts"),
-        &SourceFacts::default(),
-        &security(),
+        &SourceFacts {
+            window: Some(window),
+            ..SourceFacts::default()
+        },
+        &ContentSecurity::new(),
         &NeverCancel,
     )
 }
-fn lines_query(offset: usize, chunk: usize) -> LocalFetchQuery {
-    LocalFetchQuery {
-        path: "/fixture/app.ts".parse().expect("path"),
-        unit: Some(WindowUnit::Lines),
-        offset: Some(wire_count(offset)),
-        length: wire_positive(chunk),
-        ..test_local_fetch_query()
-    }
-}
+
 fn filler(n: usize) -> String {
     (1..=n)
         .map(|i| format!("const filler_{i} = {i};\n"))
         .collect()
+}
+
+fn walk(source: &str, mut q: LocalFetchQuery, window: usize) -> (String, usize) {
+    let mut joined = String::new();
+    let mut pages = 0;
+    loop {
+        let result = fetch_window(source, &q, window);
+        assert!(result.error.is_none(), "{result:?}");
+        joined.push_str(result.content.as_deref().expect("content"));
+        pages += 1;
+        assert!(pages < source.len() + 2, "progress must terminate");
+        let Some(next) = result.next.and_then(|next| next.continue_window) else {
+            break;
+        };
+        assert_ne!(next.query, q, "continuation must advance");
+        if local_fetch_query::unit(&next.query) == local_fetch_query::unit(&q) {
+            assert!(
+                local_fetch_query::offset(&next.query).unwrap_or(0)
+                    > local_fetch_query::offset(&q).unwrap_or(0)
+            );
+        }
+        q = next.query;
+    }
+    (joined, pages)
 }
 
 #[test]
@@ -101,7 +124,7 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
         })
         .collect::<String>();
     let query: LocalFetchQuery = serde_json::from_value(json!({
-        "path":"/fixture/source.txt", "ranges":["1-1","10-10","20-20"], "clasifyContext":{"classifiers":["Find the first evidence"]}
+        "path":"/fixture/source.txt", "ranges":[{"startLine":1,"endLine":1},{"startLine":10,"endLine":10},{"startLine":20,"endLine":20}], "classification":{"predicates":["Find the first evidence"]}
     }))
     .expect("query");
     let path = Path::new("/fixture/source.txt");
@@ -121,7 +144,7 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
         Some(&source),
         path,
         input.provider_path,
-        &security(),
+        &ContentSecurity::new(),
         Some(&runtime),
         None,
         None,
@@ -174,101 +197,29 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
 }
 
 #[test]
-fn selected_reads_fill_the_configured_window_and_keep_explicit_lengths() {
+fn default_read_and_explicit_ranges_reconstruct_complete_source() {
     let source = filler(1_200);
-    let mut query = LocalFetchQuery {
-        path: "/fixture/app.ts".parse().expect("path"),
-        ranges: vec!["1-1200".parse().expect("range")],
-        ..test_local_fetch_query()
-    };
-    let read = |query: &LocalFetchQuery| {
-        process_fetched_content(
-            query,
-            source.as_bytes(),
-            Path::new("/fixture/app.ts"),
-            &SourceFacts {
-                window: Some(50_000),
-                ..SourceFacts::default()
-            },
-            &security(),
-            &NeverCancel,
-        )
-    };
-    let complete = read(&query);
-    assert_eq!(complete.status, ReadStatus::Success);
-    assert!(
-        complete
-            .content
-            .as_deref()
-            .expect("content")
-            .contains("filler_1200")
-    );
-    assert!(!complete.pagination.as_ref().expect("pagination").has_more);
-
-    query.unit = Some(WindowUnit::Lines);
-    query.length = wire_positive(17);
-    let explicit = read(&query);
-    assert_eq!(explicit.pagination.as_ref().expect("pagination").length, 17);
-    assert!(explicit.pagination.as_ref().expect("pagination").has_more);
+    for fields in [
+        json!({}),
+        json!({"ranges":[{"startLine":1,"endLine":1200}]}),
+    ] {
+        let (actual, pages) = walk(&source, query(fields), 1200);
+        assert_eq!(actual, source);
+        assert!(pages > 1);
+    }
 }
 
-/// A read with no anchor whose view would not fit one page returns a
-/// short head instead of the page: the read is not targeted yet. Paging
-/// on, whole-file reads and anchored reads are unchanged; a file that
-/// fits one page is returned whole, with no note.
 #[test]
-fn an_unanchored_read_over_one_page_returns_a_head() {
-    // 1,000 short lines: far below any line-count ceiling, over 16 KiB.
-    let source = filler(1_000);
-    assert!(source.len() > 16 * 1024);
-    let plain = LocalFetchQuery {
-        path: "/fixture/app.ts".parse().expect("path"),
-        ..test_local_fetch_query()
-    };
-    let head = fetch(&source, &plain);
-    assert_eq!(head.returned_lines, Some(HEAD_LINES), "{head:?}");
-    // The head's facts are data (totalLines, continueWindow), not a note.
-    assert!(head.warnings.is_empty(), "{:?}", head.warnings);
-    assert_eq!(head.total_lines, Some(1_000), "{head:?}");
-    let next = head
-        .next
-        .and_then(|next| next.continue_window)
-        .expect("continueWindow");
-    assert_eq!(local_fetch_query::offset(&next.query), Some(HEAD_LINES));
-    assert_eq!(local_fetch_query::window_length(&next.query), None);
-    let page = fetch(&source, &next.query);
-    assert!(page.returned_lines.expect("lines") > HEAD_LINES, "{page:?}");
-    // Whole-file, anchored and symbol reads are unchanged.
-    let whole = fetch(
-        &source,
-        &LocalFetchQuery {
-            full_content: Some(true),
-            ..plain.clone()
-        },
-    );
-    assert!(whole.returned_lines.expect("lines") > HEAD_LINES);
-    let ranged = fetch(
-        &source,
-        &LocalFetchQuery {
-            ranges: vec![format!("{}-{}", 10, 200).parse().expect("range")],
-            ..plain.clone()
-        },
-    );
-    assert_eq!(ranged.returned_lines, Some(191));
-    // A standard view is guarded the same way (ghGetFileContent's default).
-    let standard = fetch(
-        &source,
-        &LocalFetchQuery {
-            minify: Some(MinifyMode::Standard),
-            ..plain.clone()
-        },
-    );
-    assert_eq!(standard.returned_lines, Some(HEAD_LINES), "{standard:?}");
-    // A file that fits one page is read whole, with no note.
-    let small = fetch(&filler(500), &plain);
-    assert_eq!(small.returned_lines, Some(500), "{small:?}");
-    assert!(small.warnings.is_empty(), "{:?}", small.warnings);
-    assert!(small.next.is_none(), "{small:?}");
+fn an_unanchored_read_uses_the_response_budget_and_small_files_finish() {
+    let source = filler(1_200);
+    let first = fetch_window(&source, &query(json!({})), 50_000);
+    assert_eq!(first.content.as_deref(), Some(source.as_str()));
+    assert!(first.next.is_none());
+    assert_eq!(first.returned_lines, Some(1200));
+    let small = filler(10);
+    let out = fetch_window(&small, &query(json!({})), 1200);
+    assert_eq!(out.content.as_deref(), Some(small.as_str()));
+    assert!(out.next.is_none());
 }
 
 mod fit;

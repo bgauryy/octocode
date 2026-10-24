@@ -14,8 +14,7 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
     // The hint fits the 120-char guidance cap whole (the message names
     // the repository), so the response stage never cuts it mid-sentence.
     let long = repository_not_found(&parse_query(serde_json::json!({
-        "owner": "o".repeat(39), "repo": "r".repeat(100),
-        "mainGoal": "test", "reasoning": "long names"
+        "owner": "o".repeat(39), "repo": "r".repeat(100)
     })));
     for hint in [&error.hints[0], &long.hints[0]] {
         assert!(hint.chars().count() <= 120, "{hint}");
@@ -23,10 +22,10 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
         assert!(hint.contains("token"), "{hint}");
     }
     // Beside the hint, a runnable search for the name finds who holds it.
-    let find = &error.next.as_ref().expect("search lead")["findRepository"];
+    let find = &error.calls.as_ref().expect("search lead")["findRepository"];
     assert_eq!(find["tool"], "ghSearchRepo", "{find}");
     assert_eq!(
-        find["query"]["queries"][0]["keywords"],
+        find["input"]["queries"][0]["keywords"],
         serde_json::json!(["fixture-repo"]),
         "{find}"
     );
@@ -51,28 +50,19 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let row = |result: &CloneResult| {
         let data = serde_json::to_value(result).expect("serialize");
-        // The runtime gives every continuation its row's brief.
-        let mut briefed = data.clone();
-        for call in briefed["next"]
-            .as_object_mut()
-            .into_iter()
-            .flat_map(|next| next.values_mut())
-        {
-            call["query"]["queries"][0]["mainGoal"] = serde_json::json!("test");
-            call["query"]["queries"][0]["reasoning"] = serde_json::json!("clone fixture");
-        }
-        crate::contracts::validate_output(
+        crate::tools::test_support::validate_sealed(
             "ghCloneRepo",
-            &serde_json::json!({"results":[{"index":0,"data":briefed}]}),
+            &serde_json::json!({"results":[{"index":0,"data":data.clone()}]}),
         )
         .expect("clone row satisfies the output contract");
         data
     };
     let fresh = row(&clone_pinned(&fixture, &query(), &context).expect("fresh clone"));
-    let explore = &fresh["next"]["exploreClone"];
+    let explore =
+        crate::tools::test_support::checks::related_call(&fresh, "structureSearch", |_| true);
     assert_eq!(explore["tool"], "structureSearch", "{fresh}");
     assert_eq!(
-        explore["query"]["queries"][0]["path"],
+        explore["input"]["queries"][0]["path"],
         fresh["location"]["localPath"]
     );
     // A fresh clone states its age like a hit, and drops what the caller
@@ -98,33 +88,38 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
     let sparse = row(&clone_pinned(
         &fixture,
         &GhCloneRepoQuery {
-            path: Some(one("src")),
+            paths: one("src"),
             ..query()
         },
         &context,
     )
     .expect("sparse clone"));
     let local = sparse["location"]["localPath"].as_str().expect("localPath");
-    let path = sparse["next"]["exploreClone"]["query"]["queries"][0]["path"]
+    let path = crate::tools::test_support::checks::related_call(&sparse, "structureSearch", |_| {
+        true
+    })["input"]["queries"][0]["path"]
         .as_str()
         .expect("path");
     assert_eq!(Path::new(path), Path::new(local).join("src"), "{sparse}");
-    assert_eq!(sparse["next"]["exploreClone"]["tool"], "structureSearch");
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(&sparse, "structureSearch", |_| true)["tool"],
+        "structureSearch"
+    );
 
     // A single checked-out file is read, not listed as a directory.
     let file = row(&clone_pinned(
         &fixture,
         &GhCloneRepoQuery {
-            path: Some(one("src/lib.rs")),
+            paths: one("src/lib.rs"),
             ..query()
         },
         &context,
     )
     .expect("sparse file clone"));
     let local = file["location"]["localPath"].as_str().expect("localPath");
-    let explore = &file["next"]["exploreClone"];
+    let explore = crate::tools::test_support::checks::related_call(&file, "localFetch", |_| true);
     assert_eq!(explore["tool"], "localFetch", "{file}");
-    let path = explore["query"]["queries"][0]["path"]
+    let path = explore["input"]["queries"][0]["path"]
         .as_str()
         .expect("path");
     assert_eq!(
@@ -151,7 +146,7 @@ fn cache_hits_skip_the_git_probe_and_report_the_recorded_size() {
     runner
         .seen
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clear();
     let cached = clone_pinned(&fixture, &query(), &context).expect("cached clone");
     assert!(cached.location.cached);
@@ -160,7 +155,7 @@ fn cache_hits_skip_the_git_probe_and_report_the_recorded_size() {
     let seen = runner
         .seen
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
     // A cache hit never probes git.
     test_support::checks::assert_absent(&serde_json::json!(seen), "--version");

@@ -2,7 +2,7 @@
 use crate::response::result::remove_null_fields;
 use crate::security::scan::{ContentScan, sanitize_provider_json};
 use crate::tools::gh_shared::commit::{self, person};
-use crate::tools::gh_shared::dates::utc_value as utc;
+use crate::tools::gh_shared::dates::utc_value;
 use octocode_github::ProviderError;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -49,9 +49,12 @@ pub(super) fn map_pr(v: Value) -> Value {
         "number":v["number"],
         "title":v.get("title").and_then(Value::as_str).unwrap_or(""),
         "state":state,
-        "mergedAt":utc(merged_at),
+        "mergedAt":utc_value(merged_at),
         "author":v.pointer("/user/login").and_then(Value::as_str).unwrap_or(""),
-        "createdAt":utc(v.get("created_at")),
+        "createdAt":utc_value(v.get("created_at")),
+        // A listing's pull request names its target branch (a backport's
+        // is not the default); a search result carries none.
+        "baseRef":v.pointer("/base/ref"),
     });
     if row["createdAt"].is_null() {
         row["createdAt"] = json!("");
@@ -92,25 +95,19 @@ pub(super) fn drop_implied(
 /// An issue row: `updatedAt` only when the rows are sorted by it; labels
 /// only when present.
 pub(super) fn map_issue(v: Value, by_update: bool) -> Value {
-    let mut row = json!({"number":v["number"],"title":v.get("title"),"state":v.get("state"),"author":v.pointer("/user/login"),"createdAt":utc(v.get("created_at"))});
+    let mut row = json!({"number":v["number"],"title":v.get("title"),"state":v.get("state"),"author":v.pointer("/user/login"),"createdAt":utc_value(v.get("created_at"))});
     let labels = labels(&v);
     if !labels.is_empty() {
         row["labels"] = json!(labels);
     }
     if by_update {
-        row["updatedAt"] = utc(v.get("updated_at"));
+        row["updatedAt"] = utc_value(v.get("updated_at"));
     }
     if let Some(count) = v.get("comments").and_then(Value::as_u64).filter(|n| *n > 0) {
         row["commentsCount"] = json!(count);
     }
     remove_null_fields(&mut row);
     row
-}
-
-/// A commit-search row. No per-row html_url: it is owner/repo/commit/sha,
-/// all already in the row and its envelope (issue and PR rows omit it too).
-pub(super) fn map_commit(v: Value) -> Value {
-    commit::row(&v)
 }
 
 /// A commit-list row: headline, date and the author's login; the full

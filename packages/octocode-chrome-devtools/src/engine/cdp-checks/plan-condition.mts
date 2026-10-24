@@ -1,11 +1,14 @@
 // Plan step conditions: wait until the page is ready and matches an exact URL, visible selector and/or text.
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { Payload, Session } from '../cdp-connection.mjs';
+import { errorMessage } from '../error-message.mjs';
+import type { ConditionResult, PageCondition } from './plan-types.mjs';
 
 /** The message of a Runtime exceptionDetails payload. */
-export const exceptionMessage = details =>
+export const exceptionMessage = (details: Payload): string =>
   details.exception?.description || details.text;
 
-const conditionExpression = condition => `(() => {
+const conditionExpression = (condition: PageCondition) => `(() => {
         const c = ${JSON.stringify(condition)};
         const visible = el => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || '1') > 0; };
         return { ready: document.readyState !== 'loading', url: location.href,
@@ -13,7 +16,10 @@ const conditionExpression = condition => `(() => {
       })()`;
 
 // A navigation that replaces the context reads as "not yet"; any other failure stops the wait.
-async function evaluateCondition(cdp, condition) {
+async function evaluateCondition(
+  cdp: Pick<Session, 'send'>,
+  condition: PageCondition
+) {
   try {
     return await cdp.send('Runtime.evaluate', {
       returnByValue: true,
@@ -22,7 +28,7 @@ async function evaluateCondition(cdp, condition) {
   } catch (error) {
     if (
       !/context.*destroyed|Cannot find context|Inspected target navigated/i.test(
-        error.message
+        errorMessage(error)
       )
     )
       throw error;
@@ -31,7 +37,12 @@ async function evaluateCondition(cdp, condition) {
 }
 
 /** Polls until the condition holds; returns { ready, url, matched, elapsedMs } or throws on timeout. */
-export async function waitCondition(cdp, condition, timeoutMs, log) {
+export async function waitCondition(
+  cdp: Pick<Session, 'send'>,
+  condition: PageCondition,
+  timeoutMs: number,
+  log: (line: string) => void
+): Promise<ConditionResult> {
   const started = Date.now();
   let progress = 0;
   do {

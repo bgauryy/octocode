@@ -4,8 +4,9 @@ use super::axis::{Axis, Cursor};
 use super::patch_hop::*;
 use super::pr_menu::*;
 use super::remaining::Remainder;
-use super::{HistoryItemRequest, ItemOperation, Section, Sections};
+use super::{HistoryItemRequest, ItemOperation, Sections};
 use crate::response::result::Remaining;
+use crate::tools::gh_get_history_item::sections::Section;
 use serde_json::{Map, Value, json};
 
 /// A provider limit an item read's section hit (GitHub lists at most 3,000
@@ -95,7 +96,7 @@ pub(super) fn promote_pr_continuations(
         out["isPartial"] = json!(true);
     }
     if !next.is_empty() {
-        out["next"] = Value::Object(next);
+        out["calls"] = Value::Object(next);
     }
     notes
 }
@@ -204,7 +205,7 @@ pub(super) fn promote_issue_continuations(
         out["isPartial"] = json!(true);
     }
     if !next.is_empty() {
-        out["next"] = Value::Object(next);
+        out["calls"] = Value::Object(next);
     }
     notes
 }

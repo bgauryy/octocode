@@ -76,7 +76,7 @@ async fn a_page_counts_files_and_a_file_with_more_hits_says_how_many_and_leads_t
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":40,"incomplete_results":false,"items":[item("busy.rs"), item("calm.rs")]
+            "total_count":140,"incomplete_results":false,"items":[item("busy.rs"), item("calm.rs")]
         })))
         .mount(&server)
         .await;
@@ -98,10 +98,9 @@ async fn a_page_counts_files_and_a_file_with_more_hits_says_how_many_and_leads_t
             .await;
     }
     let provider = one_shot_provider(&server);
-    let query: GhSearchCodeQuery = serde_json::from_value(
-        json!({"owner":"a","repo":"b","keywords":["wrap_app"],"pageSize":2}),
-    )
-    .expect("query");
+    let query: GhSearchCodeQuery =
+        serde_json::from_value(json!({"owner":"a","repo":"b","keywords":["wrap_app"]}))
+            .expect("query");
     let context = default_context();
     let out = execute(&provider, &query, &context, &Passthrough)
         .await
@@ -116,17 +115,22 @@ async fn a_page_counts_files_and_a_file_with_more_hits_says_how_many_and_leads_t
     assert_eq!(busy["matchCount"], 8, "{}", out.data);
     assert!(calm.get("matchCount").is_none(), "{}", out.data);
     // The page's total counts files (GitHub's `total_count`), not lines.
-    assert_eq!(out.data["pagination"]["totalItems"], 40, "{}", out.data);
-    assert_eq!(out.data["pagination"]["pageSize"], 2, "{}", out.data);
-    let reads = &out.data["next"]["readHits"]["query"]["queries"];
+    assert_eq!(out.data["pagination"]["totalItems"], 140, "{}", out.data);
+    assert_eq!(out.data["pagination"]["pageSize"], 50, "{}", out.data);
+    let reads = &out.data["next"]["readHits"]["input"]["queries"];
     assert_eq!(reads.as_array().map(Vec::len), Some(1), "{}", out.data);
     assert_eq!(reads[0]["path"], "src/busy.rs", "{}", out.data);
     assert_eq!(reads[0]["ref"], SHA, "{}", out.data);
     // `ranges` are 1-based line numbers, never byte offsets: from the line
     // after the last shown hit (5) to the file's last line (8), so the read
     // returns exactly the hits the listing did not (lines 6-8).
-    assert_eq!(reads[0]["ranges"], json!(["6-8"]), "{}", out.data);
-    assert_eq!(reads[0]["matchString"], "wrap_app", "{}", out.data);
+    assert_eq!(
+        reads[0]["ranges"],
+        json!([{"startLine":6,"endLine":8}]),
+        "{}",
+        out.data
+    );
+    assert_eq!(reads[0]["matchString"], json!(["wrap_app"]), "{}", out.data);
 }
 
 /// A search page of `names` (paths in `a/b`), GitHub reporting `total` matches.
@@ -153,7 +157,7 @@ async fn search_page_of(
     page: usize,
 ) -> crate::response::result::ToolData {
     let query: GhSearchCodeQuery = serde_json::from_value(json!({
-        "owner":"a","repo":"b","keywords":["needle"],"matchIn":"path","pageSize":2,"page":page
+        "owner":"a","repo":"b","keywords":["needle"],"matchIn":["path"],"page":page
     }))
     .expect("query");
     execute(provider, &query, &default_context(), &Passthrough)
@@ -181,8 +185,8 @@ async fn paged_pages_state_estimates_and_the_repeats_they_dropped() {
         (false, 2, vec!["b.rs", "c.rs"], serde_json::Value::Null),
     ] {
         let server = MockServer::builder().start().await;
-        mount_search_page(&server, 1, 4, &["a.rs", "b.rs"]).await;
-        mount_search_page(&server, 2, 4, &["b.rs", "c.rs"]).await;
+        mount_search_page(&server, 1, 100, &["a.rs", "b.rs"]).await;
+        mount_search_page(&server, 2, 100, &["b.rs", "c.rs"]).await;
         let mut provider = one_shot_provider(&server);
         if cached {
             provider.transport.cache = std::sync::Arc::new(MemoryCache::default());
@@ -191,7 +195,7 @@ async fn paged_pages_state_estimates_and_the_repeats_they_dropped() {
         if page == 2 {
             out = search_page_of(&provider, 2).await;
         }
-        assert_eq!(out.data["pagination"]["totalItems"], 4, "{}", out.data);
+        assert_eq!(out.data["pagination"]["totalItems"], 100, "{}", out.data);
         assert_eq!(paths_of(&out), paths, "cached {cached}: {}", out.data);
         assert_eq!(
             warnings_of(&out),
@@ -207,8 +211,8 @@ async fn paged_pages_state_estimates_and_the_repeats_they_dropped() {
 #[tokio::test]
 async fn a_page_of_only_repeats_is_not_an_empty_search() {
     let server = MockServer::builder().start().await;
-    mount_search_page(&server, 1, 6, &["a.rs", "b.rs"]).await;
-    mount_search_page(&server, 2, 6, &["a.rs", "b.rs"]).await;
+    mount_search_page(&server, 1, 150, &["a.rs", "b.rs"]).await;
+    mount_search_page(&server, 2, 150, &["a.rs", "b.rs"]).await;
     let mut provider = one_shot_provider(&server);
     provider.transport.cache = std::sync::Arc::new(MemoryCache::default());
     search_page_of(&provider, 1).await;
@@ -291,8 +295,9 @@ async fn empty_index_pages_keep_the_collection_when_partial_normalization_answer
                 );
                 let retry = &out.data["next"]["retry"];
                 assert_eq!(retry["tool"], "ghSearchCode", "{retry}");
-                let prepared = crate::contracts::validate("ghSearchCode", retry["query"].clone())
-                    .expect("executable retry");
+                let prepared =
+                    crate::contracts::validate_built("ghSearchCode", retry["input"].clone())
+                        .expect("executable retry");
                 let continued = &prepared["queries"][0];
                 for field in ["owner", "repo", "keywords", "fields"] {
                     assert_eq!(
@@ -316,8 +321,11 @@ async fn empty_index_pages_keep_the_collection_when_partial_normalization_answer
             // An empty page stays empty when GitHub's results were
             // incomplete: its only call is a retry of the same page.
             assert_eq!(shaped["status"], "empty", "{shaped}");
-            crate::contracts::validate_output("ghSearchCode", &json!({"results": [shaped]}))
-                .expect("the actual normalized row satisfies the canonical output contract");
+            crate::tools::test_support::validate_sealed(
+                "ghSearchCode",
+                &json!({"results": [shaped]}),
+            )
+            .expect("the actual normalized row satisfies the canonical output contract");
         }
     }
 }

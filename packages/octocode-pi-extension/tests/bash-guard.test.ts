@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { catastrophicCommand } from '../src/permission/shell.js';
 import { tmp } from './helpers.js';
 
@@ -43,6 +43,10 @@ describe('bash guard command substitutions', () => {
       expect(catastrophicCommand(command), command).toBeUndefined();
     }
   });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('destructive commands resolved against the shell folder', () => {
@@ -180,77 +184,102 @@ describe('bash safety', () => {
   });
 });
 
-describe('bash safety', () => {
-  it('checks scripts a shell or eval runs, commands behind wrappers, normalized targets and disk erasers', () => {
-    for (const command of [
-      // A script handed to a shell or eval is a command too.
-      "bash -c 'rm -rf /'",
-      'sh -c "cd /tmp; rm -rf ~"',
-      "zsh -lc 'mkfs.ext4 /dev/sda'",
-      'dash -ec "reboot"',
-      "ksh -c 'echo hi && shutdown -h now'",
-      'eval "rm -rf /"',
-      'eval rm -rf "$HOME"',
-      "bash -c \"sh -c 'rm -rf /'\"",
-      // Heredoc and herestring bodies fed to a shell, directly or through a pipe.
-      'bash <<EOF\nrm -rf /\nEOF',
-      "sh <<'X'\necho start\nrm -rf ~\nX",
-      'cat <<EOF | bash\nrm -rf /\nEOF',
-      'bash <<< "rm -rf /"',
-      'echo "rm -rf /" | sh',
-      "printf 'reboot' | bash -s",
-      // Wrappers, their option values and leading operands.
-      'timeout 5 rm -rf /',
-      'timeout -s KILL 10 rm -rf /',
-      'nice -n 10 rm -rf ~',
-      'nice -5 rm -rf /',
-      'ionice -c 3 rm -rf /',
-      'stdbuf -o 0 rm -rf /',
-      'caffeinate -t 60 rm -rf /',
-      'chrt 10 rm -rf /',
-      'taskset 0x3 rm -rf /',
-      'xargs -I {} rm -rf /',
-      'xargs -n 1 rm -rf ~',
-      // Targets that land on /, home or a folder holding home.
-      'rm -rf ~/.',
-      'rm -rf ~/',
-      'rm -rf $HOME/..',
-      'rm -rf ${HOME}/../',
-      'rm -rf /usr/..',
-      'rm -rf /./',
-      'rm -rf //',
-      `rm -rf ${path.posix.dirname(os.homedir().split(path.sep).join('/'))}`,
-      // Disk erasers.
-      'diskutil eraseDisk APFS X disk2',
-      'diskutil eraseVolume APFS X disk2s1',
-      'diskutil zeroDisk disk2',
-      'newfs_apfs /dev/disk2',
-      'find / -name "*.log" -delete',
-      'find ~ -type f -delete',
-      'find -L / -exec rm {} +',
-    ]) {
-      expect(catastrophicCommand(command), command).toBeDefined();
-    }
-    for (const command of [
-      'rm -rf node_modules',
-      'rm -rf ~/projects/app/node_modules',
-      'rm -rf $HOME/.cache/yarn',
-      'find . -delete',
-      'find . -name "*.tmp" -delete',
-      'find / -name "*.log" -print',
-      "bash -c 'yarn build && rm -rf dist'",
-      'bash script.sh',
-      'bash -c "echo rm -rf /"',
-      'sh <<EOF\necho hello\nEOF',
-      'echo "rm -rf /" > notes.txt',
-      'echo "rm -rf /" | grep rm',
-      'timeout 5 yarn test',
-      'nice -n 10 make',
-      'xargs -I {} rm -rf {}',
-      'diskutil list',
-      'eval "$(ssh-agent -s)"',
-    ]) {
-      expect(catastrophicCommand(command), command).toBeUndefined();
-    }
+describe('bash safety: what hides a catastrophic command', () => {
+  // A script handed to a shell or eval is a command too.
+  it.each([
+    "bash -c 'rm -rf /'",
+    'sh -c "cd /tmp; rm -rf ~"',
+    "zsh -lc 'mkfs.ext4 /dev/sda'",
+    'dash -ec "reboot"',
+    "ksh -c 'echo hi && shutdown -h now'",
+    'eval "rm -rf /"',
+    'eval rm -rf "$HOME"',
+    "bash -c \"sh -c 'rm -rf /'\"",
+  ])('blocks a script a shell or eval runs: %s', (command) => {
+    expect(catastrophicCommand(command)).toEqual(expect.any(String));
+  });
+
+  // Heredoc and herestring bodies fed to a shell, directly or through a pipe.
+  it.each([
+    'bash <<EOF\nrm -rf /\nEOF',
+    "sh <<'X'\necho start\nrm -rf ~\nX",
+    'cat <<EOF | bash\nrm -rf /\nEOF',
+    'bash <<< "rm -rf /"',
+    'echo "rm -rf /" | sh',
+    "printf 'reboot' | bash -s",
+  ])('blocks a heredoc or herestring fed to a shell: %s', (command) => {
+    expect(catastrophicCommand(command)).toEqual(expect.any(String));
+  });
+
+  // Wrappers, their option values and leading operands.
+  it.each([
+    'timeout 5 rm -rf /',
+    'timeout -s KILL 10 rm -rf /',
+    'nice -n 10 rm -rf ~',
+    'nice -5 rm -rf /',
+    'ionice -c 3 rm -rf /',
+    'stdbuf -o 0 rm -rf /',
+    'caffeinate -t 60 rm -rf /',
+    'chrt 10 rm -rf /',
+    'taskset 0x3 rm -rf /',
+    'xargs -I {} rm -rf /',
+    'xargs -n 1 rm -rf ~',
+  ])('blocks a command behind a wrapper: %s', (command) => {
+    expect(catastrophicCommand(command)).toEqual(expect.any(String));
+  });
+
+});
+
+describe('bash safety: targets and erasers', () => {
+  // Targets that land on /, home or a folder holding home.
+  it.each([
+    'rm -rf ~/.',
+    'rm -rf ~/',
+    'rm -rf $HOME/..',
+    'rm -rf ${HOME}/../',
+    'rm -rf /usr/..',
+    'rm -rf /./',
+    'rm -rf //',
+  ])('blocks a target that lands on /, home or a folder holding home: %s', (command) => {
+    expect(catastrophicCommand(command)).toEqual(expect.any(String));
+  });
+
+  // Disk erasers.
+  it.each([
+    'diskutil eraseDisk APFS X disk2',
+    'diskutil eraseVolume APFS X disk2s1',
+    'diskutil zeroDisk disk2',
+    'newfs_apfs /dev/disk2',
+    'find / -name "*.log" -delete',
+    'find ~ -type f -delete',
+    'find -L / -exec rm {} +',
+  ])('blocks a disk eraser: %s', (command) => {
+    expect(catastrophicCommand(command)).toEqual(expect.any(String));
+  });
+
+  it('blocks a target that is the folder holding home', () => {
+    expect(catastrophicCommand(`rm -rf ${path.posix.dirname(os.homedir().split(path.sep).join('/'))}`)).toEqual(expect.any(String));
+  });
+
+  it.each([
+    'rm -rf node_modules',
+    'rm -rf ~/projects/app/node_modules',
+    'rm -rf $HOME/.cache/yarn',
+    'find . -delete',
+    'find . -name "*.tmp" -delete',
+    'find / -name "*.log" -print',
+    "bash -c 'yarn build && rm -rf dist'",
+    'bash script.sh',
+    'bash -c "echo rm -rf /"',
+    'sh <<EOF\necho hello\nEOF',
+    'echo "rm -rf /" > notes.txt',
+    'echo "rm -rf /" | grep rm',
+    'timeout 5 yarn test',
+    'nice -n 10 make',
+    'xargs -I {} rm -rf {}',
+    'diskutil list',
+    'eval "$(ssh-agent -s)"',
+  ])('allows the scoped or inert command %s', (command) => {
+    expect(catastrophicCommand(command)).toBeUndefined();
   });
 });

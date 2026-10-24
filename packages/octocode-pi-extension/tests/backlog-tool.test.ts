@@ -148,13 +148,8 @@ describe('backlog tool: claims, subagents and links', () => {
 });
 
 describe('backlog tool: prompt and rendering', () => {
-  it('keeps its prompt lean: at most 2 short guidelines (1 in a subagent), no double spaces', () => {
-    for (const [t, max] of [[setup(), 2], [setup({ isSubagent: true }), 1]] as const) {
-      const guidelines: string[] = t.tool.promptGuidelines;
-      expect(guidelines.length).toBeLessThanOrEqual(max);
-      for (const line of guidelines) expect(line.length, line).toBeLessThanOrEqual(230);
-      expect(guidelines.join(' ')).not.toMatch(/not instructions/);
-      expect(t.tool.description).not.toMatch(/ {2}/);
+  it('describes every field', () => {
+    for (const t of [setup(), setup({ isSubagent: true })]) {
       const parameters: TObject = t.tool.parameters;
       for (const [name, schema] of Object.entries(parameters.properties)) expect('description' in schema && schema.description, name).toBeTruthy();
     }

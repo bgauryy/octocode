@@ -19,30 +19,45 @@ beforeEach(() => {
   launch.mockReset();
 });
 
-describe('browser tool over a shared Chrome', () => {
-  it('opens its own tab and drives the page through every action', async () => {
-    const cdp = await stub();
-    vi.stubEnv('OCTOCODE_CHROME_PORT', String(cdp.port));
-    const { text, run } = register();
+/** A stub Chrome on the shared port, the tool, and (unless `navigate` is false) the stub page loaded. */
+async function openPage(navigate = true) {
+  const cdp = await stub();
+  vi.stubEnv('OCTOCODE_CHROME_PORT', String(cdp.port));
+  const tool = register();
+  if (navigate) await tool.text({ action: 'navigate', url: 'https://example.com/' });
+  return { cdp, ...tool };
+}
 
+describe('browser tool actions on its own tab', () => {
+  it('reports no browser until an action starts one, then opens its own tab on the shared Chrome', async () => {
+    const { cdp, text } = await openPage(false);
     expect(await text({ action: 'info' })).toBe('No browser is open. navigate or attach starts one.');
     await text({ action: 'snapshot' }); // info reports a browser; it never starts one
     expect(await text({ action: 'info' })).toBe(`shared Chrome, own tab · DevTools port ${cdp.port} · https://example.com/ | Stub page`);
     expect(cdp.requests).toContain('PUT /json/new?about:blank');
     expect(cdp.commands.slice(0, 2).map((command) => command.method).sort()).toEqual(['Page.enable', 'Runtime.enable']);
+  });
 
+  it('navigates to a snapshot of elements and text', async () => {
+    const { text } = await openPage(false);
     const snapshot = await text({ action: 'navigate', url: 'https://example.com/' });
     expect(snapshot).toContain('# Stub page\nhttps://example.com/\n\n## Elements\n[1] button "Go"');
     expect(snapshot).toContain('## Text\nHello from the stub');
     expect(await text({ action: 'snapshot' })).toContain('[2] input:text "Name"');
-    // Same page after the click: only the changes come back, not the whole snapshot.
+  });
+
+  it('clicks an element by ref, returns only the changes on the same page, and names an element that covers the target', async () => {
+    const { cdp, text, run } = await openPage();
     expect(await text({ action: 'click', ref: 1 })).toBe('# Stub page\nhttps://example.com/ (same page)\n\n## Elements\nUnchanged (2).\n\n## New text\nNo new text.');
     expect(cdp.commands.filter((command) => command.method === 'Input.dispatchMouseEvent').map((command) => command.params['type'])).toEqual(['mouseMoved', 'mousePressed', 'mouseReleased']);
     expect(cdp.commands.find((command) => command.method === 'Input.dispatchMouseEvent')?.params).toMatchObject({ x: 10, y: 20 });
     expect(await text({ action: 'click', ref: 2 })).toMatch(/^Note: div#overlay "Cookie banner" covers \[2\], so the click landed on it\./);
     await expect(run({ action: 'click', ref: 9 })).rejects.toThrow(/No element \[9\]/);
     await expect(run({ action: 'click' })).rejects.toThrow(/needs ref/);
+  });
 
+  it('types into a field and submits with Enter, and presses keys by their codes', async () => {
+    const { cdp, text, run } = await openPage();
     await text({ action: 'type', ref: 2, text: 'Ada', submit: true });
     expect(cdp.commands.find((command) => command.method === 'Input.insertText')?.params).toEqual({ text: 'Ada' });
     expect(cdp.commands.filter((command) => command.method === 'Input.dispatchKeyEvent').map((command) => command.params)).toEqual([
@@ -50,14 +65,16 @@ describe('browser tool over a shared Chrome', () => {
       { type: 'keyUp', key: 'Enter', code: 'Enter', modifiers: 0, windowsVirtualKeyCode: 13 },
     ]);
     await expect(run({ action: 'type', ref: 7, text: 'x' })).rejects.toThrow(/No element \[7\]/);
-
     await expect(run({ action: 'type', ref: 2 })).rejects.toThrow(/type needs text/);
     await expect(run({ action: 'press' })).rejects.toThrow(/press needs key/);
     await text({ action: 'press', key: '5' });
     await text({ action: 'press', key: 'a' });
     const codes = cdp.commands.filter((command) => command.method === 'Input.dispatchKeyEvent' && command.params['type'] === 'keyDown').map((command) => command.params['code']);
     expect(codes.slice(-2)).toEqual(['Digit5', 'KeyA']);
+  });
 
+  it('evaluates expressions to text or JSON and reports page exceptions as visible escapes', async () => {
+    const { text, run } = await openPage();
     expect(await text({ action: 'evaluate', expression: 'document.title' })).toBe('Stub page');
     expect(JSON.parse(await text({ action: 'evaluate', expression: '({ answer: 42 })' }))).toEqual({ answer: 42 });
     expect(await text({ action: 'evaluate', expression: 'undefined' })).toBe('undefined');
@@ -65,10 +82,16 @@ describe('browser tool over a shared Chrome', () => {
     // A page's exception text reaches the model as visible escapes, not terminal sequences.
     await expect(run({ action: 'evaluate', expression: 'bad()' })).rejects.toThrow('Error: \\u{1b}[2Jwiped\\u{202e}');
     await expect(run({ action: 'evaluate' })).rejects.toThrow(/needs expression/);
+  });
 
+  it('returns a screenshot as an image with a caption', async () => {
+    const { run } = await openPage();
     const shot = await run({ action: 'screenshot' });
     expect(shot.content).toMatchObject([{ type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/jpeg' }, { type: 'text' }]);
+  });
 
+  it('lists console messages and exceptions in order', async () => {
+    const { cdp, text } = await openPage();
     expect(await text({ action: 'console' })).toBe('(no console messages)');
     const page = cdp.pages.get('tab-1')!;
     page.emit('Runtime.consoleAPICalled', { type: 'log', args: [{ value: 'hello' }, { description: 'Object' }, {}] });
@@ -76,11 +99,16 @@ describe('browser tool over a shared Chrome', () => {
     page.emit('Runtime.exceptionThrown', { exceptionDetails: { text: 'Uncaught' } });
     page.emit('Runtime.consoleAPICalled', { type: 'warn' });
     await vi.waitFor(async () => expect(await text({ action: 'console' })).toBe('[log] hello Object \n[exception] Error: bad\n[exception] Uncaught\n[warn] '));
+  });
 
+  it('closes its own tab', async () => {
+    const { cdp, text } = await openPage();
     expect(await text({ action: 'close' })).toBe('Browser closed.');
     expect(cdp.requests).toContain('GET /json/close/tab-1');
-  }, 20_000);
+  });
+});
 
+describe('browser tool over a shared Chrome', () => {
   it('says how much console output it no longer holds: lines pushed out, a cut line, and lines of an earlier tab', async () => {
     const cdp = await stub();
     vi.stubEnv('OCTOCODE_CHROME_PORT', String(cdp.port));

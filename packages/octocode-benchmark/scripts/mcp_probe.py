@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, hashlib, json, os, queue, signal, subprocess, threading, time
 from pathlib import Path
+from contract_readers import contract_readers, has_classification
 
 class McpClient:
     def __init__(self, server, env=None, cwd=None):
@@ -41,12 +42,7 @@ class McpClient:
         self.proc.stdin.close(); self.proc.stdout.close()
 
 
-def has_classifiers(value):
-    if isinstance(value, dict):
-        return 'classifiers' in value.get('properties', {}) or any(has_classifiers(v) for v in value.values())
-    return isinstance(value,list) and any(has_classifiers(v) for v in value)
-
-CLASSIFIER_READERS = {'localSearch','localFetch','ghGetFileContent','ghSearchCode'}
+READERS, LOCAL_READERS, CLASSIFIER_READERS = contract_readers()
 QUESTIONS = {'evidence':{'type':'noul','instructions':'Does this contain the requested evidence?'}}
 
 
@@ -57,10 +53,10 @@ def probe(server, expected_clasify, expected_classifiers, env=None, cwd=None, fo
         client.proc.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n'); client.proc.stdin.flush()
         catalog=client.call('tools/list')
         tools={t['name']:t for t in catalog['tools']}
-        classifiers=sorted(n for n,t in tools.items() if has_classifiers(t.get('inputSchema',{})))
+        classifiers=sorted(n for n,t in tools.items() if has_classification(t.get('inputSchema',{})))
         problems=[]
         if ('clasify' in tools)!=expected_clasify: problems.append('clasify gate differs from requested arm')
-        readers={'localSearch','localFetch','structureSearch','astSearch','lspSearch','ghSearchRepo','ghSearchCode','ghStructure','ghGetFileContent','ghSearchHistory','ghGetHistoryItem','artifactSearch'}
+        readers=set(READERS)
         selected = server.get('env', {}).get('TOOLS_TO_RUN', '')
         if selected:
             allowed = set(selected.split(','))
@@ -72,9 +68,9 @@ def probe(server, expected_clasify, expected_classifiers, env=None, cwd=None, fo
         if set(classifiers)!=expected: problems.append('classifiers schema gate differs from eligible read tools')
         denials=[]
         if forbidden:
-            calls=[('localFetch',{'queries':[{'path':str(forbidden),'ranges':['1-5']}]})]
+            calls=[('localFetch',{'queries':[{'path':str(forbidden),'ranges':[{'startLine':1,'endLine':5}]}]})]
             if expected_clasify and "clasify" in tools:
-                calls.append(('clasify',{'queries':[{'source':{'tool':'localFetch','query':{'path':str(forbidden),'ranges':['1-5']}},'questions':QUESTIONS}]}))
+                calls.append(('clasify',{'queries':[{'operation':'evaluate','source':{'tool':'localFetch','query':{'path':str(forbidden),'ranges':[{'startLine':1,'endLine':5}]}},'questions':QUESTIONS}]}))
             for tool,args in calls:
                 reply=client.call('tools/call',{'name':tool,'arguments':args})
                 text=json.dumps(reply)
@@ -83,9 +79,9 @@ def probe(server, expected_clasify, expected_classifiers, env=None, cwd=None, fo
                 if not denied: problems.append(tool+' did not demonstrate forbidden-root denial')
             if expected_clasify and 'clasify' in tools and selected and 'ghGetFileContent' not in tools:
                 # A local allowlist leaves the GitHub reader off; its source is refused.
-                reply=client.call('tools/call', {'name':'clasify','arguments':{'queries':[{
+                reply=client.call('tools/call', {'name':'clasify','arguments':{'queries':[{'operation':'evaluate',
                     'source':{'tool':'ghGetFileContent','query':{'owner':'octocode-benchmark-disabled-probe',
-                        'repo':'probe','path':'README.md','fullContent':True}},
+                        'repo':'probe','path':'README.md'}},
                     'questions':QUESTIONS}]}})
                 body=json.dumps(reply).lower()
                 denied='ghgetfilecontent' in body and ('not available' in body or 'unavailable' in body or 'not enabled' in body or 'is disabled' in body)

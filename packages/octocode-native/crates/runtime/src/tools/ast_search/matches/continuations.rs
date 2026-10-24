@@ -5,7 +5,6 @@ use super::clipped::{read_clipped_lines, read_top_hits};
 use super::query::MatchQuery;
 use super::rows::continuation_with;
 use super::types::{Group, ScanCut, Scope};
-use crate::contracts::query_limits::ast_search::r#match as limits;
 use crate::id::ToolId;
 use crate::response::result::ToolError;
 use octocode_contract_types::ErrorCode;
@@ -20,15 +19,13 @@ pub(super) fn compile_failed_end(
     q: MatchQuery<'_>,
     scope: &Scope,
     out: &mut Value,
-    snapshot: &str,
+    _snapshot: &str,
 ) {
     crate::response::paging::terminal_limit(out, "compileFailed", &[]);
     if let Some(language) = scope.inferred.as_deref().filter(|_| q.language().is_none()) {
-        out["next"]["narrowScope"] = continuation_with(
-            q,
-            json!({"language": language, "page": 1, "matchPage": 1, "scanOffset": null, "snapshot": null}),
-            snapshot,
-        );
+        let row = crate::response::result::with_changes(q.to_value(), &json!({"parser": language}));
+        out["calls"]["narrowScope"] =
+            crate::response::result::restart_query(ToolId::AstSearch, &row);
     }
 }
 
@@ -48,14 +45,6 @@ pub(super) fn attach_match_continuations(
     let match_page = q.match_page().max(1) as usize;
     let has_more_matches = page_groups.iter().any(|group| group.more_matches);
     let has_truncated_captures = page_groups.iter().any(|group| group.truncated_captures);
-    let cut_chars = page_groups.iter().filter_map(|group| group.cut_chars).max();
-    let max_content_length = limits::MATCH_CONTENT_LENGTH_MAXIMUM;
-    let content_length = q
-        .match_content_length()
-        .map_or(limits::MATCH_CONTENT_LENGTH_DEFAULT, |length| {
-            length as usize
-        })
-        .clamp(1, limits::MATCH_CONTENT_LENGTH_MAXIMUM);
     // The scan continues after the files this window evaluated
     // (`scanOffset`), so the lead is offered once the window's last file page
     // is reached.
@@ -98,42 +87,34 @@ pub(super) fn attach_match_continuations(
     let with = |changes: Value| continuation_with(q, changes, snapshot);
     if let Some(next_page) = next_page {
         // A new file page restarts per-file match pagination.
-        out["next"] = json!({"nextPage":with(json!({"page":next_page,"matchPage":1}))})
+        out["calls"] = json!({"nextPage":with(json!({"page":next_page,"matchPage":1}))});
     }
     if let Some(next_match_page) = next_match_page {
-        out["next"]["nextMatchPage"] = with(json!({"matchPage":next_match_page}));
+        out["calls"]["nextMatchPage"] = with(json!({"matchPage":next_match_page}));
     }
     if let Some(expand) = expand_scan.filter(|_| !more && !has_more_matches) {
-        out["next"]["expandScan"] = with(expand);
+        out["calls"]["expandScan"] = with(expand);
     }
     // A clipped value is display clipping of a listed match, not a coverage
     // gap: expandCaptures re-runs with captures and the whole length when
     // captures are hidden; otherwise (or past the length maximum) the
     // clipped rows' lines are read whole.
-    let whole_length = cut_chars.map(|chars| chars.min(max_content_length));
-    let expand_captures = has_truncated_captures && !q.capture_text().unwrap_or(false);
-    if expand_captures {
-        let mut expand = json!({"captureText":true});
-        if let Some(length) = whole_length.filter(|length| *length > content_length) {
-            expand["matchContentLength"] = json!(length);
-        }
-        out["next"]["expandCaptures"] = with(expand);
+    if has_truncated_captures && !q.capture_text().unwrap_or(false) {
+        out["calls"]["expandCaptures"] = with(json!({"includeCaptures":true}));
     }
-    if !expand_captures || cut_chars.is_some_and(|chars| chars > max_content_length) {
-        read_clipped_lines(scope, out, page_groups);
-    }
+    read_clipped_lines(scope, out, page_groups);
     if let Some(read) = page_groups
         .first()
         .and_then(|top| read_top_hits(scope, &top.row))
     {
-        out["next"]["read"] = read;
+        out["calls"]["read"] = read;
     }
 }
 /// A query that does not compile against one file leads to that file's
 /// syntax tree, where the node shapes a pattern or rule names are read.
 pub(super) fn tree_repair(mut error: ToolError, q: MatchQuery<'_>, scope: &Scope) -> ToolError {
-    if error.code == ErrorCode::InvalidPattern && error.next.is_none() {
-        error.next = Some(Box::new(
+    if error.code == ErrorCode::InvalidPattern && error.calls.is_none() {
+        error.calls = Some(Box::new(
             json!({ "viewSyntax": tree_lead(q, scope, &scope.canonical, None) }),
         ));
     }
@@ -150,33 +131,53 @@ pub(super) fn tree_lead(
 ) -> Value {
     // One bounded page: the nodes at `line` (the statement that spells the
     // query's anchor), else the file's first nodes, with the rest a page on.
-    let mut tree =
-        json!({"operation":"syntaxTree","path":file.to_string_lossy(),"pageSize":TREE_LEAD_NODES});
+    let mut tree = json!({"operation":"syntaxTree","path":file.to_string_lossy()});
     if let Some(line) = line {
         tree["line"] = json!(line);
     }
     if scope.is_file
         && let Some(language) = q.language()
     {
-        tree["language"] = json!(language);
+        tree["parser"] = json!(language);
     }
-    crate::response::result::Continuation::new(ToolId::AstSearch, tree).build()
+    crate::response::result::Continuation::related(ToolId::AstSearch, tree).build()
 }
 
-/// Nodes on the first page of a `viewSyntax` lead.
-const TREE_LEAD_NODES: u32 = 40;
-
-/// The first line of `file` that spells a literal every match must contain:
-/// where a parsed file's tree is compared with the query's shape.
+/// The first line of `file` that spells a literal every match must contain,
+/// as a whole word (`def` is not in `default`): where a parsed file's tree
+/// is compared with the query's shape.
 pub(super) fn anchor_line(q: MatchQuery<'_>, file: &std::path::Path) -> Option<u64> {
-    let anchors =
-        octocode_engine::structural::query_anchors(q.pattern().as_deref(), q.rule().as_ref())?;
+    let anchors = octocode_engine::structural::query_anchors(None, q.rule().as_ref())?;
     let source = super::super::source::read_parse_source(file)
         .ok()
         .flatten()?;
     super::super::source::parse_text(file, &source)
         .ok()?
         .lines()
-        .position(|line| anchors.iter().any(|anchor| line.contains(anchor.as_str())))
+        .position(|line| anchors.iter().any(|anchor| spells_word(line, anchor)))
         .map(|index| index as u64 + 1)
+}
+
+/// Whether `line` holds `anchor` with no word character joined to either
+/// end (an end that is itself punctuation needs no boundary).
+fn spells_word(line: &str, anchor: &str) -> bool {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let (Some(first), Some(last)) = (anchor.chars().next(), anchor.chars().next_back()) else {
+        return false;
+    };
+    line.match_indices(anchor).any(|(start, _)| {
+        let before = line[..start].chars().next_back();
+        let after = line[start + anchor.len()..].chars().next();
+        (!word(first) || !before.is_some_and(word)) && (!word(last) || !after.is_some_and(word))
+    })
+}
+
+#[cfg(test)]
+#[test]
+fn an_anchor_is_spelled_as_a_whole_word() {
+    assert!(spells_word("fn failure() {}", "failure"));
+    assert!(!spells_word("export default x;", "def"));
+    assert!(!spells_word("failures.push(x)", "failure"));
+    assert!(spells_word("a => b", "=>"));
+    assert!(spells_word("x=>y", "=>"));
 }

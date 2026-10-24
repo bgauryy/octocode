@@ -151,7 +151,7 @@ pub(crate) fn private_key_block_line_ranges(content: &str) -> Vec<(u32, u32)> {
 /// marker survived full-block redaction — the signal that a bounded read or
 /// search-context window split the key across its BEGIN/END boundary, so the
 /// anchored built-in patterns (which need a complete block) could not match.
-/// Returns `None` when no boundary marker is present, so `fullContent` reads
+/// Returns `None` when no boundary marker is present, so whole-file reads
 /// (already collapsed to one marker) and non-key content stay byte-identical.
 /// Redaction is line-for-line, preserving the leaf's line count so the tool's
 /// reported line ranges remain accurate.
@@ -197,6 +197,10 @@ fn email_pattern() -> &'static regex::Regex {
     })
 }
 
+#[expect(
+    clippy::unused_self,
+    reason = "ContentSecurity is the stateless content-policy handle every reader is given; its checks stay methods on it rather than splitting the API by which ones read no state"
+)]
 impl ContentSecurity {
     pub fn new() -> Self {
         Self
@@ -222,19 +226,18 @@ impl ContentSecurity {
     }
 
     /// Sanitize one string leaf of a tool result about the file at
-    /// `source_path` (`None`: no known file, the pathless output net). The
-    /// path only says what language the text is in, so source code is not
-    /// mistaken for configuration; every credential pattern still applies.
-    pub(crate) fn sanitize_leaf(
-        &self,
-        content: &str,
-        source_path: Option<&str>,
-    ) -> SanitizationResult {
-        let native = match source_path {
-            Some(path) => octocode_engine::security::sanitizer::sanitize_leaf(content, path),
-            None => octocode_engine::security::sanitizer::sanitize_content(content, None),
-        };
-        self.guard_native(native, None)
+    /// `source_path` (`None`: no known file, the pathless output net): its
+    /// redacted text, or `None` when nothing in it is redacted. The path only
+    /// says what language the text is in, so source code is not mistaken for
+    /// configuration; every credential pattern still applies.
+    pub(crate) fn sanitize_leaf(&self, content: &str, source_path: Option<&str>) -> Option<String> {
+        let redacted = octocode_engine::security::sanitizer::sanitize_leaf(content, source_path)
+            .unwrap_or_else(|_| {
+                Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
+            });
+        // The split-key guard of [`Self::guard_native`], over the leaf as
+        // the detector left it.
+        redact_split_private_key(redacted.as_deref().unwrap_or(content), None).or(redacted)
     }
 
     fn guard_native(

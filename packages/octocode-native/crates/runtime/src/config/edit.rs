@@ -85,18 +85,17 @@ pub fn replace_private_config(
         )),
         true,
     )?;
-    let _lock =
-        match octocode_io::lock::lock_within(lock, LOCK_WAIT, std::time::Duration::from_millis(20))
-        {
-            Ok(lock) => lock,
-            Err(octocode_io::lock::LockError::Busy) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "Configuration is being edited; retry.",
-                ));
-            }
-            Err(octocode_io::lock::LockError::Io(error)) => return Err(error),
-        };
+    let _lock = match octocode_io::lock::lock_within(lock, LOCK_WAIT, octocode_io::lock::LOCK_POLL)
+    {
+        Ok(lock) => lock,
+        Err(octocode_io::lock::LockError::Busy) => {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Configuration is being edited; retry.",
+            ));
+        }
+        Err(octocode_io::lock::LockError::Io(error)) => return Err(error),
+    };
     let original = read_private_config(path)?;
     if config_revision(original.as_deref()) != expected_revision {
         return Err(changed());
@@ -119,9 +118,6 @@ pub fn replace_private_config(
     Ok((true, saved_backup))
 }
 pub fn validate_env_edit(key: &str, value: Option<&str>, workspace: bool) -> io::Result<()> {
-    if value.is_some() {
-        super::manage::reject_removed(key).map_err(|e| invalid(&e))?;
-    }
     if key.is_empty()
         || !key
             .bytes()

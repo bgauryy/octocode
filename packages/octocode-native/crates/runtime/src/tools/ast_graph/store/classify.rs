@@ -70,7 +70,7 @@ fn path_roles(path: &str) -> u8 {
         || name.starts_with("vitest.setup")
         || name.starts_with("test-setup.")
         || name.starts_with("testsetup.");
-    if crate::content::is_test_path(path) || support_dir || support_name {
+    if octocode_engine::text::test_paths::is_test_path(path) || support_dir || support_name {
         roles |= ROLE_TEST;
     }
 

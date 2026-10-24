@@ -53,7 +53,7 @@ pub(super) fn window_failure(
     );
     HistoryFailure {
         error: failure.error,
-        next: failure.next.map(|next| *next),
+        calls: failure.calls.map(|next| *next),
     }
 }
 
@@ -71,7 +71,7 @@ pub(super) fn missing_scope_failure(
         let next = leads::without_users(query).map(|lead| json!({ "withoutUsers": lead }));
         return HistoryFailure {
             error: Box::new(error),
-            next,
+            calls: next,
         };
     }
     // A search scoped to a missing repository fails typed (GitHub's 422);
@@ -98,8 +98,9 @@ pub(super) fn missing_scope_failure(
         .into_boxed_str();
         return HistoryFailure {
             error: Box::new(error),
-            next: Some(json!({
-                "findRepository": crate::tools::gh_shared::repository_search(repo)
+            calls: Some(json!({
+                "findRepository": crate::tools::gh_shared::repository_search(repo),
+                "findRepository2": crate::tools::gh_shared::owner_listing(owner),
             })),
         };
     };
@@ -107,7 +108,7 @@ pub(super) fn missing_scope_failure(
         format!("Ref \"{reference}\" or repository {owner}/{repo} not found").into_boxed_str();
     HistoryFailure {
         error: Box::new(error),
-        next: Some(
+        calls: Some(
             serde_json::json!({"viewRefs": crate::tools::gh_shared::ref_recovery(owner, repo)}),
         ),
     }
@@ -130,7 +131,7 @@ pub(super) async fn at_default_branch(
         return failure;
     };
     let Some(next) = failure
-        .next
+        .calls
         .as_mut()
         .filter(|next| next.get("viewRefs").is_some())
     else {

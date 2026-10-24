@@ -1,28 +1,45 @@
 // How a fresh Chrome is launched: the proxy from flags or config files, and the command-line flags.
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { errorMessage } from './error-message.mjs';
 import { getOctocodeHome } from './octocode-config.mjs';
 
 type Fail = (message: string) => never;
+type LaunchIo = { fail: Fail; warn: (line: string) => void };
+type Fields = { [key: string]: unknown };
+type ProxySettings = { server: string; bypassList: string; pacUrl: string };
+type ProxyConfig = ProxySettings & { enabled: boolean };
 
-function readJsonFile(filePath, strict: boolean, { fail, warn }) {
+/** Every non-null object, arrays included, reads as optional fields, like `value?.key` does. */
+const isFields = (value: unknown): value is Fields =>
+  typeof value === 'object' && value !== null;
+const fieldsOf = (value: unknown) => (isFields(value) ? value : undefined);
+
+function readJsonFile(
+  filePath: string,
+  strict: boolean,
+  { fail, warn }: LaunchIo
+): unknown {
   if (!filePath || !existsSync(filePath)) return null;
   try {
     return JSON.parse(readFileSync(filePath, 'utf8'));
   } catch (jsonErr) {
     if (strict)
-      fail(`Invalid JSON in config file: ${filePath} (${jsonErr.message})`);
+      fail(
+        `Invalid JSON in config file: ${filePath} (${errorMessage(jsonErr)})`
+      );
     warn(
-      `[BROWSER] Warning: ignoring invalid JSON config ${filePath}: ${jsonErr.message}`
+      `[BROWSER] Warning: ignoring invalid JSON config ${filePath}: ${errorMessage(jsonErr)}`
     );
     return null;
   }
 }
 
-const trimmed = value => (typeof value === 'string' ? value.trim() : '');
+const trimmed = (value: unknown) =>
+  typeof value === 'string' ? value.trim() : '';
 
-function normalizeProxyConfig(raw) {
-  if (!raw || typeof raw !== 'object') return null;
+function normalizeProxyConfig(raw: unknown): ProxyConfig | null {
+  if (!isFields(raw)) return null;
   return {
     enabled: raw.enabled === undefined ? true : Boolean(raw.enabled),
     server: trimmed(raw.server),
@@ -31,10 +48,10 @@ function normalizeProxyConfig(raw) {
   };
 }
 
-const proxyCandidates = json => [
-  json?.proxy,
-  json?.chromeDevtools?.proxy,
-  json?.skills?.['octocode-chrome-devtools']?.proxy,
+const proxyCandidates = (json: Fields) => [
+  json.proxy,
+  fieldsOf(json.chromeDevtools)?.proxy,
+  fieldsOf(fieldsOf(json.skills)?.['octocode-chrome-devtools'])?.proxy,
 ];
 
 /**
@@ -42,9 +59,9 @@ const proxyCandidates = json => [
  * Octocode home config.json. A missing or invalid --config file fails.
  */
 export function loadProxyConfig(
-  configPath,
-  io: { fail: Fail; warn: (line: string) => void }
-) {
+  configPath: string,
+  io: LaunchIo
+): ProxyConfig | null {
   const cwdConfig = join(process.cwd(), '.octocode', 'chrome-devtools.json');
   const homeConfig = join(getOctocodeHome(), 'config.json');
   if (configPath && !existsSync(configPath))
@@ -52,7 +69,7 @@ export function loadProxyConfig(
   const candidateFiles = configPath ? [configPath] : [cwdConfig, homeConfig];
   for (const configFile of candidateFiles) {
     const json = readJsonFile(configFile, Boolean(configPath), io);
-    if (!json || typeof json !== 'object') continue;
+    if (!isFields(json)) continue;
     for (const candidate of proxyCandidates(json)) {
       const normalized = normalizeProxyConfig(candidate);
       if (normalized) return normalized;
@@ -62,7 +79,10 @@ export function loadProxyConfig(
 }
 
 /** Proxy flags win over an enabled proxy config. */
-export function effectiveProxy(flags, config) {
+export function effectiveProxy(
+  flags: ProxySettings,
+  config: ProxyConfig | null
+): ProxySettings {
   const fromConfig = config?.enabled ? config : null;
   return {
     server: flags.server || (fromConfig ? fromConfig.server : ''),
@@ -71,7 +91,7 @@ export function effectiveProxy(flags, config) {
   };
 }
 
-function displayArgs(headless, os) {
+function displayArgs(headless: boolean, os: string) {
   if (!headless) return [];
   return [
     '--headless=new',
@@ -82,7 +102,7 @@ function displayArgs(headless, os) {
   ];
 }
 
-function proxyArgs(proxy) {
+function proxyArgs(proxy: ProxySettings) {
   return [
     ...(proxy.server ? [`--proxy-server=${proxy.server}`] : []),
     ...(proxy.bypassList ? [`--proxy-bypass-list=${proxy.bypassList}`] : []),
@@ -92,7 +112,22 @@ function proxyArgs(proxy) {
   ];
 }
 
-function optionArgs(launch) {
+/** What open-browser launches: the port, profile, display, options and proxy. */
+type LaunchOptions = {
+  port: string;
+  userDataDir: string;
+  isolated: boolean;
+  profile: string;
+  headless: boolean;
+  os: string;
+  userAgent: string;
+  windowSize: string;
+  enableFeatures: string;
+  proxy: ProxySettings;
+  url: string;
+};
+
+function optionArgs(launch: LaunchOptions) {
   return [
     ...(launch.userAgent ? [`--user-agent=${launch.userAgent}`] : []),
     ...(launch.windowSize
@@ -105,7 +140,7 @@ function optionArgs(launch) {
 }
 
 /** The Chrome command line for a fresh browser on launch.port. */
-export function chromeLaunchArgs(launch) {
+export function chromeLaunchArgs(launch: LaunchOptions) {
   return [
     `--remote-debugging-port=${launch.port}`,
     `--user-data-dir=${launch.userDataDir}`,

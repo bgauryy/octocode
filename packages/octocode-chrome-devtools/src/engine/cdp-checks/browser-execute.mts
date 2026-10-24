@@ -10,39 +10,90 @@ import { jsonPointer, validatePlan } from './plan-validate.mjs';
 import { frameScope, scopedSession } from './plan-scopes.mjs';
 import { pageOps } from './plan-page-ops.mjs';
 import { logQueryContinuation, protocolOps } from './plan-protocol-ops.mjs';
+import type { Payload } from '../cdp-connection.mjs';
+import { errorMessage } from '../error-message.mjs';
+import type { CheckSession } from '../cdp-runner-session.mjs';
+import type {
+  DisposableScope,
+  EventStream,
+  FrameScopes,
+  PlanScope,
+  PlanState,
+  PlanStep,
+  StepRow,
+} from './plan-types.mjs';
 
-export { DOM_ACTIONS as actions } from './dom-config.mjs';
-export { planOperations, validatePlan } from './plan-validate.mjs';
+/** Why the plan stopped: the failed step, or a failure outside any step. */
+type Failure = {
+  step?: number;
+  error: string;
+  outcomeUncertain?: boolean;
+  instruction?: string;
+};
 
-const arg = flag => {
+export { DOM_ACTIONS } from './dom-config.mjs';
+export { validatePlan } from './plan-validate.mjs';
+
+const arg = (flag: string) => {
   const i = process.argv.indexOf(flag);
   return i < 0 ? null : process.argv[i + 1];
 };
 const ops = { ...pageOps, ...protocolOps };
-const log = line => console.log(line);
-
-export async function run(connection, input) {
-  const plan = validatePlan(
-    input ??
-      JSON.parse(
-        arg('--plan')
-          ? readFileSync(arg('--plan'), 'utf8')
-          : process.env.BROWSER_PLAN || 'null'
-      )
+const log = (line: string) => console.log(line);
+const readPlanInput = () => {
+  const file = arg('--plan');
+  return JSON.parse(
+    file ? readFileSync(file, 'utf8') : process.env.BROWSER_PLAN || 'null'
   );
+};
+const protocolErrorOf = (error: unknown) =>
+  error instanceof Error && 'protocolError' in error
+    ? error.protocolError
+    : undefined;
+
+/** What each plan event listener saw, for the run result. */
+const eventCoverage = (streams: Map<string, EventStream>) =>
+  [...streams.entries()].map(([id, stream]) => ({
+    id,
+    event: stream.event,
+    observed: stream.observed,
+    matched: stream.matched,
+    artifact: stream.file,
+    boundary: 'listener registration to flow completion',
+  }));
+
+/** The run failure a step error records; a timeout leaves the step's outcome unknown. */
+function stepFailure(message: string, step: PlanStep, index: number): Failure {
+  return {
+    step: index + 1,
+    error: message,
+    ...(/CDP timeout|step deadline/.test(message)
+      ? {
+          outcomeUncertain: ['act', 'cdp', 'goto', 'readStream'].includes(
+            step.op
+          ),
+          instruction:
+            'Inspect state before any retry; an acknowledged outcome is unavailable.',
+        }
+      : {}),
+  };
+}
+
+export async function run(connection: CheckSession, input?: unknown) {
+  const plan = validatePlan(input ?? readPlanInput());
   const planArtifact = connection.saveArtifact('browser-plan.json', plan).file;
   const journalArtifact = join(connection.outputDir, 'browser-steps.jsonl');
   writeFileSync(journalArtifact, '', { mode: 0o600, flag: 'wx' });
   console.log(`[ARTIFACT] STEPS ${journalArtifact}`);
-  const journal = row =>
+  const journal = (row: StepRow) =>
     appendFileSync(journalArtifact, JSON.stringify(row) + '\n');
-  let stepDeadline = null;
-  const cdp = {
+  let stepDeadline: number | null = null;
+  const cdp: CheckSession = {
     ...connection,
     foreground() {
       return cdp.send('Page.bringToFront');
     },
-    send(method, params, sessionId) {
+    send(method: string, params?: Payload, sessionId?: string) {
       const remaining =
         stepDeadline === null ? Infinity : stepDeadline - Date.now();
       if (remaining <= 0)
@@ -54,21 +105,40 @@ export async function run(connection, input) {
       });
     },
   };
-  const results = [],
-    scopes = new Map(),
-    sessionScopes = new Map(),
-    streams = new Map(),
-    artifacts = new Map();
-  let failure = null;
+  const results: StepRow[] = [],
+    scopes: FrameScopes = new Map(),
+    sessionScopes = new Map<string, DisposableScope>(),
+    streams = new Map<string, EventStream>(),
+    artifacts = new Map<unknown, string>();
+  let failure: Failure | null = null;
   const started = Date.now();
-  const resolveParams = value => {
+  // A { $step | $event, pointer } reference resolves to the value it selects.
+  const resolveReference = (
+    step: unknown,
+    event: unknown,
+    pointer: unknown
+  ) => {
+    const artifact = step !== undefined ? artifacts.get(step) : undefined;
+    if (step !== undefined && artifact === undefined)
+      throw new Error('Result reference is unavailable');
+    const source =
+      artifact !== undefined
+        ? JSON.parse(readFileSync(artifact, 'utf8'))
+        : typeof event === 'string'
+          ? streams.get(event)?.last
+          : undefined;
+    return jsonPointer(source, pointer ?? '');
+  };
+  const resolveParams = (value: unknown): unknown => {
     if (!value || typeof value !== 'object') return value;
-    if (value.$step !== undefined || value.$event !== undefined) {
-      const source =
-        value.$step !== undefined
-          ? JSON.parse(readFileSync(artifacts.get(value.$step), 'utf8'))
-          : streams.get(value.$event)?.last;
-      const selected = jsonPointer(source, value.pointer ?? '');
+    const step: unknown = Reflect.get(value, '$step'),
+      event: unknown = Reflect.get(value, '$event');
+    if (step !== undefined || event !== undefined) {
+      const selected = resolveReference(
+        step,
+        event,
+        Reflect.get(value, 'pointer')
+      );
       if (selected === undefined)
         throw new Error('Result reference is unavailable');
       return selected;
@@ -79,7 +149,7 @@ export async function run(connection, input) {
           Object.entries(value).map(([k, v]) => [k, resolveParams(v)])
         );
   };
-  const state = {
+  const state: PlanState = {
     plan,
     connection,
     cdp,
@@ -92,7 +162,7 @@ export async function run(connection, input) {
   const execute = async () => {
     for (const [index, step] of plan.steps.entries()) {
       const timeout = step.timeoutMs ?? plan.waitMs ?? 8000,
-        row: Record<string, any> = {
+        row: StepRow = {
           index: index + 1,
           op: step.op,
           status: 'running',
@@ -113,7 +183,7 @@ export async function run(connection, input) {
         1000
       );
       try {
-        let target = step.frame
+        let target: PlanScope = step.frame
           ? await frameScope(cdp, step.frame, {
               timeoutMs: timeout,
               scopes,
@@ -124,12 +194,16 @@ export async function run(connection, input) {
           const sessionId = resolveParams(step.session);
           if (typeof sessionId !== 'string' || !sessionId)
             throw new Error('Session reference is not an id');
-          if (!sessionScopes.has(sessionId))
-            sessionScopes.set(
-              sessionId,
-              scopedSession(cdp, { targetId: null, type: 'session' }, sessionId)
+          let scope = sessionScopes.get(sessionId);
+          if (!scope) {
+            scope = scopedSession(
+              cdp,
+              { targetId: null, type: 'session' },
+              sessionId
             );
-          target = sessionScopes.get(sessionId);
+            sessionScopes.set(sessionId, scope);
+          }
+          target = scope;
         }
         row.targetId = target.targetInfo.id;
         row.source = {
@@ -147,26 +221,15 @@ export async function run(connection, input) {
         });
         row.status = 'complete';
       } catch (error) {
-        if (error.protocolError)
+        const protocolError = protocolErrorOf(error);
+        if (protocolError)
           row.artifact = cdp.saveArtifact(
             `protocol-error-${index + 1}.json`,
-            error.protocolError
+            protocolError
           ).file;
         row.status = 'failed';
-        row.error = error.message;
-        failure = {
-          step: index + 1,
-          error: error.message,
-          ...(/CDP timeout|step deadline/.test(error.message)
-            ? {
-                outcomeUncertain: ['act', 'cdp', 'goto', 'readStream'].includes(
-                  step.op
-                ),
-                instruction:
-                  'Inspect state before any retry; an acknowledged outcome is unavailable.',
-              }
-            : {}),
-        };
+        row.error = errorMessage(error);
+        failure = stepFailure(row.error, step, index);
         break;
       } finally {
         stepDeadline = null;
@@ -190,7 +253,7 @@ export async function run(connection, input) {
       });
     else await execute();
   } catch (error) {
-    failure ??= { error: error.message };
+    failure ??= { error: errorMessage(error) };
   } finally {
     for (const stream of streams.values()) {
       stream.target.off(stream.event, stream.handler);
@@ -220,14 +283,7 @@ export async function run(connection, input) {
         boundary:
           'selected targets and frames during this plan; no site-wide coverage',
       },
-      eventCoverage: [...streams.entries()].map(([id, stream]) => ({
-        id,
-        event: stream.event,
-        observed: stream.observed,
-        matched: stream.matched,
-        artifact: stream.file,
-        boundary: 'listener registration to flow completion',
-      })),
+      eventCoverage: eventCoverage(streams),
     };
     cdp.saveArtifact('browser-result.json', result);
     if (failure) {

@@ -8,7 +8,7 @@ import { classify, permissionGate, powershellDestructive, runsLater } from '../s
 import { archiveFolder } from '../src/shared/archive.js';
 import { PARENT_SESSION_ENV, PERMISSION_ENV } from '../src/shared/env.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 const call = (toolName: string, input: Record<string, unknown>, extra: Partial<ToolCallEvent> = {}) => ({ type: 'tool_call', toolCallId: 't1', toolName, input, ...extra }) as ToolCallEvent;
 const hints: Record<string, ToolAnnotations> = {
@@ -19,8 +19,7 @@ const hints: Record<string, ToolAnnotations> = {
 const annotations = (name: string) => hints[name];
 
 function setup(mode: 'manual' | 'workspace' | 'full', options: { hasUI?: boolean; selects?: Array<string | undefined>; hit?: string; powershell?: (command: string) => Promise<boolean> } = {}) {
-  const cwd = tmp();
-  fs.mkdirSync(path.join(cwd, '.git'));
+  const cwd = repo();
   const fake = fakePi();
   const permission = new Permission({ pi: fake.pi, env: { [PERMISSION_ENV]: mode }, isSubagent: false });
   const ctx = fakeCtx({ cwd, hasUI: options.hasUI ?? true, ui: { selects: options.selects ?? [] } });

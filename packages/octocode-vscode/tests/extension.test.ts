@@ -187,7 +187,7 @@ describe('extension command integration', () => {
     await activate();
     await command('installMcp');
     expect(await fs.readFile(config, 'utf8')).toBe('{ broken');
-    expect(host.error).toHaveBeenCalled();
+    expect(host.error.mock.calls).toEqual([[expect.stringContaining(config)]]);
   });
 
   it('reports failed bulk installs instead of already configured', async () => {

@@ -12,7 +12,8 @@ use octocode_github::{GitHubProvider, ProviderError, RepositorySearchPage, Reque
 pub(super) async fn owner_listing(
     provider: &GitHubProvider,
     owner: &str,
-    keep_archived: bool,
+    archive: octocode_contract_types::GitHubArchive,
+    order: &str,
     current: usize,
     per: usize,
     context: &RequestContext,
@@ -24,13 +25,17 @@ pub(super) async fn owner_listing(
     let more = loop {
         let (batch, has_next) = provider
             .transport
-            .list_owner_repositories(owner, "pushed", provider_page, per, context)
+            .list_owner_repositories(owner, "pushed", order, provider_page, per, context)
             .await?;
         pages_read += 1;
         let read = batch.len();
         let kept = batch
             .into_iter()
-            .filter(|item| keep_archived || !item.archived)
+            .filter(|item| match archive {
+                octocode_contract_types::GitHubArchive::Include => true,
+                octocode_contract_types::GitHubArchive::Only => item.archived,
+                octocode_contract_types::GitHubArchive::Exclude => !item.archived,
+            })
             .collect::<Vec<_>>();
         if !items.is_empty() && items.len() + kept.len() > per {
             provider_page -= 1;

@@ -10,7 +10,9 @@ mod slicer;
 use arena::{Fragment, FragmentArena, Planned, mark_continuations};
 use octocode_engine::digest::JsonFingerprint;
 use plan::{PreparedRows, RowPlan};
-use serde_json::{Map, Value, json};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::{Map, Value};
 pub(crate) use shares::fair_shares;
 use shares::{PartShare, keep_row_next, row_next_chars, row_part_chars};
 use skeleton::{
@@ -19,7 +21,7 @@ use skeleton::{
 };
 use slicer::{Open, Slicer};
 
-use super::page_model::{ResponsePageOptions, ResponsePagination, restart_pagination};
+use super::page_model::{ResponsePageOptions, ResponsePagination};
 use super::result::Remaining;
 
 #[cfg(test)]
@@ -76,11 +78,9 @@ pub(super) fn paginate_rows(
     tool: Option<crate::id::ToolId>,
 ) -> (Map<String, Value>, ResponsePagination) {
     let envelope = octocode_engine::digest::fingerprint_json(&structured).expect("envelope");
-    RowSource::new(structured, &envelope, options, volatile, tool, &|_| 0).page(
-        options,
-        remaining,
-        &|_| 0,
-    )
+    RowSource::new(structured, &envelope, options, volatile, tool, &|_| 0)
+        .page(options, remaining, &|_| 0)
+        .expect("valid page")
 }
 
 /// Row-aware pages: the plan that packs whole rows (or fragments of
@@ -116,7 +116,7 @@ pub(super) struct RowSource {
 impl RowSource {
     /// Plan `structured`, whose compact rendering is `envelope` (one
     /// streaming pass names its length and content snapshot, so the
-    /// rendering is never built), at the `responseLength` of `options`.
+    /// rendering is never built), at the `responseChars` of `options`.
     pub(super) fn new(
         mut structured: Map<String, Value>,
         envelope: &JsonFingerprint,
@@ -125,7 +125,7 @@ impl RowSource {
         tool: Option<crate::id::ToolId>,
         block: &dyn Fn(&ResponsePagination) -> usize,
     ) -> Self {
-        let budget = options.response_length.unwrap_or(1).max(1);
+        let budget = options.response_chars.unwrap_or(1).max(1);
         let rows_key = tool.map_or("results", |tool| tool.output().rows_key());
         let rows = match structured.remove(rows_key) {
             Some(Value::Array(rows)) => rows,
@@ -137,18 +137,13 @@ impl RowSource {
         let total = envelope.utf16_units;
         let snapshot = super::cursor::rows_snapshot(budget, &envelope.digest);
         let template = |has_more: bool| ResponsePagination {
-            scope: "rows".into(),
-            current_page: total.max(1),
+            page: total.max(1),
             total_pages: total.max(1),
             has_more,
-            char_offset: total,
-            char_length: total,
+            returned_chars: total,
             total_chars: total,
             snapshot: snapshot.clone(),
-            expected_snapshot: None,
-            changed: None,
-            restart: None,
-            next_char_offset: has_more.then_some(total),
+            next_offset: has_more.then_some(total),
             oversized: None,
             next: None,
         };
@@ -183,7 +178,7 @@ impl RowSource {
         options: &ResponsePageOptions,
         remaining: &[Vec<Remaining>],
         block: &dyn Fn(&ResponsePagination) -> usize,
-    ) -> (Map<String, Value>, ResponsePagination) {
+    ) -> Result<(Map<String, Value>, ResponsePagination), super::pager::ResponseError> {
         let Self {
             plan,
             rows_key,
@@ -195,31 +190,7 @@ impl RowSource {
         let requested = options.response_offset.unwrap_or(0);
         let changed = options.response_snapshot.as_deref() != Some(&self.snapshot);
         if requested > 0 && (changed || requested >= plan.total_pages) {
-            structured.insert(rows_key.into(), Value::Array(Vec::new()));
-            // The page asked for, named in the envelope so a restart says why.
-            let reason = if changed {
-                "the response or page size changed, or its cursor is missing; restart from the first page"
-                    .to_owned()
-            } else {
-                format!(
-                    "page {} of {} is past the last page; restart from the first page",
-                    requested + 1,
-                    plan.total_pages
-                )
-            };
-            structured.shift_insert(0, "warnings".into(), json!([reason]));
-            let pagination = restart_pagination(
-                "rows",
-                requested + 1,
-                requested,
-                plan.total_pages,
-                total,
-                self.snapshot.clone(),
-                options,
-                changed,
-                changed,
-            );
-            return (structured, pagination);
+            return Err(super::pager::ResponseError::InvalidPage);
         }
         let selected = plan.build_page(requested, &self.volatile, remaining);
         let later = plan.rows_after(requested);
@@ -230,25 +201,20 @@ impl RowSource {
         let has_more = requested + 1 < plan.total_pages;
         let char_length = octocode_engine::json_size::utf16_units(&structured).unwrap_or(0);
         let mut pagination = ResponsePagination {
-            scope: "rows".into(),
-            current_page: requested + 1,
+            page: requested + 1,
             total_pages: plan.total_pages,
             has_more,
-            char_offset: requested,
-            char_length,
+            returned_chars: char_length,
             total_chars: total,
             snapshot: self.snapshot.clone(),
-            expected_snapshot: None,
-            changed: None,
-            restart: None,
-            next_char_offset: has_more.then_some(requested + 1),
+            next_offset: has_more.then_some(requested + 1),
             oversized: None,
             next: None,
         };
         // Oversized: the page with its own block still passes the budget, because
         // one fragment could not be divided further.
         pagination.oversized = (char_length + block(&pagination) > self.budget).then_some(true);
-        (structured, pagination)
+        Ok((structured, pagination))
     }
 }
 

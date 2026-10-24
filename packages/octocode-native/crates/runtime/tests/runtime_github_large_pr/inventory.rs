@@ -1,6 +1,6 @@
 //! Pull request file inventories: patchless and renamed files, identity headers, filters, provider caps and totals.
 
-use super::{mount_file_batches, mount_pr, no_continuation, numbered, rest_file, run};
+use super::{mount_file_batches, mount_pr, no_continuation, numbered, raw_patch, rest_file, run};
 use crate::support::{self};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -26,7 +26,7 @@ async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"], "extras": []})).await;
+    let data = run(&server, json!({"sections":["files"]})).await;
     // Compact rows: every file of one directory shares its first group.
     assert_eq!(
         data["pullRequests"][0]["files"],
@@ -53,7 +53,7 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"], "extras": ["hints"]})).await;
+    let data = run(&server, json!({"sections":["files"]})).await;
     let row = &data["pullRequests"][0];
     // A section read keeps what names the PR and the commits code is read at.
     for kept in [
@@ -68,40 +68,9 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     }
     // The first page of a file inventory states how many files it lists.
     assert_eq!(row["changedFilesCount"], 250, "{row}");
-    // The rest of the header rides the summary read only.
-    for dropped in [
-        "additions",
-        "deletions",
-        "bodyPreview",
-        "updatedAt",
-        "headBranch",
-        "closedAt",
-        "mergedAt",
-        "baseBranch",
-        "labels",
-    ] {
-        assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
-    }
-    // The next steps are the response's leads, not a list nested in the row.
-    assert!(row.get("hints").is_none(), "{row}");
-    let menu = crate::support::checks::leads(&data);
-    // 250 files: no every-patch read, no placeholder literal search (only
-    // the caller knows the literal), and no merge-commit read beside the
-    // row's mergeCommitSha.
-    assert_eq!(
-        menu.iter()
-            .map(|lead| lead.name.as_str())
-            .collect::<Vec<_>>(),
-        ["readSelectedPatches"],
-        "{row}"
-    );
-    // The review read names up to one patch page of source files.
-    let review = &crate::support::checks::hint(&data, "readSelectedPatches")["query"]["queries"][0]
-        ["include"];
-    assert_eq!(review.as_array().map(Vec::len), Some(30), "{row}");
-    // An omitted pageSize reads the whole 250-file inventory in one page.
-    let page = row.get("contentPagination").cloned().unwrap_or_default();
-    assert!(page.get("files").is_none(), "{page}");
+    assert_eq!(row["additions"], 5000);
+    assert_eq!(row["labels"], json!(["refactor"]));
+    assert_eq!(row["contentPagination"]["files"]["totalItems"], 250);
     let groups = row["files"].as_array().expect("files");
     let rows = groups
         .iter()
@@ -136,26 +105,44 @@ async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"], "extras": ["hints"]})).await;
-    let menu = &data["hints"];
-    let selected = &crate::support::checks::hint(&data, "readSelectedPatches");
-    // Source files only. Files that fit one call's patch budget come first:
-    // at the default 20,000-char page the 335-line patch does not fit, so the
-    // 15-line one leads and the larger follows through `continuePatch`.
-    assert_eq!(
-        selected["query"]["queries"][0]["include"],
-        json!([
-            "src/server/sseKeepAlive.ts",
-            "src/server/webStandardStreamableHttp.ts"
-        ]),
-        "{menu}"
-    );
-    assert_eq!(
-        crate::support::checks::hint(&data, "readPatches")["query"]["queries"][0]["sections"],
-        json!(["patches"]),
-        "{menu}"
-    );
-    assert!(data["pullRequests"][0].get("hints").is_none(), "{data}");
+    let data = run(&server, json!({"sections":["files"]})).await;
+    let selected = support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"] == json!(["patches"])
+            && input["queries"][0]["include"].is_array()
+    });
+    let scope = selected["input"]["queries"][0]["include"]
+        .as_array()
+        .expect("selected paths");
+    assert_eq!(scope.len(), 2);
+    assert!(scope.contains(&json!("src/server/webStandardStreamableHttp.ts")));
+    assert!(scope.contains(&json!("src/server/sseKeepAlive.ts")));
+    let all = support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"] == json!(["patches"])
+            && input["queries"][0].get("include").is_none()
+    });
+    for (lead, count) in [(selected, 2), (all, 5)] {
+        assert_eq!(lead["kind"], "related");
+        let patches = run(&server, lead["input"]["queries"][0].clone()).await;
+        let files = patches["pullRequests"][0]["files"]
+            .as_array()
+            .expect("patch files");
+        assert_eq!(files.len(), count);
+        for (index, file) in files.iter().enumerate() {
+            let patch = file["patch"].as_str().or_else(|| {
+                let earlier = file["samePatchAs"].as_str()?;
+                files[..index].iter().find(|row| row["path"] == earlier)?["patch"].as_str()
+            });
+            let patch =
+                patch.expect("patch text or a direct reference to an earlier delivered patch");
+            assert_eq!(
+                raw_patch(patch),
+                "@@ -1 +1 @@\n-a\n+b",
+                "{}: {patch:?}",
+                file["path"]
+            );
+        }
+    }
+    assert_eq!(support::inventory_len(&data["pullRequests"][0]["files"]), 5);
 }
 
 #[tokio::test]
@@ -169,7 +156,7 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
     let data = run(
         &server,
         json!({"sections":["files"],
-               "include":["*.md","src/b3/"],"status":["added","modified"],"minChanges":3}),
+               "include":["**/*.md","src/b3/**"],"fileStatus":["added","modified"],"minChanges":3}),
     )
     .await;
     let row = &data["pullRequests"][0];
@@ -177,8 +164,8 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
     assert_eq!(row["contentPagination"]["files"]["totalItems"], 1, "{row}");
     let data = run(
         &server,
-        json!({"sections":["files"], "extras": [],
-               "include":["src/b3/"],"status":["added"]}),
+        json!({"sections":["files"],
+               "include":["src/b3/**"],"fileStatus":["added"]}),
     )
     .await;
     assert_eq!(
@@ -205,7 +192,7 @@ async fn pure_rename_patch_is_empty_not_a_provider_omission() {
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["patches"], "extras": []})).await;
+    let data = run(&server, json!({"sections":["patches"]})).await;
     let files = &data["pullRequests"][0]["files"];
     assert_eq!(files[0]["path"], "src/new_name.rs", "{files}");
     assert_eq!(files[0]["previousPath"], "src/old_name.rs", "{files}");
@@ -220,12 +207,13 @@ async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
     // link although the PR reports more changed files.
     let server = MockServer::builder().start().await;
     mount_pr(&server, 3500).await;
-    mount_file_batches(&server, vec![numbered(1, 100)], Duration::ZERO).await;
-    let data = run(
+    mount_file_batches(
         &server,
-        json!({"sections":["files"], "pageSize": 100, "extras": []}),
+        (1..=30).map(|batch| numbered(batch, 100)).collect(),
+        Duration::ZERO,
     )
     .await;
+    let data = run(&server, json!({"sections":["files"]})).await;
     // The section cursors always show; the provider limit is the
     // row's evidence beside them.
     assert!(
@@ -237,7 +225,7 @@ async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
         data["providerLimit"]["reason"], "providerFileListLimit",
         "{data}"
     );
-    assert_eq!(data["providerLimit"]["listed"], 100, "{data}");
+    assert_eq!(data["providerLimit"]["listed"], 3000, "{data}");
     assert_eq!(data["providerLimit"]["changedFilesCount"], 3500, "{data}");
     assert!(
         data["partialReasons"]
@@ -257,20 +245,18 @@ async fn pr_inventory_page_reports_the_provider_total() {
         Duration::ZERO,
     )
     .await;
-    let data = run(
-        &server,
-        json!({"sections":["files"], "pageSize": 100, "extras": ["stats"]}),
-    )
-    .await;
+    let data = run(&server, json!({"sections":["files"]})).await;
     let page = &data["pullRequests"][0]["contentPagination"]["files"];
     assert_eq!(page["totalItems"], 250, "{page}");
-    assert_eq!(page["totalPages"], 3, "{page}");
-    assert_eq!(page["hasMore"], true, "{page}");
+    assert_eq!(page["totalPages"], 1, "{page}");
+    assert_eq!(page["hasMore"], false, "{page}");
     // The cursor rides `next`, never the page block.
     assert!(page.get("nextPage").is_none(), "{page}");
-    let next = &data["next"]["nextFilePage"]["query"]["queries"][0];
-    assert_eq!(next["page"], 2, "{data}");
-    assert_eq!(next["sections"], json!(["files"]), "{data}");
+    assert_eq!(
+        support::inventory_len(&data["pullRequests"][0]["files"]),
+        250
+    );
+    assert!(data["next"].get("nextFilePage").is_none());
 }
 
 /// An `include` scope that matches no changed file is an empty row (a
@@ -297,7 +283,7 @@ async fn files_scope_matching_nothing_is_an_empty_row_with_an_inventory_lead() {
         &runtime,
         "ghGetHistoryItem",
         json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 9,
-               "sections": ["patches"], "include": ["fastapi/_runtime.py"], "extras": []}),
+               "sections": ["patches"], "include": ["fastapi/_runtime.py"]}),
     )
     .await
     .expect("read");
@@ -306,17 +292,16 @@ async fn files_scope_matching_nothing_is_an_empty_row_with_an_inventory_lead() {
         data.get("errorCode").is_none(),
         "an empty row carries no errorCode: {data}"
     );
-    assert!(
-        crate::support::checks::hint(data, "text").is_null(),
-        "{data}"
+    assert!(data["hints"].is_null(), "{data}");
+    let inventory = support::checks::related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"] == json!(["files"])
+    });
+    assert!(inventory["input"]["queries"][0].get("include").is_none());
+    let listed = support::run(&runtime, "ghGetHistoryItem", inventory["input"].clone()).await;
+    assert_eq!(
+        support::inventory_len(&listed.data()["pullRequests"][0]["files"]),
+        1
     );
-    assert!(
-        crate::support::checks::hint(data, "withoutMatchString").is_null(),
-        "{data}"
-    );
-    let inventory = &crate::support::checks::hint(data, "readFiles")["query"]["queries"][0];
-    assert_eq!(inventory["sections"], json!(["files"]), "{data}");
-    assert!(inventory.get("include").is_none(), "{data}");
     support::checks::assert_leads_valid(data);
     runtime.close().await;
 }

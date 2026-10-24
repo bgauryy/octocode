@@ -64,10 +64,10 @@ pub(crate) enum InputPolicy {
     /// redacting it would silently change what the tool reads, and leak the
     /// placeholder into continuations.
     Query,
-    /// A clasify row: its `state` may be as long as `state_limit` serialized
-    /// characters, and credential-shaped text inside `state` or `questions`
+    /// A clasify row: its `content` may be as long as `content_limit` serialized
+    /// characters, and credential-shaped text inside `content` or `questions`
     /// is redacted in place (it is evidence, not an address).
-    ClasifyEvidence { state_limit: usize },
+    ClasifyEvidence { content_limit: usize },
 }
 
 /// The facts one walk found.
@@ -144,12 +144,12 @@ impl ContentSecurity {
         query: Value,
         policy: InputPolicy,
     ) -> Result<CheckedQuery, Vec<ValidationIssue>> {
-        let state_limit = match policy {
+        let content_limit = match policy {
             InputPolicy::Query => None,
-            InputPolicy::ClasifyEvidence { state_limit } => Some(state_limit),
+            InputPolicy::ClasifyEvidence { content_limit } => Some(content_limit),
         };
-        let checked = self.walk(query, state_limit);
-        let issues = input_issues(&checked, state_limit.is_some());
+        let checked = self.walk(query, content_limit);
+        let issues = input_issues(&checked, content_limit.is_some());
         if issues.is_empty() {
             Ok(CheckedQuery(Value::Object(checked.sanitized_params)))
         } else {
@@ -163,34 +163,34 @@ impl ContentSecurity {
         self.walk(params.clone(), None)
     }
 
-    /// The walk with a clasify `state` allowance, for inspecting a verdict.
+    /// The walk with a clasify `content` allowance, for inspecting a verdict.
     #[cfg(test)]
-    pub(crate) fn validate_state_parameters(
+    pub(crate) fn validate_content_parameters(
         &self,
         params: &Value,
-        state_limit: usize,
+        content_limit: usize,
     ) -> ValidationResult {
-        self.walk(params.clone(), Some(state_limit))
+        self.walk(params.clone(), Some(content_limit))
     }
 
-    fn walk(&self, params: Value, state_limit: Option<usize>) -> ValidationResult {
+    fn walk(&self, params: Value, content_limit: Option<usize>) -> ValidationResult {
         let Value::Object(mut object) = params else {
             return ValidationResult {
                 sanitized_params: Map::new(),
                 verdict: Verdict::invalid("Invalid parameters: must be an object"),
             };
         };
-        if let (Some(limit), Some(state)) = (state_limit, object.get("state"))
+        if let (Some(limit), Some(state)) = (content_limit, object.get("content"))
             && state.to_string().chars().count() > limit
         {
             return ValidationResult {
                 sanitized_params: Map::new(),
                 verdict: Verdict::invalid(format!(
-                    "Parameter state exceeds maximum serialized length ({limit} characters)"
+                    "Parameter content exceeds maximum serialized length ({limit} characters)"
                 )),
             };
         }
-        let verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, state_limit);
+        let verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, content_limit);
         ValidationResult {
             sanitized_params: object,
             verdict,
@@ -198,13 +198,13 @@ impl ContentSecurity {
     }
 
     /// A state allowance applies at the declared root only; its already bounded
-    /// subtree inherits it without granting it to unrelated nested `state` keys.
+    /// subtree inherits it without granting it to unrelated nested `content` keys.
     fn walk_object(
         &self,
         object: &mut Map<String, Value>,
         depth: usize,
         limit: usize,
-        state_limit: Option<usize>,
+        content_limit: Option<usize>,
     ) -> Verdict {
         if depth > MAX_DEPTH {
             object.clear();
@@ -222,8 +222,8 @@ impl ContentSecurity {
             // Ordinary parameter limits count UTF-16 units. The complete state
             // was bounded in Unicode scalar values; allow both UTF-16 units of
             // an astral character without rejecting valid evidence.
-            let limit = if key == "state" {
-                state_limit.map_or(limit, |bound| bound.saturating_mul(2))
+            let limit = if key == "content" {
+                content_limit.map_or(limit, |bound| bound.saturating_mul(2))
             } else {
                 limit
             };
@@ -362,7 +362,7 @@ fn input_issues(checked: &ValidationResult, clasify: bool) -> Vec<ValidationIssu
     }
     let redactable = |field: &str| {
         clasify
-            && ["state", "questions"].iter().any(|root| {
+            && ["content", "questions"].iter().any(|root| {
                 field == *root
                     || field.starts_with(&format!("{root}."))
                     || field.starts_with(&format!("{root}["))

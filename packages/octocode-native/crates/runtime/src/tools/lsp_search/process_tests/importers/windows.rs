@@ -63,12 +63,11 @@ fn importer_windows_past_the_open_document_cap_keep_the_anchor_open() {
     let pool = fake_server_pool();
     let start = serde_json::json!({
         "operation": "references", "path": root.join("a.ts").to_string_lossy(),
-        "symbolName": "target", "line": 1, "pageSize": 100,
-        "workspaceRoot": root.to_string_lossy()
+        "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
     });
     let (pages, _) = tokio::runtime::Runtime::new()
         .expect("rt")
-        .block_on(walk_pages(&pool, &root, &execution, start));
+        .block_on(walk_pages(&pool, &root, &execution, start, None));
     let last = &pages.last().expect("pages").row;
     assert!(
         lists_path(last, "z000.ts"),
@@ -93,10 +92,9 @@ fn a_first_page_of_silent_windows_with_more_to_scan_is_not_empty() {
         let pool = fake_server_pool();
         let start = serde_json::json!({
             "operation": operation, "path": root.join("a.ts").to_string_lossy(),
-            "symbolName": "target", "line": 1, "pageSize": 100,
-            "workspaceRoot": root.to_string_lossy()
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
         });
-        let (pages, _) = walk_pages(&pool, &root, &execution, start).await;
+        let (pages, _) = walk_pages(&pool, &root, &execution, start, None).await;
         let first = &pages[0].row;
         assert_ne!(
             first.get("status").and_then(serde_json::Value::as_str),
@@ -149,15 +147,91 @@ fn a_capped_run_of_silent_windows_is_a_page_of_a_continuing_scan() {
         // candidates, never as a second "page" count.
         assert!(!said.contains("importer page"), "{operation}: {capped}");
         assert!(
-            pages[2].row["files"]
-                .as_array()
-                .is_some_and(|files| files.iter().any(|file| file["path"]
-                    .as_str()
-                    .is_some_and(|path| path.ends_with("z000.ts")))),
+            pages[2].row[if operation == "references" {
+                "matches"
+            } else {
+                "files"
+            }]
+            .as_array()
+            .is_some_and(|files| files.iter().any(|file| file["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("z000.ts")))),
             "{operation}"
         );
     };
     tokio::runtime::Runtime::new()
         .expect("rt")
         .block_on(async { tokio::join!(walk("references"), walk("callers")) });
+}
+
+/// A first window with no verified importer is followed in the same
+/// request: the importer in the next window lands on page 1, with no
+/// importer lead to walk.
+#[test]
+fn a_silent_first_window_goes_on_to_the_next_in_one_call() {
+    if !require_node() {
+        return;
+    }
+    let walk = |operation: &'static str| async move {
+        // Windows: n000-n023 | z000.
+        let (_dir, root, execution) = importer_fixture_of(&[("n", 24), ("z", 1)]);
+        let pool = fake_server_pool();
+        let start = serde_json::json!({
+            "operation": operation, "path": root.join("a.ts").to_string_lossy(),
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+        });
+        let (pages, _) = walk_pages(&pool, &root, &execution, start, None).await;
+        assert_eq!(pages.len(), 1, "{operation}: one call");
+        let first = &pages[0].row;
+        assert!(lists_path(first, "z000.ts"), "{operation}: {first}");
+        assert!(first["next"].get("nextImporterPage").is_none(), "{first}");
+        assert!(first.get("isPartial").is_none(), "{operation}: {first}");
+    };
+    tokio::runtime::Runtime::new()
+        .expect("rt")
+        .block_on(async { tokio::join!(walk("references"), walk("callers")) });
+}
+
+/// Candidates that import the name from another module cannot reach the
+/// anchor: they are checked by their imports and never opened, so they cut
+/// no importer window and count as covered, not as text-only files.
+#[test]
+fn candidates_importing_another_module_are_checked_without_a_window() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture_of(&[("f", 1)]);
+    for index in 0..40 {
+        std::fs::write(
+            root.join(format!("m{index:03}.ts")),
+            "import { target } from './other';\ntarget();\n",
+        )
+        .expect("lookalike");
+    }
+    std::fs::write(
+        root.join("other.ts"),
+        "export function other() {}\nexport function target() {}\n",
+    )
+    .expect("other");
+    let pool = fake_server_pool();
+    let start = serde_json::json!({
+        "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+        "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+    });
+    let (pages, _) = tokio::runtime::Runtime::new()
+        .expect("rt")
+        .block_on(walk_pages(&pool, &root, &execution, start, None));
+    assert_eq!(pages.len(), 1);
+    let row = &pages[0].row;
+    assert!(lists_path(row, "f000.ts"), "{row}");
+    assert!(!lists_path(row, "m000.ts"), "{row}");
+    assert!(row["next"].get("nextImporterPage").is_none(), "{row}");
+    assert!(row.get("isPartial").is_none(), "{row}");
+    assert_eq!(row["coverage"]["importerScan"], "complete", "{row}");
+    assert!(
+        row["coverage"]
+            .get("textOnlyFiles")
+            .is_none_or(|count| count == 0),
+        "{row}"
+    );
 }

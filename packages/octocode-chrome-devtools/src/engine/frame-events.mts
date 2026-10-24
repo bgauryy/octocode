@@ -1,5 +1,15 @@
+import { errorMessage } from './error-message.mjs';
+import type {
+  AttachedToTarget,
+  StealthSession,
+  TargetFailure,
+} from './stealth-session.mjs';
+
 // Enable event domains in related out-of-process iframes. Each target keeps its own session.
-export async function observeFrameEvents(cdp, domains = ['Network']) {
+export async function observeFrameEvents(
+  cdp: StealthSession,
+  domains = ['Network']
+) {
   // Under stealth, child targets pause until stealth resumes them with its overrides set.
   const attachParams = () =>
     cdp.stealthAutoAttach ?? {
@@ -7,10 +17,10 @@ export async function observeFrameEvents(cdp, domains = ['Network']) {
       waitForDebuggerOnStart: false,
       flatten: true,
     };
-  const frames = new Map(),
-    errors = [],
-    pending = new Set();
-  const attach = ({ sessionId, targetInfo }) => {
+  const frames = new Map<string, { targetId: string; url: string }>(),
+    errors: TargetFailure[] = [],
+    pending = new Set<Promise<void>>();
+  const attach = ({ sessionId, targetInfo }: AttachedToTarget) => {
     if (targetInfo.type !== 'iframe') return;
     frames.set(sessionId, {
       targetId: targetInfo.targetId,
@@ -20,10 +30,11 @@ export async function observeFrameEvents(cdp, domains = ['Network']) {
       for (const domain of domains)
         await cdp.send(domain + '.enable', {}, sessionId);
       await cdp.send('Target.setAutoAttach', attachParams(), sessionId);
-    })().catch(error => {
-      errors.push({ targetId: targetInfo.targetId, error: error.message });
+    })().catch((error: unknown) => {
+      const message = errorMessage(error);
+      errors.push({ targetId: targetInfo.targetId, error: message });
       console.log(
-        `[FINDING] FRAME_EVENT_COVERAGE_UNAVAILABLE target=${targetInfo.targetId} ${error.message}`
+        `[FINDING] FRAME_EVENT_COVERAGE_UNAVAILABLE target=${targetInfo.targetId} ${message}`
       );
     });
     pending.add(task);
@@ -33,8 +44,9 @@ export async function observeFrameEvents(cdp, domains = ['Network']) {
   try {
     await cdp.send('Target.setAutoAttach', attachParams());
   } catch (error) {
-    errors.push({ error: error.message });
-    console.log(`[FINDING] FRAME_EVENT_COVERAGE_UNAVAILABLE ${error.message}`);
+    const message = errorMessage(error);
+    errors.push({ error: message });
+    console.log(`[FINDING] FRAME_EVENT_COVERAGE_UNAVAILABLE ${message}`);
   }
   return {
     coverage() {

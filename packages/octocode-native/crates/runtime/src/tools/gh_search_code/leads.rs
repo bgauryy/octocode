@@ -1,11 +1,11 @@
 //! ghSearchCode leads: the reads a shaped page offers (top hit, capped hit
 //! lists, a file the index did not search at the requested ref).
-use super::GhSearchCodeQuery;
 use super::code_output::{Resolution, requested_ref, row_repo};
 use crate::id::ToolId;
 use crate::num::u32_of_usize;
 use crate::response::result::{Continuation, continuation_row_mut, query_row};
 use crate::tools::leads::broaden::{Broaden, broaden};
+use octocode_contract_types::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
 use serde_json::{Value, json};
 
 /// Code-search fragments carry no line numbers. Point the top hit at an exact
@@ -29,14 +29,14 @@ pub(super) fn read_top_match(top: &Value) -> Option<Value> {
     // A cross-tool read states its reason in `why`; its query carries only
     // the brief the caller sent, which the response stage copies.
     Some(
-        Continuation::new(
+        Continuation::continued(
             ToolId::GhGetFileContent,
             json!({
                 "owner": file.get("owner")?,
                 "repo": file.get("repo")?,
                 "path": file.get("path")?,
-                "matchString": token,
-                "contextLines": 5,
+                "matchString": [token],
+                "contextLines": {"before":5,"after":5},
             }),
         )
         .build(),
@@ -48,7 +48,7 @@ pub(super) fn code_hit(path: &str) -> bool {
     matches!(
         crate::content::classify_file_type(path),
         Some(crate::content::FileType::Code)
-    ) && !crate::content::is_test_path(path)
+    ) && !octocode_engine::text::test_paths::is_test_path(path)
 }
 
 /// ghGetFileContent read of the keyword lines of one file at the resolved
@@ -70,15 +70,15 @@ pub(super) fn hits_read(
         "repo": repo,
         "path": path,
         "ref": sha,
-        "contextLines": 0,
+        "contextLines": {"before":0,"after":0},
     });
     if let Some((after, line_count)) = resume
         && usize::try_from(after).is_ok_and(|after| after < line_count)
     {
-        read["ranges"] = json!([format!("{}-{line_count}", after + 1)]);
+        read["ranges"] = json!([{"startLine": after + 1, "endLine": line_count}]);
     }
     keyword_match(&mut read, query)?;
-    Some(Continuation::new(ToolId::GhGetFileContent, read).build())
+    Some(Continuation::continued(ToolId::GhGetFileContent, read).build())
 }
 
 /// Sets `matchString` (and `caseMode`, `regex`) on a ghGetFileContent read so
@@ -102,18 +102,17 @@ fn keyword_match(read: &mut Value, query: &GhSearchCodeQuery) -> Option<()> {
     }
     match keywords.as_slice() {
         [] => return None,
-        [one] => read["matchString"] = json!(one),
+        [one] => read["matchString"] = json!([one]),
         many if many.len() <= max => read["matchString"] = json!(many),
         // More keywords than a matchString list holds: one escaped
         // alternation matches the same lines.
         many => {
-            read["matchString"] = json!(
-                many.iter()
-                    .map(|keyword| regex::escape(keyword))
-                    .collect::<Vec<_>>()
-                    .join("|")
-            );
-            read["regex"] = json!("rust");
+            read["matchString"] = json!([many
+                .iter()
+                .map(|keyword| regex::escape(keyword))
+                .collect::<Vec<_>>()
+                .join("|")]);
+            read["regexEngine"] = json!("rust");
         }
     }
     Some(())
@@ -128,11 +127,14 @@ pub(super) fn file_scope_read(query: &GhSearchCodeQuery, file: &str) -> Option<V
     if let Some(reference) = requested_ref(query) {
         read["ref"] = json!(reference);
     }
-    if query.match_in == super::GhSearchCodeQueryMatchIn::File {
+    if query
+        .match_in
+        .contains(&GhSearchCodeQueryMatchInItem::Content)
+    {
         // No keyword is a plain read of the file's start.
         let _ = keyword_match(&mut read, query);
     }
-    Some(Continuation::new(ToolId::GhGetFileContent, read).build())
+    Some(Continuation::related(ToolId::GhGetFileContent, read).build())
 }
 
 /// The index-fragment read of the top file, kept inside the verified source
@@ -190,11 +192,11 @@ pub(super) fn declaration_read(
         "owner": owner,
         "repo": repo,
         "path": path,
-        "matchString": head,
+        "matchString": [head],
         "block": true,
         "ref": sha,
     });
-    Some(Continuation::new(ToolId::GhGetFileContent, read).build())
+    Some(Continuation::continued(ToolId::GhGetFileContent, read).build())
 }
 
 /// ghGetFileContent read of a resolved file's best hit for the goal (5 lines
@@ -223,14 +225,13 @@ pub(super) fn line_read(
         "owner": owner,
         "repo": repo,
         "path": path,
-        // The published line-span spelling (startLine/endLine are accepted
-        // but not published).
-        "ranges": [format!("{start}-{end}")],
+        // Exact line spans use the shared ranges shape.
+        "ranges": [{"startLine":start,"endLine":end}],
         // The commit the lines were read at: a branch push cannot shift
         // the window before the read runs.
         "ref": sha,
     });
-    Some(Continuation::new(ToolId::GhGetFileContent, read).build())
+    Some(Continuation::continued(ToolId::GhGetFileContent, read).build())
 }
 
 /// The read of a file the index did not search at the requested ref: the
@@ -238,9 +239,9 @@ pub(super) fn line_read(
 pub(super) fn unsearched_ref_read(query: &GhSearchCodeQuery) -> Option<Value> {
     let reference = requested_ref(query)?;
     let repo = query.repo.as_deref()?;
-    let file = query.filename.as_deref()?;
+    let file = query.name_contains.as_deref()?;
     let path = match query
-        .path
+        .path_prefix
         .as_deref()
         .map(|path| path.as_str().trim_matches('/'))
     {
@@ -248,7 +249,7 @@ pub(super) fn unsearched_ref_read(query: &GhSearchCodeQuery) -> Option<Value> {
         _ => file.to_owned(),
     };
     Some(
-        Continuation::new(
+        Continuation::related(
             ToolId::GhGetFileContent,
             json!({"owner": query.owner.as_str(), "repo": repo.as_str(), "path": path, "ref": reference}),
         )
@@ -284,7 +285,7 @@ pub(super) fn or_split(query: &GhSearchCodeQuery) -> Option<Value> {
             row
         })
         .collect::<Vec<_>>();
-    Some(Continuation::input(ToolId::GhSearchCode, json!({ "queries": rows })).build())
+    Some(Continuation::related_input(ToolId::GhSearchCode, json!({ "queries": rows })).build())
 }
 
 /// Variants an empty search offers at most: each one is another code search
@@ -302,7 +303,7 @@ pub(super) fn broaden_search(query: &GhSearchCodeQuery, window_room: usize) -> O
             // Code search indexes only the default branch: a `ref` adds
             // nothing to a broader search.
             strip: &["fields", "ref"],
-            groups: &[&["path"], &["filename"], &["extensions"]],
+            groups: &[&["pathPrefix"], &["nameContains"], &["extensions"]],
             split_lone_keyword: false,
         },
         window_room.min(BROADEN_VARIANTS),

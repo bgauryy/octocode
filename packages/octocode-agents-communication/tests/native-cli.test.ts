@@ -8,18 +8,22 @@ import { DatabaseSync } from 'node:sqlite';
 import type { JsonRecord } from './json-record.ts';
 import { root } from './helpers.ts';
 import { fixture, invoke, joinAgent, start } from './native-support.ts';
+const { catalog: runtimeCatalog } = await import('../dist/runtime.js');
+const names = (rows: unknown, key = 'name'): unknown[] => { assert.ok(Array.isArray(rows), 'a list'); return rows.map((row: JsonRecord) => row[key]); };
 
 test('inspection, discovery and rejected commands do not create storage',t=>{
  const f=fixture(t);assert.equal(invoke(f,['db','info']).exists,false);
- assert.equal(invoke(f,['schema','types']).length,26);
+ assert.deepEqual(names(invoke(f,['schema','types']),'type'),names(runtimeCatalog.catalog().recordTypes,'type'));
  for(const args of [['unknown'],['peers'],['join','{"name":"bad"}'],['heartbeat','--session','missing']])assert.throws(()=>invoke(f,args));
  assert.equal(existsSync(dirname(f.database)),false);
 });
 test('help is compact, command-specific and discoverable without storage',t=>{
  const f=fixture(t),help=invoke(f,['--help']);
  assert.equal(help.implementation,'TypeScript');assert.ok(JSON.stringify(help).length<2000);
- assert.ok(help.commands.includes('run'));assert.ok(help.discover.includes('<command> --help'));
- for(const name of help.commands){
+ assert.deepEqual(help.commands,names(runtimeCatalog.catalog().commands));assert.ok(help.discover.includes('<command> --help'));
+ const commands: unknown[]=help.commands;
+ for(const name of commands){
+  assert.equal(typeof name,'string');if(typeof name!=='string')continue;
   const command=invoke(f,[...name.split(' '),'--help']);
   assert.equal(command.name,name);assert.equal(typeof command.description,'string');
   assert.equal(typeof command.usage,'string');assert.equal(command.commands,undefined);
@@ -80,7 +84,7 @@ test('MCP binds identity and survives malformed frames',async t=>{
  const result=await start(f,['mcp','--session',a.id],frames);assert.equal(result.code,0,result.stderr);
  const rows=result.stdout.trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
  assert.equal(rows[0].error.code,-32600);assert.equal(rows[1].error.code,-32700);
- assert.equal(rows[3].result.tools.length,18);assert.equal(JSON.parse(rows[4].result.content[0].text).lease.path,'file');assert.equal(invoke(f,['locks','{"path":"file"}','--session',a.id]).items[0].owner,a.id);
+ assert.deepEqual(names(rows[3].result.tools),names(runtimeCatalog.selectedTools()));assert.equal(JSON.parse(rows[4].result.content[0].text).lease.path,'file');assert.equal(invoke(f,['locks','{"path":"file"}','--session',a.id]).items[0].owner,a.id);
  const catalog=invoke(f,['schema']);
  assert.deepEqual(rows[3].result.tools,catalog.tools);
  for(const tool of catalog.tools){

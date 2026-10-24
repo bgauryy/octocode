@@ -26,6 +26,7 @@ fn directory_scan_options(
         max_file_bytes: u32::try_from(crate::tools::ast_search::source::MAX_PARSE_SOURCE_BYTES)
             .ok(),
         language_globs: ast_search_query_symbols::language_globs(q)
+            .as_ref()
             .map(crate::tools::ast_rule::language_globs),
         // The ignore rules `match` and the text tools walk by, off only with
         // `includeIgnored`.
@@ -126,10 +127,10 @@ fn unwalked_scopes(
     let admit = |path: &std::path::Path, file_type| discovery.permits_entry(path, file_type);
     let stop = || cancel.check().is_err();
     // The walk's own candidates: a file of an outlined grammar, or one a
-    // `languageGlobs` rule names.
+    // `parserGlobs` rule names.
     let parsers = crate::tools::ast_rule::GlobParsers::compile(
         canonical,
-        ast_search_query_symbols::language_globs(q),
+        ast_search_query_symbols::language_globs(q).as_ref(),
     )
     .ok()?;
     let outlined: std::collections::BTreeSet<String> =
@@ -227,7 +228,7 @@ pub(super) fn outline_walked(
     })
 }
 
-/// The files a directory query's `languageGlobs` map to a grammar, compiled
+/// The files a directory query's `parserGlobs` map to a grammar, compiled
 /// against the scanned root in the one local glob dialect the outline scan
 /// uses; `None` without globs. A glob that does not compile is `invalidGlob`.
 pub(super) fn mapped_files(
@@ -240,13 +241,13 @@ pub(super) fn mapped_files(
     octocode_engine::search::glob::set(
         root,
         globs.values().flatten().map(String::as_str),
-        "languageGlobs",
+        "parserGlobs",
     )
     .map_err(crate::tools::ast_search::errors::native_error)
 }
 
 /// Whether the outline scan parses `path`: an outlined extension, or a
-/// `languageGlobs` match.
+/// `parserGlobs` match.
 pub(super) fn outlinable(
     outlined: &[String],
     mapped: Option<&Gitignore>,

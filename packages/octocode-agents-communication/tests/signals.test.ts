@@ -11,9 +11,8 @@ import type { Socket } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { JsonRecord } from './json-record.ts';
-import { binary, jsonCall, spawn, tempWorkspace, waitFor } from './helpers.ts';
+import { binary, jsonCall, posix, spawn, tempWorkspace, waitFor } from './helpers.ts';
 
-const posix = process.platform !== 'win32';
 const runtime = await import('../dist/runtime.js');
 
 // A preload that reports the moment the process installs its SIGINT handler, for commands with no other observable (the read-only "inbox wait").

@@ -5,9 +5,7 @@ use super::*;
 
 #[test]
 fn diagnostic_reports_are_listed_as_individual_diagnostics() {
-    let q = query(
-        serde_json::json!({"operation": "diagnostic", "mainGoal": "test", "reasoning": "test", "path": "file:///repo/a.ts"}),
-    );
+    let q = query(serde_json::json!({"operation": "diagnostic", "path": "file:///repo/a.ts"}));
     let report = serde_json::json!({
         "kind": "full",
         "items": [
@@ -110,8 +108,7 @@ fn diagnostics_use_the_one_based_public_coordinates() {
 #[test]
 fn unpublished_diagnostics_are_partial_not_clean() {
     let q = query(serde_json::json!({
-        "operation": "diagnostic", "mainGoal": "test", "reasoning": "test",
-        "path": "file:///repo/a.ts"
+        "operation": "diagnostic", "path": "file:///repo/a.ts"
     }));
     let mut row = items_payload(&q, "diagnostics", serde_json::json!([]), TEST_BUDGET);
     mark_diagnostics_unpublished(&mut row, &q, 5_000);
@@ -134,9 +131,7 @@ fn unpublished_diagnostics_are_partial_not_clean() {
 
 #[test]
 fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
-    let q = query(
-        serde_json::json!({"operation": "diagnostic", "mainGoal": "test", "reasoning": "test", "path": "/repo/a.ts"}),
-    );
+    let q = query(serde_json::json!({"operation": "diagnostic", "path": "/repo/a.ts"}));
     let row = with_next(
         &q,
         items_payload(&q, "diagnostics", serde_json::json!([]), TEST_BUDGET),
@@ -151,8 +146,7 @@ fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
     assert!(row.get("hints").is_none(), "{row}");
 
     let q = query(serde_json::json!({
-        "operation": "definition", "mainGoal": "test", "reasoning": "test",
-        "path": "/repo/a.ts",
+        "operation": "definition", "path": "/repo/a.ts",
         "symbolName": "run",
         "line": 3
     }));
@@ -163,9 +157,10 @@ fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
         "x",
         true,
     );
-    let read = &row["next"]["read"]["query"]["queries"][0];
+    let read = &crate::tools::test_support::checks::related_call(&row, "localFetch", |_| true)["input"]
+        ["queries"][0];
     assert_eq!(read["path"], "/repo/a.ts");
-    assert_eq!(read["matchString"], "run");
+    assert_eq!(read["matchString"], serde_json::json!(["run"]));
 }
 
 #[test]

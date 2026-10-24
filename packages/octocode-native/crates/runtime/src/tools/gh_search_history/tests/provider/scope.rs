@@ -39,7 +39,7 @@ async fn search_of_a_missing_repository_is_not_found() {
             "{row}: {failure:?}"
         );
         // The recovery is the repository's spelling, not a history filter.
-        let next = failure.next.expect("a recovery lead");
+        let next = failure.calls.expect("a recovery lead");
         assert_eq!(next["findRepository"]["tool"], "ghSearchRepo", "{next}");
     }
 }
@@ -125,7 +125,10 @@ async fn rename_lookup_runs_only_when_the_search_finds_nothing() {
         crate::tools::gh_shared::renamed_warning("old", "r", &("new".into(), "r".into())),
         "one shared rename wording: {data}"
     );
-    let read = &data["next"]["readPullRequest"]["query"]["queries"][0];
+    let read =
+        &crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        })["input"]["queries"][0];
     assert_eq!(
         (&read["owner"], &read["repo"]),
         (&json!("new"), &json!("r")),
@@ -161,10 +164,10 @@ async fn a_missing_listing_scope_names_its_repair() {
     .await
     .expect_err("missing ref");
     assert!(failure.error.message.contains("\"nope\""), "{failure:?}");
-    let next = failure.next.expect("refs lead");
+    let next = failure.calls.expect("refs lead");
     assert_eq!(next["viewRefs"]["tool"], "ghStructure", "{next}");
     assert_eq!(
-        next["viewRefs"]["query"]["queries"][0]["operation"], "refs",
+        next["viewRefs"]["input"]["queries"][0]["operation"], "refs",
         "{next}"
     );
 
@@ -181,9 +184,9 @@ async fn a_missing_listing_scope_names_its_repair() {
     .expect_err("missing repository");
     assert!(failure.error.message.contains("o/r"), "{failure:?}");
     // The recovery is the repository's spelling, not a history filter.
-    let next = failure.next.expect("a repository search");
+    let next = failure.calls.expect("a repository search");
     assert_eq!(
-        next["findRepository"]["query"]["queries"][0]["keywords"],
+        next["findRepository"]["input"]["queries"][0]["keywords"],
         json!(["r"]),
         "{next}"
     );
@@ -232,10 +235,9 @@ async fn a_commit_listing_of_a_renamed_repository_names_the_canonical_repository
         .expect(1)
         .mount(&server)
         .await;
-    let query: GhSearchHistoryQuery = serde_json::from_value(json!({
-        "operation":"commit","owner":"old","repo":"r","pageSize":1
-    }))
-    .expect("query");
+    let query: GhSearchHistoryQuery =
+        serde_json::from_value(json!({"operation":"commit","owner":"old","repo":"r"}))
+            .expect("query");
     let data = execute(
         &one_shot_provider(&server),
         &query,
@@ -254,13 +256,16 @@ async fn a_commit_listing_of_a_renamed_repository_names_the_canonical_repository
         )]),
         "{data}"
     );
-    let next = &data["next"]["nextPage"]["query"]["queries"][0];
+    let next = &data["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(
         (&next["owner"], &next["repo"]),
         (&json!("new"), &json!("r")),
         "{data}"
     );
-    let read = &data["next"]["readCommit"]["query"]["queries"][0];
+    let read =
+        &crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "commit"
+        })["input"]["queries"][0];
     assert_eq!(read["owner"], "new", "{data}");
 }
 
@@ -325,35 +330,47 @@ async fn an_empty_path_scoped_listing_broadens_past_the_path_and_checks_it() {
                 .expect("listing")
         }
     };
-    let data = run(json!({"operation":"commit","owner":"o","repo":"r",
-        "path":"crates/nonexistent","since":"2024-01-01","ref":"v2"}))
+    let data = run(json!({"operation":"commit","owner":"o","repo":"r","ref":"v2","pathPrefix":"crates/nonexistent","filters":{"committedAt":{"from":"2024-01-01T00:00:00Z"}}}))
     .await;
     assert_eq!(data["status"], "empty", "{data}");
-    let rows = data["next"]["broadenSearch"]["query"]["queries"]
+    let rows = crate::tools::test_support::checks::related_call(&data, "ghSearchHistory", |_| true)
+        ["input"]["queries"]
         .as_array()
         .cloned()
         .unwrap_or_default();
     assert!(
         rows.iter()
-            .any(|row| row.get("since").is_none() && row["path"] == "crates/nonexistent"),
+            .any(|row| row.get("filters").is_none() && row["pathPrefix"] == "crates/nonexistent"),
         "{data}"
     );
     assert!(
         rows.iter()
-            .any(|row| row.get("path").is_none() && row["since"].is_string()),
+            .any(|row| row.get("pathPrefix").is_none() && row["filters"]["committedAt"].is_object()),
         "{data}"
     );
     assert_eq!(
-        data["next"]["viewTree"]["query"]["queries"][0],
-        json!({"owner":"o","repo":"r","path":"crates","ref":"v2"}),
+        crate::tools::test_support::checks::related_call(
+            &data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        )["input"]["queries"][0],
+        json!({"operation":"tree","owner":"o","repo":"r","path":"crates","ref":"v2"}),
         "{data}"
     );
-    assert_eq!(data["next"]["viewTree"]["tool"], "ghStructure");
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(
+            &data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        )["tool"],
+        "ghStructure"
+    );
 
-    let data = run(json!({"operation":"pullRequest","owner":"o","repo":"r",
-        "keywords":["fix"],"state":"merged"}))
+    let data = run(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"filters":{"isMerged":true}}))
     .await;
-    let rows = &data["next"]["broadenSearch"]["query"]["queries"];
+    let rows = &crate::tools::test_support::checks::related_call(&data, "ghSearchHistory", |_| {
+        true
+    })["input"]["queries"];
     assert!(
         rows.as_array()
             .is_some_and(|rows| rows.iter().any(|row| row.get("state").is_none())),

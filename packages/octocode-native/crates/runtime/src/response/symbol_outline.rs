@@ -3,9 +3,8 @@
 //! Structured content carries the outline in source order, one object per
 //! declaration (`symbolName`, `kind`, `line`, `endLine`, …). A declaration
 //! with members nests every declaration listed after it inside it under
-//! `members` (so they name no `parent`/`parentLine`); `kind` or
-//! `exported: true` shared by every one of 2+ members is stated once in its
-//! `shared`. A member whose parent is not in the rows (a filter dropped it)
+//! `members` (so they name no `parent`/`parentLine`). Each member retains
+//! its own kind and export status. A member whose parent is not in the rows
 //! stays top level with `parent` (+ `parentLine` when the name is
 //! ambiguous). Pages count top-level rows: [`top_level_spans`] splits flat
 //! rows into one span per top-level row, so a page never cuts a member from
@@ -27,10 +26,6 @@ const DECLARATION_ORDER: [&str; 11] = [
     "parent",
     "parentLine",
 ];
-
-/// Member fields a parent states once in `shared` when every one of its
-/// 2+ members has the same value.
-const MEMBER_SHARED: [&str; 2] = ["kind", "exported"];
 
 /// Public outline rows from flat internal ones (`name`, `character`,
 /// `parent`, `parentLine`): `symbolName` and `column`, keys in one order,
@@ -155,7 +150,7 @@ fn nest_members(rows: Vec<Value>) -> Vec<Value> {
 
 fn build_node(index: usize, slots: &mut [Option<Value>], members: &[Vec<usize>]) -> Value {
     let mut node = slots[index].take().unwrap_or(Value::Null);
-    let mut children: Vec<Value> = members[index]
+    let children: Vec<Value> = members[index]
         .iter()
         .map(|&child| build_node(child, slots, members))
         .collect();
@@ -165,34 +160,12 @@ fn build_node(index: usize, slots: &mut [Option<Value>], members: &[Vec<usize>])
     if children.is_empty() {
         return node;
     }
-    if children.len() >= 2 {
-        let mut shared = serde_json::Map::new();
-        for key in MEMBER_SHARED {
-            let first = children[0].get(key).cloned();
-            if let Some(value) = first
-                && children.iter().all(|child| child.get(key) == Some(&value))
-            {
-                shared.insert(key.to_owned(), value);
-            }
-        }
-        if !shared.is_empty() {
-            for child in &mut children {
-                if let Some(child) = child.as_object_mut() {
-                    for key in shared.keys() {
-                        child.shift_remove(key);
-                    }
-                }
-            }
-            fields.insert("shared".into(), Value::Object(shared));
-        }
-    }
     fields.insert("members".into(), Value::Array(children));
     node
 }
 
 /// Flat declaration objects for outline rows: each member following its
-/// parent with `parent` and `parentLine` restored, and the parent's
-/// `shared` fields filled in. The inverse of [`declaration_rows`].
+/// parent with `parent` and `parentLine` restored. The inverse of [`declaration_rows`].
 #[cfg(test)]
 pub(crate) fn flatten_members(rows: &[Value]) -> Vec<Value> {
     fn walk(rows: &[Value], parent: Option<(&Value, &Value)>, out: &mut Vec<Value>) {
@@ -203,24 +176,14 @@ pub(crate) fn flatten_members(rows: &[Value]) -> Vec<Value> {
             };
             let mut flat = fields.clone();
             let members = flat.shift_remove("members");
-            let shared = flat.shift_remove("shared");
             if let Some((name, line)) = parent {
                 flat.insert("parent".into(), name.clone());
                 flat.insert("parentLine".into(), line.clone());
             }
             out.push(Value::Object(flat));
-            let Some(Value::Array(mut members)) = members else {
+            let Some(Value::Array(members)) = members else {
                 continue;
             };
-            if let Some(Value::Object(shared)) = &shared {
-                for member in &mut members {
-                    if let Some(member) = member.as_object_mut() {
-                        for (key, value) in shared {
-                            member.entry(key.clone()).or_insert_with(|| value.clone());
-                        }
-                    }
-                }
-            }
             let name = fields.get("symbolName").unwrap_or(&Value::Null);
             let line = fields.get("line").unwrap_or(&Value::Null);
             walk(&members, Some((name, line)), out);

@@ -4,11 +4,14 @@ const resolveNativeBin = vi.fn();
 const delegateToNative = vi.fn();
 const failStartup = vi.fn();
 
-vi.mock('../../../octocode/src/cli/native-delegate.js', () => ({
-  resolveNativeBin,
-  delegateToNative,
-  NativeLaunchError: class NativeLaunchError extends Error {},
-}));
+vi.mock(
+  import('../../../octocode/src/cli/native-delegate.js'),
+  async importOriginal => ({
+    ...(await importOriginal()),
+    resolveNativeBin,
+    delegateToNative,
+  })
+);
 vi.mock('../../src/startup-failure.js', () => ({ failStartup }));
 
 async function launch(): Promise<void> {

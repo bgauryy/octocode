@@ -43,9 +43,9 @@ fn expanded_scans_list_every_entry_exactly_once() {
         }
     }
     for extra in [
-        json!({"sort":"path"}),
-        json!({"sort":"size"}),
-        json!({"sort":"name"}),
+        json!({"sort":{"by":"path","order":"asc"}}),
+        json!({"sort":{"by":"sizeBytes","order":"desc"}}),
+        json!({"sort":{"by":"name","order":"asc"}}),
     ] {
         let mut base = json!({"operation":"files","path":root.0,"extensions":["go"]});
         base.as_object_mut()
@@ -55,7 +55,7 @@ fn expanded_scans_list_every_entry_exactly_once() {
         assert_eq!(whole.len(), 28);
         let mut cut = base.clone();
         cut["maxEntries"] = json!(3);
-        cut["pageSize"] = json!(2);
+
         let (rows, calls) = walk_chain(&root.0, cut);
         let mut walked = listed_paths(&rows);
         assert!(calls > 4, "{calls}");
@@ -70,7 +70,7 @@ fn expanded_scans_list_every_entry_exactly_once() {
     let whole = listed_paths(&listed(&run(&root.0, tree.clone()).expect("tree")));
     let mut cut = tree;
     cut["maxEntries"] = json!(4);
-    cut["pageSize"] = json!(3);
+
     let (rows, _) = walk_chain(&root.0, cut);
     let walked = listed_paths(&rows);
     let unique = walked.iter().collect::<std::collections::HashSet<_>>();
@@ -94,9 +94,9 @@ fn minimum_scan_windows_recover_every_listing_entry() {
         std::fs::write(root.0.join(name), body).expect("file");
     }
     for base in [
-        json!({"operation":"files","path":root.0,"sort":"path"}),
-        json!({"operation":"files","path":root.0,"sort":"name"}),
-        json!({"operation":"files","path":root.0,"sort":"size"}),
+        json!({"operation":"files","path":root.0,"sort":{"by":"path","order":"asc"}}),
+        json!({"operation":"files","path":root.0,"sort":{"by":"name","order":"asc"}}),
+        json!({"operation":"files","path":root.0,"sort":{"by":"sizeBytes","order":"desc"}}),
         json!({"operation":"tree","path":root.0}),
     ] {
         let mut expected = listed_paths(&listed(&run(&root.0, base.clone()).expect("whole")));
@@ -105,10 +105,10 @@ fn minimum_scan_windows_recover_every_listing_entry() {
         for limit in [1, 2] {
             let mut query = base.clone();
             query["maxEntries"] = json!(limit);
-            query["pageSize"] = json!(1);
+
             let first = run(&root.0, query.clone()).expect("first page");
             if listed(&first).is_empty() {
-                let expand = &first["next"]["continueWalk"]["query"]["queries"][0];
+                let expand = &first["next"]["continueWalk"]["input"]["queries"][0];
                 assert!(expand.get("scanOffset").is_none(), "{first}");
                 assert!(expand["maxEntries"].as_u64().expect("limit") > limit);
             }
@@ -128,26 +128,24 @@ fn expand_scan_rides_the_last_page_of_its_window() {
     for n in 0..9 {
         std::fs::write(root.0.join(format!("f{n}.go")), "x\n").expect("file");
     }
-    let first = run(
-        &root.0,
-        json!({"operation":"files","path":root.0,"extensions":["go"],"maxEntries":4,"pageSize":2}),
-    )
-    .expect("first");
-    assert!(first["next"].get("continueWalk").is_none(), "{first}");
-    let second = run(
-        &root.0,
-        first["next"]["nextPage"]["query"]["queries"][0].clone(),
-    )
-    .expect("second");
-    let expand = &second["next"]["continueWalk"]["query"]["queries"][0];
-    assert_eq!(expand["maxEntries"], 8, "{second}");
-    assert_eq!(expand["scanOffset"], 4, "{second}");
-    assert_eq!(expand["page"], 1, "{second}");
-    let resumed = run(&root.0, expand.clone()).expect("resumed");
-    let names = listed_paths(&listed(&resumed));
-    assert_eq!(names.len(), 2, "{resumed}");
-    assert!(names[0].ends_with("f4.go"), "{resumed}");
-    assert_eq!(resumed["atLeast"], 9, "{resumed}");
+    let query = json!({"operation":"files","path":root.0,"extensions":["go"],"maxEntries":4});
+    let mut page = run_budget(&root.0, query, 1).expect("first");
+    let mut shown = Vec::new();
+    loop {
+        shown.extend(listed_paths(&listed(&page)));
+        if let Some(next) = page["next"].get("nextPage") {
+            assert!(page["next"].get("continueWalk").is_none(), "{page}");
+            page = run_budget(&root.0, next["input"]["queries"][0].clone(), 1).expect("page");
+        } else {
+            break;
+        }
+    }
+    assert_eq!(shown.len(), 4);
+    let expand = &page["next"]["continueWalk"]["input"]["queries"][0];
+    assert_eq!(expand["maxEntries"], 8, "{page}");
+    assert_eq!(expand["scanOffset"], 4, "{page}");
+    let resumed = run_budget(&root.0, expand.clone(), 1).expect("resumed");
+    assert!(paths(&resumed)[0].ends_with("f4.go"), "{resumed}");
 }
 
 /// An `include`-filtered `files` walk by `next.nextPage` lists every
@@ -165,14 +163,12 @@ fn an_include_files_walk_lists_every_file_exactly_once() {
             }
         }
     }
-    let base = format!(
-        "{}/",
-        root.0.file_name().expect("fixture name").to_string_lossy()
-    );
+    let base = "./".to_owned();
     // `walk_pages` fails on a row listed twice.
-    let pages = walk_pages(
+    let pages = walk_pages_budget(
         &root.0,
-        json!({"operation":"files","path":root.0,"include":["**/*.py"],"pageSize":3}),
+        json!({"operation":"files","path":root.0,"include":["**/*.py"]}),
+        Some(100),
     );
     assert!(pages.len() > 1, "{pages:?}");
     let seen = pages

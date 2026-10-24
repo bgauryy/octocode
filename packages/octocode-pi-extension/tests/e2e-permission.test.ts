@@ -1,27 +1,22 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { createFauxCore, fauxAssistantMessage, fauxToolCall, type TranscriptContext } from '@earendil-works/pi-ai';
+import { createFauxCore, type fauxAssistantMessage, fauxToolCall, type TranscriptContext } from '@earendil-works/pi-ai';
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory } from '@earendil-works/pi-coding-agent';
 import { NEEDS_APPROVAL } from '../src/permission/dialog.js';
-import { tmp } from './helpers.js';
+import { calls, E2E_ENTRY, say, tmp } from './helpers.js';
 
 /**
  * Permission modes through the real Pi runtime with a scripted model, bound without a UI as a headless run is (print
  * and JSON mode, every subagent). Runs the source by default; `OCTOCODE_E2E_ENTRY=dist` loads the built extension.
  */
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ENTRY = process.env['OCTOCODE_E2E_ENTRY'] === 'dist' ? path.join(HERE, '..', 'dist', 'index.js') : path.join(HERE, '..', 'src', 'index.ts');
-const octocode = (await import(ENTRY)).default as ExtensionFactory;
+const octocode = (await import(E2E_ENTRY)).default as ExtensionFactory;
 
 const savedEnv = { ...process.env };
 const sessions: Array<{ dispose(): void }> = [];
 
 type Result = { toolName: string; isError: boolean; text: string };
-const calls = (...toolCalls: ReturnType<typeof fauxToolCall>[]) => () => fauxAssistantMessage(toolCalls, { stopReason: 'toolUse' });
-const say = (text: string) => () => fauxAssistantMessage(text);
 
 /** The tool results the model was sent in the turn after a call. */
 function results(context: TranscriptContext): Result[] {

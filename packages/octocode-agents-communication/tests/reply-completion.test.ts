@@ -115,7 +115,7 @@ test('injected reply or completion failure rolls back all writes and audit rows'
     child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:++sequence,method,params})+'\n');
   });
   const initialized=await request('initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'rollback-test',version:'1'}});
-  assert.ok(initialized.result);
+  assert.deepEqual(initialized.result.capabilities, { tools: {} });
   const complete=()=>request('tools/call',{name:'complete',arguments:f.reply});
   f.db.exec("CREATE TRIGGER fail_reply BEFORE INSERT ON messages WHEN NEW.key LIKE 'complete:%' BEGIN SELECT RAISE(ABORT,'Injected reply failure'); END");
   const replyFailure=await complete();assert.equal(replyFailure.result.isError,true);

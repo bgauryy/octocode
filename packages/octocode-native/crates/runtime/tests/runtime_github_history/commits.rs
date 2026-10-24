@@ -46,9 +46,14 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
     // A SHA ref is not restated beside the same sha.
     let data = row_data(&outcome);
     assert_eq!(data["commitSha"], sha, "{data}");
-    assert!(data.get("ref").is_none(), "{data}");
+
     assert_eq!(
-        crate::support::checks::hint(data, "findPullRequest")["query"]["queries"][0]["keywords"],
+        crate::support::checks::find_related_call(
+            data,
+            "ghSearchHistory",
+            |input| input["queries"][0]["operation"] == "pullRequest"
+        )
+        .unwrap_or(&serde_json::Value::Null)["input"]["queries"][0]["keywords"],
         json!([sha]),
         "{data}"
     );
@@ -130,7 +135,7 @@ async fn commit_patch_view_carries_the_headline_not_the_whole_message() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"sections":["patches"],"extras":["hints"]}),
+        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"sections":["patches"]}),
     )
     .await
     .expect("commit patches");
@@ -138,17 +143,24 @@ async fn commit_patch_view_carries_the_headline_not_the_whole_message() {
     assert!(data.get("message").is_none(), "{data}");
     assert_eq!(data["messageHeadline"], "Fix the parser (#42)", "{data}");
     checks::assert_absent(data, "Long rationale");
-    let lead = &crate::support::checks::hint(data, "readCommit");
-    assert_eq!(lead["tool"], "ghGetHistoryItem", "{data}");
-    assert!(
-        lead["query"]["queries"][0].get("sections").is_none(),
-        "{data}"
-    );
+    let read = checks::related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["operation"] == "commit"
+            && input["queries"][0].get("sections").is_none()
+    });
+    let full = call(&runtime, "ghGetHistoryItem", read["input"].clone())
+        .await
+        .expect("whole commit message");
+    assert_eq!(row_data(&full)["message"], message);
     // The pull request the headline names stays a lead beside it: a commit
     // view reads the same discussion route, one file or many.
     assert_eq!(
-        crate::support::checks::hint(data, "readPullRequest")["query"],
-        json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":42,"extras":["hints"]}]}),
+        crate::support::checks::find_related_call(
+            data,
+            "ghGetHistoryItem",
+            |input| input["queries"][0]["operation"] == "pullRequest"
+        )
+        .unwrap_or(&serde_json::Value::Null)["input"],
+        json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":42}]}),
         "{data}"
     );
     runtime.close().await;
@@ -178,7 +190,7 @@ async fn path_scoped_commit_labels_whole_commit_totals() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"include":["src/"],"extras":[]}),
+        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"include":["src/**"]}),
     )
     .await
     .expect("commit");
@@ -217,7 +229,7 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"sections":["patches"],"extras":["hints"]}),
+        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"sections":["patches"]}),
     )
     .await
     .expect("commit patches");
@@ -226,16 +238,27 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
         data["files"][0]["patch"], "@@ -40,3 +60,4 @@ fn f\n60\t a\n41\t-b\n61\t+c\n62\t+d\n63\t e",
         "{data}"
     );
-    assert_eq!(
-        crate::support::checks::hint(data, "readAtCommit")["query"],
-        json!({"queries":[{"owner":"a","repo":"b","path":"src/a.rs","ref":sha,"extras":["hints"]}]}),
-        "{data}"
-    );
-    // A lead inherits the row's extras.
-    assert_eq!(
-        crate::support::checks::hint(data, "readParent")["query"],
-        json!({"queries":[{"owner":"a","repo":"b","path":"src/a.rs","ref":parent,"ranges":["30-52"],"extras":["hints"]}]}),
-        "{data}"
-    );
+    use base64::Engine as _;
+    for (pinned, marker) in [(sha, "new"), (parent, "old")] {
+        let content = (1..=100)
+            .map(|line| format!("{marker} line {line}\n"))
+            .collect::<String>();
+        Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
+            .and(wiremock::matchers::query_param("ref",pinned))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":"src/a.rs","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(content)})))
+            .expect(1).mount(&server).await;
+        let lead = checks::related_call(data, "ghGetFileContent", |input| {
+            input["queries"][0]["ref"] == pinned
+        });
+        let read = call(&runtime, "ghGetFileContent", lead["input"].clone())
+            .await
+            .expect("pinned side read");
+        assert_eq!(row_status(&read), "success", "{}", read.structured_content);
+        let file = row_data(&read);
+        assert!(
+            file.to_string().contains(&format!("{marker} line 41")),
+            "{file}"
+        );
+    }
     runtime.close().await;
 }

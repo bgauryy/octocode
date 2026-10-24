@@ -1,56 +1,6 @@
 use super::*;
 use octocode_contract_types::ErrorCode;
 
-fn parsed_ids(rows: &[Value]) -> Vec<String> {
-    parse_rows(rows).into_iter().map(|row| row.id).collect()
-}
-
-#[test]
-fn auto_ids_do_not_collide_with_earlier_explicit_ids() {
-    assert_eq!(
-        parsed_ids(&[
-            json!({"operation":"models", "id":"q1"}),
-            json!({"operation":"models"}),
-        ]),
-        ["q1", "q2"]
-    );
-}
-
-#[test]
-fn auto_ids_reserve_later_explicit_ids() {
-    assert_eq!(
-        parsed_ids(&[
-            json!({"operation":"models"}),
-            json!({"operation":"models", "id":"q0"}),
-        ]),
-        ["q1", "q0"]
-    );
-}
-
-#[test]
-fn auto_ids_skip_already_generated_ids() {
-    assert_eq!(
-        parsed_ids(&[
-            json!({"operation":"models", "id":"q1"}),
-            json!({"operation":"models"}),
-            json!({"operation":"models"}),
-        ]),
-        ["q1", "q2", "q3"]
-    );
-}
-
-#[test]
-fn auto_ids_keep_free_positional_ids_and_explicit_names() {
-    assert_eq!(
-        parsed_ids(&[
-            json!({"operation":"models"}),
-            json!({"operation":"models", "id":"chosen"}),
-            json!({"operation":"models"}),
-        ]),
-        ["q0", "chosen", "q2"]
-    );
-}
-
 /// A sections row fails only when no resource was read: then as its
 /// reads did, one code, else a failed context.
 #[test]
@@ -81,43 +31,24 @@ fn a_sections_row_with_no_resource_read_fails_like_its_reads() {
     assert_eq!(unread_resources_code(&row(json!({}))), None);
 }
 
+/// `models` marks the entry a row without `model` is judged by, and
+/// nothing when the listing does not name it.
 #[test]
-fn duplicate_query_ids_reject_with_the_core_wording() {
-    let rows = [json!({"id":"a"}), json!({"id":"b"}), json!({"id":"a"})];
-    let error = admit(rows.iter()).expect_err("duplicate");
-    assert_eq!(error.issues[0].message, "Duplicate query id: a");
-    assert_eq!(error.issues[0].path, ["queries", "2", "id"]);
-    assert!(admit([json!({"id":"a"}), json!({})].iter()).is_ok());
-}
-
-#[test]
-fn admission_matches_the_core_clasify_fixtures() {
-    let fixtures: Value = serde_json::from_str(crate::contracts::generated::CONTRACT_FIXTURES_JSON)
-        .expect("generated fixture JSON");
-    let mut checked = 0;
-    for fixture in fixtures.as_array().expect("fixture array") {
-        if fixture["tool"] != "clasify" {
-            continue;
-        }
-        let validated =
-            crate::contracts::prepare_many_and_validate("clasify", fixture["input"].clone())
-                .and_then(|rows| admit(rows.iter()));
-        assert_eq!(
-            validated.is_ok(),
-            fixture["accepted"].as_bool().expect("accepted"),
-            "{}: {validated:?}",
-            fixture["id"],
-        );
-        if let Some(expected) = fixture.get("messages") {
-            let messages = validated
-                .expect_err("a worded fixture is rejected")
-                .issues
-                .into_iter()
-                .map(|issue| Value::String(issue.message))
-                .collect::<Vec<_>>();
-            assert_eq!(&Value::Array(messages), expected, "{}", fixture["id"]);
-        }
-        checked += 1;
-    }
-    assert!(checked >= 10, "clasify fixtures: {checked}");
+fn models_mark_the_default_model_only_when_listed() {
+    let listing = json!({"models":[
+        {"name":"jev-1.13","description":"d","release_date":"2026-01-01"},
+        {"name":"jev-1.14","description":"d","release_date":"2026-06-01"}
+    ]});
+    let mut marked = listing.clone();
+    super::mark_default(&mut marked, "jev-1.14");
+    assert!(marked["models"][0].get("default").is_none(), "{marked}");
+    assert_eq!(marked["models"][1]["default"], true, "{marked}");
+    crate::contracts::validate_output(
+        "clasify",
+        &json!({"results":[{"index":0,"data":{"models":marked["models"]}}]}),
+    )
+    .unwrap_or_else(|error| panic!("models row: {error:?}"));
+    let mut unknown = listing.clone();
+    super::mark_default(&mut unknown, "jev-preview");
+    assert_eq!(unknown, listing);
 }

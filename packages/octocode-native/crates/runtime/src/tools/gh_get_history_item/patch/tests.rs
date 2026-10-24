@@ -20,13 +20,13 @@ mod pagination;
 mod summary;
 
 fn patch_query(offset: usize) -> HistoryItemRequest {
-    patch_request(json!({"offset":offset,"length":2}))
+    with_budget(patch_request(json!({"offset":offset})), 5)
 }
 
 fn patch_request(fields: serde_json::Value) -> HistoryItemRequest {
     let base = json!({
         "operation":"pullRequest",
-        "mainGoal": "test", "reasoning":"test",
+
         "owner":"a",
         "repo":"b",
         "number":1
@@ -41,7 +41,7 @@ fn file(name: &str, patch: &str) -> Value {
 
 fn window(fields: Value) -> HistoryItemRequest {
     let base = json!({
-        "operation":"commit","mainGoal":"test","reasoning":"test",
+        "operation":"commit",
         "owner":"a","repo":"b","ref":"abc","sections":["patches"]
     });
     HistoryItemRequest::from_row(super::super::util::merge(base, fields))
@@ -52,7 +52,7 @@ fn window(fields: Value) -> HistoryItemRequest {
 /// (calls, per-file reassembled patches, files reported patchless).
 fn follow_commit_page(
     files: &[Value],
-    char_length: Option<usize>,
+    page_budget: Option<usize>,
 ) -> (usize, HashMap<String, String>, Vec<String>) {
     let mut offset = 0usize;
     let mut calls = 0;
@@ -61,11 +61,9 @@ fn follow_commit_page(
     loop {
         calls += 1;
         assert!(calls < 1_000, "cursor did not advance");
-        let mut fields = json!({"offset":offset});
-        if let Some(length) = char_length {
-            fields["length"] = json!(length);
-        }
-        let page = shape_patch_page(files.to_vec(), &window(fields));
+        let mut query = window(json!({"offset":offset}));
+        query.auto_page_chars = page_budget;
+        let page = shape_patch_page(files.to_vec(), &query);
         for row in &page.rows {
             let name = str_at(row, "/filename").unwrap_or("").to_owned();
             if row.get("patchUnavailable").is_some() {
@@ -81,4 +79,9 @@ fn follow_commit_page(
         assert!(next > offset, "cursor must advance");
         offset = next;
     }
+}
+
+fn with_budget(mut query: HistoryItemRequest, page_chars: usize) -> HistoryItemRequest {
+    query.auto_page_chars = Some(page_chars);
+    query
 }

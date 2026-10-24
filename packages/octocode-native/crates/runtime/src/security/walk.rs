@@ -17,21 +17,51 @@
 //! astSearch capture, a hover fragment). Every value the sanitizer redacted
 //! is therefore redacted again wherever it recurs in the response.
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 
 /// Shortest redacted value propagated to other leaves; shorter values are too
 /// generic to identify as the same secret.
 const MIN_PROPAGATED_SECRET_CHARS: usize = 8;
 
-/// `sanitize` gets each string leaf and the file path of its enclosing result, if any.
-pub(crate) fn sanitize_json<E>(
+/// What a sanitizer returns for one string: its sanitized text (`String`),
+/// or that text only when it differs (`Option`, `None`: unchanged).
+pub(crate) trait Rewrite {
+    /// The new text; `None` when it equals `original`.
+    fn change(self, original: &str) -> Option<String>;
+}
+
+impl Rewrite for String {
+    fn change(self, original: &str) -> Option<String> {
+        (self != original).then_some(self)
+    }
+}
+
+impl Rewrite for Option<String> {
+    fn change(self, original: &str) -> Option<String> {
+        self.filter(|text| text != original)
+    }
+}
+
+/// Each object key's change within one walk, by key text. A sanitizer is a
+/// pure function of its text and path, and a key is scanned without a path,
+/// so a key every row repeats (`line`, `value`, `path`) is scanned once.
+type KeyChanges = HashMap<String, Option<String>>;
+
+/// `sanitize` gets each string leaf and the file path of its enclosing result,
+/// if any, and must be a pure function of the two: an object key repeated in
+/// the value is handed to it once.
+pub(crate) fn sanitize_json<E, R: Rewrite>(
     value: &mut Value,
-    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<String, E>,
+    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<R, E>,
 ) -> Result<(), E> {
     let mut redacted = Vec::new();
-    walk(value, None, &mut |text: &str, path: Option<&str>| {
-        let clean = sanitize(text, path)?;
-        if clean != text {
-            redacted_values(text, &clean, &mut redacted);
+    walk(value, None, &mut KeyChanges::new(), &mut |text: &str,
+                                                    path: Option<
+        &str,
+    >| {
+        let clean = sanitize(text, path)?.change(text);
+        if let Some(clean) = &clean {
+            redacted_values(text, clean, &mut redacted);
         }
         Ok(clean)
     })?;
@@ -41,14 +71,18 @@ pub(crate) fn sanitize_json<E>(
     // Longest first, so a value never leaves the tail of a longer one behind.
     redacted.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.0.cmp(&b.0)));
     redacted.dedup_by(|a, b| a.0 == b.0);
-    walk(value, None, &mut |text: &str, _: Option<&str>| {
-        let mut text = text.to_owned();
+    walk(value, None, &mut KeyChanges::new(), &mut |text: &str,
+                                                    _: Option<
+        &str,
+    >| {
+        let mut changed: Option<String> = None;
         for (secret, placeholder) in &redacted {
-            if text.contains(secret.as_str()) {
-                text = text.replace(secret.as_str(), placeholder);
+            let current = changed.as_deref().unwrap_or(text);
+            if current.contains(secret.as_str()) {
+                changed = Some(current.replace(secret.as_str(), placeholder));
             }
         }
-        Ok(text)
+        Ok(changed)
     })
 }
 
@@ -116,19 +150,23 @@ fn push_value(value: &str, placeholder: &str, out: &mut Vec<(String, String)>) {
     }
 }
 
+/// `sanitize` returns a string's new text, `None` when it is unchanged.
 fn walk<E>(
     value: &mut Value,
     path: Option<&str>,
-    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<String, E>,
+    keys: &mut KeyChanges,
+    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<Option<String>, E>,
 ) -> Result<(), E> {
     match value {
         Value::String(text) => {
-            *text = sanitize(text, path)?;
+            if let Some(clean) = sanitize(text, path)? {
+                *text = clean;
+            }
             Ok(())
         }
         Value::Array(values) => {
             for child in values {
-                walk(child, path, sanitize)?;
+                walk(child, path, keys, sanitize)?;
             }
             Ok(())
         }
@@ -137,13 +175,13 @@ fn walk<E>(
             // is consulted.
             let own = map.get("path").and_then(Value::as_str).map(str::to_owned);
             let path = own.as_deref().or(path);
-            sanitize_keys(map, sanitize)?;
+            sanitize_keys(map, keys, sanitize)?;
             for (key, child) in map.iter_mut() {
                 match key.as_str() {
                     // `location` is scanned like any other subtree — its string
                     // leaves (e.g. a cloned localPath) can carry a secret.
-                    "next" => sanitize_next_map(child, path, sanitize)?,
-                    _ => walk(child, path, sanitize)?,
+                    "next" => sanitize_next_map(child, path, keys, sanitize)?,
+                    _ => walk(child, path, keys, sanitize)?,
                 }
             }
             Ok(())
@@ -158,13 +196,21 @@ fn walk<E>(
 /// is dropped.
 fn sanitize_keys<E>(
     map: &mut Map<String, Value>,
-    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<String, E>,
+    keys: &mut KeyChanges,
+    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<Option<String>, E>,
 ) -> Result<(), E> {
     let mut renamed = Vec::new();
     for (index, key) in map.keys().enumerate() {
-        // A key is a name, never a file's text: no path context.
-        let clean = sanitize(key, None)?;
-        if clean != *key {
+        let change = match keys.get(key) {
+            Some(change) => change.clone(),
+            None => {
+                // A key is a name, never a file's text: no path context.
+                let change = sanitize(key, None)?;
+                keys.insert(key.clone(), change.clone());
+                change
+            }
+        };
+        if let Some(clean) = change {
             renamed.push((index, clean));
         }
     }
@@ -192,20 +238,21 @@ fn sanitize_keys<E>(
 fn sanitize_next_map<E>(
     next: &mut Value,
     path: Option<&str>,
-    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<String, E>,
+    keys: &mut KeyChanges,
+    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<Option<String>, E>,
 ) -> Result<(), E> {
     let Some(map) = next.as_object_mut() else {
-        return walk(next, path, sanitize);
+        return walk(next, path, keys, sanitize);
     };
     // Flat form: `next` is itself a single executable call (`{tool, query, …}`).
     if map.get("tool").is_some_and(Value::is_string) {
-        return sanitize_call_fields(map, path, sanitize);
+        return sanitize_call_fields(map, path, keys, sanitize);
     }
     // Named-call form: each value under `next` is a call object.
     for call in map.values_mut() {
         match call.as_object_mut() {
-            Some(fields) => sanitize_call_fields(fields, path, sanitize)?,
-            None => walk(call, path, sanitize)?,
+            Some(fields) => sanitize_call_fields(fields, path, keys, sanitize)?,
+            None => walk(call, path, keys, sanitize)?,
         }
     }
     Ok(())
@@ -216,13 +263,14 @@ fn sanitize_next_map<E>(
 fn sanitize_call_fields<E>(
     fields: &mut Map<String, Value>,
     path: Option<&str>,
-    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<String, E>,
+    keys: &mut KeyChanges,
+    sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<Option<String>, E>,
 ) -> Result<(), E> {
     for (key, value) in fields.iter_mut() {
         if key == "tool" {
             continue;
         }
-        walk(value, path, sanitize)?;
+        walk(value, path, keys, sanitize)?;
     }
     Ok(())
 }

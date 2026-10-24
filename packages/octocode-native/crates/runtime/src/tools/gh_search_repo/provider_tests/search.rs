@@ -11,41 +11,17 @@ async fn typed_date_filters_reach_the_search_query() {
         .and(path("/api/v3/search/repositories"))
         .and(query_param(
             "q",
-            "x stars:>100 pushed:>2025-01-01 created:2020-01-01..2021-01-01 archived:false",
+            "x stars:>=101 created:2020-01-01T00:00:00Z..2021-01-01T00:00:00Z pushed:>=2025-01-01T00:00:00Z archived:false",
         ))
         .respond_with(ResponseTemplate::new(200).set_body_json(page(vec![repo_item("r", false)])))
         .mount(&server)
         .await;
     let out = run(
         &server,
-        json!({"keywords":["x"],"stars":"> 100","pushed":">2025-01-01",
-               "created":"2020-01-01 .. 2021-01-01"}),
+        json!({"keywords":["x"],"operation":"search","filters":{"stars":{"min":101},"pushedAt":{"from":"2025-01-01T00:00:00Z"},"createdAt":{"from":"2020-01-01T00:00:00Z","to":"2021-01-01T00:00:00Z"}}}),
     )
     .await;
     assert_eq!(out.data["repositories"][0]["repo"], "r", "{}", out.data);
-
-    let relative = MockServer::builder().start().await;
-    mount_json(
-        &relative,
-        "/api/v3/search/repositories",
-        200,
-        page(vec![repo_item("r", false)]),
-    )
-    .await;
-    run(&relative, json!({"pushed":"30d"})).await;
-    let requests = relative.received_requests().await.expect("requests");
-    let q = requests[0]
-        .url
-        .query_pairs()
-        .find(|(key, _)| key == "q")
-        .map(|(_, value)| value.into_owned())
-        .expect("q");
-    let pushed = q
-        .split(' ')
-        .find(|term| term.starts_with("pushed:"))
-        .expect("pushed");
-    assert!(pushed.starts_with("pushed:>="), "{q}");
-    assert_eq!(pushed.len(), "pushed:>=2026-01-01".len(), "{q}");
 }
 
 /// The default search excludes archived repositories (`archived:false`) and,
@@ -71,7 +47,7 @@ async fn default_archived_search_exclusion_offers_no_lead() {
         .mount(&server)
         .await;
 
-    let first = run(&server, json!({"keywords":["x"]})).await;
+    let first = run(&server, json!({"keywords":["x"],"operation":"search"})).await;
     assert!(
         first.data["repositories"][0].get("archived").is_none(),
         "{}",
@@ -90,7 +66,11 @@ async fn default_archived_search_exclusion_offers_no_lead() {
     );
 
     // Later pages state nothing more; an explicit filter needs no lead.
-    let second = run(&server, json!({"keywords":["x"],"page":2})).await;
+    let second = run(
+        &server,
+        json!({"keywords":["x"],"page":2,"operation":"search"}),
+    )
+    .await;
     assert!(
         second.data["next"].get("includeArchived").is_none(),
         "{}",
@@ -102,18 +82,31 @@ async fn default_archived_search_exclusion_offers_no_lead() {
         second.data
     );
     assert_eq!(
-        second.data["next"]["viewRepo"]["tool"], "ghStructure",
+        crate::tools::test_support::checks::related_call(
+            &second.data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        )["tool"],
+        "ghStructure",
         "{}",
         second.data
     );
-    let excluded = run(&server, json!({"keywords":["x"],"includeArchived":false})).await;
+    let excluded = run(
+        &server,
+        json!({"keywords":["x"],"operation":"search","filters":{"archive":"exclude"}}),
+    )
+    .await;
     assert!(
         excluded.data["next"].get("includeArchived").is_none(),
         "{}",
         excluded.data
     );
 
-    let archived = run(&server, json!({"keywords":["x"],"includeArchived":true})).await;
+    let archived = run(
+        &server,
+        json!({"keywords":["x"],"operation":"search","filters":{"archive":"include"}}),
+    )
+    .await;
     assert_eq!(
         archived.data["repositories"][0]["archived"], true,
         "{}",
@@ -146,7 +139,8 @@ async fn a_boolean_operator_in_keywords_is_refused() {
         (json!(["toml", "NOT"]), "NOT"),
     ] {
         let query: GhSearchRepoQuery =
-            serde_json::from_value(json!({"keywords": keywords})).expect("query");
+            serde_json::from_value(json!({"operation":"search","keywords": keywords}))
+                .expect("query");
         let error = execute(&provider, &query, &context)
             .await
             .expect_err("refused");
@@ -165,7 +159,11 @@ async fn a_boolean_operator_in_keywords_is_refused() {
             .is_empty(),
         "refused before any request"
     );
-    let plain = run(&server, json!({"keywords":["error or warning"]})).await;
+    let plain = run(
+        &server,
+        json!({"keywords":["error or warning"],"operation":"search"}),
+    )
+    .await;
     assert_eq!(plain.data["repositories"][0]["repo"], "r", "{}", plain.data);
 }
 
@@ -184,7 +182,7 @@ async fn capped_search_states_the_full_match_count() {
     .await;
     let out = run(
         &server,
-        json!({"owner":"o","sort":"stars:desc","pageSize":1}),
+        json!({"owner":"o","sort":{"by":"stars","order":"desc"},"operation":"search"}),
     )
     .await;
     assert_eq!(
@@ -198,7 +196,7 @@ async fn capped_search_states_the_full_match_count() {
     // Later pages do not repeat it.
     let second = run(
         &server,
-        json!({"owner":"o","sort":"stars:desc","pageSize":1,"page":2}),
+        json!({"owner":"o","sort":{"by":"stars","order":"desc"},"page":2,"operation":"search"}),
     )
     .await;
     crate::tools::test_support::checks::assert_absent(&second.data["warnings"], "4156");
@@ -224,7 +222,11 @@ async fn an_ignored_language_filter_is_named() {
         page(vec![item("a", "Python"), item("b", "Rust")]),
     )
     .await;
-    let out = run(&ignored, json!({"keywords":["x"],"language":"zz-nolang"})).await;
+    let out = run(
+        &ignored,
+        json!({"keywords":["x"],"operation":"search","filters":{"language":"zz-nolang"}}),
+    )
+    .await;
     let warnings = out.data["warnings"].to_string();
     assert!(
         warnings.contains("language") && warnings.contains("zz-nolang"),
@@ -242,7 +244,11 @@ async fn an_ignored_language_filter_is_named() {
         page(vec![item("a", "TypeScript"), item("b", "TypeScript")]),
     )
     .await;
-    let out = run(&agreeing, json!({"keywords":["x"],"language":"zz-nolang"})).await;
+    let out = run(
+        &agreeing,
+        json!({"keywords":["x"],"operation":"search","filters":{"language":"zz-nolang"}}),
+    )
+    .await;
     assert!(
         out.data["warnings"].to_string().contains("zz-nolang"),
         "{}",
@@ -269,7 +275,11 @@ async fn an_ignored_language_filter_is_named() {
         )
         .mount(&alias)
         .await;
-    let out = run(&alias, json!({"keywords":["x"],"language":"js"})).await;
+    let out = run(
+        &alias,
+        json!({"keywords":["x"],"operation":"search","filters":{"language":"js"}}),
+    )
+    .await;
     assert!(out.data.get("warnings").is_none(), "{}", out.data);
 }
 
@@ -298,19 +308,19 @@ async fn search_failures_lead_to_their_repair() {
                 .expect_err("failure")
         }
     };
-    let window = fail(json!({"keywords":["x"],"page":51,"pageSize":20})).await;
+    let window = fail(json!({"keywords":["x"],"page":51,"operation":"search"})).await;
     assert!(window.hints.is_empty(), "{:?}", window.hints);
-    let next = window.next.expect("repair");
+    let next = window.calls.expect("repair");
     assert_eq!(next["repair"]["tool"], "ghSearchRepo", "{next}");
-    let repair = &next["repair"]["query"]["queries"][0];
-    assert_eq!(repair["page"], 50, "{next}");
+    let repair = &next["repair"]["input"]["queries"][0];
+    assert_eq!(repair["page"], 20, "{next}");
     assert_eq!(repair["keywords"], json!(["x"]), "{next}");
-    let missing = fail(json!({"owner":"o","repo":"missing"})).await;
+    let missing = fail(json!({"owner":"o","repo":"missing","operation":"get"})).await;
     assert!(missing.hints.is_empty(), "{:?}", missing.hints);
-    let next = missing.next.expect("find");
+    let next = missing.calls.expect("find");
     assert_eq!(
-        next["findRepository"]["query"]["queries"][0],
-        json!({"keywords":["missing"]}),
+        next["findRepository"]["input"]["queries"][0],
+        json!({"keywords":["missing"],"operation":"search"}),
         "{next}"
     );
 }

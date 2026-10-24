@@ -69,17 +69,13 @@ async fn local_tools_share_the_path_outside_allowed_roots_code() {
         ("localFetch", json!({"path": outside})),
         (
             "localSearch",
-            json!({"path": outside, "matchString": "denied"}),
+            json!({"path": outside, "matchString":["denied"]}),
         ),
     ] {
         let outcome = call(&runtime, tool, query).await.expect("typed denial");
         assert_eq!(row_status(&outcome), "error", "{tool}");
         let data = row_data(&outcome);
         assert_eq!(data["errorCode"], "outsideAllowedRoots", "{tool}: {data}");
-        assert!(
-            data["hints"].to_string().contains("ALLOWED_PATHS"),
-            "{tool}: {data}"
-        );
     }
     runtime.close().await;
 }
@@ -108,7 +104,10 @@ async fn policy_withheld_files_are_disclosed_never_advised_as_retry_or_spelling(
     let runtime = workspace.runtime(&[]);
     let root = workspace.workspace.join("src");
     // Named at the walked scope, never by the withheld file's own name.
-    let notice = json!({"cause":"withheld","path":"src","reason":"credential file"});
+    let scope = root
+        .strip_prefix(&workspace.workspace)
+        .expect("workspace scope");
+    let notice = json!({"cause":"withheld","path":scope,"reason":"credential file"});
     let disclosed = |outcome: &octocode_native::response::outcome::ToolOutcome| {
         row_data(outcome)["skippedPaths"]["entries"]
             .as_array()
@@ -118,7 +117,7 @@ async fn policy_withheld_files_are_disclosed_never_advised_as_retry_or_spelling(
     let searched = call(
         &runtime,
         "localSearch",
-        json!({"path":root,"matchString":"ISecretStorageService"}),
+        json!({"path":root,"matchString":["ISecretStorageService"]}),
     )
     .await
     .expect("search");
@@ -147,7 +146,10 @@ async fn policy_withheld_files_are_disclosed_never_advised_as_retry_or_spelling(
         "{text}"
     );
     assert!(!text.to_lowercase().contains("then retry"), "{text}");
-    assert!(text.contains("Do not retry or respell"), "{text}");
+    assert!(
+        data.get("next").is_none() && data.get("related").is_none(),
+        "policy denial must not offer a bypass: {text}"
+    );
 
     let listed = call(
         &runtime,

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { PRIVATE_FILE_MODE as mode, privateDir } from '../shared/home.js';
+import { PRIVATE_FILE_MODE, privateDir } from '../shared/home.js';
 import { atomicWriteFile, atomicWriteFileSync, sha256, sha256File, tempSibling } from '../shared/atomic.js';
 import { journalOf, readJournal, serialize, type CheckpointEntry } from './checkpoint-store.js';
 
@@ -84,7 +84,7 @@ export class Checkpoints {
     this.turn = Math.max(0, ...entries.map((entry) => entry.turn));
     this.anchor = undefined;
     // A torn last line would swallow the next appended one: rewrite the journal from what parsed.
-    if (dirty) atomicWriteFileSync(this.journal(), serialize(entries), { mode });
+    if (dirty) atomicWriteFileSync(this.journal(), serialize(entries), { mode: PRIVATE_FILE_MODE });
   }
 
   /** A new user turn: its first change to each file is checkpointed again. */
@@ -263,7 +263,7 @@ export class Checkpoints {
     if (size === state.data.length) return;
     privateDir(path.dirname(blob));
     this.made = true;
-    await atomicWriteFile(blob, state.data, undefined, { mode });
+    await atomicWriteFile(blob, state.data, undefined, { mode: PRIVATE_FILE_MODE });
   }
 
   /** Keep within the caps by dropping the oldest turns, never the in-flight one. Returns whether anything was dropped. */
@@ -302,14 +302,14 @@ export class Checkpoints {
       privateDir(this.dir ?? '');
       this.made = true;
     }
-    await fs.promises.appendFile(this.journal(), `${JSON.stringify(entry)}\n`, { mode });
+    await fs.promises.appendFile(this.journal(), `${JSON.stringify(entry)}\n`, { mode: PRIVATE_FILE_MODE });
   }
 
   private async rewrite(): Promise<void> {
     if (!this.dir) return;
     privateDir(this.dir);
     this.made = true;
-    await atomicWriteFile(this.journal(), serialize(this.entries.filter((entry) => entry.after !== undefined)), undefined, { mode });
+    await atomicWriteFile(this.journal(), serialize(this.entries.filter((entry) => entry.after !== undefined)), undefined, { mode: PRIVATE_FILE_MODE });
   }
 
   private journal(): string {

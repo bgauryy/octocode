@@ -18,9 +18,9 @@ pub(super) use platforms::{
 };
 use tree::{
     join_path, physical_destination, points_to, replace_directory, replace_link, replace_with,
-    resolve_path, same_tree,
+    resolve_path,
 };
-pub(super) use tree::{normalize, path_exists, remove_path, trees_match};
+pub(super) use tree::{normalize, path_exists, remove_path, same_tree};
 
 // Installation options and CLI reports; the fixtures pin their JSON shape.
 
@@ -97,13 +97,24 @@ fn increment_destination(summary: &mut SkillInstallSummary, status: DestinationS
     }
 }
 
+/// What the call asks of every skill.
+#[derive(Clone, Copy)]
+struct Run {
+    dry_run: bool,
+    force: bool,
+    upgrade: bool,
+    mode: SkillInstallMode,
+}
+
 pub(super) fn install_bundled_skills(
     options: &InstallBundledSkillsOptions,
 ) -> InstallBundledSkillsResult {
-    let dry_run = options.dry_run.unwrap_or(false);
-    let force = options.force.unwrap_or(false);
-    let upgrade = options.upgrade.unwrap_or(false);
-    let mode = options.mode.unwrap_or_default();
+    let run = Run {
+        dry_run: options.dry_run.unwrap_or(false),
+        force: options.force.unwrap_or(false),
+        upgrade: options.upgrade.unwrap_or(false),
+        mode: options.mode.unwrap_or_default(),
+    };
     let canonical_skills_dir = resolve_path(
         options
             .canonical_skills_dir
@@ -135,50 +146,18 @@ pub(super) fn install_bundled_skills(
         let canonical_exists = path_exists(&canonical_path);
         let canonical_differs =
             canonical_exists && validation_error.is_none() && !skill.matches(&canonical_path);
-        let mut managed_copy_destinations = BTreeSet::new();
-        if upgrade && canonical_differs {
-            for target in &options.targets {
-                if effective_mode(mode, target.platform) != ConcreteMode::Copy {
-                    continue;
-                }
-                if let Ok(base) = resolve_skill_destination(target) {
-                    let destination = join_path(&base, &skill.name);
-                    if same_tree(&canonical_path, Path::new(&destination)) {
-                        managed_copy_destinations.insert(destination);
-                    }
-                }
-            }
-        }
-
-        let mut canonical_error = None;
-        let canonical_status = if let Some(error) = validation_error {
-            canonical_error = Some(error);
-            CanonicalStatus::Failed
-        } else if skill.matches(&canonical_path) {
-            CanonicalStatus::Unchanged
-        } else if canonical_exists && !force && !upgrade {
-            CanonicalStatus::Conflict
-        } else if dry_run {
-            if canonical_exists {
-                CanonicalStatus::Upgraded
-            } else {
-                CanonicalStatus::Installed
-            }
+        let managed = if run.upgrade && canonical_differs {
+            managed_copies(run, &options.targets, &skill.name, &canonical_path)
         } else {
-            match skill.replace(&canonical_path) {
-                Ok(()) => {
-                    if canonical_exists {
-                        CanonicalStatus::Upgraded
-                    } else {
-                        CanonicalStatus::Installed
-                    }
-                }
-                Err(error) => {
-                    canonical_error = Some(error);
-                    CanonicalStatus::Failed
-                }
-            }
+            BTreeSet::new()
         };
+        let (canonical_status, canonical_error) = install_canonical(
+            run,
+            skill,
+            &canonical_path,
+            canonical_exists,
+            validation_error,
+        );
         increment_canonical(&mut summary, canonical_status);
 
         let mut destinations = Vec::new();
@@ -188,7 +167,6 @@ pub(super) fn install_bundled_skills(
             CanonicalStatus::Installed | CanonicalStatus::Upgraded | CanonicalStatus::Unchanged
         ) {
             for target in &options.targets {
-                let target_mode = effective_mode(mode, target.platform);
                 let destination = match resolve_skill_destination(target) {
                     Ok(base) => join_path(&base, &skill.name),
                     Err(error) => {
@@ -196,7 +174,7 @@ pub(super) fn install_bundled_skills(
                             platform: target.platform,
                             scope: target.scope,
                             destination: String::new(),
-                            mode: target_mode,
+                            mode: effective_mode(run.mode, target.platform),
                             status: DestinationStatus::Failed,
                             link_target: None,
                             error: Some(error),
@@ -209,65 +187,16 @@ pub(super) fn install_bundled_skills(
                 if !seen.insert(destination.clone()) {
                     continue;
                 }
-                let destination_path = PathBuf::from(&destination);
-                let exists = path_exists(&destination_path);
-                let managed_copy_upgrade = upgrade
-                    && canonical_status == CanonicalStatus::Upgraded
-                    && target_mode == ConcreteMode::Copy
-                    && managed_copy_destinations.contains(&destination);
-                let copy_already_matches_incoming = upgrade
-                    && canonical_status == CanonicalStatus::Upgraded
-                    && target_mode == ConcreteMode::Copy
-                    && skill.matches(&destination_path);
-                let unchanged = physical_destination(&destination_path)
-                    == physical_destination(&canonical_path)
-                    || match target_mode {
-                        ConcreteMode::Symlink => points_to(&destination_path, &canonical),
-                        ConcreteMode::Copy => {
-                            copy_already_matches_incoming
-                                || (!managed_copy_upgrade
-                                    && if dry_run {
-                                        skill.matches(&destination_path)
-                                    } else {
-                                        same_tree(&canonical_path, &destination_path)
-                                    })
-                        }
-                    };
-                let mut error = None;
-                let status = if unchanged {
-                    DestinationStatus::Unchanged
-                } else if exists && !force && !managed_copy_upgrade {
-                    DestinationStatus::Conflict
-                } else if dry_run {
-                    match target_mode {
-                        ConcreteMode::Symlink => DestinationStatus::Linked,
-                        ConcreteMode::Copy => DestinationStatus::Copied,
-                    }
-                } else {
-                    let attempt = match target_mode {
-                        ConcreteMode::Symlink => replace_link(&canonical_path, &destination_path)
-                            .map(|()| DestinationStatus::Linked),
-                        ConcreteMode::Copy => replace_directory(&canonical_path, &destination_path)
-                            .map(|()| DestinationStatus::Copied),
-                    };
-                    match attempt {
-                        Ok(status) => status,
-                        Err(message) => {
-                            error = Some(message);
-                            DestinationStatus::Failed
-                        }
-                    }
-                };
-                increment_destination(&mut summary, status);
-                destinations.push(SkillDestinationOutcome {
-                    platform: target.platform,
-                    scope: target.scope,
+                let outcome = install_destination(
+                    run,
+                    skill,
+                    target,
                     destination,
-                    mode: target_mode,
-                    status,
-                    link_target: (target_mode == ConcreteMode::Symlink).then(|| canonical.clone()),
-                    error,
-                });
+                    (&canonical, canonical_status),
+                    &managed,
+                );
+                increment_destination(&mut summary, outcome.status);
+                destinations.push(outcome);
             }
         }
 
@@ -283,19 +212,142 @@ pub(super) fn install_bundled_skills(
 
     InstallBundledSkillsResult {
         ok: summary.conflicts == 0 && summary.failed == 0,
-        action: if dry_run {
+        action: if run.dry_run {
             "dry-run"
-        } else if upgrade {
+        } else if run.upgrade {
             "upgrade"
         } else {
             "install"
         },
-        dry_run,
-        force,
-        upgrade,
+        dry_run: run.dry_run,
+        force: run.force,
+        upgrade: run.upgrade,
         canonical_skills_dir,
         skills: outcomes,
         summary,
+    }
+}
+
+/// The copy-mode destinations of skill `name` that hold the current
+/// canonical tree: an upgrade replaces them as managed copies.
+fn managed_copies(
+    run: Run,
+    targets: &[SkillInstallTarget],
+    name: &str,
+    canonical_path: &Path,
+) -> BTreeSet<String> {
+    let mut managed = BTreeSet::new();
+    for target in targets {
+        if effective_mode(run.mode, target.platform) != ConcreteMode::Copy {
+            continue;
+        }
+        if let Ok(base) = resolve_skill_destination(target) {
+            let destination = join_path(&base, name);
+            if same_tree(canonical_path, Path::new(&destination)) {
+                managed.insert(destination);
+            }
+        }
+    }
+    managed
+}
+
+/// Install or upgrade the canonical copy of `skill` (a validation error
+/// fails it), and the error that failed it.
+fn install_canonical(
+    run: Run,
+    skill: &BundledSkill,
+    canonical_path: &Path,
+    canonical_exists: bool,
+    validation_error: Option<String>,
+) -> (CanonicalStatus, Option<String>) {
+    if let Some(error) = validation_error {
+        return (CanonicalStatus::Failed, Some(error));
+    }
+    let written = if canonical_exists {
+        CanonicalStatus::Upgraded
+    } else {
+        CanonicalStatus::Installed
+    };
+    if skill.matches(canonical_path) {
+        (CanonicalStatus::Unchanged, None)
+    } else if canonical_exists && !run.force && !run.upgrade {
+        (CanonicalStatus::Conflict, None)
+    } else if run.dry_run {
+        (written, None)
+    } else {
+        match skill.replace(canonical_path) {
+            Ok(()) => (written, None),
+            Err(error) => (CanonicalStatus::Failed, Some(error)),
+        }
+    }
+}
+
+/// Link or copy the canonical copy of `skill` to one target's
+/// `destination`. `managed` holds the copies an upgrade may replace.
+fn install_destination(
+    run: Run,
+    skill: &BundledSkill,
+    target: &SkillInstallTarget,
+    destination: String,
+    (canonical, canonical_status): (&str, CanonicalStatus),
+    managed: &BTreeSet<String>,
+) -> SkillDestinationOutcome {
+    let target_mode = effective_mode(run.mode, target.platform);
+    let canonical_path = Path::new(canonical);
+    let destination_path = PathBuf::from(&destination);
+    let exists = path_exists(&destination_path);
+    let upgraded_copy = run.upgrade
+        && canonical_status == CanonicalStatus::Upgraded
+        && target_mode == ConcreteMode::Copy;
+    let managed_copy_upgrade = upgraded_copy && managed.contains(&destination);
+    let copy_already_matches_incoming = upgraded_copy && skill.matches(&destination_path);
+    let unchanged = physical_destination(&destination_path) == physical_destination(canonical_path)
+        || match target_mode {
+            ConcreteMode::Symlink => points_to(&destination_path, canonical),
+            ConcreteMode::Copy => {
+                copy_already_matches_incoming
+                    || (!managed_copy_upgrade
+                        && if run.dry_run {
+                            skill.matches(&destination_path)
+                        } else {
+                            same_tree(canonical_path, &destination_path)
+                        })
+            }
+        };
+    let mut error = None;
+    let status = if unchanged {
+        DestinationStatus::Unchanged
+    } else if exists && !run.force && !managed_copy_upgrade {
+        DestinationStatus::Conflict
+    } else if run.dry_run {
+        match target_mode {
+            ConcreteMode::Symlink => DestinationStatus::Linked,
+            ConcreteMode::Copy => DestinationStatus::Copied,
+        }
+    } else {
+        let attempt = match target_mode {
+            ConcreteMode::Symlink => {
+                replace_link(canonical_path, &destination_path).map(|()| DestinationStatus::Linked)
+            }
+            ConcreteMode::Copy => replace_directory(canonical_path, &destination_path)
+                .map(|()| DestinationStatus::Copied),
+        };
+        match attempt {
+            Ok(status) => status,
+            Err(message) => {
+                error = Some(message);
+                DestinationStatus::Failed
+            }
+        }
+    };
+    SkillDestinationOutcome {
+        platform: target.platform,
+        scope: target.scope,
+        destination,
+        mode: target_mode,
+        status,
+        link_target: (target_mode == ConcreteMode::Symlink).then(|| canonical.to_owned()),
+        error,
     }
 }
 

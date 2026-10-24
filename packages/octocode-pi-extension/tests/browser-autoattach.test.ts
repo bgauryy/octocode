@@ -4,7 +4,7 @@ import type { BrowserSession } from '../src/browser/session-state.js';
 import type { NetworkEvent } from '../src/browser/policy.js';
 import { openBrowser, switchTo } from '../src/browser/session.js';
 import { PagePolicy } from '../src/browser/network.js';
-import { startCdpStub, type CdpHandler, type CdpStub } from './fixtures/cdp-stub.js';
+import { answered, methodsOn, paused, startCdpStub, type CdpHandler, type CdpStub } from './fixtures/cdp-stub.js';
 
 const stubs: CdpStub[] = [];
 const sessions: BrowserSession[] = [];
@@ -16,7 +16,6 @@ afterEach(async () => {
   await Promise.all(stubs.splice(0).map((stub) => stub.close()));
 });
 
-const paused = (requestId: string, url: string, resourceType = 'XHR') => ({ requestId, request: { url }, resourceType, frameId: 'f' });
 
 async function drive(handle?: CdpHandler) {
   // The driven page is on example.test: that origin's service workers belong to it (this is a Chrome the session attached to).
@@ -29,10 +28,6 @@ async function drive(handle?: CdpHandler) {
   return { cdp, session, events };
 }
 
-/** The commands the stub saw on one target. */
-const on = (cdp: CdpStub, target: string) => cdp.commands.filter((command) => command.target === target).map((command) => command.method);
-const answered = (cdp: CdpStub, target: string, method: 'Fetch.failRequest' | 'Fetch.continueRequest') =>
-  cdp.commands.filter((command) => command.target === target && command.method === method).map((command) => String(command.params['requestId']));
 
 describe('auto-attach', () => {
   it('asks the browser and the driven page for related targets, held for the debugger, once the page is covered', async () => {
@@ -42,7 +37,7 @@ describe('auto-attach', () => {
       { target: 'page-1', method: 'Target.setAutoAttach', params: auto },
       { target: 'browser', method: 'Target.setAutoAttach', params: auto },
     ]);
-    const page = on(cdp, 'page-1');
+    const page = methodsOn(cdp, 'page-1');
     expect(page.indexOf('Fetch.enable')).toBeLessThan(page.indexOf('Target.setAutoAttach'));
   });
 
@@ -57,8 +52,8 @@ describe('auto-attach', () => {
     const { cdp, session, events } = await drive();
     const popup = cdp.autoAttach({ id: 'popup-1', type: 'page', openerId: 'page-1', url: '' });
     expect(popup.running).toBe(false);
-    await vi.waitFor(() => expect(on(cdp, 'popup-1')).toContain('Runtime.runIfWaitingForDebugger'));
-    const methods = on(cdp, 'popup-1');
+    await vi.waitFor(() => expect(methodsOn(cdp, 'popup-1')).toContain('Runtime.runIfWaitingForDebugger'));
+    const methods = methodsOn(cdp, 'popup-1');
     // Nothing the popup does can come before its setup: the release is the last thing, and the target was held until then.
     expect(methods.at(-1)).toBe('Runtime.runIfWaitingForDebugger');
     expect(methods.indexOf('Network.setBypassServiceWorker')).toBeLessThan(methods.indexOf('Fetch.enable'));
@@ -68,8 +63,8 @@ describe('auto-attach', () => {
 
     popup.emit('Fetch.requestPaused', paused('private', 'http://10.0.0.1/', 'Document'));
     popup.emit('Fetch.requestPaused', paused('public', 'https://93.184.216.34/'));
-    await vi.waitFor(() => expect(answered(cdp, 'popup-1', 'Fetch.failRequest')).toEqual(['private']));
-    expect(answered(cdp, 'popup-1', 'Fetch.continueRequest')).toEqual(['public']);
+    await vi.waitFor(() => expect(answered(cdp, 'Fetch.failRequest', 'popup-1')).toEqual(['private']));
+    expect(answered(cdp, 'Fetch.continueRequest', 'popup-1')).toEqual(['public']);
     expect(events).toMatchObject([{ kind: 'blocked', url: 'http://10.0.0.1/', resourceType: 'Document' }]);
     expect(session.blocked).toContain('http://10.0.0.1/');
   });
@@ -86,7 +81,7 @@ describe('auto-attach', () => {
     // The driven popup opens one more: the opener is a governed tab, so it is covered the same way.
     const second = cdp.autoAttach({ id: 'popup-2', type: 'page', openerId: 'popup-1' });
     await vi.waitFor(() => expect(second.running).toBe(true));
-    expect(on(cdp, 'popup-2')).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'popup-2')).toContain('Fetch.enable');
   });
 
   it('lets a tab nobody here opened run, and drops the session it never needed', async () => {
@@ -94,12 +89,12 @@ describe('auto-attach', () => {
     // A tab of the user's, or one this session opens and attaches to itself: neither was opened by a governed page.
     const stranger = cdp.autoAttach({ id: 'user-tab', type: 'page' });
     await vi.waitFor(() => expect(stranger.running).toBe(true));
-    expect(on(cdp, 'user-tab')).toEqual(['Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'user-tab')).toEqual(['Runtime.runIfWaitingForDebugger']);
     expect(session.governed.has('user-tab')).toBe(false);
     // A tab that was already open (not held) is not released twice.
     const existing = cdp.autoAttach({ id: 'old-tab', type: 'page', waiting: false });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(on(cdp, 'old-tab')).toEqual([]);
+    expect(methodsOn(cdp, 'old-tab')).toEqual([]);
     expect(existing.running).toBe(true);
     // The driven page's own session keeps working.
     await expect(session.page.send('Runtime.evaluate', { expression: '1' })).resolves.toBeDefined();
@@ -109,12 +104,12 @@ describe('auto-attach', () => {
     const { cdp, session } = await drive();
     const worker = cdp.autoAttach({ id: 'worker-1', type: 'worker', parent: 'page-1', url: 'http://example.test/worker.js' });
     await vi.waitFor(() => expect(worker.running).toBe(true));
-    const methods = on(cdp, 'worker-1');
+    const methods = methodsOn(cdp, 'worker-1');
     // A dedicated worker has no Fetch domain (the page that owns it pauses its requests) and no service worker or cache to switch off.
     expect(methods).toEqual(['Network.enable', 'Target.setAutoAttach', 'Runtime.runIfWaitingForDebugger']);
     // Its fetches are paused on the page's session, which keeps answering.
     cdp.pages.get('page-1')!.emit('Fetch.requestPaused', paused('w-private', 'http://127.0.0.1:9/secret', 'XHR'));
-    await vi.waitFor(() => expect(answered(cdp, 'page-1', 'Fetch.failRequest')).toEqual(['w-private']));
+    await vi.waitFor(() => expect(answered(cdp, 'Fetch.failRequest', 'page-1')).toEqual(['w-private']));
 
     worker.drop();
     await expect(session.page.send('Runtime.evaluate', { expression: '1' })).resolves.toBeDefined();
@@ -126,11 +121,11 @@ describe('auto-attach', () => {
     const { cdp, events } = await drive();
     const worker = cdp.autoAttach({ id: 'sw-1', type: 'service_worker', url: 'https://example.test/sw.js' });
     await vi.waitFor(() => expect(worker.running).toBe(true));
-    expect(on(cdp, 'sw-1')).toEqual(['Network.enable', 'Fetch.enable', 'Target.setAutoAttach', 'Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'sw-1')).toEqual(['Network.enable', 'Fetch.enable', 'Target.setAutoAttach', 'Runtime.runIfWaitingForDebugger']);
     worker.emit('Fetch.requestPaused', paused('sw-private', 'http://192.168.1.1/'));
     worker.emit('Fetch.requestPaused', paused('sw-public', 'https://93.184.216.34/api'));
-    await vi.waitFor(() => expect(answered(cdp, 'sw-1', 'Fetch.failRequest')).toEqual(['sw-private']));
-    expect(answered(cdp, 'sw-1', 'Fetch.continueRequest')).toEqual(['sw-public']);
+    await vi.waitFor(() => expect(answered(cdp, 'Fetch.failRequest', 'sw-1')).toEqual(['sw-private']));
+    expect(answered(cdp, 'Fetch.continueRequest', 'sw-1')).toEqual(['sw-public']);
     expect(events).toMatchObject([{ kind: 'blocked', url: 'http://192.168.1.1/', resourceType: 'XHR' }]);
   });
 
@@ -149,8 +144,8 @@ describe('auto-attach', () => {
     const extension = cdp.autoAttach({ id: 'ext-sw', type: 'service_worker', url: 'chrome-extension://abc/sw.js' });
     const other = cdp.autoAttach({ id: 'bg', type: 'background_page', url: 'chrome-extension://abc/bg.html' });
     await vi.waitFor(() => expect(extension.running && other.running).toBe(true));
-    expect(on(cdp, 'ext-sw')).toEqual(['Runtime.runIfWaitingForDebugger']);
-    expect(on(cdp, 'bg')).toEqual(['Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'ext-sw')).toEqual(['Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'bg')).toEqual(['Runtime.runIfWaitingForDebugger']);
   });
 
   it('closes a target whose setup fails', async () => {

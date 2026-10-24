@@ -200,7 +200,8 @@ test('a host hook refuses a context_generation that is not a string instead of c
     assert.match(stderr, /Missing string: id/, JSON.stringify(value));
   }
   assert.equal(only(f.db().prepare('SELECT count(*) n FROM records WHERE type=?').get('host.context')).n, 0);
-  assert.ok(JSON.parse(runHook(f, hookInput(f, { context_generation: 'gen-1' })).stdout).hookSpecificOutput);
+  assert.equal(JSON.parse(runHook(f, hookInput(f, { context_generation: 'gen-1' })).stdout).hookSpecificOutput.hookEventName, 'SessionStart', 'a valid string generation is accepted as a fresh binding');
+  assert.equal(only(f.db().prepare('SELECT count(*) n FROM records WHERE type=?').get('host.context')).n, 1);
 });
 
 // --- MCP and vendor frames -----------------------------------------------------------------------------------------

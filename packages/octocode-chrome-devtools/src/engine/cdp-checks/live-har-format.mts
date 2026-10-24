@@ -1,10 +1,64 @@
 // What live-har-monitor writes: redacted HAR 1.2 entries, the network summary, and the page's
 // performance snapshot (navigation timing, resource timing and long tasks).
+import type { Session } from '../cdp-connection.mjs';
+
+type Headers = Record<string, string | number>;
+
+/** One request live-har-monitor observed, built from CDP Network events. */
+export type NetworkRecord = {
+  requestId: string;
+  frameId?: string;
+  sessionId?: string | null;
+  complete?: boolean;
+  failed?: boolean;
+  request?: {
+    method?: string;
+    url?: string;
+    headers?: Headers;
+    postData?: string;
+  };
+  method: string;
+  url: string;
+  start: number;
+  end?: number;
+  startWallTime?: number;
+  timestamp?: number;
+  initiator?: { type?: string };
+  type?: string;
+  response?: {
+    status?: number;
+    statusText?: string;
+    protocol?: string;
+    headers?: Headers;
+    mimeType?: string;
+    encodedDataLength?: number;
+  };
+  encodedDataLength?: number;
+  errorText?: string;
+  blockedReason?: string;
+};
+
+/** A console or exception event the monitor recorded. */
+export type MonitorEvent = {
+  kind: string;
+  type?: string;
+  [field: string]: unknown;
+};
+
+/** What PERFORMANCE_SNAPSHOT_JS returns from the page. */
+export type PerformanceSnapshot = {
+  location?: string;
+  title?: string;
+  navigationTiming?: { domContentLoaded?: number; load?: number } | null;
+  vitalsApprox?: unknown;
+  resources?: unknown[];
+  longTasks?: unknown[];
+};
 
 /** The URL without credentials; secret-looking query values are redacted. */
-export function safeUrl(raw) {
+export function safeUrl(raw: string | undefined) {
   try {
-    const url = new URL(raw);
+    const url = new URL(raw ?? '');
     url.username = '';
     url.password = '';
     // A snapshot of the keys: set() rewrites the list being redacted.
@@ -15,12 +69,12 @@ export function safeUrl(raw) {
     }
     return url.href;
   } catch {
-    return String(raw ?? '');
+    return raw ?? '';
   }
 }
 
 // CDP Network.Headers: header name to value, stringified for HAR.
-function headerPairs(headers: Record<string, string | number> = {}) {
+function headerPairs(headers: Headers = {}) {
   return Object.entries(headers)
     .filter(
       ([name]) =>
@@ -40,10 +94,14 @@ function mimeToContent(mimeType = '') {
   };
 }
 
-const durationOf = record =>
-  Math.max(0, (record.complete ? record.end : Date.now()) - record.start);
+// A complete record always carries its end time; an open one runs until now.
+const durationOf = (record: NetworkRecord) =>
+  Math.max(
+    0,
+    ((record.complete ? record.end : undefined) ?? Date.now()) - record.start
+  );
 
-function queryString(url) {
+function queryString(url: string) {
   try {
     return [...new URL(url).searchParams.entries()].map(([name, value]) => ({
       name,
@@ -54,7 +112,7 @@ function queryString(url) {
   }
 }
 
-function harRequest(record, url) {
+function harRequest(record: NetworkRecord, url: string) {
   const request = record.request ?? {};
   return {
     method: request.method ?? record.method ?? 'GET',
@@ -64,11 +122,11 @@ function harRequest(record, url) {
     headers: headerPairs(request.headers),
     queryString: queryString(url),
     headersSize: -1,
-    bodySize: request.postData ? String(request.postData).length : 0,
+    bodySize: request.postData ? request.postData.length : 0,
   };
 }
 
-function harResponse(record) {
+function harResponse(record: NetworkRecord) {
   const response = record.response ?? {};
   return {
     status: response.status ?? (record.failed ? 0 : -1),
@@ -84,7 +142,7 @@ function harResponse(record) {
 }
 
 // HAR custom fields: CDP identity and failure detail the standard fields cannot hold.
-function harExtensions(record) {
+function harExtensions(record: NetworkRecord) {
   return {
     _resourceType: record.type ?? 'Other',
     _encodedDataLength: record.encodedDataLength ?? null,
@@ -99,7 +157,7 @@ function harExtensions(record) {
   };
 }
 
-function toHarEntry(record) {
+function toHarEntry(record: NetworkRecord) {
   const duration = durationOf(record);
   const url = safeUrl(record.request?.url ?? record.url);
   return {
@@ -127,8 +185,16 @@ function toHarEntry(record) {
 
 /** The HAR 1.2 log of every observed request, with one page for the monitored window. */
 export function harDocument(
-  records,
-  { performanceSnapshot, monitorMs, title }
+  records: Map<string, NetworkRecord>,
+  {
+    performanceSnapshot,
+    monitorMs,
+    title,
+  }: {
+    performanceSnapshot: PerformanceSnapshot;
+    monitorMs: number;
+    title: string;
+  }
 ) {
   return {
     log: {
@@ -155,7 +221,7 @@ export function harDocument(
   };
 }
 
-const slowRow = r => ({
+const slowRow = (r: NetworkRecord) => ({
   url: safeUrl(r.request?.url ?? r.url),
   method: r.request?.method ?? r.method,
   status: r.response?.status ?? (r.failed ? 0 : -1),
@@ -163,7 +229,7 @@ const slowRow = r => ({
   type: r.type ?? 'Other',
 });
 
-const failureRow = r => ({
+const failureRow = (r: NetworkRecord) => ({
   url: safeUrl(r.request?.url ?? r.url),
   method: r.request?.method ?? r.method,
   status: r.response?.status ?? 0,
@@ -171,7 +237,7 @@ const failureRow = r => ({
   blockedReason: r.blockedReason ?? null,
 });
 
-function eventCounts(events) {
+function eventCounts(events: MonitorEvent[]) {
   return {
     exceptions: events.filter(e => e.kind === 'exception').length,
     consoleErrors: events.filter(
@@ -182,8 +248,20 @@ function eventCounts(events) {
 
 /** Counts, failures and slow requests (slowest first) over the monitored window. */
 export function summarize(
-  records,
-  { events, resourceEntries, performanceSnapshot, slowMs, monitorMs }
+  records: Map<string, NetworkRecord>,
+  {
+    events,
+    resourceEntries,
+    performanceSnapshot,
+    slowMs,
+    monitorMs,
+  }: {
+    events: MonitorEvent[];
+    resourceEntries: unknown[];
+    performanceSnapshot: PerformanceSnapshot;
+    slowMs: number;
+    monitorMs: number;
+  }
 ) {
   const completed = [...records.values()].filter(r => r.complete);
   const failed = [...records.values()].filter(
@@ -269,7 +347,9 @@ const PERFORMANCE_SNAPSHOT_JS = `(() => {
     })()`;
 
 /** The page's navigation and resource timing (slowest first) and collected long tasks. */
-export async function collectPerformanceSnapshot(cdp) {
+export async function collectPerformanceSnapshot(
+  cdp: Session
+): Promise<PerformanceSnapshot> {
   const result = await cdp.send('Runtime.evaluate', {
     returnByValue: true,
     expression: PERFORMANCE_SNAPSHOT_JS,

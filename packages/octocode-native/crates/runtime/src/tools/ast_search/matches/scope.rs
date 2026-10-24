@@ -1,35 +1,16 @@
 //! Scope resolution and grammar choice: the validated scope, the grammar a
-//! query compiles in, why a pattern cannot apply, and the exact-miss rule.
-use super::clipped::row_file;
-use super::continuations::tree_lead;
+//! query compiles in, and why a pattern cannot apply.
 use super::query::MatchQuery;
-use super::scan::{scan_directory, scan_file};
 use super::types::{Scan, Scope};
 use crate::execution::cancel::CancellationCheck;
-use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::{
     GlobParsers, GrammarChoice, RuleError, choose_grammar, compile_check, count_grammars,
-    language_extensions,
 };
-use octocode_contract_types::{AstSearchQueryMatchRule, ErrorCode};
-use octocode_engine::structural::StructuralDetailedMatch;
+use octocode_contract_types::ErrorCode;
+use octocode_engine::signatures::languages::family_extensions;
 use serde_json::{Value, json};
-
-/// A declaration pattern that matched nothing in a scope that holds
-/// declarations of its kind (named as the pattern names it): a pattern
-/// matches every part it spells, so an item that adds or leaves out a part
-/// (a modifier, a return type) is not a match. The rule that lists them.
-pub(super) struct ExactMiss {
-    pub(super) kind: String,
-    pub(super) count: usize,
-    pub(super) files: usize,
-    pub(super) query: Value,
-    /// The syntax tree of the first missed declaration, where the pattern's
-    /// shape is compared with the source.
-    pub(super) tree: Option<Value>,
-}
 
 /// The parser extension a scope's files are read with: a single file's own
 /// (or its override), else the named or inferred grammar's.
@@ -53,122 +34,6 @@ pub(super) fn scope_extension(scope: &Scope) -> Option<String> {
         .and_then(crate::tools::ast_rule::primary_extension)
 }
 
-/// [`ExactMiss`] of an empty `pattern` scan, counted by one scan of its
-/// rule over the same scope; `None` when the pattern spells no declaration
-/// or the scope holds none of its kind.
-pub(super) fn exact_miss(
-    q: MatchQuery<'_>,
-    scope: &Scope,
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
-) -> Option<ExactMiss> {
-    let MatchQuery::Pattern(_) = q else {
-        return None;
-    };
-    let extension = scope_extension(scope)?;
-    let declaration = octocode_engine::structural::pattern_declaration(&q.pattern()?, &extension)?;
-    let mut rule = json!({"kind": declaration.kind});
-    if let Some((kind, name)) = &declaration.name {
-        rule["has"] = json!({"kind": kind, "regex": format!("^{}$", regex::escape(name))});
-    }
-    let mut query = q.to_value();
-    let fields = query.as_object_mut()?;
-    for field in ["pattern", "snapshot", "page", "matchPage", "scanOffset"] {
-        fields.shift_remove(field);
-    }
-    fields.insert("rule".into(), rule);
-    if !scope.is_file
-        && !fields.contains_key("language")
-        && let Some(inferred) = &scope.inferred
-    {
-        fields.insert("language".into(), json!(inferred));
-    }
-    let rule_query: AstSearchQueryMatchRule = serde_json::from_value(query.clone()).ok()?;
-    let rule_query = MatchQuery::Rule(&rule_query);
-    let rule_scope = resolve_scope(rule_query, paths, cancel).ok()?;
-    let scan = if rule_scope.is_file {
-        scan_file(rule_query, &rule_scope)
-    } else {
-        scan_directory(rule_query, &rule_scope, paths, cancel)
-    }
-    .ok()?;
-    let count = scan
-        .files
-        .iter()
-        .map(|file| file.matches.len())
-        .sum::<usize>();
-    let files = scan
-        .files
-        .iter()
-        .filter(|file| !file.matches.is_empty())
-        .count();
-    let tree = scan
-        .files
-        .iter()
-        .find(|file| !file.matches.is_empty())
-        .and_then(|file| {
-            let path = row_file(scope, &json!({"path": file.path}))?;
-            // A directory scan keeps only row prices: the file is matched
-            // once more for the declaration's line.
-            let first_line = |matches: &[StructuralDetailedMatch]| {
-                matches.first().map(|found| u64::from(found.start_line))
-            };
-            let line = first_line(file.matches.held()).or_else(|| {
-                let bytes = super::super::source::read_parse_source(&path).ok()??;
-                let source = super::super::source::parse_text(&path, &bytes).ok()?;
-                let parser = Some(file.parser.as_str()).filter(|parser| !parser.is_empty());
-                let found = octocode_engine::structural::search_detailed(
-                    &source,
-                    &path.to_string_lossy(),
-                    parser,
-                    None,
-                    rule_query.rule().as_ref(),
-                );
-                first_line(&found.matches)
-            });
-            Some(tree_lead(q, scope, &path, line))
-        });
-    (count > 0).then_some(ExactMiss {
-        kind: declaration.kind,
-        count,
-        files,
-        query,
-        tree,
-    })
-}
-
-impl ExactMiss {
-    /// The diagnostic that counts the declarations the pattern missed, and
-    /// the rule query that lists them.
-    pub(super) fn attach(self, out: &mut Value) {
-        let Self {
-            kind,
-            count,
-            files,
-            query,
-            tree,
-        } = self;
-        let diagnostic = json!({
-            "code": "structural.pattern.exact",
-            "severity": "warning",
-            "stage": "match",
-            "message": format!(
-                "The pattern matches as written: {count} {kind} node(s) in {files} file(s) differ from it in a part it spells or leaves out (a modifier, a return type)."
-            ),
-            "recovery": "Spell those parts in the pattern, or list every node of the kind with a rule.",
-        });
-        match out["diagnostics"].as_array_mut() {
-            Some(diagnostics) => diagnostics.push(diagnostic),
-            None => out["diagnostics"] = json!([diagnostic]),
-        }
-        if let Some(tree) = tree {
-            out["next"]["viewSyntax"] = tree;
-        }
-        out["next"]["broadenSearch"] =
-            crate::response::result::Continuation::new(ToolId::AstSearch, query).build();
-    }
-}
-
 /// How the query fares in one grammar of a directory scan's walk.
 pub(super) struct GrammarCompile {
     pub(super) label: String,
@@ -180,7 +45,7 @@ pub(super) struct GrammarCompile {
 }
 
 /// The query compiled in each grammar the scan's own walk met (its census),
-/// once per call. Empty for a single file or an explicit `language`, whose
+/// once per call. Empty for a single file or an explicit `parser`, whose
 /// compile checks are the scope's own.
 pub(super) fn compile_in_grammars(
     q: MatchQuery<'_>,
@@ -190,11 +55,11 @@ pub(super) fn compile_in_grammars(
     if scope.is_file || scope.language.is_some() {
         return Vec::new();
     }
-    let (pattern, rule) = (q.pattern(), q.rule());
+    let rule = q.rule();
     count_grammars(scan.census.clone())
         .into_iter()
         .map(|(label, extensions, files)| GrammarCompile {
-            outcome: compile_check(&extensions, pattern.as_deref(), rule.as_ref()),
+            outcome: compile_check(&extensions, None, rule.as_ref()),
             label,
             extensions,
             files,
@@ -211,8 +76,8 @@ pub(super) fn compile_in_grammars(
 /// this.
 #[derive(Default)]
 pub(super) struct Inapplicable {
-    /// Grammar label → (its files in the walk, why the query does not compile).
-    pub(super) languages: std::collections::BTreeMap<String, (usize, String)>,
+    /// Grammar label → its files in the walk.
+    pub(super) languages: std::collections::BTreeMap<String, usize>,
 }
 
 impl Inapplicable {
@@ -223,13 +88,8 @@ impl Inapplicable {
         Self {
             languages: grammars
                 .iter()
-                .filter_map(|grammar| {
-                    let error = grammar.outcome.as_ref().err()?;
-                    Some((
-                        grammar.label.clone(),
-                        (grammar.files, error.message.clone()),
-                    ))
-                })
+                .filter(|grammar| grammar.outcome.is_err())
+                .map(|grammar| (grammar.label.clone(), grammar.files))
                 .collect(),
         }
     }
@@ -243,27 +103,21 @@ impl Inapplicable {
         })
     }
 
-    /// The warning that names each language with its file count and reason.
-    pub(super) fn notice(&self) -> Option<String> {
-        if self.languages.is_empty() {
-            return None;
-        }
-        let names = self
-            .languages
-            .iter()
-            .map(|(language, (files, reason))| {
-                let plural = if *files == 1 { "" } else { "s" };
-                format!("{language} ({files} file{plural}: {reason})")
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        Some(format!(
-            "The query does not apply to {names}: it does not compile in that grammar, so those files cannot match it. The files of the other grammars were searched; set language to search one grammar."
-        ))
+    /// The files of each grammar the query does not compile in, by
+    /// grammar: a quiet count, not a problem (a pattern is written in one
+    /// grammar); setting `parser` to one of them shows its compile error.
+    pub(super) fn counts(&self) -> Option<Value> {
+        (!self.languages.is_empty()).then(|| {
+            self.languages
+                .iter()
+                .map(|(language, files)| (language.clone(), json!(files)))
+                .collect::<serde_json::Map<_, _>>()
+                .into()
+        })
     }
 }
 
-/// The one grammar a directory scan without `language` read, from the
+/// The one grammar a directory scan without `parser` read, from the
 /// census of its own walk (no second walk): `None` when it read several (or
 /// one the query does not compile in). A first window whose files are all
 /// of no supported grammar is `languageRequired`.
@@ -296,7 +150,7 @@ pub(super) fn infer_grammar(
         {
             Err(ToolError::new(
                 ErrorCode::LanguageRequired,
-                "No source file of a supported structural grammar was found under path; set language.",
+                "No source file of a supported structural grammar was found under path; set parser.",
             ))
         }
         GrammarChoice::Absent => Ok(None),
@@ -314,7 +168,7 @@ pub(super) fn resolve_scope(
         .language()
         .as_deref()
         .map(|language| {
-            language_extensions(language).ok_or_else(|| {
+            family_extensions(language).ok_or_else(|| {
                 ToolError::new(
                     ErrorCode::LanguageUnsupported,
                     crate::tools::ast_rule::unsupported_language_message(language),
@@ -336,10 +190,10 @@ pub(super) fn resolve_scope(
     if meta.is_file() && q.language_globs().is_some() {
         return Err(ToolError::new(
             ErrorCode::LanguageDirectoryRequired,
-            "languageGlobs is for directory matches. Use language for a single file.",
+            "parserGlobs is for directory matches. Use parser for a single file.",
         ));
     }
-    let parsers = GlobParsers::compile(&p.canonical, q.language_globs())
+    let parsers = GlobParsers::compile(&p.canonical, q.language_globs().as_ref())
         .map_err(|error| ToolError::graph_scan(&error, cancel))?;
     let extensions = requested.or_else(|| meta.is_dir().then(structural_extensions));
     // Validate against grammar capabilities, not the capped discovery prefix.
@@ -347,7 +201,7 @@ pub(super) fn resolve_scope(
     if meta.is_dir()
         && let Some(extensions) = &extensions
     {
-        compile_check(extensions, q.pattern().as_deref(), q.rule().as_ref())
+        compile_check(extensions, None, q.rule().as_ref())
             .map_err(|error| ToolError::new(error.code, error.message))?;
     }
     let language = q.language();

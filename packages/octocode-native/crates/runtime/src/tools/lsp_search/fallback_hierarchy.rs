@@ -10,6 +10,7 @@ use super::source::SourceCache;
 use super::walk::{Expansion, HierarchySource, HierarchyWalk, MAX_HIERARCHY_NODES, NodeKeys, Walk};
 use crate::execution::cancel::CancellationCheck;
 use crate::tools::lsp_search::lsp_search_query;
+use octocode_contract_types::LspSearchQuery;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
 use octocode_engine::lsp::types::LspCodeSnippet;
 use serde_json::{Value, json};
@@ -25,10 +26,7 @@ pub(super) struct CandidateWindow {
 }
 
 impl CandidateWindow {
-    pub(super) fn cut(
-        query: &super::LspSearchQuery,
-        mut candidates: Vec<LspCodeSnippet>,
-    ) -> Option<Self> {
+    pub(super) fn cut(query: &LspSearchQuery, mut candidates: Vec<LspCodeSnippet>) -> Option<Self> {
         let position = |item: &LspCodeSnippet| {
             (
                 item.range.start.line,
@@ -43,12 +41,8 @@ impl CandidateWindow {
         candidates.dedup_by(|a, b| a.uri == b.uri && position(a) == position(b));
         let mut scope = lsp_search_query::to_row(query);
         if let Some(fields) = scope.as_object_mut() {
-            for field in crate::response::result::INTENT_FIELDS.iter().chain(&[
-                "page",
-                "candidatePage",
-                "snapshot",
-            ]) {
-                fields.remove(*field);
+            for field in ["page", "candidatePage", "snapshot"] {
+                fields.remove(field);
             }
         }
         let identity = octocode_engine::digest::canonical_json(

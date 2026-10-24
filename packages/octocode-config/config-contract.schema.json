@@ -22,22 +22,6 @@
         }
       }
     },
-    "removed": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "settings": {
-          "type": "object",
-          "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*$" },
-          "additionalProperties": { "type": "string", "minLength": 1 }
-        },
-        "environment": {
-          "type": "object",
-          "propertyNames": { "$ref": "#/$defs/envName" },
-          "additionalProperties": { "type": "string", "minLength": 1 }
-        }
-      }
-    },
     "environment": {
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/envName" },

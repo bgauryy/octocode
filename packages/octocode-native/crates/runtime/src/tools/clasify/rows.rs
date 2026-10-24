@@ -1,26 +1,23 @@
-//! Rows as clasify reads them: one parsed row per admitted query, with
-//! unique ids.
+//! Rows as clasify reads them, preserving question order and literal values.
 use super::{Input, Row, Target};
 use serde_json::Value;
 
 /// A row contract validation admitted. The provider receives the validated
 /// row's own values: a typed form would reorder choice labels and map keys,
 /// which are semantic input (the contract tests keep the shapes aligned).
-fn parse(position: usize, row: &Value) -> Row {
+fn parse(row: &Value) -> Row {
     let questions = row["questions"].as_object();
     let input = if row["operation"] == "sections" {
         Input::Sections(row.clone())
     } else if row["operation"] == "models" {
         Input::Models
-    } else if row.get("state").is_some() {
-        Input::Judge(Target::State(row["state"].clone()))
+    } else if row.get("content").is_some() {
+        Input::Judge(Target::Content(row["content"].clone()))
     } else {
         Input::Judge(Target::Source(row["source"].clone()))
     };
     Row {
-        id: row["id"]
-            .as_str()
-            .map_or_else(|| format!("q{position}"), str::to_owned),
+        context: row["context"].as_str().map(str::to_owned),
         model: row["model"].as_str().map(str::to_owned),
         keys: questions
             .into_iter()
@@ -37,23 +34,56 @@ fn parse(position: usize, row: &Value) -> Row {
 }
 
 pub(super) fn parse_rows<R: std::borrow::Borrow<Value>>(rows: &[R]) -> Vec<Row> {
-    let mut reserved = rows
-        .iter()
-        .filter_map(|row| row.borrow()["id"].as_str().map(str::to_owned))
-        .collect::<std::collections::HashSet<_>>();
-    rows.iter()
-        .enumerate()
-        .map(|(position, row)| {
-            let row = row.borrow();
-            let mut parsed = parse(position, row);
-            if row.get("id").is_none() {
-                let mut next = position;
-                while !reserved.insert(parsed.id.clone()) {
-                    next += 1;
-                    parsed.id = format!("q{next}");
+    rows.iter().map(|row| parse(row.borrow())).collect()
+}
+
+pub(super) fn contextual_questions<'a>(
+    questions: &'a [Value],
+    context: Option<&str>,
+) -> std::borrow::Cow<'a, [Value]> {
+    let Some(context) = context else {
+        return std::borrow::Cow::Borrowed(questions);
+    };
+    std::borrow::Cow::Owned(
+        questions
+            .iter()
+            .cloned()
+            .map(|mut question| {
+                let instructions = question
+                    .as_object_mut()
+                    .and_then(|fields| fields.remove("instructions"));
+                let mut contextual = serde_json::json!({"context":context});
+                if let Some(instructions) = instructions {
+                    contextual["instructions"] = instructions;
                 }
-            }
-            parsed
-        })
-        .collect()
+                question["instructions"] = contextual;
+                question
+            })
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn optional_context_preserves_each_question_and_enters_provider_input() {
+        let questions = vec![
+            json!({"type":"choice","instructions":["literal", {"x":2}],"criteria":{"a":"A","b":"B"}}),
+            json!({"type":"noul","criteria":{"true":"yes"}}),
+        ];
+        assert_eq!(&*contextual_questions(&questions, None), &questions);
+        let contextual = contextual_questions(&questions, Some("  Research context\n"));
+        for (before, after) in questions.iter().zip(contextual.iter()) {
+            assert_eq!(after["instructions"]["context"], "  Research context\n");
+            assert_eq!(
+                after["instructions"]["instructions"],
+                before["instructions"]
+            );
+            assert_eq!(after["criteria"], before["criteria"]);
+            assert_eq!(after["type"], before["type"]);
+        }
+    }
 }

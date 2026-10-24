@@ -1,31 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import octocode from '../src/index.js';
 import type { ChildProgress } from '../src/subagents/events.js';
 import { ABORT_SETTLE_MS, runSubagent, USER_STOP } from '../src/subagents/process.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
 import { tmp } from './helpers.js';
+import { useScriptedPi } from './subagent-tool-harness.js';
 
-const FIXTURE = path.join(path.dirname(new URL(import.meta.url).pathname), 'subagent-fake-pi.cjs');
-const savedArgv = process.argv[1];
-const savedEnv = { ...process.env };
 
-beforeAll(() => {
-  const root = tmp('octocode-agent-rpc-');
-  for (const key of Object.keys(process.env)) if (key.startsWith('OCTOCODE_')) delete process.env[key];
-  Object.assign(process.env, { OCTOCODE_HOME: path.join(root, 'home'), OCTOCODE_AGENT_DB: path.join(root, 'team.sqlite') });
-  // runSubagent re-runs the current `pi` script: point it at the scripted RPC stand-in.
-  const bin = path.join(root, 'bin');
-  fs.mkdirSync(bin);
-  fs.copyFileSync(FIXTURE, path.join(bin, 'pi'));
-  process.argv[1] = path.join(bin, 'pi');
-});
-
-afterAll(() => {
-  process.argv[1] = savedArgv!;
-  process.env = savedEnv;
-});
+useScriptedPi();
 
 afterEach(() => {
   delete process.env['OCTOCODE_FAKE_LOG'];

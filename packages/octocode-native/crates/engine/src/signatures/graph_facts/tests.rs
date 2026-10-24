@@ -1,6 +1,6 @@
 use super::references::inline_format_captures;
 use super::*;
-use crate::text::file_extension::extension_of;
+use crate::text::extension_of;
 use serde_json::Value;
 
 pub(super) fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {

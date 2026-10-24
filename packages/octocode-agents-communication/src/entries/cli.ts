@@ -58,7 +58,7 @@ export function createCommunicationCli(): CliSpec {
       schema.properties = { ...properties, ...(isObject(extra.properties) ? extra.properties : {}) };
       if (extra.oneOf) schema.oneOf = extra.oneOf;
     }
-    const command = defineCommand({ name: commandToken(descriptor.name).token, description: descriptor.description,
+    const command = defineCommand({ name: commandToken(descriptor.name), description: descriptor.description,
       mcpName: descriptor.name,
       inputSchema: schema, annotations: descriptor.annotations,
       run: async (input: Record<string, unknown>) => {

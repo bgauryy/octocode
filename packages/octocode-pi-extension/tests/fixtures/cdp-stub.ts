@@ -295,6 +295,16 @@ export async function startCdpStub(options: CdpStubOptions = {}): Promise<CdpStu
 /** Return this from a handler to leave the command unanswered. */
 export const NO_REPLY = Symbol('no reply');
 
+/** The params of a `Fetch.requestPaused` event for `url`. */
+export const paused = (requestId: string, url: string, resourceType = 'XHR', extra: Record<string, unknown> = {}) => ({ requestId, request: { url }, resourceType, frameId: 'f', ...extra });
+
+/** The methods of the commands the stub saw on one target. */
+export const methodsOn = (cdp: CdpStub, target: string): string[] => cdp.commands.filter((command) => command.target === target).map((command) => command.method);
+
+/** The request ids the stub saw `method` answer, on `target` when given. */
+export const answered = (cdp: CdpStub, method: 'Fetch.failRequest' | 'Fetch.continueRequest', target?: string): string[] =>
+  cdp.commands.filter((command) => command.method === method && (target === undefined || command.target === target)).map((command) => String(command.params['requestId']));
+
 function isError(value: unknown): value is { error: { message: string } } {
   return typeof value === 'object' && value !== null && 'error' in value;
 }

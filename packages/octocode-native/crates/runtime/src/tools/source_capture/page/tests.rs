@@ -5,24 +5,19 @@ use serde_json::json;
 /// hints, not a re-run of a read that cannot succeed.
 #[test]
 fn a_final_reader_failure_keeps_its_own_leads_and_hints() {
-    let lead = |tool: &str| json!({"tool": tool, "query": {"queries": [{"path": "src"}]}});
+    let lead = json!({"kind":"related","tool":"structureSearch","input":{"queries":[{"operation":"tree","path":"src"}]}});
     let data = json!({
         "path": "src/exector.rs",
         "errorCode": "pathNotFound",
         "error": "Path does not exist: src/exector.rs",
         "hints": ["Check the spelling."],
-        "next": {"viewTree": lead("structureSearch"), "findFile": lead("structureSearch")},
+        "related": [lead.clone()],
     });
     let failure = reader_failure(ToolId::LocalFetch, &data);
     assert_eq!(failure.code, ErrorCode::PathNotFound);
     assert_eq!(failure.hints, vec!["Check the spelling.".to_owned()]);
-    let mut names: Vec<&str> = failure
-        .leads
-        .iter()
-        .map(|(name, _)| name.as_str())
-        .collect();
-    names.sort_unstable();
-    assert_eq!(names, ["findFile", "viewTree"]);
+    assert_eq!(failure.leads.len(), 1);
+    assert_eq!(failure.leads[0].1, lead);
     // A refusal with no recovery of its own says the code's fix, never
     // a re-run that fails the same way.
     let bare = reader_failure(
@@ -35,7 +30,7 @@ fn a_final_reader_failure_keeps_its_own_leads_and_hints() {
     let transient = reader_failure(
         ToolId::LocalFetch,
         &json!({
-            "errorCode": "fileReadFailed", "error": "io", "hints": {"text": ["Disk busy."]}
+            "errorCode": "fileReadFailed", "error": "io", "hints": ["Disk busy."]
         }),
     );
     assert_eq!(

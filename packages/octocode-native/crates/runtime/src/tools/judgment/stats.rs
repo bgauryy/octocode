@@ -22,7 +22,6 @@ use serde_json::{Map, Value, json};
 /// Section key under `stats` that classification usage accumulates into.
 const SECTION: &str = crate::id::ToolId::Clasify.as_str();
 const LOCK_WAIT: Duration = Duration::from_secs(2);
-const LOCK_POLL: Duration = Duration::from_millis(10);
 
 /// Classification usage aggregated over one tool call.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -132,7 +131,7 @@ fn bump(entry: &mut Map<String, Value>, key: &str, by: u64) {
 
 fn acquire_lock(home: &Path) -> Option<octocode_io::lock::LockedFile> {
     let file = octocode_io::lock::open_lock_file(&home.join("stats.json.lock")).ok()?;
-    octocode_io::lock::lock_within(file, LOCK_WAIT, LOCK_POLL).ok()
+    octocode_io::lock::lock_within(file, LOCK_WAIT, octocode_io::lock::LOCK_POLL).ok()
 }
 
 /// Record one tool call's aggregated classification usage.

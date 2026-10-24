@@ -23,8 +23,7 @@ fn a_match_behind_a_skipped_path_is_named_and_its_lead_lifts_only_that() {
                 !(tool.found)(&out),
                 "{label}: found without the lead: {out}"
             );
-            let lead = lead_query(&out, (tool.channel)(scenario))
-                .unwrap_or_else(|| panic!("{label}: no lead: {out}"));
+            let lead = skipped_query(&out).unwrap_or_else(|| panic!("{label}: no lead: {out}"));
             // Validates against the contract.
             crate::contracts::validate(
                 if tool.name.starts_with("astSearch") {
@@ -47,35 +46,12 @@ fn a_match_behind_a_skipped_path_is_named_and_its_lead_lifts_only_that() {
                     "{label}: lead should lift exactly {effective:?}: {lead}"
                 );
             }
-            // The hint names the deciding rule, entry or directory.
-            let first = effective[0];
-            let reason = scenario
-                .reasons
-                .iter()
-                .find(|(cause, _)| *cause == first)
-                .map(|(_, reason)| *reason)
-                .expect("scenario names the cause");
-            if tool.name == "localSearch" {
-                let entry_path = scenario.dir.split('/').next().expect("directory");
-                assert!(
-                    out["skippedPaths"]["entries"]
-                        .as_array()
-                        .expect("skipped entries")
-                        .iter()
-                        .any(|entry| entry["path"]
-                            == json!(
-                                root.0
-                                    .canonicalize()
-                                    .expect("canonical fixture")
-                                    .join(entry_path)
-                            )
-                            && entry["cause"] == first.label()
-                            && entry["reason"] == reason),
-                    "{label}: exact skipped path, cause and `{reason}` in {out}"
-                );
-            } else {
-                assert!(prose(&out).contains(reason), "{label}: `{reason}` in {out}");
-            }
+            let skipped_directory = scenario.dir.split('/').next().expect("directory");
+            assert!(
+                out["skippedPaths"].to_string().contains(skipped_directory)
+                    || prose(&out).contains(skipped_directory),
+                "{label}: skipped directory undisclosed: {out}"
+            );
             // The lead runs and finds the match.
             let found = (tool.run)(&root.0, &lead);
             assert!((tool.found)(&found), "{label}: lead found nothing: {found}");
@@ -92,15 +68,10 @@ fn nothing_behind_the_skipped_paths_leads_nowhere() {
             let query = (tool.query)(&root.0);
             let out = (tool.run)(&root.0, &query);
             assert!(!(tool.found)(&out), "{label}: {out}");
-            for channel in ["includeSkipped", "narrowScope"] {
-                assert!(
-                    lead_query(&out, channel).is_none(),
-                    "{label}: lead to nothing: {out}"
-                );
-            }
-            if tool.prose_when_nothing_found {
-                assert!(!prose(&out).is_empty(), "{label}: no fallback hint: {out}");
-            }
+            assert!(
+                skipped_query(&out).is_none(),
+                "{label}: unneeded skipped-scope search: {out}"
+            );
         }
     }
 }

@@ -1,7 +1,7 @@
 use super::{ChannelRun, execute_ordinary_queries};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::response::result::FailureKind;
-use crate::response::{continuations, rows};
+use crate::response::rows;
 use crate::security::Sanitized;
 use serde_json::{Value, json};
 
@@ -12,7 +12,6 @@ impl ChannelRun {
     pub(super) fn shape_rows(
         &self,
         rejected: Vec<(usize, Value)>,
-        scope: &continuations::Scope<'_>,
         context: &ExecutionContext,
     ) -> Result<ShapedRows, ExecutionError> {
         let EvaluatedRows { mut rows, failure } = self.evaluate_rows(context)?;
@@ -22,7 +21,7 @@ impl ChannelRun {
         }
         rows.extend(rejected.into_iter().map(|(_, row)| row));
         rows.sort_by_key(|row| row["index"].as_u64());
-        let (structured, response_query) = self.envelope_of(rows, &rejected_at, scope, context)?;
+        let (structured, response_query) = self.envelope_of(rows, context)?;
         Ok(ShapedRows {
             structured,
             response_query,
@@ -37,13 +36,10 @@ impl ChannelRun {
     fn envelope_of(
         &self,
         rows: Vec<Value>,
-        rejected_at: &[usize],
-        scope: &continuations::Scope<'_>,
         context: &ExecutionContext,
     ) -> Result<(Sanitized, Value), ExecutionError> {
-        let by_row = crate::runtime::row_indices::by_position(&self.queries, rejected_at);
         let mut structured = self.dispatcher.security.seal_output(
-            rows::envelope_in(rows, self.id, &by_row, &self.dispatcher.paths),
+            rows::envelope(self.id, rows),
             self.output.redact_emails && self.id.is_github(),
             || context.check(),
         )?;
@@ -59,24 +55,6 @@ impl ChannelRun {
                     &self.dispatcher.selection_runtime(context),
                 )?;
             }
-            // An invalid continuation is a runtime defect: it fails loudly
-            // in debug builds; otherwise finalize dropped it and marked its
-            // row, which keeps its evidence.
-            if let Err(error) = continuations::finalize(
-                structured,
-                self.id,
-                &continuations::Sources::Rows(&by_row),
-                scope,
-            ) {
-                debug_assert!(
-                    false,
-                    "invalid {} continuation: {:?}",
-                    self.id, error.issues
-                );
-            }
-            if let Some(length) = self.options.response_length {
-                continuations::carry_response_length(structured, self.id, length);
-            }
             Ok::<_, ExecutionError>(())
         })?;
         Ok((structured, response_query))
@@ -88,7 +66,7 @@ impl ChannelRun {
         let (id, queries, dispatcher) = (self.id, &self.queries, &self.dispatcher);
         let response_page = self
             .options
-            .response_length
+            .response_chars
             .unwrap_or(self.output.auto_page_chars);
         // Source reads fit their share of the response page, the caller's or
         // the automatic.

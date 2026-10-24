@@ -187,8 +187,7 @@ test('OpenCode listener reuses its connection, checks each batch and does no idl
   const f = fixture(t), server = await http(t, f.workspace, (_req, res) => { res.statusCode = 204; res.end(); });
   attach(f, server.endpoint); f.send('First batch', 'action');
   const listener = exec(binary, ['listen', ...f.args('listen', {}, f.b.id).slice(2), '--duration-ms', '1600'], { timeout: 10000 });
-  const deadline = Date.now() + 5000;
-  while (server.requests.length === 0 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  await waitFor(() => server.requests.length > 0, { timeout: 5000 });
   assert.equal(server.requests.length, 1);
   f.send('Second batch', 'action');
   await listener;

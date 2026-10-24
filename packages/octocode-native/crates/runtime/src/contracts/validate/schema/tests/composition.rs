@@ -1,6 +1,62 @@
 use super::*;
 
 #[test]
+fn intersections_keep_defaults_and_reject_every_violated_constraint() {
+    let schema = json!({"allOf":[
+        {"type":"object","properties":{"count":{"type":"integer","default":3}},"required":["count"]},
+        {"properties":{"count":{"minimum":2,"maximum":4}}}
+    ]});
+    let mut value = json!({});
+    validate_schema(&schema, &schema, &mut value, &mut vec![]).unwrap();
+    assert_eq!(value["count"], 3);
+    for invalid in [json!(1), json!(5), json!("3")] {
+        assert!(
+            validate_schema(&schema, &schema, &mut json!({"count":invalid}), &mut vec![]).is_err()
+        );
+    }
+}
+
+#[test]
+fn ordered_bounds_use_inclusive_values_and_absolute_instants() {
+    for (kind, pairs) in [
+        (
+            "number",
+            vec![(json!(2), json!(2), true), (json!(3), json!(2), false)],
+        ),
+        (
+            "timestamp",
+            vec![
+                (
+                    json!("2026-10-24T12:00:00+02:00"),
+                    json!("2026-10-24T10:00:00Z"),
+                    true,
+                ),
+                (
+                    json!("2026-10-24T12:00:01+02:00"),
+                    json!("2026-10-24T10:00:00Z"),
+                    false,
+                ),
+            ],
+        ),
+    ] {
+        let schema = json!({"type":"object","x-order":{"lower":"from","upper":"to","kind":kind}});
+        for (from, to, valid) in pairs {
+            assert_eq!(
+                validate_schema(
+                    &schema,
+                    &schema,
+                    &mut json!({"from":from,"to":to}),
+                    &mut vec![]
+                )
+                .is_ok(),
+                valid
+            );
+        }
+        assert!(validate_schema(&schema, &schema, &mut json!({}), &mut vec![]).is_ok());
+    }
+}
+
+#[test]
 fn nested_refinement_does_not_hide_the_question_discriminator() {
     let schema = serde_json::json!({"anyOf":[
         {"type":"object","properties":{"type":{"const":"noul"}},
@@ -150,4 +206,15 @@ fn type_arrays_enforce_members_and_only_applicable_bounds() {
             "{schema}: {value}"
         );
     }
+}
+
+#[test]
+fn reference_sibling_defaults_override_definition_defaults() {
+    let schema = json!({"type":"object","properties":{
+        "local":{"$ref":"#/$defs/flag","default":true},
+        "shared":{"$ref":"#/$defs/flag"}
+    },"$defs":{"flag":{"type":"boolean","default":false}}});
+    let mut value = json!({});
+    validate_schema(&schema, &schema, &mut value, &mut vec![]).expect("valid");
+    assert_eq!(value, json!({"local":true,"shared":false}));
 }

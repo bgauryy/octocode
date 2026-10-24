@@ -25,7 +25,7 @@ const betaEnv = gateEnv('local.beta');
 const classificationEnv = gateEnv('classification.api');
 
 function describe(tool) {
-  const text = tool.shortDescription.replace(/\.$/, '');
+  const text = tool.title;
   const requiredEnv = [];
   if (tool.beta) requiredEnv.push(betaEnv);
   if (tool.name === TOOL_NAMES.CLASIFY) requiredEnv.push(classificationEnv);

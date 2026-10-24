@@ -115,7 +115,7 @@ fn undefined_selections(document: &str) -> Vec<String> {
 #[test]
 fn outgoing_documents_validate_against_the_github_schema() {
     let every: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","number":1,
+        "operation":"pullRequest","owner":"a","repo":"b","number":1,
         "sections":["body","files","comments","reviews","commits"]
     }))
     .expect("GitHub history test data should be valid");
@@ -180,18 +180,18 @@ fn graphql_reviews_carry_distinct_rest_ids() {
 #[test]
 fn graphql_fast_path_requires_two_flags_first_pages_and_no_patches() {
     let bare: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1
+        "operation":"pullRequest", "owner":"a","repo":"b","number":1
     }))
     .expect("GitHub history test data should be valid");
     assert!(!super::graphql_complete_collection_eligible(&bare));
     let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+        "operation":"pullRequest", "owner":"a","repo":"b","number":1,
         "sections":["body","files"]
     }))
     .expect("GitHub history test data should be valid");
     assert!(super::graphql_complete_collection_eligible(&query));
     let file_page: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+        "operation":"pullRequest", "owner":"a","repo":"b","number":1,
         "sections":["body","files"],"page":2
     }))
     .expect("GitHub history test data should be valid");
@@ -199,21 +199,21 @@ fn graphql_fast_path_requires_two_flags_first_pages_and_no_patches() {
     // Legacy provider cursors are not part of the wire contract.
     assert!(
         HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+            "operation":"pullRequest", "owner":"a","repo":"b","number":1,
             "sections":["body","comments"],
             "collectionPages":{"discussion":2}
         }))
         .is_err()
     );
     let paged: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+        "operation":"pullRequest", "owner":"a","repo":"b","number":1,
         "sections":["body","comments"],
         "page":2
     }))
     .expect("GitHub history test data should be valid");
     assert!(!super::graphql_complete_collection_eligible(&paged));
     let patches: HistoryItemRequest = HistoryItemRequest::from_row(json!({
-        "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
+        "operation":"pullRequest", "owner":"a","repo":"b","number":1,
         "sections":["body","files","patches"]
     }))
     .expect("GitHub history test data should be valid");
@@ -313,8 +313,7 @@ fn graphql_pr_maps_target_sha_totals_and_commit_logins() {
 fn a_nulled_connection_is_incomplete_not_empty() {
     let pr = json!({
         "reviews": null,
-        "commits": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
-    });
+        "commits": { "pageInfo": { "hasNextPage": false }, "nodes": [] }});
     assert_eq!(
         super::graphql_collection_state(&pr, "reviews"),
         super::GraphqlCollection::Incomplete

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fingerprint, projectConfigFiles, projectTrustNow, saveDecision } from '../src/shared/trust.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 beforeEach(() => {
   vi.stubEnv('OCTOCODE_HOME', tmp('octocode-trust-home-'));
@@ -14,8 +14,7 @@ beforeEach(() => {
 const ctx = (cwd: string) => ({ cwd, hasUI: false, isProjectTrusted: () => true });
 
 function project(file: string, text: string): string {
-  const dir = tmp('octocode-trust-memo-');
-  fs.mkdirSync(path.join(dir, '.git'));
+  const dir = repo('octocode-trust-memo-');
   fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
   fs.writeFileSync(path.join(dir, file), text);
   return dir;

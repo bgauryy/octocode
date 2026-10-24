@@ -100,14 +100,16 @@ python3 scripts/local_model_benchmark.py \
   --questions all --turns 3
 ```
 
-Each model gets six explicit tool probes and a fresh conversation for every question.
+Each model gets five explicit tool probes and a fresh conversation for every question.
 The default budget is three research turns and one requested final-answer turn; a turn
 can contain multiple independent tool calls. Change budgets before starting a comparison,
 then keep them identical between models. `--questions 1,18,26` selects a smaller engineering
 pilot; `--skip-probes` skips the explicit probe set. `--help` lists the accepted flags.
 
 The runner snapshots the native executable, checks assigned repository revisions and tracked
-cleanliness and captures live query schemas. Immediately before each trial it reads a fresh
+cleanliness and captures exact live input schemas, including first-call and cursor variants.
+Fresh calls have a `responseChars` budget of at most 5,000; cursor-only continuations are
+forwarded unchanged. Immediately before each trial it reads a fresh
 initial filename overview and saves `trials/<model>/<Qn>/orientation.json`, so saved-response
 continuations are not reused from an earlier model or question. Setup reads are excluded
 from model-selected research counts and timing. Every model gets the same overview query
@@ -115,7 +117,7 @@ on the pinned corpus. It confines model-selected paths to the assigned repositor
 and remote tools, preserves native pages and continuations, and makes no argument repairs.
 
 Results stream into `trials/<model>/<Qn>/result.json`, readable answers and individual turn
-receipts. `probes/` holds the six-tool checks, `progress.json` counts finished trials, and
+receipts. `probes/` holds the five-tool checks, `progress.json` counts finished trials, and
 `results.json` is written after every requested trial finishes. The run directory must be new.
 Original question files are read unchanged. Keep private source keys and grades outside
 `local/repos/`; the solver must not read another answer, rubric or prior result.

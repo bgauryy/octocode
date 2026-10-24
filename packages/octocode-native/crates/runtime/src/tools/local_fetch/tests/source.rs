@@ -2,6 +2,7 @@
 //! sparse checkouts, and one preparation per version.
 
 use super::*;
+use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 #[test]
 fn missing_files_in_a_sparse_checkout_say_so() {
@@ -16,7 +17,7 @@ fn missing_files_in_a_sparse_checkout_say_so() {
     })
     .expect("policy");
     let mut req = test_local_fetch_query();
-    req.path = "clone/docs/guide.md".parse().expect("path");
+    local_fetch_query::set_path(&mut req, "clone/docs/guide.md").expect("path");
     let r = fetch(&req, &policy);
     assert!(r.resource_missing, "{r:?}");
     let error = r.error.as_deref().unwrap_or_default();
@@ -52,7 +53,7 @@ fn cancellation_is_checked_around_io() {
         None,
         None,
     );
-    assert_eq!(r.error_code, Some(ErrorCode::Cancelled))
+    assert_eq!(r.error_code, Some(ErrorCode::Cancelled));
 }
 
 #[test]
@@ -92,7 +93,7 @@ fn latin1_text_decodes_with_a_flag_and_long_lines_fall_back_to_bytes() {
     fs::write(&long, "x".repeat(18_000)).expect("long fixture should be written");
     let long_result = fetch(&q(&long), &paths);
     let pagination = long_result.pagination.expect("long result should paginate");
-    assert_eq!(pagination.unit, WindowUnit::Bytes);
+    assert_eq!(pagination.unit, ReadProgressUnit::Bytes);
     assert_eq!(pagination.length, 16_384);
     assert!(pagination.has_more);
 }
@@ -110,14 +111,14 @@ fn a_leading_bom_is_not_text_of_line_one() {
         let r = fetch(
             &qj(
                 &p,
-                serde_json::json!({"matchString": "^alpha", "regex": regex, "contextLines": 0}),
+                serde_json::json!({"matchString": ["^alpha"], "regexEngine": regex, "contextLines":{"before":0,"after":0}}),
             ),
             &paths,
         );
         assert_eq!(r.matched_lines, vec![1], "{regex}: {r:?}");
         assert_eq!(r.content.as_deref(), Some("alpha\n"), "{regex}");
     }
-    let plain = fetch(&qj(&p, serde_json::json!({"fullContent": true})), &paths);
+    let plain = fetch(&qj(&p, serde_json::json!({})), &paths);
     assert_eq!(
         plain.content.as_deref(),
         Some("alpha\nbeta alpha\n"),
@@ -127,7 +128,7 @@ fn a_leading_bom_is_not_text_of_line_one() {
     let r = fetch(
         &qj(
             &p,
-            serde_json::json!({"matchString": "alpha", "wholeWord": true, "contextLines": 0}),
+            serde_json::json!({"matchString": ["alpha"], "wholeWord": true, "contextLines":{"before":0,"after":0}}),
         ),
         &paths,
     );
@@ -227,10 +228,13 @@ fn concurrent_rows_share_one_preparation() {
     let rows = [
         q(&p),
         q(&p),
-        qj(&p, serde_json::json!({"ranges": ["10-20"]})),
         qj(
             &p,
-            serde_json::json!({"matchString": "xx", "contextLines": 0}),
+            serde_json::json!({"ranges":[{"startLine":10,"endLine":20}]}),
+        ),
+        qj(
+            &p,
+            serde_json::json!({"matchString": ["xx"], "contextLines":{"before":0,"after":0}}),
         ),
     ];
     let start = std::sync::Barrier::new(rows.len());

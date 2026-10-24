@@ -14,9 +14,11 @@ A sanitization failure discards the unsafe value and returns a typed error. Bulk
 
 The generated `@octocodeai/octocode-core` schemas reject unknown fields and invalid operation combinations. Native validation also rejects ordinary parameter strings over 10,000 UTF-16 code units, arrays over 100 entries, nesting deeper than 20 levels, `__proto__`/`constructor`/`prototype` keys, and invalid paths, cursor identities, snapshots, hashes, and numeric bounds.
 
-Clasify literal state uses its declared serialized-state limit instead of the ordinary string limit; nested values remain scanned and bounded. Credential-looking object keys are rejected without echoing or renaming them.
+Clasify literal `content` uses its declared serialized-content limit instead of the ordinary string limit; nested values remain scanned and bounded. Credential-looking object keys are rejected without echoing or renaming them.
 
-Credentials are acquired after request admission and pinned for the request lifetime. Tool query fields never accept credentials.
+Public calls accept `{queries:[...]}` with optional `responseChars`, or an issued `{cursor}`. A cursor saves the complete normalized request and private progress, bound to its target tool, access identity, workspace, configuration, and contract. Caller-supplied private progress is rejected; invalid or expired handles never restart the original work.
+
+Credentials are acquired after request admission and pinned for the request lifetime. Query locators and controls never accept credentials; literal classification content is sanitized before inference.
 
 ## Content sanitization
 
@@ -26,13 +28,13 @@ The runtime scans untrusted provider and filesystem content before rendering. De
 
 ### Classification egress
 
-`clasify` and `clasifyContext` send text evidence to the configured provider (`OCTOCODE_CLASSIFICATION_API_HOST`, default Jev); classification sends nothing without a key. Context selection sends the classifier questions, supplied mainGoal and reasoning, and authorized candidate evidence: paths with returned matches, raw text windows with source line numbers, or the selected snippets of result rows. It does not hydrate unseen bodies or widen requested fields, sections, or ranges. Public `clasify` can also send explicitly referenced images. Each evaluation request carries:
+`clasify` and `classification` send text evidence to the configured provider (`OCTOCODE_CLASSIFICATION_API_HOST`, default Jev); classification sends nothing without a key. Context selection sends the classifier predicates, optional `classification.context`, and authorized candidate evidence: paths with returned matches, raw text windows with source line numbers, or the selected snippets of result rows. It does not hydrate unseen bodies or widen requested fields, sections, or ranges. Public `clasify` can also send explicitly referenced images. Each evaluation request carries:
 
-- the model and the caller's keyed questions, with secret-bearing values sanitized;
-- one state: the caller's literal `state`, or the complete selected source captured through the authorized reader and sanitized like a direct tool call;
+- the model and the caller's keyed questions, with optional task `context` and secret-bearing values sanitized;
+- one state: the caller's literal `content`, or the complete selected source captured through the authorized reader and sanitized like a direct tool call;
 - optional explicitly referenced PNG/JPEG assets, captured internally and sent as their original bytes. Image pixels and metadata are not text-scanned or redacted.
 
-Treat questions and selected evidence as disclosed to that provider. Ordinary calls without `clasifyContext` send no request, and the model catalog operation sends no evidence. Source and image locators pass the input and path policy before capture; credential-looking locators are rejected. A URL source is fetched over HTTPS only, under the address policy at connection and every redirect, with bounded size and redirects, and no stored credential is sent to that origin. Image bytes stay out of tool responses, which return capture identity and a saved inspection path instead.
+Treat questions and selected evidence as disclosed to that provider. Ordinary calls without `classification` send no request, and the model catalog operation sends no evidence. Source and image locators pass the input and path policy before capture; credential-looking locators are rejected. A URL source is fetched over HTTPS only, under the address policy at connection and every redirect, with bounded size and redirects, and no stored credential is sent to that origin. Image bytes stay out of tool responses, which return capture identity and a saved inspection path instead.
 
 ## Filesystem policy
 

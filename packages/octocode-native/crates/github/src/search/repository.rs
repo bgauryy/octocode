@@ -17,6 +17,7 @@ impl GitHubTransport {
         &self,
         owner: &str,
         sort: &str,
+        order: &str,
         page: usize,
         per_page: usize,
         context: &RequestContext,
@@ -38,7 +39,7 @@ impl GitHubTransport {
                     .append_pair("page", &page.to_string())
                     .append_pair("per_page", &per_page.to_string())
                     .append_pair("sort", sort)
-                    .append_pair("direction", "desc");
+                    .append_pair("direction", order);
             }
             Ok(RequestSpec::get(url))
         };

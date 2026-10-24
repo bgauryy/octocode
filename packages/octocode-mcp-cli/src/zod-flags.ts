@@ -2,7 +2,7 @@
 // property's unwrapped Zod type. A type no flag can hold stays one partial JSON flag
 // and leaves a fidelity note.
 import type { ZodType } from 'zod';
-import { allocateFlag, notesOf } from './flag-names.js';
+import { allocateFlag, booleanFlag, inputFlag, notesOf, type FlagBase } from './flag-names.js';
 import type { Flag, ItemKind } from './spec.js';
 
 interface ZodNode {
@@ -33,8 +33,6 @@ interface Unwrapped {
   description?: string;
   notes: string[];
 }
-
-type FlagBase = Omit<Flag, 'kind'>;
 
 /** Wrappers that change only optionality or the default; the flag reads the inner type. */
 const WRAPPERS = new Set(['optional', 'default', 'prefault', 'readonly', 'catch']);
@@ -132,10 +130,7 @@ const ZOD_FLAGS = new Map<string, (base: FlagBase, node: ZodNode, notes: string[
     return { ...base, kind: 'string' };
   }],
   ['number', (base, node) => ({ ...base, kind: isIntegerNode(node) ? 'integer' : 'number' })],
-  ['boolean', base => {
-    const presence = !base.required && base.hasDefault && base.defaultValue === false;
-    return { ...base, kind: 'boolean', presence };
-  }],
+  ['boolean', booleanFlag],
   ['enum', (base, node) => ({ ...base, kind: 'enum', enumValues: Object.values(node.def.entries ?? {}) })],
   ['literal', (base, node) => ({ ...base, kind: 'enum', enumValues: [literalValue(node)] })],
   ['union', (base, node, notes) => {
@@ -180,21 +175,7 @@ export function flagsFromZod(schema: ZodType): { flags: Flag[]; notes: string[] 
   const node = asNode(schema);
   const unwrapped = unwrapZod(node);
   if (unwrapped.node.def.type !== 'object' || !unwrapped.node.def.shape) {
-    return {
-      flags: [
-        {
-          property: 'input',
-          name: 'input',
-          kind: 'json',
-          required: true,
-          presence: false,
-          partial: true,
-          hasDefault: false,
-          description: unwrapped.description,
-        },
-      ],
-      notes: notesOf(['partial'], unwrapped.notes),
-    };
+    return { flags: [inputFlag(unwrapped.description)], notes: notesOf(['partial'], unwrapped.notes) };
   }
   const used = new Set<string>();
   const flags: Flag[] = [];

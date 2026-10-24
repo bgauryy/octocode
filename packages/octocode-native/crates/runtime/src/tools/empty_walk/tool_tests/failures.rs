@@ -1,6 +1,7 @@
 //! One failure, one code and recovery in every local walking tool.
 
 use super::*;
+use octocode_contract_types::{AstSearchQuery, LocalSearchQuery, StructureSearchQuery};
 
 /// Each local walking tool's error code for a looping root, by its public
 /// entry.
@@ -8,8 +9,8 @@ use super::*;
 fn loop_codes(root: &Path) -> Vec<(&'static str, octocode_contract_types::ErrorCode)> {
     let looping = root.join("a");
     let (paths, security) = simple_policy(root);
-    let local: crate::tools::local_search::LocalSearchQuery =
-        serde_json::from_value(row(&looping, json!({"matchString": "x"}))).expect("query");
+    let local: LocalSearchQuery =
+        serde_json::from_value(row(&looping, json!({"matchString": ["x"]}))).expect("query");
     let local = crate::tools::local_search::execute_local_search(
         &local,
         &paths,
@@ -20,7 +21,7 @@ fn loop_codes(root: &Path) -> Vec<(&'static str, octocode_contract_types::ErrorC
         None,
     )
     .expect_err("loop");
-    let structure: crate::tools::structure_search::StructureSearchQuery =
+    let structure: StructureSearchQuery =
         serde_json::from_value(row(&looping, json!({"operation": "tree"}))).expect("query");
     let structure = crate::tools::structure_search::execute_structure(
         &structure,
@@ -30,7 +31,7 @@ fn loop_codes(root: &Path) -> Vec<(&'static str, octocode_contract_types::ErrorC
         None,
     )
     .expect_err("loop");
-    let ast: crate::tools::ast_search::AstSearchQuery =
+    let ast: AstSearchQuery =
         serde_json::from_value(row(&looping, json!({"operation": "symbols"}))).expect("query");
     let ast = crate::tools::ast_search::execute_ast(&ast, &paths, &security, &NeverCancel, None)
         .expect_err("loop");
@@ -64,9 +65,9 @@ fn a_symlink_loop_root_has_one_code_in_every_local_tool() {
 fn a_binary_file_is_binary_file_unsupported_in_ast_search() {
     let root = Fixture::new();
     std::fs::write(root.0.join("blob.rs"), b"fn a() {}\0\x01\x02").expect("blob");
-    let query: crate::tools::ast_search::AstSearchQuery = serde_json::from_value(row(
+    let query: AstSearchQuery = serde_json::from_value(row(
         &root.0.join("blob.rs"),
-        json!({"operation": "match", "pattern": "fn a() {}"}),
+        json!({"operation": "match", "rule": {"pattern": "fn a() {}"}}),
     ))
     .expect("query");
     let (paths, security) = simple_policy(&root.0);
@@ -139,6 +140,8 @@ fn an_unreadable_directory_leaves_every_walking_tool_partial() {
 fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
     let root = Fixture::new();
     std::fs::create_dir(root.0.join("src")).expect("src");
+    std::fs::write(root.0.join("src/recover.ts"), "source").expect("source");
+    std::fs::write(root.0.join("outside.ts"), "outside").expect("outside");
     let (paths, security) = simple_policy(&root.0);
     let missing = json!("src/nope");
     let mut errors = Vec::new();
@@ -147,8 +150,8 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
         row["path"] = missing.clone();
         row
     };
-    let local: crate::tools::local_search::LocalSearchQuery =
-        serde_json::from_value(fields(json!({"matchString": "x"}))).expect("query");
+    let local: LocalSearchQuery =
+        serde_json::from_value(fields(json!({"matchString": ["x"]}))).expect("query");
     errors.push((
         "localSearch",
         crate::tools::local_search::execute_local_search(
@@ -162,7 +165,7 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
         )
         .expect_err("missing"),
     ));
-    let structure: crate::tools::structure_search::StructureSearchQuery =
+    let structure: StructureSearchQuery =
         serde_json::from_value(fields(json!({"operation": "tree"}))).expect("query");
     errors.push((
         "structureSearch",
@@ -177,10 +180,9 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
     ));
     for operation in [
         json!({"operation": "symbols"}),
-        json!({"operation": "match", "pattern": "x"}),
+        json!({"operation": "match", "rule": {"pattern": "x"}}),
     ] {
-        let ast: crate::tools::ast_search::AstSearchQuery =
-            serde_json::from_value(fields(operation)).expect("query");
+        let ast: AstSearchQuery = serde_json::from_value(fields(operation)).expect("query");
         errors.push((
             "astSearch",
             crate::tools::ast_search::execute_ast(&ast, &paths, &security, &NeverCancel, None)
@@ -199,11 +201,22 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
             "{tool}: {}",
             error.message
         );
-        let next = error.next.as_deref().expect("lead");
-        assert_eq!(
-            next["viewTree"]["query"]["queries"][0]["path"],
-            json!("src"),
-            "{tool}: {next}"
-        );
+        let calls = error.calls.as_deref().expect("related request");
+        let related = &calls["viewTree"];
+        assert_eq!(related["kind"], "related", "{tool}: {calls}");
+        crate::contracts::validate("structureSearch", related["input"].clone())
+            .expect("public recovery input");
+        let query: StructureSearchQuery =
+            serde_json::from_value(related["input"]["queries"][0].clone()).expect("tree query");
+        let out = crate::tools::structure_search::execute_structure(
+            &query,
+            &paths,
+            &security,
+            &NeverCancel,
+            None,
+        )
+        .expect("scoped recovery executes");
+        assert!(out.to_string().contains("recover.ts"), "{tool}: {out}");
+        assert!(!out.to_string().contains("outside.ts"), "{tool}: {out}");
     }
 }

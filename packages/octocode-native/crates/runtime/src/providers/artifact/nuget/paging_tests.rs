@@ -1,5 +1,6 @@
 //! NuGet discovery paging: page sizes past the registry skip limit.
-use super::super::types::{artifact_query, test_budget};
+use super::super::query::artifact_query;
+use super::super::test_http::test_budget;
 use super::*;
 use crate::providers::artifact::http::{
     ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
@@ -49,7 +50,7 @@ async fn nuget_tail_pages_respect_page_size_past_the_skip_limit() {
     let b = test_budget();
     let client = RegistryClient::uncached(&http, &b);
     let q = artifact_query(
-        json!({"ecosystem": ArtifactType::Nuget, "keywords": ["json"], "pageSize": 2}),
+        json!({"operation":"search","ecosystem": ArtifactType::Nuget, "keywords": ["json"]}),
         None,
     );
     let at = |offset: u64| ArtifactProviderState {
@@ -59,24 +60,30 @@ async fn nuget_tail_pages_respect_page_size_past_the_skip_limit() {
     let names = |page: &ArtifactProviderPage| {
         page.artifacts
             .iter()
-            .map(|a| a.name.clone())
+            .map(|a| a.package_name.clone())
             .collect::<Vec<_>>()
     };
     let page = nuget(&q, &at(3000), &client).await.unwrap();
-    assert_eq!(names(&page), ["pkg3000", "pkg3001"]);
-    assert_eq!(page.next_state.as_ref().unwrap().offset, Some(3002));
+    assert_eq!(
+        names(&page),
+        (3000..3020).map(|n| format!("pkg{n}")).collect::<Vec<_>>()
+    );
+    assert_eq!(page.next_state.as_ref().unwrap().offset, Some(3020));
     // Past skip=3000 the tail is sliced locally from one bounded window.
-    let page = nuget(&q, &at(3002), &client).await.unwrap();
-    assert_eq!(names(&page), ["pkg3002", "pkg3003"]);
+    let page = nuget(&q, &at(3020), &client).await.unwrap();
+    assert_eq!(
+        names(&page),
+        (3020..3040).map(|n| format!("pkg{n}")).collect::<Vec<_>>()
+    );
     // The final reachable page serves the last rows; the shared page
     // bounds end it with an honest terminal limit, and no request
     // starts at or past result 4000.
     let page = nuget(&q, &at(3998), &client).await.unwrap();
     assert_eq!(names(&page), ["pkg3998", "pkg3999"]);
     let mut paged = q.clone();
-    artifact_search_query::set_page(&mut paged, 2000);
+    artifact_search_query::set_page(&mut paged, 200);
     assert!(super::super::page_out_of_range(&paged).is_none());
-    artifact_search_query::set_page(&mut paged, 2001);
+    artifact_search_query::set_page(&mut paged, 201);
     assert_eq!(
         super::super::page_out_of_range(&paged).map(|limit| limit.reason),
         Some("providerResultCap")

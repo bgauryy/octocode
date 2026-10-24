@@ -4,7 +4,7 @@ use super::*;
 
 /// The directory holding the importer's child modules: `foo/` for
 /// `foo/mod.rs` (and crate roots), `foo/bar/` for `foo/bar.rs`.
-pub(in super::super) fn rust_module_child_dir(importer: &str) -> String {
+pub(crate) fn rust_module_child_dir(importer: &str) -> String {
     let name = importer.rsplit_once('/').map_or(importer, |x| x.1);
     if matches!(name, "mod.rs" | "lib.rs" | "main.rs") {
         dirname(importer).to_owned()

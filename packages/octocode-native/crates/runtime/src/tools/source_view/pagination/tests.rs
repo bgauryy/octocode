@@ -1,24 +1,24 @@
 use super::*;
+use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 #[test]
-fn default_line_pages_fill_the_byte_window_and_preserve_explicit_counts() {
+fn default_line_pages_fill_the_byte_window_and_resume_completely() {
     let source = "x\n".repeat(12_000);
     let mut query: LocalFetchQuery = serde_json::from_value(serde_json::json!({
-        "path":"short.txt", "unit":"lines", "fullContent":true
+        "path":"short.txt"
     }))
     .expect("query");
     let first = page_within(&source, &query, LineBudget::bytes(LINE_PAGE_BYTES), None);
     assert_eq!(first.pagination.length, LINE_PAGE_BYTES / 2);
     assert_eq!(first.text, source[..LINE_PAGE_BYTES]);
-    query.offset = first.pagination.next_offset.map(wire_count);
+    query = continuation(&query, &first.pagination)
+        .expect("continuation")
+        .continue_window
+        .expect("window")
+        .query;
     let last = page_within(&source, &query, LineBudget::bytes(LINE_PAGE_BYTES), None);
     assert_eq!(first.text + &last.text, source);
     assert!(!last.pagination.has_more);
-    query.offset = None;
-    query.length = wire_positive(7);
-    let explicit = page_within(&source, &query, LineBudget::bytes(LINE_PAGE_BYTES), None);
-    assert_eq!(explicit.pagination.length, 7);
-    assert_eq!(explicit.pagination.next_offset, Some(7));
 }
 
 /// A line longer than the configured line page but shorter than the
@@ -30,13 +30,12 @@ fn a_line_over_the_configured_page_resumes_line_paging_after_it() {
     let content = format!("{}{long}{}", "short\n".repeat(10), "tail\n".repeat(300));
     let budget = 1_000;
     let mut query: LocalFetchQuery =
-        serde_json::from_value(serde_json::json!({"path":"long.txt","unit":"lines"}))
-            .expect("query");
+        serde_json::from_value(serde_json::json!({"path":"long.txt"})).expect("query");
     let mut walked = String::new();
     let mut units = Vec::new();
     for _ in 0..20 {
         let page = page_within(&content, &query, LineBudget::bytes(budget), None);
-        if page.pagination.unit == WindowUnit::Bytes {
+        if page.pagination.unit == ReadProgressUnit::Bytes {
             assert!(
                 long.contains(&page.text),
                 "a byte page stays inside the long line"
@@ -50,7 +49,7 @@ fn a_line_over_the_configured_page_resumes_line_paging_after_it() {
         query = next.continue_window.expect("next").query;
     }
     assert_eq!(walked, content);
-    assert_eq!(units.last(), Some(&WindowUnit::Lines), "{units:?}");
+    assert_eq!(units.last(), Some(&ReadProgressUnit::Lines), "{units:?}");
 }
 
 #[test]
@@ -61,7 +60,7 @@ fn default_raw_line_windows_keep_source_coordinates_after_transformations() {
     };
     let content = "x\n".repeat(source.lines.len());
     let query: LocalFetchQuery = serde_json::from_value(serde_json::json!({
-        "path":"compact.txt", "unit":"lines"
+        "path":"compact.txt"
     }))
     .expect("query");
     let result = page_within(

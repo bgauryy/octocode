@@ -22,9 +22,12 @@ fn ranges_with_match_string_grep_inside_the_ranges_only() {
     fs::write(&p, text).expect("fixture");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some(MatchString::String("hit".parse().expect("match string")));
-    req.context_lines = Some(3);
-    req.ranges = vec!["10-20".parse().expect("range")];
+    amend(&mut req, serde_json::json!({"matchString":["hit"]}));
+    amend(
+        &mut req,
+        serde_json::json!({"contextLines":{"before":3,"after":3}}),
+    );
+    local_fetch_query::set_line_spans(&mut req, &[(10, 20)]).expect("ranges");
     let r = fetch(&req, &paths);
     assert_eq!(r.matched_lines, vec![15], "{r:?}");
     assert_eq!(
@@ -32,7 +35,7 @@ fn ranges_with_match_string_grep_inside_the_ranges_only() {
         vec![LineRange { start: 12, end: 18 }],
         "{r:?}"
     );
-    req.ranges = vec!["90-100".parse().expect("range")];
+    local_fetch_query::set_line_spans(&mut req, &[(90, 100)]).expect("ranges");
     let past = fetch(&req, &paths);
     assert!(
         past.error
@@ -51,10 +54,7 @@ fn ranges_past_the_file_end_lead_to_the_last_window() {
     let p = t.write("short.txt", "l1\nl2\nl3\nl4\nl5\n");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.ranges = vec![
-        "90-92".parse().expect("range"),
-        "95-100".parse().expect("range"),
-    ];
+    local_fetch_query::set_line_spans(&mut req, &[(90, 92), (95, 100)]).expect("ranges");
     let past = fetch(&req, &paths);
     assert!(past.error.is_some(), "{past:?}");
     let repair = past
@@ -69,12 +69,9 @@ fn ranges_past_the_file_end_lead_to_the_last_window() {
     );
     let fixed = fetch(&repair.query, &paths);
     assert!(fixed.error.is_none(), "{fixed:?}");
-    req.ranges = vec![
-        "3-4".parse().expect("range"),
-        "9-10".parse().expect("range"),
-    ];
+    local_fetch_query::set_line_spans(&mut req, &[(3, 4), (9, 10)]).expect("ranges");
     assert!(fetch(&req, &paths).error.is_none());
-    req.ranges = vec!["9-10".parse().expect("range")];
+    local_fetch_query::set_line_spans(&mut req, &[(9, 10)]).expect("ranges");
     let narrow = fetch(&req, &paths);
     assert_eq!(
         narrow
@@ -97,8 +94,8 @@ fn match_ranges_multiline_hits_must_fit_inside_one_requested_region() {
             let query = qj(
                 &path,
                 serde_json::json!({
-                    "matchString":"alpha\nbeta", "regex":dialect,
-                    "ranges":["1-1"], "contextLines":context
+                    "matchString": ["alpha\nbeta"], "regexEngine":dialect,
+                    "ranges":[{"startLine":1,"endLine":1}], "contextLines":{"before":context,"after":context}
                 }),
             );
             let result = fetch(&query, &paths);
@@ -112,8 +109,8 @@ fn match_ranges_multiline_hits_must_fit_inside_one_requested_region() {
         let query = qj(
             &path,
             serde_json::json!({
-                "matchString":["alpha\nbeta", "gamma"], "regex":dialect,
-                "ranges":["1-1", "3-3"], "contextLines":0
+                "matchString":["alpha\nbeta", "gamma"], "regexEngine":dialect,
+                "ranges":[{"startLine":1,"endLine":1}, {"startLine":3,"endLine":3}], "contextLines":{"before":0,"after":0}
             }),
         );
         let result = fetch(&query, &paths);
@@ -136,8 +133,8 @@ fn match_ranges_multiline_hits_keep_exact_region_end_and_explicit_blocks() {
     let mut query = qj(
         &path,
         serde_json::json!({
-            "matchString":"    alpha();\n    beta();\n",
-            "ranges":["2-3"], "contextLines":0
+            "matchString": ["    alpha();\n    beta();\n"],
+            "ranges":[{"startLine":2,"endLine":3}], "contextLines":{"before":0,"after":0}
         }),
     );
     let result = fetch(&query, &paths);
@@ -147,7 +144,7 @@ fn match_ranges_multiline_hits_keep_exact_region_end_and_explicit_blocks() {
     );
     assert_eq!(result.matched_lines, [2, 3]);
     assert_eq!(result.source_line_ranges, [LineRange { start: 2, end: 3 }]);
-    query.block = Some(true);
+    amend(&mut query, serde_json::json!({"block":Some(true)}));
     let expanded = fetch(&query, &paths);
     assert_eq!(expanded.content.as_deref(), Some(source));
     assert_eq!(
@@ -163,14 +160,14 @@ fn match_ranges_keep_implicit_declaration_expansion_inside_requested_lines() {
     let paths = Paths(fixture.0.clone());
     let mut query = qj(
         &path,
-        serde_json::json!({"matchString":"needle", "ranges":["2-2"], "contextLines":1}),
+        serde_json::json!({"matchString": ["needle"], "ranges":[{"startLine":2,"endLine":2}], "contextLines":{"before":1,"after":1}}),
     );
     let result = fetch(&query, &paths);
     assert_eq!(result.content.as_deref(), Some("    let needle = 1;\n"));
     assert_eq!(result.source_line_ranges, [LineRange { start: 2, end: 2 }]);
     assert_eq!(result.match_ranges, [LineRange { start: 2, end: 2 }]);
 
-    query.block = Some(true);
+    amend(&mut query, serde_json::json!({"block":Some(true)}));
     let explicit = fetch(&query, &paths);
     assert_eq!(
         explicit.content.as_deref(),
@@ -189,7 +186,7 @@ fn match_ranges_keep_long_line_byte_context_inside_requested_lines() {
     let paths = Paths(fixture.0.clone());
     let query = qj(
         &path,
-        serde_json::json!({"matchString":"needle", "ranges":["2-2"]}),
+        serde_json::json!({"matchString": ["needle"], "ranges":[{"startLine":2,"endLine":2}]}),
     );
     let result = fetch(&query, &paths);
     let content = result.content.as_deref().expect("bounded match content");

@@ -49,7 +49,7 @@ impl AnchorFilter {
             Err(crate::text::ReadError::TooLarge(len)) => {
                 let hit = match &self.automaton {
                     None => true,
-                    Some(automaton) => crate::text::source::open_regular(path)
+                    Some(automaton) => crate::text::open_regular(path)
                         .ok()
                         .and_then(|(mut file, _)| {
                             automaton.try_stream_find_iter(&mut file).ok()?.next()

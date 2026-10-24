@@ -1,4 +1,9 @@
-use super::test_rows::run;
+fn run(
+    root: &std::path::Path,
+    row: serde_json::Value,
+) -> Result<serde_json::Value, crate::response::result::ToolError> {
+    super::test_rows::run_window(root, row, 1)
+}
 use crate::tools::test_support::Fixture;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
@@ -13,7 +18,7 @@ fn scoped_matches_keep_parent_context_and_page_all_counts_with_the_same_scope() 
     )
     .expect("source");
     let scope = json!({"start":{"line":2,"column":1},"end":{"line":4,"column":1}});
-    let query = json!({"path":file,"operation":"match","scope":scope,"captureText":true,"matchPageSize":1,"rule":{"pattern":"foo($X)","inside":{"kind":"function_declaration","stopBy":"end"}}});
+    let query = json!({"path":file,"operation":"match","scope":scope,"includeCaptures":true,"rule":{"pattern":"foo($X)","inside":{"kind":"function_declaration","stopBy":"end"}}});
     let mut result = run(&root.0, query).expect("first page");
     let mut seen = Vec::new();
     let mut next_query = Value::Null;
@@ -23,7 +28,7 @@ fn scoped_matches_keep_parent_context_and_page_all_counts_with_the_same_scope() 
                 seen.push(matched["line"].as_u64().expect("line"));
             }
         }
-        let Some(next) = result["next"]["nextMatchPage"]["query"].as_object() else {
+        let Some(next) = result["next"]["nextMatchPage"]["input"].as_object() else {
             break;
         };
         next_query = Value::Object(next.clone());
@@ -37,7 +42,7 @@ fn scoped_matches_keep_parent_context_and_page_all_counts_with_the_same_scope() 
     assert_eq!(stale["status"], "error");
     assert_eq!(stale["errorCode"], "staleSnapshot");
     for view in ["content", "countMatches"] {
-        let found = run(&root.0, json!({"path":file,"operation":"match","pattern":"foo($X)","scope":scope,"resultView":view})).expect("scoped view");
+        let found = run(&root.0, json!({"path":file,"operation":"match","rule":{"pattern":"foo($X)"},"scope":scope,"view":view})).expect("scoped view");
         assert_eq!(found["matchCount"], 2, "{found}");
     }
 }
@@ -49,7 +54,7 @@ fn overlap_returns_complete_matching_nodes_and_contained_excludes_crossing_nodes
     let source = "function f() {\n  foo(a);\n}\n";
     std::fs::write(&file, source).expect("source");
     for (mode, count) in [("contained", 0), ("overlap", 1)] {
-        let found = run(&root.0, json!({"path":file,"operation":"match","rule":{"kind":"function_declaration"},"captureText":true,"scope":{"start":{"line":2,"column":3},"end":{"line":2,"column":6},"mode":mode}})).expect("scope");
+        let found = run(&root.0, json!({"path":file,"operation":"match","rule":{"kind":"function_declaration"},"includeCaptures":true,"scope":{"start":{"line":2,"column":3},"end":{"line":2,"column":6},"mode":mode}})).expect("scope");
         assert_eq!(found["matchCount"], count, "{found}");
         if count == 1 {
             assert_eq!(found["files"][0]["matches"][0]["value"], source.trim_end());
@@ -84,10 +89,10 @@ fn scope_rejects_directories_out_of_bounds_and_mid_surrogate_positions() {
             json!({"line":1,"column":200}),
         ),
     ] {
-        let error = run(&root.0, json!({"path":path,"operation":"match","pattern":"foo($X)","scope":{"start":start,"end":end}})).expect_err("invalid scope");
+        let error = run(&root.0, json!({"path":path,"operation":"match","rule":{"pattern":"foo($X)"},"scope":{"start":start,"end":end}})).expect_err("invalid scope");
         assert_eq!(error.code, ErrorCode::InvalidInput);
     }
-    let found = run(&root.0, json!({"path":file,"operation":"match","pattern":"foo($X)","scope":{"start":{"line":1,"column":7},"end":{"line":1,"column":13}}})).expect("UTF-16 region");
+    let found = run(&root.0, json!({"path":file,"operation":"match","rule":{"pattern":"foo($X)"},"scope":{"start":{"line":1,"column":7},"end":{"line":1,"column":13}}})).expect("UTF-16 region");
     assert_eq!(found["matchCount"], 1);
     assert_eq!(found["files"][0]["matches"][0]["column"], 7);
 }
@@ -97,7 +102,7 @@ fn generated_rule_types_execute_all_ordinal_spellings_and_exact_range() {
     let root = Fixture::new();
     let file = root.0.join("a.ts");
     std::fs::write(&file, "foo(a, b, c);\n").expect("source");
-    for position in [json!(2), json!("2n"), json!({"position":2,"reverse":false})] {
+    for position in [json!(2), json!("2n"), json!({"position":2})] {
         let result = run(&root.0, json!({"path":file,"operation":"match","rule":{"kind":"identifier","inside":{"kind":"arguments"},"nthChild":position}})).expect("generated ordinal input");
         assert_eq!(result["matchCount"], 1);
         assert_eq!(result["files"][0]["matches"][0]["value"], "b");

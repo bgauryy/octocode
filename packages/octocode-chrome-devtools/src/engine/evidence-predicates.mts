@@ -2,11 +2,17 @@
 // where/select inputs that filter and project rows before pagination.
 import { compareNumeric } from './evidence-numeric.mjs';
 
+/** One --where predicate: { path, op: eq|contains|gte|lte|exists, value }. */
+export type Predicate = { path: string; op: string; value: unknown };
+/** A number JSON.rawJSON keeps as its exact source text. */
+type RawJson = { rawJSON: string };
+
 const OPS = ['eq', 'contains', 'gte', 'lte', 'exists'];
+const isRawJson = (value: unknown): value is RawJson => JSON.isRawJSON(value);
 const INTEGER = /^-?\d+$/;
 
 /** JSON.parse that keeps every number as its exact source text. */
-export const parse = text =>
+export const parse = (text: string): unknown =>
   JSON.parse(text, (_key, item, context) =>
     typeof item === 'number' && context?.source
       ? JSON.rawJSON(context.source)
@@ -14,7 +20,7 @@ export const parse = text =>
   );
 
 /** The value at a JSON pointer, or undefined when a key is missing; an invalid pointer fails. */
-export function pointer(value, path) {
+export function pointer(value: unknown, path: string): unknown {
   if (!path) return value;
   if (!path.startsWith('/')) throw new Error('JSON pointer must start with /');
   let current = value;
@@ -28,19 +34,19 @@ export function pointer(value, path) {
       !Object.hasOwn(current, key)
     )
       return undefined;
-    current = current[key];
+    current = Reflect.get(current, key);
   }
   return current;
 }
 
-const beyondSafeInteger = actual =>
-  JSON.isRawJSON(actual) &&
+const beyondSafeInteger = (actual: unknown) =>
+  isRawJson(actual) &&
   INTEGER.test(actual.rawJSON) &&
   (BigInt(actual.rawJSON) > BigInt(Number.MAX_SAFE_INTEGER) ||
     BigInt(actual.rawJSON) < BigInt(Number.MIN_SAFE_INTEGER));
 
 // Integer strings are the existing exact-large-integer query form.
-function expectedValue(filter, actual) {
+function expectedValue(filter: Predicate, actual: unknown) {
   const expected = filter.value;
   if (
     typeof expected === 'string' &&
@@ -51,11 +57,15 @@ function expectedValue(filter, actual) {
   return expected;
 }
 
-function matchesFilter(row, filter) {
+function matchesFilter(row: unknown, filter: Predicate) {
   const actual = pointer(row, filter.path);
   if (filter.op === 'exists') return (actual !== undefined) === filter.value;
   if (filter.op === 'contains')
-    return typeof actual === 'string' && actual.includes(filter.value);
+    return (
+      typeof actual === 'string' &&
+      typeof filter.value === 'string' && // validatePredicate: contains needs text
+      actual.includes(filter.value)
+    );
   const expected = expectedValue(filter, actual);
   const order = compareNumeric(actual, expected);
   if (filter.op === 'eq')
@@ -67,20 +77,20 @@ function matchesFilter(row, filter) {
 }
 
 /** Whether a row satisfies every predicate. */
-export const matches = (row, filters) =>
+export const matches = (row: unknown, filters: Predicate[]) =>
   filters.every(filter => matchesFilter(row, filter));
 
-const isScalar = value =>
+const isScalar = (value: unknown) =>
   value === null ||
   JSON.isRawJSON(value) ||
   ['string', 'number', 'boolean'].includes(typeof value);
 
-const isNumericValue = value =>
+const isNumericValue = (value: unknown) =>
   typeof value === 'number' ||
   JSON.isRawJSON(value) ||
   INTEGER.test(String(value));
 
-function validatePredicate(f) {
+function validatePredicate(f: Predicate) {
   if (Object.keys(f).some(key => !['path', 'op', 'value'].includes(key)))
     throw new Error('Unknown predicate field');
   if (f.op === 'eq' && !isScalar(f.value))
@@ -95,7 +105,9 @@ function validatePredicate(f) {
 }
 
 /** Checks --where predicates: [{ path, op: eq|contains|gte|lte|exists, value }]. */
-export function validatePredicates(filters) {
+export function validatePredicates(
+  filters: unknown
+): asserts filters is Predicate[] {
   if (
     !Array.isArray(filters) ||
     filters.some(
@@ -110,14 +122,15 @@ export function validatePredicates(filters) {
   for (const f of filters) validatePredicate(f);
 }
 
-/** Checks --select: a nonempty array of JSON pointers. */
-export function validateProjection(select) {
+/** Checks --select: a nonempty array of JSON pointers; returns them, or null for no projection. */
+export function validateProjection(select: unknown): string[] | null {
+  if (!select) return null;
   if (
-    select &&
-    (!Array.isArray(select) ||
-      !select.length ||
-      select.some(p => typeof p !== 'string'))
+    !Array.isArray(select) ||
+    !select.length ||
+    select.some(p => typeof p !== 'string')
   )
     throw new Error('Invalid projection');
-  for (const p of select || []) pointer({}, p);
+  for (const p of select) pointer({}, p);
+  return select;
 }

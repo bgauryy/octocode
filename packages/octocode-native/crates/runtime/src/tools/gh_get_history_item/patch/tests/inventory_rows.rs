@@ -136,16 +136,16 @@ fn file_filter_narrows_by_status_path_and_change_count() {
         ["src/a.ts", "src/huge.ts"]
     );
     assert_eq!(
-        names(json!({"include":["*.ts"]})),
+        names(json!({"include":["**/*.ts"]})),
         ["src/a.ts", "src/huge.ts", "src/deep/b.ts"]
     );
     assert_eq!(
-        names(json!({"include":["src/deep", "docs/"]})),
+        names(json!({"include":["src/deep/**", "docs/**"]})),
         ["src/deep/b.ts", "docs/readme.md"]
     );
-    assert_eq!(names(json!({"status":["added"]})), ["src/deep/b.ts"]);
+    assert_eq!(names(json!({"fileStatus":["added"]})), ["src/deep/b.ts"]);
     assert_eq!(
-        names(json!({"include":["*.ts"],"status":["modified"],"minChanges":10})),
+        names(json!({"include":["**/*.ts"],"fileStatus":["modified"],"minChanges":10})),
         ["src/huge.ts"]
     );
     let invalid = inventory_request(json!({"include":["src/[a"]}));
@@ -242,4 +242,20 @@ fn review_selection_packs_source_files_by_churn() {
     // A literal search fills the page share without the metadata reserve.
     assert_eq!(literal_patch_window(None), 16_000);
     assert_eq!(literal_patch_window(Some(20_000)), 16_000);
+}
+
+#[test]
+fn changed_file_globs_do_not_widen_literal_paths_or_case() {
+    use super::super::super::filter::PathPattern;
+    for (pattern, yes, no) in [
+        ("src", "src", vec!["src/a.rs", "other/src"]),
+        ("*.rs", "lib.rs", vec!["src/lib.rs", "LIB.RS"]),
+        ("src/**", "src/deep/lib.rs", vec!["other/lib.rs"]),
+    ] {
+        let matcher = PathPattern::parse(pattern).expect("glob");
+        assert!(matcher.matches(yes));
+        for path in no {
+            assert!(!matcher.matches(path), "{pattern} widened to {path}");
+        }
+    }
 }

@@ -1,6 +1,6 @@
 //! ghSearchCode query syntax.
-use super::GhSearchCodeQuery;
 use crate::tools::gh_shared::query::SearchTerms;
+use octocode_contract_types::GhSearchCodeQuery;
 use octocode_github::{qualifier_value, search_phrase};
 
 /// The search query; `extension` narrows a multi-extension query to one of
@@ -10,17 +10,20 @@ pub(super) fn code(query: &GhSearchCodeQuery, extension: Option<&str>) -> String
         keywords,
         owner,
         repo,
-        path,
+        path_prefix,
         extensions,
-        filename,
+        name_contains,
         match_in,
         ..
     } = query;
-    let mut terms = SearchTerms::new(keywords.iter().map(String::as_str));
+    let mut terms = SearchTerms::new(keywords.iter().map(|keyword| keyword.as_str()));
     // `path` is a repository path prefix (schema contract); a dotted segment
     // such as `types/lodash.merge` is a directory, so never split it into a
     // `filename:` qualifier.
-    terms.text("filename", filename.as_ref().map(|value| value.as_str()));
+    terms.text(
+        "filename",
+        name_contains.as_ref().map(|value| value.as_str()),
+    );
     match extension {
         Some(extension) => terms.text("extension", Some(extension)),
         None => {
@@ -29,7 +32,7 @@ pub(super) fn code(query: &GhSearchCodeQuery, extension: Option<&str>) -> String
             }
         }
     }
-    if let Some(path) = path.as_deref() {
+    if let Some(path) = path_prefix.as_deref() {
         let path = if path.contains('/') || path.contains('@') {
             search_phrase(path)
         } else {
@@ -40,7 +43,15 @@ pub(super) fn code(query: &GhSearchCodeQuery, extension: Option<&str>) -> String
         }
     }
     terms.scope(Some(owner.as_str()), repo.as_deref().map(String::as_str));
-    terms.text("in", Some(&match_in.to_string()));
+    let locations = match_in
+        .iter()
+        .map(|location| match location {
+            octocode_contract_types::GhSearchCodeQueryMatchInItem::Content => "file",
+            octocode_contract_types::GhSearchCodeQueryMatchInItem::Path => "path",
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    terms.text("in", Some(&locations));
     terms.finish()
 }
 
@@ -64,14 +75,14 @@ mod tests {
         let cases: [Case; 3] = [
             (
                 "dotted directory path stays a path prefix",
-                serde_json::json!({"keywords":["merge"],"path":"types/lodash.merge"}),
+                serde_json::json!({"keywords":["merge"],"pathPrefix":"types/lodash.merge"}),
                 &["path:\"types/lodash.merge\""],
                 &["filename:"],
                 "",
             ),
             (
                 "qualifier values with whitespace are quoted",
-                serde_json::json!({"keywords":["x"],"path":"my dir/src","filename":"my file.txt"}),
+                serde_json::json!({"keywords":["x"],"pathPrefix":"my dir/src","nameContains":"my file.txt"}),
                 &["path:\"my dir/src\"", "filename:\"my file.txt\""],
                 &[],
                 "",
@@ -85,9 +96,7 @@ mod tests {
             ),
         ];
         for (case, mut row, present, absent, prefix) in cases {
-            for (key, value) in [("mainGoal", "test"), ("reasoning", "test"), ("owner", "o")] {
-                row[key] = value.into();
-            }
+            row["owner"] = "o".into();
             let q = code(&parse(row), None);
             for text in present {
                 assert!(q.contains(text), "{case}: {q}");
@@ -104,7 +113,7 @@ mod tests {
         // A raw `"hello" NOT` would bind NOT to the repo: qualifier.
         let q = code(
             &parse(serde_json::json!({
-                "mainGoal": "test", "reasoning":"test","owner":"octocat","repo":"Hello-World",
+                "owner":"octocat","repo":"Hello-World",
                 "keywords":["\"hello\" NOT", "x\" OR repo:evil/x"]
             })),
             None,
@@ -133,9 +142,9 @@ mod tests {
         }
         for raw in [
             r#"{"owner":"o","keywords":["needle"]}"#,
-            r#"{"owner":"o","path":"src"}"#,
+            r#"{"owner":"o","pathPrefix":"src"}"#,
             r#"{"owner":"o","extensions":["rs"]}"#,
-            r#"{"owner":"o","filename":"Cargo.toml"}"#,
+            r#"{"owner":"o","nameContains":"Cargo.toml"}"#,
         ] {
             assert!(admitted(raw), "{raw}");
         }

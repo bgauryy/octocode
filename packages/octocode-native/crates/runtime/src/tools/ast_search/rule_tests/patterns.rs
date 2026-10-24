@@ -11,7 +11,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     let (paths, security) = simple_policy(&root.0);
 
     let missing = execute_row(
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"let $A = $B"}),
+        json!({"operation":"match","path":source,"rule":{"pattern":"let $A = $B"}}),
         &paths,
         &security,
         &NeverCancel,
@@ -25,7 +25,12 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     // The coverage is stated by fields; the node shape is the viewSyntax lead.
     assert!(missing.get("hints").is_none(), "{missing}");
     assert_eq!(
-        missing["next"]["viewSyntax"]["query"]["queries"][0]["operation"], "syntaxTree",
+        crate::tools::test_support::checks::related_call(
+            &missing,
+            "astSearch",
+            |input| input["queries"][0]["operation"] == "syntaxTree"
+        )["input"]["queries"][0]["operation"],
+        "syntaxTree",
         "{missing}"
     );
 
@@ -33,7 +38,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
     // smart strictness).
     for pattern in ["const $A = $B;", "const $A = $B"] {
         let found = execute_row(
-            json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":pattern}),
+            json!({"operation":"match","path":source,"rule":{"pattern":pattern}}),
             &paths,
             &security,
             &NeverCancel,
@@ -52,7 +57,7 @@ fn an_unparseable_pattern_reports_untagged_text() {
     for path in [source.clone(), root.0.clone()] {
         let error = run(
             &root.0,
-            json!({"operation":"match","mainGoal":"test","reasoning":"test","path":path,"language":"rust","pattern":"neu("}),
+            json!({"operation":"match","path":path,"parser":"rust","rule":{"pattern":"neu("}}),
         )
         .expect_err("invalid pattern");
         assert_eq!(error.code, ErrorCode::InvalidPattern);
@@ -68,7 +73,7 @@ fn directory_pattern_that_compiles_in_no_file_is_an_error_not_empty() {
     }
     let error = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"rust","pattern":"fn ???"}),
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn ???"}}),
     )
     .expect_err("uncompilable pattern must fail loudly");
     assert_eq!(error.code, ErrorCode::InvalidPattern);
@@ -81,7 +86,7 @@ fn patterns_without_metavariables_offer_no_capture_expansion() {
     std::fs::write(&source, "oldCall(one);\n").expect("source");
     let out = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"oldCall(one)"}),
+        json!({"operation":"match","path":source,"rule":{"pattern":"oldCall(one)"}}),
     )
     .expect("match");
     assert_eq!(
@@ -125,7 +130,7 @@ fn a_pattern_matches_exactly_as_written() {
         (&rust, "pub fn $N() -> $R { $$$B }", 1),
         (&typed, "export function $N($$$A) { $$$B }", 1),
     ] {
-        let out = matched(path, json!({"pattern": pattern}));
+        let out = matched(path, json!({"rule":{"pattern":pattern}}));
         assert_eq!(out["matchCount"], count, "{pattern}: {out}");
         assert!(
             out["diagnostics"]
@@ -135,7 +140,7 @@ fn a_pattern_matches_exactly_as_written() {
                 .all(|d| d["code"] != "structural.pattern.relaxed"),
             "{pattern}: {out}"
         );
-        let rule = matched(path, json!({"rule": {"pattern": pattern}}));
+        let rule = matched(path, json!({"rule":{"pattern": pattern}}));
         assert_eq!(out["files"], rule["files"], "{pattern}: {out}");
     }
 }
@@ -158,7 +163,7 @@ fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
     let matched = |path: &PathBuf, pattern: &str| {
         run(
             &root.0,
-            json!({"operation":"match","path":path,"pattern":pattern}),
+            json!({"operation":"match","path":path,"rule":{"pattern":pattern}}),
         )
         .expect("match")
     };
@@ -176,17 +181,20 @@ fn an_exact_declaration_miss_counts_the_kind_and_leads_to_its_rule() {
             .is_some_and(|m| m.contains("3 function_item node(s) in 2 file(s)")),
         "{note}"
     );
-    let lead = &miss["next"]["broadenSearch"]["query"]["queries"][0];
+    let lead = &crate::tools::test_support::checks::related_call(&miss, "astSearch", |input| {
+        input["queries"][0]["operation"] == "match"
+    })["input"]["queries"][0];
     assert_eq!(lead["rule"], json!({"kind":"function_item"}), "{miss}");
     assert!(lead.get("pattern").is_none(), "{lead}");
     crate::contracts::validate_query("astSearch", lead.clone()).expect("a valid lead row");
-    let mut follow = lead.clone();
-    follow["mainGoal"] = json!("test");
+    let follow = lead.clone();
     let listed = run(&root.0, follow).expect("lead runs");
     assert_eq!(listed["matchCount"], 3, "{listed}");
     // A named pattern lists only its name.
     let named = matched(&dir.join("more.rs"), "fn run() -> u8 { 3 }");
-    let lead = &named["next"]["broadenSearch"]["query"]["queries"][0];
+    let lead = &crate::tools::test_support::checks::related_call(&named, "astSearch", |input| {
+        input["queries"][0]["operation"] == "match"
+    })["input"]["queries"][0];
     assert_eq!(
         lead["rule"],
         json!({"kind":"function_item","has":{"kind":"identifier","regex":"^run$"}}),
@@ -209,7 +217,7 @@ fn invalid_pattern_is_an_error_even_when_every_file_is_prefiltered() {
     root.write("a.ts", "const value = 1;\n");
     let error = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"typescript","pattern":"foo("}),
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"foo("}}),
     )
     .expect_err("an unparseable pattern must fail loudly");
     // The response stage attaches the repair hint for this code.
@@ -224,7 +232,7 @@ fn macro_rules_template_bodies_are_listed() {
     root.write("m.rs", "macro_rules! get {\n    ($e:expr) => {\n        config.value.unwrap()\n    };\n}\nfn main() {\n    other.unwrap();\n}\n");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"rust","pattern":"$X.unwrap()"}),
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"$X.unwrap()"}}),
     )
     .expect("match");
     let lines = out["files"][0]["matches"]
@@ -243,14 +251,16 @@ fn empty_match_leads_to_syntax_tree() {
     root.write("a.rs", "fn gamma() {}\n\nfn alpha() {\n    beta(1);\n}\n");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"rust","pattern":"beta($A, $B)"}),
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"beta($A, $B)"}}),
     )
     .expect("match");
     assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(out["filesScanned"], 1, "{out}");
-    let lead = &out["next"]["viewSyntax"];
+    let lead = crate::tools::test_support::checks::related_call(&out, "astSearch", |input| {
+        input["queries"][0]["operation"] == "syntaxTree"
+    });
     assert_eq!(lead["tool"], "astSearch", "{out}");
-    let row = &lead["query"]["queries"][0];
+    let row = &lead["input"]["queries"][0];
     assert_eq!(row["operation"], "syntaxTree", "{out}");
     assert!(
         row["path"]
@@ -259,7 +269,6 @@ fn empty_match_leads_to_syntax_tree() {
         "{out}"
     );
     assert_eq!(row["line"], 4, "{out}");
-    assert_eq!(row["pageSize"], 40, "{out}");
     crate::contracts::validate_query("astSearch", row.clone()).expect("a valid syntaxTree row");
     let tree = run(&root.0, row.clone()).expect("syntax tree");
     assert!(
@@ -286,20 +295,21 @@ fn repairable_failures_carry_one_lead() {
     .expect_err("unknown kind");
     assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     assert!(error.hints.is_empty(), "{error:?}");
-    let next = error.next.as_ref().expect("lead");
+    let next = error.calls.as_ref().expect("lead");
     assert_eq!(
-        next["viewSyntax"]["query"]["queries"][0]["operation"], "syntaxTree",
+        next["viewSyntax"]["input"]["queries"][0]["operation"], "syntaxTree",
         "{next}"
     );
 
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"python","pattern":"print($A)"}),
+        json!({"operation":"match","path":root.0,"parser":"python","rule":{"pattern":"print($A)"}}),
     )
     .expect("no python file");
-    let repair = &out["next"]["repair"]["query"]["queries"][0];
-    assert_eq!(repair["language"], "rust", "{out}");
-    assert_eq!(repair["pattern"], "print($A)", "{out}");
+    let repair = &crate::tools::test_support::checks::related_call(&out, "astSearch", |_| true)["input"]
+        ["queries"][0];
+    assert_eq!(repair["parser"], "rust", "{out}");
+    assert_eq!(repair["rule"]["pattern"], "print($A)", "{out}");
     assert_eq!(
         out["hints"],
         json!(["No python file under this path was parsed."]),

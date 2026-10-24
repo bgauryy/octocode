@@ -14,7 +14,6 @@ async fn ast_search_error_rows_name_workspace_relative_paths() {
         &runtime,
         "astSearch",
         json!({"operation":"symbols","path":"sub/dir/Cargo.toml"}),
-        &[],
     )
     .await;
     let row = &outcome.structured_content["results"][0];
@@ -25,7 +24,7 @@ async fn ast_search_error_rows_name_workspace_relative_paths() {
 }
 
 #[tokio::test]
-async fn ast_search_scan_diagnostics_name_workspace_relative_paths() {
+async fn ast_search_matches_name_workspace_relative_paths() {
     let workspace = Workspace::new();
     workspace.write("sub/dir/a.rs", "fn a() { old(1); }\n");
     workspace.write("sub/dir/b.rs", "fn b() { old(2); }\n");
@@ -33,17 +32,10 @@ async fn ast_search_scan_diagnostics_name_workspace_relative_paths() {
     let outcome = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":"sub/dir","language":"rust","pattern":"old($A)","maxFiles":1}),
-        &[],
+        json!({"operation":"match","path":"sub/dir","parser":"rust","rule":{"pattern":"old($A)"}}),
     )
     .await;
     let data = outcome.data();
-    let diagnostics = data["diagnostics"].as_array().expect("diagnostics");
-    let truncated = diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic["code"] == "structural.scan.truncated")
-        .unwrap_or_else(|| panic!("truncated diagnostic: {data}"));
-    assert_eq!(truncated["path"], "sub/dir", "{data}");
     for file in data["files"].as_array().expect("files") {
         let path = file["path"].as_str().expect("file path");
         assert!(path.starts_with("sub/dir/"), "{path}: {data}");
@@ -68,22 +60,21 @@ async fn artifact_search_takes_ecosystem_and_registry_url() {
     let outcome = support::run(
         &runtime,
         "artifactSearch",
-        json!({"ecosystem":"npm","packageName":"zzqq-missing","registryUrl":server.uri()}),
-        &[],
-    )
+        json!({"operation":"resolve","ecosystem":"npm","packageName":"zzqq-missing","registryUrl":server.uri()}))
     .await;
     let requests = server.received_requests().await.expect("recorded");
     assert!(!requests.is_empty(), "{}", outcome.structured_content);
-    // The retired names fail closed, naming the replacement.
-    for (row, replacement) in [
-        (json!({"type":"npm","packageName":"zod"}), "ecosystem"),
+    // Retired field names fail admission before reaching the registry.
+    for (row, removed) in [
         (
-            json!({"ecosystem":"npm","packageName":"zod","registry":server.uri()}),
-            "registryUrl",
+            json!({"operation":"resolve","type":"npm","packageName":"zod"}),
+            "type",
+        ),
+        (
+            json!({"operation":"resolve","ecosystem":"npm","packageName":"zod","registry":server.uri()}),
+            "registry",
         ),
     ] {
-        let mut row = row;
-        row["mainGoal"] = json!("cutover shapes.");
         let error = runtime
             .run(
                 "d1-artifact-retired".into(),
@@ -92,8 +83,14 @@ async fn artifact_search_takes_ecosystem_and_registry_url() {
             )
             .await
             .expect_err("a retired input field is rejected");
-        let text = format!("{error:?}");
-        assert!(text.contains(replacement), "{replacement}: {text}");
+        assert_eq!(error.code, octocode_contract_types::ErrorCode::InvalidInput);
+        assert!(
+            error
+                .validation_issues
+                .expect("issues")
+                .iter()
+                .any(|issue| issue.path.last().is_some_and(|field| field == removed))
+        );
     }
     runtime.close().await;
 }
@@ -150,9 +147,7 @@ async fn history_reviews_and_issue_comments_name_author_and_commit_sha() {
     let reviews = support::run(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,"sections":["body","reviews"]}),
-        &[],
-    )
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,"sections":["body","reviews"]}))
     .await;
     let review = &reviews.data()["pullRequests"][0]["reviews"][0];
     let seen = server
@@ -172,7 +167,6 @@ async fn history_reviews_and_issue_comments_name_author_and_commit_sha() {
         &runtime,
         "ghGetHistoryItem",
         json!({"operation":"issue","owner":"a","repo":"b","number":9,"sections":["comments"]}),
-        &[],
     )
     .await;
     let comment = &comments.data()["issues"][0]["comments"][0];

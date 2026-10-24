@@ -52,12 +52,9 @@ pub(in super::super) fn path_exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
-/// Public content comparison for freshness checks (`skill check`).
-pub(in super::super) fn trees_match(left: &Path, right: &Path) -> bool {
-    same_tree(left, right)
-}
-
-pub(super) fn same_tree(left: &Path, right: &Path) -> bool {
+/// Whether two trees hold the same content: install skips and freshness
+/// checks (`skill check`).
+pub(in super::super) fn same_tree(left: &Path, right: &Path) -> bool {
     if !path_exists(left) || !path_exists(right) {
         return false;
     }

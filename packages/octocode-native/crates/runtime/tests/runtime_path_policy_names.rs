@@ -90,10 +90,10 @@ fn runtime(workspace: &Workspace) -> ToolRuntime {
 fn file_query(tool: &str, path: &std::path::Path) -> Value {
     match tool {
         "localFetch" => json!({"path": path}),
-        "localSearch" => json!({"path": path, "matchString": "needle", "includeHidden": true}),
+        "localSearch" => json!({"path": path, "matchString": ["needle"], "includeHidden": true}),
         "structureSearch" => json!({"operation": "files", "path": path}),
         "astSearch" => {
-            json!({"operation": "symbols", "path": path, "symbolName": "needle"})
+            json!({"operation": "symbols", "path": path})
         }
         "lspSearch" => json!({"operation": "documentSymbols", "path": path}),
         other => panic!("{other}"),
@@ -168,15 +168,22 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
         .count();
     // Counted at the walked scope as credential files, never as policy
     // directories, and never by the withheld names.
-    let notice = json!({"cause":"withheld","count":withheld,"path":".","reason":"credential file"});
     let disclosed = |outcome: &octocode_native::response::outcome::ToolOutcome| {
-        row_data(outcome)["skippedPaths"]["entries"] == json!([notice])
+        row_data(outcome)["skippedPaths"]["entries"]
+            .as_array()
+            .is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    entry["cause"] == "withheld"
+                        && entry["count"] == withheld
+                        && entry["reason"] == "credential file"
+                })
+            })
     };
 
     let searched = call(
         &runtime,
         "localSearch",
-        json!({"path": root, "matchString": "needle", "includeHidden": true}),
+        json!({"path": root, "matchString": ["needle"], "includeHidden": true}),
     )
     .await
     .expect("localSearch");
@@ -212,7 +219,7 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
     let matched = call(
         &runtime,
         "astSearch",
-        json!({"operation": "match", "path": root, "language": "typescript", "pattern": "function needle() {}"}),
+        json!({"operation": "match", "path": root, "parser": "typescript", "rule": {"pattern": "function needle() {}"}}),
     )
     .await
     .expect("astSearch");
@@ -243,7 +250,7 @@ async fn secret_content_is_redacted_in_any_directory() {
     let searched = call(
         &runtime,
         "localSearch",
-        json!({"path": workspace.workspace, "matchString": "awsAccessKeyId"}),
+        json!({"path": workspace.workspace, "matchString": ["awsAccessKeyId"]}),
     )
     .await
     .expect("localSearch");

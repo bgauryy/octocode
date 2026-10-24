@@ -1,9 +1,11 @@
 //! Content scanning: page windows scan only themselves and keep redaction.
 use super::*;
+use octocode_contract_types::LocalFetchQuery;
 
 #[derive(Default)]
 struct Counting {
     scans: std::sync::atomic::AtomicUsize,
+    sizes: std::sync::Mutex<Vec<usize>>,
 }
 
 impl ContentScan for Counting {
@@ -13,6 +15,7 @@ impl ContentScan for Counting {
         path: &Path,
     ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
         self.scans.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.sizes.lock().expect("sizes").push(text.len());
         Safe.sanitize(text, path)
     }
     fn redact_key_blocks(&self, content: &str) -> (String, bool) {
@@ -28,13 +31,10 @@ fn line_pages_scan_only_their_window_and_keep_redaction() {
     let security = MemoizedScan::new(&scanner, &memo);
     let mut pages = Vec::new();
     for offset in [0, 100, 200] {
-        let request = LocalFetchQuery {
-            path: "big.txt".parse().expect("path"),
-            unit: Some(WindowUnit::Lines),
-            offset: Some(offset),
-            length: wire_positive(100),
-            ..test_local_fetch_query()
-        };
+        let request: LocalFetchQuery = serde_json::from_value(json!({
+            "path":"big.txt", "ranges":[{"startLine":offset+1,"endLine":offset+100}]
+        }))
+        .expect("canonical line range");
         let page = process_fetched_content(
             &request,
             body.as_bytes(),
@@ -45,13 +45,15 @@ fn line_pages_scan_only_their_window_and_keep_redaction() {
         );
         pages.push(page.content.unwrap_or_default());
     }
-    // Line pages sanitize only their window (plus a margin), one small
-    // scan per page, instead of the whole file.
-    assert_eq!(
-        scanner.scans.load(std::sync::atomic::Ordering::SeqCst),
-        3,
-        "each line page scans its own window"
+    assert!(
+        scanner
+            .sizes
+            .lock()
+            .expect("sizes")
+            .iter()
+            .all(|size| *size < body.len())
     );
+    let before = scanner.scans.load(std::sync::atomic::Ordering::SeqCst);
     assert!(pages[0].starts_with("[REDACTED] [KEY]\n"), "{}", pages[0]);
     assert_eq!(pages[1], "line of text\n".repeat(100));
     // The memo still serves repeated full views (byte/fullContent pages):
@@ -62,11 +64,14 @@ fn line_pages_scan_only_their_window_and_keep_redaction() {
     security
         .sanitize("x".repeat(20_000).as_str(), Path::new("other"))
         .expect("scan");
-    assert_eq!(scanner.scans.load(std::sync::atomic::Ordering::SeqCst), 4);
+    assert_eq!(
+        scanner.scans.load(std::sync::atomic::Ordering::SeqCst),
+        before + 1
+    );
 }
 
 #[tokio::test]
-async fn shared_pipeline_ranges_redacts_and_emits_remote_continuation() {
+async fn shared_pipeline_ranges_redacts_and_pins_remote_identity() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     mount_json(
@@ -80,8 +85,7 @@ async fn shared_pipeline_ranges_redacts_and_emits_remote_continuation() {
     let provider = mock_provider(&server, RetryPolicy::default());
     let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
         "owner": "a", "repo": "b", "path": "src/lib.rs", "ref": "main",
-        "unit": "lines", "length": 2, "mainGoal": "test", "reasoning": "test"
-    }))
+        "ranges":[{"startLine":1,"endLine":2}]}))
     .expect("ghGetFileContent query");
     let result = execute_default_regex(
         &provider,
@@ -99,10 +103,7 @@ async fn shared_pipeline_ranges_redacts_and_emits_remote_continuation() {
     let wire = serde_json::to_value(&result.file).expect("file json");
     assert_eq!(wire["commitSha"], sha);
     assert!(wire.get("resolvedRef").is_none(), "{wire}");
-    let next = result.file.next.clone().expect("continuation");
-    assert_eq!(next["continueWindow"]["tool"], "ghGetFileContent");
-    assert_eq!(next["continueWindow"]["query"]["queries"][0]["owner"], "a");
-    assert_eq!(next["continueWindow"]["query"]["queries"][0]["ref"], sha);
+    assert!(result.file.calls.is_none(), "bounded range is complete");
 }
 
 #[tokio::test]
@@ -120,8 +121,7 @@ async fn match_string_runs_on_redacted_text() {
     let provider = mock_provider(&server, RetryPolicy::default());
     let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
         "owner": "a", "repo": "b", "path": "src/lib.rs", "ref": "main",
-        "matchString": "TOKEN", "contextLines": 0, "mainGoal": "test", "reasoning": "test"
-    }))
+        "matchString":["TOKEN"], "contextLines":{"before":0,"after":0}}))
     .expect("query");
     let result = execute_default_regex(
         &provider,

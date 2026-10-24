@@ -35,101 +35,45 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
     .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let walk = |page: Option<u64>, char_length: Option<u64>| {
-        let runtime = &runtime;
-        async move {
-            let mut first = json!({"operation": "pullRequest", "owner": "a", "repo": "b",
-                "number": 9, "mainGoal": "g", "reasoning": "r",
-                "sections": ["patches"], "extras": ["hints"]});
-            if let Some(length) = char_length {
-                first["length"] = json!(length);
-            }
-            let with_page = |row: Value| {
-                let mut envelope = json!({"queries": [row]});
-                if let Some(page) = page {
-                    envelope["responseLength"] = json!(page);
-                }
-                envelope
-            };
-            let mut hops = std::collections::VecDeque::from([with_page(first)]);
-            let mut read = std::collections::BTreeMap::<String, String>::new();
-            let mut calls = 0;
-            while let Some(envelope) = hops.pop_front() {
-                calls += 1;
-                assert!(calls <= 60, "walk did not finish");
-                let outcome = runtime
-                    .run(format!("walk-{calls}"), "ghGetHistoryItem".into(), envelope)
-                    .await
-                    .expect("patch window");
-                let content = &outcome.structured_content;
-                // An explicit page reports its (single) response page.
-                assert_ne!(
-                    content["responsePagination"]["hasMore"], true,
-                    "a patch window overflowed its page: {content}"
-                );
-                let data = &content["results"][0]["data"];
-                // A length above the page is clamped and says so on the
-                // call that asked; the windows below still tile every patch.
-                let clamped = data["warnings"].as_array().is_some_and(|text| {
-                    text.iter()
-                        .any(|t| t.as_str().is_some_and(|t| t.starts_with("length")))
-                });
-                assert_eq!(
-                    clamped,
-                    char_length.is_some() && calls == 1,
-                    "call {calls}: {data}"
-                );
-                for file in data["pullRequests"][0]["files"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                {
-                    let path = file["path"].as_str().expect("path").to_owned();
-                    let text = read.entry(path).or_default();
-                    let offset = file["patchPagination"]["offset"].as_u64().unwrap_or(0);
-                    assert_eq!(offset as usize, text.chars().count(), "{file}");
-                    text.push_str(file["patch"].as_str().unwrap_or(""));
-                }
-                // One check at the merge commit, on the first window only.
-                assert_eq!(
-                    !crate::support::checks::hint(data, "readAtMerge").is_null(),
-                    calls == 1,
-                    "call {calls}: {data}"
-                );
-                // Each hop is a complete one-row input: the same file page
-                // at the stream cursor, with the page budget of the first
-                // window.
-                if let Some(next) = data["next"]["continuePatch"]["query"]["queries"][0].as_object()
-                {
-                    assert_eq!(
-                        data["next"]["continuePatch"]["query"]["queries"]
-                            .as_array()
-                            .map(Vec::len),
-                        Some(1),
-                        "{data}"
-                    );
-                    assert_eq!(next.get("sections"), Some(&json!(["patches"])), "{data}");
-                    assert!(next.get("include").is_none(), "{data}");
-                    // A caller's oversized length rides the hop clamped to
-                    // the window it got, so the clamp is said once.
-                    match char_length {
-                        None => assert!(next.get("length").is_none(), "{data}"),
-                        Some(asked) => assert!(
-                            next["length"].as_u64().is_some_and(|length| length < asked),
-                            "{data}"
-                        ),
-                    }
-                    hops.push_back(with_page(Value::Object(next.clone())));
-                }
-            }
-            (calls, read)
+    for budget in [None, Some(50_000)] {
+        let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["patches"]}]});
+        if let Some(budget) = budget {
+            input["responseChars"] = json!(budget);
         }
-    };
-    let (default_calls, default_read) = walk(None, None).await;
-    let (explicit_calls, explicit_read) = walk(Some(50_000), None).await;
-    let (_, oversized_read) = walk(None, Some(80_000)).await;
-    for (path, patch) in ["src/a.rs", "src/b.rs"].iter().zip(&patches) {
-        for read in [&default_read, &explicit_read, &oversized_read] {
+        let mut read = std::collections::BTreeMap::<String, String>::new();
+        for hop in 0..100 {
+            let outcome = runtime
+                .run(format!("patch-{hop}"), "ghGetHistoryItem".into(), input)
+                .await
+                .expect("patch window");
+            let content = &outcome.structured_content;
+            let data = &content["results"][0]["data"];
+            for file in data["pullRequests"][0]["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                let Some(patch) = file["patch"].as_str() else {
+                    continue;
+                };
+                let text = read
+                    .entry(file["path"].as_str().expect("path").to_owned())
+                    .or_default();
+                assert_eq!(
+                    file["patchPagination"]["offset"].as_u64().unwrap_or(0) as usize,
+                    text.chars().count()
+                );
+                text.push_str(patch);
+            }
+            let next = content
+                .pointer("/responsePagination/next")
+                .or_else(|| data.pointer("/next/continuePatch"))
+                .or_else(|| data.pointer("/next/nextFilePage"));
+            let Some(next) = next else { break };
+            assert!(next["input"]["cursor"].is_string());
+            input = next["input"].clone();
+        }
+        for (path, patch) in ["src/a.rs", "src/b.rs"].iter().zip(&patches) {
             assert_eq!(
                 read.get(*path).map(|view| raw_patch(view)).as_ref(),
                 Some(patch),
@@ -137,11 +81,6 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
             );
         }
     }
-    // A larger explicit response page carries larger windows: fewer hops.
-    assert!(
-        explicit_calls < default_calls,
-        "explicit {explicit_calls} vs default {default_calls} calls"
-    );
     runtime.close().await;
 }
 
@@ -240,10 +179,10 @@ async fn default_large_pr_patch_walk_reaches_every_patch_once() {
             );
             text.push_str(file["patch"].as_str().unwrap_or(""));
         }
-        let next = content["responsePagination"]["next"]["query"]
+        let next = content["responsePagination"]["next"]["input"]
             .as_object()
-            .or_else(|| data["next"]["continuePatch"]["query"].as_object())
-            .or_else(|| data["next"]["nextFilePage"]["query"].as_object());
+            .or_else(|| data["next"]["continuePatch"]["input"].as_object())
+            .or_else(|| data["next"]["nextFilePage"]["input"].as_object());
         match next {
             Some(next) => envelope = Value::Object(next.clone()),
             None => break,

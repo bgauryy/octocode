@@ -186,7 +186,7 @@ pub(super) async fn serve(socket: PathBuf) -> u8 {
     let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
     // Remove the socket only while it is still ours.
     serve_on(listener, &daemon, IDLE_EXIT, || {
-        remove_if_ours(&socket, ours)
+        remove_if_ours(&socket, ours);
     })
     .await;
     shut_down(&daemon).await;

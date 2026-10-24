@@ -2,12 +2,12 @@
 use super::{EntryKind, Row};
 use serde_json::{Value, json};
 
-/// `next.read` on a listing's first page (`rows`): the best-ranked file
+/// A related read on a listing's first page (`rows`): the best-ranked file
 /// ([`read_rank`](crate::tools::root_read::read_rank), the ranking
 /// ghStructure shares; any outline-able file ranks last), first among equal
 /// ranks in listing order: of the small, hand-written files, else of the
 /// files of at most [`READ_LEAD_FALLBACK_MAX_BYTES`]. Source and docs are
-/// outlined (`minify:"symbols"`).
+/// outlined (`view:"symbols"`).
 pub(crate) fn read_lead(rows: &[Row], root: &std::path::Path) -> Option<Value> {
     let best = |preferred: bool| {
         rows.iter()
@@ -40,9 +40,12 @@ pub(crate) fn read_lead(rows: &[Row], root: &std::path::Path) -> Option<Value> {
     };
     let mut query = json!({"path": path.to_string_lossy()});
     if crate::tools::outlines(&row.path) {
-        query["minify"] = json!("symbols");
+        query["view"] = json!("symbols");
     }
-    Some(crate::response::result::Continuation::new(crate::id::ToolId::LocalFetch, query).build())
+    Some(
+        crate::response::result::Continuation::related(crate::id::ToolId::LocalFetch, query)
+            .build(),
+    )
 }
 
 /// Largest file a listing's read lead points at by preference: a lead

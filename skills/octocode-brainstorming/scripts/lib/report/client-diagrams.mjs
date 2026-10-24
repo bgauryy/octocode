@@ -1,5 +1,6 @@
 // Page view: Mermaid diagrams, their in-diagram search, and the expanded pan/zoom dialog.
 // Inlined into the page via Function#toString: it may use only ctx and browser globals.
+// oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function diagramView(ctx) {
   const { kit, $, $$, esc, MERMAID_URL, PANZOOM_URL } = ctx;
   const DIAGRAMS = { flowchart: 'Flowchart', graph: 'Flowchart', sequencediagram: 'Sequence', classdiagram: 'Class diagram', statediagram: 'State diagram', 'statediagram-v2': 'State diagram', erdiagram: 'Entity relationship', gantt: 'Timeline plan', pie: 'Pie chart', mindmap: 'Mind map', timeline: 'Timeline', 'xychart-beta': 'Chart', xychart: 'Chart', quadrantchart: 'Quadrant', journey: 'User journey', gitgraph: 'Git graph', sankey: 'Sankey', 'sankey-beta': 'Sankey', block: 'Block diagram', 'block-beta': 'Block diagram', architecture: 'Architecture', 'architecture-beta': 'Architecture', kanban: 'Kanban', packet: 'Packet', 'packet-beta': 'Packet', requirementdiagram: 'Requirements', c4context: 'C4 context', c4container: 'C4 containers', c4component: 'C4 components', c4dynamic: 'C4 interactions', c4deployment: 'C4 deployment', 'agentflow-beta': 'Agent flow', 'swimlane-beta': 'Swimlanes', eventmodeling: 'Event modeling', 'radar-beta': 'Radar chart', treemap: 'Treemap', 'venn-beta': 'Venn diagram', 'wardley-beta': 'Wardley map', 'cynefin-beta': 'Cynefin framework', 'treeview-beta': 'Tree view', ishikawa: 'Cause and effect', 'ishikawa-beta': 'Cause and effect', 'usecase-beta': 'Use cases', 'railroad-beta': 'Railroad diagram', 'railroad-ebnf-beta': 'EBNF grammar', 'railroad-abnf-beta': 'ABNF grammar', 'railroad-peg-beta': 'PEG grammar', 'flowchart-elk': 'Flowchart · ELK', info: 'Mermaid version' };
@@ -37,13 +38,13 @@ export function diagramView(ctx) {
         const finder = document.createElement('div'); finder.className = 'diagram-find';
         finder.innerHTML = '<input type="search" aria-label="Find text in diagram" placeholder="Find in diagram"><output aria-live="polite"></output>';
         canvas.before(finder);
-        $('input',finder).oninput = event => {
+        $('input',finder).addEventListener('input', event => {
           const term = event.target.value.trim().toLowerCase();
           $$('.diagram-match',canvas).forEach(el=>el.classList.remove('diagram-match'));
           const labels = $$('text,foreignObject',canvas).filter(el=>!el.parentElement.closest('text,foreignObject') && el.textContent.toLowerCase().includes(term));
           if(term) labels.forEach(el=>el.classList.add('diagram-match'));
           $('output',finder).textContent = term ? `${labels.length} matches` : '';
-        };
+        });
         canvas.hidden = !$('pre', fig).hidden;
         $('[data-act="zoom"]', fig).disabled = false;
         $('[data-act="download"]', fig).disabled = false;
@@ -63,8 +64,8 @@ export function diagramView(ctx) {
     const script = document.createElement('script');
     script.src = PANZOOM_URL;
     const timer = setTimeout(() => resolve(null), 8000);
-    script.onload = () => { clearTimeout(timer); resolve(window.Panzoom || null); };
-    script.onerror = () => { clearTimeout(timer); resolve(null); };
+    script.addEventListener('load', () => { clearTimeout(timer); resolve(window.Panzoom || null); });
+    script.addEventListener('error', () => { clearTimeout(timer); resolve(null); });
     document.head.append(script);
   }));
   const fitDiagram = () => {

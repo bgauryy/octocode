@@ -1,9 +1,9 @@
 //! Explicit unread image references. Acquisition stays below text projection:
 //! the provider sees original bytes, and the host receives only provenance.
-use super::{failure, url};
+use super::url;
 use crate::execution::ExecutionContext;
-use crate::id::clasify_policy as policy;
-use crate::tools::judgment::ClassificationError;
+use crate::id::clasify_policy;
+use crate::tools::judgment::{ClassificationError, referenced};
 use crate::tools::source_capture::SourceReader;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_contract_types::ErrorCode;
@@ -13,17 +13,6 @@ use std::path::Path;
 pub(crate) struct CapturedAssets {
     pub provider: Value,
     pub(crate) provenance: Value,
-}
-
-/// Every asset must occur in a value actually sent to JEV. Checking before
-/// acquisition avoids reading an unused image (and avoids accidental billing).
-pub(crate) fn referenced(value: &Value, key: &str) -> bool {
-    match value {
-        Value::String(text) => text.contains(key),
-        Value::Array(values) => values.iter().any(|value| referenced(value, key)),
-        Value::Object(values) => values.values().any(|value| referenced(value, key)),
-        _ => false,
-    }
 }
 
 pub(crate) fn capture(
@@ -51,7 +40,7 @@ pub(crate) fn capture(
         check(context)?;
         let (bytes, origin) = acquire(&asset["source"], dispatcher, context)?;
         total = total.saturating_add(bytes.len());
-        if total > policy::MAX_TOTAL_IMAGE_BYTES {
+        if total > clasify_policy::MAX_TOTAL_IMAGE_BYTES {
             return Err(too_large(
                 "The combined images exceed the per-row byte limit.",
             ));
@@ -67,7 +56,7 @@ pub(crate) fn capture(
         provenance.insert(
             key.clone(),
             json!({
-                "type":"image", "source":origin, "snapshot":saved["snapshot"],
+                "source":origin, "snapshot":saved["snapshot"],
                 "format":format, "bytes":bytes.len(), "width":width, "height":height,
                 "path":saved["path"], "expiresAt":saved["expiresAt"],
             }),
@@ -86,11 +75,16 @@ fn acquire(
     context: &ExecutionContext,
 ) -> Result<(Vec<u8>, Value), ClassificationError> {
     if let Some(address) = source["url"].as_str() {
-        return url::image(address, dispatcher, context, policy::MAX_IMAGE_BYTES);
+        return url::image(
+            address,
+            dispatcher,
+            context,
+            clasify_policy::MAX_IMAGE_BYTES,
+        );
     }
     let tool = source["tool"].as_str().unwrap_or_default();
     if !dispatcher.availability().is_available(tool) {
-        return Err(failure(
+        return Err(ClassificationError::new(
             ErrorCode::ClassificationContextUnavailable,
             format!("The image reader {tool} is unavailable."),
             "Enable the referenced reader before classifying its images.",
@@ -103,7 +97,7 @@ fn acquire(
                 .paths()
                 .validate_read(Path::new(query["path"].as_str().unwrap_or_default()))
                 .map_err(|error| {
-                    failure(
+                    ClassificationError::new(
                         ErrorCode::SecurityValidationFailed,
                         error.to_string(),
                         "Read an allowed regular image file.",
@@ -121,14 +115,15 @@ fn acquire(
             if !before.is_file() {
                 return Err(invalid("The image path is not a regular file."));
             }
-            if before.len() > policy::MAX_IMAGE_BYTES as u64 {
+            if before.len() > clasify_policy::MAX_IMAGE_BYTES as u64 {
                 return Err(too_large("The image exceeds the per-image byte limit."));
             }
-            let read = octocode_io::read::read_limited(&file, policy::MAX_IMAGE_BYTES as u64)
-                .map_err(|_| read_failed())?;
+            let read =
+                octocode_io::read::read_limited(&file, clasify_policy::MAX_IMAGE_BYTES as u64)
+                    .map_err(|_| read_failed())?;
             let after = file.metadata().map_err(|_| read_failed())?;
             if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
-                return Err(failure(
+                return Err(ClassificationError::new(
                     ErrorCode::StaleSnapshot,
                     "The image changed while being captured; nothing was judged.",
                     "Retry once the image is stable.",
@@ -137,26 +132,18 @@ fn acquire(
             let Some(bytes) = read else {
                 return Err(too_large("The image grew beyond the per-image byte limit."));
             };
-            let snapshot = octocode_engine::digest::sha256(&bytes);
-            if query["snapshot"]
-                .as_str()
-                .is_some_and(|expected| expected != snapshot)
-            {
-                return Err(failure(
-                    ErrorCode::StaleSnapshot,
-                    "The image no longer matches the requested snapshot; nothing was judged.",
-                    "Use the saved inspection path from the earlier result, or start a fresh capture.",
-                ));
-            }
             Ok((
                 bytes,
-                json!({"tool":"localFetch","query":{"path":path.canonical,"snapshot":snapshot}}),
+                json!({"tool":"localFetch","query":{"path":path.canonical}}),
             ))
         }
         "ghGetFileContent" => {
-            let response =
-                dispatcher.capture_github_content(query, context, policy::MAX_IMAGE_BYTES)?;
-            if response.bytes.len() > policy::MAX_IMAGE_BYTES {
+            let response = dispatcher.capture_github_content(
+                query,
+                context,
+                clasify_policy::MAX_IMAGE_BYTES,
+            )?;
+            if response.bytes.len() > clasify_policy::MAX_IMAGE_BYTES {
                 return Err(too_large(
                     "The GitHub image exceeds the per-image byte limit.",
                 ));
@@ -175,7 +162,7 @@ fn acquire(
 }
 
 fn dimensions(bytes: &[u8]) -> Result<(&'static str, usize, usize), ClassificationError> {
-    if bytes.len() > policy::MAX_IMAGE_BYTES {
+    if bytes.len() > clasify_policy::MAX_IMAGE_BYTES {
         return Err(too_large("The image exceeds the per-image byte limit."));
     }
     let format = match imagesize::image_type(bytes) {
@@ -197,25 +184,25 @@ fn validate_dimensions(width: usize, height: usize) -> Result<(), Classification
     let bounds = || {
         format!(
             "Image width and height must each be {}..={} pixels, and image area {}..={} pixels; received {width}x{height}.",
-            policy::MIN_IMAGE_DIMENSION,
-            policy::MAX_IMAGE_DIMENSION,
-            policy::MIN_IMAGE_PIXELS,
-            policy::MAX_IMAGE_PIXELS,
+            clasify_policy::MIN_IMAGE_DIMENSION,
+            clasify_policy::MAX_IMAGE_DIMENSION,
+            clasify_policy::MIN_IMAGE_PIXELS,
+            clasify_policy::MAX_IMAGE_PIXELS,
         )
     };
     if width == 0 || height == 0 {
         return Err(invalid(&bounds()));
     }
     let pixels = width.checked_mul(height);
-    if width > policy::MAX_IMAGE_DIMENSION
-        || height > policy::MAX_IMAGE_DIMENSION
-        || pixels.is_none_or(|pixels| pixels > policy::MAX_IMAGE_PIXELS)
+    if width > clasify_policy::MAX_IMAGE_DIMENSION
+        || height > clasify_policy::MAX_IMAGE_DIMENSION
+        || pixels.is_none_or(|pixels| pixels > clasify_policy::MAX_IMAGE_PIXELS)
     {
         return Err(too_large(&bounds()));
     }
-    if width < policy::MIN_IMAGE_DIMENSION
-        || height < policy::MIN_IMAGE_DIMENSION
-        || pixels.is_some_and(|pixels| pixels < policy::MIN_IMAGE_PIXELS)
+    if width < clasify_policy::MIN_IMAGE_DIMENSION
+        || height < clasify_policy::MIN_IMAGE_DIMENSION
+        || pixels.is_some_and(|pixels| pixels < clasify_policy::MIN_IMAGE_PIXELS)
     {
         return Err(invalid(&bounds()));
     }
@@ -229,7 +216,7 @@ fn check(context: &ExecutionContext) -> Result<(), ClassificationError> {
         } else {
             (ErrorCode::Timeout, "Retry with more time.")
         };
-        failure(
+        ClassificationError::new(
             code,
             "The call stopped before the images were captured.",
             hint,
@@ -238,21 +225,21 @@ fn check(context: &ExecutionContext) -> Result<(), ClassificationError> {
 }
 
 fn invalid(message: &str) -> ClassificationError {
-    failure(
+    ClassificationError::new(
         ErrorCode::InvalidClassificationContext,
         message,
         "Reference an explicit PNG or JPEG image by its asset key.",
     )
 }
 fn too_large(message: &str) -> ClassificationError {
-    failure(
+    ClassificationError::new(
         ErrorCode::ClassificationContextTooLarge,
         message,
         "Use a smaller image or fewer assets; images are never resized or truncated silently.",
     )
 }
 fn read_failed() -> ClassificationError {
-    failure(
+    ClassificationError::new(
         ErrorCode::ClassificationContextFailed,
         "The image could not be read completely.",
         "Check the file path and permissions.",
@@ -351,22 +338,5 @@ mod tests {
                 ErrorCode::ClassificationContextTooLarge
             );
         }
-    }
-
-    #[test]
-    fn references_are_value_occurrences_including_criteria_not_property_names() {
-        assert!(referenced(
-            &json!({"criteria":{"yes":"a depicted item in opaque_asset_1"}}),
-            "opaque_asset_1"
-        ));
-        assert!(referenced(
-            &json!([{"image":"opaque_asset_1"}]),
-            "opaque_asset_1"
-        ));
-        assert!(!referenced(
-            &json!({"opaque_asset_1":"not a value reference"}),
-            "opaque_asset_1"
-        ));
-        assert!(!referenced(&json!(null), "opaque_asset_1"));
     }
 }

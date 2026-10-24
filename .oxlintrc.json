@@ -30,7 +30,6 @@
     "packages/octocode-benchmark/local/e2e/seeded/**",
     "packages/octocode-native/npm/**",
     "packages/octocode-native/target/**",
-    "skills/**",
     ".octocode/**",
     ".claude/**"
   ],
@@ -111,13 +110,10 @@
       "rules": { "no-console": "off" }
     },
     {
-      // chrome-devtools still compiles with strict:false; these two rules need strictNullChecks
-      // and report every file regardless of its code. Remove once the package turns strict on.
-      "files": ["packages/octocode-chrome-devtools/**"],
-      "rules": {
-        "typescript/no-unnecessary-boolean-literal-compare": "off",
-        "typescript/no-useless-default-assignment": "off"
-      }
+      // Data-format field names, not private members: corpus rows record their extract file in `_file`,
+      // and HAR 1.2 custom fields (Chrome's `_resourceType`, `_failed`) start with an underscore.
+      "files": ["skills/octocode-scraping/scripts/**"],
+      "rules": { "no-underscore-dangle": ["error", { "allow": ["_file", "_resourceType", "_failed"] }] }
     }
   ]
 }

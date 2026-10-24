@@ -19,20 +19,20 @@ async fn continuations_omit_default_view_fields() {
     .await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let base = serde_json::json!({"owner":"a","repo":"b","path":"big.txt","ref":sha});
-    let mut paged = base.clone();
-    paged["unit"] = "lines".into();
-    paged["length"] = 100.into();
-    let mut standard = paged.clone();
-    standard["minify"] = "standard".into();
-    let mut whole = base;
-    whole["fullContent"] = true.into();
-    for (query, minify) in [(paged, None), (standard, Some("standard")), (whole, None)] {
+    for view in ["content", "compact"] {
+        let mut query = base.clone();
+        query["view"] = json!(view);
         let result = read(&provider, query).await;
-        let next = result.file.next.clone().expect("continuation");
-        let page = &next["continueWindow"]["query"]["queries"][0];
-        assert!(page.get("fullContent").is_none(), "{next}");
-        assert_eq!(page.get("minify").and_then(Value::as_str), minify, "{next}");
-        assert_eq!(page["ref"], sha, "{next}");
+        let next = result.file.calls.expect("continuation");
+        let page = &next["continueWindow"]["input"]["queries"][0];
+        assert_eq!(page["view"], view);
+        assert_eq!(page["ref"], sha);
+        assert!(
+            page["readProgress"]["offset"]
+                .as_u64()
+                .is_some_and(|offset| offset > 0)
+        );
+        assert!(page.get("length").is_none());
     }
 }
 
@@ -57,10 +57,10 @@ async fn unsized_page_continuations_stay_unsized() {
     loop {
         let result = read(&provider, query.clone()).await;
         pages += 1;
-        let Some(next) = result.file.next.clone() else {
+        let Some(next) = result.file.calls.clone() else {
             break;
         };
-        let page = next["continueWindow"]["query"]["queries"][0].clone();
+        let page = next["continueWindow"]["input"]["queries"][0].clone();
         assert!(page.get("length").is_none(), "page {pages}: {next}");
         assert!(page.get("unit").is_none(), "page {pages}: {next}");
         assert!(pages < 100, "the chain never ends: {next}");
@@ -90,8 +90,7 @@ async fn the_shared_read_leaves_room_for_the_github_row_envelope() {
     .await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let query = |fields: Value| -> GhGetFileContentQuery {
-        let mut row = json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":sha,
-            "mainGoal":"test","reasoning":"test"});
+        let mut row = json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":sha});
         for (key, value) in fields.as_object().into_iter().flatten() {
             row[key] = value.clone();
         }
@@ -101,7 +100,7 @@ async fn the_shared_read_leaves_room_for_the_github_row_envelope() {
     let window = body.len() + envelope / 2;
     let whole = execute_default_regex(
         &provider,
-        &query(json!({"fullContent": true})),
+        &query(json!({})),
         &default_context(),
         Some(window),
     )
@@ -110,14 +109,14 @@ async fn the_shared_read_leaves_room_for_the_github_row_envelope() {
     assert!(
         whole
             .file
-            .next
+            .calls
             .as_ref()
             .is_some_and(|next| next.get("continueWindow").is_some()),
         "a whole file within the window but not its envelope pages: {:?}",
-        whole.file.next
+        whole.file.calls
     );
     // The envelope covers what the GitHub row adds to the shared read's row.
-    let page = query(json!({"unit":"lines","length":20}));
+    let page = query(json!({"ranges":[{"startLine":1,"endLine":20}]}));
     let github = execute_default_regex(&provider, &page, &default_context(), Some(1 << 20))
         .await
         .expect("line page");
@@ -164,7 +163,7 @@ async fn a_minified_comment_range_leads_to_the_read_as_is() {
     let read = run_default(
         &provider,
         serde_json::json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":sha,
-            "minify":"standard","ranges":["1-2"]}),
+            "view":"compact","ranges":[{"startLine": 1, "endLine": 2}]}),
     )
     .await
     .unwrap_or_else(|failure| panic!("{}", failure.message));
@@ -173,13 +172,22 @@ async fn a_minified_comment_range_leads_to_the_read_as_is() {
     assert!(
         data["hints"].as_array().is_some_and(|hints| hints
             .iter()
-            .any(|h| h.as_str().is_some_and(|h| h.contains("minify removed")))),
+            .any(|h| h.as_str().is_some_and(|h| h.contains("compact")))),
         "{data}"
     );
-    let row = &data["next"]["read"]["query"]["queries"][0];
-    assert_eq!(data["next"]["read"]["tool"], "ghGetFileContent", "{data}");
-    assert!(row.get("minify").is_none(), "{data}");
-    assert_eq!(row["ranges"], serde_json::json!(["1-2"]), "{data}");
+    let row = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| true)
+        ["input"]["queries"][0];
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| true)["tool"],
+        "ghGetFileContent",
+        "{data}"
+    );
+    assert_eq!(row["view"], "content");
+    assert_eq!(
+        row["ranges"],
+        json!([{"startLine":1,"endLine":2}]),
+        "{data}"
+    );
     assert_eq!(row["ref"], sha, "{data}");
     assert!(data["next"].get("findCode").is_none(), "{data}");
 }
@@ -208,8 +216,8 @@ async fn unknown_windows_fill_each_call_before_the_next() {
     .await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let query: GhGetFileContentQuery = serde_json::from_value(json!({
-        "owner":"a","repo":"b","path":"w.txt","ref":sha,"fullContent":true,
-        "clasifyContext":{"classifiers":["Is it kept?"]}
+        "owner":"a","repo":"b","path":"w.txt","ref":sha,
+        "classification":{"predicates":["Is it kept?"]}
     }))
     .expect("query");
     let judge = crate::tools::test_support::selection_fake::WordJudge { fail: None };
@@ -222,7 +230,7 @@ async fn unknown_windows_fill_each_call_before_the_next() {
     )
     .await
     .expect("read");
-    let next = result.file.next.expect("leads");
+    let next = result.file.calls.expect("leads");
     let per_call = crate::response::result::rows_per_call(crate::id::ToolId::GhGetFileContent);
     let batches = [
         "unfilteredUnknown",
@@ -231,7 +239,7 @@ async fn unknown_windows_fill_each_call_before_the_next() {
         "unfilteredUnknown4",
     ]
     .iter()
-    .filter_map(|name| next[*name]["query"]["queries"].as_array())
+    .filter_map(|name| next[*name]["input"]["queries"].as_array())
     .map(Vec::len)
     .collect::<Vec<_>>();
     let reads: usize = batches.iter().sum();

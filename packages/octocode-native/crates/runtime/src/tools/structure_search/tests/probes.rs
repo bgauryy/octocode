@@ -18,7 +18,7 @@ fn an_empty_listings_probe_stops_at_its_entry_cap() {
     for operation in ["files", "tree"] {
         let out = run(
             &root.0,
-            json!({"operation": operation, "path": root.0, "extensions": ["ts"]}),
+            json!({"operation": operation, "path": root.0, "extensions": ["ts"], "maxDepth":10}),
         )
         .expect("listing");
         assert_eq!(out["status"], "empty", "{out}");
@@ -28,7 +28,7 @@ fn an_empty_listings_probe_stops_at_its_entry_cap() {
             format!("At least {cap} entries behind skipped paths (build/)."),
             "{out}"
         );
-        let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
+        let retry = &related(&out, "structureSearch")["input"]["queries"][0];
         assert_eq!(retry["defaultExcludes"], false, "{out}");
         // The lead itself lists every one of them.
         let found = run(&root.0, retry.clone()).expect("retry");
@@ -54,7 +54,7 @@ fn an_empty_listing_diagnoses_every_skip_cause_from_one_probe_walk() {
         let before = super::super::listing::listing_walks();
         let out = run(
             &root.0,
-            json!({"operation": operation, "path": root.0, "extensions": ["ts"]}),
+            json!({"operation": operation, "path": root.0, "extensions": ["ts"], "maxDepth":10}),
         )
         .expect("listing");
         let walks = super::super::listing::listing_walks() - before;
@@ -64,7 +64,7 @@ fn an_empty_listing_diagnoses_every_skip_cause_from_one_probe_walk() {
             out["hints"][0], "2 entries behind skipped paths (hidden .notes/, build/).",
             "{operation}: {out}"
         );
-        let retry = &out["next"]["includeSkipped"]["query"]["queries"][0];
+        let retry = &related(&out, "structureSearch")["input"]["queries"][0];
         assert_eq!(retry["includeHidden"], true, "{out}");
         assert_eq!(retry["defaultExcludes"], false, "{out}");
         let found = run(&root.0, retry.clone()).expect("retry");
@@ -137,14 +137,19 @@ fn a_name_filter_miss_leads_to_the_listing_without_its_name_filters() {
     std::fs::create_dir_all(root.0.join("src/deep")).expect("dir");
     std::fs::write(root.0.join("src/deep/lib.rs"), "x\n").expect("file");
     for query in [
-        json!({"operation":"files","path":root.0,"nameRegex":"^nomatch$","entryType":"f"}),
-        json!({"operation":"tree","path":root.0,"include":["*.nomatch"]}),
+        json!({"operation":"files","path":root.0,"nameRegex":"^nomatch$","entryType": "file"}),
+        json!({"operation":"tree","path":root.0,"include":["*.nomatch"],"maxDepth":3}),
     ] {
         let out = run(&root.0, query.clone()).expect("empty listing");
         assert_eq!(out["status"], "empty", "{out}");
-        let lead = &out["next"]["broadenSearch"];
+        crate::tools::test_support::assert_row_contract(
+            crate::id::ToolId::StructureSearch,
+            &query,
+            &out,
+        );
+        let lead = &related(&out, "structureSearch");
         assert_eq!(lead["tool"], "structureSearch", "{out}");
-        let row = &lead["query"]["queries"][0];
+        let row = &lead["input"]["queries"][0];
         for field in ["nameRegex", "include", "extensions"] {
             assert!(row.get(field).is_none(), "{field}: {row}");
         }
@@ -171,5 +176,5 @@ fn a_name_filter_miss_leads_to_the_listing_without_its_name_filters() {
         json!({"operation":"files","path":empty,"nameRegex":"^nomatch$"}),
     )
     .expect("empty listing");
-    assert!(out["next"].get("broadenSearch").is_none(), "{out}");
+    assert!(related(&out, "structureSearch").is_null(), "{out}");
 }

@@ -2,7 +2,7 @@
 import { paginate } from './lib/pagination.mjs';
 import { fileURLToPath } from 'node:url';
 import { resolve, join } from 'node:path';
-import { readJson as readJsonFile, takeArg, requireSession } from './lib/bridge.mjs';
+import { readJson, takeArg, requireSession } from './lib/bridge.mjs';
 
 function usage(code = 2) {
   console.error('Usage: graph-navigate.mjs --session-dir <dir> [--from <nodeId>] [--kind <edgeKind>] [--workflow <type>] [--risk <risk>] [--limit <n>] [--view <list>] [--cursor-<list> <n>] [--dedupe]');
@@ -21,14 +21,14 @@ const workflow = take('--workflow');
 const risk = take('--risk');
 const dedupe = args.includes('--dedupe');
 const limit = Number(take('--limit') || 50);
-const graph = await readJsonFile(dir, 'graph/graph.json', { nodes: [], edges: [], totals: {} });
+const graph = await readJson(dir, 'graph/graph.json', { nodes: [], edges: [], totals: {} });
 const nodeById = new Map((graph.nodes || []).map((n) => [n.id, n]));
 let edges = graph.edges || [];
 if (from) edges = edges.filter((e) => e.from === from);
 if (kind) edges = edges.filter((e) => e.kind === kind);
 if (workflow) edges = edges.filter((e) => e.workflowType === workflow);
 if (risk) edges = edges.filter((e) => e.risk === risk);
-const sortedEdges = edges.sort((a, b) => (b.score || 0) - (a.score || 0));
+const sortedEdges = edges.toSorted((a, b) => (b.score || 0) - (a.score || 0));
 const selectedEdges = [];
 const seen = new Set();
 for (const edge of sortedEdges) {

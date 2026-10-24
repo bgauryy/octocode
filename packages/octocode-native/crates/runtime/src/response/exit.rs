@@ -28,9 +28,6 @@ impl ToolOutcome {
     pub fn exit_class(&self) -> ExitClass {
         let value = &self.structured_content;
         let rows: &[Value] = value["results"].as_array().map_or(&[], Vec::as_slice);
-        if let Some(class) = clasify_failure(value, self.failure) {
-            return class;
-        }
         if self.all_failed {
             // A rejected row ends the call as rejected input, as in a batch
             // where other rows answered.
@@ -78,46 +75,6 @@ impl ExitClass {
             _ => Self::Failed(failure_kind(code)),
         }
     }
-}
-
-/// Classification rows use their own error envelope. Apply the same worst-row
-/// precedence to mixed and all-failed batches: input rejection first, then a
-/// shared failure kind, otherwise execution failure.
-fn clasify_failure(value: &Value, failure: Option<FailureKind>) -> Option<ExitClass> {
-    let queries = value["queries"].as_array().filter(|q| !q.is_empty())?;
-    let codes: Vec<Option<ErrorCode>> = queries.iter().filter_map(error_code).collect();
-    if codes.is_empty() {
-        return None;
-    }
-    Some(
-        if codes
-            .iter()
-            .flatten()
-            .any(|code| error_codes::class(*code) == ErrorClass::InvalidInput)
-        {
-            ExitClass::InvalidInput
-        } else if let Some(failure) = failure {
-            ExitClass::Failed(failure)
-        } else {
-            ExitClass::Failed(
-                shared_failure(
-                    codes
-                        .into_iter()
-                        .map(|code| code.map_or(FailureKind::Execution, failure_kind)),
-                )
-                .unwrap_or(FailureKind::Execution),
-            )
-        },
-    )
-}
-
-/// A clasify row's `error.errorCode`: `Some(None)` for an undeclared one,
-/// which the output contract already rejects (an execution failure).
-fn error_code(value: &Value) -> Option<Option<ErrorCode>> {
-    value
-        .pointer("/error/errorCode")
-        .and_then(Value::as_str)
-        .map(error_codes::parse)
 }
 
 /// An error row whose `errorCode` rejects the caller's input.

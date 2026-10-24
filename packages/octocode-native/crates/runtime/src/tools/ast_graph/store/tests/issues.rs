@@ -238,7 +238,7 @@ fn issues_take_explicit_entrypoints_in_place_of_the_inferred_ones() {
         "{next:?}"
     );
     let missing = ask(root, "issues", None, |o| {
-        o.entries = vec!["src/nope.ts".into()]
+        o.entries = vec!["src/nope.ts".into()];
     });
     assert_eq!(
         missing.class,

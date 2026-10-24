@@ -9,7 +9,7 @@ The packaged acceptance test deletes only its unique fictional OS-store hostname
 
 | Flow | Test location | Check |
 |---|---|---|
-| Process, workspace, global `.env` | `src/config/mod.rs`; `packages/octocode-config/tests/dotenv-fallback.test.ts` | Source precedence across aliases, blank fallback, classification opt-out, bootstrap protection, redaction |
+| Process, workspace, global `.env` | `src/config.rs`; `packages/octocode-config/tests/dotenv-fallback.test.ts` | Source precedence across aliases, blank fallback, classification opt-out, bootstrap protection, redaction |
 | Outgoing credential selection through CLI/MCP | `packages/octocode-config/tests/token-precedence.acceptance.mjs` | Synthetic GitHub token names and the classification key reach a loopback provider from the winning source |
 | Explicit token and host selection | `auth/resolver/tests.rs` | Override wins; environment token is host-scoped; no storage or subprocess work when environment wins |
 | Stored credential selection | `auth/resolver/tests.rs`; `auth/credential_store.rs` | Home wins over OS store; OS compatibility fallback remains; read-only inspection does not refresh |
@@ -27,7 +27,7 @@ The packaged acceptance test deletes only its unique fictional OS-store hostname
 | Packaged interfaces | `packages/octocode-native/tests/auth-home.acceptance.mjs` | Native reads a Node-written home and Node decrypts the native rewrite; CLI, N-API `executeMcp`, stdio MCP; explicit home isolation; home logout and OS-delete failure reporting; corrupt-home gh fallback |
 
 Paths without a package prefix are relative to
-`crates/runtime/src/providers/github`, except `src/config/mod.rs` and `tests/`,
+`crates/runtime/src/providers/github`, except `src/config.rs` and `tests/`,
 which are relative to `crates/runtime` and `crates/cli`, respectively.
 
 ## Run

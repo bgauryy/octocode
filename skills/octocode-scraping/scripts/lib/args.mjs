@@ -16,11 +16,12 @@ export function workspaceRootFor(cwd) {
 
 export const MODE_ENDPOINT = { html: 'general', markdown: 'markdown', extended: 'extended', extract: 'extract' };
 
-export function createArgParser(args) {
-  const usage = (exitCode = 2) => {
+function usage(exitCode = 2) {
     console.error(`Usage: fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--sitemap] [--span-hosts] [--delay-ms <n>]] [--allow-private-host] [--session <id> [--append]] [--out <dir>] [--browser] [--wait-for <selector>] [--proxy-type <type>] [--proxy-country <cc>] [--block-resource <type>]... [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--param k=v]... [--cdp-port <n>] [--cdp-wait-ms <n>] [--wait-text <text>] [--cdp-stealth|--no-cdp-stealth]\nLinks are always extracted. A crawl stays on the --url host unless --span-hosts is passed. Private, local, and link-local hosts are refused, including crawled links, redirects, and browser requests; --allow-private-host exempts only the --url origin (a local dev server). Tests only: --mock-status <n> --mock-body-file <file> [--mock-content-type <type>] [--mock-credit-cost <n>]\nDefault output: .octocode/octocode-scraping/tmp/<sessionId>\n`);
     process.exit(exitCode);
-  };
+}
+
+export function createArgParser(args) {
   const take = (flag) => {
     const i = args.indexOf(flag);
     if (i === -1) return undefined;
@@ -69,18 +70,15 @@ const VALUE_FLAGS = new Set(['--url', '--mode', '--provider', '--extract-propert
   '--mock-status', '--mock-body-file', '--mock-content-type', '--mock-credit-cost', '--cdp-port', '--wait-text']);
 const BOOLEAN_FLAGS = new Set(['--crawl', '--span-hosts', '--allow-private-host', '--sitemap', '--append', '--no-raw', '--browser', '--cdp-stealth', '--no-cdp-stealth']);
 
-export function parseConfig(args) {
-  const parser = createArgParser(args);
-  const { take, has, allRepeated, usage } = parser;
-  if (has('--help') || has('-h')) usage(0);
-  // A mistyped flag would otherwise be ignored and the fetch would run with defaults.
+// A mistyped flag would otherwise be ignored and the fetch would run with defaults.
+function rejectUnknownFlags(args) {
   for (let i = 0; i < args.length; i += 1) {
     if (VALUE_FLAGS.has(args[i])) i += 1;
     else if (!BOOLEAN_FLAGS.has(args[i])) throw new Error(`Unknown option: ${args[i]} (see fetch.mjs --help)`);
   }
-  const targetUrl = take('--url');
-  if (!targetUrl) usage(2);
-  new URL(targetUrl);
+}
+
+function readMode(take) {
   const mode = take('--mode') || 'html';
   if (!MODE_ENDPOINT[mode]) throw new Error('--mode must be html, markdown, extended, or extract');
   const provider = take('--provider') || 'auto';
@@ -93,18 +91,33 @@ export function parseConfig(args) {
   }
   const extractProperties = take('--extract-properties');
   if (mode === 'extract' && !extractProperties) throw new Error('--mode extract requires --extract-properties');
+  return { mode, provider, providerDescriptor, extractProperties };
+}
+
+function readCrawl(take, has) {
   const crawl = has('--crawl');
   const maxPages = Number(take('--max-pages') || (crawl ? NaN : 1));
   if (!Number.isSafeInteger(maxPages) || maxPages < 1) throw new Error('--crawl requires --max-pages <n>');
+  return { crawl, maxPages };
+}
+
+const atLeast = (value, min) => Number.isSafeInteger(value) && value >= min;
+
+function readLimits(take, has) {
+  const { crawl, maxPages } = readCrawl(take, has);
   const delayMs = Number(take('--delay-ms') || 2000);
   const maxRawBytes = Number(take('--max-raw-bytes') || 1_000_000);
   const maxTextBytes = Number(take('--max-text-bytes') || 250_000);
   const chunkBytes = Number(take('--chunk-bytes') || 50_000);
-  if (!Number.isSafeInteger(maxRawBytes) || maxRawBytes < 0) throw new Error('--max-raw-bytes must be a non-negative number');
-  if (!Number.isSafeInteger(maxTextBytes) || maxTextBytes < 4) throw new Error('--max-text-bytes must be an integer >= 4');
-  if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1_000) throw new Error('--chunk-bytes must be a number >= 1000');
-  if (!Number.isSafeInteger(delayMs) || delayMs < 0) throw new Error('--delay-ms must be a non-negative integer');
-  if (take('--cdp-wait-ms') && (!Number.isSafeInteger(Number(take('--cdp-wait-ms'))) || Number(take('--cdp-wait-ms')) < 1)) throw new Error('--cdp-wait-ms must be a positive integer');
+  if (!atLeast(maxRawBytes, 0)) throw new Error('--max-raw-bytes must be a non-negative number');
+  if (!atLeast(maxTextBytes, 4)) throw new Error('--max-text-bytes must be an integer >= 4');
+  if (!atLeast(chunkBytes, 1_000)) throw new Error('--chunk-bytes must be a number >= 1000');
+  if (!atLeast(delayMs, 0)) throw new Error('--delay-ms must be a non-negative integer');
+  if (take('--cdp-wait-ms') && !atLeast(Number(take('--cdp-wait-ms')), 1)) throw new Error('--cdp-wait-ms must be a positive integer');
+  return { crawl, maxPages, delayMs, maxRawBytes, maxTextBytes, chunkBytes };
+}
+
+function readOutBase(take) {
   const workspaceRoot = workspaceRootFor(process.cwd());
   const workspaceOutputBase = join(workspaceRoot, '.octocode');
   const outBase = take('--out') ? resolve(take('--out')) : join(workspaceRoot, '.octocode', 'octocode-scraping', 'tmp');
@@ -112,29 +125,12 @@ export function parseConfig(args) {
   if (outRelative.startsWith('..') || isAbsolute(outRelative)) {
     throw new Error(`--out must stay under ${workspaceOutputBase}`);
   }
+  return outBase;
+}
+
+// Browser, proxy, test-mock, and CDP options: passed through as given.
+function passThroughOptions({ take, has, allRepeated }) {
   return {
-    targetUrl,
-    mode,
-    endpoint: MODE_ENDPOINT[mode],
-    provider,
-    apiKeyEnv: providerDescriptor?.apiKeyEnv ?? null,
-    requiresApiKey: providerDescriptor?.requiresApiKey ?? false,
-    extractProperties,
-    crawl,
-    maxPages,
-    delayMs,
-    // Crawls stay on the --url host by default; --span-hosts follows links to other public hosts.
-    spanHosts: has('--span-hosts'),
-    // Only the --url origin is exempt; crawled links and redirects to other private hosts stay refused.
-    privateOrigin: has('--allow-private-host') ? new URL(targetUrl).origin : null,
-    sitemap: has('--sitemap'),
-    outBase,
-    sessionId: safeSessionId(take('--session'), targetUrl),
-    append: has('--append'),
-    maxRawBytes,
-    maxTextBytes,
-    chunkBytes,
-    noRaw: has('--no-raw'),
     browser: has('--browser'),
     waitFor: take('--wait-for') || null,
     proxyType: take('--proxy-type') || null,
@@ -149,5 +145,44 @@ export function parseConfig(args) {
     cdpWaitMs: take('--cdp-wait-ms') ? Number(take('--cdp-wait-ms')) : undefined,
     waitText: take('--wait-text') || null,
     cdpStealth: has('--cdp-stealth') && !has('--no-cdp-stealth'),
+  };
+}
+
+export function parseConfig(args) {
+  const parser = createArgParser(args);
+  const { take, has } = parser;
+  if (has('--help') || has('-h')) usage(0);
+  rejectUnknownFlags(args);
+  const targetUrl = take('--url');
+  if (!targetUrl) usage(2);
+  const target = new URL(targetUrl);
+  const { mode, provider, providerDescriptor, extractProperties } = readMode(take);
+  const { crawl, maxPages, delayMs, maxRawBytes, maxTextBytes, chunkBytes } = readLimits(take, has);
+  const outBase = readOutBase(take);
+  const sessionId = safeSessionId(take('--session'), targetUrl);
+  return {
+    targetUrl,
+    mode,
+    endpoint: MODE_ENDPOINT[mode],
+    provider,
+    apiKeyEnv: providerDescriptor?.apiKeyEnv ?? null,
+    requiresApiKey: providerDescriptor?.requiresApiKey ?? false,
+    extractProperties,
+    crawl,
+    maxPages,
+    delayMs,
+    // Crawls stay on the --url host by default; --span-hosts follows links to other public hosts.
+    spanHosts: has('--span-hosts'),
+    // Only the --url origin is exempt; crawled links and redirects to other private hosts stay refused.
+    privateOrigin: has('--allow-private-host') ? target.origin : null,
+    sitemap: has('--sitemap'),
+    outBase,
+    sessionId,
+    append: has('--append'),
+    maxRawBytes,
+    maxTextBytes,
+    chunkBytes,
+    noRaw: has('--no-raw'),
+    ...passThroughOptions(parser),
   };
 }

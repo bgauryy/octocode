@@ -44,7 +44,7 @@ fn impact_since_reads_git_and_widens_on_config_changes() {
     )
     .expect("edit");
     let out = ask(dir.0.as_path(), "impact", None, |o| {
-        o.since = Some("HEAD".into())
+        o.since = Some("HEAD".into());
     });
     let files = impacted(&out);
     assert!(files.contains(&("src/fmt.ts".into(), 0)), "{}", out.value);
@@ -57,7 +57,7 @@ fn impact_since_reads_git_and_widens_on_config_changes() {
     )
     .expect("manifest");
     let widened = ask(dir.0.as_path(), "impact", None, |o| {
-        o.since = Some("HEAD".into())
+        o.since = Some("HEAD".into());
     });
     assert!(
         widened.value["summary"]["configChanges"][0]["file"] == "package.json",
@@ -113,7 +113,7 @@ fn impact_since_does_not_run_repository_fsmonitor_hooks() {
     )
     .expect("edit");
     let out = ask(dir.0.as_path(), "impact", None, |o| {
-        o.since = Some("HEAD".into())
+        o.since = Some("HEAD".into());
     });
     assert!(
         impacted(&out).contains(&("src/fmt.ts".into(), 0)),
@@ -148,7 +148,7 @@ fn impact_since_with_no_changes_is_empty() {
         ExitClass::Success
     );
     let out = ask(dir.0.as_path(), "impact", None, |o| {
-        o.since = Some("HEAD".into())
+        o.since = Some("HEAD".into());
     });
     assert_eq!(out.class, ExitClass::Empty, "{}", out.value);
     assert_eq!(out.value["total"], 0, "{}", out.value);

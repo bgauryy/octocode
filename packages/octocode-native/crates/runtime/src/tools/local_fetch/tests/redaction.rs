@@ -9,11 +9,9 @@ fn redacted_chunk_and_range_reads_keep_their_source_anchor() {
     fs::write(&p, numbered(30).replace("l12\n", "l12 SECRET\n")).expect("fixture");
     let paths = Paths(t.0.clone());
     let mut chunk = q(&p);
-    chunk.unit = Some(WindowUnit::Lines);
-    chunk.offset = Some(wire_count(10));
-    chunk.length = wire_positive(5);
+    local_fetch_query::set_line_span(&mut chunk, 11, 15).expect("range");
     let mut range = q(&p);
-    local_fetch_query::set_line_span(&mut range, 11, 13);
+    local_fetch_query::set_line_span(&mut range, 11, 13).expect("range");
     for (req, expected) in [(chunk, (11, 15)), (range, (11, 13))] {
         let r = fetch(&req, &paths);
         assert!(
@@ -47,8 +45,11 @@ fn a_partial_match_names_the_redacted_lines_it_could_not_see() {
     fs::write(&p, "CRE one\nvalue SECRET\nlast\n").expect("fixture");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some(MatchString::String("CRE".parse().expect("match string")));
-    req.context_lines = Some(0);
+    amend(&mut req, serde_json::json!({"matchString":["CRE"]}));
+    amend(
+        &mut req,
+        serde_json::json!({"contextLines":{"before":0,"after":0}}),
+    );
     let r = fetch(&req, &paths);
     assert_eq!(r.content.as_deref(), Some("CRE one\n"));
     assert!(
@@ -82,9 +83,12 @@ fn redacted_context_lines_are_not_counted_outside_the_result() {
             .collect::<Vec<_>>()
     };
     let mut req = q(&p);
-    req.match_string = Some(MatchString::String("CRE".parse().expect("match string")));
+    amend(&mut req, serde_json::json!({"matchString":["CRE"]}));
     // Line 2 is context of the first hit; line 13 lies outside the result.
-    req.context_lines = Some(1);
+    amend(
+        &mut req,
+        serde_json::json!({"contextLines":{"before":1,"after":1}}),
+    );
     let first = fetch(&req, &paths);
     assert_eq!(
         outside(&first),
@@ -93,12 +97,17 @@ fn redacted_context_lines_are_not_counted_outside_the_result() {
         first.warnings
     );
     // Both redacted lines shown as context: nothing lies outside.
-    req.context_lines = Some(4);
+    amend(
+        &mut req,
+        serde_json::json!({"contextLines":{"before":4,"after":4}}),
+    );
     assert_eq!(outside(&fetch(&req, &paths)), Vec::<String>::new());
     // A later page of the same read does not repeat the count.
-    req.context_lines = Some(1);
-    req.length = wire_positive(2);
-    let page = fetch(&req, &paths);
+    amend(
+        &mut req,
+        serde_json::json!({"contextLines":{"before":1,"after":1}}),
+    );
+    let page = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(26), None);
     assert_eq!(outside(&page).len(), 1, "{:?}", page.warnings);
     let next = page
         .next
@@ -121,8 +130,11 @@ fn ranges_matches_redaction_and_binary() {
     fs::write(&p, "zero\nneedle SECRET\nlast\n").expect("test fixture operation should succeed");
     let paths = Paths(t.0.clone());
     let mut req = q(&p);
-    req.match_string = Some(MatchString::String("needle".parse().expect("match string")));
-    req.context_lines = Some(0);
+    amend(&mut req, serde_json::json!({"matchString":["needle"]}));
+    amend(
+        &mut req,
+        serde_json::json!({"contextLines":{"before":0,"after":0}}),
+    );
     let r = fetch(&req, &paths);
     let expected_hash = hex::encode(sha2::Sha256::digest(b"zero\nneedle SECRET\nlast\n"));
     assert_eq!(r.source_sha256.as_deref(), Some(expected_hash.as_str()));
@@ -143,7 +155,7 @@ fn ranges_matches_redaction_and_binary() {
     assert_eq!(
         fetch(&q(&bin), &paths).error_code,
         Some(ErrorCode::BinaryFileUnsupported)
-    )
+    );
 }
 
 /// Only placeholders this read introduced count: literal `[REDACTED…]` text
@@ -163,10 +175,19 @@ fn literal_placeholder_text_is_not_counted_as_a_redaction() {
             .find(|warning| warning.starts_with("redactedContent"))
             .cloned()
     };
-    let head = fetch(&qj(&p, serde_json::json!({"ranges": ["1-3"]})), &paths);
+    let head = fetch(
+        &qj(
+            &p,
+            serde_json::json!({"ranges":[{"startLine":1,"endLine":3}]}),
+        ),
+        &paths,
+    );
     assert_eq!(redacted(&head.warnings), None, "{:?}", head.warnings);
     let both = fetch(
-        &qj(&p, serde_json::json!({"ranges": ["1-1", "2002-2002"]})),
+        &qj(
+            &p,
+            serde_json::json!({"ranges":[{"startLine":1,"endLine":1}, {"startLine":2002,"endLine":2002}]}),
+        ),
         &paths,
     );
     let warning = redacted(&both.warnings).expect("the real redaction is named");
@@ -176,7 +197,7 @@ fn literal_placeholder_text_is_not_counted_as_a_redaction() {
     let matched = fetch(
         &qj(
             &p,
-            serde_json::json!({"matchString": "shown", "contextLines": 0}),
+            serde_json::json!({"matchString": ["shown"], "contextLines":{"before":0,"after":0}}),
         ),
         &paths,
     );

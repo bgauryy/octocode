@@ -7,10 +7,11 @@ use super::graphql::{
 use super::pr_finish::finish_pr;
 use super::text::needle;
 use super::util::str_at;
-use super::{HistoryItemRequest, Section, validation};
+use super::{HistoryItemRequest, validation};
 use crate::response::result::ToolData;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
-use load::{load_inline, load_pr};
+use crate::tools::gh_get_history_item::sections::Section;
+use load::{InlineWindow, load_inline, load_pr};
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
 use shape::shape_pr;
@@ -38,9 +39,12 @@ pub(super) async fn pull_request(
                 fast_path(transport, query, context),
                 load_inline(transport, query, context, &plan, None),
             )?;
-            (fast, Some(inline))
+            (fast, InlineWindow::Prefetched(inline))
         } else {
-            (fast_path(transport, query, context).await?, None)
+            (
+                fast_path(transport, query, context).await?,
+                InlineWindow::Pending,
+            )
         };
     let loads = load_pr(
         transport,
@@ -80,14 +84,14 @@ pub(super) async fn pull_request(
 fn pin_head_pages(value: &mut Value, head: &str, number: u64) {
     match value {
         Value::Object(object) => {
-            if let Some(Value::Object(next)) = object.get_mut("next") {
+            if let Some(Value::Object(next)) = object.get_mut("calls") {
                 let tool = crate::id::ToolId::GhGetHistoryItem;
-                for (name, page) in next.iter_mut() {
-                    if !crate::id::is_remaining(tool, name) || page["tool"] != tool.as_str() {
+                for page in next.values_mut() {
+                    if page["kind"] != "continue" || page["tool"] != tool.as_str() {
                         continue;
                     }
                     let rows = page
-                        .pointer_mut("/query/queries")
+                        .pointer_mut("/input/queries")
                         .and_then(Value::as_array_mut)
                         .into_iter()
                         .flatten();
@@ -99,7 +103,7 @@ fn pin_head_pages(value: &mut Value, head: &str, number: u64) {
                 }
             }
             for (key, child) in object.iter_mut() {
-                if key != "next" && key != "hints" {
+                if key != "calls" && key != "hints" {
                     pin_head_pages(child, head, number);
                 }
             }
@@ -135,7 +139,7 @@ async fn fast_path(
 /// What a pull-request read selects: the literal and the file scope.
 pub(super) struct PrPlan {
     number: String,
-    pub(super) needle: Option<String>,
+    pub(super) needle: Option<std::sync::Arc<super::matcher::Matcher>>,
     pub(super) scope: Option<FileScope>,
 }
 

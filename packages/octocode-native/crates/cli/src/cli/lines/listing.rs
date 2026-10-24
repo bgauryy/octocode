@@ -31,7 +31,8 @@ pub(super) fn listing(
     if asked["operation"].as_str() != Some("files") {
         return None;
     }
-    let sized = asked["sort"].as_str() == Some("size") || asked.get("size").is_some();
+    let sized =
+        asked["sort"]["by"].as_str() == Some("sizeBytes") || asked.get("sizeBytes").is_some();
     let row = single_row(structured)?;
     let data = row.get("data")?.as_object()?;
     let mut out = Vec::new();
@@ -89,26 +90,21 @@ pub(super) fn entry_fields(entry: &str) -> (&str, Vec<&str>) {
 }
 
 /// `path:line: kind name` per declaration, members indented under their
-/// parent, as the outline nests them. A member takes its parent's `shared`
-/// fields. Span, doc comment and other fields follow in `[ … ]`.
+/// parent, as the outline nests them. Span, doc comments and other fields follow.
 pub(super) fn declarations(
     path: &str,
     symbols: &[Value],
-    shared: Option<&Map<String, Value>>,
+    nested: bool,
     out: &mut Vec<String>,
 ) -> Option<()> {
-    let indent = if shared.is_some() { "  " } else { "" };
+    let indent = if nested { "  " } else { "" };
     for symbol in symbols {
         let mut symbol = symbol.as_object()?.clone();
-        for (key, value) in shared.into_iter().flatten() {
-            symbol.entry(key.clone()).or_insert_with(|| value.clone());
-        }
         let line = symbol.shift_remove("line")?.as_u64()?;
         let name = symbol.shift_remove("symbolName")?;
         let kind = symbol.shift_remove("kind");
         let kind = kind.as_ref().and_then(Value::as_str).unwrap_or("symbol");
         let members = symbol.shift_remove("members");
-        let own_shared = symbol.shift_remove("shared");
         let mut note = Vec::new();
         if let Some(end) = symbol.shift_remove("endLine").and_then(|end| end.as_u64()) {
             note.push(format!("{line}-{end}"));
@@ -141,8 +137,7 @@ pub(super) fn declarations(
         }
         out.push(entry);
         if let Some(Value::Array(members)) = members {
-            let own_shared = own_shared.as_ref().and_then(Value::as_object);
-            declarations(path, &members, Some(own_shared.unwrap_or(&Map::new())), out)?;
+            declarations(path, &members, true, out)?;
         }
     }
     Some(())
@@ -194,7 +189,7 @@ pub(super) fn locations(
                 entry.insert("column".into(), column.clone());
             }
             entry.append(&mut item);
-            declarations(&path, &[Value::Object(entry)], None, out)?;
+            declarations(&path, &[Value::Object(entry)], false, out)?;
             continue;
         };
         let content = content.as_str()?.trim_end_matches('\n');

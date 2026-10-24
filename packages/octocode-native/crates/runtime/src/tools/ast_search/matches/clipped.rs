@@ -4,45 +4,23 @@ use super::types::{Group, Scope};
 use crate::id::ToolId;
 use serde_json::{Value, json};
 
-/// One `expandValues` lead whose rows read each file's clipped lines, within
-/// localFetch's batch limit; a warning names every range left out.
+/// Complete expansion calls, split only at localFetch's batch limit.
 pub(super) fn read_clipped_lines(scope: &Scope, out: &mut Value, page_groups: &[Group]) {
     let limit = crate::response::result::rows_per_call(ToolId::LocalFetch);
-    let (mut rows, mut left) = (Vec::new(), Vec::new());
-    for group in page_groups {
-        let Some(reads) = read_clipped_values(scope, group) else {
-            continue;
+    let rows = page_groups
+        .iter()
+        .filter_map(|group| read_clipped_values(scope, group))
+        .flat_map(|read| read.rows)
+        .collect::<Vec<_>>();
+    for (index, batch) in rows.chunks(limit).enumerate() {
+        let name = if index == 0 {
+            "expandValues".to_owned()
+        } else {
+            format!("expandValues{}", index + 1)
         };
-        let shown = group.row["path"].as_str().unwrap_or_default();
-        for row in reads.rows {
-            if rows.len() < limit {
-                rows.push(row);
-            } else {
-                left.push(format!("{shown} {}", ranges_text(&row["ranges"])));
-            }
-        }
-        if !reads.long.is_empty() {
-            let long = reads
-                .long
-                .iter()
-                .map(|(start, end)| format!("{start}-{end}"))
-                .collect::<Vec<_>>();
-            left.push(format!("{shown} {}", long.join(", ")));
-        }
-    }
-    if !left.is_empty() {
-        crate::response::paging::push_warnings(
-            out,
-            [format!(
-                "Clipped values past this page's read batch (read them with localFetch): {}.",
-                left.join("; ")
-            )],
-        );
-    }
-    if !rows.is_empty() {
-        out["next"]["expandValues"] = crate::response::result::Continuation::input(
+        out["calls"][name] = crate::response::result::Continuation::continued_input(
             ToolId::LocalFetch,
-            json!({ "queries": rows }),
+            json!({"queries":batch}),
         )
         .build();
     }
@@ -69,48 +47,24 @@ pub(super) fn row_file(scope: &Scope, row: &Value) -> Option<std::path::PathBuf>
     })
 }
 
-/// One file's clipped rows: localFetch rows reading their merged line
-/// spans, at most
-/// [`RANGES_MAX_ITEMS`](crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS)
-/// per row, and the spans longer than [`READ_MAX_SPAN`] lines (a whole
-/// file's match) left out: whole, they would put the file on the page.
+/// Every clipped source span, grouped into valid reader requests.
 pub(super) struct ClippedReads {
     pub(super) rows: Vec<Value>,
-    pub(super) long: Vec<(u64, u64)>,
 }
 
 pub(super) fn read_clipped_values(scope: &Scope, group: &Group) -> Option<ClippedReads> {
     let file = row_file(scope, &group.row).filter(|_| !group.clipped.is_empty())?;
-    let (short, long): (Vec<_>, Vec<_>) = group
-        .clipped
-        .iter()
-        .copied()
-        .partition(|(start, end)| end.saturating_sub(*start) < READ_MAX_SPAN);
-    let rows = crate::tools::line_spans::merge_spans(short)
+    let rows = crate::tools::line_spans::merge_spans(group.clipped.iter().copied())
         .chunks(crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS)
         .map(|chunk| {
             let ranges = chunk
                 .iter()
-                .map(|(start, end)| format!("{start}-{end}"))
+                .map(|(start, end)| json!({"startLine":start,"endLine":end}))
                 .collect::<Vec<_>>();
             json!({"path": file.to_string_lossy(), "ranges": ranges})
         })
         .collect();
-    Some(ClippedReads {
-        rows,
-        long: crate::tools::line_spans::merge_spans(long),
-    })
-}
-
-/// A read row's `ranges` as `a-b, c-d`.
-pub(super) fn ranges_text(ranges: &Value) -> String {
-    ranges
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>()
-        .join(", ")
+    Some(ClippedReads { rows })
 }
 
 /// The natural next step after a match: read the top file's hit lines in
@@ -137,13 +91,58 @@ pub(super) fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
     }
     let ranges = windows
         .iter()
-        .map(|(start, end)| format!("{start}-{end}"))
+        .map(|(start, end)| json!({"startLine":start,"endLine":end}))
         .collect::<Vec<_>>();
     Some(
-        crate::response::result::Continuation::new(
+        crate::response::result::Continuation::related(
             ToolId::LocalFetch,
             json!({"path": file.to_string_lossy(), "ranges": ranges}),
         )
         .build(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clipped_reads_keep_long_spans_and_every_batch() {
+        let scope = Scope {
+            canonical: std::path::PathBuf::from("/workspace/source"),
+            is_file: false,
+            language: None,
+            inferred: None,
+            extensions: None,
+            parsers: Default::default(),
+        };
+        let count = crate::response::result::rows_per_call(ToolId::LocalFetch) + 2;
+        let groups = (0..count)
+            .map(|index| Group {
+                row: json!({"path":format!("/workspace/source/{index}.rs")}),
+                chars: 0,
+                out_of_range: false,
+                more_matches: false,
+                truncated_captures: false,
+                clipped: vec![(10, 1_000)],
+                priced: None,
+            })
+            .collect::<Vec<_>>();
+        let mut out = json!({});
+        read_clipped_lines(&scope, &mut out, &groups);
+        let calls = out["calls"].as_object().expect("expansion calls");
+        assert_eq!(calls.len(), 2);
+        let mut paths = std::collections::BTreeSet::new();
+        for call in calls.values() {
+            assert_eq!(call["kind"], "continue");
+            assert_eq!(call["tool"], "localFetch");
+            for row in call["input"]["queries"].as_array().expect("reader rows") {
+                assert_eq!(row["ranges"], json!([{"startLine":10,"endLine":1_000}]));
+                let _: octocode_contract_types::LocalFetchQuery =
+                    serde_json::from_value(row.clone()).expect("canonical reader request");
+                assert!(paths.insert(row["path"].as_str().expect("path").to_owned()));
+            }
+        }
+        assert_eq!(paths.len(), count);
+    }
 }

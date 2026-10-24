@@ -18,7 +18,7 @@ fn test_context(timeout: Duration) -> ExecutionContext {
 fn session() -> Session {
     Session {
         id: "a".repeat(64),
-        query_id: "research".into(),
+        context: None,
         questions: json!({"a":{"type":"noul","instructions":"a"},"b":{"type":"noul","instructions":"b"}}),
         keys: vec!["a".into(), "b".into()],
         model: Some("jev-1.13.0".into()),
@@ -167,9 +167,12 @@ fn assessment_locks_exclude_the_same_plan_but_not_an_independent_plan() {
 /// A failed read's own leads follow its hints by name, as the hint
 /// lines a failed row publishes.
 #[test]
-fn an_error_keeps_its_leads_as_hint_lines() {
-    let lead =
-        json!({"tool":"structureSearch","query":{"queries":[{"operation":"tree","path":"src"}]}});
+fn an_error_preserves_executable_recovery_and_prose_separately() {
+    let lead = crate::response::result::Continuation::related(
+        crate::id::ToolId::StructureSearch,
+        json!({"operation":"tree","path":"src"}),
+    )
+    .build();
     let mut error = ClassificationError::with_hints(
         ErrorCode::PathNotFound,
         "Path does not exist: nope.rs",
@@ -179,15 +182,10 @@ fn an_error_keeps_its_leads_as_hint_lines() {
         error_value(&error),
         json!({"errorCode":"pathNotFound","error":"Path does not exist: nope.rs"})
     );
-    error.leads.push(("viewTree".into(), lead));
+    error.leads.push(("viewTree".into(), lead.clone()));
     error.hints.push("Check the spelling.".into());
-    assert_eq!(
-        error_value(&error)["hints"],
-        json!([
-            "Check the spelling.",
-            "viewTree: structureSearch {\"queries\":[{\"operation\":\"tree\",\"path\":\"src\"}]}"
-        ])
-    );
+    assert_eq!(error_value(&error)["hints"], json!(["Check the spelling."]));
+    assert_eq!(error_value(&error)["related"], json!([lead]));
 }
 
 #[test]
@@ -201,17 +199,6 @@ fn work_token_is_bounded_and_does_not_accept_arbitrary_plan_keys() {
     assert_eq!(decode(&value), Some((id.as_str(), usize::MAX)));
     assert!(decode("sections-v1:../other:0").is_none());
     assert!(decode(&format!("sections-v1:{}:no", id)).is_none());
-}
-
-/// A malformed token is the caller's copy, not a storage problem.
-#[test]
-fn a_malformed_token_says_to_copy_the_continuation_not_to_change_storage() {
-    let error = bad_token("malformed");
-    assert_eq!(
-        error.hints,
-        ["Copy nextSectionPage unchanged, or start a fresh sections request."]
-    );
-    assert!(!error.hints[0].contains("persistent storage"));
 }
 
 #[test]

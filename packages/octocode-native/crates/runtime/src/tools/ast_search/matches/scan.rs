@@ -2,9 +2,8 @@
 use super::continuations::tree_repair;
 use super::query::MatchQuery;
 use super::rows::{diagnostic_error, error_diagnostic, match_display_path};
-use super::scope::structural_extensions;
 use super::snapshot::directory_source_digest;
-use super::types::{NamedFiles, Scan, ScannedFile, Scope};
+use super::types::{Scan, ScannedFile, Scope};
 use super::{demand, match_price};
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
@@ -16,6 +15,10 @@ use octocode_engine::structural::{
     FileMatches, StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
 };
 
+mod walk_log;
+
+use walk_log::WalkLog;
+
 pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolError> {
     let canonical = &scope.canonical;
     super::super::language::validate_file_language(canonical, scope.language.as_deref())?;
@@ -25,14 +28,14 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
             "Source exceeds the native parser byte limit.",
         );
         if let Some(lead) = q
-            .pattern()
+            .pattern_text()
             .as_deref()
             .and_then(super::super::source::pattern_literal)
             .and_then(|literal| {
                 super::super::source::text_search(&canonical.to_string_lossy(), literal)
             })
         {
-            error.next = Some(Box::new(serde_json::json!({ "findText": lead })));
+            error.calls = Some(Box::new(serde_json::json!({ "findText": lead })));
         }
         return Err(error);
     };
@@ -44,7 +47,7 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
         &source,
         &source_path,
         super::super::language::parser_override(canonical, scope.language.as_deref()).as_deref(),
-        q.pattern().as_deref(),
+        None,
         q.rule().as_ref(),
     );
     if let Some(diagnostic) = error_diagnostic(&r.diagnostics) {
@@ -76,7 +79,7 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
     }
     Ok(Scan {
         files: vec![ScannedFile {
-            path: crate::tools::display_name(canonical),
+            path: canonical.to_string_lossy().into_owned(),
             parser: String::new(),
             matches: FileMatches::Held(r.matches),
             diagnostics: r.diagnostics,
@@ -99,28 +102,8 @@ pub(super) fn scan_directory(
     #[cfg(test)]
     DIRECTORY_SCANS
         .lock()
-        .unwrap_or_else(|error| error.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push(scope.canonical.clone());
-    let extensions = scope.extensions.as_ref();
-    // A file parses by its own extension or by the rule that names its parser.
-    let parses = |path: &std::path::Path| {
-        extensions.is_none_or(|extensions| has_extension_in(path, extensions))
-            || scope.parsers.extension(path).is_some()
-    };
-    let grammars = structural_extensions();
-    let unparsed = std::sync::Mutex::new(NamedFiles::default());
-    let observed = std::sync::Mutex::new(std::collections::BTreeSet::new());
-    let ignore_rules = q.include_ignored() != Some(true);
-    let external_rules = std::sync::Mutex::new(if ignore_rules {
-        octocode_engine::search::walk::external_ignore_inputs(&scope.canonical)
-            .into_iter()
-            .collect::<std::collections::BTreeSet<_>>()
-    } else {
-        std::collections::BTreeSet::new()
-    });
-    let untracked_ignore_dependencies = std::sync::atomic::AtomicBool::new(false);
-    let census = std::sync::Mutex::new(std::collections::BTreeMap::<String, usize>::new());
-    let counted = std::sync::Mutex::new(std::collections::HashSet::<std::path::PathBuf>::new());
     let include = q.include().unwrap_or_default();
     let admission = crate::policy::discovery::WalkAdmission::new(
         paths.discovery_walk(),
@@ -132,11 +115,19 @@ pub(super) fn scan_directory(
             engine_prunes: true,
         },
     );
+    let ignore_rules = q.include_ignored() != Some(true);
+    let log = WalkLog::new(
+        scope,
+        paths,
+        &admission,
+        ignore_rules,
+        q.include_hidden() == Some(true),
+    );
     let price = |m: &StructuralDetailedMatch| match_price(q, m);
     let r = octocode_engine::structural::search_files(
         StructuralSearchFilesOptions {
             path: scope.canonical.to_string_lossy().into_owned(),
-            pattern: q.pattern(),
+            pattern: None,
             rule: q.rule(),
             include: q.include(),
             exclude: q.exclude(),
@@ -152,77 +143,7 @@ pub(super) fn scan_directory(
             max_file_bytes: u32::try_from(super::super::source::MAX_PARSE_SOURCE_BYTES).ok(),
         },
         demand(q, &price),
-        &|path| {
-            // Only a directory or a file of the scanned grammar could have
-            // matched, so only those leave absence unproven when the policy
-            // withholds them or they are links (the walk follows none).
-            // A dot entry out of view (no `hidden`) is neither walked nor
-            // disclosed, as structureSearch tree does.
-            let in_view = q.include_hidden() == Some(true) || !super::super::is_dot_entry(path);
-            if !admission.admit(path, None, |is_dir| in_view && (is_dir || parses(path))) {
-                return false;
-            }
-            if path.is_dir() {
-                let mut watched = observed.lock().unwrap_or_else(|error| error.into_inner());
-                watched.insert(path.to_path_buf());
-                if ignore_rules {
-                    let inputs = crate::tools::page_memo::directory_ignore_inputs(
-                        path,
-                        &scope.canonical,
-                        |ignore| admission.permits(ignore, None),
-                    );
-                    external_rules
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .extend(inputs.external);
-                    if inputs.untracked {
-                        untracked_ignore_dependencies
-                            .store(true, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    watched.extend(inputs.files);
-                }
-            }
-            let unparsed_file = !parses(path) && path.is_file();
-            // A file no grammar parses is disclosed, not silently dropped, when
-            // the scope is every grammar's files. Under `language` the scope is
-            // that language's files: a file of any other kind (a grammar's own
-            // or none) was never in it, so it is not skipped evidence.
-            if unparsed_file && scope.language.is_none() && !has_extension_in(path, &grammars) {
-                // Named as a row path reads after the response stage: from
-                // the workspace root, else absolute.
-                unparsed
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .record(
-                        paths
-                            .workspace_relative(path)
-                            .unwrap_or_else(|| path.to_string_lossy().into_owned()),
-                    );
-            }
-            let admitted = !unparsed_file;
-            // The engine asks again for each file it reads: count a path once.
-            if admitted
-                && scope.language.is_none()
-                && path.is_file()
-                && counted
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .insert(path.to_path_buf())
-            {
-                let extension = scope.parsers.extension(path).map_or_else(
-                    || octocode_engine::text::extension_of(&path.to_string_lossy(), true, ""),
-                    str::to_owned,
-                );
-                *census
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .entry(extension)
-                    .or_default() += 1;
-            }
-            // Grammar filtering is not an explicit include override: ignored
-            // source files remain ignored unless the caller overrides them.
-            admitted
-        },
+        &|path| log.admit(path),
         &|path| parser_extension(scope, path),
         &|| cancel.check().is_err(),
     )
@@ -260,7 +181,7 @@ pub(super) fn scan_directory(
                     prune: prune::walk_names(q.default_excludes(), &include),
                     include: q.include(),
                     exclude: q.exclude(),
-                    candidate: &parses,
+                    candidate: &|path| parses(scope, path),
                     max_depth: q.max_depth(),
                     admit: &admit,
                     stop: &stop,
@@ -268,27 +189,20 @@ pub(super) fn scan_directory(
                 &q.to_value(),
             )
         });
+    let logged = log.finish();
     // Preserve the scan-level coverage signals the group projection drops.
     Ok(Scan {
         unwalked,
         sources,
         source_digest,
-        ignore_rules: external_rules
-            .into_inner()
-            .unwrap_or_else(|error| error.into_inner())
-            .into_iter()
-            .collect(),
+        ignore_rules: logged.ignore_rules,
         repository_markers: if ignore_rules {
             crate::tools::page_memo::repository_markers(&scope.canonical)
         } else {
             Vec::new()
         },
-        untracked_ignore_dependencies: untracked_ignore_dependencies.into_inner(),
-        discovery_sources: observed
-            .into_inner()
-            .unwrap_or_else(|error| error.into_inner())
-            .into_iter()
-            .collect(),
+        untracked_ignore_dependencies: logged.untracked_ignore_dependencies,
+        discovery_sources: logged.discovery_sources,
         files: r
             .files
             .into_iter()
@@ -311,18 +225,24 @@ pub(super) fn scan_directory(
         walk_errors: r.walk_errors,
         skipped_by_prefilter: r.skipped_by_pre_filter,
         withheld: admission.skipped().withheld,
-        unparsed: unparsed
-            .into_inner()
-            .unwrap_or_else(|error| error.into_inner()),
-        census: census
-            .into_inner()
-            .unwrap_or_else(|error| error.into_inner()),
+        unparsed: logged.unparsed,
+        census: logged.census,
     })
 }
 
+/// Whether a directory scan parses `path`: by its own extension, or by the
+/// rule that names its parser.
+fn parses(scope: &Scope, path: &std::path::Path) -> bool {
+    scope
+        .extensions
+        .as_ref()
+        .is_none_or(|extensions| has_extension_in(path, extensions))
+        || scope.parsers.extension(path).is_some()
+}
+
 /// The parser a directory scan reads `path` with: the grammar a
-/// `languageGlobs` entry names, else the one its shared extension resolves
-/// to under `language`, else its own extension.
+/// `parserGlobs` entry names, else the one its shared extension resolves
+/// to under `parser`, else its own extension.
 pub(super) fn parser_extension(scope: &Scope, path: &std::path::Path) -> String {
     if let Some(extension) = scope.parsers.extension(path) {
         extension.to_owned()

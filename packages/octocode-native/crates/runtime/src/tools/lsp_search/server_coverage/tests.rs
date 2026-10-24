@@ -5,8 +5,8 @@ mod python;
 mod rust;
 mod text_leads;
 
-/// A workspace-symbol row is partial because the protocol has no
-/// completeness marker: the row says so once (a notice), says no page
+/// The protocol has no completeness marker on any workspace-symbol answer:
+/// the row says so once (a notice, not a partial flag), says no page
 /// completes it, and leads to the lexical search that checks the rest.
 #[test]
 fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
@@ -17,32 +17,36 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
     assert_eq!(stale, before);
     let mut empty = json!({"kind":"empty"});
     workspace_symbols(&mut empty, "Shared", &scope, None, None);
-    assert_eq!(empty["isPartial"], true);
-    assert_eq!(
-        empty["partialReasons"],
-        json!(["workspaceSymbolCoverageUnknown"])
-    );
+    assert!(empty.get("isPartial").is_none(), "{empty}");
+    assert!(empty.get("partialReasons").is_none(), "{empty}");
     let notice = empty["notices"][0].as_str().unwrap_or_default();
     assert!(
         notice.contains("no completeness marker") && notice.contains("localSearch"),
         "{empty}"
     );
     assert!(empty.get("warnings").is_none(), "{empty}");
-    let text = &empty["next"]["findText"]["query"]["queries"][0];
+    let text = &crate::tools::test_support::checks::related_call(&empty, "localSearch", |_| true)["input"]
+        ["queries"][0];
     assert_eq!(text["path"], "/w", "{empty}");
     assert_eq!(text["include"], json!(["*.ts"]), "{empty}");
     // The query term is searched as typed: a partial term (servers match
     // it as a prefix) is no whole word.
     let mut partial = json!({"kind":"symbols"});
     workspace_symbols(&mut partial, "ToolRunt", &scope, None, None);
-    let text = &partial["next"]["findText"]["query"]["queries"][0];
-    assert_eq!(text["matchString"], "ToolRunt", "{partial}");
+    let text = &crate::tools::test_support::checks::related_call(&partial, "localSearch", |_| true)
+        ["input"]["queries"][0];
+    assert_eq!(text["matchString"], json!(["ToolRunt"]), "{partial}");
     assert!(
         text.get("regex").is_none() && text.get("caseMode").is_none(),
         "a literal term, smart case: {partial}"
     );
     assert!(
-        empty["next"].get("inspectDocumentSymbols").is_none(),
+        !empty["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["operation"] == "documentSymbols"),
         "a directory is not a document"
     );
     assert!(empty.get("terminalLimit").is_none());
@@ -122,6 +126,12 @@ async fn rust_row(root: &Path, lib: &str, query_fields: Value, answered: &[&str]
     }
     if q["operation"] == "workspaceSymbol" {
         q.as_object_mut().expect("query").remove("line");
+        let name = q
+            .as_object_mut()
+            .expect("query")
+            .remove("symbolName")
+            .expect("name");
+        q["symbolQuery"] = name;
     }
     let mut row = json!({"kind":"references","matches":[{"path":"pkg/src/lib.rs"}]});
     annotate(
@@ -154,7 +164,8 @@ fn text_search_lead_targets_repo_scope_with_language_include() {
         },
         &scope,
     );
-    let lead = &row["next"]["findText"]["query"]["queries"][0];
+    let lead = &crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)["input"]
+        ["queries"][0];
     assert_eq!(lead["path"], "/repo", "{row}");
     assert_eq!(lead["include"], json!(["*.py", "*.pyi"]), "{row}");
 }

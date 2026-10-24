@@ -1,6 +1,6 @@
 //! The immutable, content-addressed capture storage a URL capture saves to
 //! and its read lead reads back.
-use super::{Captured, Selection, SourceReader, capture_root, failure};
+use super::{Captured, Selection, SourceReader, capture_root};
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::tools::judgment::ClassificationError;
@@ -25,7 +25,7 @@ impl<'a> Store<'a> {
         dispatcher: &'a dyn SourceReader,
     ) -> Result<Self, ClassificationError> {
         if !crate::config::is_persistent_storage_enabled(&dispatcher.config().resolved) {
-            return Err(failure(
+            return Err(ClassificationError::new(
                 ErrorCode::ClassificationContextUnavailable,
                 "Source captures need persistent storage to save the exact evidence; storage.mode is memory.",
                 "Use persistent storage for unread source captures.",
@@ -33,7 +33,7 @@ impl<'a> Store<'a> {
         }
         let reader = ToolId::LocalFetch.as_str();
         if !dispatcher.availability().is_available(reader) {
-            return Err(failure(
+            return Err(ClassificationError::new(
                 ErrorCode::ClassificationContextUnavailable,
                 format!(
                     "Source capture storage requires {reader}, which is not available in this runtime."
@@ -58,17 +58,17 @@ impl<'a> Store<'a> {
         // The policy judges the directory itself, so it must exist: an
         // allowed root's missing parents are not inside that root.
         let outside = |_| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::ClassificationContextUnavailable,
                 "The capture directory is outside the local path policy.",
-                "Supply the page text as state.",
+                "Supply the page text as content.",
             )
         };
         octocode_io::atomic::create_private_dir_all(&root).map_err(|_| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::ClassificationContextUnavailable,
                 "The capture directory could not be created.",
-                "Check that the Octocode home is writable, or supply the text as state.",
+                "Check that the Octocode home is writable, or supply the text as content.",
             )
         })?;
         paths.validate(&root).map_err(outside)?;
@@ -84,12 +84,12 @@ impl<'a> Store<'a> {
         let file = saved["path"].as_str().unwrap_or_default();
         let lines = selection.text.lines().count();
         let url = selection.url.as_str();
-        let read = crate::response::result::Continuation::new(
+        let read = crate::response::result::Continuation::continued(
             ToolId::LocalFetch,
             json!({
                 "path": file,
                 "snapshot": snapshot,
-                "ranges": [format!("1-{lines}")],
+                "ranges": [{"startLine":1,"endLine":lines}],
             }),
         )
         .build();
@@ -116,7 +116,7 @@ impl<'a> Store<'a> {
         let directory = self.root.join(&snapshot);
         let file = directory.join(name);
         let unsaved = |_| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::ClassificationContextUnavailable,
                 "The captured source could not be saved; nothing was judged.",
                 "Check that the Octocode home is writable.",
@@ -125,10 +125,10 @@ impl<'a> Store<'a> {
         octocode_io::atomic::create_private_dir_all(&directory).map_err(unsaved)?;
         octocode_io::atomic::write_atomic(&file, bytes, false).map_err(unsaved)?;
         let readable = self.paths.validate_read(&file).map_err(|_| {
-            failure(
+            ClassificationError::new(
                 ErrorCode::ClassificationContextUnavailable,
                 "The saved capture is not readable under the local path policy.",
-                "Supply the page text as state.",
+                "Supply the page text as content.",
             )
         })?;
         let expires_at = crate::civil_date::iso8601_millis_after(self.ttl);

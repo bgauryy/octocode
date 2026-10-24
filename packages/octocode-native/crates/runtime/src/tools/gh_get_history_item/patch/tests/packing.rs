@@ -18,7 +18,7 @@ fn commit_patches_pack_whole_files_and_continue_inside_a_large_one() {
         assert_eq!(row["patch"].as_str().map(str::len), Some(300), "{row}");
         assert!(row.get("patchPagination").is_none(), "{row}");
     }
-    let window_chars = patch_window(None, None);
+    let window_chars = patch_window(None);
     let big = &first.rows[3];
     assert_eq!(big["patchPagination"]["offset"], 0);
     assert_eq!(big["patchPagination"]["length"], window_chars - 900);
@@ -51,7 +51,7 @@ fn commit_patches_pack_whole_files_and_continue_inside_a_large_one() {
 fn single_file_and_three_hundred_file_commits_stay_lossless() {
     let one = vec![file("only.rs", &"x".repeat(20_000))];
     let (calls, patches, _) = follow_commit_page(&one, None);
-    assert_eq!(calls, 20_000usize.div_ceil(patch_window(None, None)));
+    assert_eq!(calls, 20_000usize.div_ceil(patch_window(None)));
     assert_eq!(patches["only.rs"], "x".repeat(20_000));
 
     let many = (0..300)
@@ -74,7 +74,7 @@ fn single_file_and_three_hundred_file_commits_stay_lossless() {
 #[test]
 fn windows_end_at_a_file_boundary_unless_one_file_overflows() {
     let files = vec![file("a.rs", "AB"), file("b.rs", "CDEF"), file("c.rs", "G")];
-    let query = |offset: usize| window(json!({"offset":offset,"length":4}));
+    let query = |offset: usize| with_budget(window(json!({"offset":offset})), 10);
     let shown = |page: &PatchPage| {
         page.rows
             .iter()
@@ -110,13 +110,16 @@ fn windows_end_at_a_file_boundary_unless_one_file_overflows() {
 #[test]
 fn a_cut_patch_ends_at_a_line_boundary() {
     let lines = vec![file("a.rs", "+one\n+two\n+three\n")];
-    let page = shape_patch_page(lines.clone(), &window(json!({"length":12})));
+    let page = shape_patch_page(lines.clone(), &with_budget(window(json!({})), 30));
     assert_eq!(page.rows[0]["patch"], "+one\n+two\n");
     assert_eq!(page.cursor, Some(10));
-    let rest = shape_patch_page(lines, &window(json!({"offset":10,"length":12})));
+    let rest = shape_patch_page(lines, &with_budget(window(json!({"offset":10})), 30));
     assert_eq!(rest.rows[0]["patch"], "+three\n");
     assert_eq!(rest.cursor, None);
-    let long = shape_patch_page(vec![file("a.rs", "abcdefgh")], &window(json!({"length":4})));
+    let long = shape_patch_page(
+        vec![file("a.rs", "abcdefgh")],
+        &with_budget(window(json!({})), 10),
+    );
     assert_eq!(long.cursor, Some(4));
 }
 
@@ -131,7 +134,7 @@ fn history_b_windows_pack_past_a_low_file_boundary_at_a_line_end() {
         file("a.rs", &lines("a", 1_000)),
         file("b.rs", &lines("b", 1_000)),
     ];
-    let window_chars = patch_window(None, None);
+    let window_chars = patch_window(None);
     let first = shape_patch_page(files.clone(), &window(json!({})));
     let cursor = first.cursor.expect("b.rs continues");
     assert!(cursor > 10_000, "packed past the boundary: {cursor}");
@@ -171,7 +174,7 @@ fn history_b_packed_walk_is_lossless_and_fills_its_windows() {
         .iter()
         .map(|f| f["patch"].as_str().map_or(0, |p| p.chars().count()))
         .sum::<usize>();
-    let window_chars = patch_window(None, None);
+    let window_chars = patch_window(None);
     let mut offset = 0usize;
     let mut read = HashMap::<String, String>::new();
     let mut calls = 0;
@@ -205,26 +208,36 @@ fn history_b_packed_walk_is_lossless_and_fills_its_windows() {
 /// line 1, skip pure additions, and fit one read's range cap.
 #[test]
 fn parent_windows_fit_one_ranged_read() {
-    assert_eq!(parent_windows("@@ -1,4 +1,3 @@ fn a\n"), ["1-14"]);
-    assert_eq!(parent_windows("@@ -5 +5 @@\n@@ -38,0 +40,2 @@\n"), ["1-15"]);
+    assert_eq!(parent_windows("@@ -1,4 +1,3 @@ fn a\n"), [(1, 14)]);
+    assert_eq!(
+        parent_windows("@@ -5 +5 @@\n@@ -38,0 +40,2 @@\n"),
+        [(1, 15)]
+    );
     // A hunk with fewer trailing context lines than the diff keeps ends
     // at the end of the file: its span stops at its last line.
     assert_eq!(
         parent_windows("@@ -10,5 +10,4 @@\n a\n b\n c\n-d\n e\n"),
-        ["1-14"]
+        [(1, 14)]
     );
     assert_eq!(
         parent_windows("@@ -10,7 +10,6 @@\n a\n b\n c\n-d\n e\n f\n g\n"),
-        ["1-26"]
+        [(1, 26)]
     );
     let many = (0..15)
         .map(|i| format!("@@ -{0},1 +{0},1 @@\n", 100 * (i + 1) + i))
         .collect::<String>();
     let ranges = parent_windows(&many);
     assert_eq!(ranges.len(), PARENT_WINDOW_RANGES, "{ranges:?}");
-    assert!(ranges[0].starts_with("90-"), "{ranges:?}");
-    assert!(
-        ranges[PARENT_WINDOW_RANGES - 1].ends_with("-1524"),
-        "{ranges:?}"
-    );
+    assert_eq!(ranges[0].0, 90, "{ranges:?}");
+    assert_eq!(ranges[PARENT_WINDOW_RANGES - 1].1, 1524, "{ranges:?}");
+    for i in 0..15 {
+        let line = 100 * (i + 1) + i;
+        assert!(
+            ranges
+                .iter()
+                .any(|&(start, end)| start <= line - PARENT_WINDOW_PAD
+                    && end >= line + PARENT_WINDOW_PAD),
+            "hunk {line}: {ranges:?}"
+        );
+    }
 }

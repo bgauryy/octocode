@@ -1,4 +1,4 @@
-use super::patterns::PATTERNS;
+use super::patterns::{PATTERN_COUNT, PATTERNS};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use regex::Regex;
 use std::sync::{LazyLock, OnceLock};
@@ -157,44 +157,71 @@ static PRESCAN: LazyLock<AhoCorasick> = LazyLock::new(|| {
         .expect("prescan literal automaton must build")
 });
 
-/// Candidate pattern indices for `content`: gated patterns whose literal
-/// appears, plus the always-on fallback bucket — each CONFIRMED with the real
-/// pattern regex (compiled lazily, only for candidates) so callers still see
-/// exact match semantics, sorted in canonical pattern order.
-fn candidate_pattern_indices(content: &str) -> Vec<usize> {
-    let mut seen = vec![false; PATTERNS.len()];
+/// A set of pattern indices, one bit per pattern, kept on the stack: picking
+/// a text's candidates allocates nothing.
+#[derive(Clone, Copy, Default)]
+struct PatternSet([u64; PATTERN_COUNT.div_ceil(64)]);
+
+impl PatternSet {
+    fn insert(&mut self, idx: usize) {
+        self.0[idx / 64] |= 1 << (idx % 64);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.iter().all(|word| *word == 0)
+    }
+
+    /// The members, in canonical pattern order.
+    fn iter(self) -> impl Iterator<Item = usize> {
+        self.0.into_iter().enumerate().flat_map(|(at, word)| {
+            let mut rest = word;
+            std::iter::from_fn(move || {
+                (rest != 0).then(|| {
+                    let bit = rest.trailing_zeros() as usize;
+                    rest &= rest - 1;
+                    at * 64 + bit
+                })
+            })
+        })
+    }
+
+    /// The members `keep` accepts.
+    fn filter(self, mut keep: impl FnMut(usize) -> bool) -> Self {
+        let mut kept = Self::default();
+        for idx in self.iter().filter(|&idx| keep(idx)) {
+            kept.insert(idx);
+        }
+        kept
+    }
+}
+
+/// Candidate patterns for `content`: gated patterns whose literal appears,
+/// plus the always-on fallback bucket. Callers confirm each with the real
+/// pattern regex (compiled lazily, only for candidates), so they still see
+/// exact match semantics.
+fn prescan_candidates(content: &str) -> PatternSet {
+    let mut candidates = PatternSet::default();
     // Overlapping scan: a literal nested inside another match span must still
     // register its own pattern, or that pattern would be silently gated out.
     for hit in PRESCAN.find_overlapping_iter(content) {
-        seen[gates::GATE_LITERALS[hit.pattern().as_usize()].1] = true;
+        candidates.insert(gates::GATE_LITERALS[hit.pattern().as_usize()].1);
     }
     for &idx in gates::FALLBACK {
-        seen[idx] = true;
+        candidates.insert(idx);
     }
-    (0..PATTERNS.len()).filter(|&idx| seen[idx]).collect()
+    candidates
 }
 
 /// Candidates that apply to `scope` ([`should_apply`]), checked before any
 /// pattern regex compiles: a pattern its file context rules out (the
 /// multi-millisecond Kubernetes Secret automaton outside YAML) is never built
 /// for that text, so a process pays only for the detectors its output reaches.
-fn applicable_candidates(content: &str, scope: Scope<'_>) -> Vec<usize> {
-    let mut candidates = candidate_pattern_indices(content);
-    candidates.retain(|&idx| should_apply(idx, scope, content));
-    candidates
+fn applicable_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
+    prescan_candidates(content).filter(|idx| should_apply(idx, scope, content))
 }
 
-fn matching_pattern_indices(content: &str, scope: Scope<'_>) -> Vec<usize> {
-    let mut candidates = applicable_candidates(content, scope);
-    candidates.retain(|&idx| pattern_regex(idx).is_match(content));
-    candidates
-}
-
-fn empty_result(content: &str) -> DetectResult {
-    DetectResult {
-        sanitized: content.to_string(),
-        secrets_detected: vec![],
-    }
+fn matching_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
+    applicable_patterns(content, scope).filter(|idx| pattern_regex(idx).is_match(content))
 }
 
 /// A redacted multiline match still occupies its source lines. File reads
@@ -312,56 +339,41 @@ pub(crate) struct DetectResult {
     pub secrets_detected: Vec<String>,
 }
 
-/// Detects and redacts secrets over the whole content.
+/// Detects and redacts secrets over the whole content; `None` when nothing
+/// was redacted, so clean content is never copied.
 ///
 /// One literal prescan selects candidate patterns, then each candidate runs one
 /// linear `replace_all` over the full haystack. Content is never split into
 /// chunks: a slice end satisfies `\b`/`$`, so an open-ended secret cut by a
 /// chunk edge was redacted only up to the edge and its tail leaked (review M1).
 ///
-/// `file_path` gates file-context patterns (e.g. Kubernetes YAML secrets, `.env`
-/// fine-grained GitHub tokens) so they fire only when the path matches.
-#[cfg(test)]
-pub(crate) fn detect(content: &str, file_path: Option<&str>) -> DetectResult {
-    detect_in(content, file_path.map_or(Scope::Pathless, Scope::File))
-}
-
-/// [`detect`] for text of a known [`Scope`].
-pub(crate) fn detect_in(content: &str, scope: Scope<'_>) -> DetectResult {
-    let matched_indices = matching_pattern_indices(content, scope);
-
-    if matched_indices.is_empty() {
-        return empty_result(content);
+/// `scope` gates file-context patterns (e.g. Kubernetes YAML secrets, `.env`
+/// fine-grained GitHub tokens) so they fire only where they apply.
+pub(crate) fn redact(content: &str, scope: Scope<'_>) -> Option<DetectResult> {
+    let matched = matching_patterns(content, scope);
+    if matched.is_empty() {
+        return None;
     }
-
-    let mut sanitized = content.to_string();
-    let mut secrets_detected = Vec::with_capacity(matched_indices.len());
-
-    for idx in matched_indices {
-        let pattern = &PATTERNS[idx];
-        let regex = pattern_regex(idx);
+    let mut sanitized: Option<String> = None;
+    let mut secrets_detected = Vec::new();
+    for idx in matched.iter() {
+        let current = sanitized.as_deref().unwrap_or(content);
         let keeps_values = KEEPS_NON_CREDENTIAL_VALUES[idx];
-        let result = replace_secrets(regex, &sanitized, replacement_for(idx), |key, secret| {
-            !keeps_values || assigns_a_credential(key, secret)
-        });
-        if result != sanitized {
-            secrets_detected.push(pattern.name.to_string());
-            sanitized = result;
+        let result = replace_secrets(
+            pattern_regex(idx),
+            current,
+            replacement_for(idx),
+            |key, secret| !keeps_values || assigns_a_credential(key, secret),
+        );
+        if result != current {
+            secrets_detected.push(PATTERNS[idx].name.to_string());
+            sanitized = Some(result);
         }
     }
-
-    DetectResult {
+    sanitized.map(|sanitized| DetectResult {
         sanitized,
         secrets_detected,
-    }
-}
-
-// Helper only used in tests below.
-#[cfg(test)]
-impl DetectResult {
-    fn has_secrets_or(&self, other: &Self) -> bool {
-        !self.secrets_detected.is_empty() || !other.secrets_detected.is_empty()
-    }
+    })
 }
 
 #[cfg(test)]

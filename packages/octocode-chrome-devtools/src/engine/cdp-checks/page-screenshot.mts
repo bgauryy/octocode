@@ -1,6 +1,7 @@
 import { readTargetSnapshot } from './snapshot-resource.mjs';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
+import type { CheckSession } from '../cdp-runner-session.mjs';
 
 // Screenshot of the attached tab: viewport (default), full page, or one element.
 // Env:
@@ -33,7 +34,7 @@ const [RANGE_LO, RANGE_HI] = /^e(\d+)-e?(\d+)$/
 const MAX_LABELS = 250;
 
 // Box every snapshot ref that is on screen (page coordinates, so full-page shots work too).
-async function annotate(cdp) {
+async function annotate(cdp: CheckSession) {
   let refs;
   try {
     const snapshot = readTargetSnapshot(cdp);
@@ -99,9 +100,9 @@ async function annotate(cdp) {
   return boxes.length;
 }
 
-export async function run(cdp) {
+export async function run(cdp: CheckSession) {
   await cdp.send('Page.enable');
-  const evaluate = async expression =>
+  const evaluate = async (expression: string) =>
     (await cdp.send('Runtime.evaluate', { expression, returnByValue: true }))
       .result?.value;
   for (

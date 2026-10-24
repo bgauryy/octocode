@@ -7,6 +7,7 @@ import {
   getGitHubToken,
   GITHUB_AUTH_PROVIDER_ID,
 } from './githubAuth';
+import { errorMessage } from './errors';
 import { readJsonFile } from './jsonUtils';
 import { McpInstaller } from './mcpInstaller';
 import { McpProcess } from './mcpProcess';
@@ -48,7 +49,7 @@ async function loginToGitHub(): Promise<
       return session;
     }
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorMsg = errorMessage(error);
     outputChannel.appendLine(`GitHub login failed: ${errorMsg}`);
     vscode.window.showErrorMessage(`GitHub login failed: ${errorMsg}`);
   }
@@ -66,7 +67,7 @@ async function logoutFromGitHub(): Promise<void> {
       'GitHub token cleared from MCP configs. To fully sign out, use VS Code Account menu (bottom left).'
     );
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorMsg = errorMessage(error);
     outputChannel.appendLine(`Error during logout: ${errorMsg}`);
     vscode.window.showErrorMessage(`Error clearing GitHub token: ${errorMsg}`);
   }
@@ -84,7 +85,7 @@ async function startMcpServer(): Promise<void> {
         'Octocode MCP server process started.'
       );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     outputChannel.appendLine(`Failed to start MCP server: ${message}`);
     vscode.window.showErrorMessage(`Failed to start MCP server: ${message}`);
   }
@@ -96,7 +97,7 @@ function stopMcpServer(): void {
       vscode.window.showInformationMessage('Octocode MCP server stopped.');
     else vscode.window.showWarningMessage('MCP server is not running.');
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     outputChannel.appendLine(`Error stopping server: ${message}`);
     vscode.window.showErrorMessage(`Error stopping server: ${message}`);
   }
@@ -270,8 +271,7 @@ export async function activate(
 
             updateStatusBar(mcpProcess.running, isAuthenticated);
           } catch (error) {
-            const message =
-              error instanceof Error ? error.message : String(error);
+            const message = errorMessage(error);
             outputChannel.appendLine(`GitHub token sync failed: ${message}`);
             vscode.window.showErrorMessage(
               `GitHub token sync failed: ${message}`

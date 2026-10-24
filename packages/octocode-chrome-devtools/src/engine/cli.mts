@@ -11,7 +11,6 @@ import { randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  commands,
   checks,
   helpers,
   connection,
@@ -22,14 +21,20 @@ import {
   commonBooleans,
   commonValues,
   fail,
+  isOwnKey,
   json,
+  optionValue,
   parse,
   runnerArgs,
 } from './cli-options.mjs';
+import { errorMessage } from './error-message.mjs';
 import { schemaOutput } from './cli-schema.mjs';
+import { chromeCommands } from './chrome-contract.mjs';
 
 const scripts = dirname(fileURLToPath(import.meta.url));
-const usage = `octocode-cdp <command> [options]\n${Object.entries(commands)
+const usage = `octocode-cdp <command> [options]\n${Object.entries(
+  chromeCommands
+)
   .map(([name, desc]) => `  ${name.padEnd(17)} ${desc}`)
   .join('\n')}\n
 Examples (use absolute package path from the workspace cwd):
@@ -46,7 +51,12 @@ Use <command> --help, schema [command], or schema check [name].
 No npm install required. Exit 0: success; 2: invalid CLI input; runtime failures preserve engine exit codes.
 Calls retain tabs and attached state. Multiple matching targets fail; use targets then --target.
 `;
-function execute(file, args, env = {}, dryRun = false) {
+function execute(
+  file: string,
+  args: string[],
+  env: Record<string, string> = {},
+  dryRun = false
+) {
   const path = join(scripts, file);
   if (!existsSync(path))
     fail(
@@ -73,7 +83,7 @@ function execute(file, args, env = {}, dryRun = false) {
       stdio: 'inherit',
       env: { ...process.env, ...env },
     });
-    const forward = signal => child.kill(signal);
+    const forward = (signal: NodeJS.Signals) => child.kill(signal);
     const interrupt = () => forward('SIGINT'),
       terminate = () => forward('SIGTERM');
     process.on('SIGINT', interrupt);
@@ -92,14 +102,21 @@ function execute(file, args, env = {}, dryRun = false) {
 async function planContract() {
   return import('./cdp-checks/browser-execute.mjs');
 }
-async function main(argv) {
+/** The plan text of `run`: --json, or the --plan file (`-` reads stdin). */
+function runPlanText(text: string | undefined, file: string | undefined) {
+  if (text !== undefined) return text;
+  if (file === undefined)
+    return fail('run needs exactly one of --plan file|- and --json JSON');
+  return readFileSync(file === '-' ? 0 : resolve(file), 'utf8');
+}
+async function main(argv: string[]) {
   const [command, ...args] = argv;
   if (!command || ['--help', '-h', 'help'].includes(command)) {
     console.log(usage);
     return 0;
   }
-  if (!Object.hasOwn(commands, command))
-    fail(`Unknown command ${command}; use --help`);
+  if (!isOwnKey(chromeCommands, command))
+    return fail(`Unknown command ${command}; use --help`);
   if (command === 'schema') {
     console.log(
       await schemaOutput(args, planContract, fileURLToPath(import.meta.url))
@@ -127,12 +144,12 @@ async function main(argv) {
       'open-browser.mjs',
       [...(command === 'cleanup' ? ['--cleanup'] : []), ...args],
       {},
-      command === 'open' && opts['--dry-run']
+      command === 'open' && Boolean(opts['--dry-run'])
     );
   }
   if (args.includes('--help') || args.includes('-h')) {
     console.log(
-      `${command}: ${commands[command]}\n${Object.entries(connection)
+      `${command}: ${chromeCommands[command]}\n${Object.entries(connection)
         .map(([key, value]) => `  ${key} ${value}`)
         .join(
           '\n'
@@ -147,7 +164,7 @@ async function main(argv) {
     [...commonValues, '--plan', '--json', '--params', '--options'],
     commonBooleans
   );
-  const permitted = ['run', 'step', 'cdp', 'protocol'].includes(command)
+  const permitted: readonly string[] = isOwnKey(planInputs, command)
     ? planInputs[command]
     : ['snapshot', 'screenshot', 'check'].includes(command)
       ? ['--options']
@@ -196,12 +213,13 @@ async function main(argv) {
       fail(
         'Connection options must precede --; trailing flags belong to the recipe'
       );
-    if (!Object.hasOwn(checks, name))
-      fail(`Unknown check ${name ?? '(missing)'}; use schema check`);
+    if (!isOwnKey(checks, name))
+      return fail(`Unknown check ${name ?? '(missing)'}; use schema check`);
+    const optionsText = optionValue(opts, '--options');
     const spec = checks[name],
-      options = opts['--options'] ? json(opts['--options'], '--options') : {};
+      options = optionsText ? json(optionsText, '--options') : {};
     if (!options || typeof options !== 'object' || Array.isArray(options))
-      fail('--options needs an object');
+      return fail('--options needs an object');
     for (const [key, value] of Object.entries(options))
       if (
         !spec.options.includes(key) ||
@@ -221,21 +239,15 @@ async function main(argv) {
       dry
     );
   }
-  let plan;
+  let plan: unknown;
+  const planJson = optionValue(opts, '--json');
   if (command === 'run') {
-    if (!!opts['--plan'] === !!opts['--json'])
+    if (!!opts['--plan'] === !!planJson)
       fail('run needs exactly one of --plan file|- and --json JSON');
-    plan = json(
-      opts['--json'] ??
-        readFileSync(
-          opts['--plan'] === '-' ? 0 : resolve(opts['--plan']),
-          'utf8'
-        ),
-      'Plan'
-    );
+    plan = json(runPlanText(planJson, optionValue(opts, '--plan')), 'Plan');
   } else if (command === 'step') {
-    if (!opts['--json']) fail('step needs --json JSON');
-    plan = { steps: [json(opts['--json'], 'Step')] };
+    if (!planJson) return fail('step needs --json JSON');
+    plan = { steps: [json(planJson, 'Step')] };
   } else if (command === 'cdp') {
     if (!positional[0]) fail('cdp needs Domain.method');
     plan = {
@@ -243,7 +255,7 @@ async function main(argv) {
         {
           op: 'cdp',
           method: positional[0],
-          params: json(opts['--params'] ?? '{}', '--params'),
+          params: json(optionValue(opts, '--params') ?? '{}', '--params'),
         },
       ],
     };
@@ -300,7 +312,7 @@ try {
   process.exitCode = await main(process.argv.slice(2));
 } catch (error) {
   console.error(
-    `[CDP_CLI] ${error.message}\nUse --help or schema for the supported inputs.`
+    `[CDP_CLI] ${errorMessage(error)}\nUse --help or schema for the supported inputs.`
   );
   process.exitCode = 2;
 }

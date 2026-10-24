@@ -72,7 +72,7 @@ fn every_keyword_line_is_numbered_case_insensitively() {
             line_count: 4,
             clipped: false,
             declaration: None,
-            resume_after: Some(4),
+            resume_after: Some(4)
         }
     );
     assert_eq!(

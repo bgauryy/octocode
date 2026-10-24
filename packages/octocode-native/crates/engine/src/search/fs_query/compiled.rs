@@ -29,11 +29,12 @@ pub(super) struct CompiledQuery {
     pub(super) name_filter: NameFilter,
     pub(super) entry_type: Option<EntryType>,
     pub(super) empty: bool,
-    pub(super) modified_within_secs: Option<u64>,
-    pub(super) modified_before_secs: Option<u64>,
-    pub(super) accessed_within_secs: Option<u64>,
-    pub(super) size_greater: Option<u64>,
-    pub(super) size_less: Option<u64>,
+    pub(super) modified_from: Option<std::time::SystemTime>,
+    pub(super) modified_to: Option<std::time::SystemTime>,
+    pub(super) accessed_from: Option<std::time::SystemTime>,
+    pub(super) accessed_to: Option<std::time::SystemTime>,
+    pub(super) size_min: Option<u64>,
+    pub(super) size_max: Option<u64>,
     pub(super) permissions: Option<String>,
     pub(super) executable: bool,
     pub(super) readable: bool,
@@ -58,6 +59,9 @@ pub(super) struct CompiledQuery {
 
 impl CompiledQuery {
     pub(super) fn new(options: FileSystemQueryOptions) -> Result<Self, Error> {
+        ordered(options.size_min, options.size_max, "sizeBytes")?;
+        ordered(options.modified_from, options.modified_to, "modifiedAt")?;
+        ordered(options.accessed_from, options.accessed_to, "accessedAt")?;
         let shape = walk_shape(&options);
         let root = PathBuf::from(options.path);
         let defaults = options
@@ -106,20 +110,12 @@ impl CompiledQuery {
             name_filter,
             entry_type: options.entry_type,
             empty: options.empty.unwrap_or(false),
-            modified_within_secs: parse_duration_option(
-                options.modified_within.as_deref(),
-                "modifiedWithin",
-            )?,
-            modified_before_secs: parse_duration_option(
-                options.modified_before.as_deref(),
-                "modifiedBefore",
-            )?,
-            accessed_within_secs: parse_duration_option(
-                options.accessed_within.as_deref(),
-                "accessedWithin",
-            )?,
-            size_greater: parse_size_option(options.size_greater.as_deref(), "sizeGreater")?,
-            size_less: parse_size_option(options.size_less.as_deref(), "sizeLess")?,
+            modified_from: options.modified_from,
+            modified_to: options.modified_to,
+            accessed_from: options.accessed_from,
+            accessed_to: options.accessed_to,
+            size_min: options.size_min,
+            size_max: options.size_max,
             permissions: options.permissions,
             executable: options.executable.unwrap_or(false),
             readable: options.readable.unwrap_or(false),
@@ -223,73 +219,14 @@ pub(super) enum Verdict {
     Enters,
 }
 
-fn parse_duration_option(value: Option<&str>, label: &str) -> Result<Option<u64>, Error> {
-    value
-        .map(|raw| {
-            parse_duration(raw).ok_or_else(|| {
-                Error::with_kind(
-                    ErrorKind::InvalidInput,
-                    format!(
-                        "time.{label}=\"{raw}\" is not a relative duration the walk can apply. Use a whole number of minutes, hours, days or weeks like \"7d\", \"2h\", \"1w\", or \"3m\"."
-                    ),
-                )
-            })
-        })
-        .transpose()
-}
-
-pub(super) fn parse_duration(raw: &str) -> Option<u64> {
-    // Split on the first non-digit at a char boundary. `split_at(len - 1)` would
-    // panic on a multibyte trailing char (e.g. "7€") and only ever read a
-    // single-byte unit.
-    let unit_start = raw.char_indices().find(|(_, c)| !c.is_ascii_digit())?.0;
-    let (number, unit) = raw.split_at(unit_start);
-    let value = number.parse::<u64>().ok()?;
-    // `checked_mul` returns None on overflow (release builds have no overflow
-    // checks), routing absurd-but-valid numerics into the invalid-duration path
-    // rather than wrapping silently.
-    match unit {
-        "m" => value.checked_mul(60),
-        "h" => value.checked_mul(60 * 60),
-        "d" => value.checked_mul(24 * 60 * 60),
-        "w" => value.checked_mul(7 * 24 * 60 * 60),
-        _ => None,
+fn ordered<T: PartialOrd>(from: Option<T>, to: Option<T>, field: &str) -> Result<(), Error> {
+    if let (Some(from), Some(to)) = (from, to)
+        && from > to
+    {
+        return Err(Error::with_kind(
+            ErrorKind::InvalidInput,
+            format!("{field} lower bound must not exceed its upper bound"),
+        ));
     }
-}
-
-fn parse_size_option(value: Option<&str>, label: &str) -> Result<Option<u64>, Error> {
-    value
-        .map(|raw| {
-            parse_size(raw).ok_or_else(|| {
-                Error::with_kind(
-                    ErrorKind::InvalidInput,
-                    format!("Invalid {label} value for local filesystem query: {raw}"),
-                )
-            })
-        })
-        .transpose()
-}
-
-fn parse_size(raw: &str) -> Option<u64> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let split_at = trimmed
-        .char_indices()
-        .find(|(_, ch)| !ch.is_ascii_digit() && *ch != '.')
-        .map(|(idx, _)| idx)
-        .unwrap_or(trimmed.len());
-    let (number, unit) = trimmed.split_at(split_at);
-    let value = number.parse::<f64>().ok()?;
-    let multiplier = match unit.to_ascii_lowercase().as_str() {
-        "" | "b" | "c" => 1.0,
-        "k" | "kb" => 1024.0,
-        "m" | "mb" => 1024.0 * 1024.0,
-        "g" | "gb" => 1024.0 * 1024.0 * 1024.0,
-        "t" | "tb" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
-        _ => return None,
-    };
-    Some((value * multiplier).round() as u64)
+    Ok(())
 }

@@ -37,100 +37,43 @@ impl IgnoredMentions {
     }
 }
 
-/// What a text scan reached. `complete` is false when the scan stopped at
-/// its bound (cancelled by the budget before the walk finished).
-pub(super) struct Scanned {
-    pub(super) files: BTreeSet<String>,
-    pub(super) complete: bool,
-    /// A lifted scan's nested repositories it did not enter, root-relative
-    /// and sorted.
-    pub(super) nested: Vec<String>,
-}
-
-/// The read policy of a lifted scan, which also leaves nested repositories
-/// out ([`NestedRepositories`]) and the directories the one default prune
-/// does (a git-tracked `build/` is scanned, as every local tool walks it).
-pub(super) struct Lifted {
-    pub(super) policy: PathPolicy,
-    pub(super) nested: Arc<NestedRepositories>,
-    pub(super) prune: crate::policy::prune::OwnWalk,
-}
-
-impl octocode_engine::search::text_search::TextSearchPathFilter for Lifted {
-    fn allows(&self, path: &Path, is_dir: bool) -> bool {
-        self.policy.allows(path, is_dir)
-            && !self.prune.prunes(path, is_dir)
-            && !self.nested.skips(path, is_dir)
-    }
-
-    fn skipped_hidden(&self, path: &Path, is_dir: bool) {
-        self.policy.skipped_hidden(path, is_dir);
-    }
-
-    fn skipped_ignored(&self, path: &Path, is_dir: bool) {
-        self.policy.skipped_ignored(path, is_dir);
-    }
-}
-
-/// Whether a text scan honors ignore rules (every lexical scan does) or
-/// lifts them to find what they hide.
-#[derive(Clone, Copy)]
-pub(super) enum Ignores {
-    Honored,
-    Lifted,
-}
-
-/// Word-bounded files-only scan of `root` (family `include`, read policy),
-/// observing `cancel` and the scan bounds. A scan that lifts ignore rules
-/// still skips the default-excluded directories and nested repositories.
+/// Word-bounded files-only scan of `root` (family `include`, read policy,
+/// ignore rules honored), observing `cancel` and `budget`. `None` when the
+/// scan failed or stopped at its bound.
 pub(super) async fn scan_text(
     root: &str,
     include: &[String],
     symbol: &str,
     policy: &PathPolicy,
     cancel: &dyn CancellationCheck,
-    ignores: Ignores,
     budget: Duration,
-) -> Result<Option<Scanned>, LspFailure> {
+) -> Result<Option<BTreeSet<String>>, LspFailure> {
     if symbol.trim().is_empty() {
         return Ok(None);
     }
-    let lifted = matches!(ignores, Ignores::Lifted);
     let options = TextSearchOptions {
         path: root.to_owned(),
         pattern: word_pattern(symbol),
         output: octocode_engine::types::SearchOutput::FilesWithMatch,
         include: (!include.is_empty()).then(|| include.to_vec()),
-        ignore: octocode_engine::search::walk::IgnorePolicy {
-            include_ignored: lifted,
-            include_hidden: false,
-        },
-        walk_threads: lifted.then_some(LIFTED_SCAN_THREADS),
         ..TextSearchOptions::default()
     };
-    let nested = Arc::new(NestedRepositories::new(Path::new(root)));
-    let filter: Arc<dyn octocode_engine::search::text_search::TextSearchPathFilter> = if lifted {
-        Arc::new(Lifted {
-            policy: policy.clone(),
-            nested: Arc::clone(&nested),
-            prune: crate::policy::prune::OwnWalk::new(Path::new(root), []),
-        })
-    } else {
-        Arc::new(policy.clone())
-    };
+    let filter: Arc<dyn octocode_engine::search::text_search::TextSearchPathFilter> =
+        Arc::new(policy.clone());
     let base = root.to_owned();
     let scanned = blocking_cancellable(cancel, move |stopped| {
         let started = Instant::now();
         let bounded = || stopped() || started.elapsed() > budget;
         search_cancellable(options, filter, &bounded)
             .ok()
-            .map(|parsed| Scanned {
-                nested: nested.skipped(),
-                complete: !parsed
+            .filter(|parsed| {
+                !parsed
                     .stats
                     .cap_reasons
-                    .contains(&octocode_engine::types::CapReason::Cancelled),
-                files: parsed
+                    .contains(&octocode_engine::types::CapReason::Cancelled)
+            })
+            .map(|parsed| {
+                parsed
                     .files
                     .into_iter()
                     .map(|file| {
@@ -141,7 +84,7 @@ pub(super) async fn scan_text(
                             canonical(&Path::new(&base).join(path).to_string_lossy())
                         }
                     })
-                    .collect::<BTreeSet<_>>(),
+                    .collect::<BTreeSet<_>>()
             })
     })
     .await?

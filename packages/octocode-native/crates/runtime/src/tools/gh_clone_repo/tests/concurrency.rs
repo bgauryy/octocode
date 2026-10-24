@@ -101,7 +101,7 @@ fn entries_record_their_size_orphans_are_swept_and_distinct_rows_run_at_once() {
                 clone_pinned(
                     fixture,
                     &GhCloneRepoQuery {
-                        path: Some(one(path)),
+                        paths: one(path),
                         ..query()
                     },
                     &context,
@@ -186,7 +186,7 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
     context.deadline = Instant::now() + Duration::from_secs(120);
     for scope in [None, Some("README.md"), Some("src")] {
         let query = GhCloneRepoQuery {
-            path: scope.map(one),
+            paths: scope.map(one).unwrap_or_default(),
             ..query()
         };
         let cloned = clone_pinned(&fixture, &query, &context).expect("large-index clone");

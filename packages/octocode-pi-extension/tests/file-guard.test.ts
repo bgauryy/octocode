@@ -189,7 +189,7 @@ describe('file guard', () => {
     const guard = new FileGuard();
     const { pi, fire } = fakePi();
     registerFileTool(pi, guard, fakePermission());
-    await fire('tool_result', { toolName: 'mcp__octocode__localFetch', input: { queries: [{ path: file, fullContent: true }] }, content: [{ type: 'text', text: 'one' }], structuredContent: { content: [], structuredContent: { results: [{ index: 0, data: { path: 'a.txt', content: '1\tone\n', totalLines: 1 } }] } }, isError: false }, { cwd });
+    await fire('tool_result', { toolName: 'mcp__octocode__localFetch', input: { queries: [{ path: file }] }, content: [{ type: 'text', text: 'one' }], structuredContent: { content: [], structuredContent: { results: [{ index: 0, data: { path: 'a.txt', content: '1\tone\n', totalLines: 1 } }] } }, isError: false }, { cwd });
     expect(guard.inspect(file, 'edit', 'a.txt').refusal).toMatch(/not read in this session/);
     await fire('tool_result', { toolName: 'read', input: { path: 'a.txt' }, content: [{ type: 'text', text: 'one' }], isError: false }, { cwd });
     expect(guard.inspect(file, 'edit', 'a.txt').refusal).toBeUndefined();
@@ -201,7 +201,7 @@ describe('file guard', () => {
     expect(readPaths('read', { path: '@src/x.ts' }, '/r')).toEqual(['/r/src/x.ts']);
     // Any range of Pi's read counts (Pi's own guard semantics).
     expect(readPaths('read', { path: 'src/x.ts', offset: 5, limit: 2 }, '/r')).toEqual(['/r/src/x.ts']);
-    expect(readPaths('mcp__octocode__localFetch', { queries: [{ path: '/r/whole.ts', fullContent: true }] }, '/r')).toEqual([]);
+    expect(readPaths('mcp__octocode__localFetch', { queries: [{ path: '/r/whole.ts' }] }, '/r')).toEqual([]);
     expect(resolveToolPath('/repo', '@src/x.ts')).toBe('/repo/src/x.ts');
   });
 

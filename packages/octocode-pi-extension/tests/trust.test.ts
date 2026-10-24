@@ -4,11 +4,10 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Subcommands } from '../src/shared/commands.js';
 import { describeProjectConfig, fingerprint, projectConfigFiles, projectTrust, projectTrustNow, registerTrustCommand, saveDecision } from '../src/shared/trust.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 function project(files: Record<string, string>): string {
-  const dir = tmp('octocode-trust-');
-  fs.mkdirSync(path.join(dir, '.git'));
+  const dir = repo('octocode-trust-');
   for (const [file, text] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), text);

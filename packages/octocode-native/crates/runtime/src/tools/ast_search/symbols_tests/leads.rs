@@ -14,7 +14,7 @@ fn the_hidden_lead_keeps_the_exclude_anchored_to_the_scan_root() {
     }
     let out = empty_outline(
         &root.0,
-        json!({"symbolName":"dup","exclude":[".cfg/skip/**"]}),
+        json!({"symbolFilter":{"terms":["dup"]},"exclude":[".cfg/skip/**"]}),
     );
     assert_eq!(out["status"], "empty", "{out}");
     assert!(
@@ -33,7 +33,7 @@ fn the_hidden_lead_keeps_the_exclude_anchored_to_the_scan_root() {
     assert!(found_files(&ran)[0].ends_with("keep.ts"), "{ran}");
 }
 
-/// `languageGlobs` map a hidden header to a grammar: the probe counts it
+/// `parserGlobs` map a hidden header to a grammar: the probe counts it
 /// as outlinable (as the scan does), and the lead parses it with the mapped
 /// grammar.
 #[test]
@@ -46,12 +46,12 @@ fn the_hidden_lead_keeps_the_language_globs_anchored_to_the_scan_root() {
     );
     let out = empty_outline(
         &root.0,
-        json!({"symbolName":"Widget","languageGlobs":{"cpp":[".cfg/include/**/*.h"]}}),
+        json!({"symbolFilter":{"terms":["Widget"]},"parserGlobs":{"cpp":[".cfg/include/**/*.h"]}}),
     );
     assert_eq!(out["status"], "empty", "{out}");
     let lead = skipped_lead(&out);
     assert_eq!(
-        lead["languageGlobs"],
+        lead["parserGlobs"],
         json!({"cpp":[".cfg/include/**/*.h"]}),
         "{lead}"
     );
@@ -60,7 +60,7 @@ fn the_hidden_lead_keeps_the_language_globs_anchored_to_the_scan_root() {
     assert!(declares(&ran, "Widget"), "{ran}");
 }
 
-/// A file only `languageGlobs` map to a grammar (an extension no outlined
+/// A file only `parserGlobs` map to a grammar (an extension no outlined
 /// language has) behind a `.gitignore` rule is counted and offered.
 #[test]
 fn a_language_globs_file_behind_an_ignore_rule_gets_a_lead() {
@@ -72,7 +72,7 @@ fn a_language_globs_file_behind_an_ignore_rule_gets_a_lead() {
     root.write("main.ts", "export const kept = 1;\n");
     let out = empty_outline(
         &root.0,
-        json!({"symbolName":"zzMapped","languageGlobs":{"typescript":["**/*.tsx.in"]}}),
+        json!({"symbolFilter":{"terms":["zzMapped"]},"parserGlobs":{"typescript":["**/*.tsx.in"]}}),
     );
     assert_eq!(out["status"], "empty", "{out}");
     let lead = skipped_lead(&out);
@@ -90,12 +90,12 @@ fn the_hidden_file_lead_keeps_the_scope_and_its_filters() {
     root.write("plain.ts", "export function other() {}\n");
     let out = empty_outline(
         &root.0,
-        json!({"symbolName":"hf","languageGlobs":{"typescript":["**/*.ts"]},"exclude":["**/none/**"]}),
+        json!({"symbolFilter":{"terms":["hf"]},"parserGlobs":{"typescript":["**/*.ts"]},"exclude":["**/none/**"]}),
     );
     assert_eq!(out["status"], "empty", "{out}");
     let lead = skipped_lead(&out);
     assert_eq!(
-        lead["languageGlobs"],
+        lead["parserGlobs"],
         json!({"typescript":["**/*.ts"]}),
         "{lead}"
     );
@@ -132,7 +132,7 @@ fn skipped_workspace(hidden_name: &str, ignored_name: &str) -> Fixture {
 #[test]
 fn an_ignored_symbol_leads_to_its_own_scope_with_the_ignore_flags_lifted() {
     let root = skipped_workspace("hiddenSym", "ignoredSym");
-    let out = empty_outline(&root.0, json!({"symbolName":"ignoredSym"}));
+    let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["ignoredSym"]}}));
     assert_eq!(out["status"], "empty", "{out}");
     assert!(out["next"].get("narrowScope").is_none(), "{out}");
     let hints = out["hints"].to_string();
@@ -156,11 +156,11 @@ fn a_symbol_lead_lifts_exactly_the_flags_left_to_reach_it() {
     let root = skipped_workspace("hiddenSym", "ignoredSym");
     for (request, lifted) in [
         (
-            json!({"symbolName":"hiddenSym"}),
+            json!({"symbolFilter":{"terms":["hiddenSym"]}}),
             json!({"includeHidden":true}),
         ),
         (
-            json!({"symbolName":"hiddenSym","includeIgnored":true}),
+            json!({"symbolFilter":{"terms":["hiddenSym"]},"includeIgnored":true}),
             json!({"includeHidden":true,"includeIgnored":true}),
         ),
     ] {
@@ -180,16 +180,18 @@ fn a_symbol_lead_lifts_exactly_the_flags_left_to_reach_it() {
 #[test]
 fn a_symbol_behind_hidden_and_ignored_paths_gets_one_lead_lifting_both() {
     let root = skipped_workspace("sharedSym", "sharedSym");
-    let out = empty_outline(&root.0, json!({"symbolName":"sharedSym"}));
+    let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["sharedSym"]}}));
     assert_eq!(out["status"], "empty", "{out}");
-    // The text fallback gives way to the skip lead.
-    let channels: Vec<&str> = out["next"]
-        .as_object()
-        .expect("next")
-        .keys()
-        .map(String::as_str)
-        .collect();
-    assert_eq!(channels.last().copied(), Some("findText"), "{out}");
+    assert_eq!(
+        out["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["tool"] == "astSearch")
+            .count(),
+        1,
+        "{out}"
+    );
     let hints = out["hints"].to_string();
     assert!(hints.contains("hidden .hidden/"), "{hints}");
     assert!(hints.contains(".gitignore:1 'build/'"), "{hints}");
@@ -218,7 +220,7 @@ fn every_hidden_directory_holding_the_name_is_reached() {
         .expect("source");
     }
     root.write("main.ts", "export const kept = 1;\n");
-    let out = empty_outline(&root.0, json!({"symbolName":"twinSym"}));
+    let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["twinSym"]}}));
     let found = run_lead(&root.0, skipped_lead(&out));
     let files = found_files(&found);
     assert_eq!(files.len(), 2, "{found}");
@@ -240,11 +242,13 @@ fn an_outline_leaves_out_gitignored_files_and_leads_to_them() {
     let kept = empty_outline(&root.0, json!({}));
     assert_eq!(found_files(&kept).len(), 1, "{kept}");
     assert_eq!(kept["filesScanned"], 1, "{kept}");
-    let out = empty_outline(&root.0, json!({"symbolName":"zzGenerated"}));
+    let out = empty_outline(&root.0, json!({"symbolFilter":{"terms":["zzGenerated"]}}));
     assert_eq!(out["status"], "empty", "{out}");
     let hints = out["hints"].to_string();
     assert!(hints.contains(".gitignore:1 'gen/'"), "{hints}");
-    let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
+    let lead = super::super::test_rows::skipped_call(&out)
+        .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"))["input"]["queries"][0]
+        .clone();
     assert_eq!(lead["includeIgnored"], json!(true), "{out}");
     assert_eq!(lead["path"], json!(root.0.to_string_lossy()), "{out}");
     let found = run_lead(&root.0, lead);
@@ -252,7 +256,7 @@ fn an_outline_leaves_out_gitignored_files_and_leads_to_them() {
     assert!(declares(&found, "zzGenerated"), "{found}");
     let direct = empty_outline(
         &root.0,
-        json!({"symbolName":"zzGenerated","includeIgnored":true}),
+        json!({"symbolFilter":{"terms":["zzGenerated"]},"includeIgnored":true}),
     );
     assert!(declares(&direct, "zzGenerated"), "{direct}");
 }

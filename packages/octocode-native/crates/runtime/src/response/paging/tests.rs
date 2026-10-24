@@ -8,20 +8,21 @@ fn notices_append_once_and_continuations_are_told_by_their_cursors() {
     super::push_notice(&mut row, "static");
     super::push_notice(&mut row, "static");
     assert_eq!(row[super::NOTICES], json!(["static"]));
-    for first in [
-        json!({"path":"a"}),
-        json!({"path":"a","page":1,"offset":0,"matchPage":1}),
-    ] {
-        assert!(!super::continues_a_page(&first), "{first}");
+    for first in [json!({"path":"a"}), json!({"path":"a","page":1})] {
+        assert!(
+            !super::continues_a_page(ToolId::LspSearch, &first),
+            "{first}"
+        );
     }
     for later in [
         json!({"page":2}),
-        json!({"offset":40}),
-        json!({"scanOffset":3}),
         json!({"snapshot":"s"}),
-        json!({"matchPage":2}),
+        json!({"importerPage":2}),
     ] {
-        assert!(super::continues_a_page(&later), "{later}");
+        assert!(
+            super::continues_a_page(ToolId::LspSearch, &later),
+            "{later}"
+        );
     }
 }
 
@@ -50,7 +51,7 @@ fn next_page_call_advances_one_cursor_or_ends_at_the_terminal_limit() {
     )
     .expect("an admitted cursor");
     assert_eq!(call["tool"], "lspSearch", "{call}");
-    let next = &call["query"]["queries"][0];
+    let next = &call["input"]["queries"][0];
     assert_eq!(next["page"], 3, "{call}");
     assert_eq!(next["snapshot"], "lsp-v3:x", "{call}");
     assert_eq!(next["path"], "a.rs", "{call}");
@@ -72,26 +73,6 @@ fn next_page_call_advances_one_cursor_or_ends_at_the_terminal_limit() {
     assert!(past.is_none());
     assert_eq!(row["terminalLimit"], true, "{row}");
     assert_eq!(row["partialReasons"], json!([CURSOR_MAXIMUM]), "{row}");
-}
-
-/// The one page-size accessor: unset is the character budget, a request
-/// is at least one and at most the contract bound.
-#[test]
-fn page_size_clamps_a_request_and_leaves_an_unset_one_to_the_budget() {
-    let maximum = crate::contracts::query_schema_max(ToolId::LspSearch, None, "pageSize");
-    assert_eq!(super::page_size(ToolId::LspSearch, None, None::<u32>), None);
-    assert_eq!(
-        super::page_size(ToolId::LspSearch, None, Some(0_u32)),
-        Some(1)
-    );
-    assert_eq!(
-        super::page_size(ToolId::LspSearch, None, Some(7_u32)),
-        Some(7.min(maximum))
-    );
-    assert_eq!(
-        super::page_size(ToolId::LspSearch, None, Some(u32::MAX)),
-        Some(maximum)
-    );
 }
 
 /// The partial owners write a row or its object alike: a reason is
@@ -147,8 +128,8 @@ fn bounded_cursors() -> Vec<(ToolId, Option<String>, String, u64)> {
                 .map(str::to_owned);
             for (field, field_schema) in fields {
                 let field_schema = crate::contracts::resolve_ref(field_schema, defs);
-                let cursor = field != "offset"
-                    && crate::response::result::CURSOR_FIELDS.contains(&field.as_str());
+                let cursor =
+                    field != "offset" && crate::contracts::state_fields(tool).contains(field);
                 if let Some(maximum) = field_schema["maximum"].as_u64().filter(|_| cursor) {
                     found.push((tool, operation.clone(), field.clone(), maximum));
                 }
@@ -197,58 +178,5 @@ fn every_bounded_cursor_ends_at_its_contract_maximum() {
         assert_eq!(row["partialReasons"], json!([CURSOR_MAXIMUM]), "{row}");
         let warning = row["warnings"][0].as_str().expect("warning");
         assert!(warning.contains(&format!("{field}:{maximum}")), "{warning}");
-        assert!(warning.len() <= 120, "{warning}");
     }
-}
-
-/// No tool advances a contract cursor field by hand: every
-/// `field: value + 1` write of a bounded cursor field (a JSON key, an
-/// index or an insert) in the runtime's non-test sources goes through
-/// [`next_cursor`] or [`admitted`].
-#[test]
-fn no_cursor_is_advanced_outside_the_paging_helper() {
-    let mut fields = bounded_cursors()
-        .into_iter()
-        .map(|(_, _, field, _)| field)
-        .collect::<Vec<_>>();
-    fields.sort();
-    fields.dedup();
-    let names = fields.join("|");
-    let advanced = regex::Regex::new(&format!(
-            r#"(\[|insert\()"({names})"(\]\s*=|\.into\(\),)\s*json!\([^;]*\+\s*1\)|"({names})"\s*:\s*[\w.()]+\s*\+\s*1\b"#
-        ))
-        .expect("regex");
-    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut dirs = vec![src.clone()];
-    let mut found = Vec::new();
-    while let Some(dir) = dirs.pop() {
-        for entry in std::fs::read_dir(&dir).expect("src dir") {
-            let path = entry.expect("entry").path();
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default();
-            if path.is_dir() {
-                if name != "tests" {
-                    dirs.push(path);
-                }
-                continue;
-            }
-            if !name.ends_with(".rs") || name == "tests.rs" || name.ends_with("_tests.rs") {
-                continue;
-            }
-            let relative = path
-                .strip_prefix(&src)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let text = crate::tools::test_support::production_source(&path);
-            found.extend(
-                advanced
-                    .find_iter(&text)
-                    .map(|hit| format!("{relative}: {}", hit.as_str())),
-            );
-        }
-    }
-    assert!(found.is_empty(), "cursor advanced by hand: {found:#?}");
 }

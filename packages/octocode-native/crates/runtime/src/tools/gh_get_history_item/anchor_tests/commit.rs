@@ -28,25 +28,28 @@ async fn commit_patch_continuations_preserve_match_context_and_exact_stream() {
     .await;
     for context in [0, 5] {
         let mut query = json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,
-            "sections":["patches"],"matchString":"needle","contextLines":context,"length":15000});
+            "sections":["patches"],"matchString":["needle"],"contextLines":{"before":context,"after":context}});
         let whole = read(&server, query.clone()).await;
         let expected = whole["files"][0]["patch"].as_str().expect("whole patch");
-        query["length"] = json!(32);
         let mut actual = String::new();
         let mut pages = 0;
         loop {
             pages += 1;
             assert!(pages < 100, "patch walk must terminate");
-            let data = read(&server, query.clone()).await;
+            let data = read_with_budget(&server, query.clone(), Some(40)).await;
             assert_history_page_contract(&query, &data);
             actual.push_str(data["files"][0]["patch"].as_str().expect("patch window"));
-            let Some(next) = data.pointer("/next/continuePatch/query") else {
+            let Some(next) = data.pointer("/next/continuePatch/input") else {
                 break;
             };
-            let normalized = crate::contracts::validate("ghGetHistoryItem", next.clone())
+            let normalized = crate::contracts::validate_built("ghGetHistoryItem", next.clone())
                 .expect("executable copied patch continuation");
             query = normalized["queries"][0].clone();
-            assert_eq!(query["contextLines"], context, "{query}");
+            assert_eq!(
+                query["contextLines"],
+                json!({"before":context,"after":context}),
+                "{query}"
+            );
         }
         assert!(pages > 1, "the fixture must exercise continuation");
         assert_eq!(actual, expected, "contextLines={context}");
@@ -127,7 +130,7 @@ async fn a_one_batch_commit_read_by_branch_sends_no_separate_resolution() {
     let requests = server.received_requests().await.expect("requests");
     assert_eq!(requests.len(), 1, "one read of the commit by its name");
     assert_eq!(
-        data.pointer("/next/nextFilePage/query/queries/0/ref"),
+        data.pointer("/next/nextFilePage/input/queries/0/ref"),
         Some(&json!(HEAD)),
         "{data}"
     );
@@ -230,7 +233,7 @@ async fn a_cut_patch_line_never_shows_part_of_a_secret() {
         let provider = mock_provider(&server, RetryPolicy::default());
         let context = fixture_context(Duration::from_secs(10), 4 << 20);
         let request = HistoryItemRequest::from_row(
-            json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":"needle"}),
+            json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["needle"]}),
         )
         .expect("valid row");
         let out = execute(

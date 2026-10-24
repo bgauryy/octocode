@@ -62,7 +62,7 @@ pub(super) async fn materialize_page(
             unwritten.len(),
             scope.depth
         ));
-        value["next"]["expandDepth"] = expand_depth(query, scope, commit_sha, first)?;
+        value["calls"]["expandDepth"] = expand_depth(query, scope, commit_sha, first)?;
     }
     let mut location = outcome.location;
     // The checkout is complete only when this listing wrote everything it
@@ -252,8 +252,7 @@ pub(super) async fn materialize_tree(
     // by the page) is the only coverage flag.
     let mut location = json!({
         "localPath": local.to_string_lossy(),
-        "coverage": {"state": if has_more { "partial" } else { "complete" }},
-    });
+        "coverage": {"state": if has_more { "partial" } else { "complete" }}});
     let warnings = writer.skips.warnings();
     let skipped = !writer.skips.is_empty();
     if skipped {

@@ -4,6 +4,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { setTimeout as delay } from 'node:timers/promises';
 import { binary, execFile, execFileSync, root, tempWorkspace, waitFor, withReasoning, only, isChildFailure } from './helpers.ts';
 import { promisify } from 'node:util';
 import type { TestContext } from 'node:test';
@@ -136,7 +137,7 @@ test('Claude dispatch predicts held mail from hook-reported permission mode and 
   assert.equal(deferred.submitted, 0);
   assert.equal(deferred.deferred, 'claude-inbound-held');
   assert.match(deferred.inbound.reason, /bypasses permission prompts/);
-  await new Promise(resolve => setTimeout(resolve, 50));
+  await delay(50);
   assert.equal(frames.length, 0, 'nothing written into a hold queue');
   assert.match(JSON.stringify(hook('PostToolUse', 'bypassPermissions')), /HELD QUESTION/, 'receiver hook delivers instead');
   hook('PostToolUse', 'default');

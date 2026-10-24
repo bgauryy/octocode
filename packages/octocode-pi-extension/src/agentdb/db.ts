@@ -5,8 +5,6 @@ import { agentDbPath, globalPaths, privateDir } from '../shared/home.js';
 import { loadSqlite } from '../shared/util.js';
 import { AgentDbError, ensureSchema, schemaCurrent } from './schema.js';
 
-export { AGENT_APPLICATION_ID, AgentDbError } from './schema.js';
-
 /** An open agent database. Features write their own SQL against the schema tables (`./schema.ts`). */
 export interface AgentDb {
   readonly file: string;

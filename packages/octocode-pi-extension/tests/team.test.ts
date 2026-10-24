@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatDuration, memberStats } from '../src/shared/format.js';
 import { trafficRow, widgetLines } from '../src/team/panel.js';
 import { toolHint } from '../src/shared/util.js';
@@ -9,8 +9,8 @@ import { subagentProcessEnv } from '../src/subagents/process.js';
 import { registerAgentTool } from '../src/subagents/tool.js';
 import type { Member } from '../src/team/model.js';
 import { theme, fakePermission } from './fake-pi.js';
-import { tmp } from './helpers.js';
-import { member, repo } from './team-harness.js';
+import { repo, tmp } from './helpers.js';
+import { member } from './team-harness.js';
 
 describe('team database', () => {
   it('resolves ids, unique roles, parent and all', () => {
@@ -99,80 +99,111 @@ describe('collaboration prompt', () => {
   });
 });
 
-describe('Team', () => {
-  it('injects a parent message into a running child, tracks the reply and enforces reservations', async () => {
-    const { vi } = await import('vitest');
-    const { Team } = await import('../src/team/session.js');
-    const { INTERNAL_MESSAGE_TYPE } = await import('../src/shared/messages.js');
+type Log = Array<{ message: { content: string; details?: unknown }; options: unknown }>;
+const stops: Array<() => void> = [];
+/** Fake timers for the Team suites, and every team they started stopped afterwards. */
+function useTeams(): void {
+  beforeEach(() => {
     vi.useFakeTimers();
-    const cwd = repo();
-    const env = { OCTOCODE_AGENT_DB: path.join(tmp(), 'team.sqlite') };
-    const ctx = { cwd, isIdle: () => false } as never;
-    const inbox = () => [] as Array<{ message: { content: string; details?: unknown }; options: unknown }>;
-    const [mainLog, childLog] = [inbox(), inbox()];
-    const fakePi = (log: ReturnType<typeof inbox>) => ({ sendMessage: (message: { content: string }, options: unknown) => log.push({ message, options }) }) as never;
-    try {
-      const main = new Team(fakePi(mainLog), env);
-      main.start(ctx);
-      expect(main.members()).toEqual([]);
-      const parent = main.join('coordinating');
-      const child = new Team(fakePi(childLog), { ...env, OCTOCODE_AGENT_ID: 'researcher-1234', OCTOCODE_PARENT_ID: parent.id, OCTOCODE_AGENT_GOAL: 'Find X' });
-      child.start(ctx);
-      child.onToolStart();
-      child.setActivity('Running localSearch foo');
-      child.onUsage({ input: 60, cacheRead: 30, cacheWrite: 10, output: 20, cost: { total: 0.01 } }, 'anthropic/claude-haiku-4-5', false);
-      child.onUsage({ input: 5, output: 1, cost: { total: 0 } }, 'local/llama', true);
-      // Activity, tool counts and usage are written with the 5-second heartbeat, not on every tick.
-      vi.advanceTimersByTime(1_000);
-      expect(main.members().find((m) => m.id === 'researcher-1234')).toMatchObject({ toolCalls: 0 });
-      vi.advanceTimersByTime(4_000);
-      expect(main.members().find((m) => m.id === 'researcher-1234')).toMatchObject({ status: 'working', goal: 'Find X', activity: 'Running localSearch foo', toolCalls: 1, input: 105, cacheRead: 30, output: 21, cost: 0.01, unpriced: true, model: 'local/llama', parentId: parent.id });
+  });
+  afterEach(() => {
+    for (const stop of stops.splice(0).toReversed()) stop();
+    vi.useRealTimers();
+  });
+}
 
-      const asked = (await main.send('researcher-1234', 'also check tests', { replyRequired: true }));
-      expect(asked).toMatchObject({ sent: ['researcher-1234'] });
-      vi.advanceTimersByTime(1_000);
-      expect(childLog).toHaveLength(1);
-      const content = childLog[0]!.message.content;
-      expect(content).toContain(`from your parent agent ${parent.id}`);
-      expect(content).toContain('also check tests');
-      expect(content).toContain(`replyTo ${(asked as { id: number }).id}`);
-      expect(childLog[0]!.options).toEqual({ triggerTurn: true, deliverAs: 'steer' });
-      // Awaiting a reply once Pi puts it in front of the child's model.
-      child.onContext([{ role: 'custom', customType: INTERNAL_MESSAGE_TYPE, details: childLog[0]!.message.details }]);
-      expect(main.members().find((m) => m.id === 'researcher-1234')?.pending).toBe(1);
+/** A main session that joined as a parent, and a running child `researcher-1234` of it, on one team database. */
+async function parentAndChild() {
+  const { Team } = await import('../src/team/session.js');
+  const cwd = repo();
+  const env = { OCTOCODE_AGENT_DB: path.join(tmp(), 'team.sqlite') };
+  const ctx = { cwd, isIdle: () => false } as never;
+  const [mainLog, childLog]: Log[] = [[], []];
+  const pi = (log: Log) => ({ sendMessage: (message: { content: string }, options: unknown) => log.push({ message, options }) }) as never;
+  const main = new Team(pi(mainLog), env);
+  main.start(ctx);
+  stops.push(() => main.stop());
+  const before = main.members();
+  const parent = main.join('coordinating');
+  const child = new Team(pi(childLog), { ...env, OCTOCODE_AGENT_ID: 'researcher-1234', OCTOCODE_PARENT_ID: parent.id, OCTOCODE_AGENT_GOAL: 'Find X' });
+  child.start(ctx);
+  stops.push(() => child.stop());
+  const childRow = () => main.members().find((m) => m.id === 'researcher-1234');
+  return { cwd, main, parent, child, mainLog, childLog, before, childRow };
+}
 
-      // A reply defaults to FYI, so it never asks the asker to answer again (no ping-pong of woken agents).
-      (await child.send('parent', 'found it', { replyTo: (asked as { id: number }).id }));
-      vi.advanceTimersByTime(1_000);
-      expect(mainLog[0]!.message.content).toContain('agent researcher-1234');
-      expect(mainLog[0]!.message.content).toContain('FYI: no reply needed');
-      expect(main.members().find((m) => m.id === 'researcher-1234')?.pending).toBe(0);
+describe('Team messages and heartbeat', () => {
+  useTeams();
 
-      // Reservations: the child's edit is refused while the parent holds the file.
-      expect(main.lock(['src/a.ts'], 'refactor')).toMatchObject({ ok: true });
-      expect(child.reservation(path.join(cwd, 'src', 'a.ts'), 'src/a.ts')).toContain(`reserved by ${parent.id}`);
-      expect(main.reservation(path.join(cwd, 'src', 'a.ts'), 'src/a.ts')).toBeUndefined();
-      expect(child.lock(['src/a.ts'], 'also')).toMatchObject({ ok: false });
-      expect(mutatedPaths('file', { queries: [{ path: 'src/a.ts', type: 'edit' }] })).toEqual(['src/a.ts']);
-      expect(mutatedPaths('write', { path: 'x' })).toEqual(['x']);
-      expect(mutatedPaths('read', { path: 'x' })).toEqual([]);
-      // The file tool applies this per query, so a held path fails only its own change.
-      const { FileGuard } = await import('../src/files/guard.js');
-      const guard = new FileGuard();
-      guard.reservedBy = (file) => child.reservation(file, file);
-      expect(guard.check(path.join(cwd, 'src', 'a.ts'), 'edit', 'src/a.ts')).toContain(`reserved by ${parent.id}`);
-      expect(guard.check(path.join(cwd, 'src', 'free.ts'), 'write', 'src/free.ts')).toBeUndefined();
-      main.unlock();
-      expect(child.reservation(path.join(cwd, 'src', 'a.ts'), 'src/a.ts')).toBeUndefined();
+  it('writes a child\'s activity, tool calls and usage with the 5-second heartbeat, not on every tick', async () => {
+    const { parent, child, before, childRow } = await parentAndChild();
+    expect(before).toEqual([]);
+    child.onToolStart();
+    child.setActivity('Running localSearch foo');
+    child.onUsage({ input: 60, cacheRead: 30, cacheWrite: 10, output: 20, cost: { total: 0.01 } }, 'anthropic/claude-haiku-4-5', false);
+    child.onUsage({ input: 5, output: 1, cost: { total: 0 } }, 'local/llama', true);
+    vi.advanceTimersByTime(1_000);
+    expect(childRow()).toMatchObject({ toolCalls: 0 });
+    vi.advanceTimersByTime(4_000);
+    expect(childRow()).toMatchObject({ status: 'working', goal: 'Find X', activity: 'Running localSearch foo', toolCalls: 1, input: 105, cacheRead: 30, output: 21, cost: 0.01, unpriced: true, model: 'local/llama', parentId: parent.id });
+  });
 
-      expect((await main.send('ghost', 'hi'))).toHaveProperty('error');
-      expect((await main.send('researcher-1234', 'from the user', { from: 'user', replyRequired: false }))).toMatchObject({ sent: ['researcher-1234'] });
-      child.stop();
-      expect(main.members().map((m) => m.id)).toEqual([parent.id]);
-      main.stop();
-    } finally {
-      vi.useRealTimers();
-    }
+  it('steers a parent message into the running child and tracks the reply it asked for until an FYI answer arrives', async () => {
+    const { INTERNAL_MESSAGE_TYPE } = await import('../src/shared/messages.js');
+    const { main, parent, child, mainLog, childLog, childRow } = await parentAndChild();
+    const asked = (await main.send('researcher-1234', 'also check tests', { replyRequired: true })) as { id: number };
+    expect(asked).toMatchObject({ sent: ['researcher-1234'] });
+    vi.advanceTimersByTime(1_000);
+    expect(childLog).toHaveLength(1);
+    const content = childLog[0]!.message.content;
+    expect(content).toContain(`from your parent agent ${parent.id}`);
+    expect(content).toContain('also check tests');
+    expect(content).toContain(`replyTo ${asked.id}`);
+    expect(childLog[0]!.options).toEqual({ triggerTurn: true, deliverAs: 'steer' });
+    // Awaiting a reply once Pi puts it in front of the child's model.
+    child.onContext([{ role: 'custom', customType: INTERNAL_MESSAGE_TYPE, details: childLog[0]!.message.details }]);
+    expect(childRow()?.pending).toBe(1);
+    // A reply defaults to FYI, so it never asks the asker to answer again (no ping-pong of woken agents).
+    await child.send('parent', 'found it', { replyTo: asked.id });
+    vi.advanceTimersByTime(1_000);
+    expect(mainLog[0]!.message.content).toContain('agent researcher-1234');
+    expect(mainLog[0]!.message.content).toMatch(/FYI: no reply needed/);
+    expect(childRow()?.pending).toBe(0);
+  });
+});
+
+describe('Team reservations and sends', () => {
+  useTeams();
+
+  it('refuses a child\'s edit of a file the parent holds, per file-tool query, until the parent unlocks', async () => {
+    const { FileGuard } = await import('../src/files/guard.js');
+    const { cwd, main, parent, child } = await parentAndChild();
+    const held = path.join(cwd, 'src', 'a.ts');
+    expect(main.lock(['src/a.ts'], 'refactor')).toMatchObject({ ok: true });
+    expect(child.reservation(held, 'src/a.ts')).toContain(`reserved by ${parent.id}`);
+    expect(main.reservation(held, 'src/a.ts')).toBeUndefined();
+    expect(child.lock(['src/a.ts'], 'also')).toMatchObject({ ok: false });
+    // The file tool applies this per query, so a held path fails only its own change.
+    const guard = new FileGuard();
+    guard.reservedBy = (file) => child.reservation(file, file);
+    expect(guard.check(held, 'edit', 'src/a.ts')).toContain(`reserved by ${parent.id}`);
+    expect(guard.check(path.join(cwd, 'src', 'free.ts'), 'write', 'src/free.ts')).toBeUndefined();
+    main.unlock();
+    expect(child.reservation(held, 'src/a.ts')).toBeUndefined();
+  });
+
+  it('reads the paths a tool call would change', () => {
+    expect(mutatedPaths('file', { queries: [{ path: 'src/a.ts', type: 'edit' }] })).toEqual(['src/a.ts']);
+    expect(mutatedPaths('write', { path: 'x' })).toEqual(['x']);
+    expect(mutatedPaths('read', { path: 'x' })).toEqual([]);
+  });
+
+  it('refuses an unknown target, sends a user-sourced message, and drops a child that stopped', async () => {
+    const { main, parent, child } = await parentAndChild();
+    expect(await main.send('ghost', 'hi')).toHaveProperty('error');
+    expect(await main.send('researcher-1234', 'from the user', { from: 'user', replyRequired: false })).toMatchObject({ sent: ['researcher-1234'] });
+    child.stop();
+    expect(main.members().map((m) => m.id)).toEqual([parent.id]);
   });
 });
 

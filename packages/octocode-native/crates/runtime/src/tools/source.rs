@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use octocode_engine::stamp::SourceStamp;
-pub(crate) use octocode_engine::text::ReadError;
+use octocode_engine::text::ReadError;
 
 /// Metadata identity for cache reuse. On Unix the change time and inode are
 /// part of it, and a missing change time cannot prove that a write

@@ -121,7 +121,7 @@ fn render_literal(value: &Value) -> String {
 }
 
 /// A literal rejected by the selected branch but accepted by a sibling is a
-/// cross-field rule (e.g. `unique:"list"` needs `resultView:"matchOnly"`).
+/// cross-field rule (e.g. `unique:"list"` needs `view:"matchOnly"`).
 /// Name the sibling's selector values instead of only the local constant.
 pub(super) fn annotate_sibling_selectors(
     issues: &mut [ValidationIssue],

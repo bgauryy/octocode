@@ -84,7 +84,7 @@ pub(super) fn emit(
         metadata["sections"] = json!(sections);
         resources.insert(resource.key.clone(), metadata);
     }
-    let mut output = json!({"id":session.query_id,"operation":"sections","questions":session.questions,"resources":resources,"usage":usage.output()});
+    let mut output = json!({"operation":"sections","questions":session.questions,"resources":resources,"usage":usage.output()});
     if let Some(model) = session.resolved_model.as_ref().or(session.model.as_ref()) {
         output["model"] = json!(model);
     }

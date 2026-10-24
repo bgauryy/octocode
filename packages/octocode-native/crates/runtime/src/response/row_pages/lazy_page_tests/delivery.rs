@@ -1,58 +1,6 @@
 use super::*;
 
 #[test]
-fn changing_the_row_page_budget_requires_a_restart() {
-    let structured = envelope();
-    let (_, first) = paginate_rows(
-        structured.clone(),
-        &options(1_000, 0, None),
-        Vec::new(),
-        &[],
-        None,
-    );
-    assert!(first.has_more);
-    for changed_length in [700, 2_000] {
-        let (page, pagination) = paginate_rows(
-            structured.clone(),
-            &options(changed_length, 1, Some(first.snapshot.clone())),
-            Vec::new(),
-            &[],
-            None,
-        );
-        assert_eq!(pagination.restart, Some(true), "length {changed_length}");
-        assert_eq!(pagination.changed, Some(true));
-        assert_eq!(pagination.next_char_offset, Some(0));
-        assert_eq!(page["results"], json!([]));
-    }
-}
-
-#[test]
-fn an_earlier_row_plan_version_requires_a_restart() {
-    let structured = envelope();
-    let (_, first) = paginate_rows(
-        structured.clone(),
-        &options(1_000, 0, None),
-        Vec::new(),
-        &[],
-        None,
-    );
-    assert!(first.snapshot.starts_with("response-rows-v6:"));
-    let obsolete = first
-        .snapshot
-        .replacen("response-rows-v6:", "response-rows-v5:", 1);
-    let (page, pagination) = paginate_rows(
-        structured,
-        &options(1_000, 1, Some(obsolete)),
-        Vec::new(),
-        &[],
-        None,
-    );
-    assert_eq!(pagination.restart, Some(true));
-    assert_eq!(pagination.next_char_offset, Some(0));
-    assert_eq!(page["results"], json!([]));
-}
-
-#[test]
 fn every_row_is_delivered_exactly_once_within_the_page_bound() {
     // Every page re-plans every row, so the rows are only as broad as the
     // lengths need: a broad row still spans several pages at the largest
@@ -73,9 +21,9 @@ fn every_row_is_delivered_exactly_once_within_the_page_bound() {
         let mut small = 0;
         for (page, pagination) in &pages {
             assert!(
-                pagination.char_length <= length || pagination.oversized == Some(true),
+                pagination.returned_chars <= length || pagination.oversized == Some(true),
                 "length {length}: {} chars unflagged",
-                pagination.char_length
+                pagination.returned_chars
             );
             for row in page["results"].as_array().expect("rows") {
                 small += usize::from(row["data"]["content"] == "small");
@@ -148,9 +96,9 @@ fn the_first_page_shows_every_rows_head() {
     let pages = walk(&structured, 20_000);
     let (first, pagination) = &pages[0];
     assert!(
-        pagination.char_length <= 20_000,
+        pagination.returned_chars <= 20_000,
         "{}",
-        pagination.char_length
+        pagination.returned_chars
     );
     let heads: Vec<_> = first["results"]
         .as_array()
@@ -167,9 +115,9 @@ fn the_first_page_shows_every_rows_head() {
     let mut carriers = std::collections::BTreeMap::new();
     for (page, pagination) in &pages {
         assert!(
-            pagination.char_length <= 20_000,
+            pagination.returned_chars <= 20_000,
             "{}",
-            pagination.char_length
+            pagination.returned_chars
         );
         assert!(pagination.oversized.is_none(), "{page:?}");
         for row in page["results"].as_array().expect("rows") {

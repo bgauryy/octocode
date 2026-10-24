@@ -166,7 +166,9 @@ impl Operation<'_, '_> {
     /// The references the server reports from each verified importer's
     /// anchor, in the files that importer window owns, not already `seen`.
     /// An importer whose request fails is recorded in `failures`;
-    /// cancellation ends the request.
+    /// cancellation ends the request. A listed site whose name binds another
+    /// declaration (a candidate's own same-named binding, which the server
+    /// may list as a contextually typed property) is left out.
     ///
     /// Each importer is asked with its declarations included: from an
     /// importer, `includeDeclaration` would drop its own import binding (a
@@ -202,8 +204,10 @@ impl Operation<'_, '_> {
                 }
             };
             found.extend(extra.into_iter().filter(|snippet| {
-                importers.owns(&super::super::scope::canonical_uri(&snippet.uri))
-                    && declared.is_none_or(|declared| !declared.contains(&site_start(snippet)))
+                let site = site_start(snippet);
+                importers.owns(&site.0)
+                    && declared.is_none_or(|declared| !declared.contains(&site))
+                    && !importers.binds_elsewhere(&site)
                     && seen.insert(snippet_identity(snippet))
             }));
         }

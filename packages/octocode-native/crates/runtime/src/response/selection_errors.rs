@@ -38,7 +38,7 @@ pub(crate) fn decorate(tool: ToolId, structured: &mut Value, response_query: &Va
         if crate::id::error_code_of(&row["data"]) == Some(ErrorCode::InvalidInput) {
             continue;
         }
-        if query.get("clasifyContext").is_some()
+        if query.get("classification").is_some()
             && row.get("status") == Some(&Value::String("error".into()))
             && let Some(data) = row.get_mut("data").and_then(Value::as_object_mut)
         {
@@ -114,8 +114,7 @@ mod tests {
                 "next":{"unfiltered":{"tool":tool.as_str(),"query":{"queries":[{"path":"a.rs"}]}}}
             }}]});
             let before = structured.clone();
-            let query =
-                json!({"path":"a.rs","clasifyContext":{"classifiers":["States the rule?"]}});
+            let query = json!({"path":"a.rs","classification":{"predicates":["States the rule?"]}});
             settle(tool, &mut structured, &query);
             assert_eq!(structured, before, "{structured}");
         }
@@ -130,7 +129,7 @@ mod tests {
         decorate(
             ToolId::LocalFetch,
             &mut structured,
-            &json!({"path":"a.rs","clasifyContext":{"classifiers":["States the rule?"]}}),
+            &json!({"path":"a.rs","classification":{"predicates":["States the rule?"]}}),
         );
         assert_eq!(structured, before);
     }
@@ -149,7 +148,7 @@ mod tests {
         decorate(
             ToolId::LocalFetch,
             &mut structured,
-            &json!({"path":"missing.rs","clasifyContext":{"classifiers":["Relevant?"]}}),
+            &json!({"path":"missing.rs","classification":{"predicates":["Relevant?"]}}),
         );
         let data = &structured["results"][0]["data"];
         assert_eq!(data["error"], "missing");
@@ -181,8 +180,8 @@ mod tests {
             &mut structured,
             &json!({"queries":[
                 {"owner":"o","keywords":["plain"]},
-                {"owner":"o","keywords":["selected"],"clasifyContext":{"classifiers":["Relevant?"]}},
-                {"owner":"o","keywords":["existing"],"clasifyContext":{"classifiers":["Relevant?"]}}
+                {"owner":"o","keywords":["selected"],"classification":{"predicates":["Relevant?"]}},
+                {"owner":"o","keywords":["existing"],"classification":{"predicates":["Relevant?"]}}
             ]}),
         );
         let rows = structured["results"].as_array().unwrap();
@@ -218,7 +217,7 @@ mod tests {
         decorate(
             ToolId::LocalSearch,
             &mut structured,
-            &json!({"path":".","matchString":"x","clasifyContext":{"classifiers":["Relevant?"]}}),
+            &json!({"path":".","matchString":"x","classification":{"predicates":["Relevant?"]}}),
         );
         assert_eq!(structured, before);
     }

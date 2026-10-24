@@ -10,15 +10,6 @@ use serde_json::{Map, Value, json};
 
 use crate::response::paging::NOTICES;
 
-/// A continuation page repeats nothing its first page said once.
-pub(crate) fn drop_on_later_page(query: &Value, data: &mut Value) {
-    if crate::response::paging::continues_a_page(query)
-        && let Some(object) = data.as_object_mut()
-    {
-        object.remove(NOTICES);
-    }
-}
-
 /// Moves every row's notices to where the row states guidance, keeping
 /// each notice on the first row of the response that carries it.
 pub(crate) fn place(structured: &mut Value, rows_key: &str) {
@@ -46,15 +37,7 @@ pub(crate) fn place(structured: &mut Value, rows_key: &str) {
         }
         said.extend(fresh.iter().cloned());
         if guidance_in_hints {
-            let hints = data.entry("hints").or_insert_with(|| json!({}));
-            if let Value::Array(text) = hints {
-                *hints = json!({ "text": std::mem::take(text) });
-            } else if !hints.is_object() {
-                *hints = json!({});
-            }
-            if let Value::Object(hints) = hints {
-                append(hints, "text", fresh);
-            }
+            append(data, "hints", fresh);
         } else {
             append(data, "warnings", fresh);
         }
@@ -73,42 +56,5 @@ fn append(object: &mut Map<String, Value>, key: &str, items: Vec<Value>) {
                 list.push(item);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{drop_on_later_page, place};
-    use serde_json::json;
-
-    /// One notice across rows lands once, on the first row carrying it,
-    /// where that row states guidance; distinct notices stay per row.
-    #[test]
-    fn a_notice_is_said_once_per_response_where_the_row_states_guidance() {
-        let mut structured = json!({"results":[
-            {"index":0,"data":{"warnings":["own"],"notices":["static"]}},
-            {"index":1,"data":{"notices":["static","second"]}},
-            {"index":2,"status":"empty","data":{"hints":["tip"],"notices":["other"]}},
-        ]});
-        place(&mut structured, "results");
-        assert_eq!(
-            structured,
-            json!({"results":[
-                {"index":0,"data":{"warnings":["own","static"]}},
-                {"index":1,"data":{"warnings":["second"]}},
-                {"index":2,"status":"empty","data":{"hints":{"text":["tip","other"]}}},
-            ]})
-        );
-    }
-
-    /// A continuation page drops its notices; page 1 keeps them.
-    #[test]
-    fn a_later_page_drops_its_notices() {
-        let mut first = json!({"files":[],"notices":["static"]});
-        drop_on_later_page(&json!({"path":"a"}), &mut first);
-        assert_eq!(first["notices"], json!(["static"]));
-        let mut later = json!({"files":[],"notices":["static"]});
-        drop_on_later_page(&json!({"path":"a","page":2}), &mut later);
-        assert!(later.get("notices").is_none(), "{later}");
     }
 }

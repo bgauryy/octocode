@@ -1,5 +1,5 @@
 use crate::minify::config::{FileTypeConfig, indentation_sensitive_names, minify_config};
-use crate::text::file_extension::extension_of;
+use crate::text::extension_of;
 
 pub(crate) const MAX_SIZE: usize = 1024 * 1024; // 1 MB content-view guard
 

@@ -23,7 +23,6 @@ use super::render::word_pattern;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use octocode_engine::search::text_search::search_cancellable;
-use octocode_engine::search::walk::NestedRepositories;
 use octocode_engine::types::TextSearchOptions;
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
@@ -31,11 +30,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+mod ignored_index;
 mod paths;
 mod scan;
 mod text;
-pub(super) use paths::*;
-pub(super) use scan::*;
+pub(super) use paths::{canonical, canonical_uri, widest_authorized_dir, with_canonical_memo};
+use paths::{family_include, search_root};
+pub(super) use scan::IgnoredMentions;
+use scan::{fingerprint, scan_text};
+pub(super) use text::imports_in_code;
 
 /// Project files whose edits change what a language server answers.
 const PROJECT_FILES: [&str; 12] = [
@@ -75,42 +78,16 @@ pub(super) const CODE_CHECK_MAX_FILES: usize = 64;
 /// Largest file the code-use and ignored-importer checks read; a larger one
 /// counts as a use, or as an unchecked ignored file.
 pub(super) const CODE_CHECK_MAX_BYTES: usize = 4 * 1024 * 1024;
-/// Bound of the text scan. A slower honored scan reports no files (no
-/// `textOnlyFiles`, and importer recovery reports a failed scan); a slower
-/// lifted scan reports the files it reached and says it did not finish
-/// (see [`IgnoredMentions::unfinished`]).
+/// Bound of the text scan. A slower scan reports no files (no
+/// `textOnlyFiles`, and importer recovery reports a failed scan).
 const TEXT_SCAN_BUDGET: Duration = Duration::from_secs(3);
-/// Bound of the scan with ignore rules lifted. What it finds is a lead
-/// unless a file imports the name, so a large ignored tree is not worth a
-/// longer wait on every request.
-const LIFTED_SCAN_BUDGET: Duration = Duration::from_secs(1);
-/// Walk threads of the lifted scan: its wall time is bounded, and this
-/// bounds its CPU (a gitignored checkout of other repositories otherwise
-/// keeps every core busy for the whole budget).
-const LIFTED_SCAN_THREADS: u32 = 2;
-/// How long a scope whose lifted scan hit its bound skips that scan. The
-/// bound is reached by the size of the ignored tree, whatever the name, so
-/// every later request would pay it again for the same unfinished answer.
-const UNBOUNDED_IGNORED_TTL: Duration = Duration::from_secs(600);
-
-/// Scopes (`root`, `include`, policy) whose lifted scan hit its bound.
-static UNBOUNDED_IGNORED: octocode_io::memo::Memo<String, ()> =
-    octocode_io::memo::Memo::new(octocode_io::memo::MemoLimits {
-        max_entries: 64,
-        max_weight: 64,
-        keep_newest: false,
-    });
-
-/// Unfinished lifted scans by scope and symbol, for
-/// [`UNBOUNDED_IGNORED_TTL`]: a repeated request replays what the first one
-/// reached, so it reports the same ignored files and the same coverage
-/// instead of an empty skipped scan.
-static UNFINISHED_LIFTED: octocode_io::memo::Memo<String, Scanned> =
-    octocode_io::memo::Memo::new(octocode_io::memo::MemoLimits {
-        max_entries: 64,
-        max_weight: 64,
-        keep_newest: false,
-    });
+/// How long a request waits for its scope's ignored-file index (see
+/// `ignored_index`) when no built one holds: a background walk builds it
+/// while the server answers, and a request past this bound reports the
+/// ignored scan unfinished.
+const IGNORED_INDEX_WAIT: Duration = Duration::from_secs(2);
+/// Bound of one request's read of the indexed ignored files for its name.
+const IGNORED_READ_BUDGET: Duration = Duration::from_secs(1);
 
 /// Text scans by `(root, include, symbol, scope fingerprint, policy)`. The
 /// fingerprint covers every family file under the root, so an unchanged
@@ -242,6 +219,27 @@ impl Scope {
             .iter()
             .any(|line| u32::try_from(*line).is_ok_and(|line| !covered.contains(&line)))
             .then_some(file)
+    }
+
+    /// The key of this scope's index under `policy`.
+    fn index_key(&self, policy: &PathPolicy) -> String {
+        format!(
+            "{}\u{0}{}\u{0}{policy:?}",
+            self.root,
+            self.include.join("\u{0}")
+        )
+    }
+
+    /// Start building this scope's ignored-file index under `policy` on a
+    /// background thread (see `ignored_index`), unless one is held or
+    /// building. Nothing waits for it.
+    pub(super) fn warm_ignored_index(&self, policy: &PathPolicy) {
+        ignored_index::start(
+            self.index_key(policy),
+            PathBuf::from(&self.root),
+            self.include.clone(),
+            policy.clone(),
+        );
     }
 
     /// The owned inputs of the fingerprint walk, for a blocking worker.

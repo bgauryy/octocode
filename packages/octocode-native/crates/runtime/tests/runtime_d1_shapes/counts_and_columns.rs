@@ -21,8 +21,7 @@ async fn local_search_counts_are_match_line_and_file_counts() {
         &runtime,
         "localSearch",
         // The page counters are a stats extra.
-        json!({"path":".","matchString":"needle","pageSize":1}),
-        &["stats"],
+        json!({"path":".","matchString":["needle"]}),
     )
     .await;
     // The totals are flat on the row (no `stats` object, no `fileCount`: the
@@ -39,19 +38,12 @@ async fn local_search_counts_are_match_line_and_file_counts() {
         "{}",
         paged.structured_content
     );
-    // `pagination.totalItems` counts the paged unit: files.
-    assert_eq!(
-        paged.data()["pagination"]["totalItems"],
-        3,
-        "{}",
-        paged.structured_content
-    );
+    assert_eq!(totals["files"].as_array().expect("files").len(), 3);
     // A merged context window lists its matched lines as `matchedLines`.
     let merged = support::run(
         &runtime,
         "localSearch",
-        json!({"path":"a.txt","matchString":"needle","contextLines":2}),
-        &[],
+        json!({"path":"a.txt","matchString":["needle"],"contextLines":{"before":2,"after":2}}),
     )
     .await;
     let row = &merged.data()["files"][0]["matches"][0];
@@ -73,9 +65,7 @@ async fn ast_tools_count_matches_as_match_count() {
         &runtime,
         "astSearch",
         // A complete page drops its stats; the stats extra keeps them.
-        json!({"operation":"match","path":"src","language":"typescript","pattern":"old($A)"}),
-        &["stats"],
-    )
+        json!({"operation":"match","path":"src","parser":"typescript","rule":{"pattern":"old($A)"}}))
     .await;
     assert_eq!(
         search.data()["matchCount"],
@@ -99,8 +89,7 @@ async fn every_column_is_one_based() {
     let spans = support::run(
         &runtime,
         "localSearch",
-        json!({"path":"x.rs","matchString":"a()","resultView":"matchOnly"}),
-        &["details"],
+        json!({"path":"x.rs","matchString":["a()"],"view":"matchOnly"}),
     )
     .await;
     let rows = &spans.data()["files"][0]["matches"];
@@ -109,8 +98,7 @@ async fn every_column_is_one_based() {
     let matched = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":"x.rs","pattern":"a()","captureText":true}),
-        &["details"],
+        json!({"operation":"match","path":"x.rs","rule":{"pattern":"a()"},"includeCaptures":true}),
     )
     .await;
     let row = &matched.data()["files"][0]["matches"][0];
@@ -119,8 +107,7 @@ async fn every_column_is_one_based() {
     let tree = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"syntaxTree","path":"x.rs","pageSize":2}),
-        &[],
+        json!({"operation":"syntaxTree","path":"x.rs"}),
     )
     .await;
     // `function_item` spans line 1 from character 1 to the end (exclusive 10).
@@ -148,8 +135,6 @@ async fn lsp_position_and_call_hierarchy_inputs_fail_closed() {
             ["callHierarchy", "callers"],
         ),
     ] {
-        let mut row = row;
-        row["mainGoal"] = json!("cutover shapes.");
         let error = runtime
             .run(
                 "d1-lsp-retired".into(),

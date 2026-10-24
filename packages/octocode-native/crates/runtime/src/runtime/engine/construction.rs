@@ -11,16 +11,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// The configuration diagnostics every runtime start prints. A key no
-/// setting reads (unknown, or removed by the contract) changes nothing, so
+/// setting reads changes nothing, so
 /// `octocode config` reports it instead of every call; an ignored value of a
 /// live setting (invalid, protected, an unreadable file) is said each time.
 pub(super) fn startup_diagnostics(
     diagnostics: &[config::ConfigDiagnostic],
 ) -> impl Iterator<Item = &config::ConfigDiagnostic> {
-    diagnostics.iter().filter(|diagnostic| {
-        ![config::UNKNOWN_CONFIG_CODE, config::REMOVED_SETTING_CODE]
-            .contains(&diagnostic.code.as_str())
-    })
+    diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code != config::UNKNOWN_CONFIG_CODE)
 }
 
 impl ToolRuntime {
@@ -195,6 +194,11 @@ impl ToolRuntime {
         ));
         let selection_available = selection_available(&config, &availability);
         let page_replays = Arc::new(PageReplayMemo::new(&config, &input.cwd));
+        let cursors = Arc::new(super::cursors::Registry::new(
+            PageReplayMemo::cache_config(),
+            persistent.then(|| config.home.join("tmp").join("continuations")),
+            page_replays.policy.clone(),
+        ));
         let section_sessions = Arc::new(crate::tools::clasify::sections::Sessions::new(
             PageReplayMemo::cache_config(),
             persistent.then(|| config.home.join("tmp").join("section-assessments")),
@@ -220,6 +224,7 @@ impl ToolRuntime {
             lsp_pool: lsp_pool.unwrap_or_default(),
             local_views: Arc::default(),
             page_replays,
+            cursors,
             section_sessions,
             artifact_cache,
             lsp_execution_config,
@@ -263,7 +268,7 @@ fn evaluator(
     )
 }
 
-/// A visible read tool may use the provider through its opt-in `clasifyContext`
+/// A visible read tool may use the provider through its opt-in `classification`
 /// field even when the public clasify tool is hidden; eligibility comes from
 /// the embedded contract instead of another tool list.
 fn selection_available(
@@ -277,7 +282,7 @@ fn selection_available(
             .filter_map(|name| ToolId::from_name(name))
             .any(|id| {
                 id != ToolId::Clasify
-                    && crate::contracts::query_schema_value(id, None, "clasifyContext", "type")
+                    && crate::contracts::query_schema_value(id, None, "classification", "type")
                         .is_some()
             })
 }

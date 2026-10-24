@@ -25,7 +25,7 @@ fn assert_exit(output: &Output, expected: i32) {
 }
 
 fn search(path: &str, pattern: &str) -> Value {
-    json!({"path":path,"matchString":pattern})
+    json!({"path":path,"matchString":[pattern]})
 }
 
 fn fetch(path: &str) -> Value {
@@ -48,7 +48,7 @@ fn local_rows_exit_by_outcome() {
         .write("long.txt", lines)
         .to_string_lossy()
         .into_owned();
-    let page = json!({"path":long,"unit":"lines","length":3});
+    let page = json!({"path":long});
     let cases = [
         (
             "localSearch",
@@ -108,7 +108,7 @@ fn local_rows_exit_by_outcome() {
         ),
         (
             "localSearch",
-            json!({"queries":[{"path":root,"matchString":"(","mode":"regex"}]}),
+            json!({"queries":[{"path":root,"matchString": ["("],"regexEngine":"rust"}]}),
             2,
         ),
     ];
@@ -202,8 +202,7 @@ fn clasify_command(workspace: &Workspace, server: &MockServer) -> Command {
 /// One clasify row per state or source.
 fn rows(inputs: Vec<Value>) -> Value {
     json!({"queries": inputs.into_iter().map(|input| {
-        let mut row = json!({"reasoning":"Triage files.",
-            "questions":{"q":{"type":"noul","instructions":"Does it define a step?"}}});
+        let mut row = json!({"operation":"evaluate","questions":{"q":{"type":"noul","instructions":"Does it define a step?"}}});
         for (key, value) in input.as_object().expect("input object") {
             row[key] = value.clone();
         }
@@ -224,13 +223,13 @@ async fn clasify_exits_by_worst_row_outcome() {
         .join("src/nope.rs")
         .to_string_lossy()
         .into_owned();
-    let read = |id: &str, path: &str| json!({"id":id,"source":{"tool":"localFetch","query":{"path":path,"fullContent":true}}});
-    let state = json!({"id":"v","state":{"fact":"present"}});
+    let read = |path: &str| json!({"source":{"tool":"localFetch","query":{"path":path}}});
+    let state = json!({"content":{"fact":"present"}});
     let cases = [
-        (rows(vec![read("ok", &file)]), 0),
-        (rows(vec![read("x", &missing)]), 3),
-        (rows(vec![read("ok", &file), read("x", &missing)]), 3),
-        (rows(vec![read("x", &missing), read("ok", &file)]), 3),
+        (rows(vec![read(&file)]), 0),
+        (rows(vec![read(&missing)]), 3),
+        (rows(vec![read(&file), read(&missing)]), 3),
+        (rows(vec![read(&missing), read(&file)]), 3),
         (rows(vec![state.clone()]), 0),
     ];
     for (input, expected) in cases {
@@ -258,7 +257,7 @@ async fn interrupted_call_exits_130() -> Result<(), String> {
     command
         .args([
             "clasify",
-            &rows(vec![json!({"id":"v","state":{"fact":"present"}})]).to_string(),
+            &rows(vec![json!({"content":{"fact":"present"}})]).to_string(),
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

@@ -2,7 +2,7 @@ use super::{Failure, REQUEST_TIMEOUT};
 use hyper::StatusCode;
 use serde_json::Value;
 use std::process::Stdio;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
@@ -45,15 +45,10 @@ pub(super) async fn request(
                 .await
                 .map_err(|_| unavailable())?;
             drop(input);
-            let mut bytes = Vec::new();
-            output
-                .take(MAX_RESPONSE + 1)
-                .read_to_end(&mut bytes)
+            let bytes = octocode_io::read::read_limited_async(output, MAX_RESPONSE)
                 .await
-                .map_err(|_| unavailable())?;
-            if bytes.len() as u64 > MAX_RESPONSE {
-                return Err(unavailable());
-            }
+                .map_err(|_| unavailable())?
+                .ok_or_else(unavailable)?;
             let status = child.wait().await.map_err(|_| unavailable())?;
             let response: Value = serde_json::from_slice(&bytes).map_err(|_| unavailable())?;
             if response["apiVersion"] != 1 {

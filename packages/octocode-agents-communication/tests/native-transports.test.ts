@@ -4,12 +4,12 @@ import type { Socket } from 'node:net';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
+import { posix } from './helpers.ts';
 import { runtime } from './store-support.ts';
 import type { JsonRecord } from './json-record.ts';
 import { portOf, rejects, serve, workspace, type Target } from './transport-support.ts';
 
 const { nativeIo, transport, validation } = runtime;
-const posix = process.platform !== 'win32';
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const SESSION = '0f8fad5b-d9cb-469f-a165-70867728950e';
 

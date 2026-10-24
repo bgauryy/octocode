@@ -39,49 +39,19 @@ describe('generated config contract', () => {
     expect(CONFIG_FIELDS.map(field => field.path)).toEqual(declaredPaths);
   });
 
-  it('declares no numeric settings and lists every removed internal limit', () => {
-    expect(CONFIG_FIELDS.filter(field => (field.type as string) === 'number')).toEqual([]);
-    const contract = loadJson(contractPath) as {
-      removed: { settings: Record<string, string>; environment: Record<string, string> };
-    };
-    expect(Object.keys(contract.removed.settings)).toEqual(
-      expect.arrayContaining([
-        'network.timeout',
-        'network.maxRetries',
-        'network.maxRateLimitWait',
-        'lsp.maxMemoryMb',
-        'output.pagination',
-        'storage.cloneCache',
-        'classification.maxConcurrency',
-        'classification.maxCandidates',
-        'classification.maxChars',
-        'classification.timeoutMs',
-      ])
-    );
-    expect(Object.keys(contract.removed.environment)).toEqual(
-      expect.arrayContaining([
-        'REQUEST_TIMEOUT',
-        'MAX_RETRIES',
-        'OCTOCODE_MAX_RATE_LIMIT_WAIT',
-        'OCTOCODE_LSP_MAX_MEMORY_MB',
-        'OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH',
-        'OCTOCODE_CACHE_TTL_MS',
-        'OCTOCODE_MAX_CACHE_SIZE',
-        'OCTOCODE_MAX_CLONES',
-        'OCTOCODE_CLASSIFICATION_CONCURRENCY',
-        'OCTOCODE_CLASSIFICATION_MAX_CANDIDATES',
-        'OCTOCODE_CLASSIFICATION_MAX_CHARS',
-        'OCTOCODE_CLASSIFICATION_TIMEOUT_MS',
-      ])
-    );
-    const boundNames = new Set(CONFIG_FIELDS.flatMap(field => (field.env ? [field.env.name] : [])));
-    for (const name of Object.keys(contract.removed.environment)) {
-      expect(boundNames.has(name), name).toBe(false);
-    }
+  it('rejects undeclared contract policy instead of retaining retired-name registries', () => {
+    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    const schema = loadJson(schemaPath) as Record<string, unknown>;
+    const contract = loadJson(contractPath) as Record<string, unknown>;
+    expect(ajv.validate(schema, { ...contract, removed: {} })).toBe(false);
+    expect(ajv.validate(schema, { ...contract, unknownPolicy: {} })).toBe(false);
   });
 
-  it('derives token priority and dotenv protection from one environment policy', () => {
-    expect(ENV_TOKEN_VARS).toEqual(['GH_TOKEN', 'GITHUB_TOKEN']);
+  it('keeps execution limits out of user settings', () => {
+    expect(CONFIG_FIELDS.filter(field => (field.type as string) === 'number')).toEqual([]);
+  });
+
+  it('keeps token variables out of dotenv protection', () => {
     expect(
       ENV_TOKEN_VARS.every(name => !new Set<string>(PROTECTED_KEY_NAMES).has(name))
     ).toBe(true);

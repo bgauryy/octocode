@@ -10,7 +10,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     std::fs::write(&source, "pub fn visible() {}\n").expect("source");
     let error = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"kinds":["functoin"]}),
+        json!({"operation":"symbols","path":source,"symbolKinds":["functoin"]}),
     )
     .expect_err("unknown kind");
     // An `.input.invalid` code is an input rejection: CLI exit 2 and a
@@ -27,7 +27,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     );
     let ok = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"kinds":["function"]}),
+        json!({"operation":"symbols","path":source,"symbolKinds":["function"]}),
     )
     .expect("known kind");
     assert_eq!(outline_name(&ok["symbols"][0]), "visible");
@@ -39,8 +39,8 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     )
     .expect("large");
     for query in [
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":large}),
-        json!({"operation":"syntaxTree","mainGoal":"test","reasoning":"test","path":large}),
+        json!({"operation":"symbols","path":large}),
+        json!({"operation":"syntaxTree","path":large}),
     ] {
         let out = run(&root.0, query).expect("limit row");
         assert_eq!(out["errorCode"], "fileTooLarge", "{out}");
@@ -57,29 +57,35 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     // A searched name leads to a text search of it in the same file.
     let named = run(
         &root.0,
-        json!({"operation":"symbols","path":large,"symbolName":"visible"}),
+        json!({"operation":"symbols","path":large,"symbolFilter":{"terms":["visible"]}}),
     )
     .expect("limit row");
-    let lead = &named["next"]["findText"];
+    let lead = crate::tools::test_support::checks::related_call(&named, "localSearch", |_| true);
     assert_eq!(lead["tool"], "localSearch", "{named}");
     assert_eq!(
-        lead["query"]["queries"][0]["matchString"], "visible",
+        lead["input"]["queries"][0]["matchString"],
+        json!(["visible"]),
         "{named}"
     );
     assert!(
-        lead["query"]["queries"][0]["path"]
+        lead["input"]["queries"][0]["path"]
             .as_str()
             .is_some_and(|path| path.ends_with("large.rs")),
         "{named}"
     );
     let pattern = run(
         &root.0,
-        json!({"operation":"match","path":large,"pattern":"console.log"}),
+        json!({"operation":"match","path":large,"rule":{"pattern":"console.log"}}),
     );
     let error = pattern.expect_err("pattern over the parse limit");
     assert_eq!(error.code, ErrorCode::FileTooLarge);
-    let next = error.next.expect("findText lead");
-    assert_eq!(next["findText"]["query"]["queries"][0]["regex"], "literal");
+    let next = error.calls.expect("findText lead");
+    let search = crate::contracts::validate_query(
+        "localSearch",
+        next["findText"]["input"]["queries"][0].clone(),
+    )
+    .expect("valid text fallback");
+    assert_eq!(search["regexEngine"], "literal");
     use crate::response::output::ToolOutput;
     assert_eq!(
         crate::tools::ast_search::output::Output
@@ -97,14 +103,11 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
         "export function one() {}\nexport function two() {}\n",
     )
     .expect("source");
-    let first = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":1}),
-    )
-    .expect("first");
-    let next = first["next"]["nextPage"]["query"]["queries"][0].clone();
+    let first =
+        run_window(&root.0, json!({"operation":"symbols","path":source}), 1).expect("first");
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     assert_eq!(
-        outline_name(&run(&root.0, next.clone()).expect("second")["symbols"][0]),
+        outline_name(&run_window(&root.0, next.clone(), 1).expect("second")["symbols"][0]),
         "two"
     );
     // Same byte length: cache invalidation cannot rely only on file size.
@@ -113,34 +116,30 @@ fn cached_symbol_pages_still_check_content_and_path_policy() {
         "export function one() {}\nexport function six() {}\n",
     )
     .expect("changed");
-    let stale = run(&root.0, next.clone()).expect("stale");
+    let stale = run_window(&root.0, next.clone(), 1).expect("stale");
     assert_eq!(stale["errorCode"], "staleSnapshot");
-    let restart = &stale["next"]["restart"];
+    let restart = crate::tools::test_support::checks::related_call(&stale, "astSearch", |_| true);
     assert_eq!(restart["tool"], "astSearch");
-    assert_eq!(restart["query"]["queries"][0]["operation"], "symbols");
-    assert_eq!(restart["query"]["queries"][0]["pageSize"], 1);
+    assert_eq!(restart["input"]["queries"][0]["operation"], "symbols");
     // The first page (the default), without any cursor.
     for cursor in ["page", "snapshot", "scanOffset"] {
         assert!(
-            restart["query"]["queries"][0].get(cursor).is_none(),
+            restart["input"]["queries"][0].get(cursor).is_none(),
             "{cursor}: {stale}"
         );
     }
-    let restarted =
-        run(&root.0, restart["query"].clone()).expect("execute returned restart unchanged");
+    let restarted = run_window(&root.0, restart["input"].clone(), 1)
+        .expect("execute returned restart unchanged");
     assert_eq!(outline_name(&restarted["symbols"][0]), "one");
     assert_ne!(restarted["snapshot"], first["snapshot"]);
-    let second = run(
+    let second = run_window(
         &root.0,
-        restarted["next"]["nextPage"]["query"]["queries"][0].clone(),
+        restarted["next"]["nextPage"]["input"]["queries"][0].clone(),
+        1,
     )
     .expect("new snapshot continuation");
     assert_eq!(outline_name(&second["symbols"][0]), "six");
-    let fresh = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":2}),
-    )
-    .expect("fresh");
+    let fresh = run(&root.0, json!({"operation":"symbols","path":source})).expect("fresh");
     assert_eq!(outline_names(&fresh["symbols"])[1], "six");
     let forbidden = Fixture::new();
     assert!(
@@ -158,7 +157,7 @@ fn empty_symbols_hint_names_file_count_and_text_lead() {
     root.write("b.rs", "fn beta() { missing_name(); }\n");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","path":root.0,"symbolName":"missing_name"}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["missing_name"]}}),
     )
     .expect("symbols");
     assert_eq!(out["status"], "empty", "{out}");
@@ -169,16 +168,17 @@ fn empty_symbols_hint_names_file_count_and_text_lead() {
             .is_some_and(|text| text.contains("0 declarations named missing_name in 2 files"))),
         "{out}"
     );
-    let lead = &out["next"]["findText"];
+    let lead = crate::tools::test_support::checks::related_call(&out, "localSearch", |_| true);
     assert_eq!(lead["tool"], "localSearch", "{out}");
     assert_eq!(
-        lead["query"]["queries"][0]["matchString"], "missing_name",
+        lead["input"]["queries"][0]["matchString"],
+        json!(["missing_name"]),
         "{out}"
     );
     // Without a name, the hint counts the files and names no text lead.
     let outline = run(
         &root.0,
-        json!({"operation":"symbols","path":root.0,"kinds":["class"]}),
+        json!({"operation":"symbols","path":root.0,"symbolKinds":["class"]}),
     )
     .expect("outline");
     assert_eq!(outline["status"], "empty", "{outline}");
@@ -204,16 +204,22 @@ fn symbols_disclose_default_excluded_directories() {
     root.write("main.ts", "export const x = 1;\n");
     let out = run(
         &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"symbolName":"hiddenHelper"}),
+        json!({"operation":"symbols","path":root.0,"symbolFilter":{"terms":["hiddenHelper"]}}),
     )
     .expect("symbols");
     let names = skipped_names(&out, "default-excluded");
     assert_eq!(names, ["node_modules"], "{out}");
-    let lead = &out["next"]["includeSkipped"];
+    let lead = crate::tools::test_support::checks::related_call(&out, "astSearch", |input| {
+        input["queries"][0]["defaultExcludes"] == false
+    });
     assert_eq!(lead["tool"], "astSearch", "{out}");
-    let query = &lead["query"]["queries"][0];
+    let query = &lead["input"]["queries"][0];
     assert_eq!(query["defaultExcludes"], false, "{out}");
-    assert_eq!(query["symbolName"], "hiddenHelper", "{out}");
+    assert_eq!(
+        query["symbolFilter"]["terms"],
+        json!(["hiddenHelper"]),
+        "{out}"
+    );
     assert!(query.get("snapshot").is_none(), "{out}");
     let all = run(&root.0, query.clone()).expect("lead runs");
     assert!(

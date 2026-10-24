@@ -24,7 +24,7 @@ use super::failure::{
     runs_build_scripts,
 };
 use super::inferred_project::is_incoming;
-use super::scope::Scope;
+use super::scope::{Scope, imports_in_code};
 use super::{LspSearchQuery, Op};
 use crate::id::ToolId;
 use crate::tools::lsp_search::lsp_search_query;
@@ -34,7 +34,8 @@ use std::path::Path;
 mod gates;
 mod includes;
 use gates::*;
-pub(super) use includes::*;
+pub(super) use includes::package_includes;
+use includes::{annotate_includes, record_text_coverage};
 
 pub(super) const DYNAMIC_REASON: &str = "dynamicDispatch";
 /// File-level: missing files import the name by a path the server did not
@@ -104,16 +105,20 @@ pub(super) struct Server<'a> {
     pub(super) root: &'a str,
 }
 
-/// Why a workspace-symbol row is partial, and what checks the rest.
+/// Partial reason of a workspace-symbol answer the server's result limit cut.
+const WORKSPACE_SYMBOL_CAPPED_REASON: &str = "workspaceSymbolCoverageUnknown";
+/// Why no workspace-symbol answer proves completeness, and what checks the rest.
 const WORKSPACE_SYMBOL_NOTE: &str = "workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.";
 
 /// Workspace-symbol arrays have no total, cursor, or completeness marker.
 /// Native pagination covers the returned array; it cannot establish that
-/// the provider returned every matching declaration in its project.
+/// the provider returned every matching declaration in its project. That
+/// holds for every workspace/symbol answer, so it is a static notice, not
+/// a partial flag: the row says it once and leads to the lexical search of
+/// `name` over `scope`, the check no page of this answer can make.
 /// `capped_at` is the server's own result limit when its answer reached it
-/// (only tsgo has one), which is said outright.
-/// The row says why once (a notice), and leads to the lexical search of
-/// `name` over `scope`: the check no page of this answer can make.
+/// (only tsgo has one): a fact of this answer, so the row is partial and a
+/// warning says it outright.
 pub(super) fn workspace_symbols(
     row: &mut Value,
     name: &str,
@@ -125,24 +130,31 @@ pub(super) fn workspace_symbols(
         return;
     }
     crate::response::paging::push_notice(row, WORKSPACE_SYMBOL_NOTE);
-    row["next"]["findText"] =
-        super::failure::term_search_lead(name, &scope.root, &scope.include).build();
+    crate::response::result::attach_related(
+        row,
+        super::failure::term_search_lead(name, &scope.root, &scope.include).build(),
+    );
     // A server cap this answer reached is a fact of this answer: a warning.
     let mut warnings = Vec::new();
     if let Some(limit) = capped_at {
         warnings.push(format!(
-            "tsgo returns at most {limit} workspace symbols; this list is capped by the server: narrow symbolName, or route .ts to typescript-language-server in lsp-servers.json."
+            "tsgo returns at most {limit} workspace symbols; this list is capped by the server: narrow symbolQuery, or route .ts to typescript-language-server in lsp-servers.json."
         ));
     }
-    crate::response::paging::mark_partial(row, "workspaceSymbolCoverageUnknown", &warnings);
+    if !warnings.is_empty() {
+        crate::response::paging::mark_partial(row, WORKSPACE_SYMBOL_CAPPED_REASON, &warnings);
+    }
     if let Some(path) = anchor {
         // This is an optional lead, moved to hints by continuation shaping;
         // it is not a page that recovers an exhaustive workspace result.
-        row["next"]["inspectDocumentSymbols"] = crate::response::result::Continuation::new(
-            ToolId::LspSearch,
-            json!({"operation": "documentSymbols", "path": path}),
-        )
-        .build();
+        crate::response::result::attach_related(
+            row,
+            crate::response::result::Continuation::related(
+                ToolId::LspSearch,
+                json!({"operation": "documentSymbols", "path": path}),
+            )
+            .build(),
+        );
     }
 }
 
@@ -158,7 +170,7 @@ fn annotate_python(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
     let importers = missed.as_ref().map_or(0, |(name, files)| {
         files
             .iter()
-            .filter(|file| scope.imports_in_code(name, file))
+            .filter(|file| imports_in_code(name, file))
             .count()
     });
     if importers > 0 {
@@ -189,7 +201,7 @@ fn flag_noted(row: &mut Value, query: &LspSearchQuery, reason: &str, note: Strin
 /// ([`crate::response::paging::continues_a_page`]): a rerun lead is offered on
 /// the first page only.
 fn continues_a_page(query: &LspSearchQuery) -> bool {
-    crate::response::paging::continues_a_page(&lsp_search_query::to_row(query))
+    crate::response::paging::continues_a_page(ToolId::LspSearch, &lsp_search_query::to_row(query))
 }
 
 /// Whether `row` is flagged with `reason`.

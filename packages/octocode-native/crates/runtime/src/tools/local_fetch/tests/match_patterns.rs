@@ -7,7 +7,7 @@ use super::*;
 /// lowercase pattern ignores case, an uppercase letter makes it exact.
 #[test]
 fn match_case_defaults_to_smart_case() {
-    use octocode_contract_types::ReadCaseMode;
+    use octocode_contract_types::CaseMode;
     let t = Fixture::new();
     let p = t.0.join("a.py");
     fs::write(&p, "MERGE_SETTINGS = 1\nmerge_settings()\nMerge_Settings\n").expect("fixture");
@@ -17,19 +17,22 @@ fn match_case_defaults_to_smart_case() {
         ("MERGE_SETTINGS", None, serde_json::json!([1])),
         (
             "MERGE_SETTINGS",
-            Some(ReadCaseMode::Insensitive),
+            Some(CaseMode::Insensitive),
             serde_json::json!([1, 2, 3]),
         ),
         (
             "merge_settings",
-            Some(ReadCaseMode::Sensitive),
+            Some(CaseMode::Sensitive),
             serde_json::json!([2]),
         ),
     ] {
         let mut req = q(&p);
-        req.match_string = Some(MatchString::String(pattern.parse().expect("match string")));
-        req.case_mode = mode;
-        req.context_lines = Some(0);
+        amend(&mut req, serde_json::json!({"matchString":[pattern]}));
+        amend(&mut req, serde_json::json!({"caseMode":mode}));
+        amend(
+            &mut req,
+            serde_json::json!({"contextLines":{"before":0,"after":0}}),
+        );
         let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
         assert_eq!(wire["matchedLines"], lines, "{pattern} {mode:?}: {wire}");
     }
@@ -40,16 +43,22 @@ fn match_case_defaults_to_smart_case() {
 /// source line it touches.
 #[test]
 fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
-    use octocode_contract_types::ReadRegex;
+    use octocode_contract_types::RegexEngine;
     let t = Fixture::new();
     let p = t.0.join("a.rs");
     fs::write(&p, "before\nfn alpha() {\n  beta(); beta();\n}\nafter\n").expect("fixture");
     let paths = Paths(t.0.clone());
     let read = |pattern: &str| {
         let mut req = q(&p);
-        req.match_string = Some(MatchString::String(pattern.parse().expect("match string")));
-        req.regex = Some(ReadRegex::Pcre2);
-        req.context_lines = Some(0);
+        amend(&mut req, serde_json::json!({"matchString":[pattern]}));
+        amend(
+            &mut req,
+            serde_json::json!({"regexEngine":Some(RegexEngine::Pcre2)}),
+        );
+        amend(
+            &mut req,
+            serde_json::json!({"contextLines":{"before":0,"after":0}}),
+        );
         serde_json::to_value(fetch(&req, &paths)).expect("serializable")
     };
     let lookbehind = read("(?<=fn )alpha");
@@ -65,13 +74,16 @@ fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
         "{backreference}"
     );
     for (engine, pattern) in [
-        (ReadRegex::Pcre2, r"alpha\(\) \{\n\s+beta"),
-        (ReadRegex::Rust, r"alpha\(\) \{\n\s+beta"),
+        (RegexEngine::Pcre2, r"alpha\(\) \{\n\s+beta"),
+        (RegexEngine::Rust, r"alpha\(\) \{\n\s+beta"),
     ] {
         let mut req = q(&p);
-        req.match_string = Some(MatchString::String(pattern.parse().expect("match string")));
-        req.regex = Some(engine);
-        req.context_lines = Some(0);
+        amend(&mut req, serde_json::json!({"matchString":[pattern]}));
+        amend(&mut req, serde_json::json!({"regexEngine":Some(engine)}));
+        amend(
+            &mut req,
+            serde_json::json!({"contextLines":{"before":0,"after":0}}),
+        );
         let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
         assert_eq!(
             wire["content"], "fn alpha() {\n  beta(); beta();\n",
@@ -96,31 +108,20 @@ fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
 }
 
 #[test]
-fn byte_windows_keep_original_offsets_when_unicode_lowercase_expands() {
+fn unicode_literal_spans_use_original_byte_coordinates() {
     for (source, pattern, expected) in [
         ("İneedle tail\n", "needle", "needle"),
         ("İNEEDLE\n", "needle", "NEEDLE"),
         ("prefix İ tail\n", "İ", "İ"),
         ("İİneedle", "needle", "needle"),
     ] {
-        let sensitive = pattern.chars().any(char::is_uppercase);
-        let spans =
-            crate::tools::source_view::extraction::literal_ranges(source, pattern, sensitive);
-        let (content, _) = crate::tools::source_view::extraction::byte_windows(source, spans, 0);
-        // A window that starts or ends mid-line says so with an omission
-        // marker; the matched bytes between them are the original span.
-        let span = content
-            .lines()
-            .filter(|line| !line.starts_with("... ["))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert_eq!(span, expected, "{source:?}: {content:?}");
-        let cut_before = source.find(expected).is_some_and(|at| at > 0);
-        assert_eq!(
-            content.starts_with("... ["),
-            cut_before,
-            "{source:?}: {content:?}"
+        let spans = crate::tools::source_view::extraction::literal_ranges(
+            source,
+            pattern,
+            pattern.chars().any(char::is_uppercase),
         );
+        assert_eq!(spans.len(), 1);
+        assert_eq!(&source[spans[0].0..spans[0].1], expected);
     }
 }
 
@@ -139,7 +140,7 @@ fn a_match_list_is_a_grep_map_of_every_literal() {
     // Literal entries are literal: `|` and `.` are not regex syntax.
     let req = qj(
         &p,
-        serde_json::json!({"matchString": ["a|b", "x.y", "absent"], "contextLines": 0}),
+        serde_json::json!({"matchString": ["a|b", "x.y", "absent"], "contextLines":{"before":0,"after":0}}),
     );
     let r = fetch(&req, &paths);
     assert_eq!(
@@ -149,7 +150,7 @@ fn a_match_list_is_a_grep_map_of_every_literal() {
     assert_eq!(r.matched_lines, vec![4, 9]);
     let one = qj(
         &p,
-        serde_json::json!({"matchString": "x.y", "contextLines": 0}),
+        serde_json::json!({"matchString": ["x.y"], "contextLines":{"before":0,"after":0}}),
     );
     assert_eq!(fetch(&one, &paths).matched_lines, vec![9]);
 }
@@ -174,7 +175,7 @@ fn json_match_reads_name_each_hit_line_key_path() {
     let paths = Paths(t.0.clone());
     let req = qj(
         &json,
-        serde_json::json!({"matchString": "\"vite\"", "contextLines": 0}),
+        serde_json::json!({"matchString": ["\"vite\""], "contextLines":{"before":0,"after":0}}),
     );
     let wire = serde_json::to_value(fetch(&req, &paths)).expect("serialize");
     assert_eq!(
@@ -185,7 +186,7 @@ fn json_match_reads_name_each_hit_line_key_path() {
     let plain = t.0.join("notes.txt");
     fs::write(&plain, &text).expect("fixture");
     let wire = serde_json::to_value(fetch(
-        &qj(&plain, serde_json::json!({"matchString": "\"vite\""})),
+        &qj(&plain, serde_json::json!({"matchString": ["\"vite\""]})),
         &paths,
     ))
     .expect("serialize");
@@ -207,7 +208,7 @@ fn toml_match_reads_name_each_hit_line_key_path() {
     let wire = serde_json::to_value(fetch(
         &qj(
             &toml,
-            serde_json::json!({"matchString": "backtrace", "contextLines": 0}),
+            serde_json::json!({"matchString": ["backtrace"], "contextLines":{"before":0,"after":0}}),
         ),
         &paths,
     ))

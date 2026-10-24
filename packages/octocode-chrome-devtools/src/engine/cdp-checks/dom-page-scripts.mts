@@ -191,7 +191,7 @@ const CORE_BODY_TEMPLATE = `
 const TRACE_SLOT = '__OCTO_TRACE_EVENTS__';
 
 /** The element-check body with event tracing on or off. */
-export const coreBodyJs = traceEvents =>
+export const coreBodyJs = (traceEvents: boolean) =>
   CORE_BODY_TEMPLATE.replace(TRACE_SLOT, () => `${traceEvents}`);
 
 /** Focuses the element and selects its whole value, so typed text replaces it. */
@@ -226,7 +226,7 @@ export const TRACE_STOP_FN =
   'function() { return globalThis.__octoTrace?.stop(); }';
 
 /** Finds the first wanted text in the element's root, its frames, or the document when detached. */
-export const textWaitFn = wanted => `function() {
+export const textWaitFn = (wanted: string[]) => `function() {
     const texts = [];
     const read = root => {
       texts.push(root.nodeType === 9 ? root.body?.innerText || '' : root.textContent || '');

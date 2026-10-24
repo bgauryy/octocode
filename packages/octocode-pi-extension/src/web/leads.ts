@@ -16,7 +16,7 @@ export function savedPageTools(active: readonly string[]): SavedPageTools {
 export function savedPageLead(tools: SavedPageTools): string {
   const reads = [
     tools.clasify && `screen a bounded unread selection with ${OCTOCODE_TOOL_PREFIX}clasify (source {tool:"localFetch", query:{path:<this file>, ranges:<observed line ranges>}}, a noul question about one stated fact; typed answers only, read deciding evidence)`,
-    tools.localSearch && `search literal text with ${OCTOCODE_TOOL_PREFIX}localSearch (headings: regex "^#{1,3} ")`,
+    tools.localSearch && `search literal text with ${OCTOCODE_TOOL_PREFIX}localSearch (headings: matchString:["^#{1,3} "], regexEngine:"rust")`,
     tools.localFetch && `read line ranges with ${OCTOCODE_TOOL_PREFIX}localFetch`,
   ].filter(Boolean);
   return reads.length > 0 ? reads.join('; ') : 'search it or read it by line range';

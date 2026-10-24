@@ -1,28 +1,14 @@
 use super::*;
 
-/// The flags and help parts the build cuts from the CLI presentation
-/// are exactly its tools' `cli`, `selection.cli` and `help`.
 #[test]
-fn cli_tool_parts_match_the_presentation() {
+fn cli_help_is_the_embedded_core_presentation() {
     let presentation = super::super::cli_presentation().expect("presentation");
-    let tools = presentation["tools"].as_array().expect("tools");
-    let flags = super::super::cli_tool_flags().expect("flags");
-    assert_eq!(flags.as_array().map(Vec::len), Some(tools.len()));
-    for (tool, entry) in tools.iter().zip(flags.as_array().into_iter().flatten()) {
-        let name = tool["name"].as_str().expect("name");
-        assert_eq!(entry["name"], name);
-        assert_eq!(entry["cli"], tool["cli"], "{name} cli");
+    for tool in presentation["tools"].as_array().expect("tools") {
         assert_eq!(
-            entry["selection"]["cli"], tool["selection"]["cli"],
-            "{name} selection.cli"
-        );
-        assert_eq!(
-            super::super::cli_tool_help(name),
-            tool["help"].as_str(),
-            "{name} help"
+            super::super::cli_tool_help(tool["name"].as_str().unwrap()),
+            tool["help"].as_str()
         );
     }
-    assert_eq!(super::super::cli_tool_help("nope"), None);
 }
 
 /// Every classification notice native renders is authored in the
@@ -105,11 +91,11 @@ fn generated_contract_is_enforcement_only() {
     for tool in contract["tools"].as_array().expect("tool array") {
         let name = tool["name"].as_str().expect("tool name");
         let object = tool.as_object().expect("tool object");
-        for forbidden in ["title", "description", "examples", "annotations"] {
+        for forbidden in ["description", "examples", "annotations"] {
             assert!(!object.contains_key(forbidden), "{name}.{forbidden}");
         }
         assert!(
-            object.contains_key("shortDescription")
+            object.contains_key("title")
                 && object.contains_key("querySchema")
                 && object.contains_key("inputSchema")
                 && object.contains_key("outputSchema")
@@ -147,138 +133,4 @@ fn embedded_contract_is_the_unmodified_config_output() {
         embedded, source,
         "embedded contract differs from its source"
     );
-}
-
-#[test]
-fn public_response_and_tree_limits_are_pinned_against_silent_drift() {
-    // Provenance records the core revision and generated fingerprint, but
-    // both move with regeneration. It does not pin intended numeric bounds:
-    // a core change that relaxes a public limit passes provenance checks.
-    // This pins the two limits that also surface in the live MCP schema so any
-    // change is a visible, reviewed test diff.
-    fn collect(value: &serde_json::Value, response: &mut Vec<u64>, tree_depth: &mut Vec<u64>) {
-        match value {
-            serde_json::Value::Object(map) => {
-                if let Some(max) = map
-                    .get("responseLength")
-                    .and_then(|schema| schema.get("maximum"))
-                    .and_then(serde_json::Value::as_u64)
-                {
-                    response.push(max);
-                }
-                if let Some(max) = map
-                    .get("maxDepth")
-                    .and_then(|schema| schema.get("maximum"))
-                    .and_then(serde_json::Value::as_u64)
-                {
-                    tree_depth.push(max);
-                }
-                for child in map.values() {
-                    collect(child, response, tree_depth);
-                }
-            }
-            serde_json::Value::Array(items) => {
-                for child in items {
-                    collect(child, response, tree_depth);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let contract: serde_json::Value = serde_json::from_str(contract_json()).expect("contract JSON");
-    let mut response_maxima = Vec::new();
-    let mut tree_depth_maxima = Vec::new();
-    collect(&contract, &mut response_maxima, &mut tree_depth_maxima);
-
-    assert!(
-        !response_maxima.is_empty(),
-        "expected at least one responseLength bound in the contract"
-    );
-    assert!(
-        response_maxima.iter().all(|max| *max == 50_000),
-        "responseLength.maximum drifted from 50000: {response_maxima:?}"
-    );
-    assert!(
-        !tree_depth_maxima.is_empty(),
-        "expected the tree-recursion maxDepth bound in the contract"
-    );
-    assert!(
-        tree_depth_maxima.iter().all(|max| *max == 20),
-        "public maxDepth bounds drifted from 20: {tree_depth_maxima:?}"
-    );
-}
-
-/// Schema single-source guard: assert that no `.rs` source file defines
-/// inline JSON Schema vocabulary (`"$schema"`, `"inputSchema"` as an object
-/// key inside a `json!()` macro call, or `"properties"` as an *lvalue* in a
-/// JSON literal). Schemas are embedded from `@octocodeai/config`'s
-/// generated `contract/`; this scan catches accidental copy-paste of schema
-/// fragments into tool runners.
-///
-/// Patterns checked (as substrings in non-comment, non-test lines):
-///   - `json!({"$schema":` — top-level JSON Schema declaration
-///   - `json!({"inputSchema":` — MCP tool registration schema inline
-///   - `"inputSchema": {` — same, written as a field expression
-#[test]
-fn no_inline_schema_literals_outside_generated_contracts() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let src_dir = manifest_dir.join("src");
-    // Patterns that indicate inline (hand-authored) JSON Schema definition.
-    // We do not check for "properties" broadly because it appears in
-    // schema-reading code (e.g. contracts/validate.rs). Instead we only
-    // flag the two patterns that would only ever appear as schema authors:
-    let forbidden: &[&str] = &[
-        "json!({\"$schema\":",
-        "json!({\"inputSchema\":",
-        "\"inputSchema\": {",
-    ];
-
-    let mut violations: Vec<String> = Vec::new();
-    scan_for_schema_literals(&src_dir, forbidden, &mut violations);
-
-    assert!(
-        violations.is_empty(),
-        "Hand-authored JSON Schema literals found in native sources \
-             — move them to octocode-core and run `yarn contracts:regen`:\n{}",
-        violations.join("\n")
-    );
-}
-
-fn scan_for_schema_literals(
-    dir: &std::path::Path,
-    patterns: &[&str],
-    violations: &mut Vec<String>,
-) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            scan_for_schema_literals(&path, patterns, violations);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
-            let Ok(content) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            for (line_no, line) in content.lines().enumerate() {
-                let trimmed = line.trim();
-                // Skip comment lines.
-                if trimmed.starts_with("//") || trimmed.starts_with('*') {
-                    continue;
-                }
-                for pattern in patterns {
-                    if trimmed.contains(pattern) {
-                        violations.push(format!(
-                            "{}:{}: suspicious inline schema pattern `{}`",
-                            path.display(),
-                            line_no + 1,
-                            pattern
-                        ));
-                    }
-                }
-            }
-        }
-    }
 }

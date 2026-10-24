@@ -18,15 +18,15 @@ if (argv.includes('--help') || argv.includes('-h')) {
 validateFlags(argv, ['--scraping-skill-dir', '--out', '--domains']);
 const workspaceOutputBase = octocodeWorkspace();
 const out = resolve(
-  getArg('--out', '.octocode/octocode-chrome-devtools/tmp/cdp-protocol')
+  getArg('--out') || '.octocode/octocode-chrome-devtools/tmp/cdp-protocol'
 );
 const outRelative = relative(workspaceOutputBase, out);
 if (outRelative.startsWith('..') || isAbsolute(outRelative)) {
   console.error(`--out must stay under ${workspaceOutputBase}`);
   process.exit(2);
 }
-const domains = getArg(
-  '--domains',
+const domains = (
+  getArg('--domains') ||
   'Network,Storage,DOMStorage,CacheStorage,Page,Runtime,Target,Browser,Fetch,Performance,Security,Accessibility,DOM,CSS,Input'
 )
   .split(',')
@@ -38,8 +38,16 @@ const { target: fetchScript } = resolveScrapingTool(
   'Pass --scraping-skill-dir <dir> for the optional octocode-scraping skill.'
 );
 mkdirSync(out, { recursive: true });
-const results = [];
-function fetchSession(url, session) {
+type FetchResult = {
+  session: string;
+  url: string;
+  status: number | null;
+  ok: boolean;
+  sessionDir: string | null;
+  resultPath: string;
+};
+const results: FetchResult[] = [];
+function fetchSession(url: string, session: string) {
   const resultPath = join(out, `${session}-fetch.json`);
   const res = spawnSync(
     process.execPath,
@@ -59,7 +67,7 @@ function fetchSession(url, session) {
     { encoding: 'utf8', timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
   );
   writeFileSync(resultPath, res.stdout || res.stderr || '');
-  let parsed = null;
+  let parsed: { ok?: boolean; sessionDir?: string } | null = null;
   try {
     parsed = JSON.parse(res.stdout);
   } catch {}

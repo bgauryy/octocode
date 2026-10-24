@@ -1,4 +1,5 @@
 import type { EditorInfo, McpClientDef } from './configPaths';
+import { errorMessage } from './errors';
 import {
   configureMcpServer,
   updateMcpConfigToken,
@@ -20,10 +21,6 @@ export type InstallTarget = {
   configKey: ConfigKey;
 };
 export type InstallResult = 'installed' | 'unchanged' | 'failed';
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 function clientTarget(client: McpClientDef, path: string): InstallTarget {
   return { name: client.name, path, configKey: client.configKey };

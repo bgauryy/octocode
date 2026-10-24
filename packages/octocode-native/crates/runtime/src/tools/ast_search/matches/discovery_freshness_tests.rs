@@ -1,6 +1,6 @@
-use super::super::test_rows::run_row;
 use super::*;
 use crate::tools::test_support::{Fixture, simple_policy};
+use serde_json::json;
 
 #[test]
 fn settled_match_memo_observes_empty_directories_and_ignore_edits() {
@@ -20,7 +20,7 @@ fn settled_match_memo_observes_empty_directories_and_ignore_edits() {
         let (paths, security) = simple_policy(&root.0);
         octocode_engine::stamp::settle_written_so_far();
         let first = run_row(
-            &json!({"operation":"match", "path":root.0, "pattern":"target($A)", "captureText":true, "matchPageSize":1}),
+            &json!({"operation":"match","path":root.0,"rule":{"pattern":"target($A)"},"includeCaptures":true}),
             &paths,
             &security,
         );
@@ -28,7 +28,7 @@ fn settled_match_memo_observes_empty_directories_and_ignore_edits() {
         let snapshot = first["snapshot"].as_str().expect("snapshot");
         // A repository scan is stored like any other: its rules are watched.
         assert!(SCANS.holds(snapshot), "stored: {ignore_name:?}");
-        let next = first["next"]["nextMatchPage"]["query"]["queries"][0].clone();
+        let next = first["next"]["nextMatchPage"]["input"]["queries"][0].clone();
         let unchanged = run_row(&next, &paths, &security);
         assert_eq!(
             unchanged["files"][0]["matches"][0]["value"],
@@ -50,4 +50,20 @@ fn settled_match_memo_observes_empty_directories_and_ignore_edits() {
             "changed discovery evicts the old scan"
         );
     }
+}
+
+fn run_row(
+    row: &serde_json::Value,
+    paths: &crate::policy::path::PathPolicy,
+    security: &crate::security::ContentSecurity,
+) -> serde_json::Value {
+    let query = serde_json::from_value(row.clone()).expect("canonical match");
+    super::super::execute_ast(
+        &query,
+        paths,
+        security,
+        &crate::execution::cancel::NeverCancel,
+        Some(1),
+    )
+    .expect("budgeted source page")
 }

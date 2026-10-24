@@ -25,6 +25,9 @@ pub(super) struct PreparedRows {
     rows: Vec<Value>,
     first_fields: Vec<Map<String, Value>>,
     reserves: Vec<usize>,
+    /// Each row's serialized chars, as set aside.
+    chars: Vec<usize>,
+    /// Each row's chars on a page: its comma and reserve added.
     sizes: Vec<usize>,
     tool: Option<crate::id::ToolId>,
 }
@@ -36,42 +39,63 @@ impl PreparedRows {
         tool: Option<crate::id::ToolId>,
     ) -> Self {
         let first_names = tool.map_or(&[][..], |tool| tool.output().first_fragment_fields());
+        let before = rows
+            .iter()
+            .map(|row| octocode_engine::json_size::utf16_units(row).unwrap_or(0))
+            .collect::<Vec<_>>();
         let first_fields = rows
             .iter_mut()
             .map(|row| {
-                first_names
-                    .iter()
-                    .filter_map(|name| {
-                        row.as_object_mut()?
-                            .shift_remove(*name)
-                            .map(|value| ((*name).to_owned(), value))
-                    })
-                    .collect::<Map<_, _>>()
+                let mut fields = Map::new();
+                for pointer in first_names {
+                    let Some((parent, name)) = pointer.rsplit_once('/') else {
+                        continue;
+                    };
+                    let key = name.replace("~1", "/").replace("~0", "~");
+                    let Some(value) = row
+                        .pointer_mut(parent)
+                        .and_then(Value::as_object_mut)
+                        .and_then(|object| object.shift_remove(&key))
+                    else {
+                        continue;
+                    };
+                    let segments = parent
+                        .split('/')
+                        .skip(1)
+                        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+                        .chain(std::iter::once(key))
+                        .collect::<Vec<_>>();
+                    insert_field(&mut fields, &segments, value);
+                }
+                fields
             })
             .collect::<Vec<_>>();
-        let reserves: Vec<usize> = volatile
+        let reserves = rows
             .iter()
-            .zip(&first_fields)
-            .map(|(fields, first)| {
-                fields.as_ref().map_or(0, volatile_reserve)
-                    + if first.is_empty() {
-                        0
-                    } else {
-                        octocode_engine::json_size::utf16_units(first).unwrap_or(0) - 1
-                    }
+            .enumerate()
+            .map(|(index, row)| {
+                before[index]
+                    .saturating_sub(octocode_engine::json_size::utf16_units(row).unwrap_or(0))
+                    + volatile
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .map_or(0, volatile_reserve)
             })
+            .collect::<Vec<_>>();
+        let chars: Vec<usize> = rows
+            .iter()
+            .map(|row| octocode_engine::json_size::utf16_units(row).unwrap_or(0))
             .collect();
-        let sizes: Vec<usize> = rows
+        let sizes = chars
             .iter()
             .zip(&reserves)
-            .map(|(row, reserve)| {
-                octocode_engine::json_size::utf16_units(row).unwrap_or(0) + 1 + reserve
-            })
+            .map(|(chars, reserve)| chars + 1 + reserve)
             .collect();
         Self {
             rows,
             first_fields,
             reserves,
+            chars,
             sizes,
             tool,
         }
@@ -88,12 +112,13 @@ impl PreparedRows {
             rows,
             first_fields,
             reserves,
+            chars,
             sizes,
             tool,
         } = self;
         let shares = fair_shares(&sizes, row_budget);
         let mut arena = FragmentArena {
-            required: tool.map(crate::contracts::shared_fields::required_entry_fields),
+            required: tool.map(crate::contracts::output_fields::required_entry_fields),
             collection_paths: tool.and_then(|tool| tool.output().collection_paths()),
             ..FragmentArena::default()
         };
@@ -104,6 +129,7 @@ impl PreparedRows {
             let parts = plan_row(
                 &mut arena,
                 row,
+                chars[position],
                 position,
                 head,
                 row_budget,
@@ -146,7 +172,7 @@ impl RowPlan {
                 if p.part == 1
                     && let Some(row) = value.as_object_mut()
                 {
-                    row.extend(self.first_fields[p.row].clone());
+                    restore_fields(row, self.first_fields[p.row].clone());
                 }
                 if p.part == 1
                     && let (Some(fields), Some(data)) = (
@@ -203,12 +229,14 @@ fn head_limit(size: usize, share: usize, reserve: usize) -> usize {
     }
 }
 
-/// Plan one row into its parts, each sized as it serializes on a page: its
-/// comma and `rowPart`, the per-call facts part one regains, less the
-/// continuations and hints the part does not carry ([`PartShare`]).
+/// Plan one row, serialized at `row_chars`, into its parts, each sized as it
+/// serializes on a page: its comma and `rowPart`, the per-call facts part one
+/// regains, less the continuations and hints the part does not carry
+/// ([`PartShare`]).
 fn plan_row(
     arena: &mut FragmentArena,
     row: Value,
+    row_chars: usize,
     position: usize,
     head: usize,
     row_budget: usize,
@@ -218,7 +246,7 @@ fn plan_row(
     let kept_next_chars = [PartShare::First, PartShare::Middle, PartShare::Last]
         .map(|share| row_next_chars(&row, share));
     let mut fragments = Vec::new();
-    arena.plan(row, head, row_budget, &mut fragments);
+    arena.plan_sized(row, row_chars, head, row_budget, &mut fragments);
     let of = fragments.len();
     fragments
         .into_iter()
@@ -274,4 +302,28 @@ fn assign_pages(
         placed.push(fragment);
     }
     (placed, page + 1)
+}
+
+fn restore_fields(row: &mut Map<String, Value>, fields: Map<String, Value>) {
+    for (key, value) in fields {
+        match (row.get_mut(&key), value) {
+            (Some(Value::Object(target)), Value::Object(fields)) => restore_fields(target, fields),
+            (_, value) => {
+                row.insert(key, value);
+            }
+        }
+    }
+}
+
+fn insert_field(target: &mut Map<String, Value>, path: &[String], value: Value) {
+    let Some((key, rest)) = path.split_first() else {
+        return;
+    };
+    if rest.is_empty() {
+        target.insert(key.clone(), value);
+        return;
+    }
+    if let Value::Object(nested) = target.entry(key.clone()).or_insert_with(|| json!({})) {
+        insert_field(nested, rest, value);
+    }
 }

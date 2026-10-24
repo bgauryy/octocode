@@ -1,50 +1,50 @@
-//! Empty and unavailable rows: status, recovery leads and workspace-root
-//! failures.
-
 use super::*;
+use serde_json::json;
 
-/// A resolved anchor with no subtypes says so, instead of asking the caller
-/// to verify an anchor that was found.
 #[test]
-fn an_empty_hierarchy_row_says_the_relation_is_empty() {
-    for (operation, wording) in [
-        ("subtypes", "extends or implements"),
-        ("supertypes", "base"),
+fn empty_and_failed_rows_keep_acquisition_separate_from_retry() {
+    let q =
+        query(json!({"operation":"definition","path":"/repo/a.ts","symbolName":"run","line":1}));
+    for code in [
+        ErrorCode::ServerUnavailable,
+        ErrorCode::Timeout,
+        ErrorCode::CapabilityUnavailable,
     ] {
-        let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-            "operation": operation, "path": "src/a.ts", "symbolName": "A", "line": 1
-        }))
-        .expect("hierarchy query");
-        let row = with_stage_hints(&query, &empty(&query, "noLocations", "no results", true));
-        let hint = row["hints"][0].as_str().expect("hint");
-        assert!(hint.contains(wording), "{operation}: {hint}");
-        assert!(!hint.contains("Verify the symbol"), "{hint}");
-        assert!(hint.chars().count() <= 120, "{hint}");
+        let row = failure(&q, "file:///repo/a.ts", code, "provider unavailable", false);
+        assert_eq!(row["errorCode"], json!(code));
+        let related = row["related"].as_array().expect("source acquisition");
+        assert!(related.iter().all(|call| call["kind"] == "related"));
+        assert_eq!(
+            row.pointer("/next/retry").is_some(),
+            code == ErrorCode::Timeout
+        );
+        if code == ErrorCode::Timeout {
+            assert_eq!(row["next"]["retry"]["kind"], "continue");
+        }
+        crate::contracts::validate_output("lspSearch", &public_row(&row))
+            .expect("valid public channels");
     }
-    let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "references", "path": "src/a.ts", "symbolName": "A", "line": 1
-    }))
-    .expect("references query");
-    // The row's executable `next.read` is the recovery; the general
-    // advice lives once in the tool description.
-    let row = with_stage_hints(
-        &query,
-        &with_next(&query, empty(&query, "noLocations", "no results", true)),
+    let root =
+        query(json!({"operation":"workspaceSymbol","workspaceRoot":"/repo","symbolQuery":"run"}));
+    let row = with_next(
+        &root,
+        items_payload(&root, "symbols", json!([]), TEST_BUDGET),
     );
-    assert!(row.get("hints").is_none(), "{row}");
+    assert_eq!(row["status"], "empty");
+    assert!(row.get("related").is_none());
 }
 
 #[test]
 fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     let query = query(serde_json::json!({
-        "operation": "definition", "mainGoal": "test", "reasoning": "test",
+        "operation": "definition",
         "path": "/repo/src/lib.rs",
         "symbolName": "execute",
         "line": 10
     }));
     let empty = with_next(&query, empty(&query, "noLocations", "none", true));
     assert_eq!(empty["status"], "empty");
-    assert!(empty["next"]["read"].get("confidence").is_none());
+    assert_eq!(empty["related"][0]["kind"], "related");
     // A package that includes no unloaded source: no tip, and no static
     // advice beside the executable `next.read`.
     assert!(empty.get("hints").is_none(), "{empty}");
@@ -92,12 +92,11 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         tipped["hints"][0]
             .as_str()
             .is_some_and(|hint| hint.contains("repository code")
-                && hint.contains("includeBuildScripts")
-                && !hint.contains("buildScripts:true")),
+                && hint.contains("rustContext.buildScripts")),
         "{tipped}"
     );
     assert_eq!(
-        tipped["next"]["includeBuildScripts"]["query"]["queries"][0]["rustContext"],
+        tipped["related"][0]["input"]["queries"][0]["rustContext"],
         serde_json::json!({"buildScripts": true}),
         "{tipped}"
     );
@@ -127,7 +126,12 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         "{outside}"
     );
     assert!(
-        outside["next"].get("includeBuildScripts").is_none(),
+        !outside["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
         "{outside}"
     );
     // Both: both tips (no rerun carries the build-script one), and no
@@ -146,115 +150,16 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
                 && hint.contains("repository code")),
         "{both}"
     );
-    assert!(both["next"].get("includeBuildScripts").is_none(), "{both}");
-    let down = failure(
-        &query,
-        "file:///repo/src/lib.rs",
-        ErrorCode::ServerUnavailable,
-        "missing",
-        false,
-    );
-    assert_eq!(down["status"], "error");
-    assert_eq!(down["errorCode"], "serverUnavailable");
-    assert_eq!(down["next"]["read"]["tool"], "localFetch");
-    // The fallback is an executable lexical lead, not a static tip.
-    let text = &down["next"]["findText"];
-    assert_eq!(text["tool"], "localSearch", "{down}");
-    let search = &text["query"]["queries"][0];
-    assert_eq!(search["path"], "/repo/src", "{down}");
-    assert_eq!(search["matchString"], "\\bexecute\\b", "{down}");
-    assert_eq!(search["regex"], "rust", "{down}");
-    assert_eq!(search["caseMode"], "sensitive", "{down}");
-    // The row's own leads say it all.
     assert!(
-        with_stage_hints(&query, &down).get("hints").is_none(),
-        "{down}"
+        !both["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"
+                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
+        "{both}"
     );
-    crate::contracts::validate_output("lspSearch", &public_row(&down))
-        .expect("unavailable row satisfies the output contract");
-
-    let timeout = failure(
-        &query,
-        "file:///repo/src/lib.rs",
-        ErrorCode::Timeout,
-        "timed out",
-        false,
-    );
-    assert_eq!(timeout["next"]["retry"]["tool"], "lspSearch");
-    assert_eq!(timeout["next"]["read"]["tool"], "localFetch");
-
-    let explicitly_scoped = requery(&query, serde_json::json!({"workspaceRoot": "/repo"}));
-    let scoped = failure(
-        &explicitly_scoped,
-        "file:///repo/src/lib.rs",
-        ErrorCode::CapabilityUnavailable,
-        "unsupported",
-        true,
-    );
-    assert_eq!(scoped["next"]["read"]["tool"], "localFetch");
 }
-
-/// A directory scope is searched for the name: the lead is `findText`
-/// (a localSearch), never a `read`.
-#[test]
-fn a_directory_scope_recovers_with_a_text_search_lead() {
-    let dir = tempfile::tempdir().expect("dir");
-    let query = query(serde_json::json!({
-        "operation": "workspaceSymbol", "mainGoal": "test", "reasoning": "test",
-        "path": dir.path().to_string_lossy(), "symbolName": "execute"
-    }));
-    let row = with_next(&query, empty(&query, "noLocations", "none", true));
-    assert_eq!(row["next"]["findText"]["tool"], "localSearch", "{row}");
-    assert!(row["next"].get("read").is_none(), "{row}");
-}
-
-#[test]
-fn workspace_root_failures_emit_a_string_path_without_directory_read_recovery() {
-    let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
-        "operation": "workspaceSymbol", "mainGoal": "test", "reasoning": "test",
-        "workspaceRoot": "/repo",
-        "symbolName": "execute"
-    }))
-    .expect("workspace-symbol query");
-
-    let down = failure(
-        &query,
-        "file:///repo",
-        ErrorCode::ServerUnavailable,
-        "missing",
-        false,
-    );
-
-    assert!(down["path"].is_string(), "{down}");
-    assert!(down.get("next").is_none(), "{down}");
-    let hinted = with_stage_hints(&query, &down);
-    assert!(
-        hinted["hints"][0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("Provide path")),
-        "{hinted}"
-    );
-    crate::contracts::validate_output("lspSearch", &public_row(&down))
-        .expect("workspace-root failure must satisfy the internal output contract");
-}
-
-#[test]
-fn workspace_root_empty_results_do_not_emit_a_pathless_read_recovery() {
-    let q = query(serde_json::json!({
-        "operation": "workspaceSymbol", "mainGoal": "test", "reasoning": "test",
-        "workspaceRoot": "/repo",
-        "symbolName": "nothing"
-    }));
-    let row = with_next(
-        &q,
-        items_payload(&q, "symbols", serde_json::json!([]), TEST_BUDGET),
-    );
-    assert_eq!(row["status"], "empty");
-    assert!(row.get("next").is_none(), "{row}");
-    crate::contracts::validate_output("lspSearch", &public_row(&row))
-        .expect("empty workspace-root row satisfies the output contract");
-}
-
 /// A lead probes the configured server file only when the path policy
 /// authorizes reading it.
 #[test]

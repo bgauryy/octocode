@@ -1,9 +1,5 @@
 //! GitHub protocol, bounded transport, and provider operations.
 //! Hosts own credential acquisition, cache storage, and application policy.
-// Test-compiled code may assert with unwrap/expect/panic. A crate attribute,
-// not clippy.toml's `allow-*-in-tests`: clippy does not treat modules mounted
-// under `cfg(all(test, unix))` as test code.
-#![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 
 mod budget;
 mod cache_key;

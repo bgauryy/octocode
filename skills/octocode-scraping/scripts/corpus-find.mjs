@@ -3,7 +3,7 @@ import { resolve, join } from 'node:path';
 import { createReadStream } from 'node:fs';
 import { paginate } from './lib/pagination.mjs';
 import { fileURLToPath } from 'node:url';
-import { readJson as readJsonFile, readJsonl as readJsonlFile, requireSession } from './lib/bridge.mjs';
+import { readJson, readJsonl, requireSession } from './lib/bridge.mjs';
 import { fail } from './lib/fail.mjs';
 
 function usage(code = 2) {
@@ -42,13 +42,11 @@ if (limit > 300) invalid('--limit must be <= 300');
 const offset = integerOption('--offset', 0, 0);
 requireSession(dir);
 const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-const readJson = (rel, fallback = null) => readJsonFile(dir, rel, fallback);
-const readJsonl = (rel) => readJsonlFile(dir, rel);
 function scoreText(value) {
   const s = String(value || '').toLowerCase();
   return terms.reduce((n, t) => n + (s.includes(t) ? 1 : 0), 0);
 }
-function scoreLabel(label, url = '') {
+function scoreLabel(label, url) {
   const text = String(label || '').toLowerCase();
   const href = String(url || '').toLowerCase();
   let score = scoreText(`${text} ${href}`);
@@ -59,13 +57,32 @@ function scoreLabel(label, url = '') {
   }
   return score;
 }
-const agent = await readJson('AGENT_INDEX.json', {});
-const graph = await readJson('graph/site-graph.json', { pages: [], edges: [] });
+// Counts the term hits in `body` that end past the carried-over `fresh` prefix (capped at 32); true when any did.
+function countTerm(body, term, fresh, counts) {
+  let at = 0, hit, found = false;
+  while ((hit = body.indexOf(term, at)) !== -1) {
+    if (hit + term.length > fresh) { counts.set(term, Math.min(32, counts.get(term) + 1)); found = true; }
+    at = hit + term.length;
+  }
+  return found;
+}
+// Streams one body file, carrying `tail` across chunk and file boundaries so split terms still count.
+async function scanBodyFile(file, counts, tail, overlap) {
+  let matched = false;
+  for await (const chunk of createReadStream(file, {encoding:'utf8',highWaterMark:65536})) {
+    const body = tail + chunk.toLowerCase();
+    for (const term of terms) if (countTerm(body, term, tail.length, counts)) matched = true;
+    tail = overlap ? body.slice(-overlap) : '';
+  }
+  return { tail, matched };
+}
+const agent = await readJson(dir, 'AGENT_INDEX.json', {});
+const graph = await readJson(dir, 'graph/site-graph.json', { pages: [], edges: [] });
 
 // Body-text scan with document-frequency damping: nav/sidebar text repeats on
 // every page and must not dominate ranking, while a term that appears in only
 // a few page bodies is a strong signal even when titles/links miss it.
-const sourceRows = await readJsonl('sources.jsonl');
+const sourceRows = await readJsonl(dir, 'sources.jsonl');
 const pageTexts = new Map(), bodyFiles = [];
 for (const row of sourceRows) {
   const parts = Array.isArray(row.textParts) ? row.textParts : [];
@@ -74,16 +91,11 @@ for (const row of sourceRows) {
   const overlap = Math.max(...terms.map(t => t.length)) - 1;
   for (const rel of parts) {
     const file = join(dir, rel); bodyFiles.push(file);
-    try { for await (const chunk of createReadStream(file, {encoding:'utf8',highWaterMark:65536})) {
-      const body = tail + chunk.toLowerCase();
-      for (const term of terms) {
-        let at = 0, hit; while ((hit = body.indexOf(term, at)) !== -1) {
-          if (hit + term.length > tail.length) { counts.set(term, Math.min(32, counts.get(term) + 1)); firstMatch ??= rel; }
-          at = hit + term.length;
-        }
-      }
-      tail = overlap ? body.slice(-overlap) : '';
-    } } catch (error) { invalid('Cannot scan source '+file+': '+error.message); }
+    try {
+      const scanned = await scanBodyFile(file, counts, tail, overlap);
+      tail = scanned.tail;
+      if (scanned.matched) firstMatch ??= rel;
+    } catch (error) { invalid('Cannot scan source '+file+': '+error.message); }
   }
   pageTexts.set(row.pageId, {rel:firstMatch || parts[0], counts, url:row.url});
 }
@@ -119,13 +131,13 @@ function elementText(e) {
   return [e.text, e.preview, e.textPreview, e.action, e.href, e.key, e.content, e.language, e.type, e.kind, e.workflowHint, ...(e.labels || []), ...(e.headers || []), ...inputs, ...leafText(e.json)].filter(Boolean).join(' ');
 }
 // The capped AGENT_INDEX lists only the first pages; the roster in page-map.json lists them all.
-const roster = await readJson('page-map.json', { pages: [] });
+const roster = await readJson(dir, 'page-map.json', { pages: [] });
 const filesByPage = new Map([...(agent.pages || []), ...(roster.pages || [])].filter((p) => p?.pageId && p.files).map((p) => [p.pageId, p.files]));
-const automationGraph = await readJson('graph/graph.json', { nodes: [], edges: [] });
-const workflows = await readJson('graph/workflows.json', { workflows: [] });
-const topLinks = await readJsonl('indexes/top-links.jsonl');
-const elements = await readJsonl('extracts/elements.jsonl');
-const resources = await readJsonl('extracts/resources.jsonl');
+const automationGraph = await readJson(dir, 'graph/graph.json', { nodes: [], edges: [] });
+const workflows = await readJson(dir, 'graph/workflows.json', { workflows: [] });
+const topLinks = await readJsonl(dir, 'indexes/top-links.jsonl');
+const elements = await readJsonl(dir, 'extracts/elements.jsonl');
+const resources = await readJsonl(dir, 'extracts/resources.jsonl');
 const candidates = [];
 const graphPageIds = new Set();
 for (const p of graph.pages || []) {
@@ -145,7 +157,7 @@ for (const e of automationGraph.edges || []) candidates.push({ type: `edge:${e.k
 for (const w of workflows.workflows || []) candidates.push({ type: 'workflow', score: scoreText(`${w.workflowType} ${w.label} ${w.entryUrl}`) + (w.confidence === 'high' ? 1 : 0), workflowType: w.workflowType, label: w.label, entryUrl: w.entryUrl, evidence: w.evidence });
 for (const e of elements) candidates.push({ type: 'element', score: scoreText(elementText(e)), pageId: e.pageId, kind: e.kind || e._file, workflowHint: e.workflowHint || null, element: e });
 for (const r of resources) candidates.push({ type: 'resource', score: scoreText(`${r.kind} ${r.src}`), pageId: r.pageId, kind: r.kind, src: r.src });
-const ranked = candidates.filter((c) => c.score > 0).sort((a, b) => b.score - a.score);
+const ranked = candidates.filter((c) => c.score > 0).toSorted((a, b) => b.score - a.score);
 const paging = await paginate({lists:{matches:ranked},files:['AGENT_INDEX.json','sources.jsonl','graph/site-graph.json','graph/graph.json','graph/workflows.json','indexes/top-links.jsonl','extracts/elements.jsonl','extracts/resources.jsonl'].map(p=>join(dir,p)).concat(bodyFiles),dir,args:['--limit',String(limit),'--cursor-matches',String(Math.min(offset,ranked.length)),...(options.get('--snapshot')?['--snapshot',options.get('--snapshot')]:[])],script:fileURLToPath(import.meta.url)});
 const matches = paging.matches;
 const remainingMatches = Math.max(0, ranked.length - offset - matches.length);

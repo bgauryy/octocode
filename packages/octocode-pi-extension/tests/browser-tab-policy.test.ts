@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startCdpStub, type CdpHandler, type CdpStub } from './fixtures/cdp-stub.js';
+import { answered, methodsOn, paused, startCdpStub, type CdpHandler, type CdpStub } from './fixtures/cdp-stub.js';
 import { PagePolicy } from '../src/browser/network.js';
 
 const launch = vi.hoisted(() => vi.fn());
@@ -26,10 +26,6 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const paused = (requestId: string, url: string, resourceType = 'XHR') => ({ requestId, request: { url }, resourceType, frameId: 'f' });
-const on = (cdp: CdpStub, target: string) => cdp.commands.filter((command) => command.target === target).map((command) => command.method);
-const answered = (cdp: CdpStub, target: string, method: 'Fetch.failRequest' | 'Fetch.continueRequest') =>
-  cdp.commands.filter((command) => command.target === target && command.method === method).map((command) => String(command.params['requestId']));
 const socketOf = (cdp: CdpStub, id: string) => ({ id, webSocketDebuggerUrl: `ws://127.0.0.1:${cdp.port}/devtools/page/${id}` });
 const policy = () => new PagePolicy({ report: () => undefined, lookup: async () => [{ address: '93.184.216.34' }] });
 const tmp = (): string => {
@@ -82,23 +78,23 @@ describe('a tab the session moved away from', () => {
     // fetch() from the previous tab to a private host is failed, a public one continues.
     first.emit('Fetch.requestPaused', paused('private', 'http://10.0.0.1/'));
     first.emit('Fetch.requestPaused', paused('public', 'https://93.184.216.34/'));
-    await vi.waitFor(() => expect(answered(cdp, 'page-1', 'Fetch.failRequest')).toEqual(['private']));
-    expect(answered(cdp, 'page-1', 'Fetch.continueRequest')).toEqual(['public']);
+    await vi.waitFor(() => expect(answered(cdp, 'Fetch.failRequest', 'page-1')).toEqual(['private']));
+    expect(answered(cdp, 'Fetch.continueRequest', 'page-1')).toEqual(['public']);
 
     // window.open from the previous tab: the popup is held, set up, and its private request failed.
     const popup = cdp.autoAttach({ id: 'popup-1', type: 'page', openerId: 'page-1' });
     await vi.waitFor(() => expect(popup.running).toBe(true));
-    expect(on(cdp, 'popup-1')).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'popup-1')).toContain('Fetch.enable');
     popup.emit('Fetch.requestPaused', paused('popup-private', 'http://127.0.0.1:9/', 'Document'));
-    await vi.waitFor(() => expect(answered(cdp, 'popup-1', 'Fetch.failRequest')).toEqual(['popup-private']));
+    await vi.waitFor(() => expect(answered(cdp, 'Fetch.failRequest', 'popup-1')).toEqual(['popup-private']));
 
     // A worker of the previous tab, and one it nests.
     const worker = cdp.autoAttach({ id: 'worker-1', type: 'worker', parent: 'page-1', url: 'https://example.test/w.js' });
     await vi.waitFor(() => expect(worker.running).toBe(true));
-    expect(on(cdp, 'worker-1')).toContain('Network.enable');
+    expect(methodsOn(cdp, 'worker-1')).toContain('Network.enable');
     const nested = cdp.autoAttach({ id: 'worker-2', type: 'worker', parent: 'worker-1', url: 'https://example.test/n.js' });
     await vi.waitFor(() => expect(nested.running).toBe(true));
-    expect(on(cdp, 'worker-2')).toContain('Network.enable');
+    expect(methodsOn(cdp, 'worker-2')).toContain('Network.enable');
   });
 
   it('is driven again without a second setup, and does not speak for the session while in the background', async () => {
@@ -121,10 +117,10 @@ describe('a tab the session moved away from', () => {
     await vi.waitFor(() => expect(session.console).toEqual(['[log] driven']));
     expect(session.dialog).toBeUndefined();
 
-    const fetchEnables = on(cdp, 'page-1').filter((method) => method === 'Fetch.enable').length;
+    const fetchEnables = methodsOn(cdp, 'page-1').filter((method) => method === 'Fetch.enable').length;
     await switchTo(session, socketOf(cdp, 'page-1'));
     expect(session.page).toBe(first);
-    expect(on(cdp, 'page-1').filter((method) => method === 'Fetch.enable')).toHaveLength(fetchEnables);
+    expect(methodsOn(cdp, 'page-1').filter((method) => method === 'Fetch.enable')).toHaveLength(fetchEnables);
     firstPage.emit('Page.javascriptDialogOpening', { type: 'alert', message: 'now' });
     await vi.waitFor(() => expect(session.dialog).toEqual({ type: 'alert', message: 'now' }));
     // Each tab's events are handled once: switching back registered no second listener.
@@ -174,7 +170,7 @@ describe('the user\'s Chrome (attached or shared)', () => {
     const strangerPopup = cdp.autoAttach({ id: 'user-popup', type: 'page', openerId: 'user-tab' });
     const strangerWorker = cdp.autoAttach({ id: 'user-worker', type: 'worker', parent: 'user-tab', url: 'https://mail.test/w.js' });
     await vi.waitFor(() => expect([sw, shared, tab, strangerPopup, strangerWorker].every((target) => target.running && !target.attached)).toBe(true));
-    for (const id of ['sw-other', 'shared-other', 'user-tab', 'user-popup', 'user-worker']) expect(on(cdp, id)).toEqual(['Runtime.runIfWaitingForDebugger']);
+    for (const id of ['sw-other', 'shared-other', 'user-tab', 'user-popup', 'user-worker']) expect(methodsOn(cdp, id)).toEqual(['Runtime.runIfWaitingForDebugger']);
     expect([...session.governed.keys()]).toEqual(['page-1']);
     expect(session.workers.size).toBe(0);
     // The session's own tab is untouched by all of it.
@@ -188,12 +184,12 @@ describe('the user\'s Chrome (attached or shared)', () => {
     const sw = cdp.autoAttach({ id: 'sw-1', type: 'service_worker', url: 'https://example.test/sw.js' });
     const shared = cdp.autoAttach({ id: 'shared-1', type: 'shared_worker', url: 'https://example.test/s.js' });
     await vi.waitFor(() => expect([popup, worker, sw, shared].every((target) => target.running)).toBe(true));
-    expect(on(cdp, 'popup-1')).toContain('Fetch.enable');
-    expect(on(cdp, 'worker-1')).toEqual(['Network.enable', 'Target.setAutoAttach', 'Runtime.runIfWaitingForDebugger']);
-    expect(on(cdp, 'sw-1')).toEqual(['Network.enable', 'Fetch.enable', 'Target.setAutoAttach', 'Runtime.runIfWaitingForDebugger']);
-    expect(on(cdp, 'shared-1')).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'popup-1')).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'worker-1')).toEqual(['Network.enable', 'Target.setAutoAttach', 'Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'sw-1')).toEqual(['Network.enable', 'Fetch.enable', 'Target.setAutoAttach', 'Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'shared-1')).toContain('Fetch.enable');
     sw.emit('Fetch.requestPaused', paused('sw-private', 'http://192.168.1.1/'));
-    await vi.waitFor(() => expect(answered(cdp, 'sw-1', 'Fetch.failRequest')).toEqual(['sw-private']));
+    await vi.waitFor(() => expect(answered(cdp, 'Fetch.failRequest', 'sw-1')).toEqual(['sw-private']));
     expect([...session.workers.keys()].sort()).toEqual(['shared-1', 'sw-1', 'worker-1']);
   });
 
@@ -201,22 +197,22 @@ describe('the user\'s Chrome (attached or shared)', () => {
     const { cdp, session } = await attached(undefined, { 'page-2': 'https://second.test/' });
     const before = cdp.autoAttach({ id: 'sw-later', type: 'service_worker', url: 'https://later.test/sw.js' });
     await vi.waitFor(() => expect(before.running).toBe(true));
-    expect(on(cdp, 'sw-later')).toEqual(['Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'sw-later')).toEqual(['Runtime.runIfWaitingForDebugger']);
 
     cdp.pages.get('page-1')!.emit('Fetch.requestPaused', paused('nav', 'https://later.test/', 'Document'));
     await switchTo(session, { ...socketOf(cdp, 'page-2'), url: 'https://second.test/' });
     const after = cdp.autoAttach({ id: 'sw-later-2', type: 'service_worker', url: 'https://later.test/sw.js' });
     const second = cdp.autoAttach({ id: 'sw-second', type: 'service_worker', url: 'https://second.test/sw.js' });
     await vi.waitFor(() => expect(after.running && second.running).toBe(true));
-    expect(on(cdp, 'sw-later-2')).toContain('Fetch.enable');
-    expect(on(cdp, 'sw-second')).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'sw-later-2')).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'sw-second')).toContain('Fetch.enable');
   });
 
   it('detaches an unrelated target that was already running, without a word to it', async () => {
     const { cdp } = await attached();
     const running = cdp.autoAttach({ id: 'sw-running', type: 'service_worker', url: 'https://other.test/sw.js', waiting: false });
     await vi.waitFor(() => expect(running.attached).toBe(false));
-    expect(on(cdp, 'sw-running')).toEqual([]);
+    expect(methodsOn(cdp, 'sw-running')).toEqual([]);
   });
 
   it('does the same in a shared Chrome with a tab of the agent\'s own, and covers its popups', async () => {
@@ -227,8 +223,8 @@ describe('the user\'s Chrome (attached or shared)', () => {
     const stranger = cdp.autoAttach({ id: 'sw-other', type: 'service_worker', url: 'https://other.test/sw.js' });
     const popup = cdp.autoAttach({ id: 'popup-1', type: 'page', openerId: session.targetId });
     await vi.waitFor(() => expect(stranger.running && popup.running).toBe(true));
-    expect(on(cdp, 'sw-other')).toEqual(['Runtime.runIfWaitingForDebugger']);
-    expect(on(cdp, 'popup-1')).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'sw-other')).toEqual(['Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'popup-1')).toContain('Fetch.enable');
   });
 });
 
@@ -242,10 +238,10 @@ describe('the agent\'s own Chrome', () => {
     const stranger = cdp.autoAttach({ id: 'other-tab', type: 'page' });
     const extension = cdp.autoAttach({ id: 'ext-sw', type: 'service_worker', url: 'chrome-extension://abc/sw.js' });
     await vi.waitFor(() => expect([sw, shared, worker, popup, stranger, extension].every((target) => target.running)).toBe(true));
-    for (const id of ['sw-any', 'shared-any', 'popup-1']) expect(on(cdp, id)).toContain('Fetch.enable');
-    expect(on(cdp, 'worker-any')).toContain('Network.enable');
-    expect(on(cdp, 'other-tab')).toEqual(['Runtime.runIfWaitingForDebugger']);
-    expect(on(cdp, 'ext-sw')).toEqual(['Runtime.runIfWaitingForDebugger']);
+    for (const id of ['sw-any', 'shared-any', 'popup-1']) expect(methodsOn(cdp, id)).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'worker-any')).toContain('Network.enable');
+    expect(methodsOn(cdp, 'other-tab')).toEqual(['Runtime.runIfWaitingForDebugger']);
+    expect(methodsOn(cdp, 'ext-sw')).toEqual(['Runtime.runIfWaitingForDebugger']);
   });
 
   it('covers the persistent profile\'s Chrome the same way, started by an earlier session', async () => {
@@ -260,6 +256,6 @@ describe('the agent\'s own Chrome', () => {
     expect(session.profile).toBe(profile);
     const sw = cdp.autoAttach({ id: 'sw-any', type: 'service_worker', url: 'https://anywhere.test/sw.js' });
     await vi.waitFor(() => expect(sw.running).toBe(true));
-    expect(on(cdp, 'sw-any')).toContain('Fetch.enable');
+    expect(methodsOn(cdp, 'sw-any')).toContain('Fetch.enable');
   });
 });

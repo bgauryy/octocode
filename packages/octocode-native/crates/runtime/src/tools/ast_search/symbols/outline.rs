@@ -13,10 +13,10 @@ use serde_json::{Value, json};
 pub(crate) struct OutlineFile {
     /// The row path.
     pub(crate) path: String,
-    /// The declaration rows its `kinds` and `symbolName` filters can keep.
+    /// The declaration rows its `symbolKinds` and `symbolFilter.terms` filters can keep.
     pub(crate) rows: Vec<Value>,
-    /// Declarations of a kind `kinds` leaves out whose name equals a
-    /// `symbolName` entry: they keep that entry exact, and the answer says
+    /// Declarations of a kind `symbolKinds` leaves out whose name equals a
+    /// `symbolFilter.terms` entry: they keep that entry exact, and the answer says
     /// when they are all the entry names.
     pub(crate) off_kind: Vec<Value>,
     /// Its parse notes that bear on the answer.
@@ -29,8 +29,8 @@ pub(super) type Reduced = (Vec<Value>, Vec<Value>, Vec<GraphFactDiagnostic>);
 /// What one file contributes to a symbols query, reduced as soon as the file
 /// is parsed so a scan holds the answer, not the repository.
 ///
-/// The rows are the file's compact declarations that a `kinds` entry names
-/// and whose name (or trait-impl type name) contains some `symbolName` text:
+/// The rows are the file's compact declarations that a `symbolKinds` entry names
+/// and whose name (or trait-impl type name) contains some `symbolFilter.terms` text:
 /// a superset of the final selection, since an entry that equals a name keeps
 /// only equal names. The off-kind rows are the other declarations whose name
 /// equals an entry. The notes are those the answer can show; a recovered
@@ -153,16 +153,17 @@ pub(crate) struct Outline {
 pub(super) fn outline_file(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
+    display_path: &str,
 ) -> Result<Result<Outline, Value>, ToolError> {
     let Some(b) = crate::tools::ast_search::source::read_parse_source(canonical)? else {
-        let name = match q.symbol_name.as_ref() {
-            Some(octocode_contract_types::AstSearchQuerySymbolsSymbolName::String(name)) => {
-                Some(name.as_str())
-            }
-            _ => None,
-        };
+        let name = q
+            .symbol_filter
+            .as_ref()
+            .filter(|filter| filter.terms.len() == 1)
+            .and_then(|filter| filter.terms.first())
+            .map(|term| term.as_str());
         return Ok(Err(crate::tools::ast_search::source::source_limit(
-            &canonical.to_string_lossy(),
+            display_path,
             name,
         )));
     };
@@ -174,7 +175,7 @@ pub(super) fn outline_file(
         canonical,
         ast_search_query_symbols::language(q).as_deref(),
     );
-    let unsupported = || json!({"status":"error","errorCode":ErrorCode::SymbolsUnsupported,"path":canonical.to_string_lossy(),"error":"No native declaration extractor supports this source. Inspect its syntax tree or exact content."});
+    let unsupported = || json!({"status":"error","errorCode":ErrorCode::SymbolsUnsupported,"path":display_path,"error":"No native declaration extractor supports this source. Inspect its syntax tree or exact content."});
     let document = match parser.as_deref() {
         // An extension that selects no grammar outlines nothing: an empty
         // outline would read as a file without declarations. A document
@@ -185,6 +186,7 @@ pub(super) fn outline_file(
                 if crate::content::DocumentFormat::of(&source_path).is_some() {
                     no_extractor(
                         canonical,
+                        display_path,
                         &crate::tools::ast_search::language::extension_label(canonical),
                     )
                 } else {
@@ -196,7 +198,7 @@ pub(super) fn outline_file(
         // its own parse.
         parser => declarations(&source, &source_path, parser),
     };
-    let path = crate::tools::display_name(canonical);
+    let path = canonical.to_string_lossy().into_owned();
     let Some(document) = document else {
         return Ok(Err(unsupported()));
     };
@@ -237,23 +239,23 @@ pub(super) fn outline_file(
 }
 
 /// The row of a document (`kind`: its extension) no declaration extractor
-/// reads and no `language` makes source: it names the file type and leads to
-/// the localFetch outline of the file (`minify:"symbols"`: its headings or
+/// reads and no `parser` makes source: it names the file type and leads to
+/// the localFetch outline of the file (`view:"symbols"`: its headings or
 /// keys).
-fn no_extractor(canonical: &std::path::Path, kind: &str) -> Value {
+fn no_extractor(canonical: &std::path::Path, display_path: &str, kind: &str) -> Value {
     let path = canonical.to_string_lossy();
     let mut row = json!({
         "status": "error",
         "errorCode": ErrorCode::SymbolsUnsupported,
-        "path": path,
+        "path": display_path,
         "error": format!("No declaration extractor supports {kind} files."),
         "hints": [format!(
             "symbols does not outline {kind} files; the read lead outlines this one, or search it with localSearch."
         )],
     });
-    row["next"]["read"] = crate::response::result::Continuation::new(
+    row["calls"]["read"] = crate::response::result::Continuation::related(
         ToolId::LocalFetch,
-        json!({"path": path, "minify": "symbols"}),
+        json!({"path": path, "view": "symbols"}),
     )
     .build();
     row

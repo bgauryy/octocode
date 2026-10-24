@@ -14,7 +14,6 @@
 use std::ops::Range;
 
 use crate::response::pages::PageFacts;
-use crate::response::result::{CURSOR_FIELDS, INTENT_FIELDS, RESPELLED_FIELDS};
 
 /// How a result set is cut into pages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,18 +131,8 @@ pub(crate) fn count_pages(total: usize, size: usize) -> usize {
 
 /// Characters one page of a row may spend on its items: the response window
 /// less the row around them, which re-states the query in each continuation.
-pub(crate) fn page_budget(response_window: Option<usize>, query: &serde_json::Value) -> usize {
-    page_chars(response_window, reserve_chars(query, 2))
-}
-
-/// A complete held row needs no repeated-query reserve for its own next page.
-/// Keep the common envelope reserve; later response shaping still enforces the window.
-pub(crate) fn terminal_row_fits(response_window: Option<usize>, row: &serde_json::Value) -> bool {
-    response_window.is_some_and(|window| {
-        octocode_engine::json_size::utf16_units_or(row, usize::MAX)
-            .saturating_add(ROW_SKELETON_CHARS)
-            <= window
-    })
+pub(crate) fn page_budget(response_window: Option<usize>, _query: &serde_json::Value) -> usize {
+    page_chars(response_window, ROW_SKELETON_CHARS)
 }
 
 /// Fallback when a caller has no configured response window. Runtime calls
@@ -155,31 +144,6 @@ const FALLBACK_PAGE_CHARS: usize = 24_000;
 /// continuations and handoffs.
 const ROW_SKELETON_CHARS: usize = 2_000;
 
-/// Room for the caller's `mainGoal` and `reasoning`, which row continuations
-/// copy. They are budgeted at a fixed size rather than measured, so a walk
-/// whose continuation rewords them still cuts every page at the same rows.
-const FREE_TEXT_CHARS: usize = 1_200;
-
-/// Room for each field the response stage respells in continuations
-/// ([`RESPELLED_FIELDS`]: page 1 may name an absolute `path`, its
-/// continuations the workspace-relative one). Budgeted at a fixed size
-/// rather than measured: a measured spelling gave page 2 a larger budget
-/// than page 1, so its cut started past rows page 1 never reached. Sized for
-/// a typical absolute workspace path; a longer value only makes the response
-/// pager split the page into row parts.
-const RESPELLED_CHARS: usize = 128;
-
-/// Whether a query field leaves the page boundaries unchanged: a cursor (it
-/// names where a walk stands, [`CURSOR_FIELDS`]), an intent field (it steers
-/// how a call reports, [`INTENT_FIELDS`]) or `clasifyContext`. The one
-/// derivation from the contract's field sets, so a new cursor never drifts a
-/// continuation's budget from its first page's. The final response pager
-/// charges their serialized size, including context removed by an unfiltered
-/// recovery over the same captured source.
-fn is_unsized_field(name: &str) -> bool {
-    CURSOR_FIELDS.contains(&name) || INTENT_FIELDS.contains(&name) || name == "clasifyContext"
-}
-
 /// Chars a streamed page's entries may take. With a response window, the
 /// page leaves room for the row around it ([`reserve_chars`]); a tiny window
 /// still gets half of itself, so a walk keeps moving (its pages then split
@@ -189,33 +153,6 @@ fn page_chars(window: Option<usize>, reserve: usize) -> usize {
         Some(window) => window.saturating_sub(reserve).max(window / 2).max(1),
         None => FALLBACK_PAGE_CHARS,
     }
-}
-
-/// What a response row needs besides its entries, for a row whose
-/// continuations copy `query` `copies` times. Only fields that select rows
-/// count, and a respelled one at its fixed size, so every page of one walk
-/// gets the same budget whatever spelling reached it.
-fn reserve_chars(query: &serde_json::Value, copies: usize) -> usize {
-    let measured = match query.as_object() {
-        Some(fields) => fields
-            .iter()
-            .filter(|(name, _)| !is_unsized_field(name))
-            .map(|(name, value)| {
-                let value = if RESPELLED_FIELDS.contains(&name.as_str()) {
-                    RESPELLED_CHARS
-                } else {
-                    octocode_engine::json_size::utf16_units_or(value, usize::MAX)
-                };
-                octocode_engine::json_size::string_body_units(name)
-                    .saturating_add(value)
-                    .saturating_add(4)
-            })
-            .fold(0_usize, usize::saturating_add),
-        None => octocode_engine::json_size::utf16_units_or(query, usize::MAX),
-    };
-    ROW_SKELETON_CHARS
-        .saturating_add(FREE_TEXT_CHARS)
-        .saturating_add(copies.saturating_mul(measured))
 }
 
 #[cfg(test)]

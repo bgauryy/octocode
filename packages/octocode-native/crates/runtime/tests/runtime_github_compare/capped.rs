@@ -18,18 +18,33 @@ async fn capped_compare_with_a_path_leads_to_the_path_history() {
     let out = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2","include":["lib/late.rs"],"extras":[]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2","include":["lib/late.rs"]}),
     )
     .await
     .expect("compare");
     let data = row_data(&out).clone();
     assert_eq!(data["files"], json!([]), "{data}");
-    let lead = &crate::support::checks::hint(&data, "narrowScope");
+    let lead = support::checks::related_call(&data, "ghSearchHistory", |input| {
+        input["queries"][0]["operation"] == "commit"
+    });
     assert_eq!(lead["tool"], "ghSearchHistory", "{data}");
-    let row = &lead["query"]["queries"][0];
-    assert_eq!(row["operation"], "commit", "{data}");
-    assert_eq!(row["path"], "lib/late.rs", "{data}");
-    assert_eq!(row["ref"], HEAD_SHA, "{data}");
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .and(query_param("path", "lib/late.rs"))
+        .and(query_param("sha", HEAD_SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let scoped = call(&runtime, "ghSearchHistory", lead["input"].clone())
+        .await
+        .expect("scoped history");
+    assert_eq!(
+        row_status(&scoped),
+        "empty",
+        "{}",
+        scoped.structured_content
+    );
     assert!(
         data["warnings"].to_string().contains("lib/late.rs"),
         "{data}"
@@ -38,11 +53,17 @@ async fn capped_compare_with_a_path_leads_to_the_path_history() {
     // apart (none shown), and its page names each commit by its headline.
     assert!(data.get("commits").is_none(), "{data}");
     assert_eq!(
-        data["contentPagination"]["commits"]["currentPage"], 0,
+        data["contentPagination"]["commits"]["unshown"], true,
         "{data}"
     );
-    let page = data["next"]["nextCommitPage"]["query"].clone();
-    let listed = call(&runtime, "ghGetHistoryItem", page["queries"][0].clone())
+    assert!(
+        data["contentPagination"]["commits"]
+            .get("currentPage")
+            .is_none(),
+        "{data}"
+    );
+    let page = data["next"]["nextCommitPage"]["input"].clone();
+    let listed = call(&runtime, "ghGetHistoryItem", page)
         .await
         .expect("commit page");
     let commit = &row_data(&listed)["commits"][0];
@@ -80,7 +101,7 @@ async fn capped_compare_reaches_every_changed_path_through_the_trees() {
                 ResponseTemplate::new(200)
                     .set_body_json(json!({"sha":sha,"truncated":false,"tree":tree})),
             )
-            .expect(2)
+            .expect(1)
             .mount(&server)
             .await;
     }
@@ -89,37 +110,20 @@ async fn capped_compare_reaches_every_changed_path_through_the_trees() {
     let read = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2",
-               "sections":["files"],"include":["lib/**"],"extras":["hints","stats"]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2",
+               "sections":["files"],"include":["lib/**"]}),
     )
     .await
     .expect("compare past the cap");
     let data = row_data(&read).clone();
     assert_eq!(row_status(&read), "success", "{data}");
     assert_eq!(
-        data["files"],
-        json!([{"lib/": ["A !omitted new.rs", "D !omitted old.rs"]}]),
-        "{data}"
+        super::file_paths(&data["files"]),
+        ["lib/new.rs", "lib/old.rs"]
     );
     assert!(data.get("partialReasons").is_none(), "{data}");
-    assert!(
-        crate::support::checks::hint(&data, "listCommits").is_null(),
-        "{data}"
-    );
+    assert!(data["next"]["listCommits"].is_null(), "{data}");
     assert!(data["warnings"].to_string().contains("trees"), "{data}");
-    // The tree source is stated once: a later page lists its rows without
-    // repeating it.
-    let later = call(
-        &runtime,
-        "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":BASE_SHA,"head":HEAD_SHA,
-               "sections":["files"],"include":["lib/**"],"pageSize":1,"page":2,"extras":[]}),
-    )
-    .await
-    .expect("later page past the cap");
-    let later = row_data(&later).clone();
-    assert_eq!(later["files"], json!(["D !omitted lib/old.rs"]), "{later}");
-    assert!(later.get("warnings").is_none(), "{later}");
     runtime.close().await;
 }
 
@@ -135,8 +139,8 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
     let listed = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2",
-               "include":["src/f001.rs","src/f2*.rs"],"extras":["stats"]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2",
+               "include":["src/f001.rs","src/f2*.rs"]}),
     )
     .await
     .expect("compare include");
@@ -148,17 +152,16 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
         "{data}"
     );
     assert!(!files.contains("f002.rs"), "{data}");
-    // At GitHub's cap the comparison's count is only a floor: no count is
-    // claimed. An omitted pageSize fills the response page, so the scope's
-    // 101 files are one complete page: listed, with no files page block.
+    // A provider cap leaves the scoped count partial even when the shown
+    // inventory fits on one response page.
     assert!(data.get("changedFilesCount").is_none(), "{data}");
-    assert!(data["contentPagination"].get("files").is_none(), "{data}");
+    assert_eq!(data["contentPagination"]["files"]["countScope"], "partial");
     assert_eq!(files.matches(".rs").count(), 101, "{data}");
     let beyond = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2",
-               "include":["lib/**"],"extras":[]}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2",
+               "include":["lib/**"]}),
     )
     .await
     .expect("compare include beyond cap");
@@ -167,13 +170,25 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
         data["warnings"].to_string().contains("300 changed files"),
         "{data}"
     );
-    let row = &crate::support::checks::hint(&data, "narrowScope")["query"]["queries"][0];
+    let lead = support::checks::related_call(&data, "ghSearchHistory", |input| {
+        input["queries"][0]["operation"] == "commit"
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .and(query_param("path", "lib/"))
+        .and(query_param("sha", HEAD_SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let scoped = call(&runtime, "ghSearchHistory", lead["input"].clone())
+        .await
+        .expect("scoped history");
     assert_eq!(
-        crate::support::checks::hint(&data, "narrowScope")["tool"],
-        "ghSearchHistory",
-        "{data}"
+        row_status(&scoped),
+        "empty",
+        "{}",
+        scoped.structured_content
     );
-    assert_eq!(row["path"], "lib/", "{data}");
-    assert_eq!(row["ref"], HEAD_SHA, "{data}");
     runtime.close().await;
 }

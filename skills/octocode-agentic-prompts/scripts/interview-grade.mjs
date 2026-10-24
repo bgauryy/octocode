@@ -31,6 +31,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--help' || a === '-h') args.help = true;
     else if (a === '--json') args.json = true;
+    else if (a === '--timeout') args.timeout = Number(argv[++i]);
     else if (a.startsWith('--')) args[a.slice(2)] = argv[++i];
     else args._.push(a);
   }
@@ -61,7 +62,7 @@ function main() {
   const patterns = { reject: regex(args.reject), error: regex(args.error), empty: regex(args.empty) };
   const exclude = regex(args.exclude);
   const rows = [];
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('-calls.jsonl')).sort();
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('-calls.jsonl')).toSorted();
   for (const file of files) {
     const group = file.slice(0, file.indexOf('-'));
     const lines = fs.readFileSync(path.join(dir, file), 'utf8').split('\n');
@@ -76,14 +77,14 @@ function main() {
       }
       const base = { group, scenario: call.scenario, step: call.step, tool: call.tool };
       const input = JSON.stringify(call.input ?? null);
-      if (!call.tool || call.input == null) return rows.push({ ...base, outcome: 'badLine' });
-      if (/<[^<>]+>/.test(input)) return rows.push({ ...base, outcome: 'placeholder' });
-      if (exclude?.test(`${group}:${call.scenario}`)) return rows.push({ ...base, outcome: 'excluded' });
+      if (!call.tool || call.input == null) { rows.push({ ...base, outcome: 'badLine' }); return; }
+      if (/<[^<>]+>/.test(input)) { rows.push({ ...base, outcome: 'placeholder' }); return; }
+      if (exclude?.test(`${group}:${call.scenario}`)) { rows.push({ ...base, outcome: 'excluded' }); return; }
       const command = args.cmd.replaceAll('{tool}', quote(call.tool)).replaceAll('{input}', quote(input));
       const result = spawnSync('sh', ['-c', command], {
         cwd: args.cwd ?? process.cwd(),
         encoding: 'utf8',
-        timeout: Number(args.timeout),
+        timeout: args.timeout,
         maxBuffer: 64 * 1024 * 1024,
       });
       const outcome = classify(result, patterns);

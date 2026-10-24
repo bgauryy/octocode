@@ -64,12 +64,7 @@ async fn acquire_refresh_lock(
         if let Some(parent) = lock_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)
+        octocode_io::lock::open_lock_file(&lock_path)
     })
     .await
     .map_err(|_| unavailable())?

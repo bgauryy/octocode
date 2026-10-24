@@ -18,8 +18,7 @@ fn rust_context_overlays_the_engine_headless_defaults() {
         source: Default::default(),
     };
     let q = query(serde_json::json!({
-        "operation": "definition", "mainGoal": "test", "reasoning": "test",
-        "path": "/repo/src/lib.rs",
+        "operation": "definition", "path": "/repo/src/lib.rs",
         "symbolName": "foo", "line": 1,
         "rustContext": {"features": ["x"]}
     }));

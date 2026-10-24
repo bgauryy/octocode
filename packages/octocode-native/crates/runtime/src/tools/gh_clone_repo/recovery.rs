@@ -62,16 +62,8 @@ pub(super) fn sparse_next(
             .find(|(missing, _)| *missing == trimmed)
             .map_or_else(|| requested.to_owned(), |(_, close)| close.clone())
     };
-    row["path"] = match row["path"].take() {
-        Value::Array(paths) => paths
-            .iter()
-            .filter_map(Value::as_str)
-            .map(corrected)
-            .collect(),
-        Value::String(path) => json!(corrected(&path)),
-        other => other,
-    };
-    let lead = Continuation::new(ToolId::GhCloneRepo, row).build();
+    row["paths"] = query.paths.iter().map(|path| corrected(path)).collect();
+    let lead = Continuation::related(ToolId::GhCloneRepo, row).build();
     Some(json!({"repair": lead}))
 }
 

@@ -5,6 +5,33 @@
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Session } from '../cdp-connection.mjs';
+import { errorMessage } from '../error-message.mjs';
+
+/** The Network.Cookie fields the measure reads; values are never read. */
+type CdpCookie = {
+  name: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  size?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: string;
+};
+
+/** What the in-page storage probe returns. */
+type StorageSnapshot = {
+  url?: string | null;
+  localStorageKeys?: string[];
+  sessionStorageKeys?: string[];
+  suspiciousLocalKeys?: string[];
+  suspiciousSessionKeys?: string[];
+  indexedDBDatabases?: unknown[];
+  cacheNames?: string[];
+  serviceWorkers?: unknown[];
+  note?: string | null;
+};
 
 const FIXTURE_ORIGIN = 'https://storage.test/measure';
 const FIXTURE_HTML = `<!doctype html><html><body>storage-measure<script>
@@ -17,7 +44,7 @@ try {
 } catch (e) {}
 </script></body></html>`;
 
-export async function run(cdp) {
+export async function run(cdp: Session) {
   await cdp.send('Runtime.enable');
   await cdp.send('Network.enable');
   await cdp.send('Page.enable');
@@ -74,14 +101,14 @@ export async function run(cdp) {
     });
   }
 
-  let cookies = [];
-  const errors = [];
+  let cookies: CdpCookie[] = [];
+  const errors: { area: string; error: string }[] = [];
   try {
     cookies = (await cdp.send('Network.getAllCookies')).cookies || [];
     if (!Array.isArray(cookies)) throw new Error('Cookie inventory missing');
   } catch (error) {
     cookies = [];
-    errors.push({ area: 'cookies', error: error.message });
+    errors.push({ area: 'cookies', error: errorMessage(error) });
   }
 
   const storageEval = await cdp.send('Runtime.evaluate', {
@@ -137,7 +164,7 @@ export async function run(cdp) {
       `[FINDING] STORAGE_EVAL_ERROR ${storageEval.exceptionDetails.text || storageEval.exceptionDetails.exception?.description || 'unknown'}`
     );
   }
-  const storage =
+  const storage: StorageSnapshot =
     storageEval?.result?.value && typeof storageEval.result.value === 'object'
       ? storageEval.result.value
       : {
@@ -173,8 +200,8 @@ export async function run(cdp) {
     session: !c.expires || c.expires <= 0,
     thirdParty: pageHost
       ? !(
-          pageHost === String(c.domain || '').replace(/^\./, '') ||
-          pageHost.endsWith('.' + String(c.domain || '').replace(/^\./, ''))
+          pageHost === (c.domain || '').replace(/^\./, '') ||
+          pageHost.endsWith('.' + (c.domain || '').replace(/^\./, ''))
         )
       : null,
   }));
@@ -185,7 +212,7 @@ export async function run(cdp) {
   );
   const thirdParty = cookieRows.filter(c => c.thirdParty);
 
-  const findings = [];
+  const findings: { code: string; [field: string]: unknown }[] = [];
   if (insecure.length)
     findings.push({ code: 'INSECURE_COOKIES', count: insecure.length });
   if (nonHttpOnlySessionish.length)

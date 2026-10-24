@@ -109,12 +109,7 @@ fn rejected_calls_print_the_runtime_projection() {
     let text = Printed::finish(tool, Err(invalid()), false, &json!({}), None);
     assert_eq!((text.exit, text.stream), (2, Stream::Stderr));
     assert!(
-        text.body.contains("Remove unknown field 'matchstring'"),
-        "{}",
-        text.body
-    );
-    assert!(
-        text.body.contains("did you mean 'matchString'?"),
+        text.body.contains("Unknown field 'matchstring'"),
         "{}",
         text.body
     );
@@ -217,32 +212,20 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
         input: Some(path),
     };
     assert_eq!(
-        super::tool_input("localSearch", &args, Ok(None)),
+        super::tool_input("localSearch", &args),
         Ok(json!({"queries": []}))
     );
     let bad = super::ToolArgs {
         args: vec!["{".into()],
         input: None,
     };
-    assert!(
-        super::tool_input("localSearch", &bad, Ok(None))
-            .is_err_and(|e| e.starts_with("Invalid JSON"))
-    );
+    assert!(super::tool_input("localSearch", &bad).is_err_and(|e| e.starts_with("Invalid JSON")));
     let missing = super::ToolArgs {
         args: Vec::new(),
         input: None,
     };
     assert!(
-        super::tool_input("localSearch", &missing, Ok(None))
-            .is_err_and(|e| e.starts_with("Missing query"))
-    );
-    let both = super::ToolArgs {
-        args: vec!["{}".into()],
-        input: None,
-    };
-    assert!(
-        super::tool_input("localSearch", &both, Ok(Some(json!({"path": "."}))))
-            .is_err_and(|e| e.starts_with("Use flags or a JSON query"))
+        super::tool_input("localSearch", &missing).is_err_and(|e| e.starts_with("Missing query"))
     );
 }
 

@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import type { JsonRecord } from './json-record.ts';
 import {binary,tempWorkspace,only} from './helpers.ts';
+const { catalog } = await import('../dist/runtime.js');
 
 function fixture(t: TestContext){
  const workspace=tempWorkspace(t,'communication-status-'),database=join(workspace,'state.sqlite');
@@ -36,13 +37,13 @@ test('set_status changes only bound task/status, preserves presence/leases and r
 });
 test('MCP-only worker can declare a blocker and profile discovery exposes precisely selected tools',t=>{
  const {a,b,flags,call}=fixture(t);
- const expected={messaging:['fetch','peers','set_status','send_message','notify_all','inbox','complete'],review:['fetch','record','peers','set_status','send_message','notify_all','inbox','complete','share_document','read_document','context'],editing:['fetch','record','peers','set_status','send_message','notify_all','inbox','complete','share_document','read_document','context','locks','lock','lock_many','renew','unlock']};
- for(const [profile,names] of Object.entries(expected)){
+ for(const profile of ['messaging','review','editing']){
+  const names=catalog.selectedTools(profile).map((tool: JsonRecord)=>tool.name);
   const frames=[{id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'status-test',version:'1'}}},{id:2,method:'tools/list'}, {id:3,method:'tools/call',params:{name:'set_status',arguments:{status:'blocked',task:'Need review evidence'}}},{id:4,method:'tools/call',params:{name:'set_status',arguments:{status:'available',id:b}}}].map((x: JsonRecord)=>JSON.stringify({jsonrpc:'2.0',...x})).join('\n')+'\n';
   const child=spawnSync(binary,['mcp','--session',a,'--tools',profile,...flags],{input:frames,encoding:'utf8',timeout:10000});
   assert.equal(child.status,0,child.stderr);
   const replies=child.stdout.trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
-  assert.deepEqual(replies[1].result.tools.map((x: JsonRecord)=>x.name).sort(),names.sort());
+  assert.deepEqual(replies[1].result.tools.map((x: JsonRecord)=>x.name),names);
   assert.deepEqual(JSON.parse(replies[2].result.content[0].text),{id:a,status:'blocked',task:'Need review evidence'});
   assert.ok(replies[3].error || replies[3].result.isError);
   assert.equal(call('peers',{},a).items.find((x: JsonRecord)=>x.id===a).status,'blocked');

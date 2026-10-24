@@ -35,8 +35,10 @@ def semantic_calls(calls: list[dict]) -> dict:
         for query in payload.get("queries", []) if isinstance(payload, dict) else []:
             if not isinstance(query, dict):
                 continue
-            # `classifiers`; historical transcripts recorded the pre-RFC `goals`.
-            requested = bool(query.get("classifiers") or query.get("goals"))
+            # Preserve historical record interpretation; opaque current cursors reveal no work type.
+            classification = query.get("classification")
+            predicates = classification.get("predicates") if isinstance(classification, dict) else None
+            requested = bool(predicates or query.get("classifiers") or query.get("goals"))
             goals += requested
             replay += bool(query.get("ranking"))
             initial_goals += requested and not query.get("ranking")
@@ -54,7 +56,7 @@ def codex_receipts(path: Path) -> dict | None:
     """Count query failures even when the enclosing MCP call completed successfully."""
     if not path.exists():
         return None
-    rankings, errors = [], Counter()
+    rankings, selections, errors = [], [], Counter()
     observed = False
     for line in path.read_text().splitlines():
         if not line.strip():
@@ -72,7 +74,10 @@ def codex_receipts(path: Path) -> dict | None:
             if isinstance(rank, dict):
                 rankings.append({"tool": item["tool"], **{k: rank[k] for k in
                     ("status", "reason", "scope", "rankedItems", "totalItems") if k in rank}})
-    return {"ranking_receipts": rankings,
+            selection = data.get("selection")
+            if isinstance(selection, dict):
+                selections.append({"tool": item["tool"], **selection})
+    return {"ranking_receipts": rankings, "selection_receipts": selections,
             "query_errors": [{"tool": tool, "code": code, "count": count}
                              for (tool, code), count in sorted(errors.items())]} if observed else None
 

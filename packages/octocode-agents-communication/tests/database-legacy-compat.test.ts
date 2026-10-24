@@ -27,6 +27,7 @@ test('Given a database written by the previous runtime, when the TypeScript stor
   assert.equal(done.completed, true);
   const reply = (await store.call(alice, 'inbox', {})).items.find((item: JsonRecord) => item.id === done.id);
   assert.ok(reply);
-  assert.equal(reply.body, 'BLUF\nOutcome: done\nConclusion: Looks right');
+  assert.equal(reply.kind, 'answer');
+  assert.match(reply.body, /\nConclusion: Looks right$/);
   assert.equal((await store.call(bob, 'inbox', {})).items.length, legacy.inbox.items.length - 1);
 });

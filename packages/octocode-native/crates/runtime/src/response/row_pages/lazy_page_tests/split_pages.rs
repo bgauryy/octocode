@@ -80,7 +80,7 @@ fn a_split_row_has_one_part_per_page_and_never_repeats_its_records() {
     assert_eq!(count(&files), (357, 357), "every file once");
     assert_eq!(count(&edges_seen), (33, 33), "every edge record once");
     assert_eq!(count(&runtime_seen), (7, 7), "every runtime cycle once");
-    let first = pages[0].1.char_length;
+    let first = pages[0].1.returned_chars;
     assert!(
         first > budget / 2,
         "page one carries {first} of {budget} chars"

@@ -13,7 +13,7 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     let provider = mock_provider(&server, RetryPolicy::default());
     let read = run_default(
         &provider,
-        serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"matchString":"absent"}),
+        serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"matchString":["absent"]}),
     )
     .await
     .expect("read");
@@ -21,7 +21,7 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     assert_eq!(read.output.status, Some("empty"), "{data}");
     assert_eq!(data["matchNotFound"], true, "{data}");
     assert_eq!(data["content"], "", "{data}");
-    crate::contracts::validate_output(
+    crate::tools::test_support::validate_sealed(
         "ghGetFileContent",
         &serde_json::json!({"results":[{"index":0,"status":"empty","data":data}]}),
     )
@@ -38,15 +38,38 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     }
     // FIX §0 #4: the runnable lead is the next step: a repository search
     // for a small file.
-    let lead = &data["next"]["findCode"];
+    let lead = crate::tools::test_support::checks::related_call(data, "ghSearchCode", |_| true);
     assert_eq!(lead["tool"], "ghSearchCode", "{data}");
     assert_eq!(
-        lead["query"]["queries"][0]["keywords"],
+        lead["input"]["queries"][0]["keywords"],
         serde_json::json!(["absent"]),
         "{data}"
     );
     // The search stays at the read's ref, never the default branch.
-    assert_eq!(lead["query"]["queries"][0]["ref"], sha, "{data}");
+    assert_eq!(lead["input"]["queries"][0]["ref"], sha, "{data}");
+    // The text may live only on a branch or pull request: the file's
+    // commits at the read's ref, and pull requests whose text names it
+    // (approximate: their discussion, not their diffs).
+    let commits =
+        crate::tools::test_support::checks::related_call(data, "ghSearchHistory", |input| {
+            input["queries"][0]["operation"] == "commit"
+        });
+    assert_eq!(commits["tool"], "ghSearchHistory", "{data}");
+    assert_eq!(
+        commits["input"]["queries"][0],
+        serde_json::json!({"operation":"commit","owner":"a","repo":"b","pathPrefix":"a.txt","ref":sha}),
+        "{data}"
+    );
+    let pulls =
+        crate::tools::test_support::checks::related_call(data, "ghSearchHistory", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        });
+    assert_eq!(
+        pulls["input"]["queries"][0],
+        serde_json::json!({"operation":"pullRequest","owner":"a","repo":"b","keywords":["absent"]}),
+        "{data}"
+    );
+    assert_eq!(pulls["kind"], "related", "{data}");
     // A miss that no case-insensitive read would select has no
     // ignoreCase lead.
     assert!(data["next"].get("ignoreCase").is_none(), "{data}");
@@ -58,7 +81,7 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     for (name, lead) in data["next"].as_object().into_iter().flatten() {
         if lead["tool"] == "ghGetFileContent" {
             assert_eq!(
-                lead["query"]["queries"][0]["path"], "a.txt",
+                lead["input"]["queries"][0]["path"], "a.txt",
                 "{name} reads another path: {data}"
             );
         }
@@ -69,7 +92,7 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     // lines it selects is the fact beside the lead.
     let sensitive = run_default(
         &provider,
-        serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"matchString":"Two"}),
+        serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"matchString":["Two"]}),
     )
     .await
     .expect("read");
@@ -80,12 +103,22 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
         "{data}"
     );
     assert!(data.get("hints").is_none(), "{data}");
-    let row = &data["next"]["ignoreCase"]["query"]["queries"][0];
-    assert_eq!(data["next"]["ignoreCase"]["tool"], "ghGetFileContent");
+    let row =
+        &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |input| {
+            input["queries"][0]["caseMode"] == "insensitive"
+        })["input"]["queries"][0];
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(
+            data,
+            "ghGetFileContent",
+            |input| input["queries"][0]["caseMode"] == "insensitive"
+        )["tool"],
+        "ghGetFileContent"
+    );
     assert_eq!(row["caseMode"], "insensitive", "{data}");
-    assert_eq!(row["matchString"], "Two", "{data}");
+    assert_eq!(row["matchString"], json!(["Two"]), "{data}");
     assert_eq!(row["ref"], sha, "{data}");
-    crate::contracts::validate_output(
+    crate::tools::test_support::validate_sealed(
         "ghGetFileContent",
         &serde_json::json!({"results":[{"index":0,"status":"empty","data":data}]}),
     )
@@ -112,8 +145,8 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
         row
     };
     for fields in [
-        serde_json::json!({"matchString":"token"}),
-        serde_json::json!({"matchString":"TOKEN","caseMode":"insensitive"}),
+        serde_json::json!({"matchString":["token"]}),
+        serde_json::json!({"matchString":["TOKEN"],"caseMode":"insensitive"}),
     ] {
         let read = run_default(&provider, with(fields.clone()))
             .await
@@ -125,7 +158,9 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
     }
     let ranged = run_default(
         &provider,
-        with(serde_json::json!({"matchString":"needle","ranges":["1-2"]})),
+        with(
+            serde_json::json!({"matchString":["needle"],"ranges":[{"startLine": 1, "endLine": 2}]}),
+        ),
     )
     .await
     .expect("read");
@@ -136,24 +171,13 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
         serde_json::json!(["1 line matches outside the requested ranges."]),
         "{data}"
     );
-    let lead = &data["next"]["read"];
+    let lead = crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| true);
     assert_eq!(lead["tool"], "ghGetFileContent", "{data}");
-    let row = &lead["query"]["queries"][0];
-    assert_eq!(row["matchString"], "needle", "{data}");
+    let row = &lead["input"]["queries"][0];
+    assert_eq!(row["matchString"], json!(["needle"]), "{data}");
     assert!(row.get("ranges").is_none(), "{data}");
     assert_eq!(row["ref"], sha, "{data}");
     assert!(data["next"].get("findCode").is_none(), "{data}");
-}
-
-/// The fallback tip follows the query: only a match read is told about
-/// matchString.
-#[test]
-fn the_fallback_hint_names_matchstring_only_for_a_match_read() {
-    use crate::response::output::ToolOutput;
-    let plain = Output.fallback_hint(&serde_json::json!({"path":"a.js","ranges":["1-3"]}));
-    assert!(!plain.contains("matchString"), "{plain}");
-    let matched = Output.fallback_hint(&serde_json::json!({"path":"a.js","matchString":"x"}));
-    assert!(matched.contains("matchString"), "{matched}");
 }
 
 /// A literal that a large file does not contain leads to a repository
@@ -174,16 +198,16 @@ async fn no_match_in_a_large_file_leads_to_a_repository_search() {
     let provider = mock_provider(&server, RetryPolicy::default());
     let read = run_default(
         &provider,
-        serde_json::json!({"owner":"a","repo":"b","path":"big.txt","ref":sha,"matchString":"absent"}),
+        serde_json::json!({"owner":"a","repo":"b","path":"big.txt","ref":sha,"matchString":["absent"]}),
     )
     .await
     .expect("read");
     let data = &read.output.data;
     assert!(data["next"].get("clasify").is_none(), "{data}");
-    let lead = &data["next"]["findCode"];
+    let lead = crate::tools::test_support::checks::related_call(data, "ghSearchCode", |_| true);
     assert_eq!(lead["tool"], "ghSearchCode", "{data}");
     assert_eq!(
-        lead["query"]["queries"][0]["keywords"],
+        lead["input"]["queries"][0]["keywords"],
         serde_json::json!(["absent"]),
         "{data}"
     );

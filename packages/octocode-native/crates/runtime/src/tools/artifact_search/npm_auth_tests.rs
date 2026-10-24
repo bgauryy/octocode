@@ -32,12 +32,10 @@ async fn authorizations(server: &wiremock::MockServer) -> Vec<Option<String>> {
 }
 
 async fn lookup(port: u16, npmrc: &std::path::Path) {
-    let query = json!({
+    let query = json!({"operation":"resolve",
         "ecosystem": "npm",
         "packageName": "audit-package",
-        "registryUrl": format!("http://127.0.0.1:{port}"),
-        "mainGoal": "test", "reasoning": "test",
-    });
+        "registryUrl": format!("http://127.0.0.1:{port}")});
     // Generous: building the system HTTP client (native root certs) can
     // be slow in sandboxed test environments.
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
@@ -65,12 +63,10 @@ async fn missing_exact_package_is_not_found() {
         .respond_with(wiremock::ResponseTemplate::new(404))
         .mount(&server)
         .await;
-    let query = json!({
+    let query = json!({"operation":"resolve",
         "ecosystem": "npm",
         "packageName": "no-such-package-zz",
-        "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
-        "mainGoal": "test", "reasoning": "test",
-    });
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())});
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
     let error = execute(typed(&query), call(deadline, true))
         .await
@@ -94,11 +90,10 @@ async fn exact_lookup_offers_one_release_lead_at_the_package_directory() {
         })))
         .mount(&server)
         .await;
-    let query = json!({
+    let query = json!({"operation":"resolve",
         "ecosystem": "npm",
         "packageName": "audit-package",
-        "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
-    });
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())});
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
     for version in [None, Some("1.31.0")] {
         let mut query = query.clone();
@@ -108,21 +103,17 @@ async fn exact_lookup_offers_one_release_lead_at_the_package_directory() {
         let data = execute(typed(&query), call(deadline, true))
             .await
             .expect("lookup succeeds");
-        let next = data["next"].as_object().expect("next");
-        // An exact row is a single hit: one lead, the release tree.
-        assert_eq!(
-            next.keys().collect::<Vec<_>>(),
-            vec!["viewReleaseSource"],
-            "{data}"
-        );
+        let related = data["related"].as_array().expect("related source call");
+        assert_eq!(related.len(), 1, "{data}");
         // An exact lookup has one row: no pagination, no request echo.
         assert!(data.get("pagination").is_none(), "{data}");
         assert!(data.get("type").is_none(), "{data}");
-        let release = &next["viewReleaseSource"];
+        let release =
+            crate::tools::test_support::checks::related_call(&data, "ghStructure", |_| true);
         assert_eq!(release["tool"], "ghStructure", "{data}");
         assert_eq!(
-            release["query"]["queries"][0],
-            json!({"owner": "o", "repo": "r", "path": "packages/x", "ref": sha}),
+            release["input"]["queries"][0],
+            json!({"operation":"tree", "owner": "o", "repo": "r", "path": "packages/x", "ref": sha}),
             "{data}"
         );
         // An unchecked registry ref is labeled as the registry's
@@ -135,7 +126,7 @@ async fn exact_lookup_offers_one_release_lead_at_the_package_directory() {
         assert!(row.keys().all(|key| key != "gitHead"), "{data}");
         assert_eq!(
             row.keys().next().map(String::as_str),
-            Some("name"),
+            Some("packageName"),
             "{data}"
         );
     }
@@ -158,11 +149,10 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
         })))
         .mount(&server)
         .await;
-    let query = typed(&json!({
+    let query = typed(&json!({"operation":"resolve",
         "ecosystem": "npm",
         "packageName": "typescript",
-        "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
-    }));
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())}));
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
     let missing = KnownTags::always(Some(false));
     let checked = ArtifactCall {
@@ -170,8 +160,11 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
         ..call(deadline, true)
     };
     let data = execute(query.clone(), checked).await.expect("lookup");
-    let next = data["next"].as_object().expect("next");
-    assert_eq!(next.keys().collect::<Vec<_>>(), vec!["viewRepo"], "{data}");
+    let fallback = crate::tools::test_support::checks::related_call(&data, "ghStructure", |_| true);
+    assert!(
+        fallback["input"]["queries"][0].get("ref").is_none(),
+        "{data}"
+    );
     let row = &data["artifacts"][0];
     assert!(row.get("sourceRef").is_none(), "{data}");
     assert_eq!(row["verification"], "defaultBranch", "{data}");
@@ -195,7 +188,12 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
             data["artifacts"][0]["verification"], "registryRef",
             "{data}"
         );
-        assert!(data["next"]["viewReleaseSource"].is_object(), "{data}");
+        assert_eq!(
+            crate::tools::test_support::checks::related_call(&data, "ghStructure", |_| true)["input"]
+                ["queries"][0]["ref"],
+            sha,
+            "{data}"
+        );
         assert!(data.get("warnings").is_none(), "{data}");
     }
 }

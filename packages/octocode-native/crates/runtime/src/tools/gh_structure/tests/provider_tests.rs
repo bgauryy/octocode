@@ -7,6 +7,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+mod date_cursors;
 mod listing;
 mod refs;
 mod renamed;
@@ -27,6 +28,7 @@ async fn server() -> MockServer {
         json!({"default_branch":"main","full_name":"a/b"}),
     )
     .await;
+    mount_json(&server, "/api/v3/repos/a/b/branches", 200, json!([])).await;
     server
 }
 

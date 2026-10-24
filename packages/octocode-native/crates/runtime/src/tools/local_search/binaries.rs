@@ -1,9 +1,10 @@
 //! Binary files a search skipped or cut: their warnings, groups and listings.
+use crate::tools::local_search::local_search_query;
 
-use super::types::*;
 use crate::id::ToolId;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::Continuation;
+use octocode_contract_types::LocalSearchQuery;
 use serde_json::{Value, json};
 
 /// `binarySkipped` warning: how many files were skipped as binary from
@@ -37,8 +38,8 @@ pub(super) fn leading_binary_listing(
 ) -> Value {
     let mut listing = json!({
         "operation": "files",
-        "path": query.path.as_str(),
-        "entryType": "f",
+        "path": local_search_query::path(query),
+        "entryType": "file",
     });
     let by_extension = groups.len() <= MAX_LISTED_EXTENSIONS
         && groups.iter().all(|group| !group.extension.is_empty());
@@ -78,19 +79,19 @@ pub(super) fn leading_binary_listing(
         }
         listing["nameRegex"] = json!(alternatives.join("|"));
     }
-    if let Some(depth) = query.max_depth {
-        listing["maxDepth"] = json!(depth);
+    if let Some(depth) = local_search_query::max_depth(query) {
+        listing["maxDepth"] = json!(depth.saturating_add(1));
     }
-    if !query.exclude.is_empty() {
-        listing["exclude"] = json!(query.exclude);
+    if !local_search_query::exclude(query).is_empty() {
+        listing["exclude"] = json!(local_search_query::exclude(query));
     }
-    if !query.default_excludes.defaults() {
+    if !local_search_query::default_excludes(query).defaults() {
         listing["defaultExcludes"] = json!(false);
     }
-    if query.include_ignored == Some(true) {
+    if local_search_query::include_ignored(query) == Some(true) {
         listing["includeIgnored"] = json!(true);
     }
-    Continuation::new(ToolId::StructureSearch, listing).build()
+    Continuation::related(ToolId::StructureSearch, listing).build()
 }
 
 /// Binary-cut files a warning names one by one; more are a count by

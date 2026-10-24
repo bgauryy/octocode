@@ -3,6 +3,144 @@
 use crate::support::{Workspace, call, row_data, row_status};
 use serde_json::json;
 
+#[tokio::test]
+async fn lsp_public_paths_and_paged_reads_preserve_provider_identity() {
+    use crate::support::Run;
+    assert!(
+        std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .is_ok_and(|run| run.status.success()),
+        "Node is required for the LSP process fixture"
+    );
+    let workspace = Workspace::new();
+    let source = format!("function needle() {{}}\n{}", "needle();\n".repeat(20));
+    let path = workspace.write("src/lib.ts", &source);
+    let script = workspace.write("server.cjs", r#"
+const fs = require('node:fs');
+const { fileURLToPath } = require('node:url');
+let buffer = Buffer.alloc(0);
+function send(id, result) {
+  const body = JSON.stringify({jsonrpc:'2.0', id, result});
+  process.stdout.write('Content-Length: ' + Buffer.byteLength(body) + '\r\n\r\n' + body);
+}
+function handle(msg) {
+  if (msg.method === 'initialize') return send(msg.id, {capabilities:{definitionProvider:true,referencesProvider:true,hoverProvider:true,textDocumentSync:1}});
+  if (msg.method === 'exit') return process.exit(0);
+  if (!msg.id) return;
+  const uri = msg.params?.textDocument?.uri;
+  if (uri) fs.appendFileSync(__dirname + '/uris.log', uri + '\n');
+  const location = line => ({uri,range:{start:{line,character:line ? 0 : 9},end:{line,character:line ? 6 : 15}}});
+  if (msg.method === 'textDocument/definition') return send(msg.id, [location(0)]);
+  if (msg.method === 'textDocument/references') return send(msg.id, Array.from({length:21}, (_,line)=>location(line)));
+  if (msg.method === 'textDocument/hover') return send(msg.id, {contents:{kind:'markdown',value:fileURLToPath(uri)}});
+  send(msg.id, null);
+}
+process.stdin.on('data', chunk => {
+  buffer = Buffer.concat([buffer,chunk]);
+  for (;;) {
+    const split = buffer.indexOf('\r\n\r\n');
+    if (split < 0) return;
+    const length = Number(/Content-Length: (\d+)/i.exec(buffer.subarray(0,split).toString())[1]);
+    if (buffer.length < split + 4 + length) return;
+    const msg = JSON.parse(buffer.subarray(split+4,split+4+length));
+    buffer = buffer.subarray(split+4+length);
+    handle(msg);
+  }
+});
+"#);
+    let config = workspace.write(
+        "config/lsp.json",
+        json!({"languageServers":{".ts":{
+            "command":"node","args":[script],"languageId":"plaintext"
+        }}})
+        .to_string(),
+    );
+    let runtime =
+        workspace.runtime(&[("OCTOCODE_LSP_CONFIG", config.to_string_lossy().into_owned())]);
+    let query =
+        |operation: &str| json!({"path":path,"symbolName":"needle","line":1,"operation":operation});
+    for view in ["content", "files"] {
+        let mut request = query("references");
+        request["view"] = json!(view);
+        let output = runtime
+            .run_mcp(
+                format!("paths-{view}"),
+                "lspSearch".into(),
+                json!({"queries":[request]}),
+            )
+            .await
+            .expect("MCP references");
+        let row = &output["structuredContent"]["results"][0]["data"];
+        assert_eq!(row["path"], "src/lib.ts", "{output}");
+        let items = row[if view == "files" { "files" } else { "matches" }]
+            .as_array()
+            .expect("locations");
+        assert!(
+            items.iter().all(|item| item["path"] == "src/lib.ts"),
+            "{output}"
+        );
+    }
+    let walked = crate::support::walk(
+        &runtime,
+        "lspSearch",
+        json!({"queries":[query("references")],"responseChars":600}),
+        |output| {
+            output["results"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|row| row["data"]["matches"].as_array().into_iter().flatten())
+                .map(|location| {
+                    assert_eq!(location["path"], "src/lib.ts");
+                    format!("{}", location["displayRange"]["startLine"])
+                })
+                .collect()
+        },
+    )
+    .await;
+    assert_eq!(walked.rows.len(), 21, "every reference survives paging");
+    let hover = call(&runtime, "lspSearch", query("hover"))
+        .await
+        .expect("hover");
+    assert_eq!(row_data(&hover)["path"], "src/lib.ts");
+    assert_eq!(
+        row_data(&hover)["hover"]["contents"]["value"],
+        path.to_string_lossy().as_ref(),
+        "source-like hover text stays verbatim"
+    );
+    let mut invalid_occurrence = query("hover");
+    invalid_occurrence["occurrence"] = json!(1);
+    let failed = call(&runtime, "lspSearch", invalid_occurrence)
+        .await
+        .expect("anchor error");
+    assert_eq!(row_status(&failed), "error");
+    assert_eq!(row_data(&failed)["path"], "src/lib.ts");
+    let read = crate::support::checks::related_call(row_data(&failed), "localFetch", |_| true);
+    assert_eq!(
+        read["input"]["queries"][0]["path"],
+        json!(path),
+        "executable input keeps canonical identity"
+    );
+    let recovered = call(&runtime, "localFetch", read["input"].clone())
+        .await
+        .expect("source recovery");
+    assert!(
+        row_data(&recovered)["content"]
+            .as_str()
+            .expect("source")
+            .contains("function needle() {}")
+    );
+    let uris =
+        std::fs::read_to_string(workspace.workspace.join("uris.log")).expect("provider requests");
+    assert!(
+        uris.lines()
+            .all(|uri| uri.starts_with("file://") && uri.ends_with("/src/lib.ts")),
+        "{uris}"
+    );
+    runtime.close().await;
+}
+
 /// The markdown server is a missing command, so the row does not depend on
 /// which language servers this machine has installed.
 #[tokio::test]
@@ -61,9 +199,18 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
         "{}",
         symbol_failure.structured_content
     );
-    assert_eq!(
-        crate::support::checks::hint(row_data(&symbol_failure), "read")["tool"],
-        "localFetch"
+    let read =
+        crate::support::checks::related_call(row_data(&symbol_failure), "localFetch", |input| {
+            input["queries"][0]["path"] == json!(path)
+        });
+    let recovered = call(&runtime, "localFetch", read["input"].clone())
+        .await
+        .expect("related read executes");
+    assert!(
+        row_data(&recovered)["content"]
+            .as_str()
+            .expect("content")
+            .contains("title")
     );
     runtime.close().await;
 }
@@ -98,24 +245,8 @@ async fn resolved_lsp_config_path_reaches_engine_discovery() {
     runtime.close().await;
 }
 
-/// Resolve an AST row path against the envelope `base` the runtime attaches.
-fn resolve_ast_row_path(
-    outcome: &octocode_native::response::outcome::ToolOutcome,
-    path: &str,
-) -> std::path::PathBuf {
-    let base = outcome.structured_content["root"]
-        .as_str()
-        .unwrap_or_else(|| {
-            panic!(
-                "astSearch rows must carry a base: {}",
-                outcome.structured_content
-            )
-        });
-    std::path::Path::new(base).join(path)
-}
-
 #[tokio::test]
-async fn ast_search_match_and_symbol_paths_resolve_against_the_base() {
+async fn ast_search_match_and_symbol_paths_are_executable() {
     let workspace = Workspace::new();
     let source = workspace.write("pkg/src/lib.rs", "pub fn needle() { helper(1); }\n");
     let scope = source.parent().expect("scope").to_path_buf();
@@ -124,7 +255,7 @@ async fn ast_search_match_and_symbol_paths_resolve_against_the_base() {
     let matched = call(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":scope,"language":"rust","pattern":"helper($A)"}),
+        json!({"operation":"match","path":scope,"parser":"rust","rule":{"pattern":"helper($A)"}}),
     )
     .await
     .expect("astSearch match");
@@ -132,7 +263,7 @@ async fn ast_search_match_and_symbol_paths_resolve_against_the_base() {
         .as_str()
         .unwrap_or_else(|| panic!("match row path: {}", matched.structured_content));
     assert!(
-        resolve_ast_row_path(&matched, path).is_file(),
+        workspace.workspace.join(path).is_file(),
         "base + match path must resolve: {}",
         matched.structured_content
     );
@@ -148,7 +279,7 @@ async fn ast_search_match_and_symbol_paths_resolve_against_the_base() {
         .as_str()
         .unwrap_or_else(|| panic!("symbol row path: {}", symbols.structured_content));
     assert!(
-        resolve_ast_row_path(&symbols, path).is_file(),
+        workspace.workspace.join(path).is_file(),
         "base + symbol path must resolve: {}",
         symbols.structured_content
     );
@@ -173,7 +304,7 @@ async fn workspace_root_symbol_queries_infer_the_server_from_project_markers() {
         json!({
             "operation": "workspaceSymbol",
             "workspaceRoot": workspace.workspace,
-            "symbolName": "main"
+            "symbolQuery": "main"
         }),
     )
     .await

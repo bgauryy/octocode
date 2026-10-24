@@ -1,4 +1,4 @@
-//! `minify:"symbols"` for structured data (JSON, YAML, TOML): an outline of
+//! `view:"symbols"` for structured data (JSON, YAML, TOML): an outline of
 //! the document's keys, as a code outline lists declarations. Each line is
 //! the source line that opens a key, with the citation gutter (`N\t`); a key
 //! whose value spans lines carries its span (`start-end\t`), so its value is

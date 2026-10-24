@@ -43,99 +43,13 @@ fn enabled(machine: &Value, name: &str) -> bool {
     machine_entry(machine, name).is_some_and(|tool| tool["availability"]["enabled"] == true)
 }
 
-/// Core's instruction sections (embedded through config) rendered for the
-/// tools this instance runs, as core renders them for MCP plus the CLI's own
-/// sections: a `text` part shows when any of its `tools` runs (always without
-/// `tools`); an `items` part fills `{items}` in `template` with the running
-/// items' text joined by `join`; `selection` parts need context selection;
-/// `cli` sections show only when `cli` is set (MCP omits them).
-pub(super) fn instructions(
-    sections: &Value,
-    has: impl Fn(&str) -> bool,
-    selection: bool,
-    cli: bool,
-) -> String {
-    let runs = |tool: &Value| tool.as_str().is_some_and(&has);
-    let shown = |part: &Value| -> Option<String> {
-        if part["selection"] == true && !selection {
-            return None;
-        }
-        if let Some(items) = part["items"].as_array() {
-            let listed = items
-                .iter()
-                .filter(|item| runs(&item["tool"]))
-                .filter_map(|item| item["text"].as_str())
-                .collect::<Vec<_>>();
-            return (!listed.is_empty()).then(|| {
-                part["template"].as_str().unwrap_or_default().replacen(
-                    "{items}",
-                    &listed.join(part["join"].as_str().unwrap_or_default()),
-                    1,
-                )
-            });
-        }
-        let tools = part["tools"].as_array();
-        tools
-            .is_none_or(|tools| tools.iter().any(runs))
-            .then(|| part["text"].as_str().unwrap_or_default().to_owned())
-    };
-    sections
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|section| cli || section["cli"] != true)
-        .filter_map(|section| {
-            let tag = section["tag"].as_str()?;
-            let parts = section["parts"]
-                .as_array()?
-                .iter()
-                .filter_map(shown)
-                .collect::<Vec<_>>();
-            (!parts.is_empty()).then(|| format!("<{tag}>{}</{tag}>", parts.join(" ")))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+/// The CLI's own notes, after the shared instructions in the full catalog.
+const CLI_INSTRUCTIONS: &str = "<cli>CLI only: ghCloneRepo. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
 
-/// A clasify example's source names a reader this instance runs (a URL
-/// capture reads back through localFetch).
-fn example_uses_available_tools(example: &Value, allowed: &[&str]) -> bool {
-    if let Some(source) = example.get("source") {
-        let reader = source["tool"].as_str().unwrap_or("localFetch");
-        if !allowed.contains(&reader) {
-            return false;
-        }
-    }
-    example["queries"].as_array().is_none_or(|queries| {
-        queries
-            .iter()
-            .all(|query| example_uses_available_tools(query, allowed))
-    })
-}
-
-fn remove_unavailable_examples(view: &mut Value, allowed: &[&str]) {
-    match view {
-        Value::Object(object) => {
-            if object
-                .get("example")
-                .is_some_and(|example| !example_uses_available_tools(example, allowed))
-            {
-                object.remove("example");
-            }
-            if let Some(examples) = object.get_mut("examples").and_then(Value::as_array_mut) {
-                examples.retain(|example| example_uses_available_tools(example, allowed));
-            }
-            for child in object.values_mut() {
-                remove_unavailable_examples(child, allowed);
-            }
-        }
-        Value::Array(values) => {
-            for child in values {
-                remove_unavailable_examples(child, allowed);
-            }
-        }
-        _ => {}
-    }
+/// Core's one instruction string (embedded through config), served by MCP
+/// `initialize` and, with the CLI's own notes, by the full catalog.
+pub(super) fn instructions(presentation: &Value) -> &str {
+    presentation["instructions"].as_str().unwrap_or_default()
 }
 
 /// Select a core-generated presentation using the runtime's resolved switch.
@@ -160,7 +74,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
             let entry = machine_entry(machine, name).filter(|_| enabled(machine, name))?;
             Some(json!({
                 "name": name,
-                "description": tool["shortDescription"],
+                "title": tool["title"],
                 "fields": entry.get("fields").cloned().unwrap_or_else(|| json!("[]")),
             }))
         })
@@ -173,7 +87,6 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
             "run": "octocode <tool> '<json>' (or --input FILE|-)",
             "query": "octocode schema <tool> --view query [--select FIELD=VALUE]",
             "variants": "octocode schema <tool> --view variants",
-            "full": "octocode schema <tool> --view full",
             // First-run setup an agent cannot discover from the tool list.
             "setup": {
                 "auth": "octocode auth status (login: octocode auth login)",
@@ -182,12 +95,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
                 "graph": "octocode graph --help",
             },
         },
-        "instructions": instructions(
-            &presentation["instructionSections"],
-            |name| enabled(machine, name),
-            machine["presentation"]["selection"] == true,
-            true,
-        ),
+        "instructions": format!("{}\n{CLI_INSTRUCTIONS}", instructions(presentation)),
     });
     if let Some(grammars) = grammar_instruction(&machine["grammarCapabilities"]) {
         value["grammars"] = Value::String(grammars);
@@ -232,6 +140,9 @@ pub(super) fn tool_view(
     };
     let configured = configured_tool(tool, machine);
     let view = view.unwrap_or("query");
+    if configured["views"].get(view).is_none() {
+        return Err(usage("A tool's views: query (default) or variants."));
+    }
     let mut value = match select {
         None => configured["views"][view].clone(),
         Some(_) if view != "query" => {
@@ -239,18 +150,6 @@ pub(super) fn tool_view(
         }
         Some(selection) => selected(tool, selection)?.clone(),
     };
-    if name == "clasify" && select.is_none() {
-        // Core renders clasify once per exposed set of source readers.
-        let available = presentation["clasifySourceTools"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .filter(|tool| enabled(machine, tool))
-            .collect::<Vec<_>>();
-        value = configured["sourceViews"][available.join(",")]["views"][view].clone();
-        remove_unavailable_examples(&mut value, &available);
-    }
     if name == "lspSearch"
         && let (Some(description), Some(servers)) = (
             value["description"].as_str(),
@@ -268,23 +167,14 @@ pub(super) fn tool_view(
 }
 
 /// The lspSearch description with the language servers this runtime
-/// resolves, before its `If empty:`/`Next:` notes, as MCP shows it (core
-/// `getDirectToolDefinitionsWithAddons`): `Servers: rust, ts/js.`
+/// resolves, as the last sentence of its `<when>` text: `Servers: rust, ts/js.`
 pub(super) fn with_lsp_servers(description: &str, servers: &[&str]) -> String {
     let note = if servers.is_empty() {
         "No language server found.".to_owned()
     } else {
         format!("Servers: {}.", servers.join(", "))
     };
-    let notes = [" If empty: ", " Next: "]
-        .iter()
-        .filter_map(|marker| description.find(marker))
-        .min()
-        .unwrap_or(description.len());
-    let (prose, tail) = description.split_at(notes);
-    format!("{} {note} {}", prose.trim_end(), tail.trim_start())
-        .trim_end()
-        .to_owned()
+    description.replacen("</when>", &format!(" {note}</when>"), 1)
 }
 
 /// The `--select operation=X` view: that operation's row. A JSON-quoted

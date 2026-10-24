@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Json } from './bundle.ts';
 import { keepReachable, nativeIdentifiers } from './rust-reach.ts';
 
 export const TYPIFY_VERSION = '0.8.0';
@@ -26,8 +27,6 @@ function requireTypify(): void {
     throw new Error(`cargo-typify ${TYPIFY_VERSION} is required (found ${version.trim()}).`);
   }
 }
-
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 /**
  * The bundle as native needs it. Two representation changes, applied here
@@ -58,6 +57,10 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
     if (Array.isArray(value)) return value.map(enumUnions);
     if (value === null || typeof value !== 'object') return value;
     const walked = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, enumUnions(child)]));
+    // Timestamp text stays lossless on the wire. Native validates formats
+    // before decoding; typify's chrono conversion would change that text.
+    if (walked.type === 'string' && walked.format === 'date-time')
+      delete walked.format;
     const branches = walked.anyOf;
     if (Array.isArray(branches) && branches.length > 1 && branches.every((branch) => closed(branch))) {
       const { anyOf: _anyOf, ...rest } = walked;
@@ -99,7 +102,9 @@ export function renderRust(header: string, bundleJson: string, roots = nativeIde
         '-o',
         output,
       ],
-      { stdio: ['ignore', 'ignore', 'pipe'] }
+      // Diagnostics stream to the caller's stderr as typify writes them: no
+      // in-memory buffer to overflow, and a failure shows them before it throws.
+      { stdio: ['ignore', 'ignore', 'inherit'] }
     );
     // Inner attributes cannot survive `include!`; the native contract-types
     // crate root (`crates/contract-types/src/lib.rs`) carries the equivalent `#[allow]`s.

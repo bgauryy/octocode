@@ -42,18 +42,11 @@ pub(super) fn read_pull_request(q: &GhSearchHistoryQuery, items: &[Value]) -> Op
         .map(|(owner, repo)| (owner.to_owned(), repo.to_owned()))
         .or_else(|| item_repo(&items[target]))?;
     let number = item_number(&items[target])?;
-    let read = Continuation::new(
+    let read = Continuation::related(
         ToolId::GhGetHistoryItem,
         pr_read_query(&owner, &repo, number),
     );
-    Some(
-        if is_merged(&items[target]) {
-            read
-        } else {
-            read.approximate()
-        }
-        .build(),
-    )
+    Some(read.build())
 }
 
 /// The PR a commit row's `(#N)` headline names: the first such row's read,
@@ -69,7 +62,7 @@ pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value])
     if let Some(path) = gh_search_history_query::path(q) {
         read["include"] = json!([path]);
     }
-    Some(Continuation::new(ToolId::GhGetHistoryItem, read).build())
+    Some(Continuation::related(ToolId::GhGetHistoryItem, read).build())
 }
 
 /// The PR holding a commit no headline names: issue search matches PRs
@@ -77,7 +70,7 @@ pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value])
 pub(super) fn find_commit_pull_request(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> {
     let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
     Some(
-        Continuation::new(
+        Continuation::related(
             ToolId::GhSearchHistory,
             json!({"operation":"pullRequest","owner":owner,"repo":repo,"keywords":[sha]}),
         )
@@ -91,11 +84,10 @@ pub(super) fn read_issue(q: &GhSearchHistoryQuery, items: &[Value]) -> Option<Va
     let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
     let number = item_number(&items[target])?;
     Some(
-        Continuation::new(
+        Continuation::related(
             ToolId::GhGetHistoryItem,
             issue_read_query(owner, repo, number),
         )
-        .approximate()
         .build(),
     )
 }
@@ -110,11 +102,7 @@ pub(super) fn read_commit(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> 
     if let Some(path) = gh_search_history_query::path(q) {
         read["include"] = json!([path]);
     }
-    Some(
-        Continuation::new(ToolId::GhGetHistoryItem, read)
-            .approximate()
-            .build(),
-    )
+    Some(Continuation::related(ToolId::GhGetHistoryItem, read).build())
 }
 
 /// A PR search whose keywords are one bare issue number (`13786`, `#13786`)
@@ -131,7 +119,7 @@ pub(super) fn issue_links_read(q: &GhSearchHistoryQuery) -> Option<Value> {
         .ok()
         .filter(|n| *n > 0)?;
     Some(
-        Continuation::new(
+        Continuation::related(
             ToolId::GhGetHistoryItem,
             json!({"operation":"issue","owner":owner,"repo":repo,"number":number}),
         )
@@ -150,39 +138,39 @@ fn same_query(q: &GhSearchHistoryQuery) -> Value {
 /// when nothing would scope the search without them: no owner, repository,
 /// keyword or other qualifier).
 pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
-    let qualifiers = gh_search_history_query::qualifiers(q)?;
-    let kept = super::filters::without_person_terms(qualifiers);
-    if kept == qualifiers.split_whitespace().collect::<Vec<_>>().join(" ") {
-        return None;
-    }
-    if kept.is_empty()
-        && gh_search_history_query::owner(q).is_none()
-        && gh_search_history_query::repo(q).is_none()
-        && gh_search_history_query::keywords(q).is_empty()
-    {
-        return None;
-    }
     let mut row = same_query(q);
-    if kept.is_empty() {
-        row.as_object_mut()?.remove("qualifiers");
-    } else {
-        row["qualifiers"] = json!(kept);
+    let filters = row.get_mut("filters")?.as_object_mut()?;
+    let mut removed = false;
+    for key in [
+        "author",
+        "committer",
+        "assignee",
+        "mentions",
+        "commenter",
+        "reviewedBy",
+        "reviewRequested",
+    ] {
+        removed |= filters.remove(key).is_some();
     }
-    Some(Continuation::new(ToolId::GhSearchHistory, row).build())
+    if !removed {
+        return None;
+    }
+    if filters.is_empty() {
+        row.as_object_mut()?.remove("filters");
+    }
+    Some(Continuation::related(ToolId::GhSearchHistory, row).build())
 }
 
 /// Result page `page` (the cursor [`crate::response::paging::next_cursor`]
 /// admitted), at the page size this one used.
-pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize, page_size: usize) -> Value {
+pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize, _page_size: usize) -> Value {
     let mut next = same_query(q);
     next["page"] = json!(page);
-    next["pageSize"] = json!(page_size);
-    Continuation::new(ToolId::GhSearchHistory, next).build()
+    Continuation::continued(ToolId::GhSearchHistory, next).build()
 }
 
-/// An empty search, broadened ([`broaden`]): `qualifiers`, the
-/// `since`/`until` window, a commit listing's `path` and a search's `state`
-/// drop whole, then the keywords one at a time. A
+/// An empty search, broadened ([`broaden`]): drop `filters` and `pathPrefix`
+/// as separate groups, then drop keywords one at a time. A
 /// variant keeps at least one keyword: without any it lists the scope, not
 /// the topic searched.
 pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
@@ -191,13 +179,13 @@ pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
         &query_row(q, &[]),
         &Broaden {
             strip: &[],
-            groups: &[&["qualifiers"], &["since", "until"], &["path"], &["state"]],
+            groups: &[&["filters"], &["pathPrefix"]],
             split_lone_keyword: false,
         },
         crate::response::result::rows_per_call(ToolId::GhSearchHistory),
     )?;
     if !gh_search_history_query::keywords(q).is_empty() {
-        let rows = lead.pointer_mut("/query/queries")?.as_array_mut()?;
+        let rows = lead.pointer_mut("/input/queries")?.as_array_mut()?;
         rows.retain(|row| row.get("keywords").is_some());
         if rows.is_empty() {
             return None;
@@ -208,13 +196,13 @@ pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
 
 /// A capped search's narrowing (`narrowScope`), one call. Rows in a date
 /// order continue past GitHub's 1,000-result window from this page's last
-/// row: creation order through the query's own window (newest first sets
-/// `until`, oldest first `since`), update order through an `updated:`
-/// qualifier. A row at that instant may show again; none is skipped. An
+/// row: creation order narrows `filters.createdAt`, and update order narrows
+/// `filters.updatedAt`. Newest first sets an upper bound; oldest first sets
+/// a lower bound. A row at that instant may show again; none is skipped. An
 /// order with no date to resume from (best match, comments, reactions), or
-/// an update order whose `updated:` qualifier owns the window, is re-sorted
+/// an update order whose existing filter owns the window, is re-sorted
 /// newest first, whose pages end in that continuation. `None` when a
-/// `created:` qualifier owns a creation-ordered window or no row is dated.
+/// `filters.createdAt` owns a creation-ordered window or no row is dated.
 pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value> {
     let (sort, order) = super::query::search_order(q);
     let newest_first = order.as_deref() != Some("asc");
@@ -230,26 +218,27 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
     let mut row = same_query(q);
     match sort.as_deref() {
         Some("committer-date") => {
-            row["until"] = json!(last(&["/commit/committer/date", "/commit/author/date"])?);
+            let date = last(&["/commit/committer/date", "/commit/author/date"])?;
+            row["filters"]["committedAt"]["to"] = json!(date);
         }
-        Some("created") => {
-            if q.filters().created.is_some() {
-                return None;
-            }
-            let bound = if newest_first { "until" } else { "since" };
-            row[bound] = json!(last(&["/created_at"])?);
-        }
-        Some("updated") if q.filters().updated.is_none() => {
-            let date = last(&["/updated_at"])?;
-            let bound = if newest_first { "<=" } else { ">=" };
-            let term = format!("updated:{bound}{date}");
-            row["qualifiers"] = json!(match gh_search_history_query::qualifiers(q) {
-                Some(qualifiers) => format!("{} {term}", qualifiers.trim()),
-                None => term,
-            });
+        Some("created" | "updated") => {
+            let (field, pointer) = if sort.as_deref() == Some("created") {
+                ("createdAt", "/created_at")
+            } else {
+                ("updatedAt", "/updated_at")
+            };
+            let date = last(&[pointer])?;
+            let bound = if newest_first { "to" } else { "from" };
+            let selection = &mut row["filters"][field];
+            let mut range = selection
+                .pointer("/include/0")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            range[bound] = json!(date);
+            selection["include"] = json!([range]);
         }
         _ => {
-            row["sort"] = json!("created:desc");
+            row["sort"] = json!({"by":"createdAt","order":"desc"});
         }
     }
     crate::contracts::validate(
@@ -257,5 +246,5 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
         json!({ "queries": [row] }),
     )
     .ok()?;
-    Some(Continuation::new(ToolId::GhSearchHistory, row).build())
+    Some(Continuation::related(ToolId::GhSearchHistory, row).build())
 }

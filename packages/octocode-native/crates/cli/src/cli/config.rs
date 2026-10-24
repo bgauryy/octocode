@@ -177,7 +177,7 @@ pub fn env_key(key: &str) -> &str {
     octocode_native::config::CONFIG_FIELDS
         .iter()
         .find(|field| field.path == key)
-        .and_then(|field| field.env_name())
+        .and_then(octocode_native::config::ConfigFieldSpec::env_name)
         .unwrap_or(key)
 }
 

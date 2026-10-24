@@ -27,7 +27,7 @@ pub(super) enum Fragment {
     /// items `before` and `after`: a recursed element's neighbours ride its
     /// fragments instead of becoming parts of their own.
     Joined {
-        inner: Box<Fragment>,
+        inner: Box<Self>,
         split: usize,
         before: Range<usize>,
         after: Range<usize>,
@@ -35,7 +35,7 @@ pub(super) enum Fragment {
     /// `inner` is a later part of element `index` of the array at `array`,
     /// shown at position 0 of that array: its `rowPart.continues` marker.
     Continues {
-        inner: Box<Fragment>,
+        inner: Box<Self>,
         array: String,
         index: usize,
     },
@@ -84,14 +84,20 @@ impl FragmentArena {
     /// Plan `row` into `(fragment, serialized chars)`; `row` is consumed and
     /// its largest array moved, never cloned. The row's first fragment is
     /// bounded by `head`, every later one by `budget`.
-    pub(super) fn plan(
+    pub(super) fn plan(&mut self, row: Value, head: usize, budget: usize, out: &mut Vec<Planned>) {
+        let row_chars = octocode_engine::json_size::utf16_units(&row).unwrap_or(0);
+        self.plan_sized(row, row_chars, head, budget, out);
+    }
+
+    /// [`Self::plan`] of a row already sized: it serializes to `row_chars`.
+    pub(super) fn plan_sized(
         &mut self,
         mut row: Value,
+        row_chars: usize,
         head: usize,
         budget: usize,
         out: &mut Vec<Planned>,
     ) {
-        let row_chars = octocode_engine::json_size::utf16_units(&row).unwrap_or(0);
         let declared = (row_chars > head)
             .then(|| {
                 self.collection_paths

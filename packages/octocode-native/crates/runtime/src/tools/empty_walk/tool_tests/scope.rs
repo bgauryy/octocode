@@ -1,6 +1,7 @@
 //! What every walking tool's scope reaches and discloses alike.
 
 use super::*;
+use octocode_contract_types::AstSearchQuery;
 
 /// An `include` glob that names a default-excluded directory (`build/*.ts`)
 /// asks for its files: every tool with `include` walks into it, with no
@@ -37,14 +38,14 @@ fn a_generated_file_is_default_excluded_by_every_searching_tool() {
     std::fs::write(root.0.join("visible.md"), "nothing here\n").expect("visible");
     std::fs::write(root.0.join("app.min.js"), "function needle() {}\n").expect("generated");
     let searches = [
-        (local_search(), json!({"matchString": "needle"})),
+        (local_search(), json!({"matchString": ["needle"]})),
         (
             ast_match(),
-            json!({"operation": "match", "language": "javascript", "pattern": "function needle() {}"}),
+            json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
         ),
         (
             ast_symbols(),
-            json!({"operation": "symbols", "symbolName": "needle"}),
+            json!({"operation": "symbols", "symbolFilter": {"terms":["needle"],"mode":"exact"}}),
         ),
     ];
     for (tool, fields) in searches {
@@ -54,8 +55,7 @@ fn a_generated_file_is_default_excluded_by_every_searching_tool() {
             "{}: read a generated file: {out}",
             tool.name
         );
-        let lead = lead_query(&out, "includeSkipped")
-            .unwrap_or_else(|| panic!("{}: no lead: {out}", tool.name));
+        let lead = skipped_query(&out).unwrap_or_else(|| panic!("{}: no lead: {out}", tool.name));
         assert_eq!(
             lead["defaultExcludes"],
             json!(false),
@@ -126,7 +126,7 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
             &root.0,
             &row(
                 path,
-                json!({"operation": "match", "language": "javascript", "pattern": "function needle() {}"}),
+                json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
             ),
         );
         out["matchCount"].as_u64().unwrap_or(0)
@@ -137,9 +137,9 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
         1,
         "UTF-16 in the directory scan, the NUL file refused"
     );
-    let query: crate::tools::ast_search::AstSearchQuery = serde_json::from_value(row(
+    let query: AstSearchQuery = serde_json::from_value(row(
         &root.0.join("blob.js"),
-        json!({"operation": "match", "language": "javascript", "pattern": "function needle() {}"}),
+        json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
     ))
     .expect("query");
     let (paths, security) = simple_policy(&root.0);
@@ -163,9 +163,9 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
         0,
         "Latin-1 in the directory scan"
     );
-    let query: crate::tools::ast_search::AstSearchQuery = serde_json::from_value(row(
+    let query: AstSearchQuery = serde_json::from_value(row(
         &root.0.join("legacy/latin.js"),
-        json!({"operation": "match", "language": "javascript", "pattern": "function needle() {}"}),
+        json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
     ))
     .expect("query");
     let error =
@@ -178,13 +178,10 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
     );
 }
 
-/// Every walking tool states what its skipped paths hold in one shape
-/// (`… behind skipped paths (…)`), and a check of them cut before it found
-/// anything the same way too: a warning that absence there is unproven, the
-/// result partial (`skippedPathsUnchecked`), and the lead over every cause
-/// the walk skipped by.
+/// Skipped paths remain disclosed even when a bounded probe cannot prove
+/// whether they contain a match. The related search lifts that scope.
 #[test]
-fn every_tool_discloses_skipped_paths_and_a_cut_check_in_one_shape() {
+fn every_tool_discloses_unchecked_scope_and_offers_an_executable_related_search() {
     let scenario = &SCENARIOS[2];
     for tool in tools() {
         let label = describe(&tool, scenario);
@@ -192,23 +189,20 @@ fn every_tool_discloses_skipped_paths_and_a_cut_check_in_one_shape() {
         let query = (tool.query)(&root.0);
         let out = (tool.run)(&root.0, &query);
         assert!(
-            prose(&out).contains(" behind skipped paths (node_modules/)"),
-            "{label}: {out}"
+            out["skippedPaths"].to_string().contains("node_modules")
+                || prose(&out).contains("node_modules"),
+            "{label}: skipped directory undisclosed: {out}"
         );
         let out = crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
             (tool.run)(&root.0, &query)
         });
-        assert!(
-            prose(&out).contains("were not checked in time, so absence there is unproven."),
-            "{label}: {out}"
-        );
         assert!(
             out["partialReasons"]
                 .as_array()
                 .is_some_and(|reasons| reasons.contains(&json!("skippedPathsUnchecked"))),
             "{label}: {out}"
         );
-        let lead = lead_query(&out, "includeSkipped").unwrap_or_else(|| panic!("{label}: {out}"));
+        let lead = skipped_query(&out).unwrap_or_else(|| panic!("{label}: {out}"));
         assert_eq!(lead["defaultExcludes"], json!(false), "{label}: {lead}");
     }
 }

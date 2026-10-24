@@ -142,9 +142,8 @@ fn search_rejects_oversize_content() {
     const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
     let content = content_of_at_least(CAP + 1);
     assert!(content.len() > CAP, "fixture must be over the cap");
-    let err = match search(&content, "ts", Some("target($X)"), None) {
-        Ok(_) => panic!("oversize content must error, not hang"),
-        Err(err) => err,
+    let Err(err) = search(&content, "ts", Some("target($X)"), None) else {
+        panic!("oversize content must error, not hang")
     };
     assert!(
         err.contains("exceeds"),

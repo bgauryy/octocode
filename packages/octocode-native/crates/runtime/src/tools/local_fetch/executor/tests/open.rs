@@ -12,10 +12,7 @@ fn a_fifo_is_refused_without_blocking_and_a_file_opens() {
     crate::tools::test_support::make_fifo(&fifo);
     std::fs::write(root.path().join("a.txt"), "x\n").expect("file");
     let (paths, _) = crate::tools::test_support::simple_policy(root.path());
-    let query = |path: &std::path::Path| LocalFetchQuery {
-        path: path.to_string_lossy().parse().expect("path"),
-        ..test_local_fetch_query()
-    };
+    let query = |path: &std::path::Path| q(path);
     let refused = resolve_file(&query(&fifo), &paths).expect_err("a FIFO is no file");
     assert_eq!(refused.error_code, Some(ErrorCode::NotAFile));
     let (_, _, meta) =
@@ -37,10 +34,7 @@ fn a_fifo_is_not_a_file_named_by_its_path_with_nothing_to_retry() {
     .expect("policy");
     let requested = fifo.to_string_lossy().into_owned();
     let result = execute_local_fetch(
-        &LocalFetchQuery {
-            path: requested.parse().expect("path"),
-            ..test_local_fetch_query()
-        },
+        &q(&fifo),
         &paths,
         &crate::security::ContentSecurity::new(),
         &crate::execution::cancel::NeverCancel,

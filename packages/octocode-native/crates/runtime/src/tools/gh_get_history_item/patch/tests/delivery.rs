@@ -68,7 +68,7 @@ fn a_repeat_is_listed_once_its_referent_is_delivered() {
         assert!(calls < 1_000, "cursor did not advance");
         let page = shape_patch_page(
             files.clone(),
-            &window(json!({"offset":offset,"length":200})),
+            &with_budget(window(json!({"offset":offset})), 500),
         );
         for row in &page.rows {
             let name = str_at(row, "/filename").unwrap_or("").to_owned();
@@ -99,7 +99,7 @@ fn binary_files_are_reported_once_and_never_block_the_cursor() {
         json!({"filename":"tail.bin","status":"added"}),
     ];
     let (calls, patches, patchless) = follow_commit_page(&files, Some(4));
-    assert_eq!(calls, 5);
+    assert_eq!(calls, 20);
     assert_eq!(patchless, ["logo.png", "tail.bin"]);
     assert_eq!(patches["a.rs"], "a".repeat(10));
     assert_eq!(patches["b.rs"], "b".repeat(10));
@@ -161,7 +161,7 @@ fn patch_pages_emit_no_placeholder_rows_and_compact_headers() {
     ];
     let page = shape_patch_page(
         files.clone(),
-        &patch_request(json!({"offset":0,"length":10})),
+        &with_budget(patch_request(json!({"offset":0})), 25),
     );
     assert_eq!(page.rows.len(), 1, "{:?}", page.rows);
     assert_eq!(page.unfinished, ["b.rs", "c.rs"]);
@@ -173,7 +173,7 @@ fn patch_pages_emit_no_placeholder_rows_and_compact_headers() {
         &mut pagination,
         files,
         WindowState::COMPLETE,
-        &patch_request(json!({"offset":0,"length":15})),
+        &with_budget(patch_request(json!({"offset":0})), 38),
         true,
         None,
     );
@@ -204,8 +204,8 @@ fn commit_rows_are_compact_and_files_scope_them() {
         vec![json!({"path":"src/a.rs","stat":"A +3 -0","patch":"+a"})]
     );
     let scoped = HistoryItemRequest::from_row(json!({
-        "operation":"commit","mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
-        "ref":"abc","include":["*.md","src/"]
+        "operation":"commit","owner":"o","repo":"r",
+        "ref":"abc","include":["*.md","src/**"]
     }))
     .expect("commit files");
     let scope = FileScope::from_query(&scoped)

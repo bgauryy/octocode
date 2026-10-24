@@ -23,8 +23,7 @@ async fn selected_patch_scan_reads_file_batches_concurrently() {
     let arrivals = mount_file_batches(&server, batches, delay).await;
     let data = run(
         &server,
-        json!({"sections":["patches"],"include":["src/late.rs"],
-               "extras": []}),
+        json!({"sections":["patches"],"include":["src/late.rs"]}),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -65,7 +64,7 @@ async fn patch_rows_in_one_call_share_one_budget() {
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let row = |file: &str| {
         json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 9,
-               "mainGoal": "g", "reasoning": "r",
+               
                "sections": ["patches"], "include": [file]})
     };
     let outcome = runtime
@@ -149,20 +148,44 @@ async fn later_review_comment_pages_load_provider_batches_concurrently() {
             .mount(&server)
             .await;
     }
-    let data = run(
-        &server,
-        json!({"sections":["reviewComments"], "page": 15, "pageSize": 30, "extras": []}),
-    )
-    .await;
-    let elapsed = first_request.get().expect("the PR was read").elapsed();
-    let comments = data["pullRequests"][0]["reviewComments"]
-        .as_array()
-        .expect("review comments");
-    assert_eq!(comments.len(), 30, "{data}");
-    assert_eq!(comments[0]["body"], "note 420", "{data}");
-    assert!(
-        // A sequential re-scan of the five batches before the page takes 2.5 s.
-        elapsed < Duration::from_millis(1_800),
-        "sequential re-scan: {elapsed:?}"
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["reviewComments"]}]});
+    let mut bodies = Vec::new();
+    for hop in 0..100 {
+        let result = support::run(&runtime, "ghGetHistoryItem", input).await;
+        if hop == 0 {
+            assert!(first_request.get().expect("PR read").elapsed() < Duration::from_millis(1800));
+        }
+        let data = result.data();
+        bodies.extend(
+            data["pullRequests"][0]["reviewComments"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|row| row["body"].as_str().map(str::to_owned)),
+        );
+        let next = result
+            .structured_content
+            .pointer("/responsePagination/next")
+            .or_else(|| {
+                data["next"].as_object().and_then(|calls| {
+                    calls
+                        .values()
+                        .find(|call| call["tool"] == "ghGetHistoryItem")
+                })
+            });
+        let Some(next) = next else { break };
+        assert!(next["input"]["cursor"].is_string());
+        input = next["input"].clone();
+    }
+    assert_eq!(bodies.len(), 600);
+    assert_eq!(
+        bodies
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        600
     );
+    runtime.close().await;
 }

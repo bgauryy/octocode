@@ -11,7 +11,7 @@ use wiremock::MockServer;
 /// only (`continuePatch`, then `nextFilePage`) at a 20k configured page reads
 /// every patch byte-identical (after the gutters) with no gap and no
 /// repeat, and never overflows its page. Every hop runs at the first call's
-/// page (no doubled `responseLength`, 2026-10-09): 21 → 44 calls, each the
+/// page (no doubled `responseChars`, 2026-10-09): 21 → 44 calls, each the
 /// size of the first (the numbered view is ~10% larger than the raw
 /// patches).
 #[tokio::test]
@@ -102,7 +102,7 @@ async fn history_b_large_pr_lead_walk_is_lossless_at_the_first_page_size() {
         else {
             break;
         };
-        envelope = lead["query"].clone();
+        envelope = lead["input"].clone();
     }
     for (i, patch) in patches.iter().enumerate() {
         let path = format!("src/m{i:03}.rs");
@@ -183,9 +183,6 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
             .unwrap_or_else(|error| panic!("call {calls} failed: {error:?}\n{envelope}"));
         let content = &outcome.structured_content;
         let pagination = &content["responsePagination"];
-        if pagination.is_object() {
-            assert_eq!(pagination["scope"], "rows", "call {calls}: {pagination}");
-        }
         let row = &content["results"][0];
         if row.get("rowPart").is_some() {
             split_parts += 1;
@@ -222,10 +219,10 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
                 None => *listed.entry(path).or_default() += 1,
             }
         }
-        let next = pagination["next"]["query"]
+        let next = pagination["next"]["input"]
             .as_object()
-            .or_else(|| data["next"]["continuePatch"]["query"].as_object())
-            .or_else(|| data["next"]["nextFilePage"]["query"].as_object());
+            .or_else(|| data["next"]["continuePatch"]["input"].as_object())
+            .or_else(|| data["next"]["nextFilePage"]["input"].as_object());
         match next {
             Some(next) => envelope = Value::Object(next.clone()),
             None => break,

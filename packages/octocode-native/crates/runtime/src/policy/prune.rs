@@ -215,8 +215,8 @@ mod tests {
         assert!(names.iter().any(|name| name == "dist"), "{names:?}");
         // Credential stores are the read policy's, included or not.
         assert!(!names.iter().any(|name| name == ".ssh"), "{names:?}");
-        // A bare word reaches the include as `*word*` and `**/*word*/**`.
-        let bare = crate::policy::include::include_globs(&["dist".to_owned()]);
+        // An explicit directory glob lifts only the directory it names.
+        let bare = ["dist/**".to_owned()];
         let names = walk_names(true, &bare);
         assert!(!names.iter().any(|name| name == "dist"), "{names:?}");
         assert!(names.iter().any(|name| name == "build"), "{names:?}");

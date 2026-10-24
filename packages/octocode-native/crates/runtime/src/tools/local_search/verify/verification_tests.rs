@@ -1,5 +1,7 @@
 use super::*;
 use crate::execution::cancel::NeverCancel;
+use crate::tools::local_search::sources::Expected;
+use octocode_contract_types::LocalSearchQuery;
 
 fn hit(line: u32, value: &str) -> octocode_engine::types::TextSearchMatch {
     octocode_engine::types::TextSearchMatch {
@@ -57,10 +59,10 @@ fn a_parallel_redaction_records_in_file_order() {
         stats: Default::default(),
     };
     let query: LocalSearchQuery = serde_json::from_value(serde_json::json!({
-        "path": dir.path(), "matchString": "const", "mainGoal": "test", "reasoning": "test"
+        "path": dir.path(), "matchString": ["const"]
     }))
     .expect("query");
-    let expected = |_: &std::path::Path| None;
+    let expected = |_: &std::path::Path| Expected::Fresh;
     let scope = PageScope {
         query: &query,
         paths: &paths,
@@ -176,7 +178,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
     let verified = guard_clipped_secrets(
         &mut file,
         &source,
-        None,
+        Expected::Fresh,
         0..10,
         &ValueCheck {
             security: &ContentSecurity::new(),
@@ -201,7 +203,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
         guard_clipped_secrets(
             &mut file,
             &source,
-            None,
+            Expected::Fresh,
             0..10,
             &ValueCheck {
                 security: &ContentSecurity::new(),
@@ -241,13 +243,16 @@ fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
         (outcome, file.matches[0].value.clone())
     };
     assert_eq!(
-        check(Some(Some(digest))),
+        check(Expected::Stored(Some(digest))),
         (Verification::Verified, "the hit".to_owned())
     );
-    assert_eq!(check(Some(None)).0, Verification::Changed);
+    assert_eq!(check(Expected::Stored(None)).0, Verification::Changed);
     std::fs::write(&source, "one\nthe hit\nthre3\n").expect("fixture");
-    assert_eq!(check(Some(Some(digest))).0, Verification::Changed);
-    assert_eq!(check(None).0, Verification::Verified);
+    assert_eq!(
+        check(Expected::Stored(Some(digest))).0,
+        Verification::Changed
+    );
+    assert_eq!(check(Expected::Fresh).0, Verification::Verified);
 }
 
 #[test]
@@ -260,7 +265,7 @@ fn a_neighborhood_over_the_retained_budget_fails_closed() {
     let verified = guard_clipped_secrets(
         &mut file,
         &source,
-        None,
+        Expected::Fresh,
         0..10,
         &ValueCheck {
             security: &ContentSecurity::new(),
@@ -288,7 +293,7 @@ fn verification_stops_when_cancelled() {
     let reason = guard_clipped_secrets(
         &mut file,
         &source,
-        None,
+        Expected::Fresh,
         0..10,
         &ValueCheck {
             security: &ContentSecurity::new(),

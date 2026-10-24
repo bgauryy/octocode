@@ -9,7 +9,7 @@ use super::*;
 use crate::error::Result;
 use crate::search::text_parser::FileEntry;
 use crate::test_support::TmpDir;
-use crate::text::source::open_regular;
+use crate::text::open_regular;
 use crate::types::{
     CapReason, CaseRule, PatternSyntax, SearchOutput, SearchSort, SourceValues, SpanValues,
     TextSearchFile, TextSearchOptions, TextSearchResult, TextSearchStats,
@@ -26,6 +26,7 @@ mod coverage;
 mod digests;
 mod limits;
 mod matching;
+mod multiline;
 mod ordering;
 mod ranking;
 mod selection;

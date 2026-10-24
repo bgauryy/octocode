@@ -39,12 +39,12 @@ async fn sections(runtime: &ToolRuntime, resources: Value) -> Value {
     let out = clasify(
         runtime,
         vec![json!({
-            "id":"s","operation":"sections","resources":resources,
+            "operation":"sections","resources":resources,
             "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}
         })],
     )
     .await;
-    out["queries"][0].clone()
+    out["results"][0]["data"].clone()
 }
 
 async fn provider_calls(server: &MockServer) -> usize {

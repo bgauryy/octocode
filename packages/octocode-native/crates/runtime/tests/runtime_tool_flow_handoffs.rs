@@ -33,29 +33,35 @@ async fn wide_searches_and_unfinished_reads_offer_no_clasify_handoff() {
     for (tool, row) in [
         (
             "localSearch",
-            json!({"path":"src","matchString":"housekeeping","mainGoal":"Where does housekeeping run?",
-                "extras":["hints"]}),
+            json!({"path":"src","matchString":["housekeeping"]}),
         ),
-        (
-            "localFetch",
-            json!({"path":"src/file_0.c","mainGoal":"Where does housekeeping run?","length":3,
-                "extras":["hints"]}),
-        ),
+        ("localFetch", json!({"path":"src/file_0.c"})),
     ] {
         let out = runtime
-            .run("handoff".into(), tool.into(), json!({"queries":[row]}))
+            .run(
+                "handoff".into(),
+                tool.into(),
+                json!({"queries":[row],"responseChars":1000}),
+            )
             .await
             .expect("result")
             .structured_content;
-        let data = &out["results"][0]["data"];
+        let mut required = 0;
+        let owner = octocode_native::id::ToolId::from_name(tool).expect("known tool");
+        octocode_native::response::continuations::visit_calls(owner, &out, &mut |call, _| {
+            assert_ne!(
+                call["tool"], "clasify",
+                "retrieval does not request implicit classification: {call}"
+            );
+            if call["kind"] == "continue" {
+                crate::support::assert_cursor_only(&call["input"]);
+                required += 1;
+            }
+        })
+        .expect("schema-directed calls");
         assert!(
-            crate::support::checks::hint(data, "clasify").is_null(),
-            "{tool}: {data}"
-        );
-        assert!(data["next"].get("clasify").is_none(), "{tool}: {data}");
-        assert!(
-            crate::support::checks::hint(data, "readBlock").is_null(),
-            "{tool}: {data}"
+            required > 0,
+            "unfinished retrieval exposes its remaining work: {out}"
         );
     }
     runtime.close().await;

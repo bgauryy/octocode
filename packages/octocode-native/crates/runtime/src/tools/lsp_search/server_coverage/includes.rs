@@ -82,14 +82,17 @@ pub(super) fn annotate_includes(
         )
     } else {
         format!(
-            "rust-analyzer did not run this package's build scripts, so uses through the types they generate are missing; the includeBuildScripts rerun {BUILD_SCRIPTS_COST}."
+            "rust-analyzer did not run this package's build scripts, so uses through the types they generate are missing; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}."
         )
     };
     flag_noted(row, query, BUILD_SCRIPTS_REASON, note, scope);
     // The rerun repeats the whole walk: offered once, on its first page,
     // and only where the reason holds alone.
     if !continues_a_page(query) && !outside && lists_reason(row, BUILD_SCRIPTS_REASON) {
-        row["next"]["includeBuildScripts"] = super::super::failure::build_scripts_rerun(query);
+        crate::response::result::attach_related(
+            row,
+            super::super::failure::build_scripts_rerun(query),
+        );
     }
 }
 

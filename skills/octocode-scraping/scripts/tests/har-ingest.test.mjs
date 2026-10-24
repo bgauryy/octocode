@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { redactSecretsInText, redactHarObject } from '../lib/bridge.mjs';
+import { concatCleanParts, redactSecretsInText, redactHarObject } from '../lib/bridge.mjs';
+import { node, withDir } from './helpers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = join(here, '..', 'har-ingest.mjs');
@@ -139,3 +140,32 @@ test('redactHarObject keeps large non-secret post bodies intact', () => {
   redactHarObject(har);
   assert.equal(har.log.entries[0].request.postData.text, big);
 });
+
+test('clean parts rejoin byte-exact and in numeric order', async () => withDir(async (dir) => {
+  mkdirSync(join(dir, 'text'));
+  const parts = Array.from({ length: 11 }, (_, i) => `chunk${i}`);
+  parts.forEach((p, i) => writeFileSync(join(dir, 'text', `page-001.clean.part-${String(i + 1).padStart(i === 10 ? 4 : 3, '0')}.md`), p));
+  writeFileSync(join(dir, 'text', 'page-001.clean.part-999.md'), 'x');
+  writeFileSync(join(dir, 'text', 'page-001.clean.part-1000.md'), 'y');
+  const { text } = await concatCleanParts(dir, 'page-001');
+  assert.ok(!text.includes('\n'), 'no separator may be inserted between byte-exact parts');
+  assert.ok(text.endsWith('xy'), `part-999 must precede part-1000: ${text.slice(-6)}`);
+}));
+
+test('har-ingest reruns replace rows, label raw HARs honestly, and accept --min-ms 0', () => withDir((dir) => {
+  const harSession = join(dir, 'sess');
+  mkdirSync(harSession);
+  const har = join(dir, 'net.har');
+  writeFileSync(har, JSON.stringify({ log: { entries: [{ request: { method: 'GET', url: 'https://x.test/api', headers: [] }, response: { status: 200, headers: [], content: { mimeType: 'application/json', text: '{}' } }, time: 0 }] } }));
+  for (let run = 0; run < 2; run += 1) assert.equal(node('har-ingest.mjs', ['--session-dir', harSession, '--har', har]).status, 0);
+  const lines = (rel) => readFileSync(join(harSession, rel), 'utf8').trim().split('\n');
+  assert.equal(lines('extracts/cdp-network.jsonl').length, 1, 'rerun duplicated network rows');
+  assert.equal(lines('sources.jsonl').length, 1, 'rerun duplicated source rows');
+  const raw = node('har-ingest.mjs', ['--session-dir', harSession, '--har', har, '--no-redact', '--filter', 'slow', '--min-ms', '0']);
+  assert.equal(raw.status, 0, raw.stdout);
+  const out = JSON.parse(raw.stdout);
+  assert.ok(out.cdpFiles.some((f) => f.endsWith('.raw.har')), 'an unredacted HAR must not be named .redacted.har');
+  assert.equal(out.filteredNetworkRows, 1, '--min-ms 0 must keep a 0 ms entry');
+  const handoff = readFileSync(join(harSession, 'extracts/bridge-handoff.json'), 'utf8');
+  assert.ok(!handoff.includes('graph-actionability-check'), 'handoff names a script that does not exist');
+}));

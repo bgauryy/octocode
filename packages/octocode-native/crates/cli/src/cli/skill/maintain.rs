@@ -181,7 +181,7 @@ pub(super) fn remove(store: &Path, args: RemoveArgs) -> Reply {
             let safe = label == "home"
                 || fs::read_link(&path).is_ok()
                 || args.force
-                || install::trees_match(&path, &canonical)
+                || install::same_tree(&path, &canonical)
                 || bundled(&name).is_ok_and(|skill| skill.matches(&path));
             let error = if !safe {
                 Some("Edited or unrecognized directory; pass --force to remove it".to_owned())

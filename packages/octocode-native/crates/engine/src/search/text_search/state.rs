@@ -2,7 +2,7 @@
 //! snapshot.
 
 use crate::search::text_parser::FileEntry;
-use crate::text::file_extension::extension_of;
+use crate::text::extension_of;
 use crate::types::{BinaryExtensionCount, SearchedSource, TextSearchMatch};
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;

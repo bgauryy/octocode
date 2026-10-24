@@ -10,6 +10,7 @@
 #![allow(
     dead_code,
     clippy::all,
+    clippy::use_self,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,

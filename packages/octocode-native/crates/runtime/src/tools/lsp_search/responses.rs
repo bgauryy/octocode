@@ -130,6 +130,5 @@ pub(super) fn annotate(
         resolved_symbol,
         &session.config,
         &session.client,
-        wants(query, octocode_contract_types::ExtraKind::Receipts),
     );
 }

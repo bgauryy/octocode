@@ -1,94 +1,215 @@
-//! The engine works in `usize`; the wire contract (generated from the core
-//! Zod schema) owns the field set and its JSON integer types.
+//! Typed views of the exact generated reader alternatives.
 use super::LineRange;
 use crate::num::{usize_of, usize_of_signed};
-use octocode_contract_types::{LocalFetchQuery, MatchString, MinifyMode, ReadCaseMode, ReadRegex};
+use octocode_contract_types::{
+    CaseMode, LocalFetchQuery, LocalFetchQueryContentMatchString, ReadProgress, ReadProgressUnit,
+    ReadView, RegexEngine, SourceLineRange,
+};
+use serde_json::{Value, json};
 
-/// The one requested line span, when `ranges` holds exactly one.
+macro_rules! each_shape {
+    ($query:expr, $q:ident => $body:expr) => {
+        match $query {
+            LocalFetchQuery::Content0($q) => $body,
+            LocalFetchQuery::ContentRanges($q) => $body,
+            LocalFetchQuery::ContentMatchString($q) => $body,
+            LocalFetchQuery::Compact3($q) => $body,
+            LocalFetchQuery::CompactRanges($q) => $body,
+            LocalFetchQuery::Symbols($q) => $body,
+        }
+    };
+}
+
+pub(crate) fn path(query: &LocalFetchQuery) -> &str {
+    each_shape!(query, q => q.path.as_str())
+}
+
+pub(crate) fn matched(query: &LocalFetchQuery) -> Option<&LocalFetchQueryContentMatchString> {
+    match query {
+        LocalFetchQuery::ContentMatchString(q) => Some(q),
+        _ => None,
+    }
+}
+
+pub(crate) fn matched_mut(
+    query: &mut LocalFetchQuery,
+) -> Option<&mut LocalFetchQueryContentMatchString> {
+    match query {
+        LocalFetchQuery::ContentMatchString(q) => Some(q),
+        _ => None,
+    }
+}
+
+pub(crate) fn has_matches(query: &LocalFetchQuery) -> bool {
+    matched(query).is_some()
+}
+
+pub(crate) fn is_regex(query: &LocalFetchQuery) -> bool {
+    matched(query).is_some_and(|q| q.regex_engine != RegexEngine::Literal)
+}
+
+pub(crate) fn is_pcre2(query: &LocalFetchQuery) -> bool {
+    matched(query).is_some_and(|q| q.regex_engine == RegexEngine::Pcre2)
+}
+
+pub(crate) fn case_sensitive_for(query: &LocalFetchQuery, pattern: &str) -> bool {
+    matched(query).is_some_and(|q| match q.case_mode {
+        CaseMode::Sensitive => true,
+        CaseMode::Smart => pattern.chars().any(char::is_uppercase),
+        CaseMode::Insensitive => false,
+    })
+}
+
+pub(crate) fn context_lines(query: &LocalFetchQuery) -> octocode_engine::types::SearchContext {
+    matched(query)
+        .and_then(|q| q.context_lines.as_ref())
+        .map(|context| octocode_engine::types::SearchContext {
+            before: crate::num::u32_of_signed(context.before),
+            after: crate::num::u32_of_signed(context.after),
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn whole_word(query: &LocalFetchQuery) -> bool {
+    matched(query).is_some_and(|q| q.whole_word)
+}
+
+pub(crate) fn match_strings(query: &LocalFetchQuery) -> Vec<&str> {
+    matched(query).map_or_else(Vec::new, |q| {
+        q.match_string.0.iter().map(|term| term.as_str()).collect()
+    })
+}
+
+fn ranges(query: &LocalFetchQuery) -> &[SourceLineRange] {
+    match query {
+        LocalFetchQuery::ContentRanges(q) => &q.ranges,
+        LocalFetchQuery::ContentMatchString(q) => &q.ranges,
+        LocalFetchQuery::CompactRanges(q) => &q.ranges,
+        _ => &[],
+    }
+}
+
+pub(crate) fn line_ranges(query: &LocalFetchQuery) -> Vec<LineRange> {
+    ranges(query)
+        .iter()
+        .map(|range| LineRange {
+            start: usize_of(range.start_line.get()),
+            end: usize_of(range.end_line.get()),
+        })
+        .collect()
+}
+
+pub(crate) fn has_ranges(query: &LocalFetchQuery) -> bool {
+    !ranges(query).is_empty()
+}
+
 fn single_range(query: &LocalFetchQuery) -> Option<LineRange> {
     match line_ranges(query).as_slice() {
         [one] => Some(one.clone()),
         _ => None,
     }
 }
+
 pub(crate) fn start_line(query: &LocalFetchQuery) -> Option<usize> {
     single_range(query).map(|range| range.start)
 }
+
 pub(crate) fn end_line(query: &LocalFetchQuery) -> Option<usize> {
     single_range(query).map(|range| range.end)
 }
-/// Sets the read to the one line span `start..=end`.
-pub(crate) fn set_line_span(query: &mut LocalFetchQuery, start: usize, end: usize) {
-    set_line_spans(query, &[(start, end)]);
-}
-/// Sets the read to the line spans `start..=end`, in order.
-pub(crate) fn set_line_spans(query: &mut LocalFetchQuery, spans: &[(usize, usize)]) {
-    query.ranges = spans
-        .iter()
-        .filter_map(|(start, end)| format!("{start}-{end}").parse().ok())
-        .collect();
-}
-/// `regex:"rust"` or `"pcre2"`: `matchString` is a regular expression.
-pub(crate) fn is_regex(query: &LocalFetchQuery) -> bool {
-    matches!(query.regex, Some(ReadRegex::Rust | ReadRegex::Pcre2))
-}
-/// `regex:"pcre2"`: lookaround and backreferences, under a deadline.
-pub(crate) fn is_pcre2(query: &LocalFetchQuery) -> bool {
-    query.regex == Some(ReadRegex::Pcre2)
-}
-/// Whether `pattern` matches case-sensitively. Omitted means smart, as
-/// in localSearch: sensitive only when the pattern has an uppercase
-/// letter.
-pub(crate) fn case_sensitive_for(query: &LocalFetchQuery, pattern: &str) -> bool {
-    match query.case_mode {
-        Some(ReadCaseMode::Sensitive) => true,
-        Some(ReadCaseMode::Smart) | None => pattern.chars().any(char::is_uppercase),
-        Some(ReadCaseMode::Insensitive) => false,
+
+pub(crate) fn block(query: &LocalFetchQuery) -> bool {
+    match query {
+        LocalFetchQuery::ContentRanges(q) => q.block == Some(true),
+        LocalFetchQuery::ContentMatchString(q) => q.block == Some(true),
+        LocalFetchQuery::CompactRanges(q) => q.block == Some(true),
+        _ => false,
     }
-}
-/// Context lines per match; the contract bounds the request.
-pub(crate) fn context_lines(query: &LocalFetchQuery) -> Option<usize> {
-    query.context_lines.map(usize_of_signed)
-}
-pub(crate) fn offset(query: &LocalFetchQuery) -> Option<usize> {
-    query.offset.map(usize_of_signed)
-}
-pub(crate) fn window_length(query: &LocalFetchQuery) -> Option<usize> {
-    query.length.map(|n| usize_of(n.get()))
-}
-/// Whether `matchString` hits must stand alone as words.
-pub(crate) fn whole_word(query: &LocalFetchQuery) -> bool {
-    query.whole_word == Some(true)
 }
 
-/// Every `matchString` entry (a list matches any of them).
-pub(crate) fn match_strings(query: &LocalFetchQuery) -> Vec<&str> {
-    match &query.match_string {
-        None => Vec::new(),
-        Some(MatchString::String(one)) => vec![one.as_str()],
-        Some(MatchString::Array(list)) => list.iter().map(|one| one.as_str()).collect(),
+pub(crate) fn view(query: &LocalFetchQuery) -> ReadView {
+    match query {
+        LocalFetchQuery::Compact3(_) | LocalFetchQuery::CompactRanges(_) => ReadView::Compact,
+        LocalFetchQuery::Symbols(_) => ReadView::Symbols,
+        _ => ReadView::Content,
     }
 }
-/// `ranges` parsed into 1-based inclusive line ranges, in request order.
-/// The contract admits only `start-end` digits, so a malformed entry
-/// (unreachable after validation) is skipped.
-pub(crate) fn line_ranges(query: &LocalFetchQuery) -> Vec<LineRange> {
-    query
-        .ranges
-        .iter()
-        .filter_map(|range| {
-            let (start, end) = crate::tools::line_spans::parse_span(range)?;
-            Some(LineRange { start, end })
-        })
-        .collect()
+
+pub(crate) fn has_classification(query: &LocalFetchQuery) -> bool {
+    match query {
+        LocalFetchQuery::Content0(q) => q.classification.is_some(),
+        LocalFetchQuery::ContentRanges(q) => q.classification.is_some(),
+        LocalFetchQuery::ContentMatchString(q) => q.classification.is_some(),
+        _ => false,
+    }
 }
-pub(crate) fn has_ranges(query: &LocalFetchQuery) -> bool {
-    !query.ranges.is_empty()
+
+pub(crate) fn selection(query: &LocalFetchQuery) -> Option<&str> {
+    match query {
+        LocalFetchQuery::Content0(q) => q.selection.as_ref().map(|token| token.as_str()),
+        LocalFetchQuery::ContentRanges(q) => q.selection.as_ref().map(|token| token.as_str()),
+        LocalFetchQuery::ContentMatchString(q) => q.selection.as_ref().map(|token| token.as_str()),
+        _ => None,
+    }
 }
-/// The file's last window as `(start, end)`, as wide as the widest
-/// requested range, when every range starts past the file end. `None`
-/// when any range reaches into the file (that read is served, clamped),
-/// no range was requested, or the file has no line.
+
+pub(crate) fn snapshot(query: &LocalFetchQuery) -> Option<&str> {
+    each_shape!(query, q => q.snapshot.as_ref().map(|value| value.as_str()))
+}
+
+pub(crate) fn read_progress(query: &LocalFetchQuery) -> Option<&ReadProgress> {
+    each_shape!(query, q => q.read_progress.as_ref())
+}
+
+pub(crate) fn offset(query: &LocalFetchQuery) -> Option<usize> {
+    read_progress(query).map(|progress| usize_of_signed(progress.offset))
+}
+
+pub(crate) fn unit(query: &LocalFetchQuery) -> ReadProgressUnit {
+    read_progress(query).map_or(ReadProgressUnit::Lines, |progress| progress.unit)
+}
+
+pub(crate) fn set_progress(query: &mut LocalFetchQuery, progress: Option<ReadProgress>) {
+    each_shape!(query, q => q.read_progress = progress);
+}
+
+/// Revalidate an internally derived selection through the generated exact alternatives.
+pub(crate) fn updated(
+    query: &LocalFetchQuery,
+    changes: Value,
+) -> Result<LocalFetchQuery, serde_json::Error> {
+    let mut value = serde_json::to_value(query)?;
+    if let (Some(row), Some(changes)) = (value.as_object_mut(), changes.as_object()) {
+        for (key, value) in changes {
+            if value.is_null() {
+                row.remove(key);
+            } else {
+                row.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    serde_json::from_value(value)
+}
+
+pub(crate) fn set_line_span(
+    query: &mut LocalFetchQuery,
+    start: usize,
+    end: usize,
+) -> Result<(), serde_json::Error> {
+    set_line_spans(query, &[(start, end)])
+}
+
+pub(crate) fn set_line_spans(
+    query: &mut LocalFetchQuery,
+    spans: &[(usize, usize)],
+) -> Result<(), serde_json::Error> {
+    *query = updated(
+        query,
+        json!({"ranges": spans.iter().map(|(start, end)| json!({"startLine":start,"endLine":end})).collect::<Vec<_>>()}),
+    )?;
+    Ok(())
+}
+
 pub(crate) fn last_window_span(
     query: &LocalFetchQuery,
     total_lines: usize,
@@ -106,19 +227,33 @@ pub(crate) fn last_window_span(
         .max()?;
     Some((total_lines.saturating_sub(width - 1).max(1), total_lines))
 }
-/// `block:true`: widen windows to the enclosing declaration.
-pub(crate) fn block(query: &LocalFetchQuery) -> bool {
-    query.block == Some(true)
+
+pub(crate) fn set_path(
+    query: &mut LocalFetchQuery,
+    path: &str,
+) -> Result<(), octocode_contract_types::error::ConversionError> {
+    each_shape!(query, q => { q.path = path.parse()?; Ok(()) })
 }
-/// Drop the multi-window selectors (`ranges`, `block`) from a derived query.
-pub(crate) fn clear_block_selectors(query: &mut LocalFetchQuery) {
-    query.ranges = Vec::new();
-    query.block = None;
+
+pub(crate) fn set_snapshot(
+    query: &mut LocalFetchQuery,
+    snapshot: Option<&str>,
+) -> Result<(), octocode_contract_types::error::ConversionError> {
+    each_shape!(query, q => { q.snapshot = snapshot.map(str::parse).transpose()?; Ok(()) })
 }
-pub(crate) fn path(query: &LocalFetchQuery) -> &str {
-    query.path.as_str()
-}
-/// The requested transformed view; `None` reads the file as is.
-pub(crate) fn minify_mode(query: &LocalFetchQuery) -> Option<MinifyMode> {
-    query.minify
+
+pub(crate) fn set_selection(
+    query: &mut LocalFetchQuery,
+    selection: Option<&str>,
+) -> Result<(), octocode_contract_types::error::ConversionError> {
+    match query {
+        LocalFetchQuery::Content0(q) => q.selection = selection.map(str::parse).transpose()?,
+        LocalFetchQuery::ContentRanges(q) => q.selection = selection.map(str::parse).transpose()?,
+        LocalFetchQuery::ContentMatchString(q) => {
+            q.selection = selection.map(str::parse).transpose()?;
+        }
+        _ if selection.is_some() => return Err("selection requires content view".into()),
+        _ => {}
+    }
+    Ok(())
 }

@@ -8,6 +8,10 @@
 //! no-proc-macros defaults), and the file is opened so a project load starts
 //! too. The later `lspSearch` then acquires the warm pooled client.
 //!
+//! A host that knows its workspace before any call (`octocode mcp` after
+//! `initialize`) warms the workspace's servers instead
+//! ([`workspace::schedule_workspace`]).
+//!
 //! Bounded: at most [`MAX_PREWARM_KEYS`] simultaneous starts per runtime,
 //! one in-flight start per server, and nothing is awaited by the caller.
 
@@ -53,33 +57,26 @@ pub fn anchor_file(query: &Value, data: &Value) -> Option<PathBuf> {
         .find(|path| path.is_absolute() && path.is_file())
 }
 
-/// The anchor file of the first `lspSearch` call a tool row offers (a lead
-/// or page `{tool, query}` anywhere in `data`), when its `path` names an
-/// absolute file path or `file://` uri of an existing file.
+/// The anchor of the first schema-declared lspSearch call that names an
+/// existing absolute file. Provider data resembling a call is not executable.
 #[must_use]
-pub fn lead_file(data: &Value) -> Option<PathBuf> {
-    fn find(value: &Value, depth: usize) -> Option<PathBuf> {
-        if depth > 8 {
-            return None;
+pub fn lead_file(tool: crate::id::ToolId, data: &Value) -> Option<PathBuf> {
+    let structured = serde_json::json!({"results":[{"index":0,"data":data}]});
+    let mut found = None;
+    crate::response::continuations::visit_calls(tool, &structured, &mut |call, _| {
+        if found.is_some() || call["tool"] != crate::id::ToolId::LspSearch.as_str() {
+            return;
         }
-        match value {
-            Value::Object(map) => {
-                if map.get("tool").and_then(Value::as_str)
-                    == Some(crate::id::ToolId::LspSearch.as_str())
-                {
-                    let path = crate::response::result::continuation_row(value)?
-                        .get("path")?
-                        .as_str()?;
-                    let path = PathBuf::from(super::render::uri_to_path(path));
-                    return (path.is_absolute() && path.is_file()).then_some(path);
-                }
-                map.values().find_map(|child| find(child, depth + 1))
-            }
-            Value::Array(items) => items.iter().find_map(|item| find(item, depth + 1)),
-            _ => None,
-        }
-    }
-    find(data, 0)
+        found = call["input"]["queries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|query| query["path"].as_str())
+            .map(|path| PathBuf::from(super::render::uri_to_path(path)))
+            .find(|path| path.is_absolute() && path.is_file());
+    })
+    .ok()?;
+    found
 }
 
 #[derive(Debug, Default)]
@@ -113,6 +110,33 @@ impl WarmState {
     }
 }
 
+/// A start [`schedule`] makes: an authorized file, the server configuration
+/// `lspSearch` would resolve for it, and that server's pool key.
+struct Planned {
+    file: String,
+    key: String,
+    config: LspLanguageServerConfig,
+}
+
+/// The start for `file` when it is authorized and has a configured server.
+fn plan(paths: &PathPolicy, execution: &LspExecutionConfig, file: &Path) -> Option<Planned> {
+    let file = paths.validate_read(file).ok()?;
+    let file = file.canonical.to_string_lossy().into_owned();
+    let workspace = resolve_workspace_root_for_file(file.clone())
+        .ok()
+        .and_then(|root| paths.validate(&root).ok())
+        .filter(|root| root.canonical.is_dir())
+        .map(|root| root.canonical.to_string_lossy().into_owned())?;
+    let config_path = match execution.config_path.as_deref() {
+        Some(path) => Some(paths.validate_read(path).ok()?.canonical),
+        None => None,
+    };
+    let discovery = execution.discovery(config_path);
+    let config = default_server_for_file(&file, &workspace, &discovery)?;
+    let key = canonical_lsp_key(&config).ok()?;
+    Some(Planned { file, key, config })
+}
+
 /// Start `file`'s language server in the background when it is authorized,
 /// has a configured server, and its key was not prewarmed yet. Returns
 /// whether a start was scheduled.
@@ -123,32 +147,17 @@ pub fn schedule(
     execution: &LspExecutionConfig,
     file: &Path,
 ) -> bool {
-    let Ok(file) = paths.validate_read(file) else {
-        return false;
-    };
-    let file = file.canonical.to_string_lossy().into_owned();
-    let Some(workspace) = resolve_workspace_root_for_file(file.clone())
-        .ok()
-        .and_then(|root| paths.validate(&root).ok())
-        .filter(|root| root.canonical.is_dir())
-        .map(|root| root.canonical.to_string_lossy().into_owned())
-    else {
-        return false;
-    };
-    let config_path = match execution.config_path.as_deref() {
-        Some(path) => match paths.validate_read(path) {
-            Ok(validated) => Some(validated.canonical),
-            Err(_) => return false,
-        },
-        None => None,
-    };
-    let discovery = execution.discovery(config_path);
-    let Some(config) = default_server_for_file(&file, &workspace, &discovery) else {
-        return false;
-    };
-    let Ok(key) = canonical_lsp_key(&config) else {
-        return false;
-    };
+    plan(paths, execution, file).is_some_and(|planned| start(handle, pool, execution, planned))
+}
+
+/// Start a planned server unless its key is warm or in flight, or the
+/// runtime already runs [`MAX_PREWARM_KEYS`] starts.
+fn start(
+    handle: &tokio::runtime::Handle,
+    pool: &Arc<LspClientPool>,
+    execution: &LspExecutionConfig,
+    Planned { file, key, config }: Planned,
+) -> bool {
     {
         let mut state = execution
             .prewarm_state
@@ -204,6 +213,8 @@ pub(super) async fn warm(
     };
     warmed.await.is_some()
 }
+
+pub mod workspace;
 
 #[cfg(test)]
 mod tests {
@@ -266,20 +277,26 @@ mod tests {
         let file = dir.join("a.ts");
         std::fs::write(&file, "export const a = 1;\n").expect("file");
         let uri = format!("file://{}", file.display());
-        let data = json!({"results":[{"file":"a.ts"}],"next":{"references":{"tool":"lspSearch","query":{"queries":[{"path":uri,"symbolName":"a","line":1}]}}}});
-        assert_eq!(lead_file(&data), Some(file.clone()));
+        let data = json!({"related":[{"tool":"lspSearch","kind":"related","input":{"queries":[{"path":uri,"symbolName":"a","line":1}]}}]});
+        assert_eq!(
+            lead_file(crate::id::ToolId::LocalSearch, &data),
+            Some(file.clone())
+        );
         // A file uri is percent-decoded, as lspSearch itself decodes it.
         let spaced = dir.join("a b.ts");
         std::fs::write(&spaced, "export const b = 1;\n").expect("spaced file");
         let encoded = format!("file://{}/a%20b.ts", dir.display());
-        let data = json!({"next":{"references":{"tool":"lspSearch","query":{"queries":[{"path":encoded,"symbolName":"b","line":1}]}}}});
-        assert_eq!(lead_file(&data), Some(spaced));
-        let other =
-            json!({"next":{"read":{"tool":"localFetch","query":{"queries":[{"path":file}]}}}});
-        assert_eq!(lead_file(&other), None);
-        let relative =
-            json!({"hints":{"refs":{"tool":"lspSearch","query":{"queries":[{"path":"a.ts"}]}}}});
-        assert_eq!(lead_file(&relative), None);
+        let data = json!({"related":[{"tool":"lspSearch","kind":"related","input":{"queries":[{"path":encoded,"symbolName":"b","line":1}]}}]});
+        assert_eq!(
+            lead_file(crate::id::ToolId::LocalSearch, &data),
+            Some(spaced)
+        );
+        let other = json!({"related":[{"tool":"localFetch","kind":"related","input":{"queries":[{"path":file}]}}]});
+        assert_eq!(lead_file(crate::id::ToolId::LocalSearch, &other), None);
+        let relative = json!({"related":[{"tool":"lspSearch","kind":"related","input":{"queries":[{"path":"a.ts"}]}}]});
+        assert_eq!(lead_file(crate::id::ToolId::LocalSearch, &relative), None);
+        let provider = json!({"files":[{"path":"a.ts","provider":data["related"][0]}]});
+        assert_eq!(lead_file(crate::id::ToolId::LocalSearch, &provider), None);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

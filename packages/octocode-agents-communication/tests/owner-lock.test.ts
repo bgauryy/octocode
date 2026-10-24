@@ -1,21 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
-import { waitFor } from './helpers.ts';
+import { setTimeout as delay } from 'node:timers/promises';
+import { posix, tempWorkspace, waitFor } from './helpers.ts';
 import { bundlePath, runtime } from './store-support.ts';
 
 const { ownerLock } = runtime;
-const posix = process.platform !== 'win32';
-
-function directory(t: TestContext) {
-  const path = realpathSync(mkdtempSync(join(tmpdir(), 'owner-lock-')));
-  t.after(() => rmSync(path, { recursive: true, force: true }));
-  return path;
-}
 
 /** A separate process that claims the lock, reports `claimed <address>` and holds it until killed. */
 function holder(t: TestContext, database: string, session: string) {
@@ -39,7 +32,7 @@ function holder(t: TestContext, database: string, session: string) {
 }
 
 test('acquiring the lock makes the owner live and release removes it', async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   assert.equal(ownerLock.deliveryOwnerLive(database, 's1'), false);
   const lock = await ownerLock.claimDeliveryOwner(database, 's1');
   assert.equal(ownerLock.deliveryOwnerLive(database, 's1'), true);
@@ -52,7 +45,7 @@ test('acquiring the lock makes the owner live and release removes it', async t =
 });
 
 test('a second claim in the same process is refused with the owner message', async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const lock = await ownerLock.claimDeliveryOwner(database, 's1');
   t.after(() => lock.release());
   await assert.rejects(ownerLock.claimDeliveryOwner(database, 's1'), (error: unknown) => error instanceof Error && error.message === ownerLock.OWNED_ELSEWHERE);
@@ -61,7 +54,7 @@ test('a second claim in the same process is refused with the owner message', asy
 });
 
 test('the lock is held across processes and released by SIGKILL; the stale socket is recovered', { skip: !posix }, async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const first = holder(t, database, 's1');
   const address = await first.claimed;
   assert.equal(ownerLock.deliveryOwnerLive(database, 's1'), true);
@@ -80,7 +73,7 @@ test('the lock is held across processes and released by SIGKILL; the stale socke
 });
 
 test('a SIGTERM-killed owner is not live and its address is reusable', { skip: !posix }, async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const owner = holder(t, database, 's1');
   const address = await owner.claimed;
   owner.child.kill('SIGTERM');
@@ -93,7 +86,7 @@ test('a SIGTERM-killed owner is not live and its address is reusable', { skip: !
 });
 
 test('a database path too long for a socket address still locks', { skip: !posix }, async t => {
-  let path = directory(t);
+  let path = tempWorkspace(t, 'owner-lock-', { real: true });
   for (const part of ['a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40)]) {
     path = join(path, part);
     mkdirSync(path);
@@ -109,20 +102,22 @@ test('a database path too long for a socket address still locks', { skip: !posix
 });
 
 test('the lock disposes asynchronously', async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
+  let address = '';
   {
     await using lock = await ownerLock.claimDeliveryOwner(database, 's1');
-    assert.ok(lock.address);
     assert.equal(ownerLock.deliveryOwnerLive(database, 's1'), true);
+    if (posix) assert.equal(existsSync(lock.address), true, 'the held lock listens on its socket');
+    address = lock.address;
   }
   assert.equal(ownerLock.deliveryOwnerLive(database, 's1'), false);
+  if (posix) assert.equal(existsSync(address), false, 'disposal removes the socket');
 });
 
 const sidecarOf = (address: string) => address + '.pid';
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 test('the owner records pid, start time and socket inode beside the socket and removes them on release', { skip: !posix }, async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const lock = await ownerLock.claimDeliveryOwner(database, 's1');
   const identity = JSON.parse(readFileSync(sidecarOf(lock.address), 'utf8'));
   assert.equal(identity.pid, process.pid);
@@ -136,7 +131,7 @@ test('the owner records pid, start time and socket inode beside the socket and r
 });
 
 test('a SIGSTOPped owner stays live over 200 probes, then reads dead after SIGKILL', { skip: !posix, timeout: 120000 }, async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const owner = holder(t, database, 's1');
   await owner.claimed;
   owner.child.kill('SIGSTOP');
@@ -149,7 +144,7 @@ test('a SIGSTOPped owner stays live over 200 probes, then reads dead after SIGKI
 });
 
 test('a sidecar that does not describe the live process or socket reads dead', { skip: !posix, timeout: 60000 }, async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const owner = holder(t, database, 's1');
   const address = await owner.claimed;
   const sidecar = sidecarOf(address);
@@ -166,7 +161,7 @@ test('a sidecar that does not describe the live process or socket reads dead', {
   const age = Date.now() - Number(lstatSync(address, { bigint: true }).ctimeMs);
   if (age < 900) assert.equal(ownerLock.deliveryOwnerLive(database, 's1'), true, 'a young socket without its sidecar is not an orphan');
   // ... and dead once it is older than the grace.
-  await sleep(1100);
+  await delay(1100);
   assert.equal(ownerLock.deliveryOwnerLive(database, 's1'), false);
 
   writeFileSync(sidecar, 'not json');
@@ -179,7 +174,7 @@ test('a sidecar that does not describe the live process or socket reads dead', {
 });
 
 test('a probe is not affected by an earlier probe: no state survives between calls', { skip: !posix }, async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const lock = await ownerLock.claimDeliveryOwner(database, 's1');
   for (let i = 0; i < 3; i += 1) {
     assert.equal(ownerLock.deliveryOwnerLive(database, 's1'), true);
@@ -202,7 +197,7 @@ async function zombie(t: TestContext) {
 }
 
 test('an owner that died but is not reaped (zombie) reads dead, a running one reads live', { skip: !posix, timeout: 60000 }, async t => {
-  const database = join(directory(t), 'db.sqlite');
+  const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const lock = await ownerLock.claimDeliveryOwner(database, 's1');
   t.after(() => lock.release());
   const sidecar = lock.address + '.pid';

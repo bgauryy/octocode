@@ -1,5 +1,4 @@
 use super::super::{ContractValidationError, ValidationIssue, issue};
-use super::{DISCRIMINATORS, SELECTORS};
 use serde_json::Value;
 
 /// The required fields a failed branch lacks, when that is all it rejects
@@ -93,10 +92,6 @@ pub(super) fn selected_failures<'a>(
         matches!(item.rule_id.as_str(), "schema.const" | "schema.enum")
             && item.path.len() == path.len() + 1
             && item.path.starts_with(path)
-            && item
-                .path
-                .last()
-                .is_some_and(|field| SELECTORS.contains(&field.as_str()))
     };
     let matched = failures
         .iter()
@@ -187,12 +182,7 @@ pub(super) fn widen_literal_issues(
             .collect::<Vec<_>>()
             .join(", ");
         item.rule_id = "schema.enum".into();
-        let hint = item
-            .received
-            .as_ref()
-            .map(|received| super::super::enum_value::enum_hint(literals, received, &item.path))
-            .unwrap_or_default();
-        item.message = format!("Value is outside the allowed enum; allowed: {rendered}{hint}");
+        item.message = format!("Value is outside the allowed enum; allowed: {rendered}");
         item.schema = Some(serde_json::json!({ "enum": literals }));
     }
 }
@@ -248,51 +238,29 @@ pub(super) fn mixed_forms(
     None
 }
 
-pub(super) fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 5] {
-    // A branch that does not declare a named discriminator (`tool`, `type`, …)
-    // rejects it as strongly as a branch that pins it to other literals.
-    // A branch missing a required literal (`operation:"models"`) rejects it
-    // too, as core Zod's `invalid_value` does.
-    let rejects = |issue: &ValidationIssue| {
-        matches!(
-            issue.rule_id.as_str(),
-            "schema.const" | "schema.enum" | "schema.unknown-field"
-        )
-    };
-    let invalid = |names: &[&str]| {
-        issues
-            .iter()
-            .filter(|issue| {
-                ((rejects(issue) && issue.path.len() == depth + 1) || missing_literal(issue, depth))
-                    && issue
-                        .path
-                        .get(depth)
-                        .is_some_and(|name| names.contains(&name.as_str()))
-            })
-            .count()
-    };
-    let rejected = issues
-        .iter()
-        .filter(|issue| {
-            (rejects(issue) || missing_literal(issue, depth))
-                && issue
-                    .path
-                    .get(depth)
-                    .is_some_and(|name| SELECTORS.contains(&name.as_str()))
-        })
-        .count();
-    let count = grouped_issue_count(issues);
+pub(super) fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {
+    let at_field = |issue: &&ValidationIssue| issue.path.len() == depth + 1;
     [
-        // A continuation names its tool: a branch for another tool is never
-        // the closest match, however few field issues it reports.
-        invalid(DISCRIMINATORS),
-        invalid(&["resultView"]),
         issues
             .iter()
-            .filter(|issue| issue.rule_id == "schema.not" && issue.path.len() == depth + 1)
+            .filter(at_field)
+            .filter(|issue| {
+                matches!(
+                    issue.rule_id.as_str(),
+                    "schema.const" | "schema.enum" | "schema.unknown-field"
+                )
+            })
             .count(),
-        rejected,
-        count,
+        issues
+            .iter()
+            .filter(|issue| missing_literal(issue, depth))
+            .count(),
+        issues
+            .iter()
+            .filter(at_field)
+            .filter(|issue| issue.rule_id == "schema.not")
+            .count(),
+        grouped_issue_count(issues),
     ]
 }
 

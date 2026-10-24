@@ -6,7 +6,7 @@ import { formatSize } from '@earendil-works/pi-coding-agent';
 import { redactSecrets, sanitizeTerminalText } from '../shared/sanitize.js';
 import type { Snapshot } from './snapshot.js';
 import { plural } from '../shared/render.js';
-import { clipText } from '../shared/util.js';
+import { clipText, contentText } from '../shared/util.js';
 import type { PermissionRequest } from './request.js';
 import { actionWhy, decide, type ActionClass, type PermissionMode } from './mode.js';
 import { catastrophicCommand, expandHome, removalTargets } from './shell.js';
@@ -220,7 +220,7 @@ export function transcriptPurpose(sessionManager: { getBranch?: () => unknown[] 
       if (message?.role !== 'assistant' || !Array.isArray(message.content)) continue;
       const parts = message.content as Array<{ type?: string; id?: string; text?: string }>;
       if (!parts.some((part) => part.type === 'toolCall' && part.id === toolCallId)) continue;
-      return lastSentence(parts.filter((part) => part.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('\n'));
+      return lastSentence(contentText(parts));
     }
   } catch {
     // A session manager that cannot read its branch has no transcript to quote.

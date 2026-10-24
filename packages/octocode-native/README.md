@@ -13,24 +13,23 @@ $ npx octocode --version
 octocode 20.2.0
 
 $ npx octocode schema
+{"kind":"octocode.toolCatalog","version":1,"toolCount":13,"commands":{…},"tools":[…]}
+
+$ npx octocode schema --view full
 {"kind":"octocode.toolCatalog","version":1,"toolCount":13,"commands":{…},"instructions":"…","grammars":"…","tools":[…]}
 
 $ npx octocode schema localSearch --view query
 {"name":"localSearch","description":"…","querySchema":{…},"availability":{"enabled":true},"run":"octocode localSearch '<json>'"}
 
-$ npx octocode localSearch ToolRuntime crates/ -l
-crates/cli/src/cli/config.rs
-crates/cli/src/cli/graph.rs
+$ npx octocode localSearch '{"queries":[{"matchString":["ToolRuntime"],"path":"crates/","view":"files"}]}'
 …
 ```
 
-Every available tool is a command under its canonical name, with the same query
-contract as the MCP server. Its flags are generated from that contract: one long
-flag per field, plus short letters rg, grep, fd, ast-grep and gh use for the same
-meaning (`crates/cli/src/cli/flags.rs`); one JSON query works too. The
-binary serves `schema` and each tool's `--help` itself, from discovery content
-that `@octocodeai/config` projects from the core contract at build time, so an
-agent with only the binary can discover every tool. The `octocode` npm launcher
+Every available tool is a command under its canonical name. CLI and MCP accept the
+same JSON envelope: `{ "queries": [...] }` with optional `responseChars`, or an
+issued `{ "cursor": "…" }`. Supply it directly or through `--input FILE|-`.
+The binary serves `schema` and each tool's `--help` from discovery content that
+`@octocodeai/config` projects from core at build time. The `octocode` npm launcher
 delegates to it.
 
 ## Install
@@ -116,27 +115,28 @@ npx octocode schema
 npx octocode schema ghSearchHistory --view query --select operation=commit
 
 # local tools (paths relative to packages/octocode-native)
-npx octocode localFetch '{"queries":[{"path":"crates/cli/src/main.rs","ranges":["1-50"]}]}'
-npx octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"crates/","resultView":"matchOnly"}]}'
-npx octocode astSearch '{"queries":[{"operation":"match","path":"crates/","language":"rust","pattern":"async fn $NAME($$$ARGS) -> $T { $$$BODY }"}]}'
-npx octocode lspSearch '{"queries":[{"operation":"definition","path":"crates/cli/src/cli/mod.rs","symbolName":"dispatch","line":341}]}'
+npx octocode localFetch '{"queries":[{"path":"crates/cli/src/main.rs","ranges":[{"startLine":1,"endLine":50}]}]}'
+npx octocode localSearch '{"queries":[{"matchString":["ToolRuntime"],"path":"crates/","view":"content"}]}'
+npx octocode astSearch '{"queries":[{"operation":"match","path":"crates/","parser":"rust","rule":{"pattern":"async fn $NAME($$$ARGS) -> $T { $$$BODY }"}}]}'
+npx octocode lspSearch '{"queries":[{"operation":"definition","path":"crates/cli/src/cli.rs","symbolName":"dispatch","line":167}]}'
 
 # GitHub and packages
 npx octocode ghGetFileContent '{"queries":[{"owner":"cli","repo":"cli","path":"README.md"}]}'
 npx octocode ghSearchHistory '{"queries":[{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","keywords":["fix"]}]}'
-npx octocode artifactSearch '{"queries":[{"ecosystem":"crates","packageName":"clap"}]}'
+npx octocode artifactSearch '{"queries":[{"operation":"resolve","ecosystem":"crates","packageName":"clap"}]}'
 
 # a long query from a file or stdin
 npx octocode localSearch --input query.json
 ```
 
-A paged result exits `0` and carries a `next.*` continuation: run it unchanged.
+A paged result exits `0`. Copy the `input` from its `next` call to the named tool.
+Required continuations use `{kind:"continue", tool, input:{cursor}}`; `related`
+calls start optional work, and `hints` are prose.
 Field reference: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md).
 
 ## Commands
 
-Tool commands take flags and positional arguments, or one JSON query (positional,
-`--input <file>`, or `--input -`). They print text on a terminal or a pipe:
+Tool commands take one JSON envelope (positional, `--input <file>`, or `--input -`). They print text on a terminal or a pipe:
 rg-style lines for search hits, the rendered result otherwise, with notes and
 runnable follow-up commands on stderr (`crates/cli/src/cli/lines.rs`). `--json`
 prints JSON, indented on a terminal. `octocode --help` lists the tools available under the
@@ -202,7 +202,7 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   request.
 
 The named limits are constants in
-[`crates/cli/src/cli/serve/`](crates/cli/src/cli/serve/mod.rs), whose module
+[`crates/cli/src/cli/serve.rs`](crates/cli/src/cli/serve.rs), whose module
 documentation says how the server keeps these guarantees.
 
 `npx @octocodeai/octocode-native` runs this binary directly. `npx octocode` (the
@@ -227,5 +227,5 @@ of compiling another copy, and libtest runs each test binary in one process.
 
 - One binary serves CLI and MCP; the MCP interface adds no tool logic (`crates/cli/src/cli/mcp_server/` lists tools from the embedded presentation and calls the shared runtime).
 - No command delegates back to Node; the CLI owns all command behavior.
-- Workspace clippy policy denies `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, and `dbg_macro`.
+- Workspace clippy policy (root `Cargo.toml`, thresholds in `clippy.toml`) denies `unwrap_used`, `expect_used`, `panic`, `todo`, `unimplemented`, and `dbg_macro`; hand-written code suppresses a lint only with `#[expect(..., reason = "...")]`; a function stays within 150 lines; a source module is `name.rs` plus `name/` (`mod_module_files`).
 - Arguments use clap v4 derive; enum-like arguments are validated at parse time, so a bad value exits `2` with the choices listed.

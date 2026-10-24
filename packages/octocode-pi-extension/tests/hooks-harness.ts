@@ -2,12 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { beforeEach, vi } from 'vitest';
 import { fingerprint, projectConfigFiles, saveDecision } from '../src/shared/trust.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 /** A trusted repository whose `file` holds `hooks`. */
 export function project(hooks: unknown, file = path.join('.codex', 'hooks.json')): string {
-  const dir = tmp('octocode-hooks-');
-  fs.mkdirSync(path.join(dir, '.git'));
+  const dir = repo('octocode-hooks-');
   fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
   fs.writeFileSync(path.join(dir, file), JSON.stringify({ hooks }));
   // The user trusted these hooks (`/octocode trust`): Pi's own trust never covers commands it did not show.

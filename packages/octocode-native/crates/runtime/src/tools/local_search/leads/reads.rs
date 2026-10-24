@@ -1,6 +1,9 @@
 //! Leads that read: the top hit, every clipped value, the skipped binaries.
+use crate::tools::local_search::local_search_query::Multiline;
+use crate::tools::local_search::local_search_query::View;
+use octocode_contract_types::RegexEngine;
 
-use super::super::local_search_query::{self, RESPONSE_VALUE_CHAR_BUDGET};
+use super::super::local_search_query;
 use super::*;
 
 impl Found<'_> {
@@ -9,17 +12,11 @@ impl Found<'_> {
     pub(super) fn expand_values_leads(&self) -> Vec<(String, Value)> {
         let query = self.query;
         let expansions = expand_values(
-            query,
             self.paths,
             self.output_root,
             self.files,
             self.layout.context,
-            query.multiline != LocalSearchQueryMultiline::Off,
-            // A caller-sized (grid) page keeps its rows whatever the value
-            // width; a streamed page is cut by serialized size.
-            (!self.layout.streamed).then_some(GridPage {
-                value_cap: self.layout.budget_cap.unwrap_or(RESPONSE_VALUE_CHAR_BUDGET),
-            }),
+            local_search_query::multiline(query) != Multiline::Off,
         );
         numbered_calls("expandValues", &expansions)
     }
@@ -34,10 +31,10 @@ impl Found<'_> {
         let query = self.query;
         let readable = self.first_page()
             && !self.layout.list
-            && query.result_view != LocalSearchQueryResultView::MatchOnly
+            && local_search_query::view(query) != View::MatchOnly
             && self.layout.context.is_empty()
-            && local_search_query::regex_mode(query) != LocalSearchQueryRegex::Pcre2
-            && query.invert_match != Some(true);
+            && local_search_query::regex_mode(query) != RegexEngine::Pcre2
+            && local_search_query::invert_match(query) != Some(true);
         if !readable {
             return None;
         }
@@ -131,7 +128,7 @@ impl Found<'_> {
 /// each run of one tool's rows in calls of as many rows as that tool
 /// accepts, the first named `name` and the rest `name2`, `name3`, …, so
 /// every read is one call away. A default page is cut so its reads fit one
-/// call (see [`stream_pages`]); a caller-sized page may need more.
+/// call (see `layout::stream::stream_pages`); a caller-sized page may need more.
 fn numbered_calls(name: &str, reads: &[Value]) -> Vec<(String, Value)> {
     let mut calls = Vec::new();
     for run in reads.chunk_by(|a, b| a["tool"] == b["tool"]) {
@@ -145,7 +142,7 @@ fn numbered_calls(name: &str, reads: &[Value]) -> Vec<(String, Value)> {
             .collect::<Vec<_>>();
         for chunk in rows.chunks(crate::response::result::rows_per_call(tool)) {
             let key = crate::id::numbered(name, calls.len());
-            let call = Continuation::input(tool, json!({ "queries": chunk })).build();
+            let call = Continuation::related_input(tool, json!({ "queries": chunk })).build();
             calls.push((key, call));
         }
     }

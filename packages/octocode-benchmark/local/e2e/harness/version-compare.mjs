@@ -16,9 +16,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { ROOT, FIXTURES, expandShared } from './mcp-client.mjs';
+import { execFileSync } from 'node:child_process';
+import { CLI, ROOT, FIXTURES } from './paths.mjs';
+import { spawnCli, startServer } from './mcp-client.mjs';
+import { contract } from './contract.mjs';
+import { createAjv } from './query-defaults.mjs';
 import { CASES } from './version-compare/cases.mjs';
 
 const arg = (name, def) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : def; };
@@ -32,20 +34,21 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), `octocode-vc-${SIDE}-`));
 const CALL_TIMEOUT = 180_000;
 
 // ---- side wiring
-let mcpCmd, cliRun, contract = null;
+let mcpEntry, cliBin, cliArgv;
+/** Output schemas to validate against: only the local build's contract declares them. */
+const outputContract = SIDE === 'local' ? contract : null;
 if (SIDE === 'local') {
-  mcpCmd = ['node', [path.join(ROOT, 'packages/octocode-mcp/dist/index.js')]];
-  const cli = path.join(ROOT, 'packages/octocode/out/octocode.js');
-  cliRun = (tool, query) => ['node', [cli, tool, JSON.stringify({ queries: [query] }), '--json']];
-  contract = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/tool-contract.json'), 'utf8'));
+  mcpEntry = path.join(ROOT, 'packages/octocode-mcp/dist/index.js');
+  cliBin = CLI;
+  cliArgv = (tool, query) => [tool, JSON.stringify({ queries: [query] }), '--json'];
 } else {
   const prefix = path.join(os.tmpdir(), `octocode-vc-published-${VERSION}`);
   if (!fs.existsSync(path.join(prefix, 'node_modules/octocode/out/octocode.js'))) {
     execFileSync('npm', ['i', '--no-save', '--no-audit', '--no-fund', '--prefix', prefix, `octocode-mcp@${VERSION}`, `octocode@${VERSION}`], { stdio: 'inherit' });
   }
-  mcpCmd = ['node', [path.join(prefix, 'node_modules/octocode-mcp/dist/index.js')]];
-  const cli = path.join(prefix, 'node_modules/octocode/out/octocode.js');
-  cliRun = (tool, query) => ['node', [cli, 'tools', tool, '--queries', JSON.stringify([query]), '--json']];
+  mcpEntry = path.join(prefix, 'node_modules/octocode-mcp/dist/index.js');
+  cliBin = path.join(prefix, 'node_modules/octocode/out/octocode.js');
+  cliArgv = (tool, query) => ['tools', tool, '--queries', JSON.stringify([query]), '--json'];
 }
 const token = (() => { try { return execFileSync('gh', ['auth', 'token'], { encoding: 'utf8' }).trim(); } catch { return ''; } })();
 const env = {
@@ -55,59 +58,16 @@ const env = {
 };
 fs.mkdirSync(env.OCTOCODE_HOME, { recursive: true });
 
-// ---- minimal MCP stdio client (one server per side, like an agent session)
-function startMcp() {
-  const child = spawn(mcpCmd[0], mcpCmd[1], { cwd: CWD, env, stdio: ['pipe', 'pipe', 'pipe'] });
-  let buf = '', id = 0; const pending = new Map();
-  child.stderr.on('data', () => {});
-  child.stdout.on('data', c => {
-    buf += c; let i;
-    while ((i = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, i); buf = buf.slice(i + 1);
-      let m; try { m = JSON.parse(line); } catch { continue; }
-      if (m.id != null && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
-    }
-  });
-  const request = (method, params) => new Promise((resolve, reject) => {
-    const myId = ++id; const t = setTimeout(() => { pending.delete(myId); reject(new Error(`timeout ${method}`)); }, CALL_TIMEOUT);
-    pending.set(myId, m => { clearTimeout(t); resolve(m); });
-    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: myId, method, params }) + '\n');
-  });
-  return {
-    async init() {
-      await request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'version-compare', version: '1' } });
-      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
-      const list = await request('tools/list', {});
-      return list.result.tools;
-    },
-    async call(name, args) {
-      const t0 = performance.now();
-      const m = await request('tools/call', { name, arguments: args });
-      const ms = Math.round(performance.now() - t0);
-      const r = m.result ?? {};
-      const text = (r.content ?? []).filter(c => c.type === 'text').map(c => c.text).join('\n');
-      return { ms, isError: Boolean(r.isError || m.error), rpcError: m.error?.message, text, sc: r.structuredContent ?? null };
-    },
-    close() { child.kill(); },
-  };
-}
-
-function runCli(tool, query) {
-  const [cmd, argv] = cliRun(tool, query);
-  const t0 = performance.now();
-  return new Promise(resolve => {
-    const child = spawn(cmd, argv, { cwd: CWD, env, stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '', err = '';
-    const t = setTimeout(() => child.kill(), CALL_TIMEOUT);
-    child.stdout.on('data', c => { out += c; }); child.stderr.on('data', c => { err += c; });
-    child.on('close', code => { clearTimeout(t); let json = null; try { json = JSON.parse(out); } catch {} resolve({ code, json, ms: Math.round(performance.now() - t0), err: err.slice(0, 300) }); });
-  });
+async function runCli(tool, query) {
+  const run = await spawnCli(cliArgv(tool, query), { bin: cliBin, cwd: CWD, env, timeoutMs: CALL_TIMEOUT });
+  let json = null; try { json = JSON.parse(run.stdout); } catch {}
+  return { code: run.status, json, ms: Math.round(run.ms), err: run.stderr.slice(0, 300) };
 }
 
 // ---- response shape helpers (both versions return results[] rows with data)
 const rowsOf = sc => {
   if (!sc) return [];
-  const x = expandShared(sc);
+  const x = sc;
   return Array.isArray(x.results) ? x.results : [x];
 };
 const SKIP = new Set(['next', 'hints', 'pagination', 'meta', 'stats', 'receipts', 'echo', 'diagnostics', 'shared', 'query']);
@@ -178,27 +138,24 @@ function readTruth(t) {
   return execFileSync('gh', ['api', '-H', 'Accept: application/vnd.github.raw', `repos/${t.owner}/${t.repo}/contents/${t.path}?ref=${t.ref}`], { encoding: 'utf8', maxBuffer: 64 << 20 });
 }
 
-const require = createRequire(import.meta.url);
-const Ajv2020 = require('ajv/dist/2020').default;
-const addFormats = require('ajv-formats').default ?? require('ajv-formats');
 let ajv = null; const validators = new Map();
 function contractCheck(tool, sc) {
-  if (!contract) return 'n/a (no published output schema)';
-  const def = contract.tools.find(t => t.name === tool);
+  if (!outputContract) return 'n/a (no published output schema)';
+  const def = outputContract.tools.find(t => t.name === tool);
   if (!def?.outputSchema) return 'n/a';
-  if (!ajv) { ajv = new Ajv2020({ strict: false, allErrors: false, validateFormats: true }); addFormats(ajv); }
+  ajv ??= createAjv();
   if (!validators.has(tool)) validators.set(tool, ajv.compile(def.outputSchema));
   const v = validators.get(tool);
   return v(sc) ? 'valid' : `invalid ${v.errors[0].instancePath || '/'} ${v.errors[0].message}`;
 }
 
 // ---- run
-const mcp = startMcp();
-const listed = await mcp.init();
+// One server per side, like an agent session.
+const mcp = await startServer({ entry: mcpEntry, cwd: CWD, env, replaceEnv: true, timeoutMs: CALL_TIMEOUT });
+const listed = mcp.tools;
 const listedNames = new Set(listed.map(t => t.name));
 const toolsListChars = JSON.stringify({ tools: listed }).length;
-const wrap = (tool, query) => (SIDE === 'local' ? { queries: [query] } : { queries: [query] });
-const cliOnly = tool => SIDE === 'local' && !listedNames.has(tool) && contract?.tools.some(t => t.name === tool);
+const cliOnly = tool => SIDE === 'local' && !listedNames.has(tool) && outputContract?.tools.some(t => t.name === tool);
 
 async function callOnce(tool, query) {
   if (cliOnly(tool)) {
@@ -207,7 +164,8 @@ async function callOnce(tool, query) {
     return { ms: r.ms, isError: r.code !== 0 && !r.json, text, sc: r.json, via: 'cli', cliErr: r.code !== 0 ? r.err : undefined };
   }
   if (!listedNames.has(tool)) return { unavailable: true };
-  return { ...(await mcp.call(tool, wrap(tool, query))), via: 'mcp' };
+  const entry = await mcp.raw(tool, { queries: [query] }, '', { keepRaw: true });
+  return { ms: entry.ms, isError: entry.isError, rpcError: entry.transport, text: entry.text, sc: entry.raw ?? null, via: 'mcp' };
 }
 
 function summarize(tool, res) {

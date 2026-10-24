@@ -1,30 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { shortPath } from '../src/shared/format.js';
 import type { ChildNotices, ChildProgress } from '../src/subagents/events.js';
 import { runSubagent } from '../src/subagents/process.js';
 import { noticeLines } from '../src/subagents/render.js';
 import { tmp } from './helpers.js';
+import { useScriptedPi } from './subagent-tool-harness.js';
 
-const FIXTURE = path.join(path.dirname(new URL(import.meta.url).pathname), 'subagent-fake-pi.cjs');
-const savedArgv = process.argv[1];
-const savedEnv = { ...process.env };
 
-beforeAll(() => {
-  const root = tmp('octocode-whole-');
-  process.env['OCTOCODE_HOME'] = path.join(root, 'home');
-  for (const key of ['OCTOCODE_SUBAGENT', 'OCTOCODE_AGENT_ID', 'OCTOCODE_PARENT_ID', 'OCTOCODE_AGENT_GOAL', 'OCTOCODE_AGENT_COLLABORATE', 'OCTOCODE_AGENT_SCRATCH', 'OCTOCODE_TEAM_WORKSPACE']) delete process.env[key];
-  const bin = path.join(root, 'bin');
-  fs.mkdirSync(bin);
-  fs.copyFileSync(FIXTURE, path.join(bin, 'pi'));
-  process.argv[1] = path.join(bin, 'pi');
-});
-
-afterAll(() => {
-  process.argv[1] = savedArgv!;
-  process.env = savedEnv;
-});
+useScriptedPi();
 
 /** Runs a scenario and returns what the parent was told: the last notices update, and the outcome or the error. */
 async function run(task: string, scratch: string) {

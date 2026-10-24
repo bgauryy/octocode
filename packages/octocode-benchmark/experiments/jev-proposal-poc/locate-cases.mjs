@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { hash, records } from '../../local/e2e/harness/util.mjs';
 
 // Development cases, not a holdout. The snapshots are unmodified contiguous
 // source; existing comments/tests remain. Gold names production statements only.
@@ -130,10 +130,10 @@ export async function locateCases(root) {
     const { id, path, startLine, endLine, sha256, broad, atoms, direct } = definition;
     const originalPath = resolve(root, 'packages/octocode-native/crates/runtime/src', path);
     const original = await readFile(originalPath, 'utf8');
-    const lines = original.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+    const lines = records(original);
     const selected = lines.slice(startLine - 1, endLine);
     const source = selected.join('');
-    const digest = createHash('sha256').update(source).digest('hex');
+    const digest = hash(source);
     if (selected.length !== endLine - startLine + 1 || selected.length < 90 || selected.length > 250) {
       throw new Error(`Invalid source extent for ${id}`);
     }

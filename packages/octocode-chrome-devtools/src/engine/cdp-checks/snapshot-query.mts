@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateFlags } from '../cli-flags.mjs';
+import { errorMessage } from '../error-message.mjs';
 const args = process.argv.slice(2);
 const arg = (flag: string, fallback?: string) =>
   args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
@@ -14,8 +15,9 @@ if (args.includes('--help') || args.includes('-h')) {
 }
 try {
   validateFlags(args, ['--file', '--page', '--limit', '--view']);
-  if (!arg('--file')) throw new Error('--file is required');
-  const file = resolve(arg('--file'));
+  const fileArg = arg('--file');
+  if (!fileArg) throw new Error('--file is required');
+  const file = resolve(fileArg);
   const page = Number(arg('--page', '1')),
     limit = Number(arg('--limit', '60'));
   const view = arg('--view', 'refs');
@@ -25,7 +27,7 @@ try {
     !Number.isSafeInteger(limit) ||
     limit < 1 ||
     limit > 300 ||
-    !['refs', 'outline'].includes(view)
+    !['refs', 'outline'].includes(view ?? '')
   )
     throw new Error('Invalid page, limit, or view');
   const data = JSON.parse(readFileSync(file, 'utf8'));
@@ -76,6 +78,6 @@ try {
     )
   );
 } catch (error) {
-  console.error('[SNAPSHOT_QUERY] ' + error.message);
+  console.error('[SNAPSHOT_QUERY] ' + errorMessage(error));
   process.exitCode = 1;
 }

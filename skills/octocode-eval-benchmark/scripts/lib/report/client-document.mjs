@@ -1,6 +1,8 @@
 // Page view: the library listing, document decoration (headings, chips, links, code blocks),
 // and the cited-sources rail. Inlined into the page via Function#toString: it may use only ctx
 // and browser globals.
+/* oxlint-disable unicorn/consistent-function-scoping -- helpers must stay inside the serialized view */
+// oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function documentView(ctx) {
   const { kit, $, $$, esc, slugify, decode, href, resolvePath, editorUrl, copy, files, byPath, siteTitle, diagramLabel } = ctx;
   const { toneOf } = kit;
@@ -15,8 +17,8 @@ export function documentView(ctx) {
     for (const f of files) kinds.set(kindKey(f), (kinds.get(kindKey(f)) || 0) + 1);
     if (libFilter && !kinds.has(libFilter)) libFilter = '';
     const list = files.filter((f) => !libFilter || kindKey(f) === libFilter)
-      .sort((a, b) => (b.date || '').localeCompare(a.date || '') || kindKey(a).localeCompare(kindKey(b)) || a.title.localeCompare(b.title));
-    const filters = [['', `All <small>${files.length}</small>`], ...[...kinds].sort((a, b) => a[0].localeCompare(b[0])).map(([k, n]) => [k, `${esc(k)} <small>${n}</small>`])];
+      .toSorted((a, b) => (b.date || '').localeCompare(a.date || '') || kindKey(a).localeCompare(kindKey(b)) || a.title.localeCompare(b.title));
+    const filters = [['', `All <small>${files.length}</small>`], ...[...kinds].toSorted((a, b) => a[0].localeCompare(b[0])).map(([k, n]) => [k, `${esc(k)} <small>${n}</small>`])];
     const filterHtml = (cls) => filters.map(([k, label]) => `<button class="${cls}${k === libFilter ? ' on' : ''}" data-filter="${esc(k)}" aria-pressed="${k === libFilter}">${label}</button>`).join('');
     let html = `<h1>${esc(siteTitle)}</h1><p class="lead">${files.length} document${files.length === 1 ? '' : 's'} from ${kinds.size} skill${kinds.size === 1 ? '' : 's'}, newest first. Press <kbd>/</kbd> to search every document.</p>`
       + `<div class="lib-filters" role="toolbar" aria-label="Filter by kind">${filterHtml('fchip')}</div><ul class="lib-list">`;
@@ -37,13 +39,20 @@ export function documentView(ctx) {
 
   // ----- Document view -----
   let cites = [];
-  function decorate(art, f) {
-    $$('.tablewrap', art).forEach(table => {
-      table.tabIndex = 0;
-      table.setAttribute('role', 'region');
-      table.setAttribute('aria-label', 'Scrollable table');
-    });
-    const refs = f.refs || {};
+  const cite = (a, kind, key, label) => { a.id = a.id || `cite-${cites.length}`; cites.push({ id: a.id, kind, key, label: label || a.textContent.trim() || key }); };
+  const refKind = (rel) => /\.(md|markdown)$/i.test(rel) ? 'doc' : 'code';
+  const codeLink = (a, ref) => {
+    const loc = ref.rel + (ref.line ? `:${ref.line}` : '');
+    a.href = editorUrl(ref.abs, ref.line);
+    a.dataset.abs = ref.abs;
+    a.dataset.line = ref.line || '';
+    a.classList.add('coderef');
+    a.title = `Open ${loc} in your editor`;
+    cite(a, refKind(ref.rel), loc, loc);
+  };
+
+  // Unique heading ids with copy-link anchors, and the table of contents from h2/h3.
+  function headings(art, f) {
     const seen = {}, toc = [];
     $$('h1,h2,h3,h4', art).forEach((h) => {
       let id = slugify(h.textContent);
@@ -58,9 +67,10 @@ export function documentView(ctx) {
     $('#toc').innerHTML = toc.join('') || '<p class="muted">No sections</p>';
     $('#mobile-toc').innerHTML = toc.length ? '<summary>On this page</summary><nav aria-label="Page sections">' + toc.join('') + '</nav>' : '';
     $('#mobile-toc').hidden = !toc.length;
-    const first = $('h1', art)?.nextElementSibling;
-    if (first && first.tagName === 'P') first.classList.add('lead');
+  }
 
+  // Status-like table cells and "Label: value" lines become colored chips.
+  function chips(art) {
     $$('table', art).forEach((t) => {
       const w = document.createElement('div');
       w.className = 'tablewrap';
@@ -76,24 +86,16 @@ export function documentView(ctx) {
     $$('p > strong, li > strong', art).forEach((s) => {
       const tone = toneOf(s.textContent, s.previousSibling?.textContent || '');
       if (tone && s.previousSibling && /:\s*$/.test(s.previousSibling.textContent || '')) s.outerHTML = chip(s.textContent, tone);
-      else if (/:$/.test(s.textContent) && s.nextSibling?.nodeType === 3) {
+      else if (s.textContent.endsWith(':') && s.nextSibling?.nodeType === 3) {
         const v = s.nextSibling.textContent.trim(), tone2 = toneOf(v, s.textContent);
         if (tone2) s.nextSibling.replaceWith(Object.assign(document.createElement('span'), { innerHTML: ` ${chip(v, tone2)}` }));
       }
     });
+  }
 
-    cites = [];
-    const cite = (a, kind, key, label) => { a.id = a.id || `cite-${cites.length}`; cites.push({ id: a.id, kind, key, label: label || a.textContent.trim() || key }); };
-    const refKind = (rel) => /\.(md|markdown)$/i.test(rel) ? 'doc' : 'code';
-    const codeLink = (a, ref) => {
-      const loc = ref.rel + (ref.line ? `:${ref.line}` : '');
-      a.href = editorUrl(ref.abs, ref.line);
-      a.dataset.abs = ref.abs;
-      a.dataset.line = ref.line || '';
-      a.classList.add('coderef');
-      a.title = `Open ${loc} in your editor`;
-      cite(a, refKind(ref.rel), loc, loc);
-    };
+  // Routes in-page, document, web, and workspace-file links; cites every external target.
+  function links(art, f) {
+    const refs = f.refs || {};
     $$('a[href]', art).forEach((a) => {
       const raw = a.getAttribute('href');
       if (a.classList.contains('anchor') || raw.startsWith('#/')) return;
@@ -114,40 +116,61 @@ export function documentView(ctx) {
       c.replaceWith(a); a.append(c);
       codeLink(a, ref);
     });
+  }
 
+  const citeGraphNodes = (pre, code) => {
+    try {
+      const d = kit.widget(pre.dataset.widget, code.textContent);
+      for (const node of d.nodes || []) if (node.url) cite(pre, 'web', node.url, node.label);
+    } catch { /* Invalid input is explained by the widget renderer. */ }
+  };
+  function mermaidFigure(pre, src, n) {
+    const fig = document.createElement('figure');
+    fig.className = 'diagram'; fig.dataset.render = 'pending';
+    fig.innerHTML = `<figcaption><b>Diagram ${n}</b><span>${esc(diagramLabel(src))}</span>`
+      + '<button data-act="src" aria-pressed="false">Show source</button><button data-act="copy">Copy source</button><button data-act="download" disabled title="Download vector image">Export SVG</button><button data-act="zoom" disabled>Expand</button></figcaption>'
+      + '<div class="canvas" tabindex="0" role="region" aria-label="Scrollable diagram">Rendering diagram…</div><pre hidden><code></code></pre>';
+    $('pre code', fig).textContent = src;
+    fig.dataset.src = src;
+    pre.replaceWith(fig);
+  }
+  function codeBar(pre, code) {
+    const bar = document.createElement('div');
+    bar.className = 'codebar';
+    bar.innerHTML = `<span>${esc(pre.dataset.lang || '')}</span><button type="button">Copy</button>`;
+    $('button', bar).addEventListener('click', async (e) => {
+      const button = e.currentTarget;
+      if (await copy(code.textContent, 'Code copied')) {
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = 'Copy'; }, 1200);
+      }
+    });
+    pre.prepend(bar);
+  }
+  // Widgets and diagrams are numbered together; other code blocks get a copy bar.
+  function codeBlocks(art) {
     let n = 0;
     $$('pre > code', art).forEach((code) => {
       const pre = code.parentElement;
-      if (pre.classList.contains('widget-src')) {
-        n++;
-        try { const d = kit.widget(pre.dataset.widget,code.textContent); if (d.nodes) for (const node of d.nodes) if (node.url) cite(pre,'web',node.url,node.label); } catch { /* Invalid input is explained by the widget renderer. */ }
-        return;
-      }
-      if (pre.classList.contains('mermaid-src')) {
-        const src = code.textContent;
-        const fig = document.createElement('figure');
-        fig.className = 'diagram'; fig.dataset.render = 'pending';
-        fig.innerHTML = `<figcaption><b>Diagram ${++n}</b><span>${esc(diagramLabel(src))}</span>`
-          + '<button data-act="src" aria-pressed="false">Show source</button><button data-act="copy">Copy source</button><button data-act="download" disabled title="Download vector image">Export SVG</button><button data-act="zoom" disabled>Expand</button></figcaption>'
-          + '<div class="canvas" tabindex="0" role="region" aria-label="Scrollable diagram">Rendering diagram…</div><pre hidden><code></code></pre>';
-        $('pre code', fig).textContent = src;
-        fig.dataset.src = src;
-        pre.replaceWith(fig);
-        return;
-      }
-      const bar = document.createElement('div');
-      bar.className = 'codebar';
-      bar.innerHTML = `<span>${esc(pre.dataset.lang || '')}</span><button type="button">Copy</button>`;
-      $('button', bar).addEventListener('click', async (e) => {
-        const button = e.currentTarget;
-        if (await copy(code.textContent, 'Code copied')) {
-          button.textContent = 'Copied';
-          setTimeout(() => { button.textContent = 'Copy'; }, 1200);
-        }
-      });
-      pre.prepend(bar);
+      if (pre.classList.contains('widget-src')) { n++; citeGraphNodes(pre, code); return; }
+      if (pre.classList.contains('mermaid-src')) { mermaidFigure(pre, code.textContent, ++n); return; }
+      codeBar(pre, code);
     });
+  }
 
+  function decorate(art, f) {
+    $$('.tablewrap', art).forEach(table => {
+      table.tabIndex = 0;
+      table.setAttribute('role', 'region');
+      table.setAttribute('aria-label', 'Scrollable table');
+    });
+    headings(art, f);
+    const first = $('h1', art)?.nextElementSibling;
+    if (first && first.tagName === 'P') first.classList.add('lead');
+    chips(art);
+    cites = [];
+    links(art, f);
+    codeBlocks(art);
     renderSources();
     $('#library-summary').replaceChildren();
     $('#library-summary').hidden = true;
@@ -155,6 +178,7 @@ export function documentView(ctx) {
 
 
   let sourceList = [];
+  const rank = (name) => name === 'Local docs' ? 0 : name === 'Workspace code' ? 1 : 2;
   function renderSources() {
     const groups = new Map();
     for (const c of cites) {
@@ -169,8 +193,7 @@ export function documentView(ctx) {
     sourceList = [...groups.values()].flatMap((m) => [...m.values()]);
     $('#tab-sources').textContent = sourceList.length ? `Sources (${sourceList.length})` : 'Sources';
     if (!sourceList.length) { $('#sources').innerHTML = '<p class="muted">This document cites no links or workspace files.</p>'; return; }
-    const rank = (name) => name === 'Local docs' ? 0 : name === 'Workspace code' ? 1 : 2;
-    const order = [...groups.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+    const order = [...groups.keys()].toSorted((a, b) => rank(a) - rank(b) || a.localeCompare(b));
     $('#sources').innerHTML = '<button type="button" class="linkbtn" data-act="copy-sources">Copy list as Markdown</button>'
       + order.map((g) => `<div class="src-group"><h3>${esc(g)} <small>${groups.get(g).size}</small></h3>${[...groups.get(g).values()].map((s) => `<a href="#" class="src" data-jump="${esc(s.ids[0])}" title="${esc(s.key)}"><span class="src-label">${esc(s.label)}</span>`
         + `${s.kind === 'web' && s.label !== s.key ? `<span class="src-url">${esc(s.key.replace(/^https?:\/\/(www\.)?/, ''))}</span>` : ''}${s.ids.length > 1 ? `<span class="src-count">cited ${s.ids.length} times</span>` : ''}</a>`).join('')}</div>`).join('');

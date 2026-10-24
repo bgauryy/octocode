@@ -45,7 +45,7 @@ pub(super) struct GitHubServices {
     /// ghCloneRepo's git, keeping the runtime env's PATH, proxy and CA names.
     git: SystemGit,
     /// The automatic response page: file and patch pages are sized to fit
-    /// it when the call names no `responseLength`.
+    /// it when the call names no `responseChars`.
     auto_page_chars: usize,
     /// Sanitized full views of recently paged files (scoped to this runtime's
     /// single security policy), so each `next.continueWindow` skips a full rescan.

@@ -1,5 +1,6 @@
 //! One listing walk: the engine walk under the listing's admission, its
 //! line counts, and the rows it ranks, groups and cuts.
+use super::super::files::{is_traversal, sort_key};
 use super::super::walk_policy::{WalkLeft, WalkPolicy};
 use super::super::walked::Walked;
 use super::super::{Resumes, Walking, end_window, max_walk, rows, walk_error};
@@ -9,7 +10,7 @@ use crate::num::u32_of_usize;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
-use octocode_contract_types::StructureSearchQueryFilesSort as Sort;
+use octocode_contract_types::StructureSearchQueryFilesSortVariant0By as SortKey;
 use octocode_engine::types::{FileKind, FileSystemQueryOptions};
 
 /// Walk once: rows ranked by the query's sort and cut to `requested`,
@@ -34,8 +35,8 @@ pub(super) fn walk_listing<Q: Listing>(
     // (sensitive names, and symlinks out of the allowed roots). Denied
     // entries the listing would otherwise show are counted and reported,
     // never silently dropped.
-    let include = crate::policy::include::include_globs(q.globs().0);
-    let left = WalkLeft::new(paths, root, q.default_excludes(), &include);
+    let include = q.globs().0;
+    let left = WalkLeft::new(paths, root, q.default_excludes(), include);
     let policy = WalkPolicy {
         bound,
         probe: q.filter_probe(root)?,
@@ -77,7 +78,7 @@ pub(super) fn walk_listing<Q: Listing>(
     // what it walked. Counting is part of the walk: a budget spent before
     // every file is counted cuts the walk at the first uncounted one
     // ([`cut_walk_before`]), and `next.continueWalk` resumes there.
-    let mut lines = if sort == Sort::Lines && bound.is_none() {
+    let mut lines = if sort_key(&sort) == Some(SortKey::LineCount) && bound.is_none() {
         let (lines, cut) = rows::count_lines(
             &native
                 .entries
@@ -99,18 +100,16 @@ pub(super) fn walk_listing<Q: Listing>(
     } else {
         vec![None; native.entries.len()]
     };
-    let window = end_window(&mut native, requested, q.scan_offset(), sort == Sort::Path);
+    let window = end_window(&mut native, requested, q.scan_offset(), is_traversal(&sort));
     resumes.keep(&mut native, walking);
     // `end_window` keeps a walk-order prefix: the counts of its entries.
     lines.truncate(native.entries.len());
-    // The modified sort's own key shows whatever the detail.
-    let modified_shown = q.details() || sort == Sort::Modified;
-    let mut rows = rows::rows_of(&native.entries, lines, root, security, modified_shown);
-    rows::sort_rows(&mut rows, sort);
+    let mut rows = rows::rows_of(&native.entries, lines, root, security, true);
+    rows::sort_rows(&mut rows, &sort);
     let mut walk = Walked::finish(native, rows, requested, q.scan_offset(), left, security);
     walk.meta.time_window = window;
-    walk.meta.ranked = sort != Sort::Path;
-    rows::group(&mut walk.rows, sort);
+    walk.meta.ranked = !is_traversal(&sort);
+    rows::group(&mut walk.rows, &sort);
     Ok(walk)
 }
 

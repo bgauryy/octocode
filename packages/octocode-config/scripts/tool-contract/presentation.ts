@@ -1,31 +1,23 @@
-// CLI discovery content, rendered once here so the native binary serves
-// `schema`, `catalog` field lists and `<tool> --help` without Node. Every
-// schema view is a core Zod schema emitted once as JSON: `query` is the row
-// MCP lists, `full` the canonical row with unavailable addons omitted, and
-// each `--select operation=X` that operation's row. `query` also lists the
-// continuation fields the published row hides, one line each, and names the
-// other accepted fields it hides (per operation, or the whole row's) with
-// the `--select` or `--view full` call that shows their schemas.
+// CLI and MCP discovery content, rendered once here so the native binary
+// serves `tools/list`, `initialize`, `schema`, `catalog` field lists and
+// `<tool> --help` without Node. Every schema view is a core Zod schema emitted
+// once as JSON: `query` is the row MCP lists, and each
+// `--select operation=X` that operation's row. Execution takes one canonical JSON envelope.
+import { MCP_INSTRUCTIONS } from '@octocodeai/octocode-core/mcp';
 import {
-  INSTRUCTION_SECTIONS,
-  deferredDispatcherDefinition,
-} from '@octocodeai/octocode-core/mcp';
-import { cliExamples, cliOutput, cliSpec, schemaFieldNames } from './cli-flags.ts';
-import {
-  CLASIFY_SOURCE_TOOL_NAMES,
   DIRECT_TOOL_DEFINITIONS,
   getPublicToolCatalog,
-  getDirectToolDefinitionsWithAddons,
-  getPublicToolCatalogWithAddons,
-  continuationFields,
-  getToolSchemaVariants,
-  operationSchemas,
-  publishedFormFields,
+  operationRows,
   publishedInputSchema,
   publishedJson,
+  publishedRow,
+  sentForms,
+  rowVariants,
+  toolVariants,
 } from '@octocodeai/octocode-core/schema';
 
 type Json = Record<string, unknown>;
+
 type Definition = (typeof DIRECT_TOOL_DEFINITIONS)[number];
 
 /** Widest one-line help example; a longer one prints one field per line. */
@@ -47,34 +39,17 @@ const shellQuote = (text: string): string =>
   `'${text.replaceAll("'", `'\\''`)}'`;
 
 /** What follows clap's help for `<tool> --help`: required fields and one runnable example (workspace-relative, from the variant's Zod `examples` meta). */
-export function toolHelpSection(
-  name: string,
-  availableTools?: readonly string[]
-): string {
-  const variants = getToolSchemaVariants(name);
+export function toolHelpSection(definition: Definition): string {
+  const { name } = definition;
+  const variants = toolVariants(definition);
   const lines: string[] = [];
-  const flagExamples = cliExamples(name);
-  const jsonExamples = variants
-    .map(variant => variant.example)
-    .filter(
-      (candidate): candidate is Json =>
-        candidate !== undefined &&
-        (!availableTools ||
-          exampleUsesAvailableTools(candidate, availableTools))
-    );
-  lines.push('Examples:');
-  for (const example of flagExamples) lines.push(`  ${example}`);
-  // One JSON example beside the flags; a JSON-only tool shows every form's.
-  for (const example of flagExamples.length > 0 ? jsonExamples.slice(0, 1) : jsonExamples)
-    lines.push(`  octocode ${name} ${shellQuote(exampleJson(example))}`);
-  const output = cliOutput(name);
-  if (output) lines.push('', `Output: ${output}`);
-  lines.push(
-    '',
-    flagExamples.length > 0
-      ? 'JSON form: one query object, or {"queries":[…]} to batch; flags build the same query.'
-      : 'Input: one JSON query object, or {"queries":[…]} to batch.'
+  const jsonExamples = variants.flatMap(variant =>
+    variant.example ? [variant.example] : []
   );
+  lines.push('Examples:');
+  for (const example of jsonExamples)
+    lines.push(`  octocode ${name} ${shellQuote(exampleJson({ queries: [example] }))}`);
+  lines.push('', 'Input: {"queries":[…]} for fresh calls; copy {"cursor":"…"} from a continuation.');
   if (variants.length === 1) {
     lines.push(
       '',
@@ -92,289 +67,114 @@ export function toolHelpSection(
       lines.push(
         `  ${form.label.padEnd(width)}  ${form.requires.join(', ')}`.trimEnd()
       );
-  }
-  if (variants.length > 1)
     lines.push('', `Each form's example: octocode schema ${name} --view variants`);
-  lines.push('', `Fields: octocode schema ${name} (complete: --view full)`);
+  }
+  lines.push('', `Fields: octocode schema ${name}`);
   return lines.join('\n');
 }
 
-/** A clasify example's source names an exposed reader (a URL reads back through localFetch). */
-function exampleUsesAvailableTools(
-  example: Json,
-  availableTools: readonly string[]
-): boolean {
-  const source = example.source as Json | undefined;
-  if (!source) return true;
-  const reader = typeof source.tool === 'string' ? source.tool : 'localFetch';
-  return availableTools.includes(reader);
-}
-
-/** Every subset of clasify's source readers, as the key the CLI selects by. */
-function sourceSubsets(): string[][] {
-  return CLASIFY_SOURCE_TOOL_NAMES.reduce<string[][]>(
-    (subsets, tool) => [
-      ...subsets,
-      ...subsets.map(subset => [...subset, tool]),
-    ],
-    [[]]
-  );
-}
-
 /**
- * The `catalog` row's compact field list: the published fields of each row
- * form, required first (`*`) then optional (`?`), truncated with `…`. A tool
- * with several forms lists each as one flat row, alternatives joined by
- * ` | `, the fields that tell the forms apart first with the values they
- * take there: `[operation:"match", path*, rule*, …] | …`. The selector is a
- * field of the row, never a wrapper around it.
+ * The `catalog` row's compact field list: each row form's published fields,
+ * required first (`*`) then optional (`?`), truncated with `…`; forms are
+ * joined by ` | ` and led by the operation they take: `[operation:"match",
+ * path*, rule*, …] | …`. The operation is a field of the row, never a wrapper.
  */
-export function compactFields(definition: Definition): string {
-  const forms = publishedFormFields(definition.inputSchema);
-  const list = (
-    fields: readonly {
-      name: string;
-      required: boolean;
-      values?: readonly string[];
-    }[],
-    max: number
-  ): string => {
-    const selectors = fields
-      .filter(field => field.values)
-      .map(
-        field =>
-          `${field.name}${field.required ? '' : '?'}:${field
-            .values!.map(value => JSON.stringify(value))
-            .join('|')}`
-      );
-    const rest = fields.filter(field => !field.values);
-    const shown = rest
-      .slice(0, max)
-      .map(field => `${field.name}${field.required ? '*' : '?'}`);
-    if (rest.length > max) shown.push('…');
-    return `[${[...selectors, ...shown].join(', ')}]`;
+export function compactFields(definition: Definition, selection: boolean): string {
+  const shown = new Set(rowVariants(publishedRow(definition, selection)).flatMap(row => Object.keys(row.shape)));
+  const forms = toolVariants(definition);
+  const max = forms.length === 1 ? CATALOG_FIELDS_SINGLE : CATALOG_FIELDS_PER_FORM;
+  const variants = sentForms(definition);
+  // The field whose values tell the forms apart: operation, else the one
+  // whose values differ between forms (artifactSearch `ecosystem`).
+  const valuesOf = (schema: Parameters<typeof publishedJson>[0] | undefined): string[] => {
+    const json = schema ? publishedJson(schema) : {};
+    return Array.isArray(json.enum) ? json.enum.map(String) : typeof json.const === 'string' ? [json.const] : [];
   };
-  return forms
-    .map(fields =>
-      list(
-        fields,
-        forms.length === 1 ? CATALOG_FIELDS_SINGLE : CATALOG_FIELDS_PER_FORM
-      )
-    )
+  const selector = variants.length < 2
+    ? undefined
+    : (['operation', ...Object.keys(variants[0]!.shape)].find(field => {
+        const sets = variants.map(variant => valuesOf(variant.shape[field]).join('|'));
+        return sets.every(Boolean) && new Set(sets).size > 1;
+      }) ?? (variants.some(variant => 'operation' in variant.shape) ? 'operation' : undefined));
+  return variants
+    .map((variant, index) => {
+      const form = forms[index]!;
+      const fields = Object.entries(variant.shape)
+        .filter(([field, schema]) => shown.has(field) && field !== selector && !('not' in publishedJson(schema)))
+        .map(([field]) => ({ field, required: form.requires.includes(field) }))
+        .toSorted(
+          (left, right) =>
+            Number(right.required) - Number(left.required) || left.field.localeCompare(right.field)
+        );
+      const listed = fields.slice(0, max).map(({ field, required }) => `${field}${required ? '*' : '?'}`);
+      if (fields.length > max) listed.push('…');
+      const values = selector ? valuesOf(variant.shape[selector]) : [];
+      const optional = selector && form.requires.includes(selector) ? '' : '?';
+      const lead = values.length
+        ? [`${selector}${optional}:${values.map(value => JSON.stringify(value)).join('|')}`]
+        : [];
+      return `[${[...lead, ...listed].join(', ')}]`;
+    })
     .join(' | ');
 }
 
 /** One `schema` view: the tool's description beside one emitted row schema. */
-const view = (
-  definition: Definition,
-  querySchema: Json,
-  extra: Json = {}
-): Json => ({
+const view = (definition: Definition, querySchema: Json, extra: Json = {}): Json => ({
   name: definition.name,
   description: definition.description,
   querySchema,
   ...extra,
 });
 
-const fieldNames = (schema: Json): string[] =>
-  Object.keys((schema.properties as Json | undefined) ?? {});
-
-/**
- * The accepted fields the `query` view's row leaves out beyond its
- * continuation fields and the request brief, by name only: per operation
- * with the `--select` call that shows them, or for a one-form tool with the
- * `--view full` call. Empty when the row shows every field.
- */
-function hiddenFields(
-  definition: Definition,
-  row: Json,
-  continuation: Json,
-  canonical: Json
-): Json {
-  const { name, inputSchema } = definition;
-  const shown = new Set([
-    ...fieldNames(row),
-    ...Object.keys(continuation),
-    'mainGoal',
-    'reasoning',
-  ]);
-  const hidden = (schema: Json): string[] =>
-    fieldNames(schema).filter(field => !shown.has(field));
-  const operations = Object.entries(operationSchemas(inputSchema));
-  if (operations.length > 0) {
-    const byOperation = Object.fromEntries(
-      operations
-        .map(
-          ([operation, schema]) =>
-            [operation, hidden(publishedJson(schema))] as const
-        )
-        .filter(([, fields]) => fields.length > 0)
-    );
-    return Object.keys(byOperation).length === 0
-      ? {}
-      : {
-          operationFields: byOperation,
-          select: `octocode schema ${name} --view query --select operation=<operation> shows that operation's fields`,
-        };
-  }
-  const more = hidden(canonical);
-  return more.length === 0
-    ? {}
-    : {
-        moreFields: more,
-      };
-}
-
-/**
- * The fields MCP publishes beside `queries` (the request envelope), as
- * schemas: a row view shows one query, so these are listed next to it.
- */
-function envelopeFields(inputSchema: Definition['inputSchema']): Json {
-  const { queries: _queries, ...fields } = (publishedInputSchema(inputSchema)
-    .properties ?? {}) as Json;
-  return Object.keys(fields).length === 0 ? {} : { envelopeFields: fields };
-}
-
-/**
- * A tool as the MCP server lists it: the published input envelope, and the
- * line it adds to the deferred-tool dispatcher's description. Native applies
- * the runtime addons (language servers) and the context-selection switch by
- * choosing among these precomputed variants.
- */
-function mcpDefinition(definition: Definition): Json {
-  const { name, title, description, annotations, inputSchema } = definition;
-  const deferredLine = deferredDispatcherDefinition([{ name, inputSchema }])
-    .description.split('\n')
-    .at(1);
-  return {
-    title,
-    description,
-    ...(annotations && { annotations }),
-    inputSchema: publishedInputSchema(inputSchema),
-    deferredLine,
-  };
-}
-
-/** A tool's `schema` views, `--select operation=X` views and MCP listing. */
-function rendered(
-  definition: Definition,
-  querySchema: Json
-): { views: Json; selections: Json; mcp: Json } {
-  const { name, inputSchema } = definition;
-  const variants = getToolSchemaVariants(name);
-  // Core's presentation catalog owns any availability-dependent row changes.
-  const { $schema: _schema, ...canonical } = querySchema;
-  const row = publishedInputSchema(inputSchema, 'row');
-  // The row hides the fields a `next.*` page or `hints.*` lead fills; name them once here.
-  const continuation = continuationFields(inputSchema);
-  const envelope = envelopeFields(inputSchema);
+/** A tool's MCP listing and CLI schema views share the exact public input contract. */
+function rendered(definition: Definition, selection: boolean) {
+  const { name } = definition;
+  const inputSchema = publishedInputSchema(definition, selection);
+  const row = publishedJson(publishedRow(definition, selection));
   return {
     views: {
-      query: view(definition, row, {
-        full: `octocode schema ${name} --view full shows every field`,
-        ...envelope,
-        continuationFields: continuation,
-        ...hiddenFields(definition, row, continuation, canonical),
-      }),
-      full: view(definition, canonical, {
-        ...envelope,
-        usage: [`octocode ${name} '{"queries":[ … ]}'`],
-      }),
-      variants: { name, description: definition.description, variants },
+      query: view(definition, row, { inputSchema }),
+      variants: { name, description: definition.description, variants: toolVariants(definition) },
     },
     selections: Object.fromEntries(
-      Object.entries(operationSchemas(inputSchema)).map(
-        ([operation, schema]) => [
-          `operation=${operation}`,
-          view(definition, publishedJson(schema)),
-        ]
-      )
+      Object.entries(operationRows(definition)).map(([operation, operationRow]) => [
+        `operation=${operation}`,
+        view(definition, publishedJson(operationRow)),
+      ])
     ),
-    mcp: mcpDefinition(definition),
+    mcp: {
+      title: definition.title,
+      description: definition.description,
+      ...(definition.annotations && { annotations: definition.annotations }),
+      inputSchema,
+    },
   };
-}
-
-/**
- * The deferred-tool dispatcher for every tool; native keeps the entries of
- * the tools the runtime defers (`mcp.deferred`) in `inputSchema.properties.tool.enum`
- * and appends their `deferredLine`s to `description`.
- */
-function mcpDispatcher(definitions: readonly Definition[]): Json {
-  const { name, title, description, inputSchema } = deferredDispatcherDefinition(
-    definitions
-  );
-  return { name, title, intro: description.split('\n')[0], inputSchema };
 }
 
 /** The `cli-presentation.json` the native binary embeds beside the enforcement contract. */
 export function buildCliPresentation(): Json {
-  const availableTools = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
-  const definitions = getDirectToolDefinitionsWithAddons({ availableTools });
-  const rankedDefinitions = getDirectToolDefinitionsWithAddons({
-    availableTools,
-    selection: true,
-  });
-  const catalog = getPublicToolCatalogWithAddons({ availableTools });
-  const rankedCatalog = getPublicToolCatalogWithAddons({
-    availableTools,
-    selection: true,
-  });
+  const catalog = getPublicToolCatalog();
   return {
-    fingerprint: getPublicToolCatalog().fingerprint,
-    // Rendered by the native CLI for its enabled tools, as core renders
-    // them for MCP.
-    instructionSections: INSTRUCTION_SECTIONS,
-    clasifySourceTools: [...CLASIFY_SOURCE_TOOL_NAMES],
-    mcpDispatcher: mcpDispatcher(definitions),
-    tools: definitions.map(definition => {
+    fingerprint: catalog.fingerprint,
+    // MCP `initialize` and the CLI catalog serve this one string.
+    instructions: MCP_INSTRUCTIONS,
+    tools: DIRECT_TOOL_DEFINITIONS.map(definition => {
       const { name } = definition;
-      const querySchema = catalog.tools.find(tool => tool.name === name)!
-        .querySchema as Json;
-      const rankedSchema = rankedCatalog.tools.find(tool => tool.name === name)!
-        .querySchema as Json;
-      const rankedDefinition = rankedDefinitions.find(
-        tool => tool.name === name
-      )!;
+      const plain = rendered(definition, false);
+      const selected = rendered(definition, true);
       return {
         name,
-        shortDescription: definition.shortDescription,
-        variantNames: Object.keys(operationSchemas(definition.inputSchema)),
-        fields: compactFields(definition),
-        help: toolHelpSection(name, name === 'clasify' ? [] : undefined),
-        cli: cliSpec(
-          name,
-          querySchema,
-          schemaFieldNames(publishedInputSchema(definition.inputSchema, 'row') as Json)
-        ),
-        ...rendered(definition, querySchema),
-        // clasify's views for each exposed set of source readers, keyed by
-        // the exposed readers in CLASIFY_SOURCE_TOOL_NAMES order.
-        ...(name === 'clasify' && {
-          sourceViews: Object.fromEntries(
-            sourceSubsets().map(subset => [
-              subset.join(','),
-              rendered(
-                getDirectToolDefinitionsWithAddons({
-                  availableTools: subset,
-                }).find(tool => tool.name === name)!,
-                getPublicToolCatalogWithAddons({
-                  availableTools: subset,
-                }).tools.find(tool => tool.name === name)!.querySchema as Json
-              ),
-            ])
-          ),
-        }),
-        // Emit only changed views; Rust selects them using native runtime truth.
-        ...(JSON.stringify(querySchema) !== JSON.stringify(rankedSchema) && {
+        title: definition.title,
+        variantNames: Object.keys(operationRows(definition)),
+        fields: compactFields(definition, false),
+        help: toolHelpSection(definition),
+        ...plain,
+        // Emit the selection variant only when it changes the row; Rust picks
+        // it with the runtime's resolved switch.
+        ...(JSON.stringify(plain.mcp) !== JSON.stringify(selected.mcp) && {
           selection: {
-            fields: compactFields(rankedDefinition),
-            // Flags for the selection fields (clasifyContext) the row adds.
-            cli: cliSpec(
-              name,
-              rankedSchema,
-              schemaFieldNames(publishedInputSchema(rankedDefinition.inputSchema, 'row') as Json)
-            ),
-            ...rendered(rankedDefinition, rankedSchema),
+            fields: compactFields(definition, true),
+            ...selected,
           },
         }),
       };

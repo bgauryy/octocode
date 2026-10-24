@@ -5,7 +5,24 @@ export const fail = (message: string): never => {
   throw new Error(message);
 };
 
-export const json = (text, label) => {
+/** Parsed options: a value option maps to its text, a boolean option to true. */
+export type CliOptions = Record<string, string | true | undefined>;
+
+/** True when `key` is an own key of `record`, which narrows it to that record's keys. */
+export function isOwnKey<T extends object>(
+  record: T,
+  key: string | undefined
+): key is Extract<keyof T, string> {
+  return key !== undefined && Object.hasOwn(record, key);
+}
+
+/** A value option's text; parse() never stores a boolean under a value option. */
+export function optionValue(opts: CliOptions, key: string) {
+  const value = opts[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+export const json = (text: string, label: string): unknown => {
   try {
     return JSON.parse(text);
   } catch {
@@ -14,9 +31,9 @@ export const json = (text, label) => {
 };
 
 /** Splits args into known options (values and booleans) and positionals; unknown or repeated options fail. */
-export function parse(args, values, booleans) {
-  const opts = {},
-    positional = [];
+export function parse(args: string[], values: string[], booleans: string[]) {
+  const opts: CliOptions = {},
+    positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
     if (!key.startsWith('--')) {
@@ -56,11 +73,11 @@ export const commonBooleans = [
   '--dry-run',
 ];
 
-function validateNumbers(opts) {
+function validateNumbers(opts: CliOptions) {
   for (const key of ['--port', '--timeout', '--script-timeout'])
     if (
       opts[key] !== undefined &&
-      (!/^\d+$/.test(opts[key]) ||
+      (!/^\d+$/.test(String(opts[key])) ||
         !Number.isSafeInteger(Number(opts[key])) ||
         Number(opts[key]) < 1 ||
         (key === '--port' && Number(opts[key]) > 65535))
@@ -70,7 +87,7 @@ function validateNumbers(opts) {
       );
 }
 
-function validateSelection(opts) {
+function validateSelection(opts: CliOptions) {
   if (opts['--keep-tab'] && opts['--close-tab'])
     fail('Use one of --keep-tab and --close-tab');
   if (opts['--stealth'] && opts['--no-stealth'])
@@ -93,10 +110,10 @@ function validateSelection(opts) {
 }
 
 /** Validated connection options as runner arguments: strict target, no reload, tabs kept unless --close-tab. */
-export function runnerArgs(opts) {
+export function runnerArgs(opts: CliOptions) {
   validateNumbers(opts);
   validateSelection(opts);
-  const args = [
+  const args: string[] = [
     '--strict-target',
     '--no-reload',
     ...(opts['--close-tab'] ? [] : ['--keep-tab']),
@@ -106,6 +123,9 @@ export function runnerArgs(opts) {
       opts[key] &&
       !['--dry-run', '--close-tab', '--keep-tab', '--no-reload'].includes(key)
     )
-      args.push(key, ...(commonValues.includes(key) ? [opts[key]] : []));
+      args.push(
+        key,
+        ...(commonValues.includes(key) ? [String(opts[key])] : [])
+      );
   return args;
 }

@@ -36,15 +36,7 @@ async fn a_receipts_first_page_states_the_last_change_for_one_extra_request() {
         .mount(&server)
         .await;
     let provider = mock_provider(&server, RetryPolicy::default());
-    let plain = read(
-        &provider,
-        serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha}),
-    )
-    .await;
-    assert_eq!(plain.file.last_modified, None);
-    assert_eq!(plain.file.last_modified_by, None);
-    let base =
-        serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"extras":["receipts"]});
+    let base = json!({"owner":"a","repo":"b","path":"a.txt","ref":sha});
     let stamped = read(&provider, base.clone()).await;
     assert_eq!(
         stamped.file.last_modified.as_deref(),
@@ -54,7 +46,7 @@ async fn a_receipts_first_page_states_the_last_change_for_one_extra_request() {
     // A read that fails on the fetched body (a range past its end)
     // spends no receipts request (the mock expects exactly one).
     let mut failed = base.clone();
-    failed["ranges"] = serde_json::json!(["100-120"]);
+    failed["ranges"] = json!([{"startLine":100,"endLine":120}]);
     let failed = read(&provider, failed).await;
     assert_eq!(
         failed.file.content.status,
@@ -64,13 +56,11 @@ async fn a_receipts_first_page_states_the_last_change_for_one_extra_request() {
     );
     assert_eq!(failed.file.last_modified, None);
     let mut later = base;
-    later["offset"] = 20.into();
+    later["readProgress"] = json!({"unit":"lines","offset":20});
     let later = read(&provider, later).await;
     assert_eq!(later.file.last_modified, None);
     assert_eq!(later.file.last_modified_by, None);
-    let mut missing = serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","ref":sha});
-    missing["mainGoal"] = "test".into();
-    missing["reasoning"] = "test".into();
+    let missing = serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","ref":sha});
     let missing: GhGetFileContentQuery = serde_json::from_value(missing).expect("query");
     assert!(
         execute_default_regex(&provider, &missing, &default_context(), None,)
@@ -115,7 +105,7 @@ async fn a_block_read_row_carries_path_commit_gutter_and_blocks() {
     let read = run_default(
         &provider,
         serde_json::json!({"owner":"a","repo":"b","path":"src/main.rs","ref":"main",
-            "matchString":"let v","block":true}),
+            "matchString":["let v"],"block":true}),
     )
     .await
     .expect("read");

@@ -12,20 +12,14 @@ fn single_file_symbols_are_compact_and_path_free() {
         "struct A;\nimpl A {\n    fn run() {}\n}\nstruct B; impl B { fn run() {} }\n",
     )
     .expect("source");
-    let out = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
-    )
-    .expect("symbols");
-    // Rows are path-free; a continuation names its file absolutely until the
-    // envelope anchors it on the workspace.
-    let mut rows = out.clone();
-    rows.as_object_mut().map(|row| row.remove("next"));
-    let text = rows.to_string();
-    let root_text = root.0.to_string_lossy();
+    let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
+    assert_eq!(out["path"], json!("shapes.rs"));
     assert!(
-        !text.contains(root_text.as_ref()),
-        "absolute path leaked: {out}"
+        out["symbols"]
+            .as_array()
+            .expect("symbols")
+            .iter()
+            .all(|row| row.get("path").is_none())
     );
     assert_eq!(out["isPartial"], false, "{out}");
     // One declaration row each: no path, ranges or engine ids; an endLine
@@ -79,11 +73,7 @@ fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
     )
     .expect("plain");
     for (source, top_level, all) in [(&class, 3, 5), (&plain, 3, 3)] {
-        let out = run(
-            &root.0,
-            json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
-        )
-        .expect("symbols");
+        let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
         assert!(all_objects(&out["symbols"]), "{out}");
         let rows = out["symbols"].as_array().expect("rows");
         assert_eq!(rows.len(), top_level, "{out}");
@@ -91,11 +81,14 @@ fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
         assert_eq!(outline_names(&out["symbols"]).len(), all, "{out}");
         // Pages of one top-level row each reach every row once, members
         // with their parent.
-        let start = json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":1});
+        let start = json!({"operation":"symbols","path":source});
         let mut paged = Vec::new();
-        checks::walk("astSearch", json!({ "queries": [start] }), |call| {
-            let row = &call["queries"][0];
-            let page = run(&root.0, row.clone()).expect("page");
+        checks::walker::walk("astSearch", json!({"queries":[start]}), |call| {
+            let input =
+                crate::tools::test_support::opened_input(crate::id::ToolId::AstSearch, call);
+            let row = &input["queries"][0];
+            let page = crate::tools::ast_search::test_rows::run_window(&root.0, row.clone(), 1)
+                .expect("page");
             assert_eq!(page["pagination"]["totalItems"], top_level, "{page}");
             assert!(all_objects(&page["symbols"]), "{page}");
             assert_eq!(page["symbols"].as_array().map(Vec::len), Some(1), "{page}");
@@ -114,11 +107,8 @@ fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
     }
     // A directory outline groups the same object rows under each file and
     // counts each file's top-level rows.
-    let out = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0}),
-    )
-    .expect("directory symbols");
+    let out =
+        run(&root.0, json!({"operation":"symbols","path":root.0})).expect("directory symbols");
     let files = out["files"].as_array().expect("files");
     assert!(
         files.iter().all(|file| all_objects(&file["symbols"])),
@@ -142,11 +132,7 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
         "struct A;\nimpl A {\n    fn one() {}\n}\nimpl A {\n    fn two() {}\n}\nfn x() {} fn x() {}\n",
     )
     .expect("source");
-    let out = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
-    )
-    .expect("symbols");
+    let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
     // The two `impl A` blocks are two rows with their own ranges, so `two`
     // (line 6) sits in the second; the two `x` on one line differ only by
     // column, so only they carry it.
@@ -165,20 +151,20 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
         ]),
         "{out}"
     );
-    // Pages count top-level rows (struct A, two impl A, two x): page 2 of
-    // 4 holds the last `x`, and no member is cut from its parent.
     assert_eq!(out["pagination"]["totalItems"], 5, "{out}");
-    let second = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"pageSize":4,"page":2,
-            "snapshot":out_snapshot(&root.0, &source)}),
-    )
-    .expect("second page");
-    assert_eq!(
-        outline_facts(&second["symbols"], &Value::Null),
-        json!([{"line": 8, "kind": "function", "name": "x", "column": 14}]),
-        "{second}"
-    );
+    let mut request = json!({"operation":"symbols","path":source});
+    let mut rows = Vec::new();
+    loop {
+        let page =
+            crate::tools::ast_search::test_rows::run_window(&root.0, request, 1).expect("page");
+        rows.extend(page["symbols"].as_array().expect("rows").iter().cloned());
+        let next = &page["next"]["nextPage"]["input"]["queries"][0];
+        if next.is_null() {
+            break;
+        }
+        request = next.clone();
+    }
+    assert_eq!(json!(rows), out["symbols"]);
 }
 
 #[test]
@@ -215,7 +201,7 @@ fn symbols_trait_impls_name_their_trait_and_macro_members_nest() {
     // lspSearch on the type, as for an inherent impl.
     let named = run(
         &root.0,
-        json!({"operation":"symbols","path":source,"symbolName":"Pipe","kinds":["impl"]}),
+        json!({"operation":"symbols","path":source,"symbolFilter":{"terms":["Pipe"]},"symbolKinds":["impl"]}),
     )
     .expect("named");
     let names: Vec<&str> = named["symbols"]
@@ -227,7 +213,7 @@ fn symbols_trait_impls_name_their_trait_and_macro_members_nest() {
     assert_eq!(names, ["Pipe", "AsyncWrite for Pipe"], "{named}");
     let trait_only = run(
         &root.0,
-        json!({"operation":"symbols","path":source,"symbolName":"AsyncWrite for Pipe"}),
+        json!({"operation":"symbols","path":source,"symbolFilter":{"terms":["AsyncWrite for Pipe"]}}),
     )
     .expect("trait impl");
     assert_eq!(
@@ -237,7 +223,7 @@ fn symbols_trait_impls_name_their_trait_and_macro_members_nest() {
     // The lead exists only where rust-analyzer runs.
     if let Some(lead) = trait_only["hints"].get("references") {
         assert_eq!(
-            lead["query"]["queries"][0]["symbolName"], "Pipe",
+            lead["input"]["queries"][0]["symbolName"], "Pipe",
             "{trait_only}"
         );
     }
@@ -248,11 +234,7 @@ fn directory_symbols_keep_row_paths_without_static_notes() {
     let root = Fixture::new();
     root.write("a.rs", "fn a() {}\n");
     root.write("b.rs", "fn b() {}\n");
-    let out = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0}),
-    )
-    .expect("symbols");
+    let out = run(&root.0, json!({"operation":"symbols","path":root.0})).expect("symbols");
     assert!(out.get("symbols").is_none(), "{out}");
     let files = out["files"].as_array().expect("files");
     assert_eq!(files.len(), 2, "{out}");
@@ -284,11 +266,7 @@ fn c_one_line_typedef_struct_is_not_its_own_parent() {
          typedef struct Ctx {\n    int flags;\n} Ctx;\n",
     )
     .expect("source");
-    let out = run(
-        &root.0,
-        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
-    )
-    .expect("symbols");
+    let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
     let rows = &out["symbols"];
     let flat = crate::response::symbol_outline::flatten_members(rows.as_array().expect("rows"));
     // Every declaration survives, in source order.

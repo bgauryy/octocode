@@ -14,10 +14,10 @@ pub(crate) fn find_file(root: &str, requested: &str) -> Option<Value> {
     let name = Path::new(requested).file_name()?.to_string_lossy();
     let include = match name.split_once('.') {
         Some((stem, _)) if !stem.is_empty() => format!("{}.*", escape_glob(stem)),
-        _ => name.to_string(),
+        _ => escape_glob(&name),
     };
     (!include.is_empty()).then(|| {
-        Continuation::new(
+        Continuation::related(
             ToolId::StructureSearch,
             json!({"operation": "files", "path": root, "include": [include]}),
         )
@@ -91,21 +91,73 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_stem_matches_under_any_extension() {
-        let lead = find_file("pkg", "src/a/blok.rs").expect("lead");
-        let row = &lead["query"]["queries"][0];
-        assert_eq!(lead["tool"], "structureSearch", "{lead}");
-        assert_eq!(row["operation"], "files", "{lead}");
-        assert_eq!(row["path"], "pkg", "{lead}");
-        assert_eq!(row["include"], json!(["blok.*"]), "{lead}");
-    }
-
-    #[test]
-    fn a_name_without_an_extension_and_glob_characters_match_only_themselves() {
-        let row = &find_file(".", "Makefile").expect("lead")["query"]["queries"][0];
-        assert_eq!(row["include"], json!(["Makefile"]));
-        let row = &find_file(".", "[id].tsx").expect("lead")["query"]["queries"][0];
-        assert_eq!(row["include"], json!(["[[]id[]].*"]));
+    fn related_file_searches_preserve_scope_and_literal_names() {
+        use crate::execution::cancel::NeverCancel;
+        use crate::tools::test_support::{Fixture, simple_policy};
+        let root = Fixture::new();
+        std::fs::create_dir_all(root.0.join("pkg/nested")).unwrap();
+        for name in [
+            "blok.rs",
+            "nested/blok.ts",
+            "blok_extra.rs",
+            "Makefile",
+            "Makefile.txt",
+            "[id].tsx",
+            "id.tsx",
+            "Make[ab]",
+            "Makea",
+        ] {
+            std::fs::write(root.0.join("pkg").join(name), "").unwrap();
+        }
+        std::fs::write(root.0.join("blok.go"), "").unwrap();
+        let (paths, security) = simple_policy(&root.0);
+        for (requested, expected) in [
+            ("src/blok.rs", vec!["pkg/blok.rs", "pkg/nested/blok.ts"]),
+            ("Makefile", vec!["pkg/Makefile"]),
+            ("[id].tsx", vec!["pkg/[id].tsx"]),
+            ("Make[ab]", vec!["pkg/Make[ab]"]),
+        ] {
+            let lead = find_file("pkg", requested).expect("related request");
+            assert_eq!(lead["kind"], "related");
+            crate::contracts::validate("structureSearch", lead["input"].clone())
+                .expect("public input");
+            let query = serde_json::from_value(lead["input"]["queries"][0].clone()).unwrap();
+            let out = crate::tools::structure_search::execute_structure(
+                &query,
+                &paths,
+                &security,
+                &NeverCancel,
+                None,
+            )
+            .unwrap();
+            let mut actual = out["files"]
+                .as_array()
+                .expect("files")
+                .iter()
+                .flat_map(|group| {
+                    let entries = if let Some(entry) = group.as_str() {
+                        vec![("pkg", entry)]
+                    } else {
+                        let dir = group["dir"].as_str().expect("directory");
+                        group["files"]
+                            .as_array()
+                            .expect("entries")
+                            .iter()
+                            .map(|entry| (dir, entry.as_str().expect("entry")))
+                            .collect()
+                    };
+                    entries
+                        .into_iter()
+                        .map(|(dir, entry)| {
+                            let name = entry.rsplit_once(" (").map_or(entry, |(name, _)| name);
+                            format!("{dir}/{name}")
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            actual.sort();
+            assert_eq!(actual, expected, "{requested}: {out}");
+        }
     }
 
     #[test]

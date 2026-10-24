@@ -77,7 +77,7 @@ fn resolve(layers: Layers<'_>) -> ConfigOutput {
     resolve_config(&input(layers))
 }
 
-// ─── 2026-10-14 config hardening (R03/R09/R19–R30, removed settings) ─────────
+// ─── 2026-10-14 config hardening (R03/R09/R19–R30) ─────────
 
 fn value_of(out: &ConfigOutput, path: &str) -> serde_json::Value {
     super::get_config_value(&out.resolved, path).unwrap_or(serde_json::Value::Null)

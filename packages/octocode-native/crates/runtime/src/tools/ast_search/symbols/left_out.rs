@@ -1,10 +1,9 @@
-use super::ast_search_query_symbols;
 use super::names::{NameEntry, NameFilter, row_names};
 use crate::id::ToolId;
 use octocode_contract_types::AstSearchQuerySymbols;
 use serde_json::{Value, json};
 
-/// The declarations an exact `symbolName` entry left out because they only
+/// The declarations an exact `symbolFilter.terms` entry left out because they only
 /// contain it (`prune` equals `Prune`, so `prunes` is not listed): their
 /// count and distinct names, so a prefix or substring search is not
 /// answered by the one exact name alone. The notice names every one; the
@@ -61,37 +60,15 @@ impl Suppressed {
         )
     }
 
-    /// The same query over the entries plus every suppressed name, each an
-    /// exact entry now: the substring family the exact entries cut, one
-    /// lead per schema item bound of names.
-    pub(super) fn leads(&self, q: &AstSearchQuerySymbols) -> Vec<Value> {
-        let entries = ast_search_query_symbols::name_filter(q)
-            .map(|filter| filter.entries.into_iter().map(|entry| entry.text))
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-        let names = entries
-            .iter()
-            .cloned()
-            .chain(
-                self.names
-                    .iter()
-                    .filter(|name| !entries.contains(name))
-                    .cloned(),
-            )
-            .collect::<Vec<_>>();
-        names
-            .chunks(crate::contracts::query_limits::ast_search::symbols::SYMBOL_NAME_MAX_ITEMS)
-            .map(|chunk| {
-                let mut nq = crate::response::result::query_row(q, &["snapshot", "page"]);
-                nq["symbolName"] = json!(chunk);
-                crate::response::result::Continuation::new(ToolId::AstSearch, nq).build()
-            })
-            .collect()
+    /// Broaden the exact name filter to include its substring family.
+    pub(super) fn lead(q: &AstSearchQuerySymbols) -> Value {
+        let mut row = crate::response::result::query_row(q, &[]);
+        row["symbolFilter"]["mode"] = json!("substring");
+        crate::response::result::restart_query(ToolId::AstSearch, &row)
     }
 }
 
-/// The exact `symbolName` entries that `kinds` leaves without a single
+/// The exact `symbolFilter.terms` entries that `symbolKinds` leaves without a single
 /// declaration although other kinds declare them: the kinds that do and how
 /// many declarations each holds, so an empty or substring-free answer is not
 /// read as absence. The `broadenSearch` lead adds those kinds.
@@ -99,7 +76,7 @@ impl Suppressed {
 pub(super) struct KindsLeftOut {
     /// The entries, in query order.
     names: Vec<String>,
-    /// Declarations of those names `kinds` left out.
+    /// Declarations of those names `symbolKinds` left out.
     count: usize,
     /// Their distinct kinds, sorted.
     kinds: Vec<String>,
@@ -143,7 +120,11 @@ impl KindsLeftOut {
         let kinds = self.kinds.join(", ");
         format!(
             "kinds {} leaves out every declaration named {}: {} of kind{} {kinds}. Add {kinds} to kinds to list {}.",
-            q.kinds.join(", "),
+            q.symbol_kinds
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", "),
             self.names.join(", "),
             self.count,
             if self.kinds.len() == 1 { "" } else { "s" },
@@ -153,15 +134,66 @@ impl KindsLeftOut {
 
     /// The same query with the left-out kinds added.
     pub(super) fn lead(&self, q: &AstSearchQuerySymbols) -> Value {
-        let mut nq = crate::response::result::query_row(q, &["snapshot", "page"]);
-        let mut kinds = q.kinds.clone();
+        let mut nq = crate::response::result::query_row(q, &[]);
+        let mut kinds = q
+            .symbol_kinds
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
         kinds.extend(
             self.kinds
                 .iter()
-                .filter(|kind| !q.kinds.contains(kind))
+                .filter(|kind| {
+                    !q.symbol_kinds
+                        .iter()
+                        .any(|selected| selected.as_str() == kind.as_str())
+                })
                 .cloned(),
         );
-        nq["kinds"] = json!(kinds);
-        crate::response::result::Continuation::new(ToolId::AstSearch, nq).build()
+        nq["symbolKinds"] = json!(kinds);
+        crate::response::result::restart_query(ToolId::AstSearch, &nq)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_symbol_filter_leads_drop_all_saved_progress_and_keep_scope() {
+        let query: AstSearchQuerySymbols = serde_json::from_value(json!({
+            "operation":"symbols","path":"src","page":3,"snapshot":"previous","scanOffset":17,
+            "symbolFilter":{"terms":["Widget"],"mode":"exact"},"symbolKinds":["function"],
+            "includeHidden":true,"exclude":["vendor/**"],"maxFiles":3
+        }))
+        .expect("saved symbols query");
+        let kinds = KindsLeftOut {
+            names: vec!["Widget".into()],
+            count: 1,
+            kinds: vec!["class".into()],
+        };
+        let leads = [Suppressed::lead(&query), kinds.lead(&query)];
+        for lead in &leads {
+            assert_eq!(lead["kind"], "related");
+            crate::contracts::validate("astSearch", lead["input"].clone())
+                .expect("authored fresh request");
+            let row = &lead["input"]["queries"][0];
+            for field in crate::contracts::state_fields(ToolId::AstSearch) {
+                assert!(row.get(field).is_none(), "{field}: {lead}");
+            }
+            assert_eq!(row["path"], "src");
+            assert_eq!(row["exclude"], json!(["vendor/**"]));
+            assert_eq!(row["includeHidden"], true);
+            assert_eq!(row["maxFiles"], 3);
+            assert_eq!(row["symbolFilter"]["terms"], json!(["Widget"]));
+        }
+        assert_eq!(
+            leads[0]["input"]["queries"][0]["symbolFilter"]["mode"],
+            "substring"
+        );
+        assert_eq!(
+            leads[1]["input"]["queries"][0]["symbolKinds"],
+            json!(["function", "class"])
+        );
     }
 }

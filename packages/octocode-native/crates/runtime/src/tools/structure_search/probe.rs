@@ -205,7 +205,7 @@ pub(super) fn lead_to_skipped(
     walk: Walk,
     filtered: bool,
 ) {
-    if out["status"] == "empty" || out["next"].get("includeSkipped").is_some() {
+    if out["status"] == "empty" || out["calls"].get("includeSkipped").is_some() {
         return;
     }
     let mut causes = seen.skipped(walk);
@@ -215,7 +215,7 @@ pub(super) fn lead_to_skipped(
     if causes.is_empty() {
         return;
     }
-    out["next"]["includeSkipped"] =
+    out["calls"]["includeSkipped"] =
         crate::tools::leads::skipped::lead(crate::id::ToolId::StructureSearch, query, &causes);
 }
 
@@ -278,7 +278,7 @@ pub(super) fn broaden_empty<Q>(
 where
     Q: serde::Serialize + serde::de::DeserializeOwned,
 {
-    if out["status"] != "empty" || out["next"].get("includeSkipped").is_some() {
+    if out["status"] != "empty" || out["calls"].get("includeSkipped").is_some() {
         return Ok(());
     }
     let row = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
@@ -298,8 +298,8 @@ where
     for field in &dropped {
         changes[*field] = Value::Null;
     }
-    let lead = continuation(query, changes);
-    let Ok(relaxed) = serde_json::from_value::<Q>(lead["query"]["queries"][0].clone()) else {
+    let lead = continuation(query, changes, false);
+    let Ok(relaxed) = serde_json::from_value::<Q>(lead["input"]["queries"][0].clone()) else {
         return Ok(());
     };
     let bound = ProbeBound::new(crate::tools::empty_walk::probe_budget());
@@ -321,7 +321,7 @@ where
         if dropped.len() == 1 { "it" } else { "them" },
         if count == 1 { "it" } else { "them" },
     );
-    out["next"]["broadenSearch"] = lead;
+    out["calls"]["broadenSearch"] = lead;
     crate::tools::leads::push_hint(out, hint);
     Ok(())
 }

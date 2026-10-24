@@ -1,4 +1,3 @@
-#![allow(clippy::expect_used)]
 //! Cycle-engine cost on the frozen benchmark graph
 //! (`OCTOCODE_GRAPH_BENCH_FILES` files, default 20 000, each using the next
 //! `OCTOCODE_GRAPH_BENCH_FANOUT`, default 4). Correctness is

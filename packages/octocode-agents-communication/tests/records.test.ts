@@ -128,7 +128,7 @@ test('all 26 operational and generic payloads conform to the discovered envelope
  f.call('leave',{},f.a);db.close();
  const {catalog,database,records,validation}=runtime,schema=catalog.catalog(),reader=database.openDatabase(f.database,true),seen=new Set();
  try{
-  for(const row of database.query(reader,records.SELECT)){
+  for(const row of database.query(reader,records.RECORD_SELECT)){
    const record=records.envelope(row);
    validation.validate(validation.asObject(schema.recordEnvelope,'recordEnvelope'),record);
    validation.validate(validation.asObject(catalog.recordType(record.type).dataSchema,'dataSchema'),record.data);
@@ -199,11 +199,12 @@ test('all type discovery examples are valid, compact fields are complete and dis
  const call=<Value=JsonRecord>(...args: string[]): Value=>JSON.parse(execFileSync(binary,[...args,'--workspace',workspace,'--database',database],{encoding:'utf8',stdio:'pipe'}));
  const full=call<JsonRecord[]>('schema','types'),compact=call<JsonRecord[]>('schema','types','--compact');
  const byType=(list: JsonRecord[],type: string): JsonRecord=>{const found=list.find(x=>x.type===type);assert.ok(found,`No ${type} schema`);return found;};
- assert.equal(full.length,26);assert.equal(compact.length,26);
+ const types=runtime.catalog.catalog().recordTypes.map((item: JsonRecord)=>item.type);
+ assert.deepEqual(full.map(item=>item.type),types);assert.deepEqual(compact.map(item=>item.type),types);
  for(const item of full){
   const brief=byType(compact,item.type);
   assert.deepEqual([...brief.required,...brief.optional].sort(),Object.keys(item.dataSchema.properties).sort());
-  assert.ok(item.description);assert.ok(item.routing);assert.deepEqual(item.fetch,{type:item.type});
+  assert.match(item.description,/\S/);assert.match(item.routing,/\S/);assert.deepEqual(item.fetch,{type:item.type});
   assert.deepEqual(call('schema','type',item.type),item);
   for(const field of Object.keys(item.dataSchema.properties))assert.ok(readFileSync(join(root,'docs/RECORDS.md'),'utf8').includes(field),item.type+':'+field);
  }

@@ -15,7 +15,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     root.write(".env.ts", "oldCall(ignored);\n");
     root.write("visible.ts", "oldCall(visible);\n");
     let (paths, security) = simple_policy(&root.0);
-    let root_name = root.0.file_name().expect("root name").to_string_lossy();
+    let canonical_root = root.0.canonicalize().expect("canonical root");
     for (row, count, expected) in [
         (
             json!({"operation":"symbols","path":root.0,"includeHidden":true}),
@@ -23,7 +23,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
             2,
         ),
         (
-            json!({"operation":"match","path":root.0,"language":"typescript","pattern":"oldCall($A)","includeHidden":true}),
+            json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"oldCall($A)"},"includeHidden":true}),
             "matchCount",
             1,
         ),
@@ -33,9 +33,11 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
         let listed = checks::paths_in(&out["files"]);
         assert!(!listed.is_empty(), "{row}: {out}");
         assert!(
-            listed
-                .iter()
-                .all(|path| path.starts_with(&format!("{root_name}/visible."))),
+            listed.iter().all(|path| canonical_root.join(path).parent()
+                == Some(canonical_root.as_path())
+                && std::path::Path::new(path)
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("visible."))),
             "{row}: {out}"
         );
         for withheld in ["hidden.ts", ".env.ts", "credentials", "tfstate"] {
@@ -66,7 +68,7 @@ fn directory_scans_disclose_policy_withheld_entries() {
     };
     let matches = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"typescript","pattern":"register($A)","includeHidden":true}),
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"register($A)"},"includeHidden":true}),
     )
     .expect("match");
     assert_eq!(matches["matchCount"], 1, "{matches}");
@@ -74,7 +76,7 @@ fn directory_scans_disclose_policy_withheld_entries() {
     assert!(matches.get("coverage").is_none(), "{matches}");
     let empty = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"typescript","pattern":"register(secret)","includeHidden":true}),
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"register(secret)"},"includeHidden":true}),
     )
     .expect("empty match");
     assert!(disclosed(&empty), "{empty}");
@@ -108,13 +110,13 @@ fn directory_scans_disclose_in_workspace_links_they_do_not_follow() {
     let scope = root.0.join("links");
     let matched = run(
         &root.0,
-        json!({"operation":"match","path":scope,"pattern":"register($A)"}),
+        json!({"operation":"match","path":scope,"rule":{"pattern":"register($A)"}}),
     )
     .expect("no languageRequired behind links");
     assert_eq!(skipped_reasons(&matched, "withheld"), notice, "{matched}");
     let typed = run(
         &root.0,
-        json!({"operation":"match","path":scope,"language":"typescript","pattern":"register($A)"}),
+        json!({"operation":"match","path":scope,"parser":"typescript","rule":{"pattern":"register($A)"}}),
     )
     .expect("typed match");
     assert_eq!(skipped_reasons(&typed, "withheld"), notice, "{typed}");
@@ -124,7 +126,7 @@ fn directory_scans_disclose_in_workspace_links_they_do_not_follow() {
     std::fs::create_dir_all(root.0.join("empty")).expect("empty dir");
     let empty = run(
         &root.0,
-        json!({"operation":"match","path":root.0.join("empty"),"pattern":"register($A)"}),
+        json!({"operation":"match","path":root.0.join("empty"),"rule":{"pattern":"register($A)"}}),
     )
     .expect("an empty scope is no languageRequired");
     assert_eq!(empty["matchCount"], 0, "{empty}");
@@ -138,12 +140,7 @@ fn directory_prefilter_skips_are_aggregated_once() {
     }
     let (paths, security) = simple_policy(&root.0);
     let result = execute_row(
-        json!({
-            "operation":"match","mainGoal":"test","reasoning":"test",
-            "path":root.0,
-            "language":"typescript",
-            "pattern":"missingCall($A);"
-        }),
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"missingCall($A);"}}),
         &paths,
         &security,
         &NeverCancel,
@@ -174,7 +171,7 @@ fn cancellation_interrupts_descendant_traversal() {
     let (paths, security) = simple_policy(&root.0);
     for row in [
         json!({"operation":"symbols","path":root.0}),
-        json!({"operation":"match","path":root.0,"language":"rust","pattern":"source($A)"}),
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"source($A)"}}),
     ] {
         let error = execute_row(
             row.clone(),
@@ -199,16 +196,14 @@ fn an_empty_match_over_ignored_and_hidden_files_leads_to_them() {
         let pkg = root.0.join("pkg");
         std::fs::create_dir_all(pkg.join(dir)).expect("dir");
         std::fs::write(pkg.join(dir).join("a.py"), "print(1)\n").expect("source");
-        let request = json!({
-            "operation":"match","mainGoal":"test","reasoning":"test",
-            "path":pkg,"language":"python","pattern":"print($A)"
-        });
+        let request = json!({"operation":"match","path":pkg,"parser":"python","rule":{"pattern":"print($A)"}});
         let empty = run(&root.0, request.clone()).expect("empty match");
         assert!(empty["files"].is_null(), "{dir}: {empty}");
         assert!(empty["next"].get("repair").is_none(), "{dir}: {empty}");
-        let lead = &empty["next"]["includeSkipped"];
+        let lead = &super::super::test_rows::skipped_call(&empty)
+            .unwrap_or_else(|| panic!("missing skipped-scope lead: {empty}"));
         assert_eq!(lead["tool"], "astSearch", "{dir}: {empty}");
-        let retry = &lead["query"]["queries"][0];
+        let retry = &lead["input"]["queries"][0];
         assert_eq!(retry[flag], true, "{dir}: {empty}");
         assert!(
             empty["hints"]
@@ -237,14 +232,13 @@ fn an_empty_match_without_language_leads_to_skipped_files() {
         let pkg = root.0.join("pkg");
         std::fs::create_dir_all(pkg.join(dir)).expect("dir");
         std::fs::write(pkg.join(dir).join("a.py"), "print(1)\n").expect("source");
-        let request = json!({
-            "operation":"match","mainGoal":"test","reasoning":"test",
-            "path":pkg,"pattern":"print($A)"
-        });
+        let request = json!({"operation":"match","path":pkg,"rule":{"pattern":"print($A)"}});
         let empty = run(&root.0, request).expect("empty match");
-        let retry = &empty["next"]["includeSkipped"]["query"]["queries"][0];
+        let retry = &super::super::test_rows::skipped_call(&empty)
+            .unwrap_or_else(|| panic!("missing skipped-scope lead: {empty}"))["input"]["queries"]
+            [0];
         assert_eq!(retry[flag], true, "{dir}: {empty}");
-        assert!(retry.get("language").is_none(), "{dir}: {empty}");
+        assert!(retry.get("parser").is_none(), "{dir}: {empty}");
         let found = run(&root.0, retry.clone()).expect("lead runs");
         assert_eq!(found["matchCount"], 1, "{dir}: {found}");
     }
@@ -261,16 +255,14 @@ fn an_empty_match_beside_parsed_files_names_the_ignored_ones() {
     std::fs::create_dir_all(root.0.join("gen")).expect("dir");
     root.write("gen/b.ts", "export const y = double(2);\n");
     root.write("a.ts", "export const x = 1;\n");
-    let request = json!({
-        "operation":"match","mainGoal":"test","reasoning":"test",
-        "path":root.0,"language":"typescript","pattern":"double($A)"
-    });
+    let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"double($A)"}});
     let empty = run(&root.0, request).expect("empty match");
     assert_eq!(empty["status"], "empty", "{empty}");
     assert_eq!(empty["filesScanned"], json!(1), "{empty}");
     let hints = empty["hints"].to_string();
     assert!(hints.contains(".gitignore:1 'gen/'"), "{hints}");
-    let retry = &empty["next"]["includeSkipped"]["query"]["queries"][0];
+    let retry = &super::super::test_rows::skipped_call(&empty)
+        .unwrap_or_else(|| panic!("missing skipped-scope lead: {empty}"))["input"]["queries"][0];
     assert_eq!(retry["includeIgnored"], true, "{empty}");
     let found = run(&root.0, retry.clone()).expect("lead runs");
     assert_eq!(found["matchCount"], 1, "{found}");
@@ -293,7 +285,7 @@ fn a_skipped_file_is_one_skip_with_one_diagnostic() {
     .expect("binary");
     let out = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"language":"typescript","pattern":"foo($A)"}),
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"foo($A)"}}),
     )
     .expect("match");
     assert_eq!(out["matchCount"], 1, "{out}");

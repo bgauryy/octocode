@@ -4,12 +4,6 @@
 // and `tests/lock_poison_policy.rs` for the integration binary, which cannot
 // reach `#[cfg(test)]` library items.
 
-/// The text of the Rust file at `path` with every `#[cfg(test)]`-gated item
-/// blanked ([`production_text`]); an unreadable file reads as empty.
-pub(crate) fn production_source(path: &std::path::Path) -> String {
-    std::fs::read_to_string(path).map_or_else(|_| String::new(), |text| production_text(&text))
-}
-
 /// `source` with every item, statement or block gated by `#[cfg(test)]` (or
 /// `#[cfg(all(test, …))]`) blanked: an inline test module, a test-only
 /// `fn`, `impl`, `use`, `thread_local!` or `{ … }` block. Everything else

@@ -2,6 +2,31 @@
 use super::bench::*;
 use super::*;
 
+#[test]
+fn canonical_sparse_paths_are_one_array_without_scalar_or_legacy_aliases() {
+    let row = serde_json::json!({
+        "owner": "fixture-owner", "repo": "fixture-repo", "paths": ["src", "docs"]
+    });
+    let decoded: GhCloneRepoQuery = serde_json::from_value(row.clone()).expect("canonical paths");
+    assert_eq!(
+        Sparse::of(&decoded).expect("sparse scope").paths(),
+        ["src", "docs"]
+    );
+    for field in [
+        serde_json::json!({"path": "src"}),
+        serde_json::json!({"path": ["src"]}),
+        serde_json::json!({"paths": "src"}),
+        serde_json::json!({"paths": ["src\ndocs"]}),
+    ] {
+        let mut invalid = serde_json::json!({"owner": "fixture-owner", "repo": "fixture-repo"});
+        invalid
+            .as_object_mut()
+            .expect("row")
+            .extend(field.as_object().expect("fields").clone());
+        assert!(serde_json::from_value::<GhCloneRepoQuery>(invalid).is_err());
+    }
+}
+
 /// A runner whose `ls-tree` fails: the sparse scope cannot be resolved.
 struct FailingLsTree(RewriteRunner);
 
@@ -41,7 +66,7 @@ fn an_unresolvable_sparse_path_type_fails_the_clone() {
     let error = clone_pinned(
         &fixture,
         &GhCloneRepoQuery {
-            path: Some(one("README.md")),
+            paths: one("README.md"),
             ..query()
         },
         &context,
@@ -69,7 +94,7 @@ fn sparse_file_path_checks_out_only_that_file() {
                 &fixture,
                 &GhCloneRepoQuery {
                     ref_: branch.as_deref().map(reference),
-                    path: Some(one(file)),
+                    paths: one(file),
                     ..query()
                 },
                 &context,
@@ -96,7 +121,7 @@ fn multiple_sparse_paths_check_out_every_path() {
     let both = clone_pinned(
         &bench.fixture,
         &GhCloneRepoQuery {
-            path: Some(many(&["src/nested", "other"])),
+            paths: many(&["src/nested", "other"]),
             ..query()
         },
         &context,
@@ -112,7 +137,7 @@ fn multiple_sparse_paths_check_out_every_path() {
     let row = serde_json::to_value(&both).expect("serialize");
     assert_eq!(
         Path::new(
-            row["next"]["exploreClone"]["query"]["queries"][0]["path"]
+            crate::tools::test_support::checks::related_call(&row, "structureSearch", |_|true)["input"]["queries"][0]["path"]
                 .as_str()
                 .expect("path")
         ),
@@ -123,7 +148,7 @@ fn multiple_sparse_paths_check_out_every_path() {
     let reordered = clone_pinned(
         &bench.fixture,
         &GhCloneRepoQuery {
-            path: Some(many(&["other", "src/nested"])),
+            paths: many(&["other", "src/nested"]),
             ..query()
         },
         &context,
@@ -137,7 +162,7 @@ fn multiple_sparse_paths_check_out_every_path() {
     let mixed = clone_pinned(
         &bench.fixture,
         &GhCloneRepoQuery {
-            path: Some(many(&["README.md", "src/nested"])),
+            paths: many(&["README.md", "src/nested"]),
             ..query()
         },
         &context,
@@ -152,7 +177,7 @@ fn multiple_sparse_paths_check_out_every_path() {
     let missing = clone_pinned(
         &bench.fixture,
         &GhCloneRepoQuery {
-            path: Some(many(&["src", "nope"])),
+            paths: many(&["src", "nope"]),
             ..query()
         },
         &context,
@@ -172,11 +197,11 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
     let bench = Bench::new();
     let context = bench.context();
     let commit = bench.fixture.first_commit.clone();
-    let failed = |path: GhCloneRepoQueryPath| {
+    let failed = |path: Vec<GhCloneRepoQueryPathsItem>| {
         let missing = clone_pinned(
             &bench.fixture,
             &GhCloneRepoQuery {
-                path: Some(path),
+                paths: path,
                 ..query()
             },
             &context,
@@ -184,29 +209,29 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
         .expect_err("missing sparse path");
         assert_eq!(missing.code, ErrorCode::PathNotFound, "{missing:?}");
         assert!(missing.hints.is_empty(), "{missing:?}");
-        *missing.next.expect("recovery lead")
+        *missing.calls.expect("recovery lead")
     };
 
     // One near miss in the deepest existing directory: the clone, corrected.
     let next = failed(one("src/nested/dta.txt"));
     let lead = &next["repair"];
     assert_eq!(lead["tool"], "ghCloneRepo", "{next}");
-    let row = &lead["query"]["queries"][0];
-    assert_eq!(row["path"], "src/nested/data.txt", "{next}");
+    let row = &lead["input"]["queries"][0];
+    assert_eq!(row["paths"][0], "src/nested/data.txt", "{next}");
     assert_eq!(row["ref"], commit.as_str(), "{next}");
     assert_eq!(row["owner"], "fixture-owner", "{next}");
 
     // Only the letter case differs: missing on every filesystem (a commit's
     // paths are case-sensitive), corrected to the commit's spelling.
     let next = failed(one("src/Nested"));
-    let row = &next["repair"]["query"]["queries"][0];
-    assert_eq!(row["path"], "src/nested", "{next}");
+    let row = &next["repair"]["input"]["queries"][0];
+    assert_eq!(row["paths"][0], "src/nested", "{next}");
 
     // A directory is a near miss too, and a list is corrected in place.
     let next = failed(many(&["other", "sr/nested"]));
-    let row = &next["repair"]["query"]["queries"][0];
+    let row = &next["repair"]["input"]["queries"][0];
     assert_eq!(
-        row["path"],
+        row["paths"],
         serde_json::json!(["other", "src/nested"]),
         "{next}"
     );
@@ -215,21 +240,21 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
     let next = failed(one("src/nested/deep/er/x.rs"));
     let lead = &next["viewTree"];
     assert_eq!(lead["tool"], "ghStructure", "{next}");
-    let row = &lead["query"]["queries"][0];
+    let row = &lead["input"]["queries"][0];
     assert_eq!(row["path"], "src/nested", "{next}");
     assert_eq!(row["ref"], commit.as_str(), "{next}");
     assert!(next.get("repair").is_none(), "{next}");
 
     // At the root, the listing names no path.
     let next = failed(one("zzzzzz/a"));
-    let row = &next["viewTree"]["query"]["queries"][0];
+    let row = &next["viewTree"]["input"]["queries"][0];
     assert!(row.get("path").is_none(), "{next}");
     assert_eq!(row["ref"], commit.as_str(), "{next}");
 
     // One uncorrectable path among several keeps the listing, not a clone.
     let next = failed(many(&["src/nested/dta.txt", "src/qqqqqq/z"]));
     assert_eq!(
-        next["viewTree"]["query"]["queries"][0]["path"], "src",
+        next["viewTree"]["input"]["queries"][0]["path"], "src",
         "{next}"
     );
 }

@@ -25,7 +25,7 @@ fn utf16_fetch_reads_lines_and_keeps_raw_digest() {
         }
         fs::write(&file, &bytes).expect("write");
         let mut query = q(&file);
-        query.ranges = vec!["2-2".parse().expect("range")];
+        local_fetch_query::set_line_span(&mut query, 2, 2).expect("range");
         let result = fetch(&query, &paths);
         assert_ne!(result.status, ReadStatus::Error, "{result:?}");
         assert!(

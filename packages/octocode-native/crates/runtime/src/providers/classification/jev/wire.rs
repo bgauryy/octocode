@@ -126,122 +126,9 @@ pub(super) fn validate_wire(
                     &format!("answers.{id}.noul"),
                 )?;
             }
-            Some("choice") => {
-                let criteria = question
-                    .get("criteria")
-                    .and_then(Value::as_object)
-                    .ok_or_else(|| {
-                        invalid_request(format!("questions.{id}.criteria must be an object"))
-                    })?;
-                validate_distribution(answer, criteria, &format!("answers.{id}"))?;
-                let selected = answer
-                    .get("choice")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        invalid_response(format!("answers.{id}.choice must be a string"))
-                    })?;
-                if !criteria.contains_key(selected) {
-                    return Err(invalid_response(format!(
-                        "answers.{id}.choice is not a requested label"
-                    )));
-                }
-                let selected_probability = answer["probabilities"][selected]
-                    .as_f64()
-                    .ok_or_else(|| invalid_response("selected probability is missing"))?;
-                if answer["probabilities"].as_object().is_some_and(|values| {
-                    values
-                        .values()
-                        .filter_map(Value::as_f64)
-                        .any(|value| value > selected_probability + 1e-6)
-                }) {
-                    return Err(invalid_response(format!(
-                        "answers.{id}.choice is not a highest-probability label"
-                    )));
-                }
-            }
-            Some("score") => {
-                let levels = question
-                    .get("criteria")
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| invalid_request("score criteria must be an array"))?;
-                let criteria: Map<String, Value> = levels
-                    .iter()
-                    .enumerate()
-                    .map(|(index, level)| (index.to_string(), level.clone()))
-                    .collect();
-                validate_distribution(answer, &criteria, &format!("answers.{id}"))?;
-                let score = answer
-                    .get("score")
-                    .and_then(Value::as_f64)
-                    .filter(|score| {
-                        score.is_finite()
-                            && *score >= 0.0
-                            && *score <= levels.len().saturating_sub(1) as f64
-                    })
-                    .ok_or_else(|| {
-                        invalid_response(format!("answers.{id}.score is outside the rubric"))
-                    })?;
-                let expected = (0..levels.len()).try_fold(0.0, |sum, index| {
-                    probability(
-                        &answer["probabilities"][index.to_string()],
-                        &format!("answers.{id}.probabilities.{index}"),
-                    )
-                    .map(|value| sum + index as f64 * value)
-                })?;
-                // Compatibility allowance for the two-decimal values in provider examples:
-                // each rounded probability contributes at most index * 0.005 error,
-                // plus 0.005 for the rounded score. This rejects contradictions without
-                // imposing exact equality or replacing the provider's score. Cap the
-                // allowance at a quarter rubric step: the API defines score as the
-                // expectation of the returned distribution, so a longer rubric must
-                // not turn rounding tolerance into permission for multi-level errors.
-                let index_sum = levels.len() * levels.len().saturating_sub(1) / 2;
-                let tolerance =
-                    (0.005 * (1 + index_sum) as f64).min(MAX_SCORE_ROUNDING_DEVIATION) + 1e-9;
-                if (score - expected).abs() > tolerance {
-                    return Err(invalid_response(format!(
-                        "answers.{id}.score disagrees with its probabilities"
-                    )));
-                }
-                if answer.get("legend").and_then(Value::as_object) != Some(&criteria) {
-                    return Err(invalid_response(format!(
-                        "answers.{id}.legend differs from requested criteria"
-                    )));
-                }
-            }
-            Some("box") => {
-                let coordinates =
-                    answer
-                        .get("box")
-                        .and_then(Value::as_object)
-                        .ok_or_else(|| {
-                            invalid_response(format!("answers.{id}.box must be an object"))
-                        })?;
-                let edge = |name: &str| {
-                    probability(
-                        coordinates.get(name).unwrap_or(&Value::Null),
-                        &format!("answers.{id}.box.{name}"),
-                    )
-                };
-                let (top, bottom, left, right) =
-                    (edge("top")?, edge("bottom")?, edge("left")?, edge("right")?);
-                if top >= bottom || left >= right {
-                    return Err(invalid_response(format!(
-                        "answers.{id}.box edges must be ordered top < bottom and left < right"
-                    )));
-                }
-                match answer.get("confidence") {
-                    Some(Value::Null) => {}
-                    Some(value) => {
-                        probability(value, &format!("answers.{id}.confidence"))?;
-                    }
-                    None => {
-                        return Err(invalid_response(format!(
-                            "answers.{id}.confidence must be present, using null when unavailable"
-                        )));
-                    }
-                }
-            }
+            Some("choice") => validate_choice(id, question, answer)?,
+            Some("score") => validate_score(id, question, answer)?,
+            Some("box") => validate_box(id, answer)?,
             _ => return Err(invalid_request(format!("questions.{id}.type is invalid"))),
         }
     }
@@ -250,19 +137,141 @@ pub(super) fn validate_wire(
         // place instead of cloned again.
         crate::contracts::validate_output_in_place(
             "clasify",
-            &mut json!({"queries":[{
-                "id":"provider",
+            &mut json!({"results":[{"index":0,"data":{
                 "model":response["model"],
                 "answers":response["answers"],
                 "usage":{
                     "input_tokens":response["usage"]["input_tokens"],
                     "output_tokens":response["usage"]["output_tokens"],
                 },
-            }]}),
+            }}]}),
         )
         .map_err(|_| {
             invalid_response("Provider answers violate the canonical clasify output contract")
         })?;
+    }
+    Ok(())
+}
+
+/// A `choice` answer: a distribution over the requested labels whose
+/// chosen label is a most probable one.
+fn validate_choice(
+    id: &str,
+    question: &Map<String, Value>,
+    answer: &Map<String, Value>,
+) -> Result<(), ProviderContractError> {
+    let criteria = question
+        .get("criteria")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_request(format!("questions.{id}.criteria must be an object")))?;
+    validate_distribution(answer, criteria, &format!("answers.{id}"))?;
+    let selected = answer
+        .get("choice")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_response(format!("answers.{id}.choice must be a string")))?;
+    if !criteria.contains_key(selected) {
+        return Err(invalid_response(format!(
+            "answers.{id}.choice is not a requested label"
+        )));
+    }
+    let selected_probability = answer["probabilities"][selected]
+        .as_f64()
+        .ok_or_else(|| invalid_response("selected probability is missing"))?;
+    if answer["probabilities"].as_object().is_some_and(|values| {
+        values
+            .values()
+            .filter_map(Value::as_f64)
+            .any(|value| value > selected_probability + 1e-6)
+    }) {
+        return Err(invalid_response(format!(
+            "answers.{id}.choice is not a highest-probability label"
+        )));
+    }
+    Ok(())
+}
+
+/// A `score` answer: a distribution over the rubric levels, a score inside
+/// the rubric that agrees with it, and the requested legend.
+fn validate_score(
+    id: &str,
+    question: &Map<String, Value>,
+    answer: &Map<String, Value>,
+) -> Result<(), ProviderContractError> {
+    let levels = question
+        .get("criteria")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid_request("score criteria must be an array"))?;
+    let criteria: Map<String, Value> = levels
+        .iter()
+        .enumerate()
+        .map(|(index, level)| (index.to_string(), level.clone()))
+        .collect();
+    validate_distribution(answer, &criteria, &format!("answers.{id}"))?;
+    let score = answer
+        .get("score")
+        .and_then(Value::as_f64)
+        .filter(|score| {
+            score.is_finite() && *score >= 0.0 && *score <= levels.len().saturating_sub(1) as f64
+        })
+        .ok_or_else(|| invalid_response(format!("answers.{id}.score is outside the rubric")))?;
+    let expected = (0..levels.len()).try_fold(0.0, |sum, index| {
+        probability(
+            &answer["probabilities"][index.to_string()],
+            &format!("answers.{id}.probabilities.{index}"),
+        )
+        .map(|value| sum + index as f64 * value)
+    })?;
+    // Compatibility allowance for the two-decimal values in provider examples:
+    // each rounded probability contributes at most index * 0.005 error,
+    // plus 0.005 for the rounded score. This rejects contradictions without
+    // imposing exact equality or replacing the provider's score. Cap the
+    // allowance at a quarter rubric step: the API defines score as the
+    // expectation of the returned distribution, so a longer rubric must
+    // not turn rounding tolerance into permission for multi-level errors.
+    let index_sum = levels.len() * levels.len().saturating_sub(1) / 2;
+    let tolerance = (0.005 * (1 + index_sum) as f64).min(MAX_SCORE_ROUNDING_DEVIATION) + 1e-9;
+    if (score - expected).abs() > tolerance {
+        return Err(invalid_response(format!(
+            "answers.{id}.score disagrees with its probabilities"
+        )));
+    }
+    if answer.get("legend").and_then(Value::as_object) != Some(&criteria) {
+        return Err(invalid_response(format!(
+            "answers.{id}.legend differs from requested criteria"
+        )));
+    }
+    Ok(())
+}
+
+/// A `box` answer: ordered edges in `0..=1` and a confidence, `null` when
+/// the provider has none.
+fn validate_box(id: &str, answer: &Map<String, Value>) -> Result<(), ProviderContractError> {
+    let coordinates = answer
+        .get("box")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_response(format!("answers.{id}.box must be an object")))?;
+    let edge = |name: &str| {
+        probability(
+            coordinates.get(name).unwrap_or(&Value::Null),
+            &format!("answers.{id}.box.{name}"),
+        )
+    };
+    let (top, bottom, left, right) = (edge("top")?, edge("bottom")?, edge("left")?, edge("right")?);
+    if top >= bottom || left >= right {
+        return Err(invalid_response(format!(
+            "answers.{id}.box edges must be ordered top < bottom and left < right"
+        )));
+    }
+    match answer.get("confidence") {
+        Some(Value::Null) => {}
+        Some(value) => {
+            probability(value, &format!("answers.{id}.confidence"))?;
+        }
+        None => {
+            return Err(invalid_response(format!(
+                "answers.{id}.confidence must be present, using null when unavailable"
+            )));
+        }
     }
     Ok(())
 }

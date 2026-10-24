@@ -60,8 +60,8 @@ impl DomainResult {
         if !hints.is_empty() {
             data["hints"] = json!(hints);
         }
-        if let Some(next) = next {
-            data["next"] = next;
+        if let Some(calls) = next {
+            crate::response::result::attach_calls(&mut data, calls);
         }
         Self {
             diagnostics: Default::default(),
@@ -112,8 +112,8 @@ impl DomainResult {
         if !hints.is_empty() {
             data["hints"] = json!(hints);
         }
-        if let Some(next) = next {
-            data["next"] = next;
+        if let Some(calls) = next {
+            crate::response::result::attach_calls(data, calls);
         }
         row
     }
@@ -125,7 +125,7 @@ impl From<crate::response::result::ToolError> for DomainResult {
             error.code,
             error.message,
             error.hints,
-            error.next.map(|next| *next),
+            error.calls.map(|next| *next),
         );
         if let Some(selection) = error.selection {
             result.data["selection"] = serde_json::to_value(*selection).unwrap_or(Value::Null);

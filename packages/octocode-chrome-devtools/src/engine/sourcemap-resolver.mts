@@ -1,9 +1,35 @@
+import type { Session } from './cdp-connection.mjs';
+
+/** Source map v3 fields the resolver reads; sourcesContent is dropped on load. */
+type SourceMapJson = {
+  mappings: string;
+  sources?: (string | null)[];
+  names?: string[];
+  sourcesContent?: unknown;
+};
+/** One mapping: generated line/column to source index, line, column and name index (-1: none). */
+type Segment = {
+  gl: number;
+  gc: number;
+  si: number;
+  sl: number;
+  sc: number;
+  ni: number;
+};
+/** `Debugger.scriptParsed` event params the resolver reads. */
+type ScriptParsed = { scriptId: string; url: string; sourceMapURL?: string };
+type ParsedMap = {
+  segments: Segment[];
+  sources: (string | null)[];
+  names: string[];
+};
+
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const B64_MAP = new Uint8Array(256).fill(255);
 for (let i = 0; i < B64.length; i++) B64_MAP[B64.charCodeAt(i)] = i;
 
-function decodeVLQList(str) {
-  const result = [];
+function decodeVLQList(str: string) {
+  const result: number[] = [];
   let i = 0;
   while (i < str.length) {
     let value = 0,
@@ -19,12 +45,12 @@ function decodeVLQList(str) {
   return result;
 }
 
-function parseMap(mapJson) {
+function parseMap(mapJson: SourceMapJson): ParsedMap {
   delete mapJson.sourcesContent;
 
   const sources = mapJson.sources ?? [];
   const names = mapJson.names ?? [];
-  const segments = [];
+  const segments: Segment[] = [];
 
   let genLine = 0;
   let srcIdx = 0,
@@ -64,7 +90,11 @@ function parseMap(mapJson) {
   return { segments, sources, names };
 }
 
-function originalPositionFor(parsed, genLine, genCol) {
+function originalPositionFor(
+  parsed: ParsedMap,
+  genLine: number,
+  genCol: number
+) {
   const { segments, sources, names } = parsed;
   if (!segments.length) return null;
 
@@ -94,11 +124,11 @@ function originalPositionFor(parsed, genLine, genCol) {
   };
 }
 
-async function fetchText(url, timeoutMs = 4000) {
+async function fetchText(url: string, timeoutMs = 4000) {
   const { get } = url.startsWith('https')
     ? await import('https')
     : await import('http');
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
     get(url, res => {
       if (res.statusCode !== 200) {
@@ -106,7 +136,7 @@ async function fetchText(url, timeoutMs = 4000) {
         res.resume();
         return reject(new Error(`HTTP ${res.statusCode}`));
       }
-      const chunks = [];
+      const chunks: Buffer[] = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
         clearTimeout(timer);
@@ -123,17 +153,30 @@ async function fetchText(url, timeoutMs = 4000) {
   });
 }
 
-export async function createSourceMapResolver(cdp) {
+/** The map a script names: inline base64 data or a fetch relative to the script; null for inline non-base64 data. */
+async function readMapText(sourceMapURL: string, url: string) {
+  if (sourceMapURL.startsWith('data:')) {
+    const b64start = sourceMapURL.indexOf('base64,');
+    if (b64start === -1) return null;
+    return Buffer.from(sourceMapURL.slice(b64start + 7), 'base64').toString(
+      'utf8'
+    );
+  }
+  return fetchText(url ? new URL(sourceMapURL, url).href : sourceMapURL);
+}
+
+export async function createSourceMapResolver(cdp: Session) {
   await cdp.send('Debugger.enable', {});
   await cdp.send('Debugger.setSkipAllPauses', { skip: true });
 
-  const parsedMaps = new Map();
+  const parsedMaps = new Map<string, ParsedMap | null>();
 
   const stats = { withMap: 0, withoutMap: 0, loaded: 0, failed: 0 };
 
-  const loadPromises = [];
+  const loadPromises: Promise<void>[] = [];
 
-  cdp.on('Debugger.scriptParsed', ({ scriptId, url, sourceMapURL }) => {
+  cdp.on('Debugger.scriptParsed', (event: ScriptParsed) => {
+    const { scriptId, url, sourceMapURL } = event;
     if (!sourceMapURL) {
       stats.withoutMap++;
       return;
@@ -143,20 +186,8 @@ export async function createSourceMapResolver(cdp) {
 
     const loadMap = async () => {
       try {
-        let mapText;
-
-        if (sourceMapURL.startsWith('data:')) {
-          const b64start = sourceMapURL.indexOf('base64,');
-          if (b64start === -1) return;
-          mapText = Buffer.from(
-            sourceMapURL.slice(b64start + 7),
-            'base64'
-          ).toString('utf8');
-        } else {
-          const mapUrl = url ? new URL(sourceMapURL, url).href : sourceMapURL;
-          mapText = await fetchText(mapUrl);
-        }
-
+        const mapText = await readMapText(sourceMapURL, url);
+        if (mapText === null) return;
         const mapJson = JSON.parse(mapText);
         const parsed = parseMap(mapJson);
         parsedMaps.set(scriptId, parsed);
@@ -172,7 +203,7 @@ export async function createSourceMapResolver(cdp) {
 
   return {
     async settle(timeoutMs = 8000) {
-      let timer;
+      let timer: NodeJS.Timeout | undefined;
       try {
         await Promise.race([
           Promise.allSettled(loadPromises),
@@ -185,13 +216,13 @@ export async function createSourceMapResolver(cdp) {
       }
     },
 
-    resolve(scriptId, line, col) {
+    resolve(scriptId: string, line: number, col: number) {
       const parsed = parsedMaps.get(scriptId);
       if (!parsed) return null;
       return originalPositionFor(parsed, line, col);
     },
 
-    hasMap(scriptId) {
+    hasMap(scriptId: string) {
       const m = parsedMaps.get(scriptId);
       return m !== null && m !== undefined;
     },

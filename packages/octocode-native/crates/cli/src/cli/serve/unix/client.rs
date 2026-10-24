@@ -157,7 +157,7 @@ pub(super) fn target() -> Option<Target> {
         RuntimeSurface, acquire_config_input, is_persistent_storage_enabled, resolve_config,
     };
     let cwd = same_dir_form(&std::env::current_dir().ok()?);
-    let os_home = octocode_io::env::home_dir()?;
+    let os_home = std::env::home_dir()?;
     let env = served_env(octocode_io::env::vars_lossy());
     let input = acquire_config_input(env.clone(), cwd.clone(), os_home, RuntimeSurface::Cli);
     let config = resolve_config(&input);

@@ -4,7 +4,7 @@
 //! ref as a runnable lead.
 use super::GhFailure;
 use crate::id::ToolId;
-use crate::response::result::Continuation;
+use crate::response::result::restart_query;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use serde_json::Value;
 
@@ -92,7 +92,7 @@ impl DefaultBranchRetry {
     pub(crate) fn apply(self, failure: &mut GhFailure) {
         failure.message = self.message(&failure.message);
         let (name, lead) = self.lead();
-        let next = failure.next.get_or_insert_with(|| Box::new(Value::Null));
+        let next = failure.calls.get_or_insert_with(|| Box::new(Value::Null));
         if !next.is_object() {
             **next = serde_json::json!({});
         }
@@ -133,7 +133,7 @@ pub(crate) async fn default_branch_retry(
     for field in fields {
         row[*field] = Value::from(branch.clone());
     }
-    let lead = Continuation::new(tool, row).build();
+    let lead = restart_query(tool, &row);
     Some(DefaultBranchRetry { branch, lead })
 }
 

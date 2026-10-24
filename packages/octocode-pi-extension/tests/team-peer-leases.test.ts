@@ -10,7 +10,7 @@ import { processStartTime } from '../src/shared/process.js';
 import { Team } from '../src/team/session.js';
 import { registerCollab } from '../src/team/tools.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { deadPid, tmp } from './helpers.js';
 
 const PACKAGE = path.resolve(import.meta.dirname, '../../octocode-agents-communication');
 const SCHEMA = fs.readFileSync(path.join(PACKAGE, 'assets/schema.sql'), 'utf8');
@@ -171,14 +171,6 @@ function entry(dir: string, name: string, fields: Record<string, unknown>): void
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({ version: PEER_REGISTRY_VERSION, database: '/db.sqlite', pid: process.pid, started: processStartTime(process.pid) ?? null, updatedAt: NOW, ...fields }));
 }
-/** A pid that is not running. */
-function deadPid(): number {
-  let pid = 2 ** 22 + 11;
-  for (; ; pid++) {
-    try { process.kill(pid, 0); } catch { return pid; }
-  }
-}
-
 describe('registry of the package\'s non-default databases', () => {
   it('lists the database of an entry whose process runs, or that was written within the lease grace', () => {
     const dir = path.join(home(), 'active');

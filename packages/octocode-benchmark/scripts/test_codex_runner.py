@@ -4,7 +4,7 @@ import json, os, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from codex_runner import command, DISABLED_FEATURES, semantic_gates, main as run_codex
 from transcript_to_log import parse_codex
-from mcp_probe import has_classifiers
+from contract_readers import has_classification
 from render_question import prepare_question
 from unittest.mock import patch
 
@@ -43,33 +43,35 @@ class CodexRunnerTests(unittest.TestCase):
         self.assertIn('unexpected built-in tool: command_execution',problems)
         self.assertIn('MCP preflight unavailable or failed',problems)
     def test_command_has_only_explicit_server_and_no_credentials(self):
-        cmd=command('gpt-5.6-terra',Path('/tmp/lab'),{'command':'node','args':['/build/index.js'],'env':{'OCTOCODE_RANKING_ENABLED':'true'}})
+        with patch.dict(os.environ,{'OCTOCODE_CLASSIFICATION_API':'secret-value'}):
+            cmd=command('gpt-5.6-terra',Path('/tmp/lab'),{'command':'node','args':['/build/index.js'],'env':{'OCTOCODE_BETA':'true'}})
         for flag in ('--ignore-user-config','--ignore-rules','--ephemeral','--no-daemon'): self.assertIn(flag,cmd)
         for feature in DISABLED_FEATURES: self.assertIn(feature,cmd)
         self.assertTrue(any(x.startswith('mcp_servers=') for x in cmd))
         self.assertFalse(any('secret-value' in x for x in cmd))
+        self.assertTrue(any('env_vars' in x and '"OCTOCODE_CLASSIFICATION_API"' in x for x in cmd))
     def test_recursive_schema_gate(self):
-        self.assertTrue(has_classifiers({'properties':{'queries':{'items':{'properties':{'classifiers':{'type':'array'}}}}}}))
-        self.assertFalse(has_classifiers({'description':'classifiers are optional'}))
-        self.assertFalse(has_classifiers({'properties':{'queries':{'items':{'properties':{'goals':{'type':'array'}}}}}}))
-    def test_public_clasify_and_retrieval_classifiers_have_independent_gates(self):
+        self.assertTrue(has_classification({'properties':{'queries':{'items':{'properties':{'classification':{'type':'object'}}}}}}))
+        self.assertFalse(has_classification({'description':'classifiers are optional'}))
+        self.assertFalse(has_classification({'properties':{'queries':{'items':{'properties':{'goals':{'type':'array'}}}}}}))
+    def test_clasify_needs_beta_and_credential_while_reader_classifiers_need_only_the_credential(self):
         inherited = {'OCTOCODE_CLASSIFICATION_API': 'test-credential'}
-        for beta, ranking, expected in [('false','false',(False,False)),
-                ('false','true',(False,True)), ('true','false',(True,False)),
-                ('true','true',(True,True))]:
-            with self.subTest(beta=beta, ranking=ranking):
-                server = {'env': {'OCTOCODE_BETA': beta, 'OCTOCODE_RANKING_ENABLED': ranking}}
-                self.assertEqual(semantic_gates(server, inherited), expected)
+        for beta, expected in [('false', (False, True)), ('true', (True, True))]:
+            with self.subTest(beta=beta):
+                self.assertEqual(semantic_gates({'env': {'OCTOCODE_BETA': beta}}, inherited), expected)
         for restriction in [{'TOOLS_TO_RUN':'localSearch,localFetch'}, {'DISABLE_TOOLS':'clasify'}]:
-            server = {'env': {'OCTOCODE_BETA':'true','OCTOCODE_RANKING_ENABLED':'true', **restriction}}
-            self.assertEqual(semantic_gates(server, inherited), (False,True))
-        server = {'env': {'OCTOCODE_BETA':'true','OCTOCODE_RANKING_ENABLED':'true','OCTOCODE_CLASSIFICATION_API':'  '}}
-        self.assertEqual(semantic_gates(server, inherited), (False,False))
+            with self.subTest(restriction=restriction):
+                server = {'env': {'OCTOCODE_BETA':'true', **restriction}}
+                self.assertEqual(semantic_gates(server, inherited), (False,True))
+        for blank in ['', '  ']:
+            with self.subTest(credential=blank):
+                server = {'env': {'OCTOCODE_BETA':'true','OCTOCODE_CLASSIFICATION_API':blank}}
+                self.assertEqual(semantic_gates(server, inherited), (False,False))
 class CodexBudgetTests(unittest.TestCase):
     def test_stdout_eof_before_successful_exit_does_not_signal_worker(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);(root/'prompt.md').write_text('Research')
-            (root/'mcp.json').write_text(json.dumps({'mcpServers':{'octocode':{'command':'unused','env':{'OCTOCODE_CLASSIFICATION_API':'','OCTOCODE_RANKING_ENABLED':'false'}}}}))
+            (root/'mcp.json').write_text(json.dumps({'mcpServers':{'octocode':{'command':'unused','env':{'OCTOCODE_CLASSIFICATION_API':''}}}}))
             # A real child closes stdout before completing host cleanup. The old
             # runner immediately sent SIGTERM and lost the successful exit.
             script='import os,time; os.close(1); time.sleep(0.1)'
@@ -96,7 +98,7 @@ class CodexBudgetTests(unittest.TestCase):
     def test_tool_budget_stops_process_and_keeps_attempted_call(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);(root/'prompt.md').write_text('Research')
-            (root/'mcp.json').write_text(json.dumps({'mcpServers':{'octocode':{'command':'unused','env':{'OCTOCODE_CLASSIFICATION_API':'','OCTOCODE_RANKING_ENABLED':'false'}}}}))
+            (root/'mcp.json').write_text(json.dumps({'mcpServers':{'octocode':{'command':'unused','env':{'OCTOCODE_CLASSIFICATION_API':''}}}}))
             events=[{'type':'item.started','item':{'id':str(i),'type':'mcp_tool_call','server':'octocode','tool':'localFetch','arguments':{}}} for i in range(2)]
             script='import time; '+ '; '.join('print('+repr(json.dumps(e))+',flush=True)' for e in events)+'; time.sleep(60)'
             argv=['runner','--run',str(root),'--prompt',str(root/'prompt.md'),'--mcp-config',str(root/'mcp.json'),'--model','test','--timeout','5','--max-tool-calls','1']

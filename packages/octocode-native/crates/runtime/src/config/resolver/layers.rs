@@ -1,4 +1,3 @@
-use super::super::dotenv::MergedEnv;
 use super::super::loader::load_config;
 use super::super::types::*;
 use super::super::validation::{config_issues, get_path};
@@ -69,16 +68,6 @@ pub(super) fn load_layer(
         return (None, LayerState::Invalid);
     }
     let mut value = load.config.unwrap_or_else(|| json!({}));
-    for (path, reason) in REMOVED_SETTINGS {
-        if remove_path(&mut value, path) {
-            diagnostics.push(warning(
-                REMOVED_SETTING_CODE,
-                Some(path),
-                format!("{path} was removed and is ignored: {reason}"),
-                &load.path,
-            ));
-        }
-    }
     let (issues, warnings) = config_issues(&value);
     for m in warnings {
         diagnostics.push(warning(UNKNOWN_CONFIG_CODE, None, m, &load.path));
@@ -111,34 +100,6 @@ pub(super) fn load_layer(
         }
     }
     (Some(value), LayerState::Valid)
-}
-
-/// Removed variables are reported once each, by the layer that names them
-/// (the process environment first), and dropped from every layer, so no
-/// reader, child process or `config get` sees their values.
-pub(super) fn drop_removed_env(
-    merged: &mut MergedEnv,
-    effective: &mut BTreeMap<String, String>,
-    input: &ConfigInput,
-) -> Vec<ConfigDiagnostic> {
-    REMOVED_ENV_KEYS
-        .iter()
-        .filter_map(|(name, reason)| {
-            let process = effective.remove(*name).is_some();
-            let file = merged.map.remove(*name).is_some();
-            let source = merged.sources.remove(*name);
-            (process || file).then(|| ConfigDiagnostic {
-                severity: Severity::Warning,
-                code: REMOVED_SETTING_CODE.into(),
-                field_path: None,
-                message: format!("{name} was removed and is ignored: {reason}"),
-                source_path: (!process).then(|| match source.as_deref() {
-                    Some("project") => input.project_env.path().clone(),
-                    _ => input.global_env.path().clone(),
-                }),
-            })
-        })
-        .collect()
 }
 
 /// The `.env` file that set each applied variable; `None` is the process

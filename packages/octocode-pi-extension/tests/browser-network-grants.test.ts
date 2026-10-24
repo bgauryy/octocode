@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeCtx } from './fake-pi.js';
-import { answered, navigates, openFor, paused, useNetworkHarness } from './browser-network-harness.js';
+import { navigates, openFor, useNetworkHarness } from './browser-network-harness.js';
+import { answered, paused } from './fixtures/cdp-stub.js';
 
 const launch = vi.hoisted(() => vi.fn());
 vi.mock('chrome-launcher', () => ({ launch }));

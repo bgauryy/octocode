@@ -1,5 +1,8 @@
 //! Empty searches: the default-branch index named, cause-specific hints and scoped recovery leads.
 use super::*;
+use octocode_github::mock_http::mount_json;
+use serde_json::json;
+use wiremock::MockServer;
 
 /// Empty searches name the default-branch index only when a branch
 /// was requested; otherwise the hint names the scope that came up empty.
@@ -16,23 +19,23 @@ async fn empty_code_search_names_the_default_branch_index() {
     .await;
     for (query, cause) in [
         (
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],"ref":"dev"}),
+            json!({ "owner":"a","repo":"b","keywords":["needle"],"ref":"dev"}),
             "default branch",
         ),
         (
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
+            json!({ "owner":"a","repo":"b","keywords":["needle"]}),
             "in a/b",
         ),
         (
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","keywords":["needle"]}),
+            json!({ "owner":"a","keywords":["needle"]}),
             "any a repository",
         ),
         (
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],"extensions":["rs"]}),
+            json!({ "owner":"a","repo":"b","keywords":["needle"],"extensions":["rs"]}),
             "extensions",
         ),
         (
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],"matchIn":"path"}),
+            json!({ "owner":"a","repo":"b","keywords":["needle"],"matchIn":["path"]}),
             "path",
         ),
     ] {
@@ -45,15 +48,7 @@ async fn empty_code_search_names_the_default_branch_index() {
             assert!(hint.contains("`dev` was not searched"), "{}", out.data);
             assert!(hint.len() <= 120, "{hint}");
         } else {
-            // A broadened search names what its rows drop, and nothing else.
-            let hints = out.data["hints"].as_array().map_or(&[][..], Vec::as_slice);
-            assert!(
-                hints.iter().all(|hint| hint
-                    .as_str()
-                    .is_some_and(|hint| hint.starts_with("broadenSearch rows: "))),
-                "{cause}: {}",
-                out.data
-            );
+            crate::tools::test_support::checks::assert_leads_valid(&out.data);
         }
     }
 }
@@ -74,11 +69,11 @@ async fn empty_code_search_hints_are_cause_specific() {
         .await;
     }
     let renamed = run(
-            &server,
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"old","keywords":["needle"]}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({ "owner":"a","repo":"old","keywords":["needle"]}),
+    )
+    .await
+    .expect("search");
     // The rename is followed: the warning names it, and the empty
     // answer is about the canonical repository.
     assert_eq!(
@@ -95,47 +90,62 @@ async fn empty_code_search_hints_are_cause_specific() {
     );
 
     let existing = run(
-            &server,
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"]}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({ "owner":"a","repo":"b","keywords":["needle"]}),
+    )
+    .await
+    .expect("search");
     // Beside the clone lead (dropped where clone is unavailable), the
     // root listing is a route every surface runs.
     assert_eq!(
-        existing.data["next"]["viewTree"]["query"]["queries"][0],
-        json!({"owner":"a","repo":"b"}),
+        crate::tools::test_support::checks::related_call(&existing.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "tree"
+        })["input"]["queries"][0],
+        json!({"operation":"tree","owner":"a","repo":"b"}),
         "{}",
         existing.data
     );
     assert!(
-        existing.data["next"].get("cloneRepo").is_some(),
+        crate::tools::test_support::checks::find_related_call(
+            &existing.data,
+            "ghCloneRepo",
+            |_| true
+        )
+        .is_some(),
         "{}",
         existing.data
     );
     let scoped = run(
-            &server,
-            json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["needle"],"path":"src/io"}),
-        )
-        .await
-        .expect("search");
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["needle"],"pathPrefix":"src/io"}),
+    )
+    .await
+    .expect("search");
     assert_eq!(
-        scoped.data["next"]["viewTree"]["query"]["queries"][0]["path"], "src/io",
+        crate::tools::test_support::checks::related_call(
+            &scoped.data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        )["input"]["queries"][0]["path"],
+        "src/io",
         "{}",
         scoped.data
     );
 
     let path_mode = run(
         &server,
-        json!({"operation":"code","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b",
-                   "keywords":["fn spawn_blocking"],"matchIn":"path"}),
+        json!({ "owner":"a","repo":"b",
+                   "keywords":["fn spawn_blocking"],"matchIn":["path"]}),
     )
     .await
     .expect("search");
     // The lead is the recovery; no sentence restates it.
     assert!(path_mode.data.get("hints").is_none(), "{}", path_mode.data);
-    let content = &path_mode.data["next"]["findCode"]["query"]["queries"][0];
-    assert_eq!(content["matchIn"], "file", "{}", path_mode.data);
+    let content =
+        &crate::tools::test_support::checks::related_call(&path_mode.data, "ghSearchCode", |_| {
+            true
+        })["input"]["queries"][0];
+    assert_eq!(content["matchIn"], json!(["content"]), "{}", path_mode.data);
     assert_eq!(content["keywords"], json!(["fn spawn_blocking"]));
 }
 
@@ -157,23 +167,29 @@ async fn empty_scoped_recovery_keeps_the_requested_branch() {
     for repo in ["b", "old"] {
         let out = run(
             &server,
-            json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":repo,
-                       "keywords":["needle"],"path":"src","ref":"nondefault"}),
+            json!({"owner":"a","repo":repo,
+                       "keywords":["needle"],"pathPrefix":"src","ref":"nondefault"}),
         )
         .await
         .expect("search");
-        let view = &out.data["next"]["viewTree"]["query"]["queries"][0];
+        let view =
+            &crate::tools::test_support::checks::related_call(&out.data, "ghStructure", |input| {
+                input["queries"][0]["operation"] == "tree"
+            })["input"]["queries"][0];
         assert_eq!(view["ref"], "nondefault", "{}", out.data);
     }
     let default = run(
         &server,
-        json!({"operation":"code","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
-                   "keywords":["needle"],"path":"src"}),
+        json!({"owner":"a","repo":"b","keywords":["needle"],"pathPrefix":"src"}),
     )
     .await
     .expect("search");
     assert!(
-        default.data["next"]["viewTree"]["query"]["queries"][0]
+        crate::tools::test_support::checks::related_call(
+            &default.data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree"
+        )["input"]["queries"][0]
             .get("ref")
             .is_none(),
         "{}",
@@ -196,13 +212,16 @@ async fn an_empty_scoped_search_leads_to_its_structure() {
     .await;
     let out = run(
         &server,
-        json!({"operation":"code","owner":"a","repo":"b","keywords":["absent"],"path":"src"}),
+        json!({"owner":"a","repo":"b","keywords":["absent"],"pathPrefix":"src"}),
     )
     .await
     .expect("search");
     assert_eq!(out.status, Some("empty"));
-    let lead = &out.data["next"]["viewTree"];
+    let lead =
+        crate::tools::test_support::checks::related_call(&out.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "tree"
+        });
     assert_eq!(lead["tool"], "ghStructure", "{}", out.data);
-    assert_eq!(lead["query"]["queries"][0]["repo"], "b", "{}", out.data);
-    assert_eq!(lead["query"]["queries"][0]["path"], "src", "{}", out.data);
+    assert_eq!(lead["input"]["queries"][0]["repo"], "b", "{}", out.data);
+    assert_eq!(lead["input"]["queries"][0]["path"], "src", "{}", out.data);
 }

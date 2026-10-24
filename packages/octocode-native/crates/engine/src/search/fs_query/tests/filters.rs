@@ -173,7 +173,7 @@ fn filters_by_size_and_empty() {
 
     let full = query_file_system_inner(FileSystemQueryOptions {
         path: root.to_string_lossy().to_string(),
-        size_greater: Some("1b".to_owned()),
+        size_min: Some(1),
         names: Some(vec!["*.txt".to_owned()]),
         ..Default::default()
     })
@@ -213,11 +213,11 @@ fn size_filters_list_no_directory() {
     fs::write(root.join("full.txt"), "hello").expect("write full");
     assert!(fs::metadata(root.join("crowded")).expect("dir").len() > 5);
 
-    for (size_greater, size_less) in [(Some("1b"), None), (None, Some("1m"))] {
+    for (size_min, size_max) in [(Some(1), None), (None, Some(1_000_000))] {
         let result = query_file_system_inner(FileSystemQueryOptions {
             path: root.to_string_lossy().to_string(),
-            size_greater: size_greater.map(str::to_owned),
-            size_less: size_less.map(str::to_owned),
+            size_min,
+            size_max,
             ..Default::default()
         })
         .expect("query");
@@ -226,7 +226,7 @@ fn size_filters_list_no_directory() {
                 .entries
                 .iter()
                 .all(|entry| entry.entry_type == FileKind::File),
-            "{size_greater:?}/{size_less:?}: {:?}",
+            "{size_min:?}/{size_max:?}: {:?}",
             result
                 .entries
                 .iter()

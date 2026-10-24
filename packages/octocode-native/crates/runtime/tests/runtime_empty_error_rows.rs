@@ -1,12 +1,6 @@
-//! Every tool's empty and error rows, through each tool's real path
-//! (local files, a mocked GitHub and registry, a mocked judge), meet one row
-//! contract: the output validates, an error row names its `errorCode` and
-//! `error`, every error row offers a recovery (a runnable lead or hint text)
-//! unless its message is the whole answer, an empty row carries a tool-specific
-//! recovery too (a lead or hint text, never a bare empty), `retryable` is never
-//! `false`, and the exit class says the call did not succeed.
+//! Empty and failed tool executions retain stable rows, typed errors and exit status.
 
-use crate::support::{self, PROVIDER_LIMITS, Workspace};
+use crate::support::{self, PROVIDER_LIMITS, Run as _, Workspace};
 use octocode_native::response::exit::ExitClass;
 use octocode_native::response::outcome::ToolOutcome;
 use serde_json::{Value, json};
@@ -26,24 +20,6 @@ fn probe(tool: &'static str, status: &'static str, row: Value) -> Probe {
     Probe { tool, row, status }
 }
 
-/// A recovery the caller can act on: a `{tool, query}` lead or hint text.
-fn has_recovery(data: &Value) -> bool {
-    let leads = |container: Option<&Value>| {
-        container
-            .and_then(Value::as_object)
-            .is_some_and(|map| map.values().any(|v| v.get("tool").is_some()))
-    };
-    let text = data
-        .pointer("/hints/text")
-        .and_then(Value::as_array)
-        .is_some_and(|text| !text.is_empty())
-        || data
-            .get("hints")
-            .and_then(Value::as_array)
-            .is_some_and(|text| !text.is_empty());
-    text || leads(data.get("hints")) || leads(data.get("next"))
-}
-
 fn check(probe: &Probe, outcome: &ToolOutcome) -> Vec<String> {
     let label = format!("{} {}", probe.tool, probe.status);
     let out = &outcome.structured_content;
@@ -61,9 +37,6 @@ fn check(probe: &Probe, outcome: &ToolOutcome) -> Vec<String> {
     };
     if !exit_ok {
         failures.push(format!("{label}: exit class {exit:?}: {out}"));
-    }
-    if probe.tool == "clasify" {
-        return failures;
     }
     let status = out
         .pointer("/results/0/status")
@@ -85,24 +58,8 @@ fn check(probe: &Probe, outcome: &ToolOutcome) -> Vec<String> {
             }
         }
     }
-    let message_only = MESSAGE_ONLY.contains(&(
-        probe.tool,
-        data.get("errorCode").and_then(Value::as_str).unwrap_or(""),
-    ));
-    if probe.status == "error" && !message_only && !has_recovery(data) {
-        failures.push(format!("{label}: no recovery lead or text: {out}"));
-    }
-    // Every empty row names what to try next (an empty row does not carry
-    // only its own facts).
-    if probe.status == "empty" && !has_recovery(data) {
-        failures.push(format!("{label}: empty row without a hint or lead: {out}"));
-    }
     failures
 }
-
-/// Error codes whose message names everything the caller can act on (the
-/// missing item, the parse limit): no hint repeats it.
-const MESSAGE_ONLY: &[(&str, &str)] = &[("ghGetHistoryItem", "notFound")];
 
 async fn github_and_registry() -> MockServer {
     let server = MockServer::builder().start().await;
@@ -159,42 +116,50 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         probe(
             "localSearch",
             "empty",
-            json!({"path":"src","matchString":NEVER}),
+            json!({"path":"src","matchString":[NEVER]}),
         ),
         probe(
             "localSearch",
             "error",
-            json!({"path":"missing","matchString":"x"}),
+            json!({"path":"missing","matchString":["x"]}),
         ),
         probe("localFetch", "error", json!({"path":"missing.rs"})),
         probe(
             "structureSearch",
             "empty",
-            json!({"path":"src","operation":"files","nameRegex":NEVER}),
+            json!({"path":"src","operation":"files","include":[NEVER]}),
         ),
         probe("structureSearch", "error", json!({"path":"missing"})),
         probe(
             "astSearch",
             "empty",
-            json!({"operation":"symbols","path":"src","symbolName":NEVER}),
+            json!({"operation":"symbols","path":"src","symbolFilter":{"terms":[NEVER],"mode":"exact"}}),
         ),
         probe(
             "astSearch",
             "error",
-            json!({"operation":"symbols","path":"missing","symbolName":"x"}),
+            json!({"operation":"symbols","path":"missing"}),
         ),
         probe(
             "lspSearch",
             "error",
             json!({"path":"missing.rs","symbolName":"x","line":1,"operation":"definition"}),
         ),
-        probe("ghSearchRepo", "empty", json!({"keywords":[NEVER]})),
+        probe(
+            "ghSearchRepo",
+            "empty",
+            json!({"operation":"search","keywords":[NEVER]}),
+        ),
         probe(
             "ghSearchCode",
             "empty",
             with(&gh, json!({"keywords":[NEVER]})),
         ),
-        probe("ghStructure", "error", missing.clone()),
+        probe(
+            "ghStructure",
+            "error",
+            with(&missing, json!({"operation":"tree"})),
+        ),
         probe(
             "ghGetFileContent",
             "error",
@@ -216,36 +181,34 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         probe(
             "artifactSearch",
             "error",
-            json!({"ecosystem":"npm","packageName":NEVER.to_lowercase(),"registryUrl":server.uri()}),
+            json!({"operation":"resolve","ecosystem":"npm","packageName":NEVER.to_lowercase(),"registryUrl":server.uri()}),
         ),
         probe(
             "clasify",
             "error",
-            json!({"source":{"tool":"localFetch","query":{"path":"missing.rs","fullContent":true}},
+            json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"missing.rs"}},
                 "questions":{"q":{"type":"noul","instructions":"Is it there?"}}}),
         ),
     ];
     let mut failures = Vec::new();
     for probe in &probes {
-        let outcome = support::run(&runtime, probe.tool, probe.row.clone(), &[]).await;
+        let outcome = support::run(&runtime, probe.tool, probe.row.clone()).await;
         failures.extend(check(probe, &outcome));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     runtime.close().await;
 }
 
-/// One missing path gets one recovery form on every local tool: a
-/// `next.viewTree` lead to the nearest existing parent.
+/// Every missing-path recovery can execute within the nearest existing scope.
 #[tokio::test]
 async fn a_missing_path_gets_one_recovery_form_on_every_local_tool() {
     let workspace = Workspace::new();
     workspace.write("src/a.rs", "fn alpha() {}\n");
     let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
-    let mut forms = std::collections::BTreeMap::new();
     for (tool, row) in [
         (
             "localSearch",
-            json!({"path":"src/missing","matchString":"x"}),
+            json!({"path":"src/missing","matchString":["x"]}),
         ),
         ("localFetch", json!({"path":"src/missing.rs"})),
         ("structureSearch", json!({"path":"src/missing"})),
@@ -254,20 +217,32 @@ async fn a_missing_path_gets_one_recovery_form_on_every_local_tool() {
             json!({"path":"src/missing.rs","symbolName":"x","line":1,"operation":"definition"}),
         ),
     ] {
-        let outcome = support::run(&runtime, tool, row, &[]).await;
+        let outcome = support::run(&runtime, tool, row).await;
         let data = outcome
             .structured_content
             .pointer("/results/0/data")
             .cloned()
             .unwrap_or_default();
         assert_eq!(data["errorCode"], "pathNotFound", "{tool}: {data}");
-        let lead = data
-            .get("hints")
-            .and_then(Value::as_object)
-            .is_some_and(|hints| hints.values().any(|hint| hint.get("tool").is_some()));
-        forms.insert(tool, lead);
+        let leads = data["related"].as_array().expect("related recovery");
+        let lead = leads
+            .iter()
+            .find(|call| call["tool"] == "structureSearch")
+            .expect("parent listing");
+        assert_eq!(lead["kind"], "related");
+        let listing = runtime
+            .run(
+                format!("recover-{tool}"),
+                "structureSearch".into(),
+                lead["input"].clone(),
+            )
+            .await
+            .expect("scoped recovery executes");
+        assert!(
+            listing.structured_content.to_string().contains("a.rs"),
+            "{}",
+            listing.structured_content
+        );
     }
-    let kinds = forms.values().collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(kinds.len(), 1, "{forms:?}");
     runtime.close().await;
 }

@@ -2,6 +2,7 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { flagArgs, validateFlags } from '../cli-flags.mjs';
+import type { HarEntry, HarFile } from './har-types.mjs';
 
 const argv = process.argv.slice(2);
 const { getArg, hasFlag, getLowerArg } = flagArgs(argv);
@@ -41,34 +42,37 @@ const urlRegexStr = getArg('--url-regex', '');
 const minMs = Math.max(0, Number.parseInt(getArg('--min-ms', '1000'), 10));
 const format = getArg('--format', 'text');
 const harPath = resolve(process.cwd(), harArg);
-const har = JSON.parse(readFileSync(harPath, 'utf8'));
-const entries = Array.isArray(har.log?.entries) ? har.log.entries : [];
+const har: HarFile = JSON.parse(readFileSync(harPath, 'utf8'));
+const entries: HarEntry[] = Array.isArray(har.log?.entries)
+  ? har.log.entries
+  : [];
 const urlRe = urlRegexStr ? new RegExp(urlRegexStr, 'i') : null;
 
-function hostOf(raw) {
+function hostOf(raw: string | undefined) {
   try {
-    return new URL(raw).hostname;
+    return new URL(raw ?? '').hostname;
   } catch {
     return '';
   }
 }
 
-function compactEntry(entry, index) {
+function compactEntry(entry: HarEntry, index: number) {
   const request = entry.request ?? {};
   const response = entry.response ?? {};
+  const status = response.status;
   return {
     index,
     startedDateTime: entry.startedDateTime,
     method: request.method,
     url: request.url,
     host: hostOf(request.url),
-    status: response.status,
+    status,
     mimeType: response.content?.mimeType ?? '',
     ms: Math.round(entry.time ?? 0),
     bodySize: response.bodySize ?? response.content?.size ?? -1,
     type: entry._resourceType ?? '',
     failed: Boolean(
-      entry._failed || response.status >= 400 || response.status === 0
+      entry._failed || (status !== undefined && status >= 400) || status === 0
     ),
     errorText: entry._errorText ?? null,
     blockedReason: entry._blockedReason ?? null,
@@ -102,7 +106,8 @@ if (urlRe) {
 const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
 const start = (page - 1) * pageSize;
 const pageRows = rows.slice(start, start + pageSize);
-const aggregate: Record<string, any> = {
+const next: { continue?: { command: string; args: string[] } } = {};
+const aggregate = {
   harPath,
   filter,
   page,
@@ -120,9 +125,9 @@ const aggregate: Record<string, any> = {
     ).size,
   },
   pageRows,
+  next,
 };
 
-aggregate.next = {};
 if (page < totalPages) {
   const args = [
     process.argv[1],
@@ -138,14 +143,15 @@ if (page < totalPages) {
     '--format',
     format,
   ];
-  for (const [flag, value] of [
+  const filters = [
     ['--kind', kindFilter],
     ['--status', statusFilter],
     ['--url-regex', urlRegexStr],
-  ]) {
+  ];
+  for (const [flag, value] of filters) {
     if (value) args.push(flag, value);
   }
-  aggregate.next.continue = { command: process.execPath, args };
+  next.continue = { command: process.execPath, args };
 }
 
 if (format === 'json') {
@@ -169,6 +175,5 @@ if (format === 'json') {
       );
     }
   }
-  if (aggregate.next.continue)
-    console.log(`[HAR_NEXT] ${JSON.stringify(aggregate.next.continue)}`);
+  if (next.continue) console.log(`[HAR_NEXT] ${JSON.stringify(next.continue)}`);
 }

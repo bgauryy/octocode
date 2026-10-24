@@ -1,10 +1,11 @@
 //! A fetched body as the read's row: the shared extraction, status, missed-match facts and leads.
-use super::leads::{empty_match_lead, last_window_repair, rewrite_continuations};
+use super::access;
+use super::leads::{empty_match_leads, last_window_repair, rewrite_continuations};
 use super::local_query::local_query;
 use super::{GhGetFileContentFile, GhGetFileContentQuery, GhGetFileContentResult};
 use crate::security::scan::ContentScan;
-use crate::tools::source_view::{LocalFetchQuery, ReadStatus, process_fetched_content};
-use octocode_contract_types::ErrorCode;
+use crate::tools::source_view::{ReadStatus, process_fetched_content};
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 use octocode_github::ProviderError;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -41,11 +42,13 @@ pub(super) fn shape(
         interior: false,
         byte_origin: None,
     };
-    let mut content = if local.clasify_context.is_none() && local.selection.is_none() {
+    let mut content = if !crate::tools::source_view::local_fetch_query::has_classification(&local)
+        && crate::tools::source_view::local_fetch_query::selection(&local).is_none()
+    {
         process_fetched_content(
             &local,
             &acquired.bytes,
-            Path::new(query.path.as_str()),
+            Path::new(access::path(query)),
             &facts,
             security,
             cancel,
@@ -53,13 +56,16 @@ pub(super) fn shape(
     } else {
         let rank_path = format!(
             "{}/{}/{}/{}",
-            query.owner, query.repo, acquired.resolved_ref, query.path
+            access::owner(query),
+            access::repo(query),
+            acquired.resolved_ref,
+            access::path(query)
         );
         crate::tools::source_view::process_fetched_content_selected(
             &local,
             &acquired.bytes,
             Path::new(&rank_path),
-            query.path.as_str(),
+            access::path(query),
             &facts,
             security,
             cancel,
@@ -72,15 +78,15 @@ pub(super) fn shape(
     }
     let next = read_leads(&mut content, query, &local, match_not_found, &acquired);
     Ok(GhGetFileContentResult {
-        owner: query.owner.to_string(),
-        repo: query.repo.to_string(),
+        owner: access::owner(query).to_owned(),
+        repo: access::repo(query).to_owned(),
         file: GhGetFileContentFile {
             content,
             commit_sha: acquired.resolved_ref,
-            file_type: file_type(&query.path),
+            file_type: file_type(access::path(query)),
             match_not_found: match_not_found.then_some(true),
             from_cache: acquired.from_cache,
-            next,
+            calls: next,
             last_modified: None,
             last_modified_by: None,
         },
@@ -103,7 +109,7 @@ const ROW_FIELDS_CHARS: usize = 48;
 /// window less this, so the whole row fits that window.
 pub(super) fn row_envelope_chars(query: &GhGetFileContentQuery, sha: &str) -> usize {
     let coordinates =
-        query.owner.as_str().len() + query.repo.as_str().len() + sha.len() + COORDINATE_KEYS_CHARS;
+        access::owner(query).len() + access::repo(query).len() + sha.len() + COORDINATE_KEYS_CHARS;
     coordinates * (1 + REWRITTEN_CONTINUATIONS) + ROW_FIELDS_CHARS
 }
 
@@ -144,7 +150,7 @@ fn settle_status(
     // Shared local read errors omit their path; the remote file envelope
     // requires the repository-relative identity even when processing fails.
     if content.path.is_empty() {
-        content.path = query.path.to_string();
+        content.path = access::path(query).to_owned();
     }
     Ok(match_not_found)
 }
@@ -165,12 +171,17 @@ fn read_leads(
     let answered_here = next
         .as_ref()
         .is_some_and(|calls| calls.get("read").is_some() || calls.get("ignoreCase").is_some());
-    if match_not_found
-        && !answered_here
-        && let Some((name, lead)) = empty_match_lead(query, local)
+    let misses = if match_not_found && !answered_here {
+        empty_match_leads(query, local)
+    } else {
+        Vec::new()
+    };
+    if !misses.is_empty()
         && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
     {
-        calls.insert(name.into(), lead);
+        for (name, lead) in misses {
+            calls.insert(name.into(), lead);
+        }
     }
     if content.error.is_some()
         && let Some(lead) = last_window_repair(
@@ -199,9 +210,9 @@ fn no_match(
     query: &GhGetFileContentQuery,
     bytes: &[u8],
 ) {
-    content.path = query.path.to_string();
+    content.path = access::path(query).to_owned();
     content.content = Some(String::new());
-    content.content_view = None;
+
     content.total_lines = Some(octocode_engine::text::decode(bytes).text.lines().count());
     content.source_chars = None;
     content.source_bytes = None;

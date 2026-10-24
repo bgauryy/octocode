@@ -1,7 +1,12 @@
 use super::*;
 use crate::runtime::engine::construction::startup_diagnostics;
 
-async fn section_call(runtime: &ToolRuntime, query: Value, channel: Channel, token: &str) -> Value {
+async fn section_result(
+    runtime: &ToolRuntime,
+    query: Value,
+    channel: Channel,
+    token: &str,
+) -> Result<Value, RuntimeError> {
     let admission = runtime
         .admit("sections".into())
         .expect("admit")
@@ -9,9 +14,13 @@ async fn section_call(runtime: &ToolRuntime, query: Value, channel: Channel, tok
     runtime
         .execute(admission, "clasify".into(), query, channel)
         .await
+        .map(|outcome| outcome.structured_content.into_value())
+}
+
+async fn section_call(runtime: &ToolRuntime, query: Value, channel: Channel, token: &str) -> Value {
+    section_result(runtime, query, channel, token)
+        .await
         .expect("sections response")
-        .structured_content
-        .into_value()
 }
 
 async fn section_fixture(
@@ -54,9 +63,9 @@ fn section_query(home: &std::path::Path) -> Value {
         "Second source: stop the service.\n",
     )
     .expect("second");
-    json!({"queries":[{"id":"sections","operation":"sections","resources":{
-            "first":{"tool":"localFetch","query":{"path":home.join("first.txt"),"fullContent":true}},
-            "second":{"tool":"localFetch","query":{"path":home.join("second.txt"),"fullContent":true}}
+    json!({"queries":[{"operation":"sections","resources":{
+            "first":{"tool":"localFetch","query":{"path":home.join("first.txt")}},
+            "second":{"tool":"localFetch","query":{"path":home.join("second.txt")}}
         },"questions":{"restart":{"type":"noul","instructions":"Does this section require a restart?"}}}]})
 }
 
@@ -71,16 +80,20 @@ async fn sections_runtime_resumes_replays_and_partitions_access_and_policy() {
             Channel::Cli
         };
         let first = section_call(&runtime, section_query(home.path()), channel, "caller-a").await;
-        let next = first["queries"][0]["next"]["nextSectionPage"]["query"].clone();
-        assert!(next.is_object(), "{first}");
-        assert_eq!(server.received_requests().await.unwrap().len(), 1);
-        let denied = section_call(&runtime, next.clone(), channel, "caller-b").await;
-        assert!(
-            denied
-                .to_string()
-                .contains("classificationContextUnavailable"),
-            "{denied}"
+        let next = first["results"][0]["data"]["next"]["nextSectionPage"]["input"].clone();
+        assert_eq!(
+            next.as_object()
+                .expect("cursor input")
+                .keys()
+                .collect::<Vec<_>>(),
+            ["cursor"]
         );
+        contracts::validate("clasify", next.clone()).expect("public cursor");
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        let denied = section_result(&runtime, next.clone(), channel, "caller-b")
+            .await
+            .expect_err("different credential");
+        assert_eq!(denied.code, ErrorCode::ResponseSnapshotExpired);
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         let runtime = if mode == "persistent" {
             let mut changed = runtime.input.clone();
@@ -88,13 +101,11 @@ async fn sections_runtime_resumes_replays_and_partitions_access_and_policy() {
                 .env
                 .insert("OCTOCODE_ENABLE_LOCAL".into(), "false".into());
             let other = ToolRuntime::with_limits(changed, runtime.limits).expect("other policy");
-            let denied = section_call(&other, next.clone(), channel, "caller-a").await;
-            assert!(
-                denied
-                    .to_string()
-                    .contains("classificationContextUnavailable"),
-                "{denied}"
-            );
+            let denied = section_result(&other, next.clone(), channel, "caller-a")
+                .await
+                .expect_err("different policy");
+            assert_eq!(denied.code, ErrorCode::ResponseSnapshotExpired);
+            other.close().await;
             runtime.close().await;
             ToolRuntime::with_limits(runtime.input.clone(), runtime.limits).expect("reopened")
         } else {
@@ -102,17 +113,51 @@ async fn sections_runtime_resumes_replays_and_partitions_access_and_policy() {
         };
         let second = section_call(&runtime, next.clone(), channel, "caller-a").await;
         assert_eq!(
-            second["queries"][0]["resources"]["second"]["sections"][0]["answers"]["restart"]["status"],
+            second["results"][0]["data"]["resources"]["second"]["sections"][0]["answers"]["restart"]
+                ["status"],
             "answered",
             "{second}"
         );
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
         let replay = section_call(&runtime, next, channel, "caller-a").await;
-        assert_eq!(
-            replay["queries"][0]["resources"],
-            second["queries"][0]["resources"]
-        );
-        assert_eq!(replay["queries"][0]["replayed"], true);
+        let resources = &second["results"][0]["data"]["resources"];
+        for (name, original) in resources.as_object().expect("resources") {
+            let repeated = &replay["results"][0]["data"]["resources"][name];
+            let evidence = |resource: &Value| {
+                let mut facts = resource.as_object().expect("resource").clone();
+                facts.remove("read");
+                facts
+            };
+            assert_eq!(evidence(repeated), evidence(original));
+            let mut content = None;
+            for resource in [original, repeated] {
+                let read = &resource["read"];
+                assert_eq!(read["kind"], "continue");
+                let admission = runtime
+                    .admit(format!("read-{name}"))
+                    .expect("admit")
+                    .with_github_token(SecretString::from("caller-a".to_owned()));
+                let result = runtime
+                    .execute(
+                        admission,
+                        "localFetch".into(),
+                        read["input"].clone(),
+                        channel,
+                    )
+                    .await
+                    .expect("captured source read")
+                    .structured_content;
+                let text = result["results"][0]["data"]["content"]
+                    .as_str()
+                    .expect("source text");
+                if let Some(first) = &content {
+                    assert_eq!(text, first);
+                } else {
+                    content = Some(text.to_owned());
+                }
+            }
+        }
+        assert_eq!(replay["results"][0]["data"]["replayed"], true);
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
         runtime.close().await;
         if mode == "memory" {
@@ -128,11 +173,18 @@ async fn sections_runtime_refuses_changed_sources_and_one_shot_memory_continuati
     let query = section_query(home.path());
     let one_shot = section_call(&runtime, query.clone(), Channel::Cli, "caller").await;
     assert!(one_shot.to_string().contains("unassessed"), "{one_shot}");
-    assert!(one_shot["queries"][0].get("next").is_none());
+    assert!(one_shot["results"][0]["data"].get("next").is_none());
     assert!(server.received_requests().await.unwrap().is_empty());
     let first = section_call(&runtime, query, Channel::Mcp, "caller").await;
-    let next = first["queries"][0]["next"]["nextSectionPage"]["query"].clone();
-    assert!(next.is_object(), "{first}");
+    let next = first["results"][0]["data"]["next"]["nextSectionPage"]["input"].clone();
+    assert_eq!(
+        next.as_object()
+            .expect("cursor input")
+            .keys()
+            .collect::<Vec<_>>(),
+        ["cursor"]
+    );
+    contracts::validate("clasify", next.clone()).expect("public cursor");
     std::fs::write(home.path().join("second.txt"), "Changed source.").expect("change");
     let changed = section_call(&runtime, next, Channel::Mcp, "caller").await;
     assert!(changed.to_string().contains("sourceMismatch"), "{changed}");
@@ -148,16 +200,16 @@ async fn sections_runtime_checks_paths_and_sanitizes_before_inference() {
     let secret = format!("ghp_{}", "A".repeat(36));
     let file = home.path().join("secret.txt");
     std::fs::write(&file, format!("Restart with token {secret}.\n")).expect("source");
-    let result = section_call(&runtime, json!({"queries":[{"id":"secure","operation":"sections","resources":{
-            "secret":{"tool":"localFetch","query":{"path":file,"fullContent":true}},
-            "outside":{"tool":"localFetch","query":{"path":outside.path(),"fullContent":true}}
+    let result = section_call(&runtime, json!({"queries":[{"operation":"sections","resources":{
+            "secret":{"tool":"localFetch","query":{"path":file}},
+            "outside":{"tool":"localFetch","query":{"path":outside.path()}}
         },"questions":{"check":{"type":"noul","instructions":"Does this section require a restart?"}}}]}), Channel::Mcp, "caller").await;
     assert_eq!(
-        result["queries"][0]["resources"]["outside"]["status"], "error",
+        result["results"][0]["data"]["resources"]["outside"]["status"], "error",
         "{result}"
     );
     assert_eq!(
-        result["queries"][0]["resources"]["secret"]["sections"][0]["answers"]["check"]["status"],
+        result["results"][0]["data"]["resources"]["secret"]["sections"][0]["answers"]["check"]["status"],
         "answered",
         "{result}"
     );
@@ -195,7 +247,7 @@ async fn sections_runtime_checks_paths_and_sanitizes_before_inference() {
     runtime.close().await;
 }
 
-/// Keys no setting reads (unknown or removed) are left to `octocode
+/// Keys no setting reads are left to `octocode
 /// config`; an ignored value of a live setting prints at every start.
 #[test]
 fn startup_prints_only_ignored_values_of_live_settings() {
@@ -208,7 +260,6 @@ fn startup_prints_only_ignored_values_of_live_settings() {
     };
     let diagnostics = [
         diagnostic(config::UNKNOWN_CONFIG_CODE),
-        diagnostic(config::REMOVED_SETTING_CODE),
         diagnostic("invalid_config"),
         diagnostic("config_load_error"),
     ];

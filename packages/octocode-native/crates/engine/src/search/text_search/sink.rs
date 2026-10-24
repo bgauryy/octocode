@@ -28,7 +28,7 @@ fn lossy_offset(bytes: &[u8], offset: usize) -> usize {
     }
 }
 
-/// Maps raw submatch offsets on one line to lossy-text offsets and UTF-16
+/// Maps raw submatch offsets in a matched block to lossy-text offsets and UTF-16
 /// columns. `find_iter` yields non-overlapping matches left to right, so a
 /// forward cursor keeps a line with k spans at O(line + k) instead of
 /// rescanning the prefix per span (O(line · k)). The line's UTF-8 validity is
@@ -39,6 +39,8 @@ struct SpanColumns<'a> {
     valid_utf8: bool,
     cursor_byte: usize,
     cursor_utf16: usize,
+    line: u32,
+    line_start: usize,
 }
 
 impl<'a> SpanColumns<'a> {
@@ -49,6 +51,8 @@ impl<'a> SpanColumns<'a> {
             valid_utf8: std::str::from_utf8(bytes).is_ok(),
             cursor_byte: 0,
             cursor_utf16: 0,
+            line: 0,
+            line_start: 0,
         }
     }
 
@@ -60,16 +64,30 @@ impl<'a> SpanColumns<'a> {
         }
     }
 
-    /// UTF-16 column of lossy byte offset `start`, same as
-    /// `byte_to_utf16_offset(text, start)`.
-    pub(super) fn column(&mut self, start: usize) -> usize {
+    /// Line delta, UTF-16 column and line-local byte offset of a span start.
+    pub(super) fn position(&mut self, start: usize) -> (u32, u32, u32) {
         let target = self.text.floor_char_boundary(start);
         if target < self.cursor_byte {
-            return byte_to_utf16_offset(self.text, target);
+            self.cursor_byte = 0;
+            self.cursor_utf16 = 0;
+            self.line = 0;
+            self.line_start = 0;
         }
-        self.cursor_utf16 += self.text[self.cursor_byte..target].encode_utf16().count();
+        for (offset, ch) in self.text[self.cursor_byte..target].char_indices() {
+            if ch == '\n' {
+                self.line = self.line.saturating_add(1);
+                self.line_start = self.cursor_byte + offset + 1;
+                self.cursor_utf16 = 0;
+            } else {
+                self.cursor_utf16 += ch.len_utf16();
+            }
+        }
         self.cursor_byte = target;
-        self.cursor_utf16
+        (
+            self.line,
+            self.cursor_utf16 as u32,
+            (target - self.line_start) as u32,
+        )
     }
 }
 
@@ -163,7 +181,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
 
         if self.work.collect_spans {
             let line_cow = String::from_utf8_lossy(bytes);
-            let line_text = strip_trailing_newline(line_cow.into_owned());
+            let line_text = line_cow.into_owned();
             // Emit one span per submatch with its own UTF-16 column, rather than
             // one whole-line match. find_iter yields non-overlapping matches L→R.
             let matcher = self.matcher;
@@ -176,13 +194,19 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     if om.len() < MAX_ONLY_MATCHING_PER_FILE as usize {
                         let (start, end) = (columns.lossy(m.start()), columns.lossy(m.end()));
                         let value = span_value(&line_text, start, end);
-                        let column = columns.column(start) as u32;
+                        let (line_delta, column, byte_offset) = columns.position(start);
+                        let line = line_number.saturating_add(line_delta);
+                        let lines = value
+                            .as_bytes()
+                            .split_inclusive(|&b| b == b'\n')
+                            .count()
+                            .max(1) as u32;
                         om.push(TextSearchMatch {
                             deferred: None,
-                            line: line_number,
-                            last_line: None,
+                            line,
+                            last_line: (lines > 1).then(|| line.saturating_add(lines - 1)),
                             column,
-                            byte_offset: start as u32,
+                            byte_offset,
                             value_digest: TextSearchMatch::digest_of(&value),
                             value,
                             count: None,
@@ -200,6 +224,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             // multiline block) still yields one span: the whole line.
             if count == 0 {
                 count = 1;
+                let line_text = strip_trailing_newline(line_text);
                 self.om_matches.push(TextSearchMatch {
                     deferred: None,
                     line: line_number,
@@ -269,7 +294,8 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             }
         }
         self.submatches = self.submatches.saturating_add(count.max(1));
-        self.matched_lines = self.matched_lines.saturating_add(1);
+        let lines = bytes.split_inclusive(|&b| b == b'\n').count().max(1) as u32;
+        self.matched_lines = self.matched_lines.saturating_add(lines);
         Ok(true)
     }
 

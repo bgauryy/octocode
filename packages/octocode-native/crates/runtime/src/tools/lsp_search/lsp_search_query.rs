@@ -1,150 +1,138 @@
 use super::*;
 pub(crate) fn op(query: &LspSearchQuery) -> Op {
-    use wire::{
-        AnchoredHierarchyOperation as H, AnchoredLocationsOperation as L, DocumentOperation as D,
-    };
+    use octocode_contract_types::*;
     match query {
-        LspSearchQuery::AnchoredLocations(query) => match query.operation {
-            L::Definition => Op::Definition,
-            L::TypeDefinition => Op::TypeDefinition,
-            L::Implementation => Op::Implementation,
+        LspSearchQuery::Variant0(query) => match query.operation {
+            AnchoredLocationsOperation::Definition => Op::Definition,
+            AnchoredLocationsOperation::TypeDefinition => Op::TypeDefinition,
+            AnchoredLocationsOperation::Implementation => Op::Implementation,
         },
-        LspSearchQuery::AnchoredReferences(query) => match query.operation {
-            wire::AnchoredReferencesOperation::References => Op::References,
+        LspSearchQuery::Variant1(query) => match query.operation {
+            AnchoredLocationsFilesOperation::Definition => Op::Definition,
+            AnchoredLocationsFilesOperation::TypeDefinition => Op::TypeDefinition,
+            AnchoredLocationsFilesOperation::Implementation => Op::Implementation,
         },
-        LspSearchQuery::AnchoredCallers(query) => match query.operation {
-            wire::AnchoredCallersOperation::Callers => Op::Callers,
+        LspSearchQuery::Variant2(query) => match query.operation {
+            AnchoredReferencesOperation::References => Op::References,
         },
-        LspSearchQuery::AnchoredHierarchy(query) => match query.operation {
-            H::Callees => Op::Callees,
-            H::Supertypes => Op::Supertypes,
+        LspSearchQuery::Variant3(query) => match query.operation {
+            AnchoredReferencesFilesOperation::References => Op::References,
         },
-        LspSearchQuery::AnchoredSubtypes(query) => match query.operation {
-            wire::AnchoredSubtypesOperation::Subtypes => Op::Subtypes,
+        LspSearchQuery::Variant4(query) => match query.operation {
+            AnchoredCallersOperation::Callers => Op::Callers,
         },
-        LspSearchQuery::AnchoredHover(query) => match query.operation {
-            wire::AnchoredHoverOperation::Hover => Op::Hover,
+        LspSearchQuery::Variant5(query) => match query.operation {
+            AnchoredHierarchyOperation::Callees => Op::Callees,
+            AnchoredHierarchyOperation::Supertypes => Op::Supertypes,
         },
-        LspSearchQuery::Document(query) => match query.operation {
-            D::DocumentSymbols => Op::DocumentSymbols,
-            D::Diagnostic => Op::Diagnostic,
+        LspSearchQuery::Variant6(query) => match query.operation {
+            AnchoredSubtypesOperation::Subtypes => Op::Subtypes,
         },
-        LspSearchQuery::WorkspacePath(_) | LspSearchQuery::WorkspaceRoot(_) => Op::WorkspaceSymbol,
+        LspSearchQuery::Variant7(query) => match query.operation {
+            AnchoredHoverOperation::Hover => Op::Hover,
+        },
+        LspSearchQuery::Variant8 { operation, .. } => match operation {
+            LspSearchQueryVariant8Operation::DocumentSymbols => Op::DocumentSymbols,
+            LspSearchQueryVariant8Operation::Diagnostic => Op::Diagnostic,
+        },
+        LspSearchQuery::Variant9 { .. } | LspSearchQuery::Variant10 { .. } => Op::WorkspaceSymbol,
     }
 }
-/// The operation's wire spelling.
-pub(crate) fn operation(query: &LspSearchQuery) -> &'static str {
-    op(query).name()
+pub(crate) fn operation(q: &LspSearchQuery) -> &'static str {
+    op(q).name()
 }
-/// The file the query names (a path or `file://` URI).
-pub(crate) fn path(query: &LspSearchQuery) -> Option<&str> {
-    if let LspSearchQuery::WorkspaceRoot(query) = query {
-        return query.path.as_deref();
-    }
-    anchored_shape!(query, path => Some(path.as_str()), else => match query {
-        LspSearchQuery::Document(query) => Some(query.path.as_str()),
-        LspSearchQuery::WorkspacePath(query) => Some(query.path.as_str()),
-        _ => None,
-    })
+pub(crate) fn path(q: &LspSearchQuery) -> Option<&str> {
+    anchored_shape!(q,path=>Some(path.as_str()),else=>match q {LspSearchQuery::Variant8{path,..}=>Some(path.as_str()),LspSearchQuery::Variant9{path,..}=>Some(path.as_str()),_=>None})
 }
-pub(crate) fn workspace_root(query: &LspSearchQuery) -> Option<&str> {
-    if let LspSearchQuery::WorkspaceRoot(query) = query {
-        return Some(query.workspace_root.as_str());
-    }
-    anchored_shape!(query, workspace_root => workspace_root.as_deref(), else => match query {
-        LspSearchQuery::Document(query) => query.workspace_root.as_deref(),
-        LspSearchQuery::WorkspacePath(query) => query.workspace_root.as_deref(),
-        _ => None,
-    })
+pub(crate) fn workspace_root(q: &LspSearchQuery) -> Option<&str> {
+    anchored_shape!(q,workspace_root=>workspace_root.as_ref().map(|value|value.as_str()),else=>match q {LspSearchQuery::Variant8{workspace_root,..}=>workspace_root.as_ref().map(|value|value.as_str()),LspSearchQuery::Variant9{workspace_root,..}=>workspace_root.as_ref().map(|value|value.as_str()),LspSearchQuery::Variant10{workspace_root,..}=>Some(workspace_root.as_str()),_=>None})
 }
-pub(crate) fn symbol_name(query: &LspSearchQuery) -> Option<&str> {
-    anchored_shape!(query, symbol_name => Some(symbol_name.as_str()), else => match query {
-        LspSearchQuery::WorkspacePath(query) => Some(query.symbol_name.as_str()),
-        LspSearchQuery::WorkspaceRoot(query) => Some(query.symbol_name.as_str()),
-        _ => None,
-    })
+pub(crate) fn symbol_name(q: &LspSearchQuery) -> Option<&str> {
+    anchored_shape!(q,symbol_name=>Some(symbol_name.as_str()),else=>None)
 }
-pub(crate) fn anchor_line(query: &LspSearchQuery) -> Option<u32> {
-    anchored_shape!(query, line => Some(u32_of(line.get())), else => None)
-}
-/// The occurrence index; the default (first occurrence) reads as unset.
-pub(crate) fn order_hint(query: &LspSearchQuery) -> Option<u32> {
-    anchored_shape!(query, order_hint => (*order_hint != 0).then(|| u32_of_signed(*order_hint)), else => None)
-}
-pub(crate) fn include_declaration(query: &LspSearchQuery) -> Option<bool> {
-    match query {
-        LspSearchQuery::AnchoredReferences(query) => query.include_declaration,
+pub(crate) fn symbol_query(q: &LspSearchQuery) -> Option<&str> {
+    match q {
+        LspSearchQuery::Variant9 { symbol_query, .. } => Some(symbol_query.as_str()),
+        LspSearchQuery::Variant10 { symbol_query, .. } => Some(symbol_query.as_str()),
         _ => None,
     }
 }
-pub(crate) fn group_by_file(query: &LspSearchQuery) -> Option<bool> {
-    match query {
-        LspSearchQuery::AnchoredLocations(query) => query.group_by_file,
-        LspSearchQuery::AnchoredReferences(query) => query.group_by_file,
+pub(crate) fn anchor_line(q: &LspSearchQuery) -> Option<u32> {
+    anchored_shape!(q,line=>Some(u32_of(line.get())),else=>None)
+}
+pub(crate) fn occurrence(q: &LspSearchQuery) -> Option<u32> {
+    anchored_shape!(q,occurrence=>(*occurrence !=0).then(||u32_of_signed(*occurrence)),else=>None)
+}
+pub(crate) fn include_declaration(q: &LspSearchQuery) -> Option<bool> {
+    match q {
+        LspSearchQuery::Variant2(query) => Some(query.include_declaration),
+        LspSearchQuery::Variant3(query) => Some(query.include_declaration),
         _ => None,
     }
 }
-pub(crate) fn graph_depth(query: &LspSearchQuery) -> Option<u32> {
-    match query {
-        LspSearchQuery::AnchoredCallers(query) => {
-            query.graph_depth.map(|depth| u32_of(depth.get()))
-        }
-        LspSearchQuery::AnchoredHierarchy(query) => {
-            query.graph_depth.map(|depth| u32_of(depth.get()))
-        }
-        LspSearchQuery::AnchoredSubtypes(query) => {
-            query.graph_depth.map(|depth| u32_of(depth.get()))
-        }
+pub(crate) fn view(q: &LspSearchQuery) -> &'static str {
+    if matches!(q, LspSearchQuery::Variant1(_) | LspSearchQuery::Variant3(_)) {
+        "files"
+    } else {
+        "content"
+    }
+}
+pub(crate) fn graph_depth(q: &LspSearchQuery) -> Option<u32> {
+    match q {
+        LspSearchQuery::Variant4(query) => Some(u32_of(query.graph_depth.get())),
+        LspSearchQuery::Variant5(query) => Some(u32_of(query.graph_depth.get())),
+        LspSearchQuery::Variant6(query) => Some(u32_of(query.graph_depth.get())),
         _ => None,
     }
 }
-pub(crate) fn page(query: &LspSearchQuery) -> Option<u32> {
-    each_shape!(query, page => Some(u32_of(page.get())))
+pub(crate) fn page(q: &LspSearchQuery) -> Option<u32> {
+    each_shape!(q,page=>Some(u32_of(page.get())))
 }
-/// Rows per page when the caller sets `pageSize`; unset pages fill the
-/// response window instead.
-pub(crate) fn page_size(query: &LspSearchQuery) -> Option<u32> {
-    each_shape!(query, page_size => page_size.as_ref().map(|size| u32_of(size.get())))
-}
-/// The importer window (`importerPage`, one-based) of an anchored query.
-pub(crate) fn importer_page(query: &LspSearchQuery) -> u32 {
-    match query {
-        LspSearchQuery::AnchoredReferences(query) => {
-            query.importer_page.map_or(1, |page| u32_of(page.get()))
-        }
-        LspSearchQuery::AnchoredCallers(query) => {
-            query.importer_page.map_or(1, |page| u32_of(page.get()))
-        }
+pub(crate) fn importer_page(q: &LspSearchQuery) -> u32 {
+    match q {
+        LspSearchQuery::Variant2(query) => query.importer_page.map_or(1, |page| u32_of(page.get())),
+        LspSearchQuery::Variant3(query) => query.importer_page.map_or(1, |page| u32_of(page.get())),
+        LspSearchQuery::Variant4(query) => query.importer_page.map_or(1, |page| u32_of(page.get())),
         _ => 1,
     }
 }
-/// The window of the anchor type's implementation candidates
-/// (`candidatePage`, one-based) a fallback `subtypes` walk checks.
-pub(crate) fn candidate_page(query: &LspSearchQuery) -> u32 {
-    match query {
-        LspSearchQuery::AnchoredSubtypes(query) => {
+pub(crate) fn candidate_page(q: &LspSearchQuery) -> u32 {
+    match q {
+        LspSearchQuery::Variant6(query) => {
             query.candidate_page.map_or(1, |page| u32_of(page.get()))
         }
         _ => 1,
     }
 }
-pub(crate) fn snapshot(query: &LspSearchQuery) -> Option<&str> {
-    each_shape!(query, snapshot => snapshot.as_ref().map(|snapshot| snapshot.as_str()))
+pub(crate) fn snapshot(q: &LspSearchQuery) -> Option<&str> {
+    each_shape!(q,snapshot=>snapshot.as_ref().map(|value|value.as_str()))
 }
-pub(crate) fn context_lines(query: &LspSearchQuery) -> Option<u32> {
-    match query {
-        LspSearchQuery::AnchoredLocations(query) => query.context_lines.map(u32_of_signed),
-        LspSearchQuery::AnchoredReferences(query) => query.context_lines.map(u32_of_signed),
+pub(crate) fn context_lines(q: &LspSearchQuery) -> Option<octocode_engine::types::SearchContext> {
+    match q {
+        LspSearchQuery::Variant0(query) => {
+            query
+                .context_lines
+                .as_ref()
+                .map(|lines| octocode_engine::types::SearchContext {
+                    before: u32_of_signed(lines.before),
+                    after: u32_of_signed(lines.after),
+                })
+        }
+        LspSearchQuery::Variant2(query) => {
+            query
+                .context_lines
+                .as_ref()
+                .map(|lines| octocode_engine::types::SearchContext {
+                    before: u32_of_signed(lines.before),
+                    after: u32_of_signed(lines.after),
+                })
+        }
         _ => None,
     }
 }
-/// The Rust build context as JSON, decoded by [`receipt`].
-pub(crate) fn rust_context(query: &LspSearchQuery) -> Option<Value> {
-    each_shape!(query, rust_context => rust_context
-        .as_ref()
-        .and_then(|context| serde_json::to_value(context).ok()))
+pub(crate) fn rust_context(q: &LspSearchQuery) -> Option<&octocode_contract_types::LspRustContext> {
+    each_shape!(q,rust_context=>rust_context.as_ref())
 }
-/// The query as a replayable JSON row.
-pub(crate) fn to_row(query: &LspSearchQuery) -> Value {
-    serde_json::to_value(query).unwrap_or_else(|_| serde_json::json!({}))
+pub(crate) fn to_row(q: &LspSearchQuery) -> Value {
+    serde_json::to_value(q).unwrap_or_else(|_| json!({}))
 }

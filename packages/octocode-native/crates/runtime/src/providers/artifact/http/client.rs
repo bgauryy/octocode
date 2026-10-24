@@ -1,12 +1,13 @@
 //! The registry client every provider reads through: cached JSON and text answers, remembered facts and cursors, registry errors.
 use super::super::util::invalid;
-use super::super::{ArtifactError, ArtifactType, ReleaseTags};
+use super::super::{ArtifactError, ReleaseTags};
 use super::{
     ArtifactCache, ArtifactHttp, ArtifactHttpRequest, ArtifactHttpResponse, BodySink, DnsPin,
     REGISTRY_ANSWER, cache_key, cursor_key, fact_key,
 };
 use crate::cache::{CacheClass, CacheKey};
-use crate::providers::artifact::types::artifact_type;
+use crate::providers::artifact::query::artifact_type;
+use octocode_contract_types::ArtifactType;
 use octocode_github::ProviderErrorKind;
 use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
@@ -144,7 +145,7 @@ impl RegistryClient<'_> {
             return Ok(Some(hit.value.as_ref().clone()));
         }
         let response = self.http.get(request, self.budget).await?;
-        let Some(bytes) = self.status(artifact_type, response, not_found_is_empty)? else {
+        let Some(bytes) = response_body(artifact_type, response, not_found_is_empty)? else {
             return Ok(None);
         };
         let (value, weight) = decode(&bytes).ok_or_else(|| invalid(artifact_type))?;
@@ -223,20 +224,21 @@ impl RegistryClient<'_> {
             status,
             body: Vec::new(),
         };
-        Ok(self.status(artifact_type, response, true)?.map(|_| ()))
+        Ok(response_body(artifact_type, response, true)?.map(|_| ()))
     }
+}
 
-    pub(super) fn status(
-        &self,
-        artifact_type: ArtifactType,
-        response: ArtifactHttpResponse,
-        not_found_is_empty: bool,
-    ) -> Result<Option<Vec<u8>>, ArtifactError> {
-        match response.status {
-            200..=299 => Ok(Some(response.body)),
-            404 if not_found_is_empty => Ok(None),
-            status => Err(registry_error(artifact_type, status, &response.body)),
-        }
+/// A registry response's body: `None` for a 404 when `not_found_is_empty`,
+/// an error for any other non-2xx status.
+pub(super) fn response_body(
+    artifact_type: ArtifactType,
+    response: ArtifactHttpResponse,
+    not_found_is_empty: bool,
+) -> Result<Option<Vec<u8>>, ArtifactError> {
+    match response.status {
+        200..=299 => Ok(Some(response.body)),
+        404 if not_found_is_empty => Ok(None),
+        status => Err(registry_error(artifact_type, status, &response.body)),
     }
 }
 

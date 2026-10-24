@@ -3,14 +3,14 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
-import { AGENT_APPLICATION_ID as TEAM_APPLICATION_ID, AgentDbError as TeamSchemaError } from '../src/agentdb/db.js';
+import { AGENT_APPLICATION_ID, AgentDbError } from '../src/agentdb/schema.js';
 import { trafficRow, widgetLines } from '../src/team/panel.js';
 import { LEASE_MS } from '../src/team/roster.js';
 import { pathKey, TEAM_WORKSPACE_ENV, TeamStore } from '../src/team/store.js';
 import { stub } from './doubles.js';
 import { theme } from './fake-pi.js';
-import { tmp } from './helpers.js';
-import { member, repo, sent, take } from './team-harness.js';
+import { repo, tmp } from './helpers.js';
+import { member, sent, take } from './team-harness.js';
 
 const open = (cwd: string, db: string) => TeamStore.open(cwd, db);
 
@@ -171,7 +171,7 @@ describe('team database schema', () => {
   it('stamps a fresh database with the application id', () => {
     const file = path.join(tmp(), 'team.sqlite');
     open(repo(), file).close();
-    expect(pragma(file, 'application_id')).toBe(TEAM_APPLICATION_ID);
+    expect(pragma(file, 'application_id')).toBe(AGENT_APPLICATION_ID);
   });
 
   it('opens an agent database whatever version number another build left on it, keeping its data', () => {
@@ -190,7 +190,7 @@ describe('team database schema', () => {
   it('refuses a foreign database and leaves it untouched', () => {
     const foreign = path.join(tmp(), 'other.sqlite');
     exec(foreign, 'CREATE TABLE notes (id INTEGER);');
-    expect(() => open(repo(), foreign)).toThrow(TeamSchemaError);
+    expect(() => open(repo(), foreign)).toThrow(AgentDbError);
     expect(pragma(foreign, 'application_id')).toBe(0);
     const stamped = path.join(tmp(), 'stamped.sqlite');
     exec(stamped, 'PRAGMA application_id=1234;');

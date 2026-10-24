@@ -1,5 +1,4 @@
-import { chromeCommands, chromeGuideTopics } from './chrome-contract.mjs';
-export const guideTopics = chromeGuideTopics;
+import { chromeCommands } from './chrome-contract.mjs';
 const recipe = (file: string, description: string, options: string[] = []) => ({
   file: `cdp-checks/${file}.mjs`,
   description,
@@ -138,7 +137,6 @@ export const helpers: Record<string, [file: string, description: string]> =
       [file, chromeCommands[name as keyof typeof chromeCommands]],
     ])
   );
-export const commands = chromeCommands;
 export const connection = {
   '--port': 'CDP port (9222)',
   '--target': 'Exact target id',

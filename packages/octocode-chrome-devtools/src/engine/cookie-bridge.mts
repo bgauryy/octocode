@@ -29,7 +29,9 @@ import {
   readStorageStateCookies,
   toSetCookie,
   toStorageStateCookie,
+  type CookieRecord,
 } from './cookie-jar.mjs';
+import { errorMessage } from './error-message.mjs';
 import { fileURLToPath } from 'url';
 import { flagArgs, validateFlags } from './cli-flags.mjs';
 import { cdpHttp, octocodeWorkspace } from './engine-io.mjs';
@@ -72,14 +74,14 @@ const FROM_STATE = getArg('--from-storage-state', '');
 const EXPORT_STATE = getArg('--export-storage-state', '');
 const SOURCE_PORT = getArg('--source-port', '9333');
 const CHROME_PATH = getArg('--chromePath', '');
-const URLS = (getArg('--urls', '') || '')
+const URLS = getArg('--urls', '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 const DRY_RUN = hasFlag('--dry-run');
 const WORKSPACE_OUTPUT_BASE = octocodeWorkspace();
 
-function fail(msg) {
+function fail(msg: string) {
   console.error(`[COOKIE_BRIDGE] ${msg}`);
   process.exit(1);
 }
@@ -114,14 +116,14 @@ if (!Number.isFinite(nodeMajor) || nodeMajor < 24 || !WS) {
 }
 
 /** Browser-level session: Storage cookies cover every context and partition. */
-async function connectBrowser(port) {
+async function connectBrowser(port: string) {
   const version = await cdpHttp(port, '/json/version');
   if (!version.webSocketDebuggerUrl)
     throw new Error(`No browser WS on port ${port}`);
   return connectCDP(version.webSocketDebuggerUrl);
 }
 
-async function readCookiesFromPort(port) {
+async function readCookiesFromPort(port: string): Promise<CookieRecord[]> {
   const browser = await connectBrowser(port);
   try {
     return (await browser.send('Storage.getCookies', {})).cookies || [];
@@ -134,11 +136,11 @@ async function readCookiesFromPort(port) {
  * Sets every cookie, falling back to one call per cookie when the batch is rejected,
  * then reads the jar back so a cookie Chrome dropped is reported instead of assumed.
  */
-async function writeCookiesToPort(port, cookies) {
+async function writeCookiesToPort(port: string, cookies: CookieRecord[]) {
   const browser = await connectBrowser(port);
   try {
     const payload = cookies.map(c => toSetCookie(c, URLS));
-    const rejected = [];
+    const rejected: { name: string; key: string; reason: string }[] = [];
     try {
       await browser.send('Storage.setCookies', { cookies: payload });
     } catch {
@@ -149,7 +151,7 @@ async function writeCookiesToPort(port, cookies) {
           rejected.push({
             name: cookie.name,
             key: cookieKey(cookie),
-            reason: error.message,
+            reason: errorMessage(error),
           });
         }
       }
@@ -169,7 +171,7 @@ async function writeCookiesToPort(port, cookies) {
   }
 }
 
-function writeStorageState(path, cookies) {
+function writeStorageState(path: string, cookies: CookieRecord[]) {
   mkdirSync(dirname(resolve(path)), { recursive: true, mode: 0o700 });
   writeFileSync(
     path,
@@ -179,7 +181,7 @@ function writeStorageState(path, cookies) {
 }
 
 /** Launches the real profile; refuses a reused or isolated browser on the source port. */
-function launchProfileSource(profile, port) {
+function launchProfileSource(profile: string, port: string) {
   return new Promise<void>((resolveLaunch, rejectLaunch) => {
     const openBrowser = join(__dir, 'open-browser.mjs');
     const args = [
@@ -187,7 +189,7 @@ function launchProfileSource(profile, port) {
       '--profile',
       profile,
       '--port',
-      String(port),
+      port,
       '--url',
       'about:blank',
       ...(CHROME_PATH ? ['--chromePath', CHROME_PATH] : []),
@@ -243,7 +245,7 @@ function launchProfileSource(profile, port) {
 }
 
 /** Closes the real-profile browser this run launched so its CDP port stops serving. */
-async function closeSourceBrowser(port) {
+async function closeSourceBrowser(port: string) {
   try {
     const browser = await connectBrowser(port);
     await browser.send('Browser.close').catch(() => {});
@@ -264,7 +266,7 @@ async function main() {
   console.log('[ACTION] cookie-bridge start (values redacted)');
 
   let launchedSource = false;
-  let cookies = [];
+  let cookies: CookieRecord[] = [];
 
   try {
     if (FROM_STATE) {

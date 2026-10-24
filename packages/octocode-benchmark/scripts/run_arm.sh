@@ -84,7 +84,7 @@ case "$ARM" in
     python3 - "$RUN/mcp.json" "$ARM" "$LOCAL_REPOS" "${CMD[@]}" <<'PY'
 import json, sys
 path, arm, root, cmd = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
-env = {"NODE_ENV": "development", "WORKSPACE_ROOT": root, "OCTOCODE_BETA": "true", "OCTOCODE_RANKING_ENABLED": str("clasify" in arm).lower(),
+env = {"NODE_ENV": "development", "WORKSPACE_ROOT": root, "OCTOCODE_BETA": "true",
        "TOOLS_TO_RUN": "localSearch,localFetch,structureSearch,astSearch,lspSearch" + (",clasify" if "clasify" in arm else "")}
 if "clasify" not in arm:
     env["OCTOCODE_CLASSIFICATION_API"] = ""   # explicitly blank = clasify off
@@ -108,7 +108,7 @@ PY
     python3 - "$RUN/mcp.json" "$ARM" "${CMD[@]}" <<'PY'
 import json, sys
 path, arm, cmd = sys.argv[1], sys.argv[2], sys.argv[3:]
-env = {"NODE_ENV": "development", "OCTOCODE_BETA": "true", "OCTOCODE_RANKING_ENABLED": str("clasify" in arm).lower()}
+env = {"NODE_ENV": "development", "OCTOCODE_BETA": "true"}
 if "clasify" not in arm:
     env["OCTOCODE_CLASSIFICATION_API"] = ""   # explicitly blank = clasify off
 json.dump({"mcpServers": {"octocode": {"type": "stdio", "command": cmd[0], "args": cmd[1:], "env": env}}},

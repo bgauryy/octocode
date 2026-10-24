@@ -4,81 +4,55 @@ mod error;
 pub use error::{FailureKind, ToolError};
 pub(crate) use error::{STALE_SNAPSHOT_ERROR, failure_kind, missing_path_lead};
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::id::ToolId;
 
-/// The call field that marks a lead approximate, and its only value.
-const CONFIDENCE_FIELD: &str = "confidence";
-const APPROXIMATE: &str = "low";
-
-/// Whether `call` is an approximate lead ([`Continuation::approximate`]).
-#[must_use]
-pub(crate) fn is_approximate(call: &Value) -> bool {
-    call.get(CONFIDENCE_FIELD).and_then(Value::as_str) == Some(APPROXIMATE)
-}
-
-/// One executable follow-up call, `{tool, query, confidence?}`; `confidence`
-/// is `"low"` for an approximate lead and absent otherwise. The
-/// `query` is always the complete tool input: query rows for new work, or
-/// snapshot and paging fields for a saved response. MCP and CLI run it verbatim. Every `next`
-/// page and `hints` lead is built here; debug builds and tests validate each
-/// one against the strict input contract when it is built.
+/// An explicit follow-up: saved work or a fresh related request.
 #[must_use]
 pub(crate) struct Continuation {
     tool: ToolId,
     input: Value,
-    approximate: bool,
+    kind: ContinuationKind,
+}
+
+#[derive(Clone, Copy)]
+enum ContinuationKind {
+    Continue,
+    Related,
 }
 
 impl Continuation {
-    /// A one-row call.
-    pub fn new(tool: ToolId, row: Value) -> Self {
-        Self::input(tool, serde_json::json!({ "queries": [row] }))
+    pub fn continued(tool: ToolId, row: Value) -> Self {
+        Self::continued_input(tool, serde_json::json!({"queries": [row]}))
     }
 
-    /// A complete input: query rows or saved-response paging fields.
-    pub fn input(tool: ToolId, input: Value) -> Self {
+    pub fn related(tool: ToolId, row: Value) -> Self {
+        Self::related_input(tool, serde_json::json!({"queries": [row]}))
+    }
+
+    pub fn continued_input(tool: ToolId, input: Value) -> Self {
         Self {
             tool,
             input,
-            approximate: false,
+            kind: ContinuationKind::Continue,
         }
     }
 
-    /// Marks the call a judgment that may not help (a guessed path or
-    /// symbol), so it yields its place to exact leads.
-    pub fn approximate(mut self) -> Self {
-        self.approximate = true;
-        self
+    pub fn related_input(tool: ToolId, input: Value) -> Self {
+        Self {
+            tool,
+            input,
+            kind: ContinuationKind::Related,
+        }
     }
 
     pub fn build(self) -> Value {
-        #[cfg(any(test, debug_assertions))]
-        assert_valid(self.tool, &self.input);
-        let mut call = Map::new();
-        call.insert("tool".into(), Value::from(self.tool.as_str()));
-        call.insert("query".into(), self.input);
-        if self.approximate {
-            call.insert(CONFIDENCE_FIELD.into(), Value::from(APPROXIMATE));
-        }
-        Value::Object(call)
-    }
-}
-
-/// Fails loudly on a continuation the tool it names would reject.
-#[cfg(any(test, debug_assertions))]
-#[expect(
-    clippy::panic,
-    reason = "a continuation its target rejects is a runtime defect; debug builds fail loudly"
-)]
-fn assert_valid(tool: ToolId, input: &Value) {
-    if let Err(error) = crate::contracts::validate(tool.as_str(), input.clone()) {
-        panic!(
-            "invalid {} continuation {input}: {:?}",
-            tool.as_str(),
-            error.issues
-        );
+        serde_json::json!({
+            "kind": match self.kind { ContinuationKind::Continue => "continue", ContinuationKind::Related => "related" },
+            "tool": self.tool.as_str(),
+            "input": self.input,
+        })
     }
 }
 
@@ -100,86 +74,25 @@ pub(crate) fn rows_per_call(tool: ToolId) -> usize {
         .max(1)
 }
 
-/// The first row of a continuation call (`query.queries[0]`).
+/// The first row of a continuation call (`input.queries[0]`).
 #[must_use]
 pub(crate) fn continuation_row(call: &Value) -> Option<&Value> {
-    call.get("query")?.get("queries")?.get(0)
+    call.get("input")?.get("queries")?.get(0)
 }
 
 /// [`continuation_row`], mutable.
 pub(crate) fn continuation_row_mut(call: &mut Value) -> Option<&mut Value> {
-    call.get_mut("query")?.get_mut("queries")?.get_mut(0)
+    call.get_mut("input")?.get_mut("queries")?.get_mut(0)
 }
 
-/// Whether `value` is one executable call: `{tool: string, query: object}`.
+/// Explicit executable calls are never inferred from a source identity object.
 #[must_use]
 pub(crate) fn is_call(value: &Value) -> bool {
-    value.get("tool").is_some_and(Value::is_string)
-        && value.get("query").is_some_and(Value::is_object)
-}
-
-/// The deepest nesting a walk of a result enters: rows nest items, page
-/// blocks and calls far above this.
-pub(crate) const NESTING_DEPTH: usize = 12;
-
-/// Every executable call in `value` ([`is_call`]) at any depth up to
-/// [`NESTING_DEPTH`]; a call's own query is caller content and never entered.
-pub(crate) fn for_each_call(value: &Value, visit: &mut impl FnMut(&Value)) {
-    fn walk(value: &Value, visit: &mut impl FnMut(&Value), depth: usize) {
-        if depth > NESTING_DEPTH {
-            return;
-        }
-        if is_call(value) {
-            visit(value);
-            return;
-        }
-        match value {
-            Value::Object(map) => map.values().for_each(|child| walk(child, visit, depth + 1)),
-            Value::Array(items) => items.iter().for_each(|item| walk(item, visit, depth + 1)),
-            _ => {}
-        }
-    }
-    walk(value, visit, 0);
-}
-
-/// [`for_each_call`], mutable.
-pub(crate) fn for_each_call_mut(value: &mut Value, visit: &mut impl FnMut(&mut Value)) {
-    fn walk(value: &mut Value, visit: &mut impl FnMut(&mut Value), depth: usize) {
-        if depth > NESTING_DEPTH {
-            return;
-        }
-        if is_call(value) {
-            visit(value);
-            return;
-        }
-        match value {
-            Value::Object(map) => map
-                .values_mut()
-                .for_each(|child| walk(child, visit, depth + 1)),
-            Value::Array(items) => items
-                .iter_mut()
-                .for_each(|item| walk(item, visit, depth + 1)),
-            _ => {}
-        }
-    }
-    walk(value, visit, 0);
-}
-
-/// One call as one pasteable line, `<tool> <compact query JSON>`, which the
-/// CLI runs as `octocode <tool> '<query JSON>'`; a low-confidence lead reads
-/// `Approximate: …`. The hints channel and the YAML text both print it.
-#[must_use]
-pub(crate) fn call_line(call: &Value) -> Option<String> {
-    let tool = call.get("tool").and_then(Value::as_str)?;
-    if !is_call(call) {
-        return None;
-    }
-    let qualification = if is_approximate(call) {
-        "Approximate: "
-    } else {
-        ""
-    };
-    Some(format!("{qualification}{tool} {}", call["query"]))
+    matches!(
+        value.get("kind").and_then(Value::as_str),
+        Some("continue" | "related")
+    ) && value.get("tool").is_some_and(Value::is_string)
+        && value.get("input").is_some_and(Value::is_object)
 }
 
 /// `row` with `changes` applied: each change sets its field, and a `null`
@@ -197,17 +110,9 @@ pub(crate) fn with_changes(mut row: Value, changes: &Value) -> Value {
     row
 }
 
-/// Fields that steer how a call reports, never what it reads: a row never
-/// echoes them, and a continuation inherits only `extras` from its source
-/// row (the brief is request-level).
-pub(crate) const INTENT_FIELDS: [&str; 3] = ["mainGoal", "reasoning", "extras"];
-
-/// Query fields the response stage respells in every continuation it
-/// publishes: an absolute local `path` becomes workspace-relative
-/// (`response::rows::paths::relativize_continuation_paths`). The same field
-/// reaches page 1 and page 2 in different spellings, so a page budget may
-/// not measure it ([`crate::response::page_windows::page_budget`]).
-pub(crate) const RESPELLED_FIELDS: [&str; 1] = ["path"];
+/// Canonical public guidance keys.
+pub(crate) const PAGES_KEY: &str = "next";
+pub(crate) const HINTS_KEY: &str = "hints";
 
 #[derive(Debug, Default, Serialize)]
 pub(crate) struct ToolDiagnostics {
@@ -250,7 +155,7 @@ pub(crate) struct ToolData {
     /// stage words a note only for a page a split moved
     /// ([`crate::response::pages::note_remaining`]).
     #[serde(skip)]
-    pub remaining: Vec<crate::response::result::Remaining>,
+    pub remaining: Vec<Remaining>,
 }
 impl From<Value> for ToolData {
     fn from(data: Value) -> Self {
@@ -263,45 +168,32 @@ impl From<Value> for ToolData {
     }
 }
 
-/// Every query field that names where a walk stands: its pages, offsets and
-/// snapshots, and the saved `selection` plan they were ordered by. A restart
-/// drops them all; the contract guard keeps the list complete.
-pub(crate) const CURSOR_FIELDS: [&str; 12] = [
-    "page",
-    "matchPage",
-    "importerPage",
-    "offset",
-    "scanOffset",
-    "materializeOffset",
-    "walkOffset",
-    "snapshot",
-    "selection",
-    "candidatePage",
-    "headSha",
-    "cursor",
-];
-
-/// The one restart of a row query `row` of `tool`: the same query from its
-/// first page, without any [`CURSOR_FIELDS`], as a replay (`exact`).
-pub(crate) fn restart_query(tool: ToolId, row: &Value) -> Value {
-    let mut restart = row.clone();
-    if let Some(fields) = restart.as_object_mut() {
-        for field in CURSOR_FIELDS {
+/// The same semantic request without private saved-work progress.
+pub(crate) fn fresh_query_row(tool: ToolId, row: &Value) -> Value {
+    let mut fresh = row.clone();
+    if let Some(fields) = fresh.as_object_mut() {
+        for field in crate::contracts::state_fields(tool) {
             fields.remove(field);
         }
     }
-    Continuation::new(tool, restart).build()
+    fresh
+}
+
+/// A new request over the same scope; private progress belongs only to the saved work.
+pub(crate) fn restart_query(tool: ToolId, row: &Value) -> Value {
+    Continuation::related(tool, fresh_query_row(tool, row)).build()
 }
 
 /// [`ToolError::stale_snapshot`] as a result row, for a tool that returns
 /// rows rather than errors.
 pub(crate) fn stale_snapshot(restart: Value) -> Value {
     let error = ToolError::stale_snapshot(restart);
-    serde_json::json!({
-        "status": "error",
-        "errorCode": error.code,
-        "next": error.next.map_or(Value::Null, |next| *next),
-    })
+    let mut data =
+        serde_json::json!({"status":"error","errorCode":error.code,"error":error.message});
+    if let Some(calls) = error.calls {
+        attach_calls(&mut data, *calls);
+    }
+    data
 }
 
 /// A generated query as JSON, every field as written. A generated query is
@@ -346,3 +238,41 @@ pub(crate) fn remove_null_fields(value: &mut Value) {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn attach_related(data: &mut Value, call: Value) {
+    if data.get("related").is_none() {
+        data["related"] = serde_json::json!([]);
+    }
+    if let Some(related) = data.get_mut("related").and_then(Value::as_array_mut) {
+        related.push(call);
+    }
+}
+
+/// Producers declare each call's semantics. Only that explicit kind chooses its output channel.
+pub(crate) fn attach_calls(data: &mut Value, calls: Value) {
+    let Some(entries) = calls.as_object() else {
+        data["next"] = calls;
+        return;
+    };
+    for (name, call) in entries {
+        match call["kind"].as_str() {
+            Some("related") => attach_related(data, call.clone()),
+            _ => {
+                data["next"][name] = call.clone();
+            }
+        }
+    }
+}
+
+/// Serialize a private typed call bundle into the two public channels.
+pub(crate) fn serialize_calls<T: serde::Serialize, S: serde::Serializer>(
+    calls: &Option<T>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut data = serde_json::json!({});
+    if let Some(calls) = calls {
+        let value = serde_json::to_value(calls).map_err(serde::ser::Error::custom)?;
+        attach_calls(&mut data, value);
+    }
+    data.serialize(serializer)
+}

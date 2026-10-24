@@ -2,8 +2,8 @@ use super::*;
 use serde_json::json;
 
 /// Members nest under the parent row they follow: no member repeats
-/// `parent`/`parentLine`, a kind or `exported` every member shares is
-/// stated once, a member whose parent is off the page stays top level
+/// `parent`/`parentLine`; each keeps its kind and export state. A member
+/// whose parent is off the page stays top level
 /// naming it, and a declaration without members is a plain object.
 /// Flattening restores every flat fact.
 #[test]
@@ -22,10 +22,9 @@ fn declaration_rows_nest_members_under_their_parent() {
         json!(rows),
         json!([
             {"symbolName":"Server","kind":"impl","line":109,"endLine":891,
-             "shared":{"kind":"method","exported":true},
              "members":[
-                {"symbolName":"connect","line":194,"endLine":204,"docStartLine":164},
-                {"symbolName":"ready","line":307,"endLine":310,
+                {"symbolName":"connect","kind":"method","exported":true,"line":194,"endLine":204,"docStartLine":164},
+                {"symbolName":"ready","kind":"method","exported":true,"line":307,"endLine":310,
                  "members":[{"symbolName":"inner","kind":"function","line":308}]}
              ]},
             {"symbolName":"Client","kind":"impl","line":984,"endLine":990,
@@ -48,49 +47,6 @@ fn declaration_rows_nest_members_under_their_parent() {
             assert_eq!(row.get(key), original.get(key), "{key}: {row}");
         }
     }
-}
-
-/// Byte budget for a large Rust file outline (tokio named_pipe.rs: two
-/// types, many impl blocks of exported, documented methods): the nested
-/// rows cost at most 65% of the flat ones and lose no declaration.
-#[test]
-fn nested_symbols_fit_the_byte_budget_of_a_large_outline() {
-    let mut flat = Vec::new();
-    for (type_index, name) in ["NamedPipeServer", "NamedPipeClient"].iter().enumerate() {
-        let base = 100 + type_index as u64 * 900;
-        flat.push(json!({"name":name,"kind":"struct","line":base,"endLine":base + 2,"exported":true,"docStartLine":base - 60}));
-        flat.push(json!({"name":name,"kind":"impl","line":base + 4,"endLine":base + 790}));
-        for method in 0..20u64 {
-            let line = base + 25 + method * 35;
-            flat.push(json!({"name":format!("method_{method}"),"kind":"method","line":line,"endLine":line + 4,
-                    "exported":true,"docStartLine":line - 20,"parent":name,"parentLine":base + 4}));
-        }
-        for block in 0..5u64 {
-            let line = base + 800 + block * 10;
-            flat.push(json!({"name":name,"kind":"impl","line":line,"endLine":line + 8}));
-            flat.push(json!({"name":format!("poll_{block}"),"kind":"method","line":line + 1,"endLine":line + 7,
-                    "parent":name,"parentLine":line}));
-        }
-    }
-    let bytes = |rows: &[Value]| serde_json::to_string(rows).expect("json").len();
-    let before = {
-        // The flat public rows (one object per declaration, parent named).
-        let mut rows = Vec::new();
-        for row in &flat {
-            let mut row = row.clone();
-            let name = row.as_object_mut().and_then(|f| f.shift_remove("name"));
-            row["symbolName"] = name.unwrap_or_default();
-            rows.push(row);
-        }
-        bytes(&rows)
-    };
-    let nested = declaration_rows(&flat);
-    let after = bytes(&nested);
-    assert!(
-        after * 100 <= before * 65,
-        "nested {after} B vs flat {before} B"
-    );
-    assert_eq!(flatten_members(&nested).len(), flat.len());
 }
 
 /// Canonical facts of flat internal rows, as [`flatten_members`]
@@ -182,13 +138,10 @@ fn object_rows_round_trip_every_fact_including_awkward_names() {
         json!({"name":"a, b","kind":"field","line":35}),
     ];
     let rows = declaration_rows(&flat);
-    assert_eq!(
-        rows[1]["shared"],
-        json!({"kind":"function","exported":true})
-    );
+    assert!(rows[1].get("shared").is_none());
     assert_eq!(
         rows[1]["members"][1],
-        json!({"symbolName":"into (x)","line":11,"exportedAs":["a","b c","d (e)"],"column":4})
+        json!({"symbolName":"into (x)","kind":"function","exported":true,"line":11,"exportedAs":["a","b c","d (e)"],"column":4})
     );
     assert_eq!(facts(&flatten_members(&rows)), facts(&flat));
     let wire: Vec<Value> =

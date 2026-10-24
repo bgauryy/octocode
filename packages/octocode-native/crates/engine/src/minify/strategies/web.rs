@@ -1,5 +1,5 @@
+use super::minify_javascript_core;
 use crate::minify::comment_remover::remove_comments;
-use crate::minify::strategies::code::minify_javascript_core;
 use regex::Regex;
 use std::sync::LazyLock;
 

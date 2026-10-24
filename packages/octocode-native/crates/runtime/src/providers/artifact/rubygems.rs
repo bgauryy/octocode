@@ -3,12 +3,9 @@ use super::http::{JSON, RegistryClient};
 use super::util::{
     date_prefix, endpoint, license, object_for, parse_url, required, rows, safe_url, string,
 };
-use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactType,
-};
-use crate::providers::artifact::types::artifact_search_query;
-use octocode_contract_types::ErrorCode;
+use super::{ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState};
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use serde_json::Value;
 
 /// A gem row. The exact (`gems/<name>.json`) document also states the
@@ -152,8 +149,9 @@ pub(crate) async fn rubygems(
 
 #[cfg(test)]
 mod tests {
+    use super::super::query::{discovery, exact_query};
     use super::super::test_http::RouteHttp;
-    use super::super::types::{discovery, exact_query, test_budget};
+    use super::super::test_http::test_budget;
     use super::*;
 
     use serde_json::json;
@@ -180,9 +178,9 @@ mod tests {
             .json(&search(6), gem_rows(150, 12));
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
-        let query = discovery(ArtifactType::Rubygems, json!({"page": 3, "pageSize": 50}));
+        let query = discovery(ArtifactType::Rubygems, json!({"page": 6}));
         let state = super::super::ArtifactProviderState {
-            offset: Some(100),
+            offset: Some(110),
             ..Default::default()
         };
         let page = rubygems(&query, &state, &client).await.expect("page 3");
@@ -190,11 +188,11 @@ mod tests {
         let names = page
             .artifacts
             .iter()
-            .map(|row| row.name.as_str())
+            .map(|row| row.package_name.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(names.len(), 50);
-        assert_eq!((names[0], names[49]), ("gem100", "gem149"));
-        assert_eq!(page.next_state.and_then(|next| next.offset), Some(150));
+        assert_eq!(names.len(), 20);
+        assert_eq!((names[0], names[19]), ("gem110", "gem129"));
+        assert_eq!(page.next_state.and_then(|next| next.offset), Some(130));
         // The short last API page ends the results.
         let state = super::super::ArtifactProviderState {
             offset: Some(150),

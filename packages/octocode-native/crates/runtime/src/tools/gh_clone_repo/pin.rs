@@ -98,7 +98,7 @@ async fn refused(
         error.message = retry.message(&error.message);
         let (name, lead) = retry.lead();
         error
-            .next
+            .calls
             .get_or_insert_with(|| Box::new(serde_json::json!({})))[name] = lead;
     }
     failure
@@ -119,7 +119,7 @@ pub(super) fn api_refusal(
                 hints: vec![
                     "Verify the branch, tag, or SHA (ghStructure lists a ref), or omit ref for the default branch.".into(),
                 ],
-                next: Some(Box::new(serde_json::json!({
+                calls: Some(Box::new(serde_json::json!({
                     "viewRefs": crate::tools::gh_shared::ref_recovery(&query.owner, &query.repo)
                 }))),
                 ..CloneError::new(

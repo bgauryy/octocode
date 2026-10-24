@@ -5,13 +5,13 @@
 mod cut;
 mod telemetry;
 mod window;
-use cut::{cut_rows, cut_window, pagination_block_chars};
+pub(crate) use cut::measure_page;
+use cut::{cut_rows, pagination_block_chars};
 use serde_json::{Map, Value};
 use std::sync::OnceLock;
-pub(crate) use telemetry::strip_transient_telemetry;
-use telemetry::{rows_key, strip_row_telemetry, take_volatile_fields};
+use telemetry::{strip_row_telemetry, take_volatile_fields};
 use tokio_util::sync::CancellationToken;
-use window::{build_continuation, cursor_at, paginate_window};
+use window::{build_continuation, page_cursor};
 
 use super::page_model::{ResponsePageOptions, ResponsePagination};
 use super::row_pages::RowSource;
@@ -27,6 +27,12 @@ pub(crate) struct ResponseInput {
     pub remaining: Vec<Vec<super::result::Remaining>>,
 }
 
+#[derive(Debug, PartialEq)]
+pub(crate) struct PreparedPage {
+    pub value: Value,
+    pub next: Option<super::cursor::Cursor>,
+}
+
 /// A saved response's page memo: the source its pages cut from, built from
 /// the saved envelope on the first read and shared by every later one, so no
 /// page read copies or re-plans the envelope.
@@ -37,8 +43,6 @@ pub(crate) struct SavedPages {
 
 enum SavedSource {
     Rows(Box<RowSource>),
-    /// The serialized envelope a structured window slices.
-    Window(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,6 +50,7 @@ pub(crate) enum ResponseError {
     Cancelled,
     StructuredContentMustBeObject,
     Unserializable,
+    InvalidPage,
 }
 
 /// The page of `input` its options ask for: whole-row pages (`rows`), a
@@ -54,11 +59,11 @@ pub(crate) enum ResponseError {
 pub(crate) fn prepare(
     mut input: ResponseInput,
     cancelled: &CancellationToken,
-) -> Result<Value, ResponseError> {
+) -> Result<PreparedPage, ResponseError> {
     if cancelled.is_cancelled() {
         return Err(ResponseError::Cancelled);
     }
-    let Value::Object(mut structured) = std::mem::take(&mut input.structured) else {
+    let Value::Object(structured) = std::mem::take(&mut input.structured) else {
         return Err(ResponseError::StructuredContentMustBeObject);
     };
     if input.options.rows_scope() {
@@ -68,17 +73,10 @@ pub(crate) fn prepare(
         }
         return cut_rows(&source, &input);
     }
-    if input.options.structured_scope() {
-        // Concatenating the `responseWindow` pages in order reconstructs
-        // the exact envelope JSON.
-        strip_transient_telemetry(&mut structured);
-        let full = Value::Object(structured).to_string();
-        if cancelled.is_cancelled() {
-            return Err(ResponseError::Cancelled);
-        }
-        return cut_window(&full, &input);
-    }
-    Ok(Value::Object(structured))
+    Ok(PreparedPage {
+        value: Value::Object(structured),
+        next: None,
+    })
 }
 
 /// The page of a saved response `input` asks for, cut from `pages` (built
@@ -88,7 +86,7 @@ pub(crate) fn prepare_saved(
     envelope: &Value,
     pages: &SavedPages,
     cancelled: &CancellationToken,
-) -> Result<Value, ResponseError> {
+) -> Result<PreparedPage, ResponseError> {
     if cancelled.is_cancelled() {
         return Err(ResponseError::Cancelled);
     }
@@ -104,7 +102,6 @@ pub(crate) fn prepare_saved(
     }
     match source {
         SavedSource::Rows(rows) => cut_rows(rows, input),
-        SavedSource::Window(full) => cut_window(full, input),
     }
 }
 
@@ -139,12 +136,10 @@ fn saved_source(envelope: &Value, input: &ResponseInput) -> Result<SavedSource, 
     let Value::Object(structured) = envelope else {
         return Err(ResponseError::StructuredContentMustBeObject);
     };
-    let mut structured = structured.clone();
-    if input.options.rows_scope() {
-        return Ok(SavedSource::Rows(Box::new(row_source(structured, input)?)));
-    }
-    strip_transient_telemetry(&mut structured);
-    Ok(SavedSource::Window(Value::Object(structured).to_string()))
+    Ok(SavedSource::Rows(Box::new(row_source(
+        structured.clone(),
+        input,
+    )?)))
 }
 
 fn is_saved_replay(options: &ResponsePageOptions) -> bool {
@@ -153,6 +148,3 @@ fn is_saved_replay(options: &ResponsePageOptions) -> bool {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod cursor_tests;

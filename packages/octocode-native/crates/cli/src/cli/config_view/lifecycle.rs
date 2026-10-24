@@ -142,7 +142,7 @@ async fn serve(no_open: bool, idle_timeout: Duration, json_out: bool) -> Result<
         let mut tokens = state
             .tokens
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         tokens.bootstrap = None;
         tokens.session = None;
     }

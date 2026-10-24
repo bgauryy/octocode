@@ -1,4 +1,4 @@
-use crate::id::continuation_channels::{HINTS_KEY, PAGES_KEY};
+use crate::response::result::{HINTS_KEY, PAGES_KEY};
 use serde_json::{Map, Value, json};
 
 /// Page-plan size reserved for a row's per-call facts. It depends only on
@@ -40,7 +40,7 @@ fn largest_array(value: &Value, pointer: &str) -> Option<(String, usize)> {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                if key == PAGES_KEY || key == HINTS_KEY {
+                if key == PAGES_KEY || key == HINTS_KEY || key == "related" {
                     continue;
                 }
                 consider(largest_array(

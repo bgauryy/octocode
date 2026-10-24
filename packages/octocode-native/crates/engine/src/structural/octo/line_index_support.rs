@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tree_sitter::Node;
 
 use crate::structural::types::{MetavarRange, StructuralMatch};
-use crate::text::utf8_offsets::LineIndex;
+use crate::text::LineIndex;
 
 use super::matching::{RawRange, node_text};
 

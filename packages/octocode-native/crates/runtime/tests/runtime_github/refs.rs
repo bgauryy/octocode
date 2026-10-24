@@ -46,7 +46,7 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     let out = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"a","repo":"b","keywords":["class"],"path":"pkg","ref":"dev"}),
+        json!({"owner":"a","repo":"b","keywords":["class"],"pathPrefix":"pkg","ref":"dev"}),
     )
     .await
     .expect("search");
@@ -57,18 +57,12 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
         json!(["Files from the default-branch index at fedcba9, not dev; `lines` read at dev."]),
         "{data}"
     );
-    let lead = &crate::support::checks::hint(data, "viewRepo");
+    let lead = &crate::support::checks::related_call(data, "ghStructure", |input| {
+        input["queries"][0]["operation"] != "refs"
+    });
     assert_eq!(lead["tool"], "ghStructure", "{data}");
-    assert_eq!(lead["query"]["queries"][0]["ref"], at_ref, "{data}");
-    assert_eq!(lead["query"]["queries"][0]["path"], "pkg", "{data}");
-    assert_eq!(
-        data["hints"][0]
-            .as_str()
-            .and_then(|text| text.split_once(": "))
-            .map(|(name, _)| name),
-        Some("viewRepo"),
-        "{data}"
-    );
+    assert_eq!(lead["input"]["queries"][0]["ref"], at_ref, "{data}");
+    assert_eq!(lead["input"]["queries"][0]["path"], "pkg", "{data}");
     runtime.close().await;
 }
 
@@ -94,7 +88,7 @@ async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
         ),
         (
             "ghStructure",
-            json!({"owner":"a","repo":"b","ref":"no-such-ref"}),
+            json!({"operation":"tree","owner":"a","repo":"b","ref":"no-such-ref"}),
         ),
     ] {
         let outcome = call(&runtime, tool, query).await.expect("error row");
@@ -107,9 +101,11 @@ async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
                 .contains("\"no-such-ref\""),
             "{tool}: {data}"
         );
-        let lead = &crate::support::checks::hint(data, "viewRefs");
+        let lead = &crate::support::checks::related_call(data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "refs"
+        });
         assert_eq!(lead["tool"], "ghStructure", "{tool}: {data}");
-        let row = &lead["query"]["queries"][0];
+        let row = &lead["input"]["queries"][0];
         for (field, value) in [("owner", "a"), ("repo", "b"), ("operation", "refs")] {
             assert_eq!(row[field], value, "{tool}: {data}");
         }
@@ -148,10 +144,13 @@ async fn gh_missing_full_sha_is_named_with_a_refs_lead() {
             "ghGetFileContent",
             json!({"owner":"a","repo":"b","path":"README.md","ref":MISSING,"forceRefresh":true}),
         ),
-        ("ghStructure", json!({"owner":"a","repo":"b","ref":MISSING})),
         (
             "ghStructure",
-            json!({"owner":"a","repo":"b","ref":MISSING,"path":"src"}),
+            json!({"operation":"tree","owner":"a","repo":"b","ref":MISSING}),
+        ),
+        (
+            "ghStructure",
+            json!({"operation":"tree","owner":"a","repo":"b","ref":MISSING,"path":"src"}),
         ),
     ] {
         let outcome = call(&runtime, tool, query).await.expect("error row");
@@ -162,7 +161,9 @@ async fn gh_missing_full_sha_is_named_with_a_refs_lead() {
             "{tool}: {data}"
         );
         assert_eq!(
-            crate::support::checks::hint(data, "viewRefs")["tool"],
+            crate::support::checks::related_call(data, "ghStructure", |input| input["queries"][0]
+                ["operation"]
+                == "refs")["tool"],
             "ghStructure",
             "{tool}: {data}"
         );

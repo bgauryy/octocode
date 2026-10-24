@@ -18,47 +18,43 @@ fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
     std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
     let out = run(
         &root.0,
-        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"maxDepth":2}),
+        json!({"operation":"tree","path":root.0,"maxDepth":2}),
     )
     .expect("tree");
-    assert_eq!(
-        out["files"],
-        json!([{"dir":"src","files":["lib.rs (2)"]}]),
+    assert!(
+        paths(&out).iter().any(|path| path.ends_with("/src/lib.rs")),
         "{out}"
     );
+    assert!(!out["files"].to_string().contains(".keep"), "{out}");
     // Every counted dot entry is reachable: the lead lifts includeHidden.
     assert_eq!(skipped_count(&out, "hidden"), 3, "{out}");
-    let lead = &out["next"]["includeSkipped"]["query"]["queries"][0];
+    let lead = &related(&out, "structureSearch")["input"]["queries"][0];
     assert_eq!(lead["includeHidden"], true, "{out}");
     assert!(lead.get("defaultExcludes").is_none(), "{out}");
     let filtered = run(
         &root.0,
-        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"maxDepth":2,"extensions":["rs"]}),
+        json!({"operation":"tree","path":root.0,"maxDepth":2,"extensions":["rs"]}),
     )
     .expect("filtered tree");
     // The lead is the fix: the summary keeps the count, not the flag.
     assert!(skipped_count(&filtered, "hidden") > 0, "{filtered}");
-    let retry = &filtered["next"]["includeSkipped"];
+    let retry = &related(&filtered, "structureSearch");
     assert_eq!(retry["tool"], "structureSearch", "{out}");
-    assert_eq!(retry["query"]["queries"][0]["includeHidden"], true, "{out}");
+    assert_eq!(retry["input"]["queries"][0]["includeHidden"], true, "{out}");
     assert!(
-        retry["query"]["queries"][0]
+        retry["input"]["queries"][0]
             .get("defaultExcludes")
             .is_none()
-            && retry["query"]["queries"][0].get("includeIgnored").is_none(),
+            && retry["input"]["queries"][0].get("includeIgnored").is_none(),
         "only the cause it hit: {out}"
     );
     assert!(
-        retry["query"]["queries"][0].get("snapshot").is_none(),
+        retry["input"]["queries"][0].get("snapshot").is_none(),
         "{out}"
     );
-    let all = run(&root.0, retry["query"]["queries"][0].clone()).expect("retry");
-    assert_eq!(
-        all["files"],
-        json!([{"dir":"src","files":["lib.rs (2)"]}]),
-        "{all}"
-    );
-    assert!(all["next"].get("includeSkipped").is_none(), "{all}");
+    let all = run(&root.0, retry["input"]["queries"][0].clone()).expect("retry");
+    assert_eq!(paths(&all), ["./src/lib.rs"], "{all}");
+    assert!(related(&all, "structureSearch").is_null(), "{all}");
     assert_eq!(skipped_count(&all, "hidden"), 0, "{all}");
 }
 
@@ -76,9 +72,9 @@ fn default_pruned_directories_are_named_and_an_empty_listing_walks_them() {
     let tree = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
     // One entry for the cause, its first directory, counting both.
     let names = skipped_names(&tree, "default-excluded");
-    assert_eq!(names, ["build"], "{tree}");
+    assert_eq!(names, ["build", "node_modules"], "{tree}");
     assert_eq!(skipped_count(&tree, "default-excluded"), 2, "{tree}");
-    assert!(tree["next"].get("includeSkipped").is_none(), "{tree}");
+    assert!(related(&tree, "structureSearch").is_null(), "{tree}");
 
     let files = run(
         &root.0,
@@ -93,7 +89,7 @@ fn default_pruned_directories_are_named_and_an_empty_listing_walks_them() {
             .is_some_and(|h| h.contains("build/")),
         "{files}"
     );
-    let retry = &files["next"]["includeSkipped"]["query"]["queries"][0];
+    let retry = &related(&files, "structureSearch")["input"]["queries"][0];
     assert_eq!(retry["defaultExcludes"], false, "{files}");
     assert!(retry.get("snapshot").is_none(), "{files}");
     let found = run(&root.0, retry.clone()).expect("retry");
@@ -155,11 +151,11 @@ fn include_ignored_lead_lifts_gitignore_and_prune_in_one_hop() {
     std::fs::write(root.0.join("main.rs"), "fn main() {}\n").expect("main");
     let out = run(
         &root.0,
-        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"include":["*.rlib"]}),
+        json!({"operation":"files","path":root.0,"include":["*.rlib"]}),
     )
     .expect("files");
     assert_eq!(out["status"], "empty", "{out}");
-    let retry = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
+    let retry = related(&out, "structureSearch")["input"]["queries"][0].clone();
     assert_eq!(retry["defaultExcludes"], false, "{out}");
     assert_eq!(retry["includeIgnored"], true, "{out}");
     assert!(
@@ -193,7 +189,7 @@ fn files_empty_withheld_not_duplicated() {
     std::fs::write(root.0.join("b.rs"), "x\n").expect("other");
     let out = run(
         &root.0,
-        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"extensions":["ts"],"includeHidden":true}),
+        json!({"operation":"files","path":root.0,"extensions":["ts"],"includeHidden":true}),
     )
     .expect("files");
     assert_eq!(out["status"], "empty", "{out}");
@@ -214,9 +210,10 @@ fn walk_warnings_are_stated_on_the_first_page_only() {
     for n in 0..6 {
         std::fs::write(root.0.join(format!("f{n}.txt")), "x\n").expect("file");
     }
-    let pages = walk_pages(
+    let pages = walk_pages_budget(
         &root.0,
-        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"includeHidden":true,"pageSize":2}),
+        json!({"operation":"tree","path":root.0,"includeHidden":true}),
+        Some(1),
     );
     assert!(pages.len() > 1, "{pages:?}");
     let withheld = |page: &Value| skipped_count(page, "withheld") > 0;
@@ -236,14 +233,14 @@ fn a_filtered_listing_leads_past_pruned_directories() {
     for operation in ["tree", "files"] {
         let out = run(
             &root.0,
-            json!({"operation":operation,"mainGoal":"t","reasoning":"t","path":root.0,"extensions":["rs"]}),
+            json!({"operation":operation,"path":root.0,"extensions":["rs"],"maxDepth":10}),
         )
         .expect("listing");
         assert!(
             !out["files"].to_string().contains("pass.rs"),
             "{operation}: {out}"
         );
-        let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
+        let lead = related(&out, "structureSearch")["input"]["queries"][0].clone();
         assert_eq!(lead["defaultExcludes"], false, "{operation}: {out}");
         let all = run(&root.0, lead).expect("lead");
         assert!(
@@ -299,7 +296,7 @@ fn an_ignored_default_pruned_directory_is_named_and_reached_in_one_step() {
         )
         .expect("listing");
         assert_eq!(skipped_names(&out, "default-excluded"), ["target"], "{out}");
-        let lead = out["next"]["includeSkipped"]["query"]["queries"][0].clone();
+        let lead = related(&out, "structureSearch")["input"]["queries"][0].clone();
         assert_eq!(lead["includeIgnored"], true, "{out}");
         assert_eq!(lead["defaultExcludes"], false, "{out}");
         let all = run(&root.0, lead.clone()).expect("lead");
@@ -313,7 +310,7 @@ fn an_ignored_default_pruned_directory_is_named_and_reached_in_one_step() {
         assert_eq!(skipped_count(&all, "ignored"), 0, "{all}");
         // What is left is a cause the first step did not lift (the hidden
         // `.gitignore`), never the same widening again.
-        if let Some(again) = all["next"]["includeSkipped"]["query"]["queries"][0].as_object() {
+        if let Some(again) = related(&all, "structureSearch")["input"]["queries"][0].as_object() {
             let mut again = again.clone();
             assert_eq!(again.remove("includeHidden"), Some(json!(true)), "{all}");
             let mut first = lead.as_object().cloned().expect("lead");

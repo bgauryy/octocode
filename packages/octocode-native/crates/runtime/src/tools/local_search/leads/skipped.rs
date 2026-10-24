@@ -26,10 +26,8 @@ impl Found<'_> {
         .collect()
     }
 
-    /// What the walk left out, on the first page: every ignored,
-    /// default-excluded and hidden path with `extras:["details"]`; otherwise
-    /// one entry per cause, its first path with `count`, and `sampled` then;
-    /// and what the path policy withheld, by reason, at the walked scope.
+    /// Every ignored, default-excluded and hidden path on the first page;
+    /// policy-withheld names stay hidden, counted by reason at the walked scope.
     /// An empty page's `observed` entries (the skipped paths a re-run found
     /// matches in, each with its rule) replace the walk's for their causes.
     pub(super) fn skipped_paths(
@@ -53,11 +51,8 @@ impl Found<'_> {
                 &skipped.withheld,
                 Default::default(),
             ));
-        let disclosure = crate::tools::leads::skipped::skipped_paths(
-            walked,
-            lists_every_skipped_path(self.query),
-            !self.walk_complete,
-        )?;
+        let disclosure =
+            crate::tools::leads::skipped::skipped_paths(walked, true, !self.walk_complete)?;
         Ok(match (disclosure, observed) {
             (Some(mut disclosure), Some(observed)) => {
                 disclosure.entries.extend(observed.entries);

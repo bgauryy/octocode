@@ -1,11 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from './helpers.ts';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { spawn } from './helpers.ts';
 import { createServer } from 'node:net';
-import { binary, tempWorkspace, withReasoning, waitFor, only } from './helpers.ts';
+import { binary, execFileSync, spawn, tempWorkspace, withReasoning, waitFor, only } from './helpers.ts';
 import type { TestContext } from 'node:test';
 import type { JsonRecord } from './json-record.ts';
 
@@ -171,10 +169,6 @@ function listener(f: ReturnType<typeof fixture>, session: string, extra: string[
   started.catch(() => {});
   return { child, closed, started, output: () => ({ stdout, stderr }) };
 }
-const until = async (check: () => unknown, ms = 5000) => {
-  for (const deadline = Date.now() + ms; Date.now() < deadline; await new Promise(r => setTimeout(r, 25))) if (check()) return true;
-  return false;
-};
 test('listen survives vendor failures with backoff and keeps mail queued', async t => {
   const f = fixture(t);
   const port = await new Promise<number>(resolve => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const address = s.address(); assert.ok(address && typeof address === 'object'); s.close(() => resolve(address.port)); }); });
@@ -200,7 +194,7 @@ test('listen resumes an identity that expired while suspended and owns delivery 
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   db.exec('PRAGMA busy_timeout=5000');
   db.prepare('UPDATE sessions SET expiresAt=? WHERE id=?').run(Date.now() - 1, f.b.id);
-  assert.ok(await until(() => only<JsonRecord>(db.prepare('SELECT expiresAt FROM sessions WHERE id=?').get(f.b.id)).expiresAt > Date.now() + 30000), 'Suspend-expired presence must resume');
+  await waitFor(() => only<JsonRecord>(db.prepare('SELECT expiresAt FROM sessions WHERE id=?').get(f.b.id)).expiresAt > Date.now() + 30000, { timeout: 5000, message: 'Suspend-expired presence must resume' });
   assert.equal(listen.child.exitCode, null, listen.output().stderr);
   listen.child.kill('SIGINT');
   assert.equal(await listen.closed, 0, listen.output().stderr);
@@ -250,4 +244,27 @@ test('entity continuations retain every filter', t => {
   } while(rows.length<20);
   assert.equal(rows.length,10);
   assert.equal(new Set(rows.map((x: JsonRecord)=>x.recordId)).size,10);
+});
+test('repeated delivery failures back off, then exhaust and tell the sender once', t => {
+  const f = fixture(t);
+  f.call('attach', { transport: 'raw' }, f.b.id);
+  const sent = f.call('send_message', { to: f.b.id, question: 'Review?' }, f.a.id);
+  const db = new DatabaseSync(f.database); t.after(() => db.close());
+  const fail = () => { f.call('hook', { format: 'json', deferConfirm: true, consumer: 'retry' }, f.b.id); db.prepare("UPDATE dispatches SET state='uncertain',error='Receipt unknown' WHERE message=?").run(sent.id); };
+  const retry = () => f.call('retry_delivery', { message: sent.id, reason: 'Receiver shows no receipt' }, f.b.id);
+  fail();
+  assert.deepEqual(retry(), { ready: true, retries: 1 }, 'the first retry is immediate');
+  fail();
+  const second = retry();
+  assert.equal(second.ready, false);
+  assert.ok(second.retryAfterMs > 0 && second.retryAfterMs <= 2000, 'the second retry waits for its backoff');
+  // Older retries, plus one budget deferral that is not a retry, as recorded history.
+  const record = db.prepare("INSERT INTO records(path,\"from\",\"to\",type,timestamp,data,entityId) VALUES((SELECT workspace FROM sessions WHERE id=?),?,?,'dispatch.ready',?,?,?)");
+  for (const error of ['Receipt unknown', 'Receipt unknown', 'Host context budget; offered at a later hook event']) record.run(f.b.id, f.b.id, f.a.id, 1, JSON.stringify({ messageId: sent.id, error }), String(sent.id));
+  const exhausted = retry();
+  assert.deepEqual({ ready: exhausted.ready, exhausted: exhausted.exhausted, retries: exhausted.retries }, { ready: false, exhausted: true, retries: 3 });
+  retry();
+  const notices = f.call('inbox', {}, f.a.id).items.filter((item: JsonRecord) => item.kind === 'blocker');
+  assert.equal(notices.length, 1, 'one notice per message and recipient');
+  assert.match(notices[0].body, new RegExp(`^SBAR\\nSituation: Message ${sent.id} failed delivery to receiver after 3 retries`));
 });

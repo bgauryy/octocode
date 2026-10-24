@@ -77,7 +77,7 @@ pub(super) fn render_tree_page(
             usize_of(page) + 1,
             &[("snapshot", json!(snapshot))],
         ) {
-            out["next"] = json!({ "nextPage": lead });
+            out["calls"] = json!({ "nextPage": lead });
         }
     } else if r.status == "partial" {
         for reason in walk_cuts(&codes) {

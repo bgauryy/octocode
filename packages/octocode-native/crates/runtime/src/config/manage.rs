@@ -4,7 +4,7 @@ use super::validation::{get_path, validate_field};
 use super::{
     CONFIG_FIELDS, ConfigFieldKind, ConfigFieldSpec, ConfigOutput, SettingSource, config_revision,
     edit_config_json, get_config_value, parse_config_json, parse_env, read_private_config,
-    removed_reason, replace_private_config,
+    replace_private_config,
 };
 use serde_json::{Value, json};
 use std::path::Path;
@@ -18,13 +18,6 @@ fn field_value(field: &ConfigFieldSpec, value: &Value) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-/// Why `name` cannot be saved: the contract removed it. Removing it stays
-/// allowed, so a stale line can be deleted.
-pub(super) fn reject_removed(name: &str) -> Result<(), String> {
-    removed_reason(name).map_or(Ok(()), |reason| {
-        Err(format!("{name} was removed and cannot be set: {reason}"))
-    })
 }
 /// Whether `value` is one a setting's variable may be saved with: one the
 /// resolver accepts. Undeclared keys are free-form.
@@ -66,13 +59,11 @@ pub fn edit_setting(
     workspace: bool,
 ) -> std::io::Result<bool> {
     let invalid = |message: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
-    let field = CONFIG_FIELDS.iter().find(|f| f.file && f.path == key);
-    if field.is_none() && removed_reason(key).is_none() {
-        return Err(invalid("Unknown configuration setting.".into()));
-    }
+    let field = CONFIG_FIELDS
+        .iter()
+        .find(|f| f.file && f.path == key)
+        .ok_or_else(|| invalid("Unknown configuration setting.".into()))?;
     if let Some(value) = value {
-        reject_removed(key).map_err(invalid)?;
-        let field = field.ok_or_else(|| invalid("Unknown configuration setting.".into()))?;
         field_value(field, value).map_err(invalid)?;
         if workspace && !workspace_setting_allowed(field, value) {
             return Err(invalid(
@@ -161,27 +152,26 @@ pub fn inspect_management(config: &ConfigOutput, workspace: &Path) -> Value {
         "message":"Configuration resolver reported an invalid, unsupported, or protected value; values are omitted."
     })).collect::<Vec<_>>();
     for (name, path) in &paths {
-        let text = match read_private_config(path) {
-            Ok(text) => text,
-            Err(_) => {
-                let reason =
-                    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
-                        "symlink"
-                    } else {
-                        "unreadable"
-                    };
-                warnings.push(json!({"file":name,"message":"File cannot be read safely; it is shown read-only."}));
-                files.insert(
-                    (*name).into(),
-                    json!({"path":path,"exists":true,"writable":false,"reason":reason}),
-                );
-                if name.ends_with("Env") {
-                    envs.push(Default::default());
+        let Ok(text) = read_private_config(path) else {
+            let reason =
+                if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+                    "symlink"
                 } else {
-                    saved.push(None);
-                }
-                continue;
+                    "unreadable"
+                };
+            warnings.push(
+                json!({"file":name,"message":"File cannot be read safely; it is shown read-only."}),
+            );
+            files.insert(
+                (*name).into(),
+                json!({"path":path,"exists":true,"writable":false,"reason":reason}),
+            );
+            if name.ends_with("Env") {
+                envs.push(Default::default());
+            } else {
+                saved.push(None);
             }
+            continue;
         };
         let mut status = json!({"path":path,"revision":config_revision(text.as_deref()),"exists":text.is_some(),"writable":true});
         if name.ends_with("Env") {

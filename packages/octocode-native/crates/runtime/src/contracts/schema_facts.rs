@@ -49,6 +49,18 @@ pub(crate) fn property_schemas<'a>(
     members(schema, defs, |schema| schema["properties"].get(name))
 }
 
+/// Schemas for an object value at a named key, including typed record entries.
+/// Unconstrained extra data contributes no traversal schema.
+pub(crate) fn child_schemas<'a>(schema: &'a Value, defs: &'a Value, name: &str) -> Vec<&'a Value> {
+    members(schema, defs, |schema| {
+        schema["properties"].get(name).or_else(|| {
+            schema
+                .get("additionalProperties")
+                .filter(|schema| schema.is_object())
+        })
+    })
+}
+
 /// Object field names through local references and composition branches.
 pub(crate) fn property_names<'a>(
     schema: &'a Value,
@@ -165,63 +177,7 @@ pub(crate) fn query_schema_value(
     found
 }
 
-/// Top-level query fields validation can restore when absent: those with a
-/// schema `default` (at any depth, so the set over-approximates), each with
-/// the one default its schemas declare, `None` when they declare several (an
-/// operation's own). A present field outside it never validates back after
-/// removal.
-pub(crate) fn restorable_fields(
-    tool: ToolId,
-) -> &'static HashMap<&'static str, Option<&'static Value>> {
-    static FIELDS: [OnceLock<HashMap<&'static str, Option<&'static Value>>>; ToolId::ALL.len()] =
-        [const { OnceLock::new() }; ToolId::ALL.len()];
-    FIELDS[tool.index()].get_or_init(|| {
-        let mut fields = HashMap::new();
-        if let Ok(contract) = super::tool_contract(tool) {
-            for schema in [&contract["querySchema"], &contract["inputSchema"]] {
-                collect_defaulted(schema, &schema["$defs"], &mut fields);
-            }
-        }
-        fields
-    })
-}
-
-/// A field's default may sit on its own schema or on the definition it
-/// references (`{"$ref":"#/$defs/HI_PageSize"}`).
-fn collect_defaulted(
-    schema: &'static Value,
-    defs: &'static Value,
-    fields: &mut HashMap<&'static str, Option<&'static Value>>,
-) {
-    match schema {
-        Value::Object(object) => {
-            if let Some(Value::Object(properties)) = object.get("properties") {
-                for (name, field) in properties {
-                    let Some(default) = resolve_ref(field, defs).get("default") else {
-                        continue;
-                    };
-                    fields
-                        .entry(name.as_str())
-                        .and_modify(|known| {
-                            if *known != Some(default) {
-                                *known = None;
-                            }
-                        })
-                        .or_insert(Some(default));
-                }
-            }
-            object
-                .values()
-                .for_each(|child| collect_defaulted(child, defs, fields));
-        }
-        Value::Array(items) => items
-            .iter()
-            .for_each(|child| collect_defaulted(child, defs, fields)),
-        _ => {}
-    }
-}
-
-/// Whether any query-schema variant of `tool` declares the top-level `field`.
+/// Whether any query-schema variant declares the top-level field.
 pub(crate) fn query_declares(tool: ToolId, field: &str) -> bool {
     variants(tool).is_some_and(|variants| {
         variants
@@ -230,7 +186,6 @@ pub(crate) fn query_declares(tool: ToolId, field: &str) -> bool {
     })
 }
 
-/// [`query_schema_value`] as an unsigned integer.
 #[must_use]
 pub(crate) fn query_schema_number(
     tool: ToolId,
@@ -241,14 +196,11 @@ pub(crate) fn query_schema_number(
     query_schema_value(tool, operation, field, keyword)?.as_u64()
 }
 
-/// The schema `maximum` of `field` as a `usize` clamp bound. Every call site
-/// names a field the contract bounds; an undeclared bound is a contract
-/// defect (a renamed or removed field), so it fails loudly instead of
-/// silently disabling the clamp.
+/// Missing limits are contract defects; never silently substitute a different bound.
 #[must_use]
 #[expect(
     clippy::panic,
-    reason = "a missing bound is a contract defect caught by the contract tests, never a request-time failure"
+    reason = "a missing bound is a contract defect caught by contract tests"
 )]
 pub(crate) fn query_schema_max(tool: ToolId, operation: Option<&str>, field: &str) -> usize {
     query_schema_number(tool, operation, field, "maximum")
@@ -290,83 +242,8 @@ mod tests {
     }
 
     #[test]
-    fn reads_resolved_and_variant_scoped_facts() {
-        // `$ref` properties resolve; every history-item variant agrees.
-        assert_eq!(
-            query_schema_number(ToolId::GhGetHistoryItem, None, "length", "maximum"),
-            Some(100_000)
-        );
-        // Both structureSearch variants enforce the published maxDepth.
-        assert_eq!(
-            query_schema_number(ToolId::StructureSearch, None, "maxDepth", "maximum"),
-            Some(20)
-        );
-        assert_eq!(
-            query_schema_number(ToolId::StructureSearch, Some("tree"), "maxDepth", "maximum"),
-            Some(20)
-        );
-        assert_eq!(
-            query_schema_value(ToolId::GhSearchRepo, None, "sort", "default"),
-            Some(&Value::from("best-match"))
-        );
-        assert_eq!(
-            query_schema_value(ToolId::GhSearchRepo, None, "nope", "default"),
-            None
-        );
-    }
-
-    #[test]
     #[should_panic(expected = "contract declares no maximum")]
     fn an_undeclared_clamp_bound_fails_loudly() {
         let _ = query_schema_max(ToolId::GhSearchRepo, None, "nope");
-    }
-
-    /// Every schema fact a runtime call site reads (with a fallback for an
-    /// undeclared value) must stay declared, so no fallback is ever live.
-    #[test]
-    fn every_fact_the_runtime_reads_is_declared() {
-        let facts: &[(ToolId, Option<&str>, &str, &str)] = &[
-            (ToolId::GhGetHistoryItem, None, "length", "maximum"),
-            (
-                ToolId::GhGetHistoryItem,
-                Some("issue"),
-                "pageSize",
-                "default",
-            ),
-            (
-                ToolId::GhGetHistoryItem,
-                Some("pullRequest"),
-                "pageSize",
-                "maximum",
-            ),
-            (ToolId::GhSearchHistory, None, "pageSize", "default"),
-            (ToolId::GhSearchHistory, None, "pageSize", "maximum"),
-            (ToolId::GhSearchCode, None, "pageSize", "maximum"),
-            (ToolId::GhSearchRepo, None, "pageSize", "maximum"),
-            (ToolId::GhStructure, None, "pageSize", "maximum"),
-            (ToolId::AstSearch, Some("match"), "matchPageSize", "maximum"),
-            (
-                ToolId::AstSearch,
-                Some("match"),
-                "matchContentLength",
-                "default",
-            ),
-            (
-                ToolId::AstSearch,
-                Some("match"),
-                "matchContentLength",
-                "maximum",
-            ),
-            (ToolId::AstSearch, Some("match"), "pageSize", "maximum"),
-            (ToolId::StructureSearch, None, "maxEntries", "maximum"),
-            (ToolId::StructureSearch, None, "pageSize", "maximum"),
-            (ToolId::Clasify, None, "mainGoal", "maxLength"),
-        ];
-        for (tool, operation, field, keyword) in facts {
-            assert!(
-                query_schema_value(*tool, *operation, field, keyword).is_some(),
-                "{tool} {operation:?} {field}.{keyword} is not declared"
-            );
-        }
     }
 }

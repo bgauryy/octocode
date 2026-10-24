@@ -51,8 +51,7 @@ impl WalkSkips {
 pub(crate) struct WalkRules<'r> {
     /// `defaultExcludes`: the default prune (and generated files) apply.
     pub(crate) defaults: bool,
-    /// The include globs as the walk applies them
-    /// ([`crate::policy::include::include_globs`]): a glob that names a pruned
+    /// The include globs as authored: a glob that names a pruned
     /// directory lifts its prune, and only skipped entries one of them could
     /// reach are recorded.
     pub(crate) include: &'r [String],
@@ -192,7 +191,7 @@ impl<'a> WalkAdmission<'a> {
     pub(crate) fn skipped(&self) -> WalkSkips {
         self.skipped
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
@@ -201,7 +200,7 @@ impl<'a> WalkAdmission<'a> {
             &mut self
                 .skipped
                 .lock()
-                .unwrap_or_else(|error| error.into_inner()),
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
     }
 

@@ -1,4 +1,4 @@
-pub(crate) use octocode_engine::text::lexical;
+use octocode_engine::text::lexical;
 use std::path::{Path, PathBuf};
 
 use super::discovery::{is_sensitive_path, withheld_message};
@@ -230,7 +230,7 @@ impl PathPolicy {
         // directory the host process happened to start in (WORKSPACE_ROOT
         // exists so a CLI run from /tmp still reads the configured project).
         match &self.workspace_root {
-            Some(root) if path.is_relative() => normalize(&root.join(path)),
+            Some(root) if path.is_relative() => lexical(&root.join(path)),
             _ => absolutize(path),
         }
     }
@@ -238,7 +238,7 @@ impl PathPolicy {
     /// `path` relative to the workspace root (`.` for the root itself), or
     /// `None` when it lies outside the workspace or none is configured.
     pub(crate) fn workspace_relative(&self, path: impl AsRef<Path>) -> Option<String> {
-        let normalized = normalize(path.as_ref());
+        let normalized = lexical(path.as_ref());
         let relative = [&self.workspace_root, &self.workspace_real]
             .into_iter()
             .flatten()
@@ -271,7 +271,7 @@ impl PathPolicy {
     }
 
     pub fn redact(&self, path: impl AsRef<Path>) -> String {
-        let normalized = normalize(path.as_ref());
+        let normalized = lexical(path.as_ref());
         if let Some(relative) = self.workspace_relative(&normalized) {
             return relative;
         }
@@ -341,10 +341,5 @@ fn absolutize(path: impl AsRef<Path>) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(path)
     };
-    normalize(&joined)
-}
-
-/// Fold native path components without rewriting characters in file names.
-fn normalize(path: &Path) -> PathBuf {
-    lexical(path)
+    lexical(&joined)
 }

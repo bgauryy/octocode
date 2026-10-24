@@ -1,12 +1,14 @@
 //! Secret safety of shown values: redaction of the scan, the re-read that
 //! checks clipped values against their source bytes, and bounded line reads.
+use crate::tools::local_search::local_search_query;
+use crate::tools::local_search::local_search_query::View;
 
-use super::types::*;
 use super::{cursor::*, layout::*};
 use crate::execution::cancel::CancellationCheck;
 use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
+use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::signatures::MAX_PARSE_SIZE;
 use sha2::{Digest, Sha256};
 
@@ -16,9 +18,19 @@ mod redaction;
 #[cfg(test)]
 mod verification_tests;
 
-pub(super) use guard::*;
-pub(super) use lines::*;
-pub(super) use redaction::*;
+pub(super) use guard::{
+    MAX_PROBE_LINE_BYTES, MAX_VERIFY_RETAINED_BYTES, VERIFY_CANCEL_EVERY, VERIFY_CHUNK_BYTES,
+    ValueCheck, Verification, guard_clipped_secrets, guard_read,
+};
+#[cfg(test)]
+pub(super) use guard::{OVERSIZED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER};
+use lines::visit_values;
+pub(super) use lines::{VerifyReadError, materialize, read_verification_lines};
+// The special-file tests (unix-only) read the key-scan bytes directly.
+#[cfg(all(test, unix))]
+pub(super) use redaction::read_key_scan_bytes;
+use redaction::redact_key_block_lines;
+pub(super) use redaction::redact_scan;
 
 /// Upper bound (bytes) on a file re-read for the private-key block scan.
 /// Matches the secret scanner's own content cap; larger files fall back to the
@@ -27,7 +39,7 @@ pub(super) const MAX_KEY_SCAN_BYTES: u64 = 10 * 1024 * 1024;
 
 /// What a stored scan's file must still hash to (see `expected_digest`).
 pub(super) type ExpectedDigest<'a> =
-    dyn Fn(&std::path::Path) -> Option<Option<super::sources::Digest>> + Sync + 'a;
+    dyn Fn(&std::path::Path) -> super::sources::Expected + Sync + 'a;
 
 /// What every stage of one page reads besides the scan: the query, the read
 /// policy, the root the rows name paths under, the bytes a stored scan's
@@ -113,7 +125,7 @@ pub(super) fn verify_candidate(
         rows,
         &ValueCheck {
             security: scope.security,
-            match_only: scope.query.result_view == LocalSearchQueryResultView::MatchOnly,
+            match_only: local_search_query::view(scope.query) == View::MatchOnly,
             cancel: scope.cancel,
         },
     )
@@ -160,14 +172,14 @@ pub(super) fn verify_shown(
     } = *scope;
     let check = ValueCheck {
         security,
-        match_only: query.result_view == LocalSearchQueryResultView::MatchOnly,
+        match_only: local_search_query::view(query) == View::MatchOnly,
         cancel,
     };
     if layout.list {
         for (index, _) in &layout.shown {
             let source = output_root.join(&parsed.files[*index].path);
-            if let Some(expected) = expected_digest(&source)
-                && (expected.is_none() || expected != super::sources::digest_file(&source).ok())
+            if let super::sources::Expected::Stored(stored) = expected_digest(&source)
+                && (stored.is_none() || stored != super::sources::digest_file(&source).ok())
             {
                 return Err(changed_since_scan(query));
             }
@@ -296,8 +308,8 @@ pub(super) fn outline_for_cut(
         let Some(bytes) = super::sources::read_entry(&source, MAX_PARSE_SIZE) else {
             continue;
         };
-        if let Some(expected) = (scope.expected_digest)(&source)
-            && expected != Some(<[u8; 32]>::from(Sha256::digest(&bytes)))
+        if let super::sources::Expected::Stored(stored) = (scope.expected_digest)(&source)
+            && stored != Some(<[u8; 32]>::from(Sha256::digest(&bytes)))
         {
             return Err(changed_since_scan(scope.query));
         }
@@ -317,5 +329,3 @@ pub(super) fn outline_for_cut(
 
 /// Outlines a page cut parsed, by file index (see [`outline_for_cut`]).
 pub(super) type CutOutlines = std::collections::HashMap<usize, Option<super::enclosing::Outline>>;
-
-pub(super) use crate::security::cut::strip_clip_markers;

@@ -1,6 +1,7 @@
 //! The edge families the projector adds between nodes: contains, imports,
 //! uses and calls.
 use super::*;
+use octocode_engine::graph::FileGraphNode;
 
 impl<'a> Projector<'a> {
     /// contains: file → top-level symbol, symbol → member.
@@ -104,11 +105,7 @@ impl<'a> Projector<'a> {
         }
     }
 
-    pub(super) fn file_import_edges(
-        &mut self,
-        node: &crate::tools::ast_graph::types::Node,
-        src: u32,
-    ) {
+    pub(super) fn file_import_edges(&mut self, node: &FileGraphNode, src: u32) {
         for (target, kinds) in &node.edges {
             let Some(&dst) = self.file_nodes.get(target.as_str()) else {
                 continue;

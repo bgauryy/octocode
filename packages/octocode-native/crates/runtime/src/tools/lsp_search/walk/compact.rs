@@ -1,10 +1,10 @@
 //! Call edges compacted to per-file call rows, and the page sizes they print as.
 
 use crate::policy::path::PathPolicy;
-use crate::tools::lsp_search::LspSearchQuery;
 use crate::tools::lsp_search::locations::salted_items_payload;
 use crate::tools::lsp_search::lsp_search_query;
 use crate::tools::lsp_search::render::uri_to_path;
+use octocode_contract_types::LspSearchQuery;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 

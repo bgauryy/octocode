@@ -4,8 +4,8 @@ use super::*;
 
 mod exports;
 mod linker;
-pub(super) use exports::*;
-pub(super) use linker::*;
+pub(super) use exports::{ExportResolver, FileBindings, confidence_for};
+pub(super) use linker::{LinkScope, Linker, Site};
 
 /// Files each file star-re-exports.
 pub(super) fn star_targets(built: &BuiltGraph) -> HashMap<&str, Vec<&str>> {

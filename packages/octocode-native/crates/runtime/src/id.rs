@@ -43,8 +43,8 @@ pub(crate) fn error_code_of(
 impl ToolId {
     /// Resolve a wire name to its identity, or `None` for an unknown tool.
     #[must_use]
-    pub fn from_name(name: &str) -> Option<ToolId> {
-        ToolId::ALL.into_iter().find(|id| id.as_str() == name)
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|id| id.as_str() == name)
     }
 
     /// A local-filesystem tool (honours local policy + allowed paths).
@@ -62,7 +62,7 @@ impl ToolId {
     /// The public semantic assessment tool (beta plus a non-blank provider key).
     #[must_use]
     pub(crate) const fn is_clasify(self) -> bool {
-        matches!(self, ToolId::Clasify)
+        matches!(self, Self::Clasify)
     }
 
     /// Independent queries may execute concurrently; clasify owns its bounded scheduler.
@@ -73,7 +73,7 @@ impl ToolId {
     /// row's checkout; stages, askpass helpers and their names are per row.
     #[must_use]
     pub(crate) const fn supports_concurrent_queries(self) -> bool {
-        !matches!(self, ToolId::Clasify)
+        !matches!(self, Self::Clasify)
     }
 }
 
@@ -81,7 +81,7 @@ impl FromStr for ToolId {
     type Err = ();
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        ToolId::from_name(value).ok_or(())
+        Self::from_name(value).ok_or(())
     }
 }
 
@@ -91,35 +91,6 @@ impl std::fmt::Display for ToolId {
     }
 }
 
-/// The output channel of a follow-up call, classified by the core
-/// contract's `continuationChannels`: `next` keeps pages, `hints` leads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Channel {
-    /// More of the same result.
-    Page,
-    /// An optional follow-up call.
-    Lead,
-}
-
-/// The channel of continuation `name` emitted by `tool`. An entry named
-/// after its own tool resumes that tool's walk; the same name on another
-/// tool is a handoff lead.
-#[must_use]
-pub fn channel(tool: ToolId, name: &str) -> Channel {
-    let name = kind(name);
-    let page = name == tool.as_str()
-        || continuation_channels::PAGE_NAMES.contains(&name)
-        || has_prefix(name, continuation_channels::PAGE_PREFIXES);
-    if page { Channel::Page } else { Channel::Lead }
-}
-
-/// The kind of continuation `name`: a name ending in digits repeats its
-/// kind (`readHits2` is another `readHits`).
-pub(crate) fn kind(name: &str) -> &str {
-    let base = name.trim_end_matches(|c: char| c.is_ascii_digit());
-    if base.is_empty() { name } else { base }
-}
-
 /// The name of the `index`th (from 0) continuation of `kind` on one row:
 /// `kind` itself, then `kind2`, `kind3`, …; [`kind`] is its inverse.
 pub(crate) fn numbered(kind: &str, index: usize) -> String {
@@ -127,45 +98,6 @@ pub(crate) fn numbered(kind: &str, index: usize) -> String {
         0 => kind.to_owned(),
         index => format!("{kind}{}", index + 1),
     }
-}
-
-/// A page that leaves more of this result to read (a restart page starts
-/// over, an enrichment page only deepens rows already complete): a row
-/// offering one is partial (a success: the CLI exits 0 and the page is the
-/// continuation).
-#[must_use]
-pub(crate) fn is_remaining(tool: ToolId, name: &str) -> bool {
-    channel(tool, name) == Channel::Page && !is_restart(name) && !is_enrichment(name)
-}
-
-/// A page that enriches rows already shown (a clipped value, context, dates,
-/// features) without leaving evidence out.
-#[must_use]
-pub(crate) fn is_enrichment(name: &str) -> bool {
-    continuation_channels::ENRICHMENT_NAMES.contains(&kind(name))
-}
-
-/// A page that starts the result over on the current source.
-#[must_use]
-pub(crate) fn is_restart(name: &str) -> bool {
-    has_prefix(name, continuation_channels::RESTART_PREFIXES)
-}
-
-/// A page that continues after the evidence a row shows: following it from
-/// an earlier part of a split row would skip the parts between, so it rides
-/// the row's last part.
-#[must_use]
-pub(crate) fn resumes_after_shown(name: &str) -> bool {
-    has_prefix(name, continuation_channels::RESUME_PREFIXES)
-}
-
-/// `name` is a prefix or a prefix followed by a capitalized word.
-fn has_prefix(name: &str, prefixes: &[&str]) -> bool {
-    prefixes.iter().any(|prefix| {
-        name.strip_prefix(prefix).is_some_and(|rest| {
-            rest.is_empty() || rest.starts_with(|c: char| c.is_ascii_uppercase())
-        })
-    })
 }
 
 #[cfg(test)]
@@ -192,7 +124,6 @@ mod tests {
             .map(|index| numbered("readHits", index))
             .collect::<Vec<_>>();
         assert_eq!(names, ["readHits", "readHits2", "readHits3"]);
-        assert!(names.iter().all(|name| kind(name) == "readHits"));
     }
 
     #[test]
@@ -222,7 +153,7 @@ mod tests {
             assert_eq!(tool["family"], family, "{id}");
             assert_eq!(tool["cliOnly"], id.is_cli_only(), "{id}");
             assert_eq!(tool["beta"], id.is_beta(), "{id}");
-            assert_eq!(tool["shortDescription"], id.short_description(), "{id}");
+            assert_eq!(tool["title"], id.title(), "{id}");
             assert_eq!(
                 crate::contracts::tool_contract(id).expect("tool contract"),
                 tool,

@@ -4,9 +4,10 @@ import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { validateFlags } from '../cli-flags.mjs';
+import { errorMessage } from '../error-message.mjs';
 
 const argv = process.argv.slice(2);
-const arg = (flag, fallback = '') =>
+const arg = (flag: string, fallback = '') =>
   argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : fallback;
 if (argv.includes('--help') || argv.includes('-h')) {
   console.log(
@@ -130,6 +131,6 @@ try {
     )
   );
 } catch (error) {
-  console.error(`[API_REPLAY] ${error.message}`);
+  console.error(`[API_REPLAY] ${errorMessage(error)}`);
   process.exitCode = 1;
 }

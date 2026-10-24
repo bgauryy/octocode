@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -54,6 +55,19 @@ test('a sandbox run writes only inside .octocode/octocode-chrome-devtools: helpe
         existsSync(join(helpers, helper)),
         `${helper} is staged in ${helpers}`
       );
+    }
+    // A staged helper loads its relative imports from the helpers folder, so the staged set must be closed.
+    const staged = readdirSync(helpers).filter(name => name.endsWith('.mjs'));
+    for (const helper of staged) {
+      const source = readFileSync(join(helpers, helper), 'utf8');
+      for (const [, target] of source.matchAll(
+        /(?:\bfrom\s*|\bimport\s*\(?\s*)['"](\.{1,2}\/[^'"]+)['"]/g
+      )) {
+        assert(
+          existsSync(join(helpers, target)),
+          `${helper} imports ${target}, which is not staged in ${helpers}`
+        );
+      }
     }
   } finally {
     rmSync(cwd, { recursive: true, force: true });

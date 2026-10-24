@@ -7,8 +7,8 @@ import { Outbox } from '../src/team/outbox.js';
 import { TeamStore } from '../src/team/store.js';
 import { stub } from './doubles.js';
 import { fakeCtx } from './fake-pi.js';
-import { tmp } from './helpers.js';
-import { member, repo } from './team-harness.js';
+import { repo, tmp } from './helpers.js';
+import { member } from './team-harness.js';
 
 const MAIN = 'main-aaaaaa';
 const WORKER = 'worker-bbbbbb';

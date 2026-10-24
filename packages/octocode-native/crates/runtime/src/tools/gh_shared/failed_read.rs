@@ -129,8 +129,6 @@ fn submodule_recovery(
         reference: pinned,
     };
     failure.hints.clear();
-    failure.next = Some(Box::new(
-        json!({ "viewTree": tree_recovery(&at, None, pinned.is_none()) }),
-    ));
+    failure.calls = Some(Box::new(json!({ "viewTree": tree_recovery(&at, None) })));
     failure
 }

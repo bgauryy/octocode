@@ -4,9 +4,7 @@
 //! an issue's closing references.
 use super::{HistoryItemRequest, execute};
 use crate::security::scan::Passthrough;
-use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
-use octocode_contract_types::ExtraKind;
 use octocode_github::mock_http::{Delayed, mount_json};
 use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, method, path};

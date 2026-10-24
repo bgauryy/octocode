@@ -20,8 +20,8 @@ async fn compare_match_string_that_removes_every_file_says_so() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"compare","owner":"o","repo":"r","base":BASE,"head":HEAD,
-            "matchString":"zzqqxx_nohit"}),
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
+            "matchString":["zzqqxx_nohit"]}),
     )
     .await;
     assert_eq!(out["files"], json!([]), "{out}");
@@ -32,20 +32,22 @@ async fn compare_match_string_that_removes_every_file_says_so() {
             .contains("matchString matched 0 of 2 changed files"),
         "{out}"
     );
-    let query = &out["next"]["withoutMatchString"]["query"]["queries"][0];
+    let query =
+        &crate::tools::test_support::checks::related_call(&out, "ghGetHistoryItem", |input| {
+            input["queries"][0].get("matchString").is_none()
+        })["input"]["queries"][0];
     assert_eq!(query["operation"], "compare", "{out}");
     assert!(query.get("matchString").is_none(), "{query}");
     assert_eq!(
-        (&query["base"], &query["head"]),
+        (&query["baseRef"], &query["headRef"]),
         (&json!(BASE), &json!(HEAD))
     );
     // The literal alone chose the patches: without it, the read lists the
     // files (as the warning says).
     assert_eq!(query["sections"], json!(["files"]), "{query}");
     // The filter removed every file: no lead reads one of them.
-    let next = out["next"].as_object().expect("next");
     for kind in ["readAtCommit", "readParent", "readCommit"] {
-        assert!(!next.contains_key(kind), "{kind}: {out}");
+        assert!(out["next"].get(kind).is_none(), "{kind}: {out}");
     }
 }
 
@@ -71,7 +73,7 @@ async fn compare_row_names_both_resolved_commits_and_each_commit_sha() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"compare","owner":"o","repo":"r","base":"v1","head":"feature"}),
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":"v1","headRef":"feature"}),
     )
     .await;
     // `base`/`head` carry the resolved SHAs, never the query's ref names.
@@ -98,7 +100,7 @@ async fn compare_of_identical_refs_is_an_empty_answer() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"compare","owner":"o","repo":"r","base":HEAD,"head":HEAD}),
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":HEAD,"headRef":HEAD}),
     )
     .await;
     assert_eq!(out["status"], "empty", "{out}");
@@ -124,8 +126,8 @@ async fn compare_match_string_lists_patchless_files_as_unsearched() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"compare","owner":"o","repo":"r","base":BASE,"head":HEAD,
-            "matchString":"new"}),
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
+            "matchString":["new"]}),
     )
     .await;
     assert!(out.get("warnings").is_none(), "{out}");
@@ -136,7 +138,7 @@ async fn compare_match_string_lists_patchless_files_as_unsearched() {
     );
     assert_eq!(out["isPartial"], true, "{out}");
     assert_eq!(out["partialReasons"], json!(["patchUnavailable"]), "{out}");
-    let search = &out["next"]["searchUnpatchedFile"]["query"]["queries"][0];
+    let search = &out["next"]["searchUnpatchedFile"]["input"]["queries"][0];
     assert_eq!(search["path"], "src/gone.rs", "{out}");
     assert_eq!(search["ref"], MERGE_BASE, "{out}");
 }
@@ -160,8 +162,8 @@ async fn mount_long_compare(server: &MockServer, files: Value) {
 
 /// `include` or `matchString` asks about files: the comparison answers with
 /// its file page, and the range's commits (not scoped by either filter)
-/// are not listed by default. Their section states the count with no page
-/// shown (`currentPage: 0`), and `next.nextCommitPage` lists them from the
+/// are not listed by default. Their section states the count, `unshown`
+/// with no page number, and `next.nextCommitPage` lists them from the
 /// first page, losslessly. An unfiltered read still lists them.
 #[tokio::test]
 async fn compare_file_filters_page_the_commits_apart() {
@@ -174,24 +176,36 @@ async fn compare_file_filters_page_the_commits_apart() {
     .await;
     for filter in [
         json!({"include":["src/*.rs"]}),
-        json!({"matchString":"new"}),
+        json!({"matchString":["new"]}),
     ] {
-        let mut row = json!({"operation":"compare","owner":"o","repo":"r","base":BASE,"head":HEAD});
+        let mut row =
+            json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD});
         for (key, value) in filter.as_object().expect("filter") {
             row[key] = value.clone();
         }
         let out = read(&server, row).await;
         assert!(out.get("commits").is_none(), "{filter}: {out}");
+        // `changedFilesCount` counts both files; the include says what it kept.
         assert_eq!(
-            out["contentPagination"]["commits"],
-            json!({"currentPage":0,"totalPages":4,"pageSize":100,"totalItems":337,"hasMore":true}),
+            out["warnings"]
+                .to_string()
+                .contains("include kept 1 of 2 changed files."),
+            filter.get("include").is_some(),
             "{filter}: {out}"
         );
-        let page = &out["next"]["nextCommitPage"]["query"]["queries"][0];
+        assert_eq!(
+            out["contentPagination"]["commits"],
+            json!({"totalPages":4,"pageSize":100,"totalItems":337,"hasMore":true,"unshown":true}),
+            "{filter}: {out}"
+        );
+        let page = &out["next"]["nextCommitPage"]["input"]["queries"][0];
         assert_eq!(page["sections"], json!(["commits"]), "{filter}: {out}");
         assert!(page.get("page").is_none(), "{filter}: {out}");
         assert!(page.get("matchString").is_none(), "{filter}: {out}");
-        assert_eq!((&page["base"], &page["head"]), (&json!(BASE), &json!(HEAD)));
+        assert_eq!(
+            (&page["baseRef"], &page["headRef"]),
+            (&json!(BASE), &json!(HEAD))
+        );
         assert!(
             !out["files"].to_string().contains("docs/b.md"),
             "{filter}: {out}"
@@ -199,11 +213,11 @@ async fn compare_file_filters_page_the_commits_apart() {
         // The page it names lists the first commits.
         let listed = read(&server, page.clone()).await;
         assert_eq!(listed["commits"].as_array().map(Vec::len), Some(100));
-        assert_eq!(listed["contentPagination"]["commits"]["currentPage"], 1);
+        assert_eq!(listed["contentPagination"]["commits"]["page"], 1);
     }
     let plain = read(
         &server,
-        json!({"operation":"compare","owner":"o","repo":"r","base":BASE,"head":HEAD}),
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD}),
     )
     .await;
     assert_eq!(
@@ -212,7 +226,7 @@ async fn compare_file_filters_page_the_commits_apart() {
         "{plain}"
     );
     assert_eq!(
-        plain["next"]["nextCommitPage"]["query"]["queries"][0]["page"],
+        plain["next"]["nextCommitPage"]["input"]["queries"][0]["page"],
         2
     );
 }
@@ -232,8 +246,8 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
     )
     .await;
     for sections in [None, Some(json!(["commits", "patches"]))] {
-        let mut row = json!({"operation":"compare","owner":"o","repo":"r","base":BASE,"head":HEAD,
-            "include":["crates/flags/*.rs"],"matchString":"smart_case"});
+        let mut row = json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
+            "include":["crates/flags/*.rs"],"matchString":["smart_case"],"caseMode":"smart","regexEngine":"literal","wholeWord":false});
         if let Some(sections) = &sections {
             row["sections"] = sections.clone();
         }
@@ -244,9 +258,9 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
             "{out}"
         );
         assert_eq!(
-            out["next"]["searchUnpatchedFile"]["query"]["queries"][0],
+            out["next"]["searchUnpatchedFile"]["input"]["queries"][0],
             json!({"owner":"o","repo":"r","path":"crates/flags/defs.rs","ref":HEAD,
-                "matchString":"smart_case"}),
+                "matchString":["smart_case"],"caseMode":"smart","regexEngine":"literal","wholeWord":false}),
             "{sections:?}: {out}"
         );
         assert!(
@@ -278,16 +292,19 @@ async fn a_reversed_compare_leads_with_the_swapped_refs() {
         .await;
     let out = read(
         &server,
-        json!({"operation":"compare","owner":"o","repo":"r","base":"v2","head":"v1","pageSize":3}),
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":"v2","headRef":"v1","pageSize":3}),
     )
     .await;
     assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(out["behindBy"], 45, "{out}");
-    let swap = &out["next"]["swapRefs"];
+    let swap =
+        crate::tools::test_support::checks::related_call(&out, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "compare"
+        });
     assert_eq!(swap["tool"], "ghGetHistoryItem", "{out}");
     assert_eq!(
-        swap["query"]["queries"][0],
-        json!({"operation":"compare","owner":"o","repo":"r","base":"v1","head":"v2","pageSize":3}),
+        swap["input"]["queries"][0],
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":"v1","headRef":"v2","pageSize":3}),
         "{out}"
     );
 }

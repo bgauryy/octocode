@@ -1,4 +1,4 @@
-//! Saved pages: the input scope a snapshot pins, expiry, failed retention, and the read past the last page.
+//! Saved pages bind the complete request and security boundary; lost storage never silently reacquires evidence.
 
 use super::lines;
 use crate::support::{self, Run as _, Workspace};
@@ -10,83 +10,21 @@ async fn saved_fixture(
     runtime: &octocode_native::runtime::ToolRuntime,
 ) -> (Value, Value) {
     let file = workspace.write("saved-partitions.txt", lines("captured"));
-    let query = json!({"path":file,"matchString":"needle","pageSize":50});
+    let query = json!({"path":file,"matchString":["needle"]});
     let first = runtime
         .run(
             "save".into(),
             "localSearch".into(),
-            json!({"queries":[query],"responseLength":800,"responseScope":"rows"}),
+            json!({"queries":[query],"responseChars":800}),
         )
         .await
         .expect("save");
-    let next = first.structured_content["responsePagination"]["next"]["query"].clone();
+    let next = first.structured_content["responsePagination"]["next"]["input"].clone();
     assert!(next.is_object(), "{}", first.structured_content);
-    assert!(
-        next["responseSnapshot"]
-            .as_str()
-            .is_some_and(|snapshot| snapshot.len() <= 128),
-        "saved continuation must contain a snapshot string of at most 128 bytes: {next}"
-    );
+    support::assert_cursor_only(&next);
     octocode_native::contracts::validate("localSearch", next.clone())
         .expect("canonical continuation");
     (query, next)
-}
-
-#[tokio::test]
-async fn saved_pages_retain_canonical_input_scope_across_persistent_replay() {
-    for (scope, output_scope) in [("structured", "structuredContent"), ("rows", "rows")] {
-        let workspace = Workspace::new();
-        let env = [("OCTOCODE_STORAGE_MODE", "persistent".into())];
-        let runtime = workspace.runtime(&env);
-        let files = (0..3)
-            .map(|index| workspace.write(&format!("page-{index}.txt"), lines("captured")))
-            .collect::<Vec<_>>();
-        let queries = files
-            .iter()
-            .map(|file| json!({"path":file,"fullContent":true}))
-            .collect::<Vec<_>>();
-        let first = runtime
-            .run(
-                "capture".into(),
-                "localFetch".into(),
-                json!({"queries":queries,"responseLength":96,"responseScope":scope}),
-            )
-            .await
-            .expect("initial page");
-        assert_eq!(
-            first.structured_content["responsePagination"]["scope"],
-            output_scope
-        );
-        let next = first.structured_content["responsePagination"]["next"]["query"].clone();
-        assert!(next.is_object(), "{}", first.structured_content);
-        octocode_native::contracts::validate("localFetch", next.clone())
-            .expect("canonical continuation");
-        runtime.close().await;
-        for file in files {
-            std::fs::remove_file(file).expect("remove live source");
-        }
-        let runtime = workspace.runtime(&env);
-        for omit_scope in [false, true] {
-            let mut request = next.clone();
-            if !omit_scope {
-                // A scope sent beside the cursor must match it.
-                request["responseScope"] = json!(scope);
-            }
-            let page = runtime
-                .run("replay".into(), "localFetch".into(), request)
-                .await
-                .expect("saved page uses canonical scope");
-            let pagination = &page.structured_content["responsePagination"];
-            assert_eq!(pagination["scope"], output_scope);
-            assert_eq!(pagination["replayed"], true);
-            if let Some(next) = pagination["next"].get("query") {
-                support::assert_cursor_only(next);
-                octocode_native::contracts::validate("localFetch", next.clone())
-                    .expect("canonical saved continuation");
-            }
-        }
-        runtime.close().await;
-    }
 }
 
 #[tokio::test]
@@ -98,7 +36,7 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
     let (query, next) = saved_fixture(&workspace, &runtime).await;
     for changed in [
         query.clone(),
-        json!({"path":"/changed","matchString":"new question"}),
+        json!({"path":"/changed","matchString":["new question"]}),
     ] {
         let mut mixed = next.clone();
         mixed["queries"] = json!([changed]);
@@ -196,8 +134,8 @@ async fn failed_snapshot_retention_returns_complete_result_without_display_next(
             "fallback".into(),
             "localSearch".into(),
             json!({
-                "queries":[{"path":file,"matchString":"needle","pageSize":50}],
-                "responseLength":800,"responseScope":"rows"
+                "queries":[{"path":file,"matchString":["needle"]}],
+                "responseChars":800
             }),
         )
         .await
@@ -218,49 +156,23 @@ async fn failed_snapshot_retention_returns_complete_result_without_display_next(
     runtime.close().await;
 }
 
-/// A saved read past the last page of an unchanged response is a restart
-/// page that ends the walk: `hasMore` is false, so a caller following `next`
-/// while `hasMore` stops, and its `next` still starts over at offset 0. A
-/// changed page size is refused as a caller error (exit class invalidInput).
 #[tokio::test]
-async fn a_saved_read_past_the_last_page_ends_the_walk() {
+async fn tampered_and_unissued_handles_never_execute() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     let (_, next) = saved_fixture(&workspace, &runtime).await;
-    let past = support::cursor_at_offset(&json!({"next": {"query": next}}), 9_999);
-    let page = runtime
-        .run("past".into(), "localSearch".into(), past)
-        .await
-        .expect("restart page");
-    let pagination = &page.structured_content["responsePagination"];
-    assert_eq!(pagination["restart"], true, "{pagination}");
-    assert_eq!(pagination["hasMore"], false, "{pagination}");
-    support::assert_cursor_only(&pagination["next"]["query"]);
-    assert_eq!(support::cursor_offset(pagination), 0, "{pagination}");
-    // Following the restart serves the first page.
-    let first = runtime
-        .run(
-            "first".into(),
-            "localSearch".into(),
-            pagination["next"]["query"].clone(),
-        )
-        .await
-        .expect("first page again");
-    let first = &first.structured_content["responsePagination"];
-    assert_eq!(first["currentPage"], 1, "{first}");
-    assert_ne!(first["restart"], true, "{first}");
-    octocode_native::contracts::validate_output("localSearch", &page.structured_content)
-        .expect("restart page output contract");
-    let mut resized = next;
-    resized["responseLength"] = json!(900);
-    let error = runtime
-        .run("resized".into(), "localSearch".into(), resized)
-        .await
-        .expect_err("a changed page size is refused");
-    assert_eq!(error.code, ErrorCode::ResponsePageMismatch);
-    assert_eq!(
-        error.exit_class(),
-        octocode_native::response::exit::ExitClass::InvalidInput
-    );
+    let mut token = next["cursor"].as_str().unwrap().to_owned();
+    let last = token.pop().unwrap();
+    token.push(if last == '0' { '1' } else { '0' });
+    for input in [
+        json!({"cursor":token}),
+        json!({"cursor":format!("cursor1.{}","0".repeat(64))}),
+    ] {
+        let error = runtime
+            .run("unissued".into(), "localSearch".into(), input)
+            .await
+            .expect_err("registry lookup");
+        assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+    }
     runtime.close().await;
 }

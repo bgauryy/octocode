@@ -34,7 +34,7 @@ pub(super) async fn commit(
         needle: needle.as_deref(),
         scope: path,
     };
-    // File batches are derived from page×pageSize; a scope or a literal
+    // File batches derive from saved page×pageSize state; a scope or a literal
     // hides files, so a filtered read scans from the first batch.
     let spec = WindowSpec {
         batch_size: COMMIT_FILE_BATCH,
@@ -150,7 +150,7 @@ impl<'a> CommitFacts<'a> {
 
 /// The commit row before its files. A patch read is the diff's evidence: it
 /// names the commit by its headline once; the summary read
-/// (`hints.readCommit`) holds the whole message, whose first line the
+/// offered as related work holds the whole message, whose first line the
 /// headline would repeat.
 fn commit_header(
     commit: &CommitFacts<'_>,
@@ -197,7 +197,7 @@ fn commit_file_page(
     // A first page that lists every changed file (no scope, no grep) needs
     // no separate count.
     let whole = unscoped
-        && gh_get_history_item_query::match_string(query).is_none()
+        && gh_get_history_item_query::match_strings(query).is_none()
         && files.page["countScope"] != "partial"
         && files.page["outOfRange"] != true
         && gh_get_history_item_query::page(query).unwrap_or(1) == 1

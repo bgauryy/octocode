@@ -1,7 +1,7 @@
 //! How each resource kind is acquired: GitHub files at a pinned commit, URLs to internal addresses, and local ranges.
 
 use super::{error_code, judged, provider, provider_calls, sections};
-use crate::support::{Workspace, clasify_runtime, github_api};
+use crate::support::{Run as _, Workspace, clasify_runtime, github_api};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
@@ -34,7 +34,7 @@ async fn github_with(files: &[(&str, &[u8])]) -> MockServer {
 
 fn github_source(file: &str) -> Value {
     json!({"tool":"ghGetFileContent","query":{
-        "owner":"a","repo":"b","path":format!("docs/{file}"),"ref":"v1","fullContent":true}})
+        "owner":"a","repo":"b","path":format!("docs/{file}"),"ref":"v1"}})
 }
 
 #[tokio::test]
@@ -51,11 +51,45 @@ async fn a_github_resource_is_planned_from_its_pinned_commit() {
         guide["snapshot"], SHA,
         "the requested ref is pinned to its commit"
     );
+    crate::support::assert_cursor_only(&guide["read"]["input"]);
+    let read = runtime
+        .run(
+            "read-assessed-source".into(),
+            "ghGetFileContent".into(),
+            guide["read"]["input"].clone(),
+        )
+        .await
+        .expect("source read");
+    let requests = github.received_requests().await.expect("GitHub requests");
     assert_eq!(
-        guide["read"]["query"]["queries"][0]["ref"], SHA,
-        "the read lead returns exactly what was assessed"
+        requests
+            .iter()
+            .filter(|request| request.url.path().contains("/commits/"))
+            .count(),
+        1,
+        "the captured read never re-resolves the mutable ref"
     );
-    assert_eq!(guide["sections"][0]["target"]["lines"], json!([1, 3]));
+    for request in requests
+        .iter()
+        .filter(|request| request.url.path().contains("/contents/"))
+    {
+        assert!(
+            request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "ref" && value == SHA)
+        );
+    }
+    assert!(
+        read.structured_content["results"][0]["data"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Restart the service.")
+    );
+    assert_eq!(
+        guide["sections"][0]["target"]["lines"],
+        json!({"startLine":1,"endLine":3})
+    );
     assert_eq!(guide["sections"][0]["answers"]["q"]["status"], "answered");
     assert!(judged(&provider).await.contains("Restart the service."));
     runtime.close().await;
@@ -122,7 +156,7 @@ async fn a_url_resource_to_an_internal_address_fails_alone_before_any_request() 
         &runtime,
         json!({
             "page": {"url": "https://127.0.0.1:9/guide"},
-            "notes": {"tool":"localFetch","query":{"path":"notes.txt","fullContent":true}},
+            "notes": {"tool":"localFetch","query":{"path":"notes.txt"}},
         }),
     )
     .await;
@@ -150,9 +184,9 @@ async fn local_ranges_bound_the_assessed_text_and_an_empty_selection_is_an_error
     let out = sections(
         &runtime,
         json!({
-            "middle": {"tool":"localFetch","query":{"path":"notes.txt","ranges":["2-3","3-4"]}},
-            "past": {"tool":"localFetch","query":{"path":"notes.txt","ranges":["10-12"]}},
-            "gone": {"tool":"localFetch","query":{"path":"missing.txt","fullContent":true}},
+            "middle": {"tool":"localFetch","query":{"path":"notes.txt","ranges":[{"startLine":2,"endLine":3},{"startLine":3,"endLine":4}]}},
+            "past": {"tool":"localFetch","query":{"path":"notes.txt","ranges":[{"startLine":10,"endLine":12}]}},
+            "gone": {"tool":"localFetch","query":{"path":"missing.txt"}},
         }),
     )
     .await;
@@ -160,7 +194,7 @@ async fn local_ranges_bound_the_assessed_text_and_an_empty_selection_is_an_error
     assert_eq!(middle["status"], "ready", "{out:#}");
     assert_eq!(
         middle["sections"][0]["target"]["lines"],
-        json!([2, 4]),
+        json!({"startLine":2,"endLine":4}),
         "overlapping ranges are one selection"
     );
     let past = &out["resources"]["past"];

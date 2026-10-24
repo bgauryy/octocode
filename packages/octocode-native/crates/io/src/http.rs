@@ -6,6 +6,31 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+mod trust;
+
+/// A configured trust store or HTTP client could not be initialized.
+#[derive(Debug)]
+pub enum ClientError {
+    TrustStore(std::io::Error),
+    Tls(reqwest::Error),
+}
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TrustStore(error) => write!(formatter, "Configured TLS trust store: {error}"),
+            Self::Tls(error) => std::fmt::Display::fmt(error, formatter),
+        }
+    }
+}
+impl std::error::Error for ClientError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::TrustStore(error) => Some(error),
+            Self::Tls(error) => Some(error),
+        }
+    }
+}
+
 /// Which proxy settings a client honors.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Proxy {
@@ -54,9 +79,9 @@ fn connects_directly(policy: &ClientPolicy) -> bool {
     policy.proxy == Proxy::Direct || policy.resolve.is_some()
 }
 
-/// Build a client for `policy`. Errors are reqwest's; callers map them to
-/// their own error type.
-pub fn client(policy: &ClientPolicy) -> reqwest::Result<reqwest::Client> {
+/// Build a client for `policy`, adding configured PEM roots to the platform
+/// store. An unreadable or malformed explicit trust store fails construction.
+pub fn client(policy: &ClientPolicy) -> Result<reqwest::Client, ClientError> {
     let mut builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never());
@@ -78,7 +103,10 @@ pub fn client(policy: &ClientPolicy) -> reqwest::Result<reqwest::Client> {
     if let Some((host, addresses)) = &policy.resolve {
         builder = builder.resolve_to_addrs(host, addresses);
     }
-    builder.build()
+    builder
+        .tls_certs_merge(trust::configured_roots()?)
+        .build()
+        .map_err(ClientError::Tls)
 }
 
 #[cfg(test)]

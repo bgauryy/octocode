@@ -39,7 +39,7 @@ pub(crate) fn apply_sanitized_rows(
         let Some(query) = queries.get(admitted_index) else {
             continue;
         };
-        if query.get("clasifyContext").is_none() && query.get("selection").is_none() {
+        if query.get("classification").is_none() && query.get("selection").is_none() {
             continue;
         }
         let failed = row["status"] == "error";
@@ -53,10 +53,7 @@ pub(crate) fn apply_sanitized_rows(
                 fields.remove("files");
             }
             data["selection"] = unavailable_receipt(total, "sourceUnavailable");
-            if !data["next"].is_object() {
-                data["next"] = json!({});
-            }
-            data["next"]["unfiltered"] = provider_page_unfiltered(tool, query);
+            set_next(data, "unfiltered", provider_page_unfiltered(tool, query));
             continue;
         }
         if !data.is_object() {
@@ -83,20 +80,7 @@ pub(crate) fn apply_sanitized_rows(
         let candidates = values
             .iter()
             .zip(states)
-            .map(|(item, state)| {
-                let has_text = item["lines"].as_array().is_some_and(|lines| {
-                    lines
-                        .iter()
-                        .any(|line| line.as_str().is_some_and(|value| !value.trim().is_empty()))
-                }) || item["matches"].as_array().is_some_and(|matches| {
-                    matches.iter().any(|matched| {
-                        matched["value"]
-                            .as_str()
-                            .is_some_and(|value| !value.trim().is_empty())
-                    })
-                });
-                Candidate::new(has_text.then_some(state))
-            })
+            .map(|(item, state)| Candidate::new(has_text(item).then_some(state)))
             .collect::<Vec<_>>();
         let (outcome, provider) = match unless_transient(select_scoped(
             Some(runtime),
@@ -116,15 +100,7 @@ pub(crate) fn apply_sanitized_rows(
                 continue;
             }
             Err(Failure::Stale) => {
-                let stale = crate::response::result::stale_snapshot(
-                    crate::response::result::restart_query(tool, query),
-                );
-                row["data"] = json!({
-                    "errorCode":stale["errorCode"],
-                    "error":crate::response::result::STALE_SNAPSHOT_ERROR,
-                    "next":stale["next"],
-                });
-                row["status"] = stale["status"].clone();
+                mark_stale(row, tool, query);
                 continue;
             }
         };
@@ -152,19 +128,16 @@ pub(crate) fn apply_sanitized_rows(
         // kept every candidate (or had none, or shows every one because the
         // provider could not answer) leaves nothing out.
         if outcome.leaves_out() {
-            if !data["next"].is_object() {
-                data["next"] = json!({});
-            }
-            data["next"]["unfiltered"] = provider_page_unfiltered(tool, query);
+            set_next(data, "unfiltered", provider_page_unfiltered(tool, query));
         }
         if let Some(token) = outcome.next_candidates(tool) {
             let mut next_query = (**query).clone();
             next_query["selection"] = json!(token);
-            if !data["next"].is_object() {
-                data["next"] = json!({});
-            }
-            data["next"]["nextCandidatePage"] =
-                crate::response::result::Continuation::new(tool, next_query).build();
+            set_next(
+                data,
+                "nextCandidatePage",
+                crate::response::result::Continuation::continued(tool, next_query).build(),
+            );
         }
         tool.output().finish_selection(data, query, &hidden);
         crate::response::paging::push_warnings(
@@ -183,6 +156,39 @@ pub(crate) fn apply_sanitized_rows(
         }
     }
     Ok(())
+}
+
+/// Whether a file's evidence shows any text to judge: a non-blank line or
+/// matched value.
+fn has_text(item: &Value) -> bool {
+    let non_blank = |value: &Value| value.as_str().is_some_and(|text| !text.trim().is_empty());
+    item["lines"]
+        .as_array()
+        .is_some_and(|lines| lines.iter().any(non_blank))
+        || item["matches"]
+            .as_array()
+            .is_some_and(|matches| matches.iter().any(|matched| non_blank(&matched["value"])))
+}
+
+/// Set the continuation `key` of a row's data.
+fn set_next(data: &mut Value, key: &str, lead: Value) {
+    if !data["next"].is_object() {
+        data["next"] = json!({});
+    }
+    data["next"][key] = lead;
+}
+
+/// Answer a row whose snapshot went stale with the restart of its query.
+fn mark_stale(row: &mut Value, tool: ToolId, query: &Value) {
+    let stale = crate::response::result::stale_snapshot(crate::response::result::restart_query(
+        tool, query,
+    ));
+    row["data"] = json!({
+        "errorCode":stale["errorCode"],
+        "error":crate::response::result::STALE_SNAPSHOT_ERROR,
+        "next":stale["next"],
+    });
+    row["status"] = stale["status"].clone();
 }
 
 /// A provider page keeps its page: it is the judged source.
@@ -208,11 +214,14 @@ pub(super) fn strip_plan_from_tool_continuations(value: &mut Value, tool: ToolId
     let Some(fields) = value.as_object_mut() else {
         return;
     };
-    for name in ["next", "hints"] {
-        if let Some(leads) = fields.get_mut(name).and_then(Value::as_object_mut) {
-            for lead in leads.values_mut() {
-                scrub_lead(lead, tool, name == "hints");
-            }
+    if let Some(leads) = fields.get_mut("next").and_then(Value::as_object_mut) {
+        for lead in leads.values_mut() {
+            scrub_lead(lead, tool, false);
+        }
+    }
+    if let Some(leads) = fields.get_mut("related").and_then(Value::as_array_mut) {
+        for lead in leads {
+            scrub_lead(lead, tool, true);
         }
     }
     for name in ["files", "matches"] {
@@ -233,7 +242,7 @@ fn scrub_lead(lead: &mut Value, tool: ToolId, hint: bool) {
     };
     let same_tool = lead_tool == tool.as_str();
     let Some(rows) = fields
-        .get_mut("query")
+        .get_mut("input")
         .and_then(|query| query.get_mut("queries"))
         .and_then(Value::as_array_mut)
     else {
@@ -242,7 +251,7 @@ fn scrub_lead(lead: &mut Value, tool: ToolId, hint: bool) {
     for row in rows.iter_mut().filter_map(Value::as_object_mut) {
         row.remove("selection");
         if hint || !same_tool {
-            row.remove("clasifyContext");
+            row.remove("classification");
         }
     }
 }

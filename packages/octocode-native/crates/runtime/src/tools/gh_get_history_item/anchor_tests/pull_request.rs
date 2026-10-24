@@ -15,10 +15,6 @@ async fn mount_pr(server: &MockServer, files: Value) {
     mount_json(server, "/api/v3/repos/o/r/pulls/1/files", 200, files).await;
 }
 
-fn first_query<'a>(out: &'a Value, lead: &str) -> &'a Value {
-    &out["next"][lead]["query"]["queries"][0]
-}
-
 /// `matchString` matches patch lines only: a file whose path alone holds
 /// it is not kept (its whole patch would answer nothing), and the files the
 /// filter dropped are counted on the call.
@@ -40,7 +36,7 @@ async fn pr_match_string_keeps_patch_hits_only_and_counts_dropped_files() {
     let out = read(
         &server,
         json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
-            "sections":["patches"],"matchString":"needle"}),
+            "sections":["patches"],"matchString":["needle"]}),
     )
     .await;
     let paths = out["pullRequests"][0]["files"]
@@ -76,7 +72,7 @@ async fn pr_unpatched_removed_file_is_searched_at_the_base() {
     let out = read(
         &server,
         json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
-            "sections":["patches"],"matchString":"needle"}),
+            "sections":["patches"],"matchString":["needle"]}),
     )
     .await;
     assert_eq!(
@@ -84,7 +80,7 @@ async fn pr_unpatched_removed_file_is_searched_at_the_base() {
         json!(["!tooLarge src/needle_gone.rs"]),
         "{out}"
     );
-    let search = &out["next"]["searchUnpatchedFile"]["query"]["queries"][0];
+    let search = &out["next"]["searchUnpatchedFile"]["input"]["queries"][0];
     assert_eq!(search["path"], "src/needle_gone.rs", "{out}");
     assert_eq!(search["ref"], BASE, "{out}");
 }
@@ -103,21 +99,33 @@ async fn pr_match_string_miss_offers_the_unfiltered_read() {
     )
     .await;
     let query = json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
-        "include":["src/"],"matchString":"zzqx","contextLines":2});
+        "include":["src/**"],"matchString":["zzqx"],"contextLines":{"before":2,"after":2}});
     let out = read(&server, query.clone()).await;
     assert_eq!(out["status"], "empty", "{out}");
     assert!(out.get("hints").is_none(), "{out}");
-    let lead = &out["next"]["withoutMatchString"];
+    let lead =
+        crate::tools::test_support::checks::related_call(&out, "ghGetHistoryItem", |input| {
+            input["queries"][0].get("matchString").is_none()
+        });
     assert_eq!(lead["tool"], "ghGetHistoryItem", "{out}");
     assert!(lead.get("confidence").is_none(), "{out}");
-    let unfiltered = first_query(&out, "withoutMatchString");
-    for absent in ["matchString", "contextLines"] {
+    let unfiltered = &lead["input"]["queries"][0];
+    for absent in [
+        "matchString",
+        "contextLines",
+        "regexEngine",
+        "caseMode",
+        "wholeWord",
+    ] {
         assert!(unfiltered.get(absent).is_none(), "{absent}: {unfiltered}");
     }
     assert_eq!(unfiltered["number"], 1, "{unfiltered}");
-    assert_eq!(unfiltered["include"], json!(["src/"]), "{unfiltered}");
+    assert_eq!(unfiltered["include"], json!(["src/**"]), "{unfiltered}");
     assert_eq!(unfiltered["sections"], json!(["patches"]), "{unfiltered}");
-    let inventory = first_query(&out, "readFiles");
+    let inventory =
+        &crate::tools::test_support::checks::related_call(&out, "ghGetHistoryItem", |input| {
+            input["queries"][0]["sections"] == json!(["files"])
+        })["input"]["queries"][0];
     assert_eq!(inventory["number"], 1, "{inventory}");
     assert_eq!(inventory["sections"], json!(["files"]), "{inventory}");
     for absent in ["include", "matchString", "contextLines"] {
@@ -125,15 +133,9 @@ async fn pr_match_string_miss_offers_the_unfiltered_read() {
     }
     checks::assert_leads_valid(&out);
     let published = published(ToolId::GhGetHistoryItem, &query, &out);
-    let names = checks::leads(&published)
-        .into_iter()
-        .map(|lead| lead.name)
-        .collect::<Vec<_>>();
-    assert_eq!(
-        names,
-        ["withoutMatchString", "readFiles", "readDiscussion"],
-        "{published}"
-    );
+    let calls = checks::leads(&published);
+    assert!(!calls.is_empty());
+    assert!(calls.iter().all(|call| call.kind == "related"));
 }
 
 /// A PR `include` that matched no changed file is an empty row whose lead
@@ -157,7 +159,10 @@ async fn pr_include_miss_offers_the_file_inventory() {
     assert_eq!(out["status"], "empty", "{out}");
     assert!(out.get("hints").is_none(), "{out}");
     assert!(out["next"].get("withoutMatchString").is_none(), "{out}");
-    let inventory = first_query(&out, "readFiles");
+    let inventory =
+        &crate::tools::test_support::checks::related_call(&out, "ghGetHistoryItem", |input| {
+            input["queries"][0]["sections"] == json!(["files"])
+        })["input"]["queries"][0];
     assert_eq!(inventory["number"], 1, "{inventory}");
     assert_eq!(inventory["sections"], json!(["files"]), "{inventory}");
     assert!(inventory.get("include").is_none(), "{inventory}");

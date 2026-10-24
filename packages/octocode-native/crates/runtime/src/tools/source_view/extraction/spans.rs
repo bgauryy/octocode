@@ -1,7 +1,7 @@
 //! Byte spans a read's patterns select: literal, Rust regex, or PCRE2,
 //! and the lines they touch.
-use super::super::types::{ExtractionError, LocalFetchQuery, RegexSpans, local_fetch_query};
-use octocode_contract_types::ErrorCode;
+use super::super::types::{ExtractionError, RegexSpans, local_fetch_query};
+use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 use octocode_engine::text::case_fold::Folded;
 
 /// Byte spans of every pattern (a list matches any of its entries), in
@@ -160,7 +160,7 @@ pub(super) fn hit_lines(lines: &[&str], spans: &[(usize, usize)]) -> Vec<usize> 
             .get(next_match)
             .is_some_and(|(start, _)| *start < line_end)
         {
-            hits.push(i + 1)
+            hits.push(i + 1);
         }
         line_start = line_end;
     }

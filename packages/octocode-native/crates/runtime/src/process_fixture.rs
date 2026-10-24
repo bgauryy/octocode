@@ -223,9 +223,10 @@ fn fixture() {
         "streamer" => {
             let deadline = Instant::now() + HOLD;
             let mut out = std::io::stdout();
+            let chunk = vec![b'x'; 64 * 1024];
             while Instant::now() < deadline {
                 // The read end closed: the pipe is broken.
-                if out.write_all(&[b'x'; 64 * 1024]).is_err() {
+                if out.write_all(&chunk).is_err() {
                     return;
                 }
             }

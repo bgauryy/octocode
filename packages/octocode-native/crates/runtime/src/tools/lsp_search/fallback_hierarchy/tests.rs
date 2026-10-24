@@ -15,7 +15,10 @@ fn candidates() -> Vec<LspCodeSnippet> {
 }
 
 fn query() -> LspSearchQuery {
-    serde_json::from_value(json!({"operation":"subtypes","path":"/workspace/types.ts","line":1,"symbolName":"Base","pageSize":1})).expect("query")
+    serde_json::from_value(
+        json!({"operation":"subtypes","path":"/workspace/types.ts","line":1,"symbolName":"Base",}),
+    )
+    .expect("query")
 }
 
 #[test]
@@ -63,7 +66,7 @@ fn candidate_windows_reject_mutation_and_preserve_stable_order() {
 fn candidate_mutation_stales_later_result_pages_even_when_rows_disappear() {
     let query = query();
     let window = CandidateWindow::cut(&query, candidates()).expect("window");
-    let items = json!([{"name":"first"},{"name":"second"}]);
+    let items = json!([{"name":"first", "content":"a".repeat(1000)},{"name":"second", "content":"b".repeat(1000)}]);
     let first = super::super::failure::with_next(
         &query,
         locations::salted_items_payload(
@@ -71,19 +74,19 @@ fn candidate_mutation_stales_later_result_pages_even_when_rows_disappear() {
             "subtypes",
             items.clone(),
             Some(&window.digest),
-            16000,
+            1400,
             super::super::render::plain_sizes,
         ),
     );
     let next: LspSearchQuery =
-        serde_json::from_value(first["next"]["nextPage"]["query"]["queries"][0].clone())
+        serde_json::from_value(first["next"]["nextPage"]["input"]["queries"][0].clone())
             .expect("next result page");
     let stable = locations::salted_items_payload(
         &next,
         "subtypes",
         items.clone(),
         Some(&window.digest),
-        16000,
+        1400,
         super::super::render::plain_sizes,
     );
     assert!(stable.get("errorCode").is_none(), "{stable}");
@@ -97,10 +100,10 @@ fn candidate_mutation_stales_later_result_pages_even_when_rows_disappear() {
             "subtypes",
             rows,
             Some(&changed.digest),
-            16000,
+            1400,
             super::super::render::plain_sizes,
         );
         assert_eq!(stale["errorCode"], "staleSnapshot", "{stale}");
-        assert!(stale.pointer("/next/restart").is_some(), "{stale}");
+        crate::tools::test_support::checks::related_call(&stale, "lspSearch", |_| true);
     }
 }

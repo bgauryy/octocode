@@ -26,6 +26,10 @@ fn leads_skip_what_the_cut_scan_read(build: Build) {
         root.write(path, "export const value = 1;\n");
     }
     let (first, calls, files) = walk_all(&root, build, json!({}), 5);
+    crate::tools::test_support::checks::assert_output_contract(
+        "astSearch",
+        &serde_json::json!({"results":[{"index":0,"data":first}]}),
+    );
     assert_eq!(
         listed(&first),
         ["0first.ts", "a1.ts", "a2.ts", "b0.ts", "d1.ts"]
@@ -46,7 +50,7 @@ fn leads_skip_what_the_cut_scan_read(build: Build) {
     // in the root (0first).
     let skips: Vec<_> = leads(&first)
         .iter()
-        .map(|(_, lead)| lead["query"]["queries"][0]["scanOffset"].clone())
+        .map(|(_, lead)| lead["input"]["queries"][0]["scanOffset"].clone())
         .collect();
     assert_eq!(
         skips,
@@ -82,7 +86,7 @@ fn symbols_leads_list_each_file_once_when_files_sort_before_the_frontier() {
 }
 
 /// A file the scan cannot parse is no candidate: it neither costs a lead
-/// nor counts toward a directory's size. With `languageGlobs`, a file the
+/// nor counts toward a directory's size. With `parserGlobs`, a file the
 /// map names is one.
 fn unparseable_files_are_not_candidates(build: Build) {
     let root = Fixture::new();
@@ -103,7 +107,7 @@ fn unparseable_files_are_not_candidates(build: Build) {
         "zz.foo",
         "export const value = 2;\nexport function mapped() {}\n",
     );
-    let mapped = json!({"languageGlobs":{"typescript":["*.foo"]}});
+    let mapped = json!({"parserGlobs":{"typescript":["*.foo"]}});
     let (first, calls, files) = walk_all(&root, build, mapped, 2);
     assert_eq!(lead_dirs(&root, &first), ["y", ""], "{first}");
     assert_eq!(

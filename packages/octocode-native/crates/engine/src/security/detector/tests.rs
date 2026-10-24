@@ -34,6 +34,35 @@ fn assert_no_pattern_matches(result: &DetectResult) {
     }
 }
 
+/// [`redact`] over `file_path`'s content (`None`: the pathless net).
+fn detect(content: &str, file_path: Option<&str>) -> DetectResult {
+    detect_in(content, file_path.map_or(Scope::Pathless, Scope::File))
+}
+
+/// [`redact`] with clean content returned unchanged.
+fn detect_in(content: &str, scope: Scope<'_>) -> DetectResult {
+    redact(content, scope).unwrap_or_else(|| DetectResult {
+        sanitized: content.to_owned(),
+        secrets_detected: Vec::new(),
+    })
+}
+
+impl DetectResult {
+    fn has_secrets_or(&self, other: &Self) -> bool {
+        !self.secrets_detected.is_empty() || !other.secrets_detected.is_empty()
+    }
+}
+
+/// The prescan candidates of `content`, in pattern order.
+fn candidate_pattern_indices(content: &str) -> Vec<usize> {
+    prescan_candidates(content).iter().collect()
+}
+
+/// The candidates that apply to `scope`, in pattern order.
+fn applicable_candidates(content: &str, scope: Scope<'_>) -> Vec<usize> {
+    applicable_patterns(content, scope).iter().collect()
+}
+
 /// Fake, deterministic base64 body (never a real key).
 fn fake_b64(len: usize) -> String {
     "Zm9vYmFyYmF6cXV4".chars().cycle().take(len).collect()

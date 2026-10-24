@@ -10,7 +10,8 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { packageRoot, readJson, repoRoot } from './build.ts';
+import { readJson } from '../../octocode/scripts/build-plugin.mjs';
+import { packageRoot, repoRoot } from './build.ts';
 
 const run = promisify(execFile);
 const temp = await mkdtemp(join(tmpdir(), 'octocode-claude-smoke-'));
@@ -157,16 +158,12 @@ try {
       await connecting;
       const listed = await client.listTools();
       assert.ok(listed.tools.some(tool => tool.name === 'localFetch'));
-      const goal = 'Verify the Claude plugin runtime uses the active project';
       const result = await client.callTool({
         name: 'localFetch',
         arguments: {
           queries: [
             {
-              mainGoal: goal,
-              reasoning: goal,
               path: 'README.md',
-              fullContent: true,
             },
           ],
         },
@@ -180,10 +177,7 @@ try {
         arguments: {
           queries: [
             {
-              mainGoal: goal,
-              reasoning: goal,
               path: join(cachedRoot, '.mcp.json'),
-              fullContent: true,
             },
           ],
         },

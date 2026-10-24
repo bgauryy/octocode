@@ -8,7 +8,8 @@
 //! relative module path names no file. Everything else stays unverified.
 
 use crate::policy::PolicyErrorCode;
-use crate::policy::path::{PathPolicy, lexical};
+use crate::policy::path::PathPolicy;
+use octocode_engine::text::lexical;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -130,7 +131,10 @@ fn resolves_nowhere(specifier: &str, file: &str, missing: &dyn Fn(&Path) -> bool
     module_candidates(&base).iter().all(|path| missing(path))
 }
 
-fn module_candidates(base: &Path) -> Vec<PathBuf> {
+/// The paths a relative module path `base` may resolve to, in resolution
+/// order: the exact path, its compiled-name source swaps, each extension
+/// probe and directory index, and a package manifest.
+pub(super) fn module_candidates(base: &Path) -> Vec<PathBuf> {
     let name = base
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())

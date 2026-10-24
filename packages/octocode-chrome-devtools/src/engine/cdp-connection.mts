@@ -1,12 +1,16 @@
-type Payload = Record<string, any>;
-type Handler = (...args: any[]) => unknown;
+import { errorMessage } from './error-message.mjs';
+
+// CDP messages are unvalidated protocol JSON; callers read the fields each method documents.
+export type Payload = Record<string, any>;
+export type Handler = (...args: any[]) => unknown;
 type Pending = {
   resolve: (value: Payload) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
   sessionId?: string;
 };
-type Session = {
+/** One CDP connection; every engine module that drives Chrome takes this as `cdp`. */
+export type Session = {
   targetInfo: Payload;
   outputDir: string;
   send(
@@ -20,6 +24,15 @@ type Session = {
   log(...args: unknown[]): void;
   close(): void;
 };
+
+/** A handler's result that rejects asynchronously: a promise or any value with a `catch` method. */
+const isCatchable = (
+  value: unknown
+): value is { catch(reject: (error: unknown) => void): unknown } =>
+  (typeof value === 'object' || typeof value === 'function') &&
+  value !== null &&
+  'catch' in value &&
+  typeof value.catch === 'function';
 
 export function connectCDP(
   url: string,
@@ -141,18 +154,13 @@ export function connectCDP(
         const dispatch = (handler: Handler, args: unknown[]) => {
           const failed = (error: unknown) => {
             console.error(
-              `[CDP_HANDLER_ERROR] event=${message.method} ${error instanceof Error ? error.message : String(error)}`
+              `[CDP_HANDLER_ERROR] event=${message.method} ${errorMessage(error)}`
             );
             process.exitCode = 1;
           };
           try {
-            const returned = handler(...args);
-            const promiseLike = returned as
-              | { catch?: (reject: (error: unknown) => void) => unknown }
-              | null
-              | undefined;
-            if (typeof promiseLike?.catch === 'function')
-              promiseLike.catch(failed);
+            const returned: unknown = handler(...args);
+            if (isCatchable(returned)) returned.catch(failed);
           } catch (error) {
             failed(error);
           }

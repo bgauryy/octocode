@@ -27,6 +27,18 @@ fn tty(mut command: Command, stream: Tty) -> (Output, String) {
         )
     };
     assert_eq!(opened, 0, "openpty: {}", std::io::Error::last_os_error());
+    // Parallel tests spawn unrelated processes. They must not inherit either
+    // terminal end and keep this reader alive after its own child exits.
+    for descriptor in [master, slave] {
+        // SAFETY: openpty returned valid descriptors; F_SETFD takes an integer flag.
+        let result = unsafe { libc::fcntl(descriptor, libc::F_SETFD, libc::FD_CLOEXEC) };
+        assert_eq!(
+            result,
+            0,
+            "close-on-exec: {}",
+            std::io::Error::last_os_error()
+        );
+    }
     // SAFETY: `openpty` succeeded, so both are open descriptors that
     // nothing else owns.
     let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };

@@ -145,7 +145,7 @@ test('shared history preserves origin worktree and branch across fixed-ceiling p
   const records = origins.map((workspace, index) => f.call(workspace, 'record', { type: 'event', data: { name: 'checkpoint', index } }, identities[index]));
   f.call(f.clone, 'record', { type: 'event', data: { name: 'checkpoint', index: -1 } }, f.d);
   let page = f.call(f.topic, 'fetch', { type: 'event', where: { name: 'checkpoint' }, limit: 2 }, f.b);
-  assert.ok(page.next);
+  assert.equal(page.next?.command, 'fetch');
   f.call(f.main, 'record', { type: 'event', data: { name: 'checkpoint', index: 99 } }, f.a);
   const rows = [...page.items];
   while (page.next) { page = f.call(f.topic, page.next.command, page.next.input, f.b); rows.push(...page.items); }

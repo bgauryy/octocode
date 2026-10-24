@@ -145,8 +145,8 @@ pub(super) fn chunks(
 /// A selected view's plan and the source lines of its unknown chunks.
 pub(crate) struct Chosen {
     pub(crate) outcome: crate::tools::selection::Outcome,
-    /// `ranges` entries (`"a-b"`, merged) covering every unknown chunk.
-    unknown_ranges: Vec<String>,
+    /// Inclusive source ranges covering every unknown chunk.
+    unknown_ranges: Vec<serde_json::Value>,
     /// The ranges read fewer source lines than the whole view holds.
     narrower: bool,
     /// The provider's error when it could not answer for this page: the
@@ -189,7 +189,7 @@ impl Chosen {
             outcome,
             unknown_ranges: crate::tools::line_spans::runs(unknown)
                 .into_iter()
-                .map(|(start, end)| format!("{start}-{end}"))
+                .map(|(start, end)| json!({"startLine":start,"endLine":end}))
                 .collect(),
             narrower: unknown_lines < view_lines.len(),
             provider,
@@ -243,10 +243,11 @@ impl Chosen {
         for field in [
             "matchString",
             "contextLines",
-            "regex",
+            "regexEngine",
+            "wholeWord",
+            "readProgress",
             "caseMode",
             "block",
-            "fullContent",
         ] {
             fields.remove(field);
         }
@@ -289,7 +290,7 @@ impl Chosen {
             octocode_engine::json_size::utf16_units(query).unwrap_or(0)
                 + octocode_engine::json_size::utf16_units(&json!(token)).unwrap_or(0)
         });
-        // `"unfiltered":{"tool":…,"query":{"queries":[…]}}` and the like.
+        // Typed unfiltered and source-read calls, including their saved inputs.
         let calls = 2 + usize::from(candidates > 0) + self.unknown_reads(query).len();
         octocode_engine::json_size::utf16_units(&json!(self.outcome.token)).unwrap_or(0)
             + receipt

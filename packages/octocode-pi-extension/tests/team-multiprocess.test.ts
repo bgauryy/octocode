@@ -8,17 +8,12 @@ import type { Member } from '../src/team/model.js';
 import { Team } from '../src/team/session.js';
 import { AGENT_ID_ENV, TeamStore } from '../src/team/store.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 const posix = process.platform !== 'win32';
 const member = (id: string, extra: Partial<Member> = {}): Member => ({
   id, role: 'worker', pid: process.pid, status: 'idle', joinedAt: 1_000, updatedAt: Date.now(), toolCalls: 0, input: 0, cacheRead: 0, output: 0, cost: 0, unpriced: false, ...extra,
 });
-const repo = () => {
-  const dir = tmp();
-  fs.mkdirSync(path.join(dir, '.git'));
-  return dir;
-};
 /** A pid that belonged to a process that has exited. */
 const deadPid = 2 ** 22 + 4242;
 /** Another running process (this one's parent): a holder this process is not. */

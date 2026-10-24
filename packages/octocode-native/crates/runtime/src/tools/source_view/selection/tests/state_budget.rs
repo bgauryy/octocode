@@ -1,6 +1,7 @@
 //! The serialized selection state budget, oversized lines, and the bytes
 //! and anchors selected windows keep.
 use super::*;
+use octocode_contract_types::LocalFetchQuery;
 
 #[test]
 fn serialized_state_budget_uses_sanitized_content() {
@@ -37,7 +38,7 @@ fn serialized_state_budget_uses_sanitized_content() {
     );
     let outcome = crate::tools::selection::select(
         Some(&runtime),
-        &json!({"clasifyContext":{"classifiers":["Find evidence"]}}),
+        &json!({"classification":{"predicates":["Find evidence"]}}),
         "source",
         None,
         &candidates,
@@ -62,7 +63,7 @@ fn serialized_state_budget_preserves_all_short_lines_and_replay() {
     let calls = Arc::new(AtomicUsize::new(0));
     let mut runtime = budget_runtime(executor.handle().clone(), calls.clone());
     let text = "x\n".repeat(4_096);
-    let query = json!({"clasifyContext":{"classifiers":["Find x"]}});
+    let query = json!({"classification":{"predicates":["Find x"]}});
     let (candidates, windows) = chunks(
         &text,
         None,
@@ -157,14 +158,13 @@ fn serialized_state_budget_preserves_all_short_lines_and_replay() {
 #[test]
 fn exhausted_state_budget_withholds_bodies_and_unfiltered_recovers_every_line() {
     use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::{LocalFetchQuery, SourceFacts};
+    use crate::tools::source_view::SourceFacts;
     let executor = tokio::runtime::Runtime::new().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let runtime = budget_runtime(executor.handle().clone(), calls.clone());
     let text = "x\n".repeat(4_096);
     let query: LocalFetchQuery = serde_json::from_value(json!({
-        "path":"source.txt", "ranges":["1-4096"],
-        "unit":"lines", "length":333, "clasifyContext":{"classifiers":["Find x"]}
+        "path":"source.txt", "ranges":[{"startLine":1,"endLine":4096}], "classification":{"predicates":["Find x"]}
     }))
     .unwrap();
     let read = |query: &LocalFetchQuery| {
@@ -196,8 +196,8 @@ fn exhausted_state_budget_withholds_bodies_and_unfiltered_recovers_every_line() 
         .unfiltered
         .expect("unfiltered")
         .query;
-    assert!(query.clasify_context.is_none());
-    assert!(query.selection.is_none());
+    assert!(!local_fetch_query::has_classification(&query));
+    assert!(local_fetch_query::selection(&query).is_none());
     let mut contents = String::new();
     let mut pages = 0;
     loop {
@@ -219,7 +219,7 @@ fn exhausted_state_budget_withholds_bodies_and_unfiltered_recovers_every_line() 
 #[test]
 fn oversized_line_terminates_selection_and_unfiltered_recovers_all_bytes() {
     use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::{LocalFetchQuery, SourceFacts};
+    use crate::tools::source_view::SourceFacts;
     let executor = tokio::runtime::Runtime::new().unwrap();
     for surrounding in [false, true] {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -232,8 +232,8 @@ fn oversized_line_terminates_selection_and_unfiltered_recovers_all_bytes() {
             large_line
         };
         let query: LocalFetchQuery = serde_json::from_value(json!({
-            "path":"source.txt", "fullContent":true,
-            "clasifyContext":{"classifiers":["Find evidence"]}
+            "path":"source.txt",
+            "classification":{"predicates":["Find evidence"]}
         }))
         .unwrap();
         let read = |query: &LocalFetchQuery| {

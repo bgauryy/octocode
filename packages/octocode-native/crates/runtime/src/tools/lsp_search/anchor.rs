@@ -2,14 +2,14 @@
 //! asked about, resolved on exactly the text synchronized with `didOpen`,
 //! plus the one-based `resolvedSymbol` receipt presented to the caller.
 
-use super::LspSearchQuery;
 use crate::tools::lsp_search::lsp_search_query;
+use octocode_contract_types::LspSearchQuery;
 use octocode_engine::lsp::resolver::resolve_position_in_file_content;
 use octocode_engine::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
 use octocode_io::memo::{Memo, MemoLimits};
 use serde_json::{Value, json};
 
-/// Symbol anchors resolved per `(path, name, line, orderHint, source
+/// Symbol anchors resolved per `(path, name, line, occurrence, source
 /// text)`: resolution is a pure function of them (a parse past its budget
 /// is an error, never stored), and a warm repeat skips the parse. The 256
 /// most recently used are kept.
@@ -73,7 +73,7 @@ pub(super) fn resolve_anchor(
             source,
             name,
             lsp_search_query::anchor_line(query),
-            lsp_search_query::order_hint(query),
+            lsp_search_query::occurrence(query),
         )?;
         // The receipt adds what the request did not say: the column, and the
         // line only when the symbol sat off its `line`. The name is the
@@ -82,8 +82,8 @@ pub(super) fn resolve_anchor(
             "path": super::render::uri_to_path(canonical_uri),
             "foundAtCharacter": resolved.position.character + 1
         });
-        if let Some(order_hint) = lsp_search_query::order_hint(query) {
-            symbol["orderHint"] = json!(order_hint);
+        if let Some(occurrence) = lsp_search_query::occurrence(query) {
+            symbol["occurrence"] = json!(occurrence);
         }
         if resolved.line_offset != 0
             || lsp_search_query::anchor_line(query) != Some(resolved.found_at_line)
@@ -106,8 +106,8 @@ pub(super) fn resolve_anchor(
 }
 
 /// A line that spells the name more than once was resolved to one
-/// occurrence (`orderHint`, default the first): the receipt counts them and
-/// names each other one by the `orderHint` that selects it, its column, and
+/// occurrence (`occurrence`, default the first): the receipt counts them and
+/// names each other one by the `occurrence` that selects it, its column, and
 /// the qualified spelling (`target.config`) that anchors on it without a
 /// hint.
 fn disclose_same_line(symbol: &mut Value, resolved: &LspResolvedSymbol, name: &str) {
@@ -120,7 +120,7 @@ fn disclose_same_line(symbol: &mut Value, resolved: &LspResolvedSymbol, name: &s
         .enumerate()
         .filter(|(_, column)| **column != resolved.position.character)
         .map(|(order, column)| {
-            let mut alternative = json!({"orderHint": order, "foundAtCharacter": column + 1});
+            let mut alternative = json!({"occurrence": order, "foundAtCharacter": column + 1});
             if let Some(qualified) = qualified_at(&resolved.line_content, *column, name) {
                 alternative["symbolName"] = json!(qualified);
             }
@@ -170,7 +170,7 @@ fn resolve_symbol(
     source: &str,
     name: &str,
     line_hint: Option<u32>,
-    order_hint: Option<u32>,
+    occurrence: Option<u32>,
 ) -> Result<LspResolvedSymbol, String> {
     let key: [u8; 32] = {
         use sha2::{Digest, Sha256};
@@ -179,7 +179,7 @@ fn resolve_symbol(
         for part in [
             path,
             name,
-            &format!("{line_hint:?}\u{0}{order_hint:?}"),
+            &format!("{line_hint:?}\u{0}{occurrence:?}"),
             source,
         ] {
             digest.update((part.len() as u64).to_le_bytes());
@@ -190,7 +190,7 @@ fn resolve_symbol(
     if let Some(hit) = RESOLVED.get(&key) {
         return Ok(hit.value.as_ref().clone());
     }
-    let resolved = resolve_symbol_in(path, source, name, line_hint, order_hint)?;
+    let resolved = resolve_symbol_in(path, source, name, line_hint, occurrence)?;
     RESOLVED.insert(key, resolved.clone(), 1, None);
     Ok(resolved)
 }
@@ -200,7 +200,7 @@ fn resolve_symbol_in(
     source: &str,
     name: &str,
     line_hint: Option<u32>,
-    order_hint: Option<u32>,
+    occurrence: Option<u32>,
 ) -> Result<LspResolvedSymbol, String> {
     let resolve = |symbol_name: &str| {
         resolve_position_in_file_content(
@@ -209,7 +209,7 @@ fn resolve_symbol_in(
             &LspFuzzyPosition {
                 symbol_name: symbol_name.to_owned(),
                 line_hint,
-                order_hint,
+                order_hint: occurrence,
             },
         )
         .map_err(|error| error.to_string())
@@ -303,7 +303,7 @@ mod tests {
     use super::*;
 
     /// `config: target.config.clone()` spells `config` twice: the receipt
-    /// counts them and names the other by orderHint, column and qualified
+    /// counts them and names the other by occurrence, column and qualified
     /// name; a line with one occurrence says nothing more.
     #[test]
     fn a_repeated_name_on_the_line_names_its_alternatives() {
@@ -318,7 +318,7 @@ mod tests {
         assert_eq!(symbol["occurrencesOnLine"], 2, "{symbol}");
         assert_eq!(
             symbol["alternatives"],
-            json!([{"orderHint": 1, "foundAtCharacter": 24, "symbolName": "target.config"}]),
+            json!([{"occurrence": 1, "foundAtCharacter": 24, "symbolName": "target.config"}]),
             "{symbol}"
         );
         let single: LspSearchQuery = serde_json::from_value(json!({

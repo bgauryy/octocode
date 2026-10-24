@@ -4,7 +4,6 @@ use octocode_github::ProviderError;
 use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use std::{collections::BTreeMap, ffi::OsString, process::Stdio, time::Duration};
-use tokio::io::AsyncReadExt;
 
 const MAX_TOKEN_BYTES: u64 = 8192;
 /// The variable gh (Go's `os.UserHomeDir`) reads its home from. Its login and
@@ -70,26 +69,17 @@ async fn run_command(
     let Ok(mut child) = command.spawn() else {
         return Ok(None);
     };
-    let mut job = match octocode_engine::process::Job::attach_async(&child, None) {
-        Ok(job) => job,
-        Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Ok(None);
-        }
+    let Ok(mut job) = octocode_engine::process::Job::attach_async(&child, None) else {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return Ok(None);
     };
     let result = bounded(budget, async {
         let operation = async {
             let stdout = child.stdout.take()?;
-            let mut bytes = Vec::new();
-            stdout
-                .take(MAX_TOKEN_BYTES + 1)
-                .read_to_end(&mut bytes)
+            let bytes = octocode_io::read::read_limited_async(stdout, MAX_TOKEN_BYTES)
                 .await
-                .ok()?;
-            if bytes.len() > MAX_TOKEN_BYTES as usize {
-                return None;
-            }
+                .ok()??;
             #[cfg(unix)]
             while !octocode_engine::process::exited_without_reaping(child.id()?).ok()? {
                 tokio::time::sleep(Duration::from_millis(10)).await;

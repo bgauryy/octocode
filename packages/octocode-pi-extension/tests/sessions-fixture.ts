@@ -76,7 +76,7 @@ export function setup(options: { id?: string; entries?: Entry[]; hasUI?: boolean
     setCurrentSession(id);
     await fake.fire('session_start', { type: 'session_start', reason }, ctx);
   };
-  return { ...fake, piCommands: fake.commands, commands, ctx, id, file, entries, names, switched, start, index: () => new SessionIndex(sharedAgentDb()) };
+  return { ...fake, commands, ctx, id, file, entries, names, switched, start, index: () => new SessionIndex(sharedAgentDb()) };
 }
 
 export const row = (id: string) => new SessionIndex(sharedAgentDb()).get(id);

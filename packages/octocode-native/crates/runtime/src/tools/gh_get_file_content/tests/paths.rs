@@ -30,7 +30,15 @@ async fn paths_resolve_like_listings_or_are_refused_unsent() {
         read.output.data
     );
     let requests = server.received_requests().await.expect("requests");
-    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request.url.path().contains("/contents/"))
+            .count(),
+        1,
+        "{requests:?}"
+    );
+    let acquisition_count = requests.len();
     for refused in ["../x.md", "src/../../x.md", "src/..", "./"] {
         let Err(failure) = run_default(
             &provider,
@@ -52,7 +60,11 @@ async fn paths_resolve_like_listings_or_are_refused_unsent() {
         );
     }
     let requests = server.received_requests().await.expect("requests");
-    assert_eq!(requests.len(), 1, "refusals send nothing: {requests:?}");
+    assert_eq!(
+        requests.len(),
+        acquisition_count,
+        "refusals send nothing: {requests:?}"
+    );
 }
 
 /// A path whose case differs is answered by one listing walk at the
@@ -85,18 +97,17 @@ async fn wrong_case_path_leads_once_to_the_case_corrected_read() {
     )
     .await;
     let provider = mock_provider(&server, RetryPolicy::default());
-    let failure = match run_default(
+    let Err(failure) = run_default(
         &provider,
         serde_json::json!({"owner":"a","repo":"b","path":"src/Lib.rs"}),
     )
     .await
-    {
-        Err(failure) => failure,
-        Ok(_) => panic!("a missing path is a failure"),
+    else {
+        panic!("a missing path is a failure")
     };
-    let next = failure.next.expect("recovery leads");
+    let next = failure.calls.expect("recovery leads");
     assert_eq!(
-        next["read"]["query"]["queries"][0]["path"], "src/lib.rs",
+        next["read"]["input"]["queries"][0]["path"], "src/lib.rs",
         "{next}"
     );
     assert_eq!(
@@ -144,10 +155,10 @@ async fn a_submodule_path_leads_to_its_repository_at_the_pinned_commit() {
     else {
         panic!("a submodule path is a failure");
     };
-    let next = failure.next.expect("submodule lead");
+    let next = failure.calls.expect("submodule lead");
     let lead = &next["viewTree"];
     assert_eq!(lead["tool"], "ghStructure", "{next}");
-    let row = &lead["query"]["queries"][0];
+    let row = &lead["input"]["queries"][0];
     assert_eq!(row["owner"], "o2", "{next}");
     assert_eq!(row["repo"], "r2", "{next}");
     assert_eq!(row["ref"], pinned, "{next}");
@@ -160,7 +171,7 @@ async fn a_submodule_path_leads_to_its_repository_at_the_pinned_commit() {
     else {
         panic!("a submodule path is a failure");
     };
-    assert!(elsewhere.next.is_none(), "{:?}", elsewhere.next);
+    assert!(elsewhere.calls.is_none(), "{:?}", elsewhere.calls);
     assert_eq!(elsewhere.hints.len(), 1, "{:?}", elsewhere.hints);
     assert!(
         !elsewhere.hints[0].contains("rejected field"),
@@ -248,9 +259,9 @@ async fn a_missing_path_at_a_ref_names_the_ref_and_its_commit() {
         failure.message,
         "Path not found in a/b at v1 (0123456): src/missing.rs"
     );
-    let next = failure.next.expect("recovery");
+    let next = failure.calls.expect("recovery");
     assert_eq!(
-        next["viewTree"]["query"]["queries"][0]["ref"], sha,
+        next["viewTree"]["input"]["queries"][0]["ref"], sha,
         "{next}"
     );
 }
@@ -263,8 +274,7 @@ fn a_failed_read_takes_the_shared_provider_hint() {
     use crate::tools::gh_shared::provider_hint;
     use octocode_github::{ProviderError, ProviderErrorKind};
     let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
-        "owner":"a","repo":"b","path":"src/lib.rs","mainGoal":"test","reasoning":"test"
-    }))
+        "owner":"a","repo":"b","path":"src/lib.rs"}))
     .expect("query");
     let mut saml = ProviderError::new(ProviderErrorKind::Permission, "Resource protected by SAML");
     saml.sso_url = Some("https://github.com/orgs/a/sso".into());

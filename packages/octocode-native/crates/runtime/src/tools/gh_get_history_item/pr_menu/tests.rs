@@ -26,7 +26,7 @@ fn change_reads_prefer_the_first_unpatched_text_file() {
     let reads = change_reads("o", "r", &files, &sides, |_| true);
     let paths = reads
         .iter()
-        .map(|(name, read)| (*name, read["query"]["queries"][0].clone()))
+        .map(|(name, read)| (*name, read["input"]["queries"][0].clone()))
         .collect::<Vec<_>>();
     assert_eq!(
         paths,
@@ -43,7 +43,7 @@ fn change_reads_prefer_the_first_unpatched_text_file() {
     );
     // Without an unpatched text file the top patched file is read.
     let reads = change_reads("o", "r", &files[..2], &sides, |_| true);
-    assert_eq!(reads[0].1["query"]["queries"][0]["path"], "src/big.rs");
+    assert_eq!(reads[0].1["input"]["queries"][0]["path"], "src/big.rs");
     let mut graphql = files[2].clone();
     graphql.as_object_mut().map(|file| file.remove("sha"));
     assert!(first_unpatched(&[graphql], |_| true).is_none());

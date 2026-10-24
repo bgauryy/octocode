@@ -100,13 +100,8 @@ describe('backlog fields (where, why, evidence, plan): tool', () => {
     expect(storeFor(fs.realpathSync(t.cwd)).get('B1')).toMatchObject({ goal: 'Tests and lint pass.' });
   });
 
-  it('describes each field by its decision rule, and says an update replaces the whole body', () => {
+  it('takes paths and evidence as lists', () => {
     const { properties } = setup().tool.parameters;
-    expect(properties.paths.description).toMatch(/files, dirs or components/);
-    expect(properties.why.description).toMatch(/why it matters/);
-    expect(properties.evidence.description).toMatch(/observations/);
-    expect(properties.plan.description).toMatch(/approach and steps/);
-    expect(properties.body.description).toMatch(/update replaces the whole text/);
     expect(properties.paths.type).toBe('array');
     expect(properties.evidence.type).toBe('array');
   });

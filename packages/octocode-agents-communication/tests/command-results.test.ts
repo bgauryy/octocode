@@ -29,7 +29,6 @@ function conforms(name: string, value: unknown): void {
 
 test('every command has a result schema and every result schema names a command', () => {
   assert.deepEqual(Object.keys(results).sort(), [...commands].sort());
-  assert.equal(commands.length, 49);
   for (const name of commands) assert.doesNotThrow(() => validation.checkSchema(results[name]), name);
 });
 

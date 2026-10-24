@@ -223,6 +223,10 @@ pub(crate) fn run_bounded_records(
 const DRAIN_GRACE: Duration = Duration::from_secs(1);
 
 #[cfg(all(test, unix))]
+#[expect(
+    clippy::expect_used,
+    reason = "test module: clippy's allow-expect-in-tests does not see `cfg(all(test, unix))`"
+)]
 mod tests;
 
 /// A detached descendant that keeps the output pipes open must not hold the

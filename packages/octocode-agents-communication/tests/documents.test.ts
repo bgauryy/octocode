@@ -98,7 +98,7 @@ test('context pages advance across sparse audit rows and incremental reads never
   for (let i = 0; i < 3; i++) f.call('share_document', { name: `note-${i}.md`, content: `proof ${i}`, context: { summary: `Gotcha ${i}` } }, f.a.id);
   let page = f.call('context', { limit: 1 }, f.b.id);
   // The document registry skips unrelated audit history: the first page holds the first note.
-  assert.deepEqual(page.items.map((x: JsonRecord) => x.name), ['note-0.md']); assert.ok(page.next); assert.equal(page.scanned, 1);
+  assert.deepEqual(page.items.map((x: JsonRecord) => x.name), ['note-0.md']); assert.equal(page.next?.command, 'context'); assert.equal(page.scanned, 1);
   f.call('share_document', { name: 'concurrent.md', content: 'later snapshot', context: { summary: 'Published during pagination' } }, f.a.id);
   const names = page.items.map((x: JsonRecord) => x.name);
   while (page.next) { page = f.call(page.next.command, page.next.input, f.b.id); names.push(...page.items.map((x: JsonRecord) => x.name)); }
@@ -128,6 +128,7 @@ test('context validates bounds and containment and preserves canonical path alia
   }
   assert.throws(() => f.call('context', { path: '../escape' }, f.b.id), /inside/);
   assert.throws(() => f.call('context', { limit: 21 }, f.b.id), /limit is outside numeric bounds/);
+  assert.throws(() => f.call('context', { path: '.', after: 10, through: 1 }, f.b.id), /through must be at least after/);
   assert.throws(() => f.call('context', {}, 'unknown'), /Unknown or expired session/);
   mkdirSync(join(f.workspace, 'src'));
   if (process.platform !== 'win32') {
@@ -135,6 +136,17 @@ test('context validates bounds and containment and preserves canonical path alia
     f.call('share_document', { ...input, context: { summary: 'Alias fact', path: 'alias' } }, f.a.id);
     assert.equal(f.call('context', { path: 'src/new.rs' }, f.b.id).items[0].context.path, 'src');
   }
+});
+
+test('a revision that supersedes a published document records the ADR link; unknown or self targets are refused', t => {
+  const f = fixture(t);
+  f.call('share_document', { name: 'adr-1.md', content: 'Use SQLite' }, f.a.id);
+  assert.throws(() => f.call('share_document', { name: 'adr-2.md', content: 'Use Postgres', supersedes: 'adr-0.md' }, f.a.id), /supersedes must name a published document/);
+  assert.throws(() => f.call('share_document', { name: 'adr-3.md', content: 'Self', supersedes: 'adr-3.md' }, f.a.id), /cannot supersede itself/);
+  const revision = f.call('share_document', { name: 'adr-2.md', content: 'Use Postgres', supersedes: 'adr-1.md' }, f.a.id);
+  assert.equal(revision.document.supersedes, 'adr-1.md');
+  assert.equal(f.call('share_document', { name: 'adr-2.md', content: 'Use Postgres', supersedes: 'adr-1.md' }, f.a.id).created, false);
+  assert.throws(() => f.call('share_document', { name: 'adr-2.md', content: 'Use Postgres' }, f.a.id), /immutable/);
 });
 
 test('large document stays on disk once, compact messages reference it, audit retains attribution', async t => {

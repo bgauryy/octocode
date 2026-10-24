@@ -9,148 +9,59 @@
 
 use super::construction_tests::runtime;
 use crate::contracts;
-use crate::contracts::resolve_ref;
 use crate::id::ToolId;
 use crate::security::{ContentSecurity, InputPolicy};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 
 fn policy(tool: ToolId) -> InputPolicy {
     if tool.is_clasify() {
         InputPolicy::ClasifyEvidence {
-            state_limit: crate::tools::clasify::max_state_chars(false),
+            content_limit: crate::tools::clasify::max_state_chars(false),
         }
     } else {
         InputPolicy::Query
     }
 }
 
-/// A value the schema admits, from the schema alone: the first enum/const,
-/// the first union branch, the smallest string/number, required fields only.
-fn sample(schema: &Value, defs: &Value, root: &Value) -> Value {
-    let schema = resolve_ref(schema, defs);
-    if let Some(constant) = schema.get("const") {
-        return constant.clone();
-    }
-    if let Some(first) = schema["enum"].as_array().and_then(|values| values.first()) {
-        return first.clone();
-    }
-    if let Some(branch) = ["oneOf", "anyOf"]
-        .iter()
-        .find_map(|key| schema[*key].as_array())
-        .and_then(|branches| branches.first())
-    {
-        return sample(branch, defs, root);
-    }
-    let kind = match &schema["type"] {
-        Value::String(kind) => kind.as_str(),
-        Value::Array(kinds) => kinds.first().and_then(Value::as_str).unwrap_or("object"),
-        _ => "object",
-    };
-    match kind {
-        "string" => json!("a".repeat(schema["minLength"].as_u64().unwrap_or(1).max(1) as usize)),
-        "integer" | "number" => schema.get("minimum").cloned().unwrap_or(json!(1)),
-        "boolean" => json!(true),
-        "array" => {
-            let item = schema
-                .get("items")
-                .map_or(json!("a"), |items| sample(items, defs, root));
-            json!([item])
-        }
-        _ => Value::Object(required_fields(schema, defs, root)),
-    }
-}
-
-fn required_fields(schema: &Value, defs: &Value, root: &Value) -> Map<String, Value> {
-    let mut object = Map::new();
-    for name in schema["required"]
+/// Authored first-call examples are the schema owner's executable cases.
+fn examples(tool: ToolId) -> Vec<Value> {
+    let examples: Vec<Value> = contracts::tool_contract(tool).expect("contract")["variants"]
         .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-    {
-        let property = &schema["properties"][name];
-        object.insert(name.to_owned(), sample(property, defs, root));
-    }
-    object
-}
-
-/// Every `oneOf`/`anyOf` branch of the tool's query schema (or the schema
-/// itself) merged over the shared fields, as one object schema each.
-fn variants(tool: ToolId) -> Vec<Value> {
-    let schema = &contracts::tool_contract(tool).expect("contract")["querySchema"];
-    let branches: Vec<&Value> = ["oneOf", "anyOf"]
+        .expect("variants")
         .iter()
-        .find_map(|key| schema[*key].as_array())
-        .map_or_else(|| vec![schema], |branches| branches.iter().collect());
-    let defs = &schema["$defs"];
-    branches
-        .into_iter()
-        .map(|branch| {
-            let branch = resolve_ref(branch, defs);
-            let mut merged = schema.clone();
-            for key in ["properties", "required"] {
-                match (&mut merged[key], &branch[key]) {
-                    (Value::Object(into), Value::Object(from)) => into.extend(from.clone()),
-                    (Value::Array(into), Value::Array(from)) => into.extend(from.clone()),
-                    (slot @ Value::Null, from) => *slot = from.clone(),
-                    _ => {}
-                }
-            }
-            merged
-        })
-        .collect()
+        .filter_map(|variant| variant.get("example").cloned())
+        .collect();
+    assert!(!examples.is_empty(), "{tool:?}: no authored examples");
+    for row in &examples {
+        assert!(
+            is_valid(tool, row),
+            "{tool:?}: invalid authored example: {row}"
+        );
+    }
+    examples
 }
 
 fn is_valid(tool: ToolId, row: &Value) -> bool {
-    contracts::prepare_rows(tool.as_str(), json!({"queries": [row]}))
+    contracts::prepare_rows(tool.as_str(), input(row))
         .is_ok_and(|rows| rows.iter().all(Result::is_ok))
 }
 
-/// A row the contract accepts, built from the schema: a variant's required
-/// fields, plus one sampled optional field when a rule beyond `required`
-/// (e.g. "needs keywords, topics, owner, or a filter") asks for one.
-fn base_row(tool: ToolId) -> (Value, Value) {
-    let schema = &contracts::tool_contract(tool).expect("contract")["querySchema"];
-    let defs = &schema["$defs"];
-    for variant in variants(tool) {
-        let required = required_fields(&variant, defs, schema);
-        let mut candidates = vec![Value::Object(required.clone())];
-        for (name, property) in variant["properties"].as_object().into_iter().flatten() {
-            let mut row = required.clone();
-            row.entry(name.clone())
-                .or_insert_with(|| sample(property, defs, schema));
-            candidates.push(Value::Object(row));
-        }
-        if let Some(row) = candidates.into_iter().find(|row| is_valid(tool, row)) {
-            return (row, variant);
-        }
-    }
-    panic!("{tool:?}: no contract-valid row could be sampled from its query schema");
+fn base_row(tool: ToolId) -> Value {
+    examples(tool).into_iter().next().expect("authored example")
 }
 
-/// A string property (no enum, const or format) the contract accepts
-/// `value` in: where a caller's text goes. `None` when the contract itself
-/// bounds every such field below `value`.
-fn free_text_field(tool: ToolId, base: &Value, variant: &Value, value: &str) -> Option<String> {
-    let defs = &contracts::tool_contract(tool).expect("contract")["querySchema"]["$defs"];
-    variant["properties"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(_, schema)| {
-            let schema = resolve_ref(schema, defs);
-            schema["type"] == "string"
-                && ["enum", "const", "format"]
-                    .iter()
-                    .all(|key| schema.get(*key).is_none())
-        })
-        .map(|(name, _)| name.clone())
-        .find(|name| {
+/// A caller string the contract admits without changing any sibling fields.
+fn free_text_field(tool: ToolId, base: &Value, value: &str) -> Option<String> {
+    base.as_object()
+        .expect("example row")
+        .iter()
+        .filter(|(_, sample)| sample.is_string())
+        .find_map(|(name, _)| {
             let mut row = base.clone();
             row[name] = json!(value);
-            is_valid(tool, &row)
+            is_valid(tool, &row).then(|| name.clone())
         })
 }
 
@@ -170,12 +81,13 @@ fn a_credential_in_a_query_never_runs_and_is_never_echoed_for_any_tool() {
     let home = tempfile::tempdir().expect("home");
     let runtime = runtime(home.path(), &[]);
     for tool in ToolId::ALL {
-        let (base, variant) = base_row(tool);
-        let field = free_text_field(tool, &base, &variant, TOKEN)
+        let (base, field) = examples(tool)
+            .into_iter()
+            .find_map(|base| free_text_field(tool, &base, TOKEN).map(|field| (base, field)))
             .unwrap_or_else(|| panic!("{tool:?}: no query text field accepts a token"));
         let mut row = base.clone();
         row[&field] = json!(TOKEN);
-        let admitted = runtime.admit_queries(tool, &input(&row));
+        let admitted = runtime.admit_queries(tool, &input(&row), false);
         let shown = payload_text(&admitted);
         assert!(
             !shown.contains(TOKEN),
@@ -214,7 +126,7 @@ fn a_credential_in_a_query_never_runs_and_is_never_echoed_for_any_tool() {
 fn a_dangerous_key_is_rejected_for_any_tool() {
     let security = ContentSecurity::new();
     for tool in ToolId::ALL {
-        let (base, _) = base_row(tool);
+        let base = base_row(tool);
         security
             .check_input(base.clone(), policy(tool))
             .unwrap_or_else(|issues| {
@@ -253,13 +165,14 @@ fn oversized_or_too_deep_input_is_rejected_for_any_tool() {
     let security = ContentSecurity::new();
     let deep = (0..25).fold(json!("leaf"), |inner, _| json!({"n": inner}));
     for tool in ToolId::ALL {
-        let (base, variant) = base_row(tool);
-        // A field the contract leaves unbounded, else an unknown one: the
-        // gate bounds every string either way.
-        let field = free_text_field(tool, &base, &variant, &"a".repeat(10_001))
-            .unwrap_or_else(|| "ext".to_owned());
+        let base = base_row(tool);
+        let limit = match policy(tool) {
+            InputPolicy::Query => 10_000,
+            InputPolicy::ClasifyEvidence { content_limit } => content_limit,
+        };
+        let field = free_text_field(tool, &base, TOKEN).unwrap_or_else(|| "ext".to_owned());
         let mut long = base.clone();
-        long[&field] = json!("a".repeat(10_001));
+        long[&field] = json!("a".repeat(limit + 1));
         let wide = {
             let mut row = base.clone();
             row["ext"] = json!(vec!["a"; crate::id::MAX_INPUT_ARRAY_ITEMS + 1]);
@@ -279,7 +192,7 @@ fn oversized_or_too_deep_input_is_rejected_for_any_tool() {
                 issues.iter().all(|issue| issue.rule_id == "security.input"),
                 "{tool:?} {what}: {issues:?}"
             );
-            let admitted = runtime.admit_queries(tool, &input(&row));
+            let admitted = runtime.admit_queries(tool, &input(&row), false);
             assert!(
                 admitted
                     .as_ref()
@@ -327,13 +240,10 @@ async fn a_credential_in_evidence_is_redacted_on_both_channels() {
     std::fs::write(&file, format!("const token = \"{TOKEN}\";\n")).expect("fixture");
     let path = file.to_string_lossy().into_owned();
     let calls = [
-        (
-            "localFetch",
-            json!({"queries":[{"path": path, "fullContent": true}]}),
-        ),
+        ("localFetch", json!({"queries":[{"path": path}]})),
         (
             "localSearch",
-            json!({"queries":[{"path": path, "matchString": "token"}]}),
+            json!({"queries":[{"path": path, "matchString": ["token"]}]}),
         ),
     ];
     for (tool, input) in calls {

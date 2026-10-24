@@ -6,7 +6,7 @@ use crate::lsp::commands::is_rejected_shell;
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::module_path::install_anchor;
 use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
-use crate::text::file_extension::extension_of;
+use crate::text::extension_of;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;

@@ -1,8 +1,6 @@
 //! Pull request continuations: identity-only headers, pinned heads, merge state, verbatim views and file-page grids.
 
-use super::{
-    SHA, mount_file_batches, mount_pr, numbered, pr, raw_patch, rest_file, run, run_status,
-};
+use super::{SHA, mount_file_batches, mount_pr, numbered, pr, raw_patch, rest_file, run};
 use crate::support::{self, Run as _};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -11,7 +9,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
-async fn pr_continuation_reads_carry_only_the_identity_header() {
+async fn inventory_cursors_keep_identity_and_reach_each_file_once() {
     let server = MockServer::builder().start().await;
     mount_pr(&server, 250).await;
     mount_file_batches(
@@ -20,62 +18,33 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
         Duration::ZERO,
     )
     .await;
-    // Page one carries the identity header and the menu; a later page
-    // re-proves identity only (the summary read owns the rest of the header):
-    // number, title, author, state and the commits code is read at.
-    let query = json!({"sections":["files"], "pageSize": 100, "extras": ["hints"]});
-    let follow = json!({"sections":["files"], "pageSize": 100, "page": 2, "extras": ["hints"]});
-    let first = run(&server, query).await;
-    let first_row = &first["pullRequests"][0];
-    assert_eq!(first_row["headSha"], SHA, "{first_row}");
-    assert_eq!(first_row["title"], "Large refactor", "{first_row}");
-    assert!(first_row.get("bodyPreview").is_none(), "{first_row}");
-    assert!(first_row.get("hints").is_none(), "{first_row}");
-    assert!(first.get("hints").is_some(), "{first}");
-    // A literal search of every patch needs the caller's literal: it is
-    // never offered as an executable placeholder.
-    assert!(
-        crate::support::checks::hint(&first, "findInPatches").is_null(),
-        "{first}"
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["files"]}],"responseChars":3000});
+    let mut seen = Vec::new();
+    for _ in 0..100 {
+        let result = support::run(&runtime, "ghGetHistoryItem", input).await;
+        let data = result.data();
+        let row = &data["pullRequests"][0];
+        if row.get("headSha").is_some() {
+            assert_eq!(row["headSha"], SHA);
+        }
+        seen.extend(inventory_paths(&row["files"]));
+        let next = result
+            .structured_content
+            .pointer("/responsePagination/next")
+            .or_else(|| data.pointer("/next/nextFilePage"));
+        let Some(next) = next else { break };
+        assert_eq!(next["kind"], "continue");
+        assert!(next["input"]["cursor"].is_string());
+        input = next["input"].clone();
+    }
+    assert_eq!(seen.len(), 250);
+    assert_eq!(
+        seen.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        250
     );
-
-    let data = run(&server, follow).await;
-    let row = &data["pullRequests"][0];
-    for kept in [
-        "number",
-        "title",
-        "author",
-        "state",
-        "headSha",
-        "mergeCommitSha",
-    ] {
-        assert!(row.get(kept).is_some(), "{kept} missing: {row}");
-    }
-    for dropped in [
-        "changedFilesCount",
-        "mergedAt",
-        "baseBranch",
-        "closedAt",
-        "labels",
-        "headBranch",
-        "updatedAt",
-        "commentsCount",
-        "additions",
-        "deletions",
-        "bodyPreview",
-        "next",
-    ] {
-        assert!(row.get(dropped).is_none(), "{dropped} repeated: {row}");
-    }
-    // 100 files in one directory: one group of 100 compact rows.
-    let group = &row["files"][0]["src/b2/"];
-    assert_eq!(group.as_array().map(Vec::len), Some(100), "{row}");
-    assert!(data["next"]["nextFilePage"].is_object(), "{data}");
-
-    // The details extra keeps the full header.
-    let details = json!({"sections":["files"], "pageSize": 100, "page": 2, "extras": ["details"]});
-    let details = run(&server, details).await;
-    assert_eq!(details["pullRequests"][0]["labels"], json!(["refactor"]));
+    runtime.close().await;
 }
 
 #[tokio::test]
@@ -94,8 +63,7 @@ async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
     .await;
     let data = run(
         &server,
-        json!({"sections":["patches"],"include":["src/big.rs"],
-               "extras": []}),
+        json!({"sections":["patches"],"include":["src/big.rs"]}),
     )
     .await;
     let row = &data["pullRequests"][0];
@@ -103,8 +71,8 @@ async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
     assert_eq!(file["patchPagination"]["hasMore"], true, "{row}");
     let pages = &row["contentPagination"];
     // The finished single-page file list and the cursor copy add nothing.
-    assert!(pages.get("files").is_none(), "{pages}");
-    assert!(pages["patches"].get("offset").is_none(), "{pages}");
+    assert_eq!(pages["files"]["hasMore"], false, "{pages}");
+    assert_eq!(pages["patches"]["offset"], 0, "{pages}");
     assert!(pages["patches"].get("totalChars").is_none(), "{pages}");
     assert!(data["next"]["continuePatch"].is_object(), "{data}");
 }
@@ -136,11 +104,7 @@ async fn pr_views_are_verbatim_by_default() {
         Duration::ZERO,
     )
     .await;
-    let data = run(
-        &server,
-        json!({"sections":["body","patches"], "extras": ["hints"]}),
-    )
-    .await;
+    let data = run(&server, json!({"sections":["body","patches"]})).await;
     let row = &data["pullRequests"][0];
     assert_eq!(row["body"], raw_body, "{row}");
     assert!(row.get("bodyView").is_none(), "{row}");
@@ -159,18 +123,12 @@ async fn pr_views_are_verbatim_by_default() {
         whole.contains("\n61\t-old\n61\t+new\n62\t ctx 1\n"),
         "{whole}"
     );
-    assert!(
-        crate::support::checks::hint(&data, "readUntrimmed").is_null(),
-        "{data}"
-    );
-    assert!(
-        crate::support::checks::hint(&data, "readRawBody").is_null(),
-        "{data}"
-    );
-    assert!(
-        !crate::support::checks::hint(&data, "readAtMerge").is_null(),
-        "{data}"
-    );
+    assert!(data["next"]["readUntrimmed"].is_null(), "{data}");
+    assert!(data["next"]["readRawBody"].is_null(), "{data}");
+    let merge_read = support::checks::related_call(&data, "ghGetFileContent", |input| {
+        input["queries"][0]["ref"] == "fedcba9876543210fedcba9876543210fedcba98"
+    });
+    assert_eq!(merge_read["kind"], "related");
 }
 
 /// A merged PR's merge state rides every PR row, whatever the content
@@ -185,35 +143,20 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
     let mut batches = vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)];
     batches[0][0] = rest_file("src/hit.rs", Some("@@ -1 +1 @@\n-a\n+needle"), 1, 1);
     mount_file_batches(&server, batches, Duration::ZERO).await;
-    for (label, query, full_header) in [
-        ("summary", json!({"extras": []}), true),
+    for (label, query, _full_header) in [
+        ("summary", json!({}), true),
         (
             "body+inventory",
-            json!({"sections":["body","files"], "extras": []}),
+            json!({"sections":["body","files"]}),
             false,
         ),
-        (
-            "inventory",
-            json!({"sections":["files"], "extras": []}),
-            false,
-        ),
+        ("inventory", json!({"sections":["files"]}), false),
         (
             "patches",
-            json!({"sections":["patches"],"include":["src/hit.rs"],
-                   "extras": []}),
+            json!({"sections":["patches"],"include":["src/hit.rs"]}),
             false,
         ),
-        (
-            "matchString",
-            json!({"matchString": "needle", "extras": []}),
-            true,
-        ),
-        (
-            "later page",
-            json!({"sections":["files"], "pageSize": 100, "page": 2,
-                   "extras": []}),
-            false,
-        ),
+        ("matchString", json!({"matchString": ["needle"]}), true),
     ] {
         let data = run(&server, query).await;
         let row = &data["pullRequests"][0];
@@ -222,17 +165,9 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
             row["mergeCommitSha"], "fedcba9876543210fedcba9876543210fedcba98",
             "{label}: {row}"
         );
-        // The merge time is the close time; it is not stated twice.
-        assert!(row.get("closedAt").is_none(), "{label}: {row}");
-        if full_header {
-            assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
-            assert_eq!(row["baseBranch"], "main", "{label}: {row}");
-            assert_eq!(row["labels"], json!(["refactor"]), "{label}: {row}");
-        } else {
-            for dropped in ["mergedAt", "baseBranch", "labels"] {
-                assert!(row.get(dropped).is_none(), "{label}: {dropped}: {row}");
-            }
-        }
+        assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
+        assert_eq!(row["baseBranch"], "main", "{label}: {row}");
+        assert_eq!(row["labels"], json!(["refactor"]), "{label}: {row}");
     }
 }
 
@@ -240,45 +175,39 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
 /// replayed after the head moved, the page is a stale snapshot whose
 /// restart is the first page without the pin, never a mix of two heads.
 #[tokio::test]
-async fn pull_request_pages_pin_the_head_and_a_moved_head_restarts() {
+async fn inventory_cursor_replay_returns_the_same_pinned_file_page() {
     let server = MockServer::builder().start().await;
-    mount_pr(&server, 250).await;
+    mount_pr(&server, 450).await;
     mount_file_batches(
         &server,
-        vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)],
+        (1..=5)
+            .map(|n| numbered(n, if n == 5 { 50 } else { 100 }))
+            .collect(),
         Duration::ZERO,
     )
     .await;
-    let first = run(
-        &server,
-        json!({"sections":["files"], "pageSize": 100, "extras": []}),
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let first = support::run(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["files"]}),
     )
     .await;
-    let page = &first["next"]["nextFilePage"]["query"]["queries"][0];
-    assert_eq!(page["headSha"], SHA, "{first}");
-    let mut moved = page.clone();
-    moved["headSha"] = json!("abcdef0123456789abcdef0123456789abcdef01");
-    for field in ["operation", "owner", "repo", "number"] {
-        moved.as_object_mut().expect("row").remove(field);
-    }
-    moved["extras"] = json!([]);
-    let (status, stale) = run_status(&server, moved).await;
-    assert_eq!(status, "error", "{stale}");
-    assert_eq!(stale["errorCode"], "staleSnapshot", "{stale}");
-    let restart = &stale["next"]["restart"]["query"]["queries"][0];
-    assert!(restart.get("headSha").is_none(), "{stale}");
-    assert!(restart.get("page").is_none(), "{stale}");
-    // An abbreviated pin of the same head reads the page, not a false
-    // stale snapshot.
-    let mut short = page.clone();
-    short["headSha"] = json!(&SHA[..7]);
-    for field in ["operation", "owner", "repo", "number"] {
-        short.as_object_mut().expect("row").remove(field);
-    }
-    short["extras"] = json!([]);
-    let (status, read) = run_status(&server, short).await;
-    assert_ne!(status, "error", "{read}");
-    assert!(read.get("errorCode").is_none(), "{read}");
+    let next = first.data()["next"]["nextFilePage"]["input"].clone();
+    assert!(next["cursor"].is_string());
+    let second = support::run(&runtime, "ghGetHistoryItem", next.clone()).await;
+    let replay = support::run(&runtime, "ghGetHistoryItem", next).await;
+    assert_eq!(second.data()["pullRequests"][0]["headSha"], SHA);
+    let paths = inventory_paths(&second.data()["pullRequests"][0]["files"]);
+    assert!(!paths.is_empty());
+    assert_eq!(
+        paths,
+        inventory_paths(&replay.data()["pullRequests"][0]["files"])
+    );
+    let first_paths = inventory_paths(&first.data()["pullRequests"][0]["files"]);
+    assert!(paths.iter().all(|path| !first_paths.contains(path)));
+    runtime.close().await;
 }
 
 /// The changed-file paths a compact inventory page lists, in order:
@@ -329,53 +258,43 @@ async fn file_page_continuations_continue_the_same_grid_in_any_batch() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let files_row = json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,
-        "mainGoal":"g","reasoning":"r","sections":["files"]});
+        "sections":["files"]});
     let body_row = json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,
-        "mainGoal":"g","reasoning":"r","sections":["body"]});
+        "sections":["body"]});
     // One call: the files row with or without a batched body row; returns
     // the files row's paths and its copied-unchanged next file page.
-    let calls = std::sync::atomic::AtomicUsize::new(0);
-    let call = |row: Value, batched: bool| {
-        let runtime = &runtime;
-        let id = calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let body_row = body_row.clone();
-        async move {
-            let queries = if batched {
-                json!([row, body_row])
-            } else {
-                json!([row])
-            };
+    for first_batched in [true, false] {
+        let queries = if first_batched {
+            json!([files_row, body_row])
+        } else {
+            json!([files_row])
+        };
+        let mut input = json!({"queries":queries});
+        let mut seen = Vec::new();
+        for hop in 0..100 {
             let outcome = runtime
                 .run(
-                    format!("grid-{id}"),
+                    format!("grid-{first_batched}-{hop}"),
                     "ghGetHistoryItem".into(),
-                    json!({ "queries": queries }),
+                    input,
                 )
                 .await
                 .expect("file page");
-            let content = outcome.structured_content;
-            assert!(content.get("responsePagination").is_none(), "{content}");
+            let content = &outcome.structured_content;
             let data = &content["results"][0]["data"];
-            let paths = inventory_paths(&data["pullRequests"][0]["files"]);
-            let next = data.pointer("/next/nextFilePage/query/queries/0").cloned();
-            (paths, next)
+            seen.extend(inventory_paths(&data["pullRequests"][0]["files"]));
+            let next = content
+                .pointer("/responsePagination/next")
+                .or_else(|| data.pointer("/next/nextFilePage"));
+            let Some(next) = next else { break };
+            assert!(next["input"]["cursor"].is_string(), "{next}");
+            input = next["input"].clone();
         }
-    };
-    for first_batched in [true, false] {
-        let mut seen = Vec::new();
-        let (paths, mut next) = call(files_row.clone(), first_batched).await;
-        let first_page = paths.len();
-        seen.extend(paths);
-        // Every later page runs in the other batch shape.
-        while let Some(row) = next {
-            let (paths, after) = call(row, !first_batched).await;
-            assert!(!paths.is_empty(), "an empty page mid-walk");
-            seen.extend(paths);
-            next = after;
-        }
-        let unique = seen.iter().collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(unique.len(), seen.len(), "a file repeated: {first_page}");
-        assert_eq!(seen.len(), 450, "first page {first_page}: {seen:?}");
+        assert_eq!(seen.len(), 450);
+        assert_eq!(
+            seen.iter().collect::<std::collections::BTreeSet<_>>().len(),
+            450
+        );
     }
     runtime.close().await;
 }

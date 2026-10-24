@@ -1,6 +1,6 @@
 //! One compact repository row.
-use super::GhSearchRepoQuery;
 use crate::response::result::remove_null_fields;
+use octocode_contract_types::GhSearchRepoQuery;
 use serde_json::{Value, json};
 
 /// A repository timestamp as its UTC day; text too short to name one
@@ -11,11 +11,11 @@ pub(super) fn date(value: Option<String>) -> Option<String> {
 
 /// Lowercased query topics and keyword words: a row lists these topics first.
 pub(super) fn wanted_topics(query: &GhSearchRepoQuery) -> Vec<String> {
-    query
-        .topics
-        .iter()
+    super::access::filters(query)
+        .into_iter()
+        .flat_map(|filters| &filters.topics)
         .map(|topic| topic.to_lowercase())
-        .chain(query.keywords.iter().flat_map(|keyword| {
+        .chain(super::access::keywords(query).iter().flat_map(|keyword| {
             let keyword = keyword.to_lowercase();
             let hyphenated = keyword.split_whitespace().collect::<Vec<_>>().join("-");
             keyword
@@ -28,12 +28,9 @@ pub(super) fn wanted_topics(query: &GhSearchRepoQuery) -> Vec<String> {
 }
 
 /// One compact repository row: `owner`, `repo` and `defaultBranch` (the
-/// next hop's coordinates; a page whose rows agree states the branch once in
-/// `shared`), the decision facts by default (stars, language, last push,
-/// `archived`/`fork` when set) and the whole description. The license, the
-/// creation date and every topic (query matches first) are `details`
-/// extras; the fork count and the metadata-update date are `stats` extras
-/// (the contract's extra paths decide what a response keeps).
+/// next hop's coordinates), the description, license, dates, counts and
+/// nonredundant topics (query matches first). Optional `fields` projection
+/// is applied after rows are assembled.
 pub(super) fn repository_row(
     item: octocode_github::RepositorySearchItem,
     wanted: &[String],

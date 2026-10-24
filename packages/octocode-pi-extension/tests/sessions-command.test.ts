@@ -189,9 +189,4 @@ describe('/octocode sessions without a UI', () => {
     }
     expect(written.at(-1)).toMatch(/^Sessions \(all directories\), newest first:\n[\s\S]*elsewhere\n$/);
   });
-
-  it('registers /sessions as a shortcut', () => {
-    const { piCommands } = setup();
-    expect(piCommands.has('sessions')).toBe(true);
-  });
 });

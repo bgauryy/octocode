@@ -4,7 +4,7 @@
 use super::*;
 
 /// A `files` result's first page leads to its first outline-able file: a
-/// localFetch `minify:"symbols"` read of its declarations. A listing of
+/// localFetch `view:"symbols"` read of its declarations. A listing of
 /// only non-source files offers none, and later pages repeat none.
 #[test]
 fn a_files_result_leads_to_the_top_files_outline() {
@@ -18,41 +18,45 @@ fn a_files_result_leads_to_the_top_files_outline() {
         json!({"operation":"files","path":root.0.join("src"),"include":["*.rs","*.bin"]}),
     )
     .expect("files");
-    let lead = &out["next"]["read"];
+    let lead = &related(&out, "localFetch");
     assert_eq!(lead["tool"], "localFetch", "{out}");
-    let path = lead["query"]["queries"][0]["path"].as_str().expect("path");
+    let path = lead["input"]["queries"][0]["path"].as_str().expect("path");
     assert!(path.ends_with("src/lib.rs"), "{out}");
     assert!(std::path::Path::new(path).is_absolute(), "{out}");
-    assert_eq!(lead["query"]["queries"][0]["minify"], "symbols", "{out}");
+    assert_eq!(lead["input"]["queries"][0]["view"], "symbols", "{out}");
     assert_eq!(
-        lead["query"]["queries"][0].as_object().map(|q| q.len()),
+        lead["input"]["queries"][0]
+            .as_object()
+            .map(serde_json::Map::len),
         Some(2),
         "{out}"
     );
-    crate::contracts::validate_query("localFetch", lead["query"]["queries"][0].clone())
+    crate::contracts::validate_query("localFetch", lead["input"]["queries"][0].clone())
         .expect("read is a valid localFetch query");
 
     for name in ["c.rs", "d.rs", "e.rs"] {
         std::fs::write(root.0.join("src").join(name), "fn x() {}\n").expect("more");
     }
-    let wide = run(
+    let wide = run_budget(
         &root.0,
-        json!({"operation":"files","path":root.0.join("src"),"include":["*.rs","*.bin"],"pageSize":2}),
+        json!({"operation":"files","path":root.0.join("src"),"include":["*.rs"]}),
+        200,
     )
     .expect("files");
-    assert!(wide.pointer("/next/read").is_some(), "{wide}");
-    let later = run(
+    assert!(!related(&wide, "localFetch").is_null(), "{wide}");
+    let later = run_budget(
         &root.0,
-        wide["next"]["nextPage"]["query"]["queries"][0].clone(),
+        wide["next"]["nextPage"]["input"]["queries"][0].clone(),
+        200,
     )
     .expect("page 2");
-    assert!(later.pointer("/next/read").is_none(), "{later}");
+    assert!(related(&later, "localFetch").is_null(), "{later}");
     let binary = run(
         &root.0,
         json!({"operation":"files","path":root.0.join("src"),"include":["*.bin"]}),
     )
     .expect("files");
-    assert!(binary.pointer("/next/read").is_none(), "{binary}");
+    assert!(related(&binary, "localFetch").is_null(), "{binary}");
 }
 
 /// `tree` and `files` lead to the same read over the same rows: one
@@ -69,7 +73,7 @@ fn tree_and_files_lead_to_the_same_read() {
     std::fs::write(root.0.join("docs/guide.md"), "# guide\n").expect("guide");
     let read = |query: Value| {
         let out = run(&root.0, query.clone()).expect("listing");
-        out["next"]["read"]["query"]["queries"][0]["path"]
+        related(&out, "localFetch")["input"]["queries"][0]["path"]
             .as_str()
             .map(|path| path.rsplit('/').next().unwrap_or(path).to_owned())
     };
@@ -104,12 +108,8 @@ fn files_read_lead_skips_generated_and_large() {
     )
     .expect("generated");
     std::fs::write(root.0.join("b.rs"), "fn b() {}\n").expect("small");
-    let out = run(
-        &root.0,
-        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0}),
-    )
-    .expect("files");
-    let read = out["next"]["read"]["query"]["queries"][0]["path"]
+    let out = run(&root.0, json!({"operation":"files","path":root.0})).expect("files");
+    let read = related(&out, "localFetch")["input"]["queries"][0]["path"]
         .as_str()
         .unwrap_or_else(|| panic!("read lead: {out}"));
     assert!(read.ends_with("b.rs"), "{out}");
@@ -122,19 +122,15 @@ fn root_tree_leads_to_manifest() {
     std::fs::write(root.0.join("package.json"), "{\"name\":\"x\"}\n").expect("manifest");
     std::fs::write(root.0.join("README.md"), "# x\n").expect("readme");
     std::fs::create_dir(root.0.join("src")).expect("src");
-    let out = run(
-        &root.0,
-        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0}),
-    )
-    .expect("tree");
-    let query = &out["next"]["read"]["query"]["queries"][0];
+    let out = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
+    let query = &related(&out, "localFetch")["input"]["queries"][0];
     assert!(
         query["path"]
             .as_str()
             .is_some_and(|path| path.ends_with("package.json")),
         "{out}"
     );
-    assert!(query.get("minify").is_none(), "{out}");
+    assert!(query.get("view").is_none(), "{out}");
 }
 
 /// A tree ranks its read lead with the rule ghStructure uses
@@ -151,14 +147,10 @@ fn tree_read_lead_ranks_like_ghstructure() {
             std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
             std::fs::write(path, "# x\n").expect("file");
         }
-        let out = run(
-            &root.0,
-            json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0}),
-        )
-        .expect("tree");
-        let query = out["next"]["read"]["query"]["queries"][0].clone();
+        let out = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
+        let query = related(&out, "localFetch")["input"]["queries"][0].clone();
         let path = query["path"].as_str().expect("read lead").to_owned();
-        (path, query.get("minify").cloned())
+        (path, query.get("view").cloned())
     };
     let leads = |files: &[&str], expected: &str| {
         let (path, _) = lead(files);
@@ -167,13 +159,13 @@ fn tree_read_lead_ranks_like_ghstructure() {
     leads(&["package.json", "index.ts"], "index.ts");
     leads(&["mm.mjs", "README.md"], "README.md");
     leads(&["mm.mjs", "AGENTS.md"], "AGENTS.md");
-    let (path, minify) = lead(&["README.md", "package.json"]);
+    let (path, view) = lead(&["README.md", "package.json"]);
     assert!(path.ends_with("/package.json"), "{path}");
-    assert_eq!(minify, None);
+    assert_eq!(view, None);
     // Docs outline like ghStructure's read of the same file.
-    let (path, minify) = lead(&["README.md"]);
+    let (path, view) = lead(&["README.md"]);
     assert!(path.ends_with("/README.md"), "{path}");
-    assert_eq!(minify, Some(json!("symbols")));
+    assert_eq!(view, Some(json!("symbols")));
     // Only the listed directory's own manifest describes it.
     leads(&["pkg/package.json", "util.rs"], "util.rs");
 }

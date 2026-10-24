@@ -4,7 +4,34 @@
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Session } from '../cdp-connection.mjs';
 import { observeFrameEvents } from '../frame-events.mjs';
+
+/** One request (or redirect hop) seen through CDP Network events. */
+type RequestRecord = {
+  requestId: string;
+  hop: number;
+  url: string;
+  method: string;
+  type?: string;
+  kind?: string;
+  initiator?: string | null;
+  frameId?: string;
+  sessionId?: string | null;
+  start: number;
+  timestamp?: number;
+  complete?: boolean;
+  end?: number;
+  ms?: number;
+  status?: number;
+  mimeType?: string;
+  headersMs?: number;
+  encodedDataLength?: number;
+  redirectURL?: string;
+  failed?: boolean;
+  errorText?: string;
+  blockedReason?: string;
+};
 
 const SLOW_MS = Number(process.env.NET_SLOW_MS || 1000);
 const API_URL = 'https://example.test/api/measure';
@@ -14,7 +41,7 @@ fetch('${API_URL}').then(r=>r.json()).then(j=>{document.title='ok';document.body
 fetch('https://example.test/missing').catch(()=>{});
 </script><body>network-measure</body>`)}`;
 
-function classify(url = '') {
+function classify(url: string) {
   try {
     const u = new URL(url);
     const path = u.pathname.toLowerCase();
@@ -30,7 +57,38 @@ function classify(url = '') {
   }
 }
 
-export async function run(cdp) {
+/** The hermetic fixture: a JSON API answer, a 404, and every other request passed through. */
+function fulfillFixture(cdp: Session) {
+  cdp.on('Fetch.requestPaused', async ({ requestId, request }) => {
+    if (request.url.includes('/api/measure')) {
+      await cdp.send('Fetch.fulfillRequest', {
+        requestId,
+        responseCode: 200,
+        responsePhrase: 'OK',
+        responseHeaders: [
+          { name: 'content-type', value: 'application/json' },
+          { name: 'access-control-allow-origin', value: '*' },
+        ],
+        body: Buffer.from(API_BODY).toString('base64'),
+      });
+    } else if (request.url.includes('/missing')) {
+      await cdp.send('Fetch.fulfillRequest', {
+        requestId,
+        responseCode: 404,
+        responsePhrase: 'Not Found',
+        responseHeaders: [
+          { name: 'content-type', value: 'text/plain' },
+          { name: 'access-control-allow-origin', value: '*' },
+        ],
+        body: Buffer.from('missing').toString('base64'),
+      });
+    } else {
+      await cdp.send('Fetch.continueRequest', { requestId });
+    }
+  });
+}
+
+export async function run(cdp: Session) {
   await cdp.send('Runtime.enable');
   await cdp.send('Network.enable');
   await cdp.send('Page.enable');
@@ -47,41 +105,15 @@ export async function run(cdp) {
         { urlPattern: '*example.test/missing*', requestStage: 'Request' },
       ],
     });
-    cdp.on('Fetch.requestPaused', async ({ requestId, request }) => {
-      if (request.url.includes('/api/measure')) {
-        await cdp.send('Fetch.fulfillRequest', {
-          requestId,
-          responseCode: 200,
-          responsePhrase: 'OK',
-          responseHeaders: [
-            { name: 'content-type', value: 'application/json' },
-            { name: 'access-control-allow-origin', value: '*' },
-          ],
-          body: Buffer.from(API_BODY).toString('base64'),
-        });
-      } else if (request.url.includes('/missing')) {
-        await cdp.send('Fetch.fulfillRequest', {
-          requestId,
-          responseCode: 404,
-          responsePhrase: 'Not Found',
-          responseHeaders: [
-            { name: 'content-type', value: 'text/plain' },
-            { name: 'access-control-allow-origin', value: '*' },
-          ],
-          body: Buffer.from('missing').toString('base64'),
-        });
-      } else {
-        await cdp.send('Fetch.continueRequest', { requestId });
-      }
-    });
+    fulfillFixture(cdp);
   }
 
-  const records = new Map();
-  const requestKey = (requestId, meta) =>
+  const records = new Map<string, RequestRecord>();
+  const requestKey = (requestId: string, meta: { sessionId?: string }) =>
     JSON.stringify([meta.sessionId || null, requestId]);
-  const history = [];
+  const history: RequestRecord[] = [];
   const startedAt = Date.now();
-  const finish = (rec, timestamp) => {
+  const finish = (rec: RequestRecord, timestamp: number | undefined) => {
     rec.end = Date.now();
     rec.ms = Math.max(
       0,
@@ -103,7 +135,7 @@ export async function run(cdp) {
         redirectResponse,
         frameId,
       },
-      meta: Record<string, any> = {}
+      meta: { sessionId?: string } = {}
     ) => {
       const prior = records.get(requestKey(requestId, meta));
       if (prior && redirectResponse) {
@@ -155,7 +187,7 @@ export async function run(cdp) {
   cdp.on(
     'Network.loadingFailed',
     ({ requestId, errorText, blockedReason, timestamp }, meta = {}) => {
-      const rec = records.get(requestKey(requestId, meta)) || {
+      const rec: RequestRecord = records.get(requestKey(requestId, meta)) || {
         requestId,
         hop: 0,
         url: 'unknown',
@@ -197,18 +229,20 @@ export async function run(cdp) {
   }
   const rows = [...history, ...records.values()];
   for (const row of rows) if (!row.complete) row.ms = Date.now() - row.start;
-  const failures = rows.filter(r => r.failed || r.status >= 400);
+  const failures = rows.filter(r => r.failed || (r.status ?? 0) >= 400);
   const pending = rows.filter(r => !r.complete);
   const slow = rows.filter(r => (r.ms || 0) >= SLOW_MS && !r.failed);
-  const byKind = {};
-  const byStatus = {};
+  const byKind: Record<string, number> = {};
+  const byStatus: Record<string, number> = {};
   for (const r of rows) {
-    byKind[r.kind] = (byKind[r.kind] || 0) + 1;
+    // A request first seen failing has no kind; it counts under "undefined", as a key always did.
+    const kind = String(r.kind);
+    byKind[kind] = (byKind[kind] || 0) + 1;
     const key = r.failed ? 'failed' : String(r.status || 0);
     byStatus[key] = (byStatus[key] || 0) + 1;
   }
 
-  const findings = [];
+  const findings: { code: string; count: number; thresholdMs?: number }[] = [];
   if (failures.length)
     findings.push({ code: 'HTTP_FAILURES', count: failures.length });
   if (slow.length)

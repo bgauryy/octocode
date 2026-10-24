@@ -9,7 +9,8 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { packageRoot, readJson, repoRoot } from './build.ts';
+import { readJson } from '../../octocode/scripts/build-plugin.mjs';
+import { packageRoot, repoRoot } from './build.ts';
 
 const run = promisify(execFile);
 const temp = await mkdtemp(join(tmpdir(), 'octocode-plugin-smoke-'));
@@ -26,9 +27,8 @@ const env = {
   OCTOCODE_STORAGE_MODE: 'memory',
   OCTOCODE_ENABLE_LOCAL: 'true',
 };
-const goal = 'Verify installed plugin behavior against isolated fixtures';
 const query = (extra: Record<string, unknown>) => ({
-  queries: [{ mainGoal: goal, reasoning: goal, ...extra }],
+  queries: [extra],
 });
 const token = 'octocode-plugin-synthetic-fixture';
 let authenticatedRequests = 0;
@@ -170,7 +170,7 @@ try {
       assert.ok(listed.tools.some(tool => tool.name === 'localFetch'));
       const local = await client.callTool({
         name: 'localFetch',
-        arguments: query({ path: 'README.md', fullContent: true }),
+        arguments: query({ path: 'README.md' }),
       });
       assert.ok(
         JSON.stringify(local).includes(project),
@@ -180,7 +180,6 @@ try {
         name: 'localFetch',
         arguments: query({
           path: join(marketplace, 'octocode/plugin.json'),
-          fullContent: true,
         }),
       });
       assert.ok(
@@ -208,7 +207,6 @@ try {
             repo: 'private',
             path: 'README.md',
             ref: 'a'.repeat(40),
-            fullContent: true,
           }),
         });
         assert.ok(
@@ -236,7 +234,6 @@ try {
             repo: 'private',
             path: 'README.md',
             ref: 'a'.repeat(40),
-            fullContent: true,
             forceRefresh: true,
           }),
         });

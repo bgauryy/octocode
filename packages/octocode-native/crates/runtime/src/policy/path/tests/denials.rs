@@ -131,7 +131,7 @@ fn outside_denial_names_the_requested_path_but_never_a_symlink_target() {
     assert!(
         denied
             .message
-            .contains(&*normalize(&requested).to_string_lossy()),
+            .contains(&*lexical(&requested).to_string_lossy()),
         "{}",
         denied.message
     );

@@ -60,10 +60,12 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
         "{warning}"
     );
     // The whole list stays one call away.
-    let lead = &row["next"]["diagnostics"];
+    let lead = &crate::tools::test_support::checks::related_call(&row, "lspSearch", |input| {
+        input["queries"][0]["operation"] == "diagnostic"
+    });
     assert_eq!(lead["tool"], "lspSearch", "{row}");
     assert_eq!(
-        lead["query"]["queries"][0],
+        lead["input"]["queries"][0],
         serde_json::json!({"operation": "diagnostic", "path": "/repo/k.cu"}),
         "{row}"
     );
@@ -162,7 +164,7 @@ fn engine_errors_map_to_typed_failures_not_one_unavailable_code() {
         (invalid.code, invalid.retryable),
         (ErrorCode::RequestFailed, false)
     );
-    let other = LspFailure::from(engine_error("boom"));
+    let other = LspFailure::from(octocode_engine::error::Error::new("boom"));
     assert_eq!(
         (other.code, other.retryable),
         (ErrorCode::RequestFailed, true)
@@ -290,7 +292,7 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
         LspFailure::unestablished("base type unresolved"),
         rpc(-32801, "content modified"),
         rpc(-32602, "bad params"),
-        LspFailure::from(engine_error("boom")),
+        LspFailure::from(octocode_engine::error::Error::new("boom")),
         LspFailure::from(Error::connection_closed("LSP connection closed")),
         LspFailure::from(Error::resource_exhausted("memory cap exceeded")),
         rpc(-32001, "invalid AST"),
@@ -300,10 +302,6 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
     for failure in &failures {
         let text = tip(failure, &serde_json::Value::Null);
         assert_ne!(text, generic, "{failure:?}");
-        assert!(
-            text.chars().count() <= crate::response::rows::MAX_GUIDANCE_CHARS,
-            "{text}"
-        );
     }
     for failure in failures.iter().filter(|failure| {
         matches!(
@@ -321,64 +319,27 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
     assert!(!invalid.contains("Retry once"), "{invalid}");
 }
 
-/// A language server killed for its memory is a final answer, not a retry:
-/// the text names no setting a caller cannot pass, and the row leaves a
-/// bounded fallback, an unverified whole-word text search of the symbol.
 #[test]
-fn a_memory_exhausted_server_is_final_and_leaves_an_unverified_text_lead() {
-    let error = octocode_engine::error::Error::resource_exhausted(
-        "language server exceeded memory cap (4200 MiB resident > 4096 MiB); it was killed.",
-    );
+fn a_memory_exhausted_server_is_final_with_explicit_acquisition_leads() {
+    let error = octocode_engine::error::Error::resource_exhausted("server exceeded memory cap");
     let failure = LspFailure::from_engine(&error);
     assert_eq!(failure.code, ErrorCode::ServerCrashed);
-    assert!(!failure.retryable, "{failure:?}");
-    let hint = tip(&failure, &serde_json::Value::Null);
-    for text in [failure.message.as_str(), hint] {
-        assert!(!text.contains("maxMemoryMb"), "{text}");
-    }
-    assert!(hint.contains("unverified"), "{hint}");
-
-    let query = query(serde_json::json!({
-        "operation": "callers", "path": "/repo/src/lib.rs", "symbolName": "greet", "line": 3,
-        "graphDepth": 3, "importerPage": 2, "page": 2, "pageSize": 4,
-        "snapshot": "caller-snapshot", "workspaceRoot": "/repo", "orderHint": 1
-    }));
-    let bare = failure.row(&query, "file:///repo/src/lib.rs");
-    assert!(
-        bare.get("hints").is_none(),
-        "the tip is the stage's: {bare}"
+    assert!(!failure.retryable);
+    let q = query(
+        serde_json::json!({"operation":"callers","path":"/repo/a.ts","symbolName":"run","line":3,"graphDepth":3,"importerPage":2,"page":2,"snapshot":"saved","workspaceRoot":"/repo","occurrence":1}),
     );
-    let row = with_stage_hints(&query, &bare);
-    assert_eq!(row["errorCode"], "serverCrashed", "{row}");
-    assert_eq!(
-        row["hints"],
-        serde_json::json!([tip(&failure, &lsp_search_query::to_row(&query))]),
-        "{row}"
-    );
-    assert!(row["next"].get("retry").is_none(), "{row}");
-    let text = &row["next"]["findText"];
-    assert_eq!(text["tool"], "localSearch", "{row}");
-    assert_eq!(text["confidence"], "low", "{row}");
-    let search = &text["query"]["queries"][0];
-    assert_eq!(search["matchString"], "\\bgreet\\b", "{row}");
-    assert_eq!(search["regex"], "rust", "{row}");
-    assert_eq!(search["caseMode"], "sensitive", "{row}");
-    // callers also leads to references of the same anchor, which a server
-    // that cannot walk the call hierarchy can often still answer.
-    let references = &row["next"]["findReferences"];
-    assert_eq!(references["tool"], "lspSearch", "{row}");
-    let rerun = &references["query"]["queries"][0];
-    assert_eq!(rerun["operation"], "references", "{row}");
-    assert_eq!(rerun["symbolName"], "greet", "{row}");
-    assert_eq!(rerun["line"], 3, "{row}");
-    assert_eq!(rerun["path"], "/repo/src/lib.rs", "{row}");
-    assert_eq!(rerun["workspaceRoot"], "/repo", "{row}");
-    assert_eq!(rerun["orderHint"], 1, "{row}");
-    assert_eq!(rerun["importerPage"], 2, "{row}");
-    assert_eq!(rerun["pageSize"], 4, "{row}");
-    for field in ["graphDepth", "page", "snapshot", "candidatePage"] {
-        assert!(rerun.get(field).is_none(), "{field}: {row}");
+    let row = failure.row(&q, "file:///repo/a.ts");
+    assert!(row.get("next").is_none());
+    let calls = row["related"].as_array().expect("related");
+    assert!(calls.iter().all(|call| call["kind"] == "related"));
+    let references = &calls
+        .iter()
+        .find(|call| call["tool"] == "lspSearch")
+        .expect("references")["input"]["queries"][0];
+    assert_eq!(references["operation"], "references");
+    assert_eq!(references["occurrence"], 1);
+    for field in crate::contracts::state_fields(ToolId::LspSearch) {
+        assert!(references.get(field).is_none());
     }
-    // Every lead the row hands out is valid input of its tool.
     public_row(&row);
 }

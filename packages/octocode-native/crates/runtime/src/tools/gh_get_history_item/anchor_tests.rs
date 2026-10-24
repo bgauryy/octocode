@@ -25,9 +25,14 @@ const HEAD: &str = "2222222222222222222222222222222222222222";
 const MERGE_BASE: &str = "3333333333333333333333333333333333333333";
 
 async fn read(server: &MockServer, row: Value) -> Value {
+    read_with_budget(server, row, None).await
+}
+
+async fn read_with_budget(server: &MockServer, row: Value, page_chars: Option<usize>) -> Value {
     let provider = mock_provider(server, RetryPolicy::default());
     let context = fixture_context(Duration::from_secs(10), 4 << 20);
-    let request = HistoryItemRequest::from_row(row).expect("valid row");
+    let mut request = HistoryItemRequest::from_row(row).expect("valid row");
+    request.auto_page_chars = page_chars;
     execute(&provider, &request, &context, &Passthrough)
         .await
         .expect("history item")
@@ -53,7 +58,7 @@ fn assert_history_page_contract(query: &Value, data: &Value) {
         data.clone(),
         None,
     );
-    crate::contracts::validate_output("ghGetHistoryItem", &json!({"results": [shaped]}))
+    crate::tools::test_support::validate_sealed("ghGetHistoryItem", &json!({"results": [shaped]}))
         .expect("actual normalized history row satisfies the canonical output contract");
 }
 

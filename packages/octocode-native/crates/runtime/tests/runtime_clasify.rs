@@ -98,17 +98,15 @@ fn noul(instructions: &str) -> Value {
     json!({"type":"noul","instructions":instructions})
 }
 
-fn state_row() -> Value {
+fn content_row() -> Value {
     json!({
-        "id":"rotation",
-        "mainGoal":"Decide whether rotation needs a restart.",
-        "reasoning":"Metadata only.",
-        "state":{"document":{"text":"Update the configuration, then restart the service."}},
+        "operation":"evaluate",
+        "content":{"document":{"text":"Update the configuration, then restart the service."}},
         "questions":{"restart":noul("Does `document.text` require a restart?")}
     })
 }
 
-/// One clasify call over `rows`: its structured `{"queries": [...]}` result.
+/// Run a classification batch and validate its structured result.
 pub(crate) async fn clasify(
     runtime: &octocode_native::runtime::ToolRuntime,
     rows: Vec<Value>,

@@ -3,8 +3,9 @@
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::security::scan::Passthrough;
-use crate::tools::local_fetch::tests::{Paths, fetch_with, q};
+use crate::tools::local_fetch::tests::{Paths, fetch_with, q, qj};
 use crate::tools::test_support::Fixture;
+use octocode_contract_types::LocalFetchQuery;
 use std::fs;
 use std::path::PathBuf;
 

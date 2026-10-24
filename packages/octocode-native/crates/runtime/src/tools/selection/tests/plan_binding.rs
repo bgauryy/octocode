@@ -10,12 +10,15 @@ fn context_selection_binds_optional_research_context() {
         timeout: Duration::from_secs(1),
     };
     let query = json!({
-        "clasifyContext":{"classifiers":["Does this evidence describe retry termination?"]}
+        "classification":{"predicates":["Does this evidence describe retry termination?"]}
     });
     let ordinary = binding(&query, "source", limits, None);
-    for field in ["mainGoal", "reasoning"] {
+    for (field, value) in [
+        ("context", json!("different research context")),
+        ("predicates", json!(["different predicate"])),
+    ] {
         let mut contextual = query.clone();
-        contextual[field] = json!("Distinguish current behavior from archived behavior");
+        contextual["classification"][field] = value;
         assert_ne!(
             ordinary,
             binding(&contextual, "source", limits, None),
@@ -31,18 +34,16 @@ fn selected_output_paging_controls_do_not_change_assessment_binding() {
         max_chars: 100,
         timeout: Duration::from_secs(1),
     };
-    let query = json!({"clasifyContext":{"classifiers":["Find retry termination"]},
-        "ranges":["1-40"],"unit":"lines","length":10});
+    let query = json!({"classification":{"predicates":["Find retry termination"]},
+        "ranges":[{"startLine":1,"endLine":40}]});
     let mut continued = query.clone();
-    continued["unit"] = json!("bytes");
-    continued["fullContent"] = json!(true);
-    continued["length"] = json!(20);
-    continued["offset"] = json!(10);
+    continued["readProgress"] = json!({"unit":"bytes","offset":10});
+    continued["selection"] = json!("saved-plan");
     assert_eq!(
         binding(&query, "same-source", limits, None),
         binding(&continued, "same-source", limits, None)
     );
-    continued["ranges"] = json!(["41-80"]);
+    continued["ranges"] = json!([{"startLine":41,"endLine":80}]);
     assert_ne!(
         binding(&query, "same-source", limits, None),
         binding(&continued, "same-source", limits, None)
@@ -56,7 +57,7 @@ fn selected_output_paging_controls_do_not_change_assessment_binding() {
 #[test]
 fn changed_selection_limits_invalidate_the_plan_binding() {
     let limits = crate::execution::RuntimeLimits::DEFAULT.selection;
-    let query = json!({"clasifyContext":{"classifiers":["Find retry termination"]}});
+    let query = json!({"classification":{"predicates":["Find retry termination"]}});
     let base = binding(&query, "source", limits, None);
     assert_eq!(base, binding(&query, "source", limits, None));
     for changed in [
@@ -89,13 +90,13 @@ fn binding_uses_canonical_source_identity_across_path_spellings() {
         timeout: Duration::ZERO,
     };
     let absolute = binding(
-        &json!({"path":"/workspace/docs/readme.md","clasifyContext":{"classifiers":["find evidence"]}}),
+        &json!({"path":"/workspace/docs/readme.md","classification":{"predicates":["find evidence"]}}),
         "/workspace/docs/readme.md:abc123",
         limits,
         None,
     );
     let relative = binding(
-        &json!({"path":"docs/readme.md","clasifyContext":{"classifiers":["find evidence"]}}),
+        &json!({"path":"docs/readme.md","classification":{"predicates":["find evidence"]}}),
         "/workspace/docs/readme.md:abc123",
         limits,
         None,
@@ -104,7 +105,7 @@ fn binding_uses_canonical_source_identity_across_path_spellings() {
     assert_ne!(
         absolute,
         binding(
-            &json!({"path":"docs/readme.md","clasifyContext":{"classifiers":["find evidence"]}}),
+            &json!({"path":"docs/readme.md","classification":{"predicates":["find evidence"]}}),
             "/workspace/other/readme.md:abc123",
             limits,
             None,
@@ -116,7 +117,7 @@ fn binding_uses_canonical_source_identity_across_path_spellings() {
 fn skipped_and_replayed_plans_keep_the_order_without_candidate_states() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (mut runtime, calls) = selecting_runtime(&executor);
-    let query = json!({"clasifyContext":{"classifiers":["find evidence"]},"mainGoal":"Explain retry policy","reasoning":"Locate stopping conditions"});
+    let query = json!({"classification":{"predicates":["find evidence"],"context":"Explain retry policy and stopping conditions"}});
     let with_states = [
         Candidate::new(Some(json!({"text":"first"}))),
         Candidate::new(Some(json!({"text":"second"}))),
@@ -158,9 +159,12 @@ fn skipped_and_replayed_plans_keep_the_order_without_candidate_states() {
     assert_eq!(replay.token, selected.token);
     assert_eq!(replay.selected, selected.selected);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    for field in ["mainGoal", "reasoning"] {
+    for (field, value) in [
+        ("context", json!("different research context")),
+        ("predicates", json!(["different predicate"])),
+    ] {
         let mut changed = query.clone();
-        changed[field] = json!("different research context");
+        changed["classification"][field] = value;
         assert!(
             matches!(
                 select_source(
@@ -176,7 +180,7 @@ fn skipped_and_replayed_plans_keep_the_order_without_candidate_states() {
         );
     }
     let mut changed_capability = query.clone();
-    changed_capability["clasifyContext"]["longContext"] = json!(true);
+    changed_capability["classification"]["longContext"] = json!(true);
     assert!(matches!(
         select_source(
             &runtime,

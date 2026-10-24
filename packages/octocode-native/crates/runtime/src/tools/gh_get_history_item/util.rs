@@ -33,6 +33,7 @@ pub(super) fn map_comments(values: Vec<Value>) -> Vec<Value> {
             let mut out = json!({
                 "id": v["id"].to_string().trim_matches('"'),
                 "author": str_at(&v, "/user/login").unwrap_or("unknown"),
+                "bot": is_bot(&v).then_some(true),
                 "body": string(v.get("body")),
                 "createdAt": created,
                 "updatedAt": updated,
@@ -47,6 +48,21 @@ pub(super) fn map_comments(values: Vec<Value>) -> Vec<Value> {
             out
         })
         .collect()
+}
+
+/// Whether a GitHub App or bot account wrote a provider comment: GitHub
+/// types its user `Bot`, and an app's login ends in `[bot]`.
+fn is_bot(comment: &Value) -> bool {
+    str_at(comment, "/user/type") == Some("Bot")
+        || str_at(comment, "/user/login").is_some_and(|login| login.ends_with("[bot]"))
+}
+
+/// A page's comment rows with human comments first, each group in its
+/// own order: bot comments (release and preview bots) often fill most of
+/// a discussion page, and every row stays on the page, `bot` marked, its
+/// `createdAt` keeping the timeline.
+pub(super) fn humans_first(rows: &mut [Value]) {
+    rows.sort_by_key(|row| row["bot"] == true);
 }
 
 /// The code a review comment points at, readable with ghGetFileContent at
@@ -105,5 +121,39 @@ mod tests {
         ]);
         assert!(rows[0].get("updatedAt").is_none(), "{}", rows[0]);
         assert_eq!(rows[0]["createdAt"], "2026-06-03T00:00:00Z");
+    }
+
+    /// Release and preview bots (changeset-bot, pkg-pr-new) can fill a
+    /// discussion page: their comments stay on it, marked `bot`, after the
+    /// human ones, each group in GitHub's order.
+    #[test]
+    fn a_page_lists_human_comments_before_marked_bot_comments() {
+        let comment = |id: u64, login: &str, kind: &str| {
+            serde_json::json!({"id": id, "user": {"login": login, "type": kind},
+                "body": "b", "created_at": "2026-06-03T00:00:00Z"})
+        };
+        let mut rows = super::map_comments(vec![
+            comment(1, "changeset-bot[bot]", "Bot"),
+            comment(2, "ada", "User"),
+            comment(3, "pkg-pr-new", "Bot"),
+            comment(4, "bob", "User"),
+            comment(5, "renovate[bot]", "User"),
+        ]);
+        super::humans_first(&mut rows);
+        let order = rows
+            .iter()
+            .map(|row| (row["id"].as_str().unwrap_or(""), row.get("bot").is_some()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            order,
+            [
+                ("2", false),
+                ("4", false),
+                ("1", true),
+                ("3", true),
+                ("5", true)
+            ]
+        );
+        assert_eq!(rows[2]["bot"], true);
     }
 }

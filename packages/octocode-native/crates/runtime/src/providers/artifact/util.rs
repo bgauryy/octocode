@@ -1,11 +1,10 @@
 use super::http::{JSON, RegistryClient};
 use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactType, TerminalLimit,
+    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, TerminalLimit,
 };
-use crate::providers::artifact::types::artifact_search_query;
-use crate::providers::artifact::types::artifact_type;
-use octocode_contract_types::ErrorCode;
+use crate::providers::artifact::query::artifact_search_query;
+use crate::providers::artifact::query::artifact_type;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use serde_json::{Map, Value};
 use url::Url;
 

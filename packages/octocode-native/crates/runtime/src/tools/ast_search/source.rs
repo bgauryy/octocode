@@ -2,6 +2,7 @@
 //! terminal row (with its text-search reach) of a source past the limit.
 
 use octocode_contract_types::ErrorCode;
+use octocode_engine::text::ReadError;
 use serde_json::Value;
 
 use super::errors::{io_error, policy_error};
@@ -12,7 +13,7 @@ use crate::tools::display_name;
 /// The source astSearch parses, read bounded at [`MAX_PARSE_SOURCE_BYTES`];
 /// `None` when the file is larger.
 pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>>, ToolError> {
-    use crate::tools::source::{ReadError, read_bounded};
+    use crate::tools::source::read_bounded;
     match read_bounded(path, MAX_PARSE_SOURCE_BYTES) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(ReadError::TooLarge(_)) => Ok(None),
@@ -58,22 +59,20 @@ pub(super) fn source_limit(path: &str, literal: Option<&str>) -> Value {
     let mut row = serde_json::json!({"status":"error","path":path,"errorCode":ErrorCode::FileTooLarge,"error":"Source exceeds the native parser byte limit."});
     crate::response::paging::terminal_limit(&mut row, "fileTooLarge", &[]);
     if let Some(lead) = literal.and_then(|literal| text_search(path, literal)) {
-        row["next"] = serde_json::json!({ "findText": lead });
+        row["calls"] = serde_json::json!({ "findText": lead });
     }
     row
 }
 
-/// A localSearch of `literal` in `path`: the reach a parse limit leaves.
 pub(super) fn text_search(path: &str, literal: &str) -> Option<Value> {
     let literal = literal.trim();
     if literal.is_empty() || literal.contains('\n') {
         return None;
     }
-    let mut row = serde_json::json!({"path": path, "matchString": literal});
-    if regex::escape(literal) != literal {
-        row["regex"] = serde_json::json!("literal");
-    }
-    Some(crate::response::result::Continuation::new(crate::id::ToolId::LocalSearch, row).build())
+    let row = serde_json::json!({"path": path, "matchString": [literal]});
+    Some(
+        crate::response::result::Continuation::related(crate::id::ToolId::LocalSearch, row).build(),
+    )
 }
 
 /// A pattern's text when it names no metavariable: the literal a text

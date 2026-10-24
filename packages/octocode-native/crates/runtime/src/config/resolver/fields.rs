@@ -16,7 +16,7 @@ fn normalize_string(value: &str, normalize: Option<ConfigNormalize>) -> String {
 
 /// A setting's value from one raw source, or `None` when the source does not
 /// hold a valid value for it (`null` included: it means "use the next source").
-pub(in super::super) fn parse_candidate(
+pub(crate) fn parse_candidate(
     field: &ConfigFieldSpec,
     raw: &Value,
     from_environment: bool,

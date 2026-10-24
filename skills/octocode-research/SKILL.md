@@ -12,7 +12,7 @@ flowchart LR
   F[FRAME question, corpus] --> C[Choose task class] --> M[MODEL path]
   M --> A[Discover or narrow with exact tools]
   A --> S{Ambiguity changes next read?}
-  S -- yes --> Q[clasifyContext or clasify] --> R[Read deciding source]
+  S -- yes --> Q[classification or clasify] --> R[Read deciding source]
   S -- no --> R
   R --> P[PROVE] --> E{Answers the claim?}
   E -- no --> R
@@ -48,9 +48,9 @@ Trace only `entry → transformations → state → output → consumers`; switc
 
 ## Classifiers or clasify?
 
-Start with exact or structural retrieval; use classification only when remaining ambiguity changes what you read next. For noisy searches or large fetches with many plausible passages, use `clasifyContext:{classifiers:[...]}` on `localSearch`, `localFetch` or scoped `ghGetFileContent` to receive selected evidence. On `ghSearchCode` it judges listed hit lines only (`next.judgeHits` judges the rest); to screen whole files, discover paths there, then classify pinned sources. To choose among unread files, docs or images, use `clasify` with source references or image assets; discover concrete targets first. For shared questions about individual text regions across resources, use its `sections` operation when the live schema exposes it. Exact anchors, small reads, identity and exhaustive coverage use ordinary tools.
+Start with exact or structural retrieval; use classification only when remaining ambiguity changes what you read next. For noisy searches or large fetches with many plausible passages, use `classification:{predicates:[...]}` on `localSearch`, `localFetch` or scoped `ghGetFileContent` to receive selected evidence. On `ghSearchCode` it judges listed hit lines only (`next.judgeHits` judges the rest); to screen whole files, discover paths there, then classify pinned sources. To choose among unread files, docs or images, use `clasify` with source references or image assets; discover concrete targets first. For shared questions about individual text regions across resources, use its `sections` operation when the live schema exposes it. Exact anchors, small reads, identity and exhaustive coverage use ordinary tools.
 
-Ask one observable question per missing fact. Optional `mainGoal`/`reasoning` add a short task context to inline selection. Read [clasify](references/clasify.md) for scopes and typed requests; avoid repeating the same relevance decision in both routes. Read deciding evidence before a source claim; stop when it answers the question. If an unknown/error could change the conclusion, [inspect the underlying evidence](references/clasify.md#recover-from-unknown-or-error); otherwise name the unresolved scope.
+Ask one observable question per missing fact. Optional `classification.context` adds the task context to inline selection. Read [clasify](references/clasify.md) for scopes and typed requests; avoid repeating the same relevance decision in both routes. Read deciding evidence before a source claim; stop when it answers the question. If an unknown/error could change the conclusion, [inspect the underlying evidence](references/clasify.md#recover-from-unknown-or-error); otherwise name the unresolved scope.
 
 ## Tools and setup
 

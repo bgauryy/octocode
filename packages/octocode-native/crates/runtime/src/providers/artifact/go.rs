@@ -6,12 +6,9 @@ use super::util::{
     required, rows, string, total,
 };
 use super::versions::VersionSpec;
-use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
-    ArtifactType,
-};
-use crate::providers::artifact::types::artifact_search_query;
-use octocode_contract_types::ErrorCode;
+use super::{ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState};
+use crate::providers::artifact::query::artifact_search_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use octocode_io::retry::classify_status;
 use serde_json::Value;
 
@@ -211,10 +208,10 @@ fn go_requirements(go_mod: &str) -> Vec<String> {
 /// package inside a module keeps its module path. Dropped once the row is
 /// built (the source-ref lookups read the module path).
 fn drop_restated_go_paths(artifact: &mut ArtifactItem) {
-    if artifact.package_path.as_deref() == Some(artifact.name.as_str()) {
+    if artifact.package_path.as_deref() == Some(artifact.package_name.as_str()) {
         artifact.package_path = None;
     }
-    if artifact.module_path.as_deref() == Some(artifact.name.as_str()) {
+    if artifact.module_path.as_deref() == Some(artifact.package_name.as_str()) {
         artifact.module_path = None;
     }
 }

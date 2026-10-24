@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +6,7 @@ import { registerApi } from '../src/api/register.js';
 import { apiDir, instancesDir, listInstances, socketPath, writeRecord, type InstanceRecord } from '../src/api/registry.js';
 import { Subcommands } from '../src/shared/commands.js';
 import { fakeCtx, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { deadPid, tmp } from './helpers.js';
 
 const stops: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -30,8 +29,6 @@ function setup(env: Record<string, string> = {}) {
   const run = (args: string) => commands.get('api')!.handler(args, ctx);
   return { dir, wired, commands, ctx, run, notes: ctx.ui.notes };
 }
-
-const deadPid = (): number => spawnSync(process.execPath, ['-e', '0']).pid!;
 
 describe('/octocode api', () => {
   it('rejects malformed or trailing arguments before starting or stopping a server', async () => {

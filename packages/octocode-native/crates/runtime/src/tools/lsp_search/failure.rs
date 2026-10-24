@@ -1,22 +1,31 @@
 //! Typed failures, empty rows, partial marking, and executable `next.*`
 //! continuations shared by every `lspSearch` operation.
 
-use super::LspSearchQuery;
 use super::render::uri_to_path;
 use crate::id::ToolId;
 use crate::tools::lsp_search::lsp_search_query;
-use octocode_contract_types::ErrorCode;
-use octocode_engine::error::{Error as EngineError, ErrorCode as RpcCode, ErrorKind};
+use octocode_contract_types::{ErrorCode, LspSearchQuery};
+use octocode_engine::error::{ErrorCode as RpcCode, ErrorKind};
 use serde_json::{Value, json};
 
 mod anchors;
 mod leads;
 mod paging;
 mod rows;
-pub(super) use anchors::*;
-pub(super) use leads::*;
-pub(super) use paging::*;
-pub(super) use rows::*;
+pub(super) use anchors::{anchor_recovery, attach_recovery_next, path_failure};
+use leads::symbol_search_lead;
+pub(super) use leads::{
+    FILE_LEVEL_REASONS, LISTED_TEXT_FILES, TEXT_CHECK, flag_partial, flagged_with,
+    ignored_text_lead, shown_paths, term_search_lead, text_search_lead,
+};
+pub(super) use paging::{
+    ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, RequestFailures, offer_next_page, with_next,
+};
+use rows::attach_text_search;
+pub(super) use rows::{
+    BUILD_SCRIPTS_COST, build_scripts_rerun, continuation, empty, mark_anchor_line_errors,
+    mark_diagnostics_unpublished, partial_with_retry, runs_build_scripts, stamp_coverage,
+};
 
 /// A request-level failure `execute` could not render as a row. The
 /// dispatcher emits `code`/`message`/`retryable` verbatim, so each cause
@@ -99,7 +108,7 @@ impl LspFailure {
     /// a timeout, a server that exited, an unimplemented method, a stale or
     /// server-cancelled request, and any other request failure each keep
     /// their own code and retry flag.
-    pub(super) fn from_engine(error: &EngineError) -> Self {
+    pub(super) fn from_engine(error: &octocode_engine::error::Error) -> Self {
         let message = error.to_string();
         match error.kind() {
             ErrorKind::Timeout => Self {
@@ -157,10 +166,22 @@ impl LspFailure {
     pub(super) fn row(&self, query: &LspSearchQuery, canonical_uri: &str) -> Value {
         let mut value = failure(query, canonical_uri, self.code, &self.message, false);
         if lsp_search_query::operation(query) == "callers" {
-            let mut references =
-                crate::response::result::query_row(query, &["graphDepth", "page", "snapshot"]);
+            let mut references = crate::response::result::query_row(
+                query,
+                &[
+                    "graphDepth",
+                    "page",
+                    "snapshot",
+                    "importerPage",
+                    "candidatePage",
+                ],
+            );
             references["operation"] = json!("references");
-            value["next"]["findReferences"] = continuation(references);
+            crate::response::result::attach_related(
+                &mut value,
+                crate::response::result::Continuation::related(ToolId::LspSearch, references)
+                    .build(),
+            );
         }
         value
     }
@@ -187,8 +208,8 @@ impl LspFailure {
     }
 }
 
-impl From<EngineError> for LspFailure {
-    fn from(error: EngineError) -> Self {
+impl From<octocode_engine::error::Error> for LspFailure {
+    fn from(error: octocode_engine::error::Error) -> Self {
         Self::from_engine(&error)
     }
 }
@@ -215,10 +236,10 @@ pub(super) fn failure(
     if lsp_search_query::path(query).is_some() {
         attach_recovery_next(&mut value, query);
         match code {
-            ErrorCode::ServerUnavailable => attach_text_search(&mut value, query, false),
+            ErrorCode::ServerUnavailable => attach_text_search(&mut value, query),
             // Whatever the server held is lost: the lexical check is all
             // that is left, and no verification stands behind it.
-            ErrorCode::ServerCrashed => attach_text_search(&mut value, query, true),
+            ErrorCode::ServerCrashed => attach_text_search(&mut value, query),
             _ => {}
         }
     }

@@ -1,9 +1,12 @@
-//! The `qualifiers` string parsed once into typed search filters.
-use super::{GhSearchHistoryQuery, HistoryOperation};
-use crate::tools::gh_search_history::gh_search_history_query;
-use octocode_github::{ProviderError, ProviderErrorKind};
+//! Direct translation of canonical typed history filters into provider constraints.
+use super::GhSearchHistoryQuery;
+use crate::tools::gh_shared::ranges;
+use octocode_contract_types::{
+    GitHubArchive, HistoryBranchSelection, HistoryCountSelection, HistoryDateSelection,
+    HistoryPersonSelection,
+};
 
-/// The filters a `qualifiers` string sets.
+/// Provider-ready typed constraints; all exclusions remain separate terms.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Filters {
     pub assignee: Option<String>,
@@ -52,348 +55,206 @@ impl Filters {
     }
 }
 
-/// One filter a qualifier key sets.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Field {
-    Assignee,
-    Author,
-    Committer,
-    Commenter,
-    Mentions,
-    Created,
-    Updated,
-    Closed,
-    Comments,
-    Reactions,
-    Linked,
-    Label,
-    Match,
-    State,
-    Archived,
-    Draft,
-    Unmerged,
-    ReviewRequested,
-    ReviewedBy,
-    Review,
-    Status,
-    Merged,
-    Head,
-    Base,
-}
-
-impl Field {
-    /// Whether the qualifier's value is a GitHub login (or, for commits, an
-    /// email): the ones GitHub search rejects when the user does not exist.
-    fn is_person(self) -> bool {
-        matches!(
-            self,
-            Self::Assignee
-                | Self::Author
-                | Self::Committer
-                | Self::Commenter
-                | Self::Mentions
-                | Self::ReviewRequested
-                | Self::ReviewedBy
-        )
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Assignee => "assignee",
-            Self::Author => "author",
-            Self::Committer => "committer",
-            Self::Commenter => "commenter",
-            Self::Mentions => "mentions",
-            Self::Created => "created",
-            Self::Updated => "updated",
-            Self::Closed => "closed",
-            Self::Comments => "comments",
-            Self::Reactions => "reactions",
-            Self::Linked => "linked",
-            Self::Label => "label",
-            Self::Match => "match",
-            Self::State => "state",
-            Self::Archived => "archived",
-            Self::Draft => "draft",
-            Self::Unmerged => "unmerged",
-            Self::ReviewRequested => "review-requested",
-            Self::ReviewedBy => "reviewed-by",
-            Self::Review => "review",
-            Self::Status => "status",
-            Self::Merged => "merged",
-            Self::Head => "head",
-            Self::Base => "base",
-        }
-    }
-}
-
-/// The filter each `qualifiers` key sets. Which operations take a key is
-/// the contract's (`x-qualifierKeys` per operation), never restated here.
-const QUALIFIER_FIELDS: &[(&str, Field)] = &[
-    ("assignee", Field::Assignee),
-    ("author", Field::Author),
-    ("committer", Field::Committer),
-    ("commenter", Field::Commenter),
-    ("mentions", Field::Mentions),
-    ("created", Field::Created),
-    ("updated", Field::Updated),
-    ("closed", Field::Closed),
-    ("comments", Field::Comments),
-    ("reactions", Field::Reactions),
-    ("linked", Field::Linked),
-    ("label", Field::Label),
-    ("in", Field::Match),
-    ("is", Field::State),
-    ("archived", Field::Archived),
-    ("review-requested", Field::ReviewRequested),
-    ("reviewed-by", Field::ReviewedBy),
-    ("review", Field::Review),
-    ("status", Field::Status),
-    ("merged", Field::Merged),
-    ("draft", Field::Draft),
-    ("head", Field::Head),
-    ("base", Field::Base),
-];
-
-/// `qualifiers` without its person terms (`author:x`, `-reviewed-by:y`, …):
-/// what is left once the logins that failed to resolve are out of the way.
-pub(super) fn without_person_terms(qualifiers: &str) -> String {
-    qualifiers
-        .split_whitespace()
-        .filter(|term| {
-            let key = term.trim_start_matches('-').split(':').next().unwrap_or("");
-            !QUALIFIER_FIELDS
-                .iter()
-                .any(|(name, field)| *name == key && field.is_person())
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn qualifier_error(message: String) -> ProviderError {
-    ProviderError::new(ProviderErrorKind::Validation, message)
-}
-
-/// The filter `key` sets. The typed query admits only the keys the
-/// contract declares for its operation (`x-qualifierKeys`), so which
-/// operation takes a key, unknown keys and scope keys are the contract's
-/// rejections, never restated here.
-fn qualifier_field(key: &str) -> Result<Field, ProviderError> {
-    QUALIFIER_FIELDS
-        .iter()
-        .find(|(name, _)| *name == key)
-        .map(|(_, field)| *field)
-        .ok_or_else(|| qualifier_error(format!("qualifiers: unknown key {key}:.")))
-}
-
-/// A parsed qualifier value.
-enum Setting {
-    Text(String),
-    Flag(bool),
-    List(Vec<String>),
-}
-
-/// The filter and value one `key:value` term sets (`is:draft` sets draft).
-fn setting(
+fn selection<I: ToString, E: ToString>(
     key: &str,
-    field: Field,
-    value: &str,
-    negated: bool,
-    pull_request: bool,
-) -> Result<(Field, Setting), ProviderError> {
-    Ok(match (field, value) {
-        (Field::State, "draft") if pull_request => (Field::Draft, Setting::Flag(!negated)),
-        // Not merged (open or closed): GitHub's `is:unmerged`, also spelled `-is:merged`.
-        (Field::State, "unmerged") if pull_request && !negated => {
-            (Field::Unmerged, Setting::Flag(true))
+    include: Option<&[I; 1]>,
+    exclude: &[E],
+    denied: &mut Vec<(String, String)>,
+) -> Option<String> {
+    denied.extend(
+        exclude
+            .iter()
+            .map(|value| (key.to_owned(), value.to_string())),
+    );
+    include.map(|[value]| value.to_string())
+}
+fn person(
+    key: &str,
+    value: &Option<HistoryPersonSelection>,
+    denied: &mut Vec<(String, String)>,
+) -> Option<String> {
+    value
+        .as_ref()
+        .and_then(|value| selection(key, value.include.as_ref(), &value.exclude, denied))
+}
+fn branch(
+    key: &str,
+    value: &Option<HistoryBranchSelection>,
+    denied: &mut Vec<(String, String)>,
+) -> Option<String> {
+    value
+        .as_ref()
+        .and_then(|value| selection(key, value.include.as_ref(), &value.exclude, denied))
+}
+fn date(
+    key: &str,
+    value: &Option<HistoryDateSelection>,
+    denied: &mut Vec<(String, String)>,
+) -> Option<String> {
+    let value = value.as_ref()?;
+    denied.extend(
+        value
+            .exclude
+            .iter()
+            .filter_map(ranges::date)
+            .map(|value| (key.to_owned(), value)),
+    );
+    value
+        .include
+        .as_ref()
+        .and_then(|[value]| ranges::date(value))
+}
+fn count(
+    key: &str,
+    value: &Option<HistoryCountSelection>,
+    denied: &mut Vec<(String, String)>,
+) -> Option<String> {
+    let value = value.as_ref()?;
+    denied.extend(
+        value
+            .exclude
+            .iter()
+            .filter_map(ranges::numeric)
+            .map(|value| (key.to_owned(), value)),
+    );
+    value
+        .include
+        .as_ref()
+        .and_then(|[value]| ranges::numeric(value))
+}
+fn archive(value: Option<GitHubArchive>) -> Option<bool> {
+    match value {
+        Some(GitHubArchive::Exclude) => Some(false),
+        Some(GitHubArchive::Only) => Some(true),
+        _ => None,
+    }
+}
+fn review(value: String) -> String {
+    if value == "changesRequested" {
+        "changes_requested".into()
+    } else {
+        value
+    }
+}
+macro_rules! common {
+    ($source:expr, $target:expr) => {{
+        let source = $source;
+        let target = $target;
+        target.author = person("author", &source.author, &mut target.excluded);
+        target.assignee = person("assignee", &source.assignee, &mut target.excluded);
+        target.commenter = person("commenter", &source.commenter, &mut target.excluded);
+        target.mentions = person("mentions", &source.mentions, &mut target.excluded);
+        target.created = date("created", &source.created_at, &mut target.excluded);
+        target.updated = date("updated", &source.updated_at, &mut target.excluded);
+        target.closed = date("closed", &source.closed_at, &mut target.excluded);
+        target.comments = count("comments", &source.comment_count, &mut target.excluded);
+        target.reactions = count("reactions", &source.reaction_count, &mut target.excluded);
+        target.state = source.state.map(|value| value.to_string());
+        target.archived = archive(source.archive);
+        target.match_kinds = source.match_in.iter().map(ToString::to_string).collect();
+        if let Some(labels) = &source.labels {
+            target.label = labels.include.iter().map(ToString::to_string).collect();
+            target.excluded.extend(
+                labels
+                    .exclude
+                    .iter()
+                    .map(|value| ("label".into(), value.to_string())),
+            );
         }
-        (Field::State, "merged") if pull_request && negated => {
-            (Field::Unmerged, Setting::Flag(true))
+        if let Some(linked) = &source.linked {
+            target.linked = selection(
+                "linked",
+                linked.include.as_ref(),
+                &linked.exclude,
+                &mut target.excluded,
+            );
         }
-        (Field::State, "open" | "closed") if !negated => (field, Setting::Text(value.into())),
-        (Field::State, "merged") if pull_request && !negated => {
-            (field, Setting::Text(value.into()))
-        }
-        (Field::State, _) if negated => {
-            return Err(qualifier_error(format!(
-                "qualifiers: -is:{value}: set state instead."
-            )));
-        }
-        (Field::State, "pr" | "issue" | "pull-request") => {
-            return Err(qualifier_error(format!(
-                "qualifiers: is:{value} is set by operation."
-            )));
-        }
-        (Field::State, _) => {
-            return Err(qualifier_error(format!(
-                "qualifiers: is:{value} is not supported; use open, closed{}.",
-                if pull_request {
-                    ", merged, unmerged, or draft"
-                } else {
-                    ""
-                }
-            )));
-        }
-        (Field::Draft | Field::Archived, "true" | "false") if !negated => {
-            (field, Setting::Flag(value == "true"))
-        }
-        (Field::Draft | Field::Archived, _) => {
-            return Err(qualifier_error(format!(
-                "qualifiers: {key}: takes true or false."
-            )));
-        }
-        (Field::Match, _) if !negated => (
-            field,
-            Setting::List(value.split(',').map(str::to_owned).collect()),
-        ),
-        _ if negated => {
-            return Err(qualifier_error(format!(
-                "qualifiers: -{key}: (negation) is not supported."
-            )));
-        }
-        _ => (field, Setting::Text(value.into())),
-    })
+    }};
 }
 
 impl Filters {
-    /// Stores one filter; a filter set twice is rejected (labels add up).
-    fn set(&mut self, key: &str, field: Field, value: Setting) -> Result<(), ProviderError> {
-        if let (Field::Label, Setting::Text(label)) = (field, &value) {
-            self.label.push(label.clone());
-            return Ok(());
-        }
-        let repeated = || {
-            qualifier_error(format!(
-                "qualifiers: {key}: repeats the {} filter; set it once.",
-                field.name()
-            ))
-        };
-        let text = |slot: &mut Option<String>, value: Setting| match (slot.is_some(), value) {
-            (false, Setting::Text(text)) => {
-                *slot = Some(text);
-                Ok(())
-            }
-            _ => Err(repeated()),
-        };
-        match field {
-            Field::Assignee => text(&mut self.assignee, value),
-            Field::Author => text(&mut self.author, value),
-            Field::Committer => text(&mut self.committer, value),
-            Field::Commenter => text(&mut self.commenter, value),
-            Field::Mentions => text(&mut self.mentions, value),
-            Field::Created => text(&mut self.created, value),
-            Field::Updated => text(&mut self.updated, value),
-            Field::Closed => text(&mut self.closed, value),
-            Field::Comments => text(&mut self.comments, value),
-            Field::Reactions => text(&mut self.reactions, value),
-            Field::Linked => text(&mut self.linked, value),
-            Field::State => text(&mut self.state, value),
-            Field::ReviewRequested => text(&mut self.review_requested, value),
-            Field::ReviewedBy => text(&mut self.reviewed_by, value),
-            Field::Review => text(&mut self.review, value),
-            Field::Status => text(&mut self.status, value),
-            Field::Merged => text(&mut self.merged, value),
-            Field::Head => text(&mut self.head, value),
-            Field::Base => text(&mut self.base, value),
-            Field::Archived | Field::Draft | Field::Unmerged => {
-                let slot = match field {
-                    Field::Draft => &mut self.draft,
-                    Field::Unmerged => &mut self.unmerged,
-                    _ => &mut self.archived,
-                };
-                match (slot.is_some(), value) {
-                    (false, Setting::Flag(flag)) => {
-                        *slot = Some(flag);
-                        Ok(())
-                    }
-                    _ => Err(repeated()),
-                }
-            }
-            Field::Match => match (self.match_kinds.is_empty(), value) {
-                (true, Setting::List(kinds)) => {
-                    self.match_kinds = kinds;
-                    Ok(())
-                }
-                _ => Err(repeated()),
-            },
-            Field::Label => Err(repeated()),
-        }
-    }
-
-    /// Parses a query's `qualifiers` string (its keys are the contract's):
-    /// a filter set twice is rejected (an excluded value may repeat).
-    pub(super) fn parse(query: &GhSearchHistoryQuery) -> Result<Self, ProviderError> {
+    pub(super) fn of(query: &GhSearchHistoryQuery) -> Self {
         let mut filters = Self::default();
-        let Some(text) = gh_search_history_query::qualifiers(query) else {
-            return Ok(filters);
-        };
-        let operation = gh_search_history_query::operation(query);
-        let pull_request = operation == HistoryOperation::PullRequest;
-        // The term that asked for unmerged pull requests, as written.
-        let mut unmerged = None;
-        for term in crate::contracts::qualifier_terms(text) {
-            let (negated, term) = match term.strip_prefix('-') {
-                Some(rest) => (true, rest),
-                None => (false, term.as_str()),
-            };
-            let Some((key, value)) = term
-                .split_once(':')
-                .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-            else {
-                return Err(qualifier_error(format!(
-                    "qualifiers: \"{term}\" is not key:value; put free text in keywords."
-                )));
-            };
-            let key = key.to_ascii_lowercase();
-            let field = qualifier_field(&key)?;
-            // A negated filter excludes what it names; the typed flags
-            // (`is:`, `draft:`, `archived:`, `in:`) keep their own spellings.
-            if negated
-                && operation != HistoryOperation::Commit
-                && !matches!(
-                    field,
-                    Field::State | Field::Draft | Field::Archived | Field::Match
-                )
-            {
-                filters.excluded.push((key, value.to_owned()));
-                continue;
+        match query {
+            GhSearchHistoryQuery::Issue(query) => {
+                if let Some(source) = &query.filters {
+                    common!(source, &mut filters);
+                    filters.linked = filters.linked.map(|_| "pr".into());
+                    for (key, value) in &mut filters.excluded {
+                        if key == "linked" {
+                            *value = "pr".into();
+                        }
+                    }
+                }
             }
-            let (field, value) = setting(&key, field, value, negated, pull_request)?;
-            if field == Field::Unmerged {
-                unmerged = Some(format!("{}{term}", if negated { "-" } else { "" }));
+            GhSearchHistoryQuery::PullRequest(query) => {
+                if let Some(source) = &query.filters {
+                    common!(source, &mut filters);
+                    filters.draft = source.is_draft;
+                    match source.is_merged {
+                        Some(true) => filters.state = Some("merged".into()),
+                        Some(false) => filters.unmerged = Some(true),
+                        None => {}
+                    }
+                    filters.head = branch("head", &source.head_ref, &mut filters.excluded);
+                    filters.base = branch("base", &source.base_ref, &mut filters.excluded);
+                    filters.review_requested = person(
+                        "review-requested",
+                        &source.review_requested,
+                        &mut filters.excluded,
+                    );
+                    filters.reviewed_by =
+                        person("reviewed-by", &source.reviewed_by, &mut filters.excluded);
+                    filters.merged = date("merged", &source.merged_at, &mut filters.excluded);
+                    if let Some(value) = &source.review {
+                        filters.review = selection(
+                            "review",
+                            value.include.as_ref(),
+                            &value.exclude,
+                            &mut filters.excluded,
+                        )
+                        .map(review);
+                        for (key, value) in &mut filters.excluded {
+                            if key == "review" {
+                                *value = review(value.clone());
+                            }
+                        }
+                    }
+                    if let Some(value) = &source.check_status {
+                        filters.status = selection(
+                            "status",
+                            value.include.as_ref(),
+                            &value.exclude,
+                            &mut filters.excluded,
+                        );
+                    }
+                }
             }
-            filters.set(&key, field, value)?;
+            GhSearchHistoryQuery::CommitKeywords(query) => {
+                if let Some(source) = &query.filters {
+                    filters.author = source
+                        .author
+                        .as_ref()
+                        .map(|value| value.include[0].to_string());
+                    filters.committer = source
+                        .committer
+                        .as_ref()
+                        .map(|value| value.include[0].to_string());
+                }
+            }
+            GhSearchHistoryQuery::Commit3(query) => {
+                if let Some(source) = &query.filters {
+                    filters.author = source
+                        .author
+                        .as_ref()
+                        .map(|value| value.include[0].to_string());
+                    filters.committer = source
+                        .committer
+                        .as_ref()
+                        .map(|value| value.include[0].to_string());
+                }
+            }
         }
-        if let Some(unmerged) = unmerged {
-            filters.reject_merged_with(query, &unmerged)?;
-        }
-        Ok(filters)
-    }
-
-    /// `state:"merged"` (or `is:merged`) beside `unmerged` (the term that
-    /// asked for unmerged pull requests) asks for none: GitHub answers it
-    /// with rows of neither, so it is refused, naming both.
-    fn reject_merged_with(
-        &self,
-        query: &GhSearchHistoryQuery,
-        unmerged: &str,
-    ) -> Result<(), ProviderError> {
-        let wire = match query {
-            GhSearchHistoryQuery::PullRequest { state, .. } => {
-                state.as_ref().map(ToString::to_string)
-            }
-            _ => None,
-        };
-        let merged = match (wire.as_deref(), self.state.as_deref()) {
-            (Some("merged"), _) => "state \"merged\"",
-            (None, Some("merged")) => "is:merged",
-            _ => return Ok(()),
-        };
-        Err(qualifier_error(format!(
-            "qualifiers: {unmerged} contradicts {merged}: a pull request is merged or not; keep one."
-        )))
+        filters
     }
 }
-
-#[cfg(test)]
-mod tests;

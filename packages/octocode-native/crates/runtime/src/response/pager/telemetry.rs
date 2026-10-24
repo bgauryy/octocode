@@ -1,9 +1,5 @@
 use serde_json::{Map, Value};
 
-pub(super) fn rows_key(tool: &str) -> &'static str {
-    crate::id::ToolId::from_name(tool).map_or("results", |tool| tool.output().rows_key())
-}
-
 /// Per-row fields that describe how a call was served (e.g. cache warmth),
 /// not the evidence. A paged response drops them so a copied continuation
 /// served from a warmer cache keeps the same snapshot, page plan, and bytes.
@@ -28,13 +24,6 @@ pub(super) fn strip_row_telemetry(structured: &mut Map<String, Value>) {
             row.remove(*field);
         }
     }
-}
-
-/// Remove transient telemetry and per-call provider facts from an envelope
-/// whose bytes are windowed: every page must hash and slice identical bytes.
-pub(crate) fn strip_transient_telemetry(structured: &mut Map<String, Value>) {
-    strip_row_telemetry(structured);
-    take_volatile_fields(structured);
 }
 
 /// Move each row's per-call provider facts out of the envelope, by row.

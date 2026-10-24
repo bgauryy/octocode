@@ -4,12 +4,13 @@
 use super::held::Want;
 use super::index::read_windows;
 use super::page::{continue_window, map_to_file, past_end_row, served_span};
-use super::{BYTE_LOOKBEHIND, STREAMED_HEAD_LINES, Streamed, WINDOW_LINES};
+use super::{BYTE_LOOKBEHIND, Streamed, WINDOW_LINES};
 use crate::execution::cancel::CancellationCheck;
 use crate::num::usize_of;
 use crate::security::scan::ContentScan;
+use crate::tools::source_view::prepare::extraction_error;
 use crate::tools::source_view::*;
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit};
 use std::path::Path;
 
 /// The file lines one streamed window of `q` holds.
@@ -54,29 +55,18 @@ pub(super) fn window_span(q: &LocalFetchQuery) -> WindowSpan {
         // there, so every window holds a full page past the offset (a byte
         // offset pages inside the range's first line instead).
         (Some(start), end) => {
-            let skip = match q.unit {
-                Some(WindowUnit::Bytes) => 0,
+            let skip = match local_fetch_query::unit(q) {
+                ReadProgressUnit::Bytes => 0,
                 _ => local_fetch_query::offset(q).unwrap_or(0),
             };
             (start + skip, end.unwrap_or(start), false)
         }
         _ => {
             let offset = local_fetch_query::offset(q).unwrap_or(0);
-            (
-                offset + 1,
-                offset
-                    + local_fetch_query::window_length(q).unwrap_or(
-                        if offset == 0 && q.snapshot.is_none() {
-                            STREAMED_HEAD_LINES
-                        } else {
-                            WINDOW_LINES
-                        },
-                    ),
-                true,
-            )
+            (offset + 1, offset + WINDOW_LINES, true)
         }
     };
-    let byte_page = !chunked && q.unit == Some(WindowUnit::Bytes);
+    let byte_page = !chunked && local_fetch_query::unit(q) == ReadProgressUnit::Bytes;
     WindowSpan {
         first,
         last: if byte_page {
@@ -137,7 +127,11 @@ pub(super) fn stream_window(
         .and_then(|mut windows| windows.pop().ok_or_else(|| "no window streamed".to_owned()));
     match streamed {
         Ok(streamed) => serve_window(q, streamed, span, source, modified, share, security, cancel),
-        Err(error) => LocalFetchResult::error(q.path.to_string(), ErrorCode::FileReadFailed, error),
+        Err(error) => LocalFetchResult::error(
+            local_fetch_query::path(q).to_owned(),
+            ErrorCode::FileReadFailed,
+            error,
+        ),
     }
 }
 
@@ -161,13 +155,13 @@ pub(super) fn serve_window(
         byte_page,
         ..
     } = span;
-    if let Some(expected) = q.snapshot.as_deref()
-        && **expected != streamed.digest
+    if let Some(expected) = local_fetch_query::snapshot(q)
+        && expected != streamed.digest
     {
         return stale_snapshot(q);
     }
     if streamed.binary {
-        return super::super::acquire::refuse_binary(q, q.path.as_str());
+        return super::super::acquire::refuse_binary(q, local_fetch_query::path(q));
     }
     let total = streamed.total_lines;
     if !chunked && origin > total {
@@ -191,32 +185,38 @@ pub(super) fn serve_window(
     if (!chunked && first > requested_last.min(total))
         || (chunked && (first > total.max(1) || (total == 0 && first > 1)))
     {
-        return past_end_row(q, &streamed, WindowUnit::Lines, read_total, len);
+        return past_end_row(q, &streamed, ReadProgressUnit::Lines, read_total, len);
     }
     // A byte offset past the range's last byte, which no window holds.
     let offset = local_fetch_query::offset(q).unwrap_or(0);
     if byte_page && offset > 0 && offset >= streamed.origin.total {
-        return past_end_row(q, &streamed, WindowUnit::Bytes, streamed.origin.total, len);
+        return past_end_row(
+            q,
+            &streamed,
+            ReadProgressUnit::Bytes,
+            streamed.origin.total,
+            len,
+        );
     }
     let held_last = streamed.last.max(streamed.first);
-    let mut window_query = q.clone();
-    // The outer streamed fetch rejects selection and exposes an unfiltered recovery.
-    // This internal bounded read addresses only a temporary window digest.
-    window_query.clasify_context = None;
-    window_query.selection = None;
-    local_fetch_query::set_line_span(&mut window_query, 1, held_last + 1 - streamed.first);
-    window_query.snapshot = None;
-    if chunked {
-        // The chunk's file offset selected the window itself.
-        window_query.offset = None;
-        window_query.length = None;
-        window_query.unit = None;
-    } else if q.unit != Some(WindowUnit::Bytes) {
-        // A range's line offset started the window; a byte offset pages
-        // the range's bytes, which the window holds from `origin.base`
-        // (`SourceFacts::byte_origin` places the page).
-        window_query.offset = None;
-    }
+    let progress = if !chunked && local_fetch_query::unit(q) == ReadProgressUnit::Bytes {
+        local_fetch_query::read_progress(q).cloned()
+    } else {
+        None
+    };
+    let window_query = match local_fetch_query::updated(
+        q,
+        serde_json::json!({"classification":null,"selection":null,"snapshot":null,"ranges":[{"startLine":1,"endLine":held_last+1-streamed.first}],"readProgress":progress}),
+    ) {
+        Ok(query) => query,
+        Err(error) => {
+            return LocalFetchResult::error(
+                local_fetch_query::path(q).to_owned(),
+                ErrorCode::ExecutionFailed,
+                error.to_string(),
+            );
+        }
+    };
     let serve = |window_query: &LocalFetchQuery| {
         let mut result = process_fetched_content(
             window_query,
@@ -251,18 +251,24 @@ pub(super) fn serve_window(
         // The lines the page returned, which the window's page budget may have
         // cut short of the window it held.
         let served = served_span(&result).unwrap_or((streamed.first, held_last));
-        continue_window(
+        if let Err(error) = continue_window(
             q,
             &mut result,
             &streamed,
             span,
             (served.1 < last).then_some(served.1 + 1 - origin),
-        );
+        ) {
+            return LocalFetchResult::error(
+                local_fetch_query::path(q).to_owned(),
+                ErrorCode::ExecutionFailed,
+                error,
+            );
+        }
         // A line page pages the read's own lines (the file's for a chunk, the
         // range's otherwise) whatever window held it, as an in-memory read's
         // pagination does.
         if let Some(page) = result.pagination.as_mut()
-            && page.unit == WindowUnit::Lines
+            && page.unit == ReadProgressUnit::Lines
         {
             let (start, end) = served;
             page.offset = start - origin;
@@ -277,28 +283,11 @@ pub(super) fn serve_window(
         }
         // A byte page pages the bytes of the lines its window was cut from.
         if let Some(page) = result.pagination.as_mut()
-            && page.unit == WindowUnit::Bytes
+            && page.unit == ReadProgressUnit::Bytes
         {
             page.total_lines = span.last.min(total) + 1 - span.first;
         }
         result
     };
-    let page = serve(&window_query);
-    // A page whose row the file's coordinates grew past its share is cut
-    // again from the window already held.
-    let Some(lines) = share
-        .filter(|_| page.status == ReadStatus::Success)
-        .and_then(|share| fitted_lines(&page, q, share))
-    else {
-        return page;
-    };
-    let mut shorter = window_query;
-    shorter.unit = Some(WindowUnit::Lines);
-    shorter.length = wire_positive(lines);
-    let fitted = serve(&shorter);
-    if fitted.status == ReadStatus::Error {
-        page
-    } else {
-        fitted
-    }
+    serve(&window_query)
 }

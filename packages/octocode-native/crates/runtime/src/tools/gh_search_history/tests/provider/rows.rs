@@ -21,27 +21,27 @@ async fn commit_search_read_targets_the_first_sha_without_a_candidate_list() {
     )
     .await;
     let provider = one_shot_provider(&server);
-    let query = serde_json::from_value(
-        json!({"operation":"commit","mainGoal":"test","reasoning":"test",
-        "owner":"o","repo":"r","keywords":["cache"]}),
-    )
+    let query = serde_json::from_value(json!({"operation":"commit",
+        "owner":"o","repo":"r","keywords":["cache"]}))
     .expect("query");
     let data = execute(&provider, &query, &default_context(), &Passthrough)
         .await
         .expect("history search");
-    let read = &data["next"]["readCommit"];
-    assert_eq!(read["query"]["queries"][0]["ref"], "aaa", "{data}");
+    let read =
+        crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "commit"
+        });
+    assert_eq!(read["input"]["queries"][0]["ref"], "aaa", "{data}");
     assert_eq!(
-        read["query"]["queries"][0]["sections"],
+        read["input"]["queries"][0]["sections"],
         json!(["patches"]),
         "{data}"
     );
     assert!(read.get("candidates").is_none(), "{data}");
     assert_eq!(data["commits"].as_array().map(Vec::len), Some(3), "{data}");
-    // Commit search pages use the shared `currentPage` key, so the
+    // Commit search pages use the shared `page` key, so the
     // default projection drops page one like every other history page.
-    assert_eq!(data["pagination"]["currentPage"], 1, "{data}");
-    assert!(data["pagination"].get("page").is_none(), "{data}");
+    assert_eq!(data["pagination"]["page"], 1, "{data}");
 }
 
 /// A commit listing names its row kind like commit search: `type` is
@@ -65,7 +65,7 @@ async fn commit_listing_rows_are_typed_commits() {
     for scope in [json!("src/lib.rs"), json!("src/"), Value::Null] {
         let mut query = json!({"operation":"commit","owner":"o","repo":"r"});
         if !scope.is_null() {
-            query["path"] = scope.clone();
+            query["pathPrefix"] = scope.clone();
         }
         let query = serde_json::from_value(query).expect("query");
         let data = execute(&provider, &query, &default_context(), &Passthrough)
@@ -76,7 +76,10 @@ async fn commit_listing_rows_are_typed_commits() {
         // The listed path is the caller's own input: not restated.
         assert!(data.get("path").is_none(), "{scope}: {data}");
         // The commit read scopes its patches with the published `include`.
-        let read = &data["next"]["readCommit"]["query"]["queries"][0];
+        let read =
+            &crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+                input["queries"][0]["operation"] == "commit"
+            })["input"]["queries"][0];
         assert!(read.get("path").is_none(), "{read}");
         if scope.is_null() {
             assert!(read.get("include").is_none(), "{read}");
@@ -103,11 +106,11 @@ async fn plain_issue_listing_pages_issue_search_without_pr_gaps() {
         .and(path("/api/v3/search/issues"))
         .and(query_param("q", "is:issue repo:o/full"))
         .and(query_param("page", "2"))
-        .and(query_param("per_page", "5"))
+        .and(query_param("per_page", "50"))
         .and(query_param("sort", "created"))
         .and(query_param("order", "desc"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 11, "incomplete_results": false,
+            "total_count": 101, "incomplete_results": false,
             "items": [issue(6), issue(7), issue(8), issue(9), issue(10)]
         })))
         .mount(&server)
@@ -134,19 +137,19 @@ async fn plain_issue_listing_pages_issue_search_without_pr_gaps() {
             .expect("issue listing")
         }
     };
-    let data = run(json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"full","pageSize":5,"page":2})).await;
+    let data = run(json!({"operation":"issue","owner":"o","repo":"full","page":2})).await;
     assert_eq!(data["issues"].as_array().map(Vec::len), Some(5), "{data}");
-    assert_eq!(data["pagination"]["currentPage"], 2, "{data}");
+    assert_eq!(data["pagination"]["page"], 2, "{data}");
     // The cursor rides `next.nextPage` only, never the page block.
     assert_eq!(data.pointer("/pagination/nextPage"), None, "{data}");
     assert_eq!(
-        data["next"]["nextPage"]["query"]["queries"][0]["page"], 3,
+        data["next"]["nextPage"]["input"]["queries"][0]["page"], 3,
         "{data}"
     );
-    assert_eq!(data["pagination"]["totalItems"], 11, "{data}");
+    assert_eq!(data["pagination"]["totalItems"], 101, "{data}");
     assert!(data.get("skippedPullRequestPages").is_none(), "{data}");
 
-    let empty = run(json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"prs-only","pageSize":5})).await;
+    let empty = run(json!({"operation":"issue","owner":"o","repo":"prs-only"})).await;
     assert_eq!(empty["issues"], json!([]), "{empty}");
     assert_eq!(empty["status"], "empty", "{empty}");
     assert!(empty.get("pagination").is_none(), "{empty}");
@@ -182,14 +185,17 @@ async fn commit_listing_leads_to_the_squash_pull_request() {
     .await;
     let provider = one_shot_provider(&server);
     let query = serde_json::from_value(
-        json!({"operation":"commit","owner":"o","repo":"r","path":"src/lib.rs"}),
+        json!({"operation":"commit","owner":"o","repo":"r","pathPrefix":"src/lib.rs"}),
     )
     .expect("query");
     let data = execute(&provider, &query, &default_context(), &Passthrough)
         .await
         .expect("commit listing");
     assert!(data["commits"][1].get("prNumber").is_none(), "{data}");
-    let read = &data["next"]["readPullRequest"]["query"]["queries"][0];
+    let read =
+        &crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        })["input"]["queries"][0];
     assert_eq!(read["number"], 9, "{data}");
     assert_eq!(read["include"], json!(["src/lib.rs"]), "{data}");
     assert!(
@@ -290,7 +296,9 @@ async fn happy_path_rows_carry_the_next_hop_anchors() {
         "{prs}"
     );
     // A state the query fixes is not restated per row.
-    let open = run(json!({"operation":"pullRequest","owner":"o","repo":"r","state":"open"})).await;
+    let open =
+        run(json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"state":"open"}}))
+            .await;
     assert!(open["pullRequests"][1].get("state").is_none(), "{open}");
 
     let issues = run(json!({"operation":"issue","owner":"o","repo":"r"})).await;
@@ -354,10 +362,13 @@ async fn commit_rows_without_a_named_pull_request_find_it_by_sha() {
     let data = execute(&provider, &query, &default_context(), &Passthrough)
         .await
         .expect("commit search");
-    let find = &data["next"]["findPullRequest"];
+    let find =
+        crate::tools::test_support::checks::related_call(&data, "ghSearchHistory", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        });
     assert_eq!(find["tool"], "ghSearchHistory", "{data}");
     assert_eq!(
-        find["query"]["queries"][0],
+        find["input"]["queries"][0],
         json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["aaa"]}),
         "{data}"
     );
@@ -368,7 +379,10 @@ async fn commit_rows_without_a_named_pull_request_find_it_by_sha() {
         .expect("commit listing");
     assert!(data["next"].get("findPullRequest").is_none(), "{data}");
     assert_eq!(
-        data["next"]["readPullRequest"]["query"]["queries"][0]["number"], 9,
+        crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| input
+            ["queries"][0]["operation"]
+            == "pullRequest")["input"]["queries"][0]["number"],
+        9,
         "{data}"
     );
 }

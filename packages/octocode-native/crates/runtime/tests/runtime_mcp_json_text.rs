@@ -44,12 +44,7 @@ async fn an_unpaged_row_is_its_structured_json() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     let file = workspace.write("a.txt", "alpha\nbeta\n");
-    let result = mcp(
-        &runtime,
-        "localFetch",
-        json!({"queries":[{"path":file,"fullContent":true}]}),
-    )
-    .await;
+    let result = mcp(&runtime, "localFetch", json!({"queries":[{"path":file}]})).await;
     assert!(
         result["structuredContent"]
             .get("responsePagination")
@@ -62,36 +57,31 @@ async fn an_unpaged_row_is_its_structured_json() {
 /// Every page scope, its saved replay included, answers in JSON text.
 #[tokio::test]
 async fn every_page_and_its_saved_replay_is_its_structured_json() {
-    for scope in [None, Some("rows"), Some("structured")] {
-        let workspace = Workspace::new();
-        let runtime = workspace.runtime(&[]);
-        let queries = (0..3)
-            .map(|index| {
-                let file = workspace.write(&format!("page-{index}.txt"), lines("paged"));
-                json!({"path":file,"fullContent":true})
-            })
-            .collect::<Vec<_>>();
-        let mut input = json!({"queries":queries,"responseLength":300});
-        if let Some(scope) = scope {
-            input["responseScope"] = json!(scope);
-        }
-        let mut page = mcp(&runtime, "localFetch", input).await;
-        let mut pages = 1;
-        while let Some(next) = page["structuredContent"]["responsePagination"]["next"]["query"]
-            .as_object()
-            .cloned()
-        {
-            page = mcp(&runtime, "localFetch", Value::Object(next)).await;
-            assert_eq!(
-                page["structuredContent"]["responsePagination"]["replayed"], true,
-                "{scope:?}: {page}"
-            );
-            pages += 1;
-            assert!(pages < 200, "{scope:?}: the walk terminates");
-        }
-        assert!(pages > 1, "{scope:?}: the response paged");
-        runtime.close().await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let file = workspace.write("pages.txt", lines("paged"));
+    let mut page = mcp(
+        &runtime,
+        "localSearch",
+        json!({"queries":[{"path":file,"matchString":["needle"]}],"responseChars":900}),
+    )
+    .await;
+    let mut pages = 1;
+    while let Some(input) = page["structuredContent"]
+        .pointer("/responsePagination/next/input")
+        .cloned()
+    {
+        crate::support::assert_cursor_only(&input);
+        page = mcp(&runtime, "localSearch", input).await;
+        assert_eq!(
+            page["structuredContent"]["responsePagination"]["replayed"],
+            true
+        );
+        pages += 1;
+        assert!(pages < 300, "finite response pages");
     }
+    assert!(pages > 1);
+    runtime.close().await;
 }
 
 #[tokio::test]
@@ -116,11 +106,11 @@ async fn a_batch_with_rejected_rows_is_its_structured_json() {
     let file = workspace.write("a.txt", lines("batch"));
     for length in [None, Some(1_500)] {
         let mut input = json!({"queries":[
-            {"path":file,"fullContent":true},
+            {"path":file},
             {"path":file,"matchstring":"x"}
         ]});
         if let Some(length) = length {
-            input["responseLength"] = json!(length);
+            input["responseChars"] = json!(length);
         }
         let result = mcp(&runtime, "localFetch", input).await;
         let rows = result["structuredContent"]["results"]
@@ -161,16 +151,14 @@ async fn clasify_receipts_are_their_structured_json() {
         &runtime,
         "clasify",
         json!({"queries":[{
-            "id":"rotation",
-            "mainGoal":"Decide whether rotation needs a restart.",
-            "reasoning":"Metadata only.",
-            "state":{"document":{"text":"Update the configuration, then restart the service."}},
-            "questions":{"restart":{"type":"noul","instructions":"Does `document.text` require a restart?"}}
+            "operation":"evaluate",
+            "content":"Update the configuration, then restart the service.",
+            "questions":{"restart":{"type":"noul","instructions":"Does the content require a restart?"}}
         }]}),
     )
     .await;
     assert!(
-        result["structuredContent"]["queries"][0]["answers"].is_object(),
+        result["structuredContent"]["results"][0]["data"]["answers"].is_object(),
         "{result}"
     );
     runtime.close().await;

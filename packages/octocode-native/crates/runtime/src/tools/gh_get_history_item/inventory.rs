@@ -19,7 +19,7 @@ use missing_patch::inventory_patch_flag;
 pub(super) use missing_patch::missing_patch_reason;
 pub(super) use review::review_selection;
 
-/// Largest patch-free inventory page (contract pullRequest `pageSize` maximum).
+/// Largest patch-free inventory page allowed by private `pageSize` state.
 pub(super) fn max_inventory_page() -> usize {
     crate::contracts::query_schema_max(
         crate::id::ToolId::GhGetHistoryItem,
@@ -39,7 +39,7 @@ pub(super) fn file_page_size(query: &HistoryItemRequest, patches: bool) -> usize
     match (gh_get_history_item_query::page_size(query), patches) {
         // A literal search returns every hit file of the PR on one page:
         // hits are bounded by matches (and the patch window), not by files.
-        (None, true) if gh_get_history_item_query::match_string(query).is_some() => {
+        (None, true) if gh_get_history_item_query::match_strings(query).is_some() => {
             super::window::MAX_FILE_BATCHES * MAX_PER_PAGE
         }
         // Patches pack into one char window whatever the page size, so a
@@ -52,7 +52,7 @@ pub(super) fn file_page_size(query: &HistoryItemRequest, patches: bool) -> usize
     }
 }
 
-/// The patch-free inventory page an omitted `pageSize` fills: as many
+/// The fresh patch-free inventory page, before a cursor saves `pageSize`: as many
 /// compact rows as fit this row's share of the response page (100–1000).
 fn budget_inventory_page(query: &HistoryItemRequest) -> usize {
     (auto_page(query.auto_page_chars) / INVENTORY_ROW_CHARS)
@@ -61,10 +61,10 @@ fn budget_inventory_page(query: &HistoryItemRequest) -> usize {
 }
 
 /// The file page size a file-page continuation must carry: the budget-sized
-/// inventory page of a read that omitted `pageSize`. That size follows the
-/// row's share of the response budget (batch size, `responseLength`), so a
+/// inventory page before `pageSize` has been saved. That size follows the
+/// row's share of the response budget (batch size, `responseChars`), so a
 /// continuation that left it out would re-cut the file list on another grid
-/// and skip or repeat files. Every other file page size is the caller's or
+/// and skip or repeat files. Every other file page size is already saved or
 /// a fixed batch, which the continuation reproduces as is.
 pub(super) fn pinned_file_page_size(query: &HistoryItemRequest, patches: bool) -> Option<usize> {
     (gh_get_history_item_query::page_size(query).is_none() && !patches)
@@ -237,7 +237,7 @@ pub(super) struct ShapedFiles {
     pub(super) match_dropped: Option<(usize, usize)>,
     /// Files whose `matchString` context the hunks cut short, with the
     /// new-side windows to read at the head.
-    pub(super) clipped: Vec<(String, Vec<String>)>,
+    pub(super) clipped: Vec<(String, Vec<(usize, usize)>)>,
     /// Files of the patch window not fully delivered (a working count, never
     /// an output field).
     pub(super) unfinished_patches: usize,
@@ -262,6 +262,7 @@ pub(super) fn shape_pr_files(
         unsearched,
         dropped,
         in_scope,
+        ..
     } = FileFilter {
         needle: needle.as_deref(),
         scope,
@@ -279,7 +280,7 @@ pub(super) fn shape_pr_files(
         && dropped > 0
         && kept > 0)
         .then_some((dropped, in_scope));
-    let review = review_selection(&slice, patch_window(None, query.auto_page_chars));
+    let review = review_selection(&slice, patch_window(query.auto_page_chars));
     if !patches {
         let rows = compact_inventory(&slice);
         if !rows.is_empty() {

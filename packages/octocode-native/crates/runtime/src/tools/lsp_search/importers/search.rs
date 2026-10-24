@@ -57,6 +57,9 @@ pub(in super::super) async fn verified_anchors(
             ..Importers::default()
         });
     };
+    let module = anchor_module(sources, anchor_path, symbol).await;
+    let (candidates, unreached) =
+        split_reachable(candidates, module.clone(), sources.policy(), cancel).await?;
     let window = match Window::cut(candidates, request) {
         Cut::Window(window) => window,
         Cut::Stale => {
@@ -69,7 +72,13 @@ pub(in super::super) async fn verified_anchors(
     let mut ignored = scope
         .ignored_text_files(symbol, &skip, sources.policy(), cancel)
         .await?;
-    check_imports(&mut ignored, sources.policy(), cancel, symbol).await?;
+    // Nested repositories are other repositories: only one holding the
+    // anchor is a cut of this answer's scope.
+    let anchor_file = canonical(anchor_path);
+    ignored
+        .nested_repositories
+        .retain(|repo| Path::new(&anchor_file).starts_with(Path::new(&scope.root).join(repo)));
+    check_imports(&mut ignored, sources.policy(), cancel, symbol, module).await?;
     let declaration = identities(
         client,
         sources,
@@ -84,6 +93,7 @@ pub(in super::super) async fn verified_anchors(
         return Ok(Importers {
             window: Some(window),
             failed: true,
+            rejected: unreached,
             ignored,
             ..Importers::default()
         });
@@ -91,12 +101,13 @@ pub(in super::super) async fn verified_anchors(
     let mut window = window;
     let started = std::time::Instant::now();
     let mut anchors = Vec::new();
-    let mut rejected = Vec::new();
+    let mut rejected = unreached;
     let mut unverified = Vec::new();
+    let mut elsewhere = HashSet::new();
     loop {
         let (opened, open_failed) =
             open_candidates(client, sources, cancel, anchor_path, window.files(), symbol).await?;
-        let (found, other, unresolved) = verify_occurrences(
+        let verified = verify_occurrences(
             client,
             sources,
             snippet_policy,
@@ -105,13 +116,13 @@ pub(in super::super) async fn verified_anchors(
             &declaration,
         )
         .await?;
-        anchors.extend(found);
-        rejected.extend(other);
-        unverified.extend(unresolved.into_iter().chain(open_failed));
-        // The first window lists the anchor's own answer; a later one with
-        // no verified importer would list nothing, so the request goes on.
-        let silent = window.first > 1 && anchors.is_empty();
-        if !silent
+        anchors.extend(verified.anchors);
+        rejected.extend(verified.rejected);
+        unverified.extend(verified.unverified.into_iter().chain(open_failed));
+        elsewhere.extend(verified.elsewhere);
+        // A window with no verified importer adds no site, so the request
+        // goes on to the next one rather than ending a call on nothing new.
+        if !anchors.is_empty()
             || !window.more()
             || window.verified_windows() >= MAX_WINDOWS_PER_REQUEST
             || started.elapsed() >= SKIP_BUDGET
@@ -127,6 +138,7 @@ pub(in super::super) async fn verified_anchors(
         failed: !unverified.is_empty(),
         rejected,
         unverified,
+        elsewhere,
         ignored,
     })
 }
@@ -134,25 +146,38 @@ pub(in super::super) async fn verified_anchors(
 /// Sort `ignored.files` into those that import `symbol` (by name:
 /// `import { symbol }`, `const { symbol } = require(…)`, renamed or not; or
 /// through a namespace or default binding whose member `.symbol` the file
-/// spells) and those the check cannot decide: refused by the policy,
-/// unreadable, larger than [`CODE_CHECK_MAX_BYTES`], unparsable, or past
-/// [`CODE_CHECK_MAX_FILES`]. One blocking worker reads the files in turn and
-/// keeps none: the server never opens them, so no request cache holds them.
+/// spells) from a module that may be the anchor's (see [`AnchorModule`];
+/// any module when `module` is unknown), and those the check cannot decide:
+/// refused by the policy, unreadable, larger than [`CODE_CHECK_MAX_BYTES`],
+/// unparsable, or past [`CODE_CHECK_MAX_FILES`]. One blocking worker reads
+/// the files in turn and keeps none: the server never opens them, so no
+/// request cache holds them.
 pub(super) async fn check_imports(
     ignored: &mut IgnoredMentions,
     policy: &PathPolicy,
     cancel: &dyn CancellationCheck,
     symbol: &str,
+    module: Option<Arc<AnchorModule>>,
 ) -> Result<(), LspFailure> {
     let files = ignored.files.clone();
     let (policy, symbol) = (policy.clone(), symbol.to_owned());
     let checked = super::super::blocking_cancellable(cancel, move |stopped| {
+        let mut relays = HashMap::new();
         files
             .into_iter()
             .enumerate()
             .map(|(index, file)| {
                 let imports = (index < CODE_CHECK_MAX_FILES && !stopped())
-                    .then(|| import_of(&policy, &file, &symbol))
+                    .then(|| {
+                        let content = read_checked(&policy, &file)?;
+                        let imports = imports_name(&content, &file, &symbol)?;
+                        Some(
+                            imports
+                                && module.as_deref().is_none_or(|module| {
+                                    module.bound_by(&file, &content, &mut relays)
+                                }),
+                        )
+                    })
                     .flatten();
                 (file, imports)
             })
@@ -174,16 +199,15 @@ pub(super) async fn check_imports(
     Ok(())
 }
 
-/// Whether the policy-readable, bounded `file` imports `symbol`; `None`
-/// when it cannot be read or parsed.
-pub(super) fn import_of(policy: &PathPolicy, file: &str, symbol: &str) -> Option<bool> {
-    let valid = policy.validate_read(file).ok()?;
-    let bytes = crate::tools::source::read_bounded(&valid.canonical, CODE_CHECK_MAX_BYTES).ok()?;
-    imports_name(
-        &super::super::source::admitted_text(&bytes).ok()?,
-        file,
-        symbol,
-    )
+/// The anchor's module when it exports `symbol` itself (see
+/// [`AnchorModule::of`]); `None` when the anchor cannot be read.
+async fn anchor_module(
+    sources: &mut SourceCache<'_>,
+    anchor_path: &str,
+    symbol: &str,
+) -> Option<Arc<AnchorModule>> {
+    let source = sources.get(anchor_path).await?;
+    AnchorModule::of(anchor_path, &source.content, symbol).map(Arc::new)
 }
 
 /// Whether `content` imports `symbol` (see [`check_imports`]); `None` when

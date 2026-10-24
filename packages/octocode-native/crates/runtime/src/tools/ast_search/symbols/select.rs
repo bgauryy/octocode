@@ -103,9 +103,9 @@ pub(super) fn select(
         // top-level rows, 1-based `column`).
         "rows-v5",
         canonical.to_string_lossy(),
-        q.language,
+        q.parser,
         ast_search_query_symbols::language_globs(q),
-        q.symbol_name,
+        q.symbol_filter,
         ast_search_query_symbols::kinds(q),
         ast_search_query_symbols::exclude(q),
         ast_search_query_symbols::max_files(q),
@@ -125,7 +125,7 @@ pub(super) fn select(
         references,
         read,
         text_search,
-        path: crate::tools::display_name(canonical),
+        path: canonical.to_string_lossy().into_owned(),
         snapshot,
         declarations,
         diagnostics,
@@ -154,7 +154,7 @@ pub(super) fn select(
 /// notes.
 struct Candidates {
     rows: Vec<Value>,
-    /// Rows of other kinds whose name equals a `symbolName` entry.
+    /// Rows of other kinds whose name equals a `symbolFilter.terms` entry.
     off_kind: Vec<Value>,
     /// Per file: (path, its notes).
     notes: Vec<(String, Vec<GraphFactDiagnostic>)>,
@@ -188,10 +188,10 @@ fn kind_candidates(files: Vec<OutlineFile>) -> Candidates {
     candidates
 }
 
-/// The `symbolName` filter, each entry settled against the candidates of
-/// every kind: an entry equal to some name (or a trait impl's `typeName`)
-/// keeps only equal names, even when `kinds` leaves out every declaration
-/// of that name, so a kind filter never turns a name into a substring.
+/// Resolve exact-first terms against candidates of every kind before
+/// applying `symbolKinds`. A matching declaration name or trait-impl type
+/// name makes that term exact even when its kind is later excluded.
+/// Explicit exact and substring modes retain their requested behavior.
 fn settled_filter<'a>(
     q: &AstSearchQuerySymbols,
     rows: impl Iterator<Item = &'a Value>,
@@ -242,10 +242,10 @@ fn references_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
         row["line"].as_u64()?,
         crate::tools::leads::lsp::Verify::for_kind(row["kind"].as_str().unwrap_or_default()),
     )?;
-    Some(crate::response::result::Continuation::new(ToolId::LspSearch, query).build())
+    Some(crate::response::result::Continuation::related(ToolId::LspSearch, query).build())
 }
 
-/// A text search for the `symbolName` values under the outlined path: the
+/// A text search for the `symbolFilter.terms` values under the outlined path: the
 /// completion when a recovered parse or a skipped file may hide one.
 fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> Option<Value> {
     let filter = ast_search_query_symbols::name_filter(q)?;
@@ -254,19 +254,11 @@ fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> O
         .iter()
         .map(|entry| entry.text.as_str())
         .collect();
-    let mut query = json!({"path": canonical.to_string_lossy()});
-    if let [name] = names.as_slice() {
-        query["matchString"] = json!(name);
-        query["regex"] = json!("literal");
-    } else {
-        let alternation: Vec<String> = names.iter().map(|name| regex::escape(name)).collect();
-        query["matchString"] = json!(alternation.join("|"));
-        query["regex"] = json!("rust");
-    }
+    let mut query = json!({"path": canonical.to_string_lossy(), "matchString": names});
     if filter.entries.iter().all(|entry| entry.fold) {
         query["caseMode"] = json!("insensitive");
     }
-    Some(crate::response::result::Continuation::new(ToolId::LocalSearch, query).build())
+    Some(crate::response::result::Continuation::related(ToolId::LocalSearch, query).build())
 }
 
 /// The read of one declaration's lines.
@@ -274,9 +266,9 @@ fn read_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
     let start = row["line"].as_u64()?;
     let end = row["endLine"].as_u64().unwrap_or(start);
     Some(
-        crate::response::result::Continuation::new(
+        crate::response::result::Continuation::related(
             ToolId::LocalFetch,
-            json!({"path": canonical.to_string_lossy(), "ranges": [format!("{start}-{end}")]}),
+            json!({"path": canonical.to_string_lossy(), "ranges": [{"startLine":start,"endLine":end}]}),
         )
         .build(),
     )
@@ -307,14 +299,13 @@ pub(crate) struct SymbolSet {
     /// A parser recovered from syntax errors: the declarations are a partial
     /// view of the source, not a complete inventory.
     pub(super) recovered: bool,
-    /// What the walk skipped, every path its own entry (paged with or
-    /// without `extras:["details"]`).
+    /// What the walk skipped, with every path retained across pages.
     #[serde(default)]
     pub(super) skipped_paths: Option<octocode_contract_types::SkippedPaths>,
-    /// What an exact `symbolName` match left out.
+    /// What an exact `symbolFilter.terms` match left out.
     #[serde(default)]
     pub(super) suppressed: Option<Suppressed>,
-    /// Exact `symbolName` entries `kinds` left without a declaration.
+    /// Exact `symbolFilter.terms` entries `symbolKinds` left without a declaration.
     #[serde(default)]
     pub(super) kinds_left_out: Option<KindsLeftOut>,
     /// A directory outline: rows group under their files, and the outlined

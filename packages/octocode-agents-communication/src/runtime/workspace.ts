@@ -1,38 +1,13 @@
 /** Repository coordination identity without a Git executable or environment overrides. */
 import { spawnSync } from 'node:child_process';
-import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readSync, statSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, openSync, readSync } from 'node:fs';
 import { dirname, isAbsolute, join, sep } from 'node:path';
 import { execute, type Database } from './database.js';
 import { ValidationError } from './errors.js';
-import { realpath } from './paths.js';
+import { isDirectory, isFile, lexists, realpath } from './paths.js';
 import { decodeUtf8 } from './json-text.js';
 
 const METADATA_LIMIT = 4096;
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function lexists(path: string): boolean {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** The directory a Git metadata file (`.git` file or `commondir`) points to, relative to the file. */
 export function metadataPath(path: string, prefix = ''): string {

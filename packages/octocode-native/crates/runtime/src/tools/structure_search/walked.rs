@@ -151,16 +151,14 @@ impl Walked {
     }
 }
 
-impl WalkMeta {
-    /// The page's warnings: `cut`'s own (`warnings`). The query's notes
-    /// read the same for the whole result: they are notices, said once
-    /// ([`crate::response::paging::push_notice`]).
-    pub(super) fn warn(&self, out: &mut Value, query_notes: Vec<String>, cut: Vec<String>) {
-        if !cut.is_empty() {
-            out["warnings"] = json!(cut);
-        }
-        for note in query_notes {
-            crate::response::paging::push_notice(out, note);
-        }
+/// Set a page's warnings: `cut`'s own (`warnings`). The query's notes
+/// read the same for the whole result: they are notices, said once
+/// ([`crate::response::paging::push_notice`]).
+pub(super) fn push_warnings(out: &mut Value, query_notes: Vec<String>, cut: Vec<String>) {
+    if !cut.is_empty() {
+        out["warnings"] = json!(cut);
+    }
+    for note in query_notes {
+        crate::response::paging::push_notice(out, note);
     }
 }

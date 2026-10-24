@@ -1,71 +1,102 @@
+// Hot coordination paths use indexed lookups, not scans of every lease, record, message or delivery: every statement the
+// store runs for them is checked with EXPLAIN QUERY PLAN against a seeded database. The wall-clock variant over 10^5
+// records is opt-in (yarn test:nightly, tests/nightly/storage-timing.test.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from './helpers.ts';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import type { JsonRecord } from './json-record.ts';
-import { binary, only, tempWorkspace } from './helpers.ts';
+import { fixture } from './store-support.ts';
 
-// Hot coordination paths must use indexed lookups, not scans of every lease or record.
-// Bounds allow for debug builds and loaded CI.
-const BOUND_MS = 1500;
+/** Tables that grow with history; a hot path may search them through an index but never scan them. */
+const LARGE = /^SCAN (leases|records|messages|deliveries|documents|dispatches)\b/;
+/** The index each hot command must search by (assets/schema.sql); a dropped or bypassed index fails here. */
+const SEARCHES: Record<string, RegExp[]> = {
+  lock: [/^SEARCH leases USING (COVERING )?INDEX leases_path /],
+  lock_many: [/^SEARCH leases USING (COVERING )?INDEX leases_path /],
+  check_paths: [/^SEARCH leases USING (COVERING )?INDEX leases_path /],
+  context: [/^SEARCH d USING (COVERING )?INDEX documents_scan /],
+  fetch: [/USING (COVERING )?INDEX records_type /, /USING (COVERING )?INDEX records_entity /, /^SCAN records_search VIRTUAL TABLE/, /USING (COVERING )?INDEX deliveries_inbox /],
+};
 
-test('coordination and unified fetch stay indexed with 10^4 leases and 10^5 records', t => {
-  const workspace = tempWorkspace(t, 'communication-scale-', { real: true });
-  const database = join(workspace, 'scale.sqlite');
-  const run = (session: string | null, command: string, input: Record<string, unknown>) => {
-    const started = performance.now();
-    const output = execFileSync(binary, [command, JSON.stringify(input), '--workspace', workspace, '--database', database, ...(session ? ['--session', session] : [])], { encoding: 'utf8', maxBuffer: 1 << 26 });
-    return { ms: performance.now() - started, bytes: output.length, value: JSON.parse(output) as JsonRecord };
-  };
-  const owner = run(null, 'join', { name: 'owner', vendor: 'raw' }).value.id;
-  const peer = run(null, 'join', { name: 'peer', vendor: 'raw' }).value.id;
-  const db = new DatabaseSync(database);
+/** Two thousand messages, deliveries and live leases, a hundred expired sessions and one scoped document note. */
+function seed(db: DatabaseSync, workspace: string, owner: string) {
   db.exec('BEGIN');
-  const note = db.prepare("INSERT INTO records(path,[from],type,entityId,timestamp,data,key) VALUES(?,?,'document',?,?,?,?)");
-  note.run(workspace, owner, 'early.md', Date.now(), JSON.stringify({ name: 'early.md', author: owner, context: { summary: 'Early fact', path: 'd3', kind: 'tree', expiresAt: Date.now() + 3600000 } }), 'early.md');
+  db.prepare("INSERT INTO records(path,[from],type,entityId,timestamp,data,key) VALUES(?,?,'document',?,?,?,?)")
+    .run(workspace, owner, 'early.md', Date.now(), JSON.stringify({ name: 'early.md', author: owner, context: { summary: 'Early fact', path: 'd3', kind: 'tree', expiresAt: Date.now() + 3600000 } }), 'early.md');
+  const others = Array.from({ length: 100 }, () => randomUUID());
   const session = db.prepare('INSERT INTO sessions(id,workspace,name,vendor,expiresAt) VALUES(?,?,?,?,1)');
-  const others = Array.from({ length: 1000 }, () => randomUUID());
   for (const id of others) session.run(id, workspace, 'history', 'raw');
   const message = db.prepare("INSERT INTO messages(sender,target,body,key,expiresAt,reasoning,wake) VALUES(?,?,?,?,1,'r','passive')");
   const delivery = db.prepare('INSERT INTO deliveries(message,recipient,acknowledgedAt) VALUES(?,?,1)');
-  for (let i = 0; i < 50000; i++) delivery.run(message.run(others[i % 1000], others[(i + 1) % 1000], 'b', `k${i}`).lastInsertRowid, others[(i + 1) % 1000]);
+  for (let i = 0; i < 2000; i++) delivery.run(message.run(others[i % 100], others[(i + 1) % 100], 'b', `k${i}`).lastInsertRowid, others[(i + 1) % 100]);
   const lease = db.prepare("INSERT INTO leases(workspace,path,kind,owner,expiresAt,reasoning,pathKey) VALUES(?,?,'file',?,?,'r',?)");
-  for (let i = 0; i < 10000; i++) {
+  for (let i = 0; i < 2000; i++) {
     const path = join(workspace, `d${i % 16}`, `f${i}.txt`);
     lease.run(workspace, path, owner, Date.now() + 600000, path.toLowerCase());
   }
-  // Seeding can outlast the 60 s presence TTL on a loaded host; refresh both live identities as a heartbeat would.
-  db.prepare('UPDATE sessions SET expiresAt=? WHERE id IN (?,?)').run(Date.now() + 60000, owner, peer);
   db.exec('COMMIT');
-  assert.ok(Number(only(db.prepare('SELECT count(*) n FROM records').get()).n) >= 100000);
-  db.close();
-  const timings: Record<string, number> = {};
-  const measure = (label: string, session: string | null, command: string, input: Record<string, unknown>) => { const result = run(session, command, input); timings[label] = Math.round(result.ms); assert.ok(result.ms < BOUND_MS, `${label} took ${result.ms} ms`); return result; };
-  run(owner, 'heartbeat', {}); run(peer, 'heartbeat', {});
-  const granted = measure('lock_many', peer, 'lock_many', { reasoning: 'Scale fixture', paths: Array.from({ length: 32 }, (_, i) => ({ path: `free/f${i}.txt` })) });
-  assert.equal(granted.value.ok, true); assert.equal(granted.value.leases[0].path, 'free/f0.txt');
-  const denied = measure('lock conflict', peer, 'lock', { reasoning: 'Scale fixture', path: 'D15/F9999.TXT' });
-  assert.equal(denied.value.ok, false); assert.equal(denied.value.conflict.path, 'd15/f9999.txt');
-  const checked = measure('check_paths', peer, 'check_paths', { paths: Array.from({ length: 32 }, (_, i) => ({ path: `d15/f${9999 - 16 * i}.txt` })) });
-  assert.equal(checked.value.conflicts.length, 32);
-  const tree = measure('check_paths tree', peer, 'check_paths', { paths: [{ path: '.', kind: 'tree' }] });
-  assert.ok(tree.value.conflicts.length > 0 && tree.value.conflicts.length <= 100);
-  assert.equal(tree.value.next.command, 'check_paths'); assert.ok(tree.bytes < 17 * 1024);
-  const continuation = measure('check_paths next', peer, tree.value.next.command, tree.value.next.input);
-  assert.ok(continuation.value.conflicts[0].id > tree.value.conflicts.at(-1).id);
-  const context = measure('context', peer, 'context', { path: 'd3/f3.txt' });
-  assert.deepEqual(context.value.items.map((item: JsonRecord) => item.name), ['early.md']); assert.equal(context.value.next ?? null, null);
-  measure('share_document', owner, 'share_document', { name: 'late.md', content: 'proof', reasoning: 'Scale fixture' });
-  assert.throws(() => run(peer, 'read_document', { name: 'late' }), /late\.md/);
-  const mail = run(owner, 'send_message', { to: peer, body: 'Indexed incoming evidence', reasoning: 'Scale fixture' }).value;
-  const incoming = measure('fetch incoming', peer, 'fetch', { incoming: true });
-  assert.deepEqual(incoming.value.items.map((item: JsonRecord) => item.data.messageId), [mail.id]);
-  const memory = run(owner, 'record', { type: 'memory', branch: 'scale', data: { content: 'Unique search needle', category: 'performance' } }).value;
-  const searched = measure('fetch search', peer, 'fetch', { type: 'memory', branch: 'scale', search: '"search needle"', where: { category: 'performance' } });
-  assert.deepEqual(searched.value.items, [memory]);
-  const selected = measure('fetch payload', peer, 'fetch', { type: 'message', where: { messageId: mail.id } });
-  assert.equal(selected.value.items[0].data.body, 'Indexed incoming evidence');
-  t.diagnostic(JSON.stringify(timings));
+}
+
+/** The query plan of every statement that reads or changes rows, grouped by the command that ran it. */
+function plans(db: DatabaseSync, statements: readonly { command: string; sql: string; args: readonly unknown[] }[]) {
+  const byCommand = new Map<string, string[]>();
+  for (const statement of statements) {
+    if (!/^\s*(SELECT|UPDATE|DELETE|WITH)\b/i.test(statement.sql)) continue;
+    // The store binds booleans as 0/1; EXPLAIN takes the same values.
+    const args = statement.args.map(value => typeof value === 'boolean' ? Number(value) : value);
+    const details = (db.prepare('EXPLAIN QUERY PLAN ' + statement.sql).all(...(args as never[])) as { detail: string }[]).map(row => `${row.detail}\t${statement.sql.replace(/\s+/g, ' ')}`);
+    byCommand.set(statement.command, [...byCommand.get(statement.command) ?? [], ...details]);
+  }
+  return byCommand;
+}
+
+test('coordination and unified fetch search large tables only through indexes', async t => {
+  const f = fixture(t);
+  const owner = await f.join('owner'), peer = await f.join('peer');
+  const db = new DatabaseSync(f.file);
+  t.after(() => db.close());
+  seed(db, f.workspace, owner);
+
+  // Record every statement the store runs, labelled by the command that ran it.
+  const statements: { command: string; sql: string; args: readonly unknown[] }[] = [];
+  let command = '';
+  const store = f.store.db;
+  for (const method of ['get', 'all', 'run'] as const) {
+    const original = store[method].bind(store);
+    store[method] = ((sql: string, args: readonly unknown[] = []) => { statements.push({ command, sql, args }); return original(sql, args as never); }) as never;
+  }
+  const run = (session: string, name: string, input: Record<string, unknown>) => { command = name; return f.call(session, name, input); };
+
+  const granted = await run(peer, 'lock_many', { paths: Array.from({ length: 32 }, (_, i) => ({ path: `free/f${i}.txt` })) });
+  assert.equal(granted.ok, true); assert.equal(granted.leases[0].path, 'free/f0.txt');
+  const denied = await run(peer, 'lock', { path: 'D15/F1999.TXT' });
+  assert.equal(denied.ok, false); assert.equal(denied.conflict.path, 'd15/f1999.txt');
+  const checked = await run(peer, 'check_paths', { paths: Array.from({ length: 32 }, (_, i) => ({ path: `d15/f${1999 - 16 * i}.txt` })) });
+  assert.equal(checked.conflicts.length, 32);
+  const tree = await run(peer, 'check_paths', { paths: [{ path: '.', kind: 'tree' }] });
+  assert.ok(tree.conflicts.length > 0 && tree.conflicts.length <= 100);
+  assert.equal(tree.next.command, 'check_paths'); assert.ok(Buffer.byteLength(JSON.stringify(tree)) < 17 * 1024);
+  const continuation = await run(peer, tree.next.command, tree.next.input);
+  assert.ok(continuation.conflicts[0].id > tree.conflicts.at(-1).id);
+  const context = await run(peer, 'context', { path: 'd3/f3.txt' });
+  assert.deepEqual(context.items.map((item: JsonRecord) => item.name), ['early.md']); assert.equal(context.next ?? null, null);
+  await run(owner, 'share_document', { name: 'late.md', content: 'proof' });
+  await assert.rejects(run(peer, 'read_document', { name: 'late' }), /late\.md/);
+  const mail = await run(owner, 'send_message', { to: peer, body: 'Indexed incoming evidence' });
+  const incoming = await run(peer, 'fetch', { incoming: true });
+  assert.deepEqual(incoming.items.map((item: JsonRecord) => item.data.messageId), [mail.id]);
+  const memory = await run(owner, 'record', { type: 'memory', branch: 'scale', data: { content: 'Unique search needle', category: 'performance' } });
+  const searched = await run(peer, 'fetch', { type: 'memory', branch: 'scale', search: '"search needle"', where: { category: 'performance' } });
+  assert.deepEqual(searched.items, [memory]);
+  const selected = await run(peer, 'fetch', { type: 'message', where: { messageId: mail.id } });
+  assert.equal(selected.items[0].data.body, 'Indexed incoming evidence');
+
+  const byCommand = plans(db, statements);
+  const scans = [...byCommand].flatMap(([name, details]) => details.filter(detail => LARGE.test(detail)).map(detail => `${name}: ${detail}`));
+  assert.deepEqual(scans, [], 'hot paths scan no large table');
+  for (const [name, searches] of Object.entries(SEARCHES)) {
+    for (const search of searches) assert.ok(byCommand.get(name)?.some(detail => search.test(detail)), `${name} searches ${search}:\n${(byCommand.get(name) ?? []).join('\n')}`);
+  }
 });

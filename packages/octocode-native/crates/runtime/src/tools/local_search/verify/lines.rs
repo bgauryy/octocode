@@ -254,7 +254,7 @@ pub(super) fn visit_values(
     // The remaining source still binds the snapshot, but has no values to
     // reconstruct. A binary tail can be larger than the searcher's line cap.
     drop(bytes);
-    let mut chunk = [0u8; 64 * 1024];
+    let mut chunk = vec![0u8; 64 * 1024];
     loop {
         scope.cancel.check().map_err(ToolError::cancelled)?;
         let read = std::io::Read::read(&mut input, &mut chunk).map_err(|_| {

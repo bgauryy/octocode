@@ -5,15 +5,12 @@
 use super::{RuntimeError, ToolRuntime};
 use crate::contracts;
 use crate::id::ToolId;
-use crate::response::{extras, rows};
+use crate::response::rows;
 use crate::security::{CheckedQuery, InputPolicy};
 use octocode_contract_types::ErrorCode;
 
 use serde_json::{Value, json};
 
-/// An invalid row of an isolated batch, shaped like any other error row. Its
-/// `hints.repair` is the one-row call with every field fixed, when each has
-/// an exact fix.
 fn rejected_row(
     tool: ToolId,
     index: usize,
@@ -21,143 +18,26 @@ fn rejected_row(
     error: &contracts::ContractValidationError,
 ) -> (usize, Value) {
     let formatted = contracts::format_input_error(tool.as_str(), error);
-    let mut data = json!({
-        "error": formatted["error"],
-        "errorCode": ErrorCode::InvalidInput,
-    });
-    let one_row = json!({ "queries": [raw] });
-    let issues = error
-        .issues
-        .iter()
-        .map(|issue| {
-            let mut issue = issue.clone();
-            if issue.path.first().is_some_and(|part| part == "queries") && issue.path.len() > 1 {
-                issue.path[1] = "0".to_owned();
-            }
-            issue
-        })
-        .collect::<Vec<_>>();
-    let mut hints = serde_json::Map::new();
-    let mut text = formatted
+    let mut data = json!({"error": formatted["error"], "errorCode": ErrorCode::InvalidInput});
+    if let Some(details) = formatted
         .get("details")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if let Some(repair) = repair_lead(tool, &one_row, &issues) {
-        // The note names the caller's own row, not the one-row repair call.
-        text.extend(repair.note(Some(index)).map(Value::String));
-        hints.insert("repair".into(), repair.lead);
+        .filter(|details| details.as_array().is_some_and(|items| !items.is_empty()))
+    {
+        data["hints"] = details.clone();
     }
-    if !text.is_empty() {
-        hints.insert("text".into(), Value::Array(text));
-    }
-    if !hints.is_empty() {
-        data["hints"] = Value::Object(hints);
-    }
-    let mut row = rows::result_row(tool, index, &raw, data, Some("error"));
-    extras::prune_row(&mut row, tool, &raw);
-    (index, row)
-}
-
-/// A rejected input's `hints.repair` lead, and what a lossy or approximate
-/// one changes.
-struct RepairLead {
-    lead: Value,
-    /// The caller's fields the lead drops (paths); empty for an exact fix.
-    dropped: Vec<String>,
-    /// The fields the lead sets to a best reading (paths).
-    approximate: Vec<String>,
-}
-
-impl RepairLead {
-    /// The note a lossy or approximate lead needs: what it drops (a field
-    /// the contract does not own, a list value it does not list, or one
-    /// another form of the row declares) and which values it guesses. What
-    /// a dropped constraint changes depends on the field (a filter widens,
-    /// a section narrows), so the note names the paths only. A row field reads `queries[N].field`, as
-    /// every repair message names a row; `row` renames the one-row repair
-    /// call's `queries.0` to the caller's row.
-    fn note(&self, row: Option<usize>) -> Option<String> {
-        let rename = |paths: &[String]| {
-            paths
-                .iter()
-                .map(|path| match path.strip_prefix("queries.0.") {
-                    Some(rest) => format!("queries[{}].{rest}", row.unwrap_or(0)),
-                    None => path.clone(),
-                })
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        let mut notes = Vec::new();
-        if !self.dropped.is_empty() {
-            notes.push(format!("The repair lead drops {}.", rename(&self.dropped)));
-        }
-        if !self.approximate.is_empty() {
-            notes.push(format!(
-                "The repair lead reads {} from the value as sent; a ref may contain '/', so check them before relying on the result.",
-                rename(&self.approximate)
-            ));
-        }
-        (!notes.is_empty()).then(|| notes.join(" "))
-    }
-}
-
-/// The call that fixes a rejected input, when every issue has a fix and the
-/// fixed call is admitted. An exact fix is `high` confidence; one that drops
-/// a field the caller set (no contract field owns it) or guesses a value is
-/// `low` and named, since it may read other than the call asked.
-fn repair_lead(
-    tool: ToolId,
-    input: &Value,
-    issues: &[contracts::ValidationIssue],
-) -> Option<RepairLead> {
-    // A lead is a continuation: canonical as written, and admitted as a call.
-    // A candidate's own issues (rows lifted out of a nested envelope) are
-    // repaired in a further pass; a clasify admission refusal is final.
-    let repaired = contracts::repair_input(input, issues, |candidate| {
-        let rows = contracts::prepare_many_and_validate(tool.as_str(), candidate.clone())
-            .map_err(|error| error.issues)?;
-        if tool.is_clasify() && crate::tools::clasify::admit(rows.iter()).is_err() {
-            return Err(Vec::new());
-        }
-        Ok(())
-    })?;
-    let mut repaired = repaired;
-    // The tool settles what the schema admits but it would not reach (an
-    // artifactSearch page past the last its search reaches).
-    if let Some(rows) = repaired.input["queries"].as_array_mut() {
-        let output = tool.output();
-        for row in rows {
-            output.settle_repaired_row(row);
-        }
-    }
-    let exact = repaired.dropped.is_empty() && repaired.approximate.is_empty();
-    let lead = crate::response::result::Continuation::input(tool, repaired.input);
-    Some(RepairLead {
-        lead: if exact { lead } else { lead.approximate() }.build(),
-        dropped: repaired.dropped,
-        approximate: repaired.approximate,
-    })
+    (
+        index,
+        rows::result_row(tool, index, &raw, data, Some("error")),
+    )
 }
 
 pub(super) fn invalid_input_error(
     tool: &str,
-    input: &Value,
+    _input: &Value,
     error: contracts::ContractValidationError,
 ) -> RuntimeError {
     let mut payload = contracts::format_input_error(tool, &error);
     payload["errorCode"] = json!(ErrorCode::InvalidInput);
-    if let Some(repair) =
-        ToolId::from_name(tool).and_then(|id| repair_lead(id, input, &error.issues))
-    {
-        if let Some(note) = repair.note(None) {
-            payload["hints"] = json!({ "text": [note] });
-        }
-        payload["hints"]["repair"] = repair.lead;
-    }
-    if let Some(id) = ToolId::from_name(tool) {
-        crate::response::channels::publish_hints(&mut payload, id);
-    }
     RuntimeError {
         code: ErrorCode::InvalidInput,
         message: error.to_string(),
@@ -201,14 +81,10 @@ impl ToolRuntime {
             ));
         }
         let (Some(id), Some(availability)) = (requested, self.availability(tool)) else {
-            let nearest = crate::config::nearest_tool_name(tool)
-                .filter(|name| self.is_available(name))
-                .map(|name| format!(" Did you mean {name}?"))
-                .unwrap_or_default();
             return Err(RuntimeError::new(
                 ErrorCode::InvalidInput,
                 format!(
-                    "No tool is named {tool}.{nearest} Use one of {}.",
+                    "No tool is named {tool}. Use one of {}.",
                     self.availability.available().join(", ")
                 ),
             ));
@@ -242,17 +118,14 @@ impl ToolRuntime {
         &self,
         id: ToolId,
         input: &Value,
+        saved: bool,
     ) -> Result<AdmittedRows, RuntimeError> {
         let tool = id.as_str();
         let PreparedRows {
             valid: prepared,
             mut invalid,
-        } = prepare_queries(tool, input)?;
-        if id.is_clasify() {
-            crate::tools::clasify::admit(prepared.iter().map(|(_, query)| query))
-                .map_err(|error| invalid_input_error(tool, input, error))?;
-        }
-        let bulk = input.is_array() || input.get("queries").is_some();
+        } = prepare_queries(tool, input, saved)?;
+        let bulk = true;
         let mut queries = Vec::with_capacity(prepared.len());
         for (index, query) in prepared {
             let prefix = if bulk {
@@ -263,15 +136,19 @@ impl ToolRuntime {
             // What the row asks of the runtime, read before the gate rewrites
             // it in place.
             let mut later = Vec::new();
-            if query.get("clasifyContext").is_some() && !self.selection_available {
+            // A selection plan (sealed in a cursor) is classification's own page.
+            let judged = ["classification", "selection"]
+                .into_iter()
+                .find(|field| query.get(*field).is_some());
+            if let Some(field) = judged.filter(|_| !self.selection_available) {
                 let mut path = prefix.clone();
-                path.push("clasifyContext".into());
+                path.push(field.into());
                 later.push(crate::contracts::ValidationIssue {
-                    rule_id: "clasifyContext.available".into(),
+                    rule_id: "classification.available".into(),
                     schema: None,
                     received: None,
                     path,
-                    message: "clasifyContext requires an available classification provider; configure JEV or omit the context.".into(),
+                    message: "classification requires an available classification provider; configure JEV or omit the context.".into(),
                 });
             }
             if id.is_clasify() {
@@ -283,7 +160,7 @@ impl ToolRuntime {
             }
             let policy = if id.is_clasify() {
                 InputPolicy::ClasifyEvidence {
-                    state_limit: crate::tools::clasify::max_state_chars(
+                    content_limit: crate::tools::clasify::max_state_chars(
                         query["longContext"].as_bool() == Some(true),
                     ),
                 }
@@ -317,10 +194,7 @@ impl ToolRuntime {
                 contracts::ContractValidationError { issues },
             ));
         }
-        let raw_rows = input
-            .get("queries")
-            .or(Some(input))
-            .and_then(Value::as_array);
+        let raw_rows = input.get("queries").and_then(Value::as_array);
         let rejected = invalid
             .iter()
             .map(|(index, error)| {
@@ -351,9 +225,13 @@ struct PreparedRows {
 /// Contract-validated rows by input index, and the invalid ones. Row
 /// isolation: when only some rows of a batch are invalid, the valid rows
 /// still run and the rest become indexed error rows.
-fn prepare_queries(tool: &str, input: &Value) -> Result<PreparedRows, RuntimeError> {
-    let rows = contracts::prepare_rows(tool, input.clone())
-        .map_err(|error| invalid_input_error(tool, input, error))?;
+fn prepare_queries(tool: &str, input: &Value, saved: bool) -> Result<PreparedRows, RuntimeError> {
+    let rows = if saved {
+        contracts::prepare_saved_rows(tool, input.clone())
+    } else {
+        contracts::prepare_rows(tool, input.clone())
+    }
+    .map_err(|error| invalid_input_error(tool, input, error))?;
     let mut prepared = PreparedRows {
         valid: Vec::with_capacity(rows.len()),
         invalid: Vec::new(),

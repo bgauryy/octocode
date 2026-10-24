@@ -15,17 +15,11 @@ import { LIBRARY_FILE, RECORD_FILE } from '../src/shared/archive.js';
 import { canonicalPath, octocodeHome, sessionFolder } from '../src/shared/home.js';
 import { askSpawn } from '../src/subagents/profiles.js';
 import { fakeCtx, fakePermission, fakePi } from './fake-pi.js';
-import { tmp } from './helpers.js';
+import { repo, tmp } from './helpers.js';
 
 const call = (toolName: string, input: Record<string, unknown>) => ({ type: 'tool_call', toolCallId: 't1', toolName, input }) as ToolCallEvent;
 const result = (toolName: string, input: Record<string, unknown>, text: string) => ({ type: 'tool_result', toolCallId: 'r1', toolName, input, content: [{ type: 'text', text }], isError: false, details: undefined }) as ToolResultEvent;
 const noHints = (): ToolAnnotations | undefined => undefined;
-
-function repo(): string {
-  const cwd = tmp();
-  fs.mkdirSync(path.join(cwd, '.git'));
-  return cwd;
-}
 
 /** A manual-mode session whose select records each dialog text and answers from `replies`. */
 function asking(replies: Array<string | undefined>) {
@@ -105,7 +99,7 @@ describe("a child's access to its parent's archive of compacted history", () => 
     fs.mkdirSync(other, { recursive: true });
     fs.writeFileSync(path.join(other, RECORD_FILE), '# Session record other-session\n\n- Session: other-session\n- Repository: /elsewhere/.git\n- Workspace: /elsewhere\n\n## Goal\n');
     for (const target of [path.join(other, RECORD_FILE), path.dirname(path.dirname(other))]) {
-      expect(classify(call('mcp__octocode__localSearch', { queries: [{ path: target, matchString: 'x' }] }), { cwd: repo() }, hints)?.action, target).toBe('read.outside');
+      expect(classify(call('mcp__octocode__localSearch', { queries: [{ path: target, matchString: ['x'] }] }), { cwd: repo() }, hints)?.action, target).toBe('read.outside');
     }
     // The session's own saved output reads freely.
     expect(classify(call('mcp__octocode__localFetch', { queries: [{ path: sessionFolder('output') }] }), { cwd: repo() }, hints)).toBeUndefined();

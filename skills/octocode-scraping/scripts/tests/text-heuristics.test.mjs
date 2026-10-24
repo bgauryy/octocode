@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cleanForAgent, detectTargetError, detectBrowserNeed } from '../lib/text.mjs';
+import { classifyWorkflow } from '../lib/analyzers.mjs';
 
 const prose = (n) => Array.from({ length: n }, (_, i) => `Paragraph ${i} explains how the API pages results and what each field means in detail for readers.`).join('\n\n');
 
@@ -50,4 +51,13 @@ test('framework mounts and module bundles still recommend one browser render', (
   for (const body of [next, spa, noscript]) {
     assert.match(detectBrowserNeed({ status: 200, contentType: 'text/html', body, cleanText: '' }) || '', /render once in Chrome/);
   }
+});
+
+test('workflow rules match whole words only', () => {
+  assert.equal(classifyWorkflow('an explanation of the planning process'), null);
+  assert.equal(classifyWorkflow('the capital city'), null);
+  assert.equal(classifyWorkflow('edit the dockerfile'), null);
+  assert.equal(classifyWorkflow('/docs/getting-started'), 'docs');
+  assert.equal(classifyWorkflow('See pricing plans'), 'pricing');
+  assert.equal(classifyWorkflow('/api/v1/users'), 'api-reference');
 });

@@ -1,7 +1,8 @@
 //! What a directory listing shares between ghStructure (a remote listing)
 //! and structureSearch (a local one): the file it leads to first, so one tree
 //! gets the same read lead from either tool, and the text of a listed entry.
-use crate::content::{FileType, classify_file_type, is_test_path};
+use crate::content::{FileType, classify_file_type};
+use octocode_engine::text::test_paths::is_test_path;
 
 /// Rank of a file no [`read_rank`] tier names (an outline-able file, or one
 /// in a small listing): it reads last.

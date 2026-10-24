@@ -2,6 +2,7 @@
 //! gitignored candidates.
 
 use super::*;
+use octocode_contract_types::LocalSearchQuery;
 
 /// A verified importer whose references request fails is a gap in the
 /// answer: the row is partial with `importerRequestFailed`, the error, and
@@ -20,8 +21,7 @@ fn a_failed_importer_request_marks_the_row_partial() {
     let pool = fake_server_pool();
     let query_row = serde_json::json!({
         "operation": "references", "path": root.join("a.ts").to_string_lossy(),
-        "symbolName": "target", "line": 1, "pageSize": 100,
-        "workspaceRoot": root.to_string_lossy()
+        "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
     });
     let query = serde_json::from_value(query_row.clone()).expect("query");
     let paths = crate::tools::test_support::workspace_policy(&root);
@@ -82,8 +82,7 @@ fn importer_recovery_without_declarations_keeps_import_bindings() {
     let rows = |include_declaration: bool| {
         let query_row = serde_json::json!({
             "operation": "references", "path": root.join("a.ts").to_string_lossy(),
-            "symbolName": "target", "line": 1, "pageSize": 100,
-            "includeDeclaration": include_declaration,
+            "symbolName": "target", "line": 1, "includeDeclaration": include_declaration,
             "workspaceRoot": root.to_string_lossy()
         });
         let query = serde_json::from_value(query_row.clone()).expect("query");
@@ -143,8 +142,7 @@ fn symlinked_twins_list_each_site_once_under_its_real_path() {
     let rows = |include_declaration: bool| {
         let query_row = serde_json::json!({
             "operation": "references", "path": root.join("a.ts").to_string_lossy(),
-            "symbolName": "target", "line": 1, "pageSize": 100,
-            "includeDeclaration": include_declaration,
+            "symbolName": "target", "line": 1, "includeDeclaration": include_declaration,
             "workspaceRoot": root.to_string_lossy()
         });
         let query = serde_json::from_value(query_row.clone()).expect("query");
@@ -160,15 +158,13 @@ fn symlinked_twins_list_each_site_once_under_its_real_path() {
             .expect("row");
         assert_row_contract(ToolId::LspSearch, &query_row, &row);
         let mut sites = Vec::new();
-        for file in row["files"].as_array().expect("files") {
-            for site in file["matches"].as_array().expect("matches") {
-                let path = Path::new(file["path"].as_str().expect("path"));
-                let path = path.strip_prefix(&root).unwrap_or(path);
-                sites.push((
-                    path.to_string_lossy().into_owned(),
-                    site["line"].as_u64().expect("line"),
-                ));
-            }
+        for site in row["matches"].as_array().expect("full reference locations") {
+            let path = Path::new(site["path"].as_str().expect("path"));
+            let path = path.strip_prefix(&root).unwrap_or(path);
+            sites.push((
+                path.to_string_lossy().into_owned(),
+                site["displayRange"]["startLine"].as_u64().expect("line"),
+            ));
         }
         sites.sort();
         sites
@@ -205,8 +201,7 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
     let pool = fake_server_pool();
     let query_row = serde_json::json!({
         "operation": "references", "path": root.join("a.ts").to_string_lossy(),
-        "symbolName": "target", "line": 1, "pageSize": 100,
-        "workspaceRoot": root.to_string_lossy()
+        "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
     });
     let query = serde_json::from_value(query_row.clone()).expect("query");
     let paths = crate::tools::test_support::workspace_policy(&root);
@@ -223,7 +218,7 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         .expect("row");
     assert_row_contract(ToolId::LspSearch, &query_row, &row);
     assert!(
-        row["files"]
+        row["matches"]
             .as_array()
             .is_some_and(|files| files.iter().any(|file| file["path"]
                 .as_str()
@@ -231,7 +226,7 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         "{row}"
     );
     assert!(
-        !row["files"]
+        !row["matches"]
             .as_array()
             .is_some_and(|files| files.iter().any(|file| file["path"]
                 .as_str()
@@ -250,15 +245,15 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
         warned.contains("1 imports it") && warned.contains(".gitignore:1 'gen/'"),
         "{row}"
     );
-    let lead = &row["next"]["includeSkipped"];
+    let lead = &crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
     assert_eq!(lead["tool"], "localSearch", "{row}");
-    let rows = lead["query"]["queries"].as_array().expect("lead rows");
+    let rows = lead["input"]["queries"].as_array().expect("lead rows");
     let policy = crate::tools::test_support::workspace_policy(&root);
     let found = rows
         .iter()
         .flat_map(|search| {
             assert_eq!(search["includeIgnored"], true, "{search}");
-            let query: crate::tools::local_search::LocalSearchQuery =
+            let query: LocalSearchQuery =
                 serde_json::from_value(search.clone()).expect("lead row is a localSearch query");
             crate::tools::local_search::execute_local_search(
                 &query,

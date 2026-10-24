@@ -10,15 +10,17 @@ How to evaluate the tools in the Octocode catalog.
 | Response fields, path reconstruction, pagination layers, handoffs | `<repo>/docs/TOOL_DATA_CONTRACT.md` |
 | Base-call rules (normative prose) | `<repo>/docs/OCTOCODE_TOOLS.md#how-every-tool-call-works` |
 
-Every acceptance run covers the shared contract and the tool-specific behavior:
+Every acceptance run covers the shared contract and tool-specific behavior:
 
-- a `{ queries: [...] }` envelope (for `clasify` too) with 1–5 same-tool rows, as advertised by MCP discovery and the canonical input schema; native admission also accepts a bare query object as one row on CLI and raw MCP; a bare array is rejected;
-- optional `mainGoal` and `reasoning` on every row: a row without them validates, a blank one is dropped, a top-level brief is not inherited, and selection replay retains its original classification context;
-- zero-based result `index` alignment and isolated row errors;
-- `schema` `variants` and `rules`;
-- collection, content, and whole-response continuations and required recovery in `next`, optional guidance strings in `hints`, and typed terminal limits.
+- `{queries:[...]}` with one to five independent same-tool rows, or only an issued `{cursor}`; CLI and MCP reject bare input and aliases;
+- zero-based result index alignment and isolated row failures;
+- authored operations, defaults and typed selectors from core;
+- `next.*`/responsePagination continue calls, related fresh calls and prose-only hints;
+- exact source evidence, complete reachable pagination and explicit terminal limits.
 
-Write each behavior check as Given–When–Then: given a fixture, configuration, and surface (CLI, MCP, or both), when the public call runs, then the observable result (rows, `next`, `hints`, diagnostics, exit code) matches the contract. A failed check is a 5W2H defect record: what, where (`path:line`), when (the reproducing call), who or what it affects, why, how to fix, how much; `unknown` for a slot nobody verified.
+Prefer behavior tests that execute the public request and its emitted calls. Remove obsolete snapshots, prose equality and test-local schema interpreters. Assert selected evidence, scope, provider effects, source identity, replay isolation and complete walks. A responsibility index is not execution coverage. Keep coverage floors; do not hide failures by weakening the behavioral claim.
+
+Write each behavior check as Given–When–Then: given a fixture, configuration, and surface (CLI, MCP, or both), when the public call runs, then the observable result (rows, `next`, `related`, hints, diagnostics, exit code) matches the contract. A failed check is a 5W2H defect record: what, where (`path:line`), when (the reproducing call), who or what it affects, why, how to fix, how much; `unknown` for a slot nobody verified.
 
 ## Inspect the surface being tested
 
@@ -50,10 +52,10 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 
 ### Evidence and output integrity
 
-- With `extras:["diagnostics"]`, check row-local `meta.evidence` (`kind`, `confidence`) and `meta.diagnostics` after response shaping, then the operation's own completeness fields (no universal `answerReady` or `complete` exists).
+- Check provenance and the operation’s own completeness facts after response shaping; there is no universal answerReady or complete flag.
 - MCP must not publish `outputSchema`. Validate real structured results against the internal core/native validator, not static output types.
-- Verify `none` views against source after redaction, and transformed views separately; short is not faithful.
-- Keep source and revision anchors; search, AST, graph, package, and LSP evidence differ. Verify CLI compact output (`shared`, `root`) by reconstructed meaning.
+- Verify content views against source after redaction, and transformed views separately; short is not faithful.
+- Keep source and revision anchors; search, AST, graph, package, and LSP evidence differ. Every output row owns its evidence; verify workspace-relative paths against the configured workspace.
 - Check mixed success/error batches: a successful MCP envelope does not prove every query succeeded.
 
 ### Lossless reachable pagination

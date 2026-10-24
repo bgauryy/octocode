@@ -102,7 +102,7 @@ fn plan_9_unchanged_tree_reuses_the_latest_snapshot() {
             force: true,
             ..Default::default()
         },
-        &policy(dir.0.as_path()),
+        &workspace_policy(dir.0.as_path()),
         &ContentSecurity::new(),
         &NeverCancel,
         None,
@@ -222,7 +222,7 @@ fn graph_selection_is_exact_or_ambiguous() {
     );
     let stats = |spec: &str| {
         ask(dir.0.as_path(), "stats", None, |o| {
-            o.graph = Some(spec.into())
+            o.graph = Some(spec.into());
         })
     };
     assert_eq!(

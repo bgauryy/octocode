@@ -1,7 +1,11 @@
 //! Search paging conformance: one table of the page outcomes every GitHub
 //! search tool shares.
-use super::*;
-use crate::tools::gh_search_history;
+use crate::security::scan::Passthrough;
+use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
+use crate::tools::{gh_search_code, gh_search_history, gh_search_repo};
+use octocode_github::mock_http::mount_json;
+use serde_json::{Value, json};
+use wiremock::MockServer;
 
 /// A row of the conformance table: the tool's answer as `data`.
 async fn page_data(server: &MockServer, tool: &str, row: Value) -> Value {
@@ -9,21 +13,21 @@ async fn page_data(server: &MockServer, tool: &str, row: Value) -> Value {
     match tool {
         "ghSearchCode" => {
             let query = serde_json::from_value(row).expect("ghSearchCode query");
-            gh_search_code::execute(&provider(server), &query, &context, &Passthrough)
+            gh_search_code::execute(&one_shot_provider(server), &query, &context, &Passthrough)
                 .await
                 .expect("ghSearchCode page")
                 .data
         }
         "ghSearchRepo" => {
             let query = serde_json::from_value(row).expect("ghSearchRepo query");
-            gh_search_repo::execute(&provider(server), &query, &context)
+            gh_search_repo::execute(&one_shot_provider(server), &query, &context)
                 .await
                 .expect("ghSearchRepo page")
                 .data
         }
         "ghSearchHistory" => {
             let query = serde_json::from_value(row).expect("ghSearchHistory query");
-            gh_search_history::execute(&provider(server), query, &context, &Passthrough)
+            gh_search_history::execute(&one_shot_provider(server), query, &context, &Passthrough)
                 .await
                 .expect("ghSearchHistory page")
         }
@@ -53,7 +57,7 @@ async fn a_page_past_the_end_is_out_of_range_not_an_empty_search() {
     mount_json(&server, "/api/v3/repos/o/r/commits", 200, json!([])).await;
     let history = |operation: &str, keywords: bool| {
         let mut row = json!({"operation": operation, "owner": "o", "repo": "r",
-            "page": 9, "pageSize": 5});
+            "page": 9});
         if keywords {
             row["keywords"] = json!(["fix"]);
         }
@@ -62,13 +66,13 @@ async fn a_page_past_the_end_is_out_of_range_not_an_empty_search() {
     for (tool, row, rows_key, total) in [
         (
             "ghSearchCode",
-            json!({"owner":"a","repo":"b","keywords":["needle"],"pageSize":5,"page":9}),
+            json!({"owner":"a","repo":"b","keywords":["needle"],"page":9}),
             "files",
             Some(12),
         ),
         (
             "ghSearchRepo",
-            json!({"keywords":["x"],"pageSize":5,"page":9}),
+            json!({"operation":"search","keywords":["x"],"page":9}),
             "repositories",
             Some(12),
         ),

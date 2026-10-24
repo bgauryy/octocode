@@ -31,9 +31,9 @@ pub(crate) fn field_names<T: ToString>(fields: &[T]) -> Vec<String> {
 
 /// Makes the row's `next` an object (an empty one when absent), so leads
 /// can be added by name.
-pub(crate) fn ensure_next(value: &mut Value) {
-    if !value.get("next").is_some_and(Value::is_object) {
-        value["next"] = json!({});
+pub(crate) fn ensure_calls(value: &mut Value) {
+    if !value.get("calls").is_some_and(Value::is_object) {
+        value["calls"] = json!({});
     }
 }
 
@@ -77,5 +77,12 @@ fn warn_absent_fields(value: &mut Value, rows: &str, fields: &[String]) {
         .collect::<Vec<_>>();
     if !absent.is_empty() {
         push_warnings(value, [format!("No row has {}.", absent.join(", "))]);
+    }
+}
+
+/// Assemble the producer's explicitly typed private calls into public channels.
+pub(crate) fn finish_calls(value: &mut Value) {
+    if let Some(calls) = value.as_object_mut().and_then(|row| row.remove("calls")) {
+        crate::response::result::attach_calls(value, calls);
     }
 }

@@ -14,18 +14,27 @@ async fn a_missing_repository_leads_to_a_repository_search() {
     let context = default_context();
     let failure = run(
         &provider,
-        &query(json!({"owner":"a","repo":"typo"})),
+        &query(json!({"operation":"tree","owner":"a","repo":"typo"})),
         Ok(&context),
         home.path(),
     )
     .await
     .expect_err("missing repository");
-    let lead = &failure.next.as_ref().expect("next")["findRepository"];
+    let lead = &failure.calls.as_ref().expect("next")["findRepository"];
     assert_eq!(lead["tool"], "ghSearchRepo", "{lead}");
     assert_eq!(
-        lead["query"]["queries"][0]["keywords"],
+        lead["input"]["queries"][0]["keywords"],
         json!(["typo"]),
         "{lead}"
+    );
+    // A misspelled owner is not found by the name: the owner's own
+    // repositories are the other lead (that listing names a missing login).
+    let owner = &failure.calls.as_ref().expect("next")["findRepository2"];
+    assert_eq!(owner["tool"], "ghSearchRepo", "{owner}");
+    assert_eq!(
+        owner["input"]["queries"][0],
+        json!({"operation":"list","owner":"a"}),
+        "{owner}"
     );
 }
 
@@ -99,31 +108,27 @@ async fn tags_list_newest_version_first_across_pages() {
         ),
     )
     .await;
-    let first = list(
-        &ordered,
-        json!({"owner":"a","repo":"b","operation":"refs","pageSize":4}),
-    )
-    .await
-    .expect("refs");
+    let first = list(&ordered, json!({"owner":"a","repo":"b","operation":"refs"}))
+        .await
+        .expect("refs");
     assert_eq!(
         first.data["tags"],
-        json!(["15.2.0", "15.1.0", "14.1.1", "13.0.0"]),
+        json!([
+            "15.2.0",
+            "15.1.0",
+            "14.1.1",
+            "13.0.0",
+            "termcolor-1.4.1",
+            "0.10.0",
+            "ignore-0.4.33",
+            "grep-0.3.2",
+            "wincolor-0.1.6"
+        ]),
         "{}",
         first.data
     );
-    assert_eq!(first.data["pagination"]["hasMore"], true, "{}", first.data);
-    let next = first
-        .data
-        .pointer("/next/nextPage/query/queries/0")
-        .cloned()
-        .expect("next page");
-    let second = list(&ordered, next).await.expect("refs page 2");
-    assert_eq!(
-        second.data["tags"],
-        json!(["termcolor-1.4.1", "0.10.0", "ignore-0.4.33", "grep-0.3.2"]),
-        "{}",
-        second.data
-    );
+    assert!(first.data.pointer("/next/nextPage").is_none());
+    assert!(first.data["branches"].is_object());
 
     let fallback = server().await;
     Mock::given(method("GET"))
@@ -152,43 +157,6 @@ async fn tags_list_newest_version_first_across_pages() {
     );
 }
 
-/// The branch-listing lead keeps the caller's extras and adds
-/// `details` (the extra that lists branches); it never replaces them.
-#[tokio::test]
-async fn the_branch_listing_lead_adds_details_to_the_callers_extras() {
-    let server = server().await;
-    mount_json(
-        &server,
-        "/api/v3/repos/a/b/git/matching-refs/tags",
-        200,
-        json!([{"ref":"refs/tags/v1","object":{"sha":SHA}}]),
-    )
-    .await;
-    for (extras, expected) in [
-        (json!(["hints"]), json!(["hints", "details"])),
-        (json!([]), json!(["details"])),
-        (
-            json!(["stats", "hints"]),
-            json!(["stats", "hints", "details"]),
-        ),
-    ] {
-        let out = list(
-            &server,
-            json!({"owner":"a","repo":"b","operation":"refs","extras":extras}),
-        )
-        .await
-        .expect("refs");
-        assert_eq!(
-            out.data
-                .pointer("/next/viewRefs/query/queries/0/extras")
-                .cloned(),
-            Some(expected),
-            "{}",
-            out.data
-        );
-    }
-}
-
 /// A paged refs listing: a clamped `pageSize` warns once and its next
 /// page continues at the size read; a later page's `viewRefs` lead
 /// lists branches from page 1; the last page still states
@@ -208,45 +176,25 @@ async fn refs_pages_continue_at_the_read_size_and_lead_from_page_one() {
     )
     .await;
     let refs = json!({"owner":"a","repo":"b","operation":"refs"});
-    let mut first = refs.clone();
-    first["pageSize"] = json!(150);
-    let first = list(&server, first).await.expect("refs page 1");
-    assert!(
-        first.data["warnings"].to_string().contains("pageSize 150"),
-        "{}",
-        first.data
-    );
+    let first = list(&server, refs.clone()).await.expect("refs page 1");
     let next = first
         .data
-        .pointer("/next/nextPage/query/queries/0")
+        .pointer("/next/nextPage/input/queries/0")
         .cloned()
         .expect("next page");
-    assert_eq!(
-        (&next["page"], &next["pageSize"]),
-        (&json!(2), &json!(100)),
-        "{next}"
-    );
+    assert_eq!(next["page"], 2);
+    assert!(next.get("pageSize").is_none());
 
     let second = list(&server, next).await.expect("refs page 2");
     // Newest first: the 101st tag (the oldest) is page 2's one tag.
     assert_eq!(second.data["tags"], json!(["v1"]), "{}", second.data);
     assert!(second.data.get("warnings").is_none(), "{}", second.data);
-    assert_eq!(
-        second.data["pagination"]["currentPage"], 2,
-        "{}",
-        second.data
-    );
+    assert_eq!(second.data["pagination"]["page"], 2, "{}", second.data);
     assert_eq!(
         second.data["pagination"]["hasMore"], false,
         "{}",
         second.data
     );
-    let view = second
-        .data
-        .pointer("/next/viewRefs/query/queries/0")
-        .expect("viewRefs");
-    assert!(view.get("page").is_none(), "{view}");
-    assert_eq!(view["pageSize"], 100, "{view}");
 
     let mut past = refs.clone();
     past["page"] = json!(50);
