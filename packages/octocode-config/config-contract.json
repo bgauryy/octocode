@@ -240,6 +240,14 @@
             "dotenv": "home"
           }
         },
+        "trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Emit per-call LSP phase timings and completion counts on stderr, outside tool results. Includes no source text, paths, or credentials.",
+          "env": {
+            "name": "OCTOCODE_LSP_TRACE"
+          }
+        },
         "prewarm": {
           "type": "enum",
           "values": [

@@ -242,6 +242,9 @@ async function boundaryPhase(run) {
 }
 
 async function rowIsolationPhase(run) {
+  const schema = contract.tools.find(tool => tool.name === run.name).inputSchema;
+  const cap = schema.anyOf.find(branch => branch.properties?.queries).properties.queries.maxItems;
+  if (cap < 2) { run.na('input.rowIsolation', 'the contract admits only one row; oversizedBatch checks rejection'); return; }
   const row = run.input(run.spec.happy).queries[0];
   for (const surface of run.surfaces) {
     const actual = await run.call({ queries: [row, { ...row, unexpectedField: true }] }, surface);
@@ -272,17 +275,20 @@ async function extraPhase(run, { happy, happyRuns }) {
 }
 
 /**
- * (f) latency, then the tool's result. A loaded machine slows every process start:
+ * Optional performance check, then the tool's result. A loaded machine slows every process start:
  * the budget scales by the tool's own invalid-input CLI round trip (pure startup +
  * validation) over a calm one, capped.
  */
-function result(run, t0) {
+export function toolResult(run, t0) {
   const { name, spec, timings, checks, reports } = run;
   const slowest = timings.reduce((m, t) => Math.max(m, t.ms), 0);
-  const overhead = timings.find(t => t.phase === 'invalid' && t.surface === 'cli')?.ms ?? CALM_CLI_MS;
-  const load = Math.min(MAX_LOAD_FACTOR, Math.max(1, overhead / CALM_CLI_MS));
-  const budget = Math.round(spec.budgetMs * load);
-  run.record('latency', slowest <= budget, `slowest call ${slowest}ms (budget ${budget}ms = ${spec.budgetMs}ms x load ${load.toFixed(2)}; CLI startup ${overhead}ms)`);
+  let budget;
+  if (run.suite.performance) {
+    const overhead = timings.find(t => t.phase === 'invalid' && t.surface === 'cli')?.ms ?? CALM_CLI_MS;
+    const load = Math.min(MAX_LOAD_FACTOR, Math.max(1, overhead / CALM_CLI_MS));
+    budget = Math.round(spec.budgetMs * load);
+    run.record('latency', slowest <= budget, `slowest call ${slowest}ms (budget ${budget}ms = ${spec.budgetMs}ms x load ${load.toFixed(2)}; CLI startup ${overhead}ms)`);
+  }
   run.record('measurement.responseBytes', timings.every(call => Number.isSafeInteger(call.responseBytes) && call.responseBytes > 0), `${timings.length} calls include non-empty response payload byte counts`);
   const mine = new Set(['cli', 'mcp'].map(s => tokenFor(name, s)));
   const newUnhandled = run.ctx.mock.unhandledFrom.filter(u => mine.has(u.token)).map(u => u.request);
@@ -316,6 +322,7 @@ export async function runTool(suite, name, spec) {
   const server = spec.cliOnly ? null : await surfaces.mcpServer(name, cwd);
   const run = createRun(suite, { name, spec, cwd, server });
   try {
+    await spec.prepare?.({ cwd, call: run.callOn("cli") });
     const happy = await happyPhase(run);
     await walkPhase(run, happy.happy);
     await emptyPhase(run);
@@ -325,5 +332,5 @@ export async function runTool(suite, name, spec) {
   } finally {
     server?.close();
   }
-  return result(run, t0);
+  return toolResult(run, t0);
 }

@@ -87,7 +87,10 @@ test('contract defaults are declared schema defaults and agree between row and e
       .filter(([, property]) => Object.hasOwn(property ?? {}, 'default'))
       .map(([field, property]) => [field, property.default]));
     assert.deepEqual(canonical(tool.name, {}), topLevel, tool.name);
-    const query = Object.fromEntries((schema.required ?? []).map(field => [field, 'x']));
+    const query = Object.fromEntries((schema.required ?? []).map(field => {
+      const property = deref(schema, schema.properties?.[field]);
+      return [field, property?.const ?? property?.enum?.[0] ?? 'x'];
+    }));
     assert.ok(ajv.validate(schema, query), `${tool.name} sample ${JSON.stringify(query)}: ${ajv.errorsText()}`);
     assert.deepEqual(envelope(tool.name, query), canonical(tool.name, query), tool.name);
     compared.push(tool.name);

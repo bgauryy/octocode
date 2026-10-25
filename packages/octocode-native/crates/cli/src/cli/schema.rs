@@ -44,7 +44,7 @@ fn enabled(machine: &Value, name: &str) -> bool {
 }
 
 /// The CLI's own notes, after the shared instructions in the full catalog.
-const CLI_INSTRUCTIONS: &str = "<cli>CLI only: ghCloneRepo. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
+const CLI_INSTRUCTIONS: &str = "<cli>CLI only: ghCloneRepo, graphBuild, graphQuery. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
 
 /// Core's one instruction string (embedded through config), served by MCP
 /// `initialize` and, with the CLI's own notes, by the full catalog.

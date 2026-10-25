@@ -57,10 +57,14 @@ impl NativeLspClient {
         // (`memory_watchdog_for`); Windows attaches a Job Object right after
         // spawn; other Unix targets cap the address space before exec.
         let memory_cap = spawn_limits::memory_cap_bytes(self.inner.config.max_memory_mb);
-        let mut child = server_command(&self.inner.config, memory_cap)
-            .await?
-            .spawn()
-            .map_err(|err| Error::new(format!("Failed to start language server: {err}")))?;
+        let mut child = crate::lsp::diagnostics::Phase::Spawn
+            .measure(async {
+                server_command(&self.inner.config, memory_cap)
+                    .await?
+                    .spawn()
+                    .map_err(|err| Error::new(format!("Failed to start language server: {err}")))
+            })
+            .await?;
         let memory_cap_guard = match crate::process::Job::attach_async(&child, memory_cap) {
             Ok(guard) => guard,
             Err(error) => {
@@ -117,7 +121,10 @@ impl NativeLspClient {
             &connection,
             Arc::clone(&self.inner.resident_bytes),
         );
-        let initialize_result = match initialize(&connection, &self.inner.config).await {
+        let initialize_result = match crate::lsp::diagnostics::Phase::Initialize
+            .measure(initialize(&connection, &self.inner.config))
+            .await
+        {
             Ok(value) => value,
             Err(error) => {
                 cleanup_failed_start(&mut child, stderr_task).await;

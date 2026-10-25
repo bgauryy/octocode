@@ -32,6 +32,26 @@ function readerWorkspace(ctx) {
 }
 
 export const CASES = {
+  graphBuild: {
+    cliOnly: true, budgetMs: LOCAL,
+    happy: { query: { path: '.' }, fields: ['id', 'dir', 'counts', 'scan'], rows: data => [data.id].filter(Boolean), min: 1 },
+    page: { na: 'a build receipt has no result collection' },
+    empty: { na: 'a snapshot is built, reused or fails' },
+    invalid: { query: { maxFiles: 50001 } },
+    explore: [{ label: 'reuse', query: { path: '.' } }],
+  },
+  graphQuery: {
+    cliOnly: true, budgetMs: LOCAL,
+    prepare: async ({ call }) => {
+      const built = await call('graphBuild', { queries: [{ path: '.' }] });
+      if (built.isError) throw new Error(`graph fixture build failed: ${built.text}`);
+    },
+    happy: { query: { operation: 'find', target: 'greet' }, fields: ['graph', 'results', 'freshness'], rows: data => (data.results ?? []).map(row => row.id), min: 1 },
+    page: { query: { operation: 'find', target: 'greet', limit: 1 }, lead: 'page', unpaged: { query: { operation: 'find', target: 'greet', limit: 1000 } } },
+    empty: { query: { operation: 'find', target: 'zzzNoSuchSymbol' } },
+    invalid: { query: { operation: 'unknown' } },
+    explore: [{ label: 'stats', query: { operation: 'stats' } }, { label: 'cycles', query: { operation: 'cycles' }, class: 'empty' }],
+  },
   localSearch: {
     budgetMs: LOCAL,
     happy: { query: { path: 'src', matchString: ['healthMarker'] }, fields: ['files', 'matchCount'], rows: files, min: 4 },

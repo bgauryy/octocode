@@ -9,6 +9,7 @@ impl ToolId {
     #[must_use]
     pub(crate) fn output(self) -> &'static dyn ToolOutput {
         match self {
+            Self::GraphBuild | Self::GraphQuery => &crate::tools::ast_graph::store::tools::Output,
             Self::LocalSearch => &crate::tools::local_search::Output,
             Self::LocalFetch => &crate::tools::local_fetch::Output,
             Self::StructureSearch => &crate::tools::structure_search::Output,

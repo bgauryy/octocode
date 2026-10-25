@@ -11,7 +11,7 @@ fn notify_write_deadline_scales_with_payload_size() {
     assert!(notify_write_deadline_ms(8 * 1024 * 1024) > notify_write_deadline_ms(1024 * 1024));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn request_with_partials_collects_progress_before_final_response() {
     let (connection, mut server) = connect();
     let server_task = tokio::spawn(async move {
@@ -35,7 +35,7 @@ async fn request_with_partials_collects_progress_before_final_response() {
     assert_eq!(connection.shared.partial_results.len(), 0);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn partial_chunks_with_a_kind_field_are_results_not_progress() {
     let (connection, mut server) = connect();
     let server_task = tokio::spawn(async move {
@@ -76,7 +76,7 @@ async fn dropped_partial_request_releases_its_token_buffer() {
     assert_eq!(connection.shared.partial_results.len(), 0);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn rust_analyzer_server_status_feeds_progress_readiness() {
     let (client_w, server_r) = duplex(64 * 1024);
     let (server_w, client_r) = duplex(64 * 1024);
@@ -104,7 +104,7 @@ async fn rust_analyzer_server_status_feeds_progress_readiness() {
         .expect("tracker alive");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn connection_is_alive_until_the_server_stream_closes() {
     let (connection, server) = connect();
     assert!(connection.is_alive());
@@ -112,7 +112,7 @@ async fn connection_is_alive_until_the_server_stream_closes() {
     wait_until_dead(&connection).await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn connection_caches_push_diagnostics_for_bounded_on_demand_reads() {
     let (connection, mut server) = connect();
     server
@@ -143,7 +143,7 @@ async fn connection_caches_push_diagnostics_for_bounded_on_demand_reads() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn lengthless_frame_is_skipped_and_string_ids_route() {
     let (connection, mut server) = connect();
     let server_task = tokio::spawn(async move {
@@ -164,7 +164,7 @@ async fn lengthless_frame_is_skipped_and_string_ids_route() {
     assert!(connection.is_alive());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn concurrent_requests_resolve_out_of_order() {
     let (connection, mut server) = connect();
     let connection = Arc::new(connection);
@@ -188,7 +188,7 @@ async fn concurrent_requests_resolve_out_of_order() {
     assert_eq!(second.await.expect("join").expect("b"), json!("b"));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn rpc_errors_are_typed_through_the_connection() {
     let (connection, mut server) = connect();
     let server_task = tokio::spawn(async move {

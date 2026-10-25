@@ -90,6 +90,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 octocode-engine = { path = "../engine", features = ["test-hooks"] }
 octocode-github = { path = "../github", features = ["test-support"] }
 tempfile = { workspace = true }

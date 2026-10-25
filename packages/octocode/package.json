@@ -12,6 +12,7 @@
     "@octocodeai/octocode-native-darwin-arm64": "20.2.0",
     "@octocodeai/octocode-native-darwin-x64": "20.2.0",
     "@octocodeai/octocode-native-linux-arm64-gnu": "20.2.0",
+    "@octocodeai/octocode-native-linux-arm64-musl": "20.2.0",
     "@octocodeai/octocode-native-linux-x64-gnu": "20.2.0",
     "@octocodeai/octocode-native-linux-x64-musl": "20.2.0",
     "@octocodeai/octocode-native-win32-arm64-msvc": "20.2.0",
@@ -27,7 +28,7 @@
     "vitest": "^5.0.4"
   },
   "engines": {
-    "node": "^24.15.0"
+    "node": ">=22"
   },
   "files": [
     "out",

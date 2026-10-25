@@ -28,7 +28,7 @@ const buildResult = await esbuild.build({
   entryPoints: ['src/index.ts'],
   bundle: true,
   platform: 'node',
-  target: 'node24',
+  target: 'node22',
   format: 'esm',
   outdir: 'out',
   entryNames: 'octocode',
@@ -40,6 +40,10 @@ const buildResult = await esbuild.build({
   external,
   define: {
     __OCTOCODE_BUNDLED__: 'true',
+    // The platform package version a skipped optional dependency is fetched at.
+    __OCTOCODE_NATIVE_VERSION__: JSON.stringify(
+      Object.values(pkg.optionalDependencies)[0]
+    ),
   },
   // The bundled native scripts are CommonJS: give them `require`, resolved
   // from this package, so they find the installed per-platform package.

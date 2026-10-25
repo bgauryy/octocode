@@ -112,15 +112,19 @@ impl Shared {
 
     /// Queues a frame, waiting for queue space until `deadline`.
     pub(super) async fn enqueue(&self, outbound: Outbound, deadline: Instant) -> Result<()> {
-        match tokio::time::timeout_at(deadline, self.outbound.send(outbound)).await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(_)) => Err(self.closed()),
-            Err(_) => {
-                let reason = "LSP request write timed out: server is not reading stdin";
-                self.fail(reason);
-                Err(Error::timeout(reason))
-            }
-        }
+        crate::lsp::diagnostics::Phase::WriteQueue
+            .measure(async {
+                match tokio::time::timeout_at(deadline, self.outbound.send(outbound)).await {
+                    Ok(Ok(())) => Ok(()),
+                    Ok(Err(_)) => Err(self.closed()),
+                    Err(_) => {
+                        let reason = "LSP request write timed out: server is not reading stdin";
+                        self.fail(reason);
+                        Err(Error::timeout(reason))
+                    }
+                }
+            })
+            .await
     }
 
     /// Queues a frame and waits until it is flushed, both bounded by `deadline`.

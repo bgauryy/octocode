@@ -2,7 +2,6 @@
 
 const { spawn } = require('child_process');
 const { constants: osConstants } = require('os');
-const { resolveNativeBinaryPath } = require('./resolve-binary.cjs');
 
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
@@ -70,27 +69,4 @@ function runForwardingSignals(command, args, options = {}) {
   });
 }
 
-/**
- * Resolve a native binary for this platform and run it with this process's
- * arguments and stdio, then exit with its status.
- *
- * @param {string} binary native binary name without extension
- */
-function launchNativeBinary(binary) {
-  let binaryPath;
-  try {
-    binaryPath = resolveNativeBinaryPath(binary);
-  } catch (error) {
-    console.error(error.message);
-    process.exit(1);
-  }
-  runForwardingSignals(binaryPath, process.argv.slice(2)).then(
-    code => process.exit(code),
-    error => {
-      console.error(`${binary}: failed to start binary: ${error.message}`);
-      process.exit(1);
-    }
-  );
-}
-
-module.exports = { launchNativeBinary, runForwardingSignals, takeSignals };
+module.exports = { runForwardingSignals, takeSignals };

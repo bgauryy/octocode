@@ -113,7 +113,7 @@ Details: [benchmark method](https://github.com/bgauryy/octocode/blob/main/packag
 
 ## Tools
 
-**14 tools.** Your agent gets 12 tools over MCP and 13 in the CLI (which adds `ghCloneRepo`). Beta (`OCTOCODE_BETA=true`) adds `clasify` to both when a classification key is set.
+**16 tools.** Your agent gets 12 tools over MCP and 15 in the CLI (which adds `ghCloneRepo`, `graphBuild` and `graphQuery`). Beta (`OCTOCODE_BETA=true`) adds `clasify` to both when a classification key is set.
 
 Every tool runs from the CLI with the same JSON input as MCP: `npx octocode <tool> '{"queries":[…]}'`. Use `npx octocode schema <tool>` to inspect its fields. Resume an issued continuation by passing its `{ "cursor": "…" }` input unchanged.
 

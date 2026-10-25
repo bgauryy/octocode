@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   delegate: vi.fn(async () => 0),
-  resolve: vi.fn((): { bin: string } | { error: string } => ({
+  resolve: vi.fn(async (): Promise<{ bin: string } | { error: string }> => ({
     bin: '/native/octocode',
   })),
 }));
@@ -23,7 +23,7 @@ describe('runCLI native boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.exitCode = undefined;
-    mocks.resolve.mockReturnValue({ bin: '/native/octocode' });
+    mocks.resolve.mockResolvedValue({ bin: '/native/octocode' });
     mocks.delegate.mockResolvedValue(0);
   });
 
@@ -81,7 +81,7 @@ describe('runCLI native boundary', () => {
   });
 
   it('reports resolution failure without interpreting CLI flags', async () => {
-    mocks.resolve.mockReturnValue({
+    mocks.resolve.mockResolvedValue({
       error: 'Missing platform package; npm install it.',
     });
     await expect(runCLI(['--json'])).rejects.toThrow(

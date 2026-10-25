@@ -1,7 +1,8 @@
 {
   "name": "@octocodeai/octocode-native",
+  "private": true,
   "version": "20.2.0",
-  "description": "Native Octocode CLI and MCP server",
+  "description": "Native Octocode CLI and MCP server: the Rust workspace and the per-platform binary packages (npm/<platform>)",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "license": "MIT",
   "type": "module",
@@ -13,34 +14,10 @@
     "url": "https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode-native"
   },
-  "bin": "./bin/octocode.cjs",
-  "exports": {
-    "./bin/octocode.cjs": "./bin/octocode.cjs",
-    "./bin/launch-native.cjs": "./bin/launch-native.cjs",
-    "./bin/resolve-binary.cjs": "./bin/resolve-binary.cjs",
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "bin",
-    "docs/engine",
-    "README.md"
-  ],
-  "optionalDependencies": {
-    "@octocodeai/octocode-native-darwin-arm64": "20.2.0",
-    "@octocodeai/octocode-native-darwin-x64": "20.2.0",
-    "@octocodeai/octocode-native-linux-arm64-gnu": "20.2.0",
-    "@octocodeai/octocode-native-linux-x64-gnu": "20.2.0",
-    "@octocodeai/octocode-native-linux-x64-musl": "20.2.0",
-    "@octocodeai/octocode-native-win32-arm64-msvc": "20.2.0",
-    "@octocodeai/octocode-native-win32-x64-msvc": "20.2.0"
-  },
   "devDependencies": {
     "@types/node": "^24.19.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "build": "node scripts/build-native.cjs --release",
@@ -56,7 +33,7 @@
     "test:rust": "cargo nextest run --locked -p octocode-native -p octocode-github -p octocode-io -p octocode-cli --features octocode-native/dev-unify && cargo nextest run --locked -p octocode-engine --all-features",
     "coverage:rust": "node scripts/coverage-rust.cjs",
     "check:features": "cargo hack check --locked --workspace --each-feature",
-    "test:scripts": "node tests/platform.test.cjs && node --test tests/build-publication.test.cjs",
+    "test:scripts": "node tests/platform.test.cjs && node scripts/platform-packages.cjs --check && node --test tests/build-publication.test.cjs tests/fetch-binary.test.cjs",
     "lint": "yarn run -T oxlint -c ../../.oxlintrc.json --type-aware --deny-warnings --report-unused-disable-directives . && cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
     "fmt:rust": "cargo fmt --all",
     "fmt:rust:check": "cargo fmt --all -- --check",

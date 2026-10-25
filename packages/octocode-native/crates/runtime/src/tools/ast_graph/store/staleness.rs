@@ -70,13 +70,15 @@ pub(super) fn reuse_current(
         "dir": dir.to_string_lossy(),
         "root": manifest["root"],
         "reused": true,
+        "diagnostics": manifest["diagnostics"]["byCode"],
+        "buildMs": 0,
         "bytes": manifest["graph"]["bytes"],
         "sha256": manifest["graph"]["sha256"],
         "counts": manifest["counts"],
         "calls": manifest["calls"],
         "callInternalRecall": manifest["callInternalRecall"],
         "scan": manifest["scan"],
-        "next": format!("octocode graph query stats --graph {id}"),
+        "next": format!("octocode graph query stats --graph {id} --workspace {}", octocode_io::shell::quote(&home.parent()?.parent()?.to_string_lossy())),
     }))
 }
 

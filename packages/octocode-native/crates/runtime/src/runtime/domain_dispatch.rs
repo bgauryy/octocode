@@ -42,31 +42,8 @@ pub(crate) struct DomainDispatcher {
     pub(crate) artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
 }
 
-/// A failed local capture as a classification error, with the reader's own
-/// code, message, hints and leads (`viewTree`, `findFile`, `read`).
-fn local_capture_failure(
-    result: Box<crate::tools::source_view::LocalFetchResult>,
-) -> crate::tools::judgment::ClassificationError {
-    let leads = result
-        .next
-        .as_ref()
-        .and_then(|next| serde_json::to_value(next).ok())
-        .and_then(|next| next.as_object().cloned())
-        .map(|next| next.into_iter().collect())
-        .unwrap_or_default();
-    crate::tools::judgment::ClassificationError {
-        leads,
-        ..crate::tools::judgment::ClassificationError::with_hints(
-            result
-                .error_code
-                .unwrap_or(ErrorCode::ClassificationContextUnavailable),
-            result
-                .error
-                .unwrap_or_else(|| "The local source could not be captured.".into()),
-            result.hints,
-        )
-    }
-}
+#[cfg(test)]
+use source_reader::local_capture_failure;
 
 #[cfg(test)]
 mod local_capture_tests;
@@ -301,6 +278,9 @@ impl DomainDispatcher {
                     query,
                     &context,
                     &dispatch::LocalEnv {
+                        cargo: self
+                            .config
+                            .env_value(crate::config::environment::OCTOCODE_CARGO),
                         paths: &self.paths,
                         security: &self.security,
                         views: &self.local_views,

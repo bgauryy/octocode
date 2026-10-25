@@ -22,6 +22,10 @@ pub fn ingest(
             return GraphOutput::error(error.shared_code(), error.message);
         }
     };
+    let _lock = match super::build_lock::acquire(&home, cancel, paths) {
+        Ok(lock) => lock,
+        Err(error) => return error,
+    };
     let workspace = home
         .parent()
         .and_then(Path::parent)
@@ -101,6 +105,9 @@ pub fn ingest(
         inputs: &inputs,
         build_ms,
     });
+    if let Err(error) = cancel.check() {
+        return GraphOutput::error(ErrorCode::Cancelled, error);
+    }
     let dir = match publish(&home, &id, &stamp, &bytes, &manifest) {
         Ok(dir) => dir,
         Err(error) => {
@@ -123,7 +130,7 @@ pub fn ingest(
         "scan": manifest["scan"],
         "buildMs": manifest["buildMs"],
         "totalMs": started.elapsed().as_millis() as u64,
-        "next": format!("octocode graph query stats --graph {id}"),
+        "next": format!("octocode graph query stats --graph {id} --workspace {}", octocode_io::shell::quote(&workspace.to_string_lossy())),
     });
     if manifest["diagnostics"]["total"].as_u64().unwrap_or(0) > 0 {
         receipt["diagnostics"] = manifest["diagnostics"]["byCode"].clone();

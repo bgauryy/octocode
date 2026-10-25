@@ -12,6 +12,7 @@
 //!
 //! Snapshots are immutable. A build is written into a hidden temp directory
 //! and renamed into place, so a reader never observes a partial snapshot.
+mod build_lock;
 pub(super) mod classify;
 mod detect;
 mod drift;
@@ -23,6 +24,7 @@ mod query;
 mod snapshots;
 mod staleness;
 pub(super) mod tables;
+pub(crate) mod tools;
 mod workspace;
 
 use super::graph::{GraphScan, build_graph};

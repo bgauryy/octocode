@@ -230,9 +230,12 @@ async fn a_client_that_leaves_cancels_its_call() {
 }
 
 #[test]
-fn every_read_only_tool_runs_on_the_server() {
+fn tool_transport_keeps_graph_requests_in_the_invoking_process() {
     for tool in ToolId::ALL {
-        let mutates = matches!(tool, ToolId::GhCloneRepo);
-        assert_eq!(runs_on_server(tool), !mutates, "{tool}");
+        let process_local = matches!(
+            tool,
+            ToolId::GhCloneRepo | ToolId::GraphBuild | ToolId::GraphQuery
+        );
+        assert_eq!(runs_on_server(tool), !process_local, "{tool}");
     }
 }

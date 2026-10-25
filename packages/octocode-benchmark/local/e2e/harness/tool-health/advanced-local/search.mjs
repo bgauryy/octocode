@@ -56,7 +56,7 @@ async function multilineEvidence(ctx, surface, checks) {
       const row = await scenario(ctx, 'localSearch', surface, {
         label, query: { path: `${scope}/a.txt`, matchString: ['bridge-start\\nmiddle\\nbridge-end|tail'], regexEngine, multiline: 'on', view }, checks,
       });
-      orderedEqual(checks, `${label}.lines.${surface}`, row.root.results[0]?.data?.matchedLineCount, 4);
+      orderedEqual(checks, `${label}.lines.${surface}`, row.root?.results?.[0]?.data?.matchedLineCount, 4);
       if (view === 'matchOnly') orderedEqual(checks, `${label}.coordinates.${surface}`, matches(row.data).map(m => [m.line, m.column, m.value]), [[4, 1, 'bridge-start\nmiddle\nbridge-end'], [7, 1, 'tail']]);
       if (view === 'countLines') equal(checks, `${label}.file-lines.${surface}`, files(row.data).map(f => f.matchedLineCount), [4]);
     }

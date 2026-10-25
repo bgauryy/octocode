@@ -67,7 +67,7 @@ pub(super) fn utc_now() -> (String, String) {
 
 /// Whether `dir` is a published snapshot (has a manifest of our kind).
 pub(super) fn read_manifest(dir: &Path) -> Option<Value> {
-    std::fs::read(dir.join(MANIFEST_FILE))
+    crate::tools::source::read_bounded(&dir.join(MANIFEST_FILE), 1024 * 1024)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .filter(|manifest| manifest["kind"] == MANIFEST_KIND)

@@ -15,7 +15,7 @@
 //   empty        exit 1, every row status "empty"
 //   invalid      a typed contract error (errorCode in the contract), exit 2
 //   parity       CLI and MCP return the same payload, status class and query graph
-//   latency      every call under the tool's budget (recorded)
+//   latency      observational only; --performance opts into wall-clock budgets
 //
 // Hermetic: a temp OCTOCODE_HOME/HOME, no user GitHub token, local fixtures
 // under fixtures/tool-health (or a per-tool temp workspace built from it), and
@@ -25,9 +25,9 @@
 // leave the machine fails instead of passing silently. Each tool and surface
 // has its own fake GitHub token and its own MCP server, so the runtime's
 // per-credential search pacing never queues one tool behind another and every
-// tool runs in parallel. A latency budget scales with measured CLI startup, capped x4.
+// tool runs in parallel. Performance checks are separate from default correctness.
 //
-// Usage: node packages/octocode-benchmark/local/e2e/harness/tool-health.mjs [tool,...] [--deep]
+// Usage: node packages/octocode-benchmark/local/e2e/harness/tool-health.mjs [tool,...] [--deep] [--performance]
 //   --deep  explore further: more non-page leads per seed and longer page walks
 // Output: one line per tool, a summary line, results/tool-health.json; exit 1 on any FAIL.
 import os from 'node:os';
@@ -48,6 +48,8 @@ const started = performance.now();
 const FIXTURE = path.join(FIXTURES, 'tool-health');
 const args = process.argv.slice(2);
 const DEEP = args.includes('--deep');
+const PERFORMANCE = args.includes('--performance');
+if (PERFORMANCE && process.env.OCTOCODE_LIVE !== '1') throw new Error('--performance requires OCTOCODE_LIVE=1; default tests use mocks and do not assert wall-clock latency');
 const selected = args.find(a => !a.startsWith('--'))?.split(',');
 const CONCURRENCY = 8;
 const CLI_ONLY = new Set(contract.tools.filter(t => t.cliOnly).map(t => t.name));
@@ -64,7 +66,7 @@ const { cliArgs } = surfaces;
 const outputSchemas = new Map(contract.tools.map(tool => [tool.name, tool.outputSchema]));
 
 // ---- run
-const report = { at: new Date().toISOString(), deep: DEEP, environment: { platform: process.platform, arch: process.arch, node: process.version, kernel: os.release(), parallelism: os.availableParallelism(), services: 'hermetic loopback mocks' }, tools: [], coverage: {} };
+const report = { at: new Date().toISOString(), deep: DEEP, performance: PERFORMANCE, environment: { platform: process.platform, arch: process.arch, node: process.version, kernel: os.release(), parallelism: os.availableParallelism(), services: process.env.OCTOCODE_LIVE === '1' ? 'loopback providers; real LSP integration' : 'hermetic loopback providers; mock LSP' }, tools: [], coverage: {} };
 report.provenance = { contract: contract.fingerprint, native: nativeBinaryStamp() };
 let exitCode = 0;
 let surfaceServer;
@@ -97,7 +99,7 @@ try {
   const driver = createDriver({ validate: validateOutput, validateInput, validateTransport: transportPagesProblem, tools: TOOLS, cliOnly: CLI_ONLY, schemaOf: tool => outputSchemas.get(tool) });
   surfaceServer.close();
   surfaceServer = null;
-  const suite = { driver, surfaces, deep: DEEP, validateOutput, validateInput, advanced: ADVANCED };
+  const suite = { driver, surfaces, deep: DEEP, performance: PERFORMANCE, validateOutput, validateInput, advanced: ADVANCED };
 
   // One job per tool: each tool and surface has its own credential, so none waits on another's pacing.
   const queue = contractTools.filter(t => CASES[t] && (!selected || selected.includes(t))).map(t => [t, { ...CASES[t], cliOnly: CLI_ONLY.has(t) }]);

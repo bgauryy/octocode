@@ -1,6 +1,6 @@
 import util from 'node:util';
 import type { ToolCallEvent, ToolResultEvent } from '@earendil-works/pi-coding-agent';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createProvenance } from '../src/permission/provenance.js';
 
 const ROOT = '/work/repo';
@@ -196,15 +196,14 @@ describe('provenance: bounds and privacy', () => {
     for (const fragment of ['configured', 'attacker', 'Thanks', 'AKIAABCD', 'AWS_KEY']) expect(held).not.toContain(fragment);
   });
 
-  it('indexes 256 KB in well under 200 ms', () => {
-    const { provenance } = setup();
-    const text = unique('perf', 256 * 1024);
-    // CPU time of this process (one test file per forked worker): wall time also counts other workers' turns on the CPU.
-    const started = process.cpuUsage();
-    provenance.record(result('web', { url: 'https://example.com/big' }, text), ctx);
-    const used = process.cpuUsage(started);
-    expect((used.user + used.system) / 1000).toBeLessThan(200);
-    expect(provenance.size()).toBeLessThanOrEqual(200_000);
-    expect(provenance.check(call('bash', { command: text.slice(-500, -400) }), ctx)).toMatchObject({ why: expect.stringMatching(/^contains text from web https:\/\/example\.com\/big/) });
+  it('indexes 256 KB within its size bound without measuring CPU time', () => {
+    const cpuUsage = vi.spyOn(process, 'cpuUsage').mockImplementation(() => { throw new Error('correctness checks must not measure CPU time'); });
+    try {
+      const { provenance } = setup();
+      const text = unique('perf', 256 * 1024);
+      provenance.record(result('web', { url: 'https://example.com/big' }, text), ctx);
+      expect(provenance.size()).toBeLessThanOrEqual(200_000);
+      expect(provenance.check(call('bash', { command: text.slice(-500, -400) }), ctx)).toMatchObject({ why: expect.stringMatching(/^contains text from web https:\/\/example\.com\/big/) });
+    } finally { cpuUsage.mockRestore(); }
   });
 });

@@ -1,5 +1,805 @@
 [
   {
+    "id": "graph-build.basic",
+    "tool": "graphBuild",
+    "input": {
+      "queries": [
+        {
+          "path": "."
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "maxFiles": 50000,
+          "keep": 3,
+          "force": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-build.cap",
+    "tool": "graphBuild",
+    "input": {
+      "queries": [
+        {
+          "maxFiles": 50001
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.valid-0-stats",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stats"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "stats",
+          "path": "."
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-1-find",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "find",
+          "target": "server",
+          "kind": "symbol"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "find",
+          "path": ".",
+          "limit": 50,
+          "kind": "symbol",
+          "target": "server"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-2-node",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "node",
+          "target": "src/server.ts"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "node",
+          "path": ".",
+          "target": "src/server.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-3-symbols",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "target": "src/server.ts"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": ".",
+          "target": "src/server.ts",
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-4-deps",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "deps",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "deps",
+          "path": ".",
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-5-dependents",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "dependents",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "dependents",
+          "path": ".",
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-6-callers",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "callers",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "callers",
+          "path": ".",
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-7-callees",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "callees",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "callees",
+          "path": ".",
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-8-walk",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "walk",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "walk",
+          "path": ".",
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-9-path",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "path",
+          "target": "src/a.ts",
+          "to": "src/b.ts"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "path",
+          "path": ".",
+          "target": "src/a.ts",
+          "confidence": "high",
+          "to": "src/b.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-10-cycles",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "cycles",
+          "edges": [
+            "imports"
+          ]
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "cycles",
+          "path": ".",
+          "edges": [
+            "imports"
+          ],
+          "confidence": "high",
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-11-hubs",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "hubs",
+          "direction": "out"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "hubs",
+          "path": ".",
+          "confidence": "high",
+          "limit": 50,
+          "direction": "out"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-12-diagnostics",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "diagnostics",
+          "target": "src/"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "diagnostics",
+          "path": ".",
+          "limit": 50,
+          "target": "src/"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-13-stale",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stale"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "stale",
+          "path": ".",
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-14-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "target": "src/a.ts"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "impact",
+          "path": ".",
+          "limit": 50,
+          "target": "src/a.ts",
+          "depth": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-15-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "changed": [
+            "src/a.ts"
+          ]
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "impact",
+          "path": ".",
+          "limit": 50,
+          "changed": [
+            "src/a.ts"
+          ],
+          "depth": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-16-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "since": "main"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "impact",
+          "path": ".",
+          "limit": 50,
+          "since": "main",
+          "depth": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-17-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "target": "src/a.ts",
+          "changed": [
+            "src/b.ts"
+          ],
+          "since": "main"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "impact",
+          "path": ".",
+          "limit": 50,
+          "target": "src/a.ts",
+          "changed": [
+            "src/b.ts"
+          ],
+          "since": "main",
+          "depth": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-18-drift",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "drift",
+          "baseline": "20261025-baseline"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "drift",
+          "path": ".",
+          "limit": 50,
+          "baseline": "20261025-baseline"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.invalid-0-find",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "find"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-1-node",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "node"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-2-symbols",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-3-deps",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "deps"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-4-dependents",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "dependents"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-5-callers",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "callers"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-6-callees",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "callees"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-7-walk",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "walk"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-8-path",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "path",
+          "target": "src/a.ts"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-9-path",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "path",
+          "to": "src/b.ts"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-10-drift",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "drift"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-11-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-12-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "changed": []
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-13-stats",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stats",
+          "graph": "../outside"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-14-stats",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stats",
+          "target": "ignored"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-15-stats",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stats",
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-16-node",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "node",
+          "target": "a.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-17-find",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "find",
+          "target": "server",
+          "baseline": "ignored"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-18-path",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "path",
+          "target": "a.ts",
+          "to": "b.ts",
+          "depth": 1
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-19-hubs",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "hubs",
+          "direction": "both"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-20-cycles",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "cycles",
+          "kind": "file"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-21-cycles",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "cycles",
+          "target": "ignored"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-22-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "since": "main",
+          "confidence": "low"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
     "id": "artifact.package-url-npm",
     "tool": "artifactSearch",
     "accepted": false,
@@ -5312,6 +6112,94 @@
         }
       ]
     }
+  },
+  {
+    "id": "graphBuild.resume",
+    "tool": "graphBuild",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "graphBuild.resume-with-queries",
+    "tool": "graphBuild",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphBuild.bare-row",
+    "tool": "graphBuild",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "graphBuild.empty-batch",
+    "tool": "graphBuild",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphBuild.old-snapshot",
+    "tool": "graphBuild",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphQuery.resume",
+    "tool": "graphQuery",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "graphQuery.resume-with-queries",
+    "tool": "graphQuery",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphQuery.bare-row",
+    "tool": "graphQuery",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "graphQuery.empty-batch",
+    "tool": "graphQuery",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphQuery.old-snapshot",
+    "tool": "graphQuery",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
   },
   {
     "id": "clasify.resume",

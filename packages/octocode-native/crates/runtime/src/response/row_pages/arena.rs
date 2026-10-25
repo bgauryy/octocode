@@ -128,7 +128,11 @@ impl FragmentArena {
         // Another large array would repeat in every slice of this one: slices
         // carry it emptied, and the row minus this array follows as its own
         // fragments, so each item is delivered exactly once.
-        let rest = lean_skeleton(&mut row, budget, &pointer);
+        let rest = self
+            .collection_paths
+            .is_none()
+            .then(|| lean_skeleton(&mut row, budget, &pointer))
+            .flatten();
         // The rest (the row's other lists and fields) is the split's first
         // part, so the actionable records lead and its slices follow.
         let first = out.len();
@@ -273,6 +277,12 @@ impl FragmentArena {
         value
     }
 
+    pub(super) fn empty_secondary_lists(&self, row: &mut Value, pointer: &str) {
+        if self.collection_paths.is_none() {
+            empty_secondary_lists(row, pointer);
+        }
+    }
+
     /// The paged pointers of `fragment`'s later slices (a chunk past its
     /// split's first item).
     fn later_pointers(&self, fragment: &Fragment) -> Vec<String> {
@@ -308,7 +318,7 @@ impl FragmentArena {
                 let items = row_split.items[*start..*end].to_vec();
                 let mut value = row_split.skeleton.clone();
                 if *start > 0 {
-                    empty_secondary_lists(&mut value, &row_split.pointer);
+                    self.empty_secondary_lists(&mut value, &row_split.pointer);
                     if let Some(context) = self.page_context {
                         lean_elements(&mut value, &row_split.pointer, context);
                     }

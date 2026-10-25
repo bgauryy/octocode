@@ -31,7 +31,7 @@ node packages/octocode/out/octocode.js schema
 node packages/octocode/out/octocode.js schema localFetch --view query
 ```
 
-- The catalog has 14 tools, with 12 enabled by default in MCP. `ghCloneRepo` is CLI-only; a classification key and successful provider ping add `clasify`. File graphs are the `octocode graph ingest|query` CLI, not a catalog tool.
+- The catalog has 16 tools, with 12 enabled by default in MCP. `ghCloneRepo`, `graphBuild` and `graphQuery` are CLI-only; a classification key and successful provider ping add `clasify`. Graph tools use the same Rust store as `octocode graph ingest|query`.
 - `clasify` is omitted when no key resolves (`OCTOCODE_CLASSIFICATION_API` or `.octocoderc` `classification.api`), when `OCTOCODE_CLASSIFICATION_API` is blank, or when its provider ping fails. Local-tool, clone, storage, and allowlist settings also gate tools.
 - Record effective configuration and unavailable capabilities per run; enabling a tool installs no language server and grants no provider access. Test CLI and MCP when registration, schema projection, formatting, or continuation rendering changes.
 

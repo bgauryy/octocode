@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createRequire } from 'node:module';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -9,14 +10,29 @@ const read = (path: string) =>
     os?: string[];
     libc?: string[];
   };
+const { PLATFORMS, platformPackageName } = createRequire(__filename)(
+  '../../../octocode-native/bin/platform.cjs'
+) as {
+  PLATFORMS: Record<string, unknown>;
+  platformPackageName: (suffix: string) => string;
+};
 
 describe('per-platform binary packages', () => {
-  it('match the native package one for one, at the launcher version', () => {
-    const cli = read('../../package.json');
-    const native = read('../../../octocode-native/package.json');
-    expect(cli.optionalDependencies).toEqual(native.optionalDependencies);
-    for (const version of Object.values(cli.optionalDependencies ?? {}))
-      expect(version).toBe(cli.version);
+  it('both launchers pin every platform package, at the launcher version', () => {
+    for (const path of [
+      '../../package.json',
+      '../../../octocode-mcp/package.json',
+    ]) {
+      const launcher = read(path);
+      expect(launcher.optionalDependencies, path).toEqual(
+        Object.fromEntries(
+          Object.keys(PLATFORMS).map(suffix => [
+            platformPackageName(suffix),
+            launcher.version,
+          ])
+        )
+      );
+    }
   });
 
   // Without `libc`, npm installs the gnu and the musl package on any Linux.

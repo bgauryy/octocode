@@ -258,79 +258,90 @@ fn open_documents_follow_their_files_and_never_replay_older_answers() {
     });
 }
 
-#[cfg(unix)]
-#[test]
-fn settled_requests_wait_only_when_they_reach_the_server() {
-    use std::os::unix::fs::PermissionsExt;
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
-        let tmp = TmpDir::new();
-        let root = tmp.0.join("octocode-engine-settled-reuse");
-        std::fs::create_dir_all(&root).unwrap();
-        let script = root.join("fake-lsp.js");
-        std::fs::write(&script, COUNTING_SERVER).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let source = root.join("a.ts");
-        std::fs::write(&source, "function foo() {}\nfoo();\n".repeat(10)).unwrap();
-        let source_path = source
-            .canonicalize()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        let client = NativeLspClient::new(LspLanguageServerConfig {
-            command: script.to_string_lossy().into_owned(),
-            args: Some(Vec::new()),
-            workspace_root: root.canonicalize().unwrap().to_string_lossy().into_owned(),
-            language_id: Some("typescript".into()),
-            initialization_options: None,
-            env: None,
-            max_memory_mb: None,
-            source: Default::default(),
+#[tokio::test(start_paused = true)]
+async fn settled_requests_wait_only_when_they_reach_the_server() {
+    use super::document_sync::{
+        client_with_fake_server_using, read_client_frame, send_server_frame,
+    };
+    let tmp = TmpDir::new();
+    let root = tmp.0.join("octocode-engine-settled-reuse");
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("a.ts");
+    std::fs::write(&source, "function foo() {}\nfoo();\n".repeat(10)).unwrap();
+    let source_path = source
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let (client, mut reader, mut writer) =
+        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
+    let requests = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&requests);
+    let server =
+        tokio::spawn(async move {
+            loop {
+                let request = read_client_frame(&mut reader).await;
+                assert_eq!(request["method"], "textDocument/references");
+                let line = seen.fetch_add(1, Ordering::SeqCst) + 1;
+                send_server_frame(&mut writer, json!({"jsonrpc":"2.0","id":request["id"],"result":[{
+                    "uri":request["params"]["textDocument"]["uri"],
+                    "range":{"start":{"line":line,"character":0},"end":{"line":line,"character":1}}
+                }]})).await;
+            }
         });
-        client.start().await.expect("fake server starts");
-        let settle = Duration::from_millis(200);
-        let ask = |settled: Option<Duration>| {
-            let client = &client;
-            let source_path = source_path.clone();
-            let scope = ResponseScope {
-                reuse: true,
-                generation: "g1".to_owned(),
-            };
-            RESPONSE_SCOPE.scope(std::cell::RefCell::new(scope), async move {
-                let started = std::time::Instant::now();
-                let line = client
-                    .get_locations(
-                        LocationRequest::References {
-                            include_declaration: true,
-                        },
-                        source_path,
-                        0,
-                        9,
-                        &SnippetReadPolicy::default(),
-                        settled,
-                    )
-                    .await
-                    .expect("references")[0]
-                    .range
-                    .start
-                    .line;
-                (line, started.elapsed())
-            })
+    let settle = Duration::from_millis(200);
+    let ask = |settled: Option<Duration>| {
+        let client = &client;
+        let source_path = source_path.clone();
+        let scope = ResponseScope {
+            reuse: true,
+            generation: "g1".to_owned(),
         };
-        let (first, _) = ask(None).await;
-        // A settled request never takes the earlier (pre-settle) answer: it
-        // waits, then asks the server.
-        let (settled, waited) = ask(Some(settle)).await;
-        assert_ne!(settled, first);
-        assert!(waited >= settle, "{waited:?}");
-        // Repeated under the same generation, both answers come from the
-        // cache: no wait, no request (the server would answer a new line).
-        let (again, waited) = ask(Some(settle)).await;
-        assert_eq!(again, settled);
-        assert!(waited < settle, "{waited:?}");
-        assert_eq!(ask(None).await.0, first);
-        client.stop().await.unwrap();
-        let _ = std::fs::remove_dir_all(root);
-    });
+        RESPONSE_SCOPE.scope(std::cell::RefCell::new(scope), async move {
+            let started = tokio::time::Instant::now();
+            let line = client
+                .get_locations(
+                    LocationRequest::References {
+                        include_declaration: true,
+                    },
+                    source_path,
+                    0,
+                    9,
+                    &SnippetReadPolicy::default(),
+                    settled,
+                )
+                .await
+                .expect("references")[0]
+                .range
+                .start
+                .line;
+            (line, started.elapsed())
+        })
+    };
+    let (first, _) = ask(None).await;
+    // A settled request never takes the earlier (pre-settle) answer: it
+    // waits, then asks the server.
+    let (settled, waited) = ask(Some(settle)).await;
+    assert_ne!(settled, first);
+    assert_eq!(waited, settle);
+    // Repeated under the same generation, both answers come from the
+    // cache: no wait, no request (the server would answer a new line).
+    let (again, waited) = ask(Some(settle)).await;
+    assert_eq!(again, settled);
+    assert_eq!(waited, Duration::ZERO);
+    assert_eq!(ask(None).await.0, first);
+    assert_eq!(
+        requests.load(Ordering::SeqCst),
+        2,
+        "both cache hits avoid the provider"
+    );
+    server.abort();
+    assert!(
+        server
+            .await
+            .expect_err("mock task cancelled")
+            .is_cancelled()
+    );
 }
 
 /// The response cache weighs an entry by its JSON length, measured

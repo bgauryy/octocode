@@ -23,7 +23,7 @@ const { spawn } = require('child_process');
 const { mkdirSync } = require('fs');
 const { availableParallelism, totalmem } = require('os');
 const { join, relative } = require('path');
-const { BINARIES, PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
+const { PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
 const { stageFile, verifyBinaryRuns } = require('./stage-binary.cjs');
 
 const ROOT = join(__dirname, '..');
@@ -154,12 +154,10 @@ function stageBinary(platform, explicitTarget, release, dir) {
   const built = explicitTarget ? join(dir, PLATFORMS[platform].triple, profile) : join(dir, profile);
   const packageDir = join(ROOT, 'npm', platform);
   mkdirSync(packageDir, { recursive: true });
-  return BINARIES.map(name => {
-    const file = executableName(name, PLATFORMS[platform].os);
-    const destination = join(packageDir, file);
-    stageFile(join(built, file), destination, { executable: true });
-    return destination;
-  });
+  const file = executableName('octocode', PLATFORMS[platform].os);
+  const destination = join(packageDir, file);
+  stageFile(join(built, file), destination, { executable: true });
+  return [destination];
 }
 
 function verifyStaged(platform, staged) {

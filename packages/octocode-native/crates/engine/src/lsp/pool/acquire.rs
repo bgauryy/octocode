@@ -45,6 +45,16 @@ impl<C: PoolClient> GenericPool<C> {
         F: FnOnce() -> Fut + Send,
         Fut: Future<Output = SharedResult<C>> + Send,
     {
+        crate::lsp::diagnostics::Phase::Acquire
+            .measure(self.acquire_inner(key, factory))
+            .await
+    }
+
+    async fn acquire_inner<F, Fut>(&self, key: String, factory: F) -> SharedResult<C>
+    where
+        F: FnOnce() -> Fut + Send,
+        Fut: Future<Output = SharedResult<C>> + Send,
+    {
         enum Action<C> {
             Wait(Arc<InFlight<C>>),
             Validate {

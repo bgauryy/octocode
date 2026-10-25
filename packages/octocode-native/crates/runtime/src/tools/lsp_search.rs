@@ -56,6 +56,7 @@ mod scope;
 mod server_coverage;
 mod session;
 mod source;
+mod trace;
 mod walk;
 mod words;
 
@@ -191,6 +192,8 @@ pub(crate) mod lsp_search_query;
 pub struct LspExecutionConfig {
     pub config_path: Option<String>,
     pub trust_project_config: bool,
+    /// Opt-in diagnostic timings, never part of a tool result.
+    pub trace: bool,
     /// Resolved `OCTOCODE_*` settings (process env and trusted `.env` layers).
     pub env: std::collections::BTreeMap<String, String>,
     pub octocode_home: Option<std::path::PathBuf>,
@@ -298,19 +301,18 @@ pub async fn execute(
     // No reuse until the anchor text (and, for incoming walks, the scope
     // fingerprint) keys the page's responses: see `scope_responses`.
     let scope = octocode_engine::lsp::client::ResponseScope::default();
-    octocode_engine::lsp::client::RESPONSE_SCOPE
-        .scope(
-            std::cell::RefCell::new(scope),
-            scope::with_canonical_memo(execute_page(
-                query,
-                cancel,
-                pool,
-                paths,
-                execution_config,
-                response_window,
-            )),
-        )
-        .await
+    let work = octocode_engine::lsp::client::RESPONSE_SCOPE.scope(
+        std::cell::RefCell::new(scope),
+        scope::with_canonical_memo(execute_page(
+            query,
+            cancel,
+            pool,
+            paths,
+            execution_config,
+            response_window,
+        )),
+    );
+    trace::run(execution_config.trace, Box::pin(work)).await
 }
 
 #[cfg(all(test, unix))]

@@ -6,12 +6,13 @@ use std::path::PathBuf;
 mod document_sync;
 mod memory_cap;
 mod open_document_set;
+mod phase_trace;
 #[cfg(any(unix, windows))]
 mod process_environment;
 mod process_lifecycle;
-mod protocol;
-// Its fake servers are node scripts run through a shebang.
 #[cfg(unix)]
+mod process_readiness;
+mod protocol;
 mod readiness;
 mod response_cache;
 mod snippet_reads;

@@ -141,6 +141,27 @@ Running the Linux tests (kernel `/proc`, address-space reservations past the cap
 
 ## Readiness and diagnostics
 
+For a slow `lspSearch` call, enable `lsp.trace` (`OCTOCODE_LSP_TRACE=true`) through
+the normal [configuration flow](../../../../docs/CONFIGURATION.md). Each executed
+query row emits a diagnostic summary on stderr; CLI warm-server calls relay it,
+and MCP keeps it outside JSON-RPC results. Disable the setting when finished.
+Tracing does not change readiness gates, retry budgets, or semantic evidence.
+
+The summary separates pool acquisition, process spawn, initialization, startup
+readiness, document synchronization, first-open readiness, semantic requests, and
+write-queue admission. Durations are cumulative and inclusive: acquisition can
+contain initialization/readiness, and concurrent requests overlap, so **do not
+add them to calculate wall-clock latency**. Only phases that ran are listed.
+Completed/failed counts describe function returns, not index completeness; a
+readiness wait can complete with the existing `timeout` readiness value. Dropped
+futures count as cancelled. `active` identifies work still running when the
+summary is emitted, including supervised startup after caller cancellation.
+
+Traces contain phase labels, durations and counts only—not file paths, method
+arguments, source text, environment values, or credentials. The collector has a
+fixed set of phase keys and is isolated per query; tracing is not a request log.
+The timing and race regression tests use in-memory servers and paused Tokio time.
+
 Timed-out and dropped requests emit `$/cancelRequest` when possible. A request waits 30 s; past that it keeps waiting in 7.5 s steps while the server shows progress (CPU time of its process tree grew by at least 1% of a step since the last check, or a `$/progress` work-done token is open), up to a ceiling (content-modified retries of one request share it), so a cold server on a starved machine (CI, parallel agents) answers instead of timing out while it is still indexing. An lspSearch request's ceiling is its tool call's execution deadline (`DEFAULT_TIMEOUT`, 300 s, or the host's `timeout_secs`) less a 1 s reserve for the failure row: a server that keeps progressing may use all the time the call still has. A wait no call bounds (`initialize` inside the pooled start, prewarm) keeps a 60 s ceiling. A server with neither signal is hung and times out at 30 s either way. Cancelling the call, or the runtime at its deadline, drops the pending lspSearch work at once, which cancels its server requests. CPU time comes from `libproc` on macOS, `/proc` on Linux and `GetProcessTimes` on Windows (the server process only); elsewhere only `$/progress` extends the wait. The timeout message names the time actually waited. One request that uses its whole wait is cancelled and the server is kept. The connection is retired (and the pool starts a replacement on the next acquisition) on a second consecutive timeout with no answered request between, or when the cancel cannot be written.
 
 Progress-aware servers must reach a full quiet interval before readiness is confirmed. New progress restarts that interval. Servers without progress use a bounded settle state (2 s at startup), which does not prove indexing completion. A first `didOpen` waits a short settle (400 ms) for a project load the open starts; it is skipped when the startup wait already confirmed the project load (`progressIdle`), and only progress already under way is drained. Empty results with unconfirmed readiness remain partial.

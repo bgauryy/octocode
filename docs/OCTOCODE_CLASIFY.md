@@ -65,3 +65,35 @@ The generated contract and native constants own limits. The runtime bounds sourc
 ## Results and rating
 
 Judge quality by agreement with source evidence and typed answers, complete coverage accounting, provider request counts, cache invalidation and executable inspection flows. Shorter output alone is not better. Preserve exact captured bytes and source identity when testing replay, mutation or access-policy changes.
+
+### Measured scorecard
+
+Scores are out of 10, from evaluation runs against known answers.
+
+| Area | Score | Evidence |
+|---|---|---|
+| Image classification | 9 | 73/77 correct. Every miss came with low confidence (0.51 or less) |
+| Text classification | 8.5 | 83/90 correct. Its few confident wrong answers came from vague or broad questions |
+| Scanning many files (sections) | 8 | 100/100 correct per file (25 files × 4 questions). Single sections next to a real hit can be false hits |
+| Scouting (cutting what the agent reads) | 9.5 | 84–86% less output, with no relevant hits lost in the tests |
+| Large sources | 9.5 | A 200k-character log came back as about 1 KB of answers, 5/5 correct |
+| Confidence you can trust | 8 | Reliable for images; for text, only when the question names a specific thing |
+| Caching | 7 | Repeats cost nothing, but a file edit can get the old answer back |
+| Ease of use | 7 | Strict limits, no image resizing, confusing errors when you pass unexpected arguments |
+
+Best at:
+
+- Answering specific questions about large sources you haven't read
+- Narrowing searches down to the hits that matter
+- Reading screenshots, charts and error popups
+- Spotting obvious design flaws
+- Triaging incidents from logs
+
+Weak at:
+
+- Counting, totals and finding the maximum: use a script
+- Pixel-level layout: use DOM measurements
+- Broad questions like "any bug?": ask one exact, named fact per question
+- Re-checking a file right after editing it: an identical query can replay the saved answer, so rephrase the question to re-judge
+
+Treat answers between 0.3 and 0.7 as unsure, and read the lines or image region behind a finding before acting on it. A sections hit is a candidate: confirm it at its target lines.

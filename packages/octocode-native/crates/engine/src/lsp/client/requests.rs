@@ -241,6 +241,16 @@ impl NativeLspClient {
     }
 
     async fn send_request(&self, method: &str, params: Value) -> Result<Value> {
+        // Bound the async frame depth shared by every semantic request path.
+        let request: std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Value>> + Send + '_>,
+        > = Box::pin(self.send_request_inner(method, params));
+        crate::lsp::diagnostics::Phase::Request
+            .measure(request)
+            .await
+    }
+
+    async fn send_request_inner(&self, method: &str, params: Value) -> Result<Value> {
         let _activity = self.lease();
         // Acquire a cloned handle and DROP the guard before awaiting, so the
         // request + content-modified retry loop never holds the connection

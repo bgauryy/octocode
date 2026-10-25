@@ -41,6 +41,8 @@ stdin (`--input -`). Batch up to 5 with `{"queries":[…]}`.
 | `structureSearch` | Outline local directories or find files by name or metadata. |
 | `astSearch` | Find declarations, syntax trees, or structural code matches. |
 | `lspSearch` | Resolve callers, references, same-name symbols, types, or diagnostics. |
+| `graphBuild` | Build or reuse a workspace syntax snapshot (CLI only). |
+| `graphQuery` | Explore that snapshot's dependencies, calls, cycles and changes (CLI only). |
 | **GitHub** | |
 | `ghSearchRepo` | Discover repositories by keywords, owner, or filters. |
 | `ghSearchCode` | Find default-branch code or file paths in an owner or repository. |
@@ -66,13 +68,21 @@ npx octocode localSearch '{"path":"src","matchString":"createServer"}'
 
 ### Code graph
 
-Parse a repository once, then answer structural questions in milliseconds.
+Build or reuse a Rust syntax snapshot, then query it repeatedly. The agent-facing
+tools are CLI-only; Octocode Code invokes this native CLI through its graph tools.
 
 ```bash
-npx octocode graph ingest .
-npx octocode graph query callers 'src/server.ts#createServer'
-npx octocode graph query impact --since main  # blast radius of your branch
+npx octocode --json graphBuild '{"queries":[{"path":"."}]}'
+npx octocode --json graphQuery '{"queries":[{"operation":"stats","path":"."}]}'
+npx octocode schema graphQuery --view query
 ```
+
+Snapshots live under the workspace's `.octocode/graph`. Query the same path used
+for the build, even when pinning a returned `graph` ID. Check freshness and scan
+coverage; follow returned continuations for remaining evidence. The positional
+`graph ingest` / `graph query` commands remain available. See the
+[graph tool reference](../octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli)
+for operation requirements, defaults and snapshot retention.
 
 ### Setup and management
 

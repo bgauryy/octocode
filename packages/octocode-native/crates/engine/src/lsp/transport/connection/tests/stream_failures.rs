@@ -1,6 +1,6 @@
 use super::*;
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn dropped_mid_write_cannot_corrupt_the_stream() {
     // A 16-byte pipe forces the writer to block mid-frame; the caller's future
     // is dropped while the frame is half on the wire.
@@ -44,7 +44,7 @@ async fn dropped_mid_write_cannot_corrupt_the_stream() {
     assert_eq!(next.await.expect("join").expect("next"), json!(1));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn server_request_is_answered_per_section_via_the_writer() {
     let (connection, mut server) = connect();
     server
@@ -63,7 +63,7 @@ async fn server_request_is_answered_per_section_via_the_writer() {
     assert!(connection.is_alive());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn server_request_reply_does_not_block_reads_when_server_stops_reading() {
     let (server_w, client_r) = duplex(64 * 1024);
     let mut server_w = server_w;
@@ -100,7 +100,7 @@ async fn server_request_reply_does_not_block_reads_when_server_stops_reading() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn garbage_content_length_fails_every_pending_request() {
     let (connection, mut server) = connect();
     let connection = Arc::new(connection);
@@ -119,7 +119,7 @@ async fn garbage_content_length_fails_every_pending_request() {
     assert!(!connection.is_alive());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn oversized_frame_fails_pending_and_marks_dead() {
     let (connection, mut server) = connect();
     let connection = Arc::new(connection);
@@ -142,7 +142,7 @@ async fn oversized_frame_fails_pending_and_marks_dead() {
     assert!(!connection.is_alive());
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn unparseable_frames_are_counted_and_reported() {
     let (connection, mut server) = connect();
     let connection = Arc::new(connection);
@@ -190,7 +190,7 @@ async fn exit_is_still_sent_after_a_timed_out_shutdown() {
     assert_eq!(server.read_message().await["method"], "exit");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn dropping_the_connection_aborts_both_tasks() {
     let (connection, mut server) = connect();
     let shared = Arc::clone(&connection.shared);

@@ -8,7 +8,7 @@ import {
 } from '../../octocode/src/cli/native-delegate.js';
 import { failStartup } from './startup-failure.js';
 
-const resolved = resolveNativeBin();
+const resolved = await resolveNativeBin();
 if ('error' in resolved) {
   failStartup(`Server initialization failed: ${resolved.error}`);
 } else {

@@ -71,6 +71,7 @@ pub const OPS: &[&str] = &[
 #[derive(Clone, Debug, Default)]
 pub struct QueryOptions {
     pub op: String,
+    pub check_freshness: bool,
     /// Node reference: key, absolute path, name, or `Class.method`.
     pub target: Option<String>,
     /// Second reference for `path`.
@@ -154,7 +155,12 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
         flags,
     };
     let g = &graph;
-    match options.op.as_str() {
+    let freshness = options.check_freshness.then(|| {
+        let root = Path::new(graph.manifest["root"].as_str().unwrap_or_default());
+        let checked = super::snapshot_changes(paths, root, &graph.t, &graph.manifest, true);
+        json!({"fresh": checked.changes.is_empty() && checked.added_checked, "addedChecked": checked.added_checked})
+    });
+    let mut output = match options.op.as_str() {
         "stats" => Ok(stats(g)),
         "find" => {
             let text = options.target.as_deref().ok_or_else(|| {
@@ -204,7 +210,11 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
             Ok(out)
         }
         _ => Err(GraphOutput::error(ErrorCode::InvalidInput, "unknown op")),
+    }?;
+    if let Some(freshness) = freshness {
+        output.value["freshness"] = freshness;
     }
+    Ok(output)
 }
 
 /// `extra.edges`: the edge kinds a page followed.

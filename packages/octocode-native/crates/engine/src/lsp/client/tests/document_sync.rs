@@ -24,9 +24,19 @@ async fn client_with_fake_server_for(
     BufReader<tokio::io::DuplexStream>,
     tokio::io::DuplexStream,
 ) {
+    client_with_fake_server_using(NativeLspClient::new(config), client_to_server).await
+}
+
+pub(super) async fn client_with_fake_server_using(
+    client: NativeLspClient,
+    client_to_server: usize,
+) -> (
+    NativeLspClient,
+    BufReader<tokio::io::DuplexStream>,
+    tokio::io::DuplexStream,
+) {
     let (client_w, server_r) = tokio::io::duplex(client_to_server);
     let (server_w, client_r) = tokio::io::duplex(64 * 1024);
-    let client = NativeLspClient::new(config);
     let connection = JsonRpcConnection::new(
         client_r,
         client_w,
@@ -42,7 +52,17 @@ async fn client_with_fake_server_for(
     (client, BufReader::new(server_r), server_w)
 }
 
-async fn read_client_frame(reader: &mut BufReader<tokio::io::DuplexStream>) -> Value {
+pub(super) async fn send_server_frame(writer: &mut tokio::io::DuplexStream, message: Value) {
+    use tokio::io::AsyncWriteExt;
+    let body = serde_json::to_vec(&message).expect("message");
+    writer
+        .write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
+        .await
+        .expect("mock server header");
+    writer.write_all(&body).await.expect("mock server body");
+}
+
+pub(super) async fn read_client_frame(reader: &mut BufReader<tokio::io::DuplexStream>) -> Value {
     use tokio::io::AsyncReadExt;
     let mut length = None;
     loop {
@@ -200,31 +220,26 @@ fn concurrent_syncs_of_one_document_reach_the_server_in_version_order() {
     });
 }
 
-#[test]
-fn a_blocked_sync_keeps_the_client_busy_and_cancelling_it_releases() {
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
-        // A 1-byte pipe the server never reads: the didOpen write stalls.
-        let (client, _server, _server_w) = client_with_fake_server(1).await;
-        let syncing = {
-            let client = client.clone();
-            tokio::spawn(async move {
-                client
-                    .open_document("/tmp/octocode-busy.ts".into(), &"x".repeat(4096))
-                    .await
-            })
-        };
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while !client.is_busy() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "sync never counted as busy"
-            );
-            tokio::task::yield_now().await;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(client.is_busy(), "a stalled sync is activity, not idleness");
-        syncing.abort();
-        let _ = syncing.await;
-        assert!(!client.is_busy(), "cancelling the sync releases its lease");
-    });
+#[tokio::test(start_paused = true)]
+async fn a_blocked_sync_keeps_the_client_busy_and_cancelling_it_releases() {
+    let (client, _server, _server_w) = client_with_fake_server(1).await;
+    let tmp = TmpDir::new();
+    let content = "x".repeat(4096);
+    let mut syncing = Box::pin(client.open_document(
+        tmp.0.join("busy.ts").to_string_lossy().into_owned(),
+        &content,
+    ));
+    std::future::poll_fn(|context| {
+        assert!(
+            syncing.as_mut().poll(context).is_pending(),
+            "the unread pipe blocks the sync"
+        );
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(client.is_busy(), "sync takes its lease before writing");
+    tokio::time::advance(Duration::from_millis(50)).await;
+    assert!(client.is_busy(), "a stalled sync is activity, not idleness");
+    drop(syncing);
+    assert!(!client.is_busy(), "cancelling the sync releases its lease");
 }

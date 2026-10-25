@@ -42,9 +42,7 @@ const PACKAGE_INDEX = process.argv.indexOf('--package');
 const PACKAGE = PACKAGE_INDEX >= 0 ? process.argv[PACKAGE_INDEX + 1] : undefined;
 
 /** Packages whose root resolutions this script manages. */
-const NATIVE_PKG_PATH = join(ROOT, 'packages/octocode-native/package.json');
-const nativePkg = JSON.parse(readFileSync(NATIVE_PKG_PATH, 'utf8'));
-const MANAGED_PACKAGES = new Set(managedResolutionPackages(nativePkg));
+const MANAGED_PACKAGES = new Set(managedResolutionPackages());
 
 // ---------------------------------------------------------------------------
 // Check: root resolutions must not contain local protocols for managed packages

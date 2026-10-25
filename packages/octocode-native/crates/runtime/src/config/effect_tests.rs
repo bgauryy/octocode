@@ -194,3 +194,14 @@ fn trust_project_config_reaches_server_discovery() {
         assert_eq!(settings.discovery(None).trust_project_config, trusted);
     }
 }
+
+#[test]
+fn lsp_trace_reaches_execution_without_changing_discovery() {
+    let home = tempfile::tempdir().expect("home");
+    let cwd = tempfile::tempdir().expect("cwd");
+    for enabled in [true, false] {
+        let runtime = runtime(home.path(), cwd.path(), &json!({"lsp":{"trace":enabled}}));
+        assert_eq!(runtime.lsp_execution_config().trace, enabled);
+        assert!(!runtime.lsp_execution_config().trust_project_config);
+    }
+}

@@ -1,12 +1,12 @@
 # Octocode tools reference
 
-The full catalog has 14 tools. The default catalog contains 12 tools over MCP and 13 in the CLI. `ghCloneRepo` is CLI-only; `clasify` requires a classification credential and a successful provider ping. Live discovery reports availability for the current configuration.
+The full catalog has 16 tools. The default catalog contains 12 tools over MCP and 15 in the CLI. `ghCloneRepo`, `graphBuild` and `graphQuery` are CLI-only; `clasify` requires a classification credential and a successful provider ping. Live discovery reports availability for the current configuration.
 
 ## How every tool call works
 
 ### Base call envelope
 
-Start work with `{"queries":[query,...],"responseChars":20000}`. `responseChars` is optional. Batch up to five independent queries of the same tool. Resume saved work with only `{"cursor":"…"}`, copied from an emitted call. CLI and MCP use the same envelope; tool names and fields are case-sensitive.
+Start work with `{"queries":[query,...],"responseChars":20000}`. `responseChars` is optional. Batch up to five independent queries of the same tool; `graphBuild` accepts one. Resume saved work with only `{"cursor":"…"}`, copied from an emitted call. CLI and MCP use the same envelope; tool names and fields are case-sensitive.
 
 A query selects an explicit operation or view when required by that tool's schema. Unknown fields, cross-operation fields and malformed values fail validation. The runtime does not guess intent, coerce aliases or rewrite the query.
 
@@ -37,7 +37,7 @@ Each result has its input `index` and `data`. Check row status and partial-cover
 
 ## Internal, external, and hybrid tools
 
-Local tools read authorized files; GitHub and registry tools use their providers. `ghCloneRepo` materializes a repository for local analysis. `clasify` sends admitted evidence to the configured classification provider. Tool availability does not imply authentication or a running language server.
+Local research tools read authorized files; `graphBuild` also writes derived snapshots under the workspace; GitHub and registry tools use their providers. `ghCloneRepo` materializes a repository for local analysis. `clasify` sends admitted evidence to the configured classification provider. Tool availability does not imply authentication or a running language server.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -240,3 +240,14 @@ Clone a verified repository/ref, then use the returned path with localSearch, st
 ### Cache behavior
 
 Storage and cache ownership are documented in [configuration](CONFIGURATION.md#cache-storage-and-lifecycle). A cursor belongs to its issuing tool, access context and saved state. Expiry requires an explicit fresh request.
+
+### `graphBuild` and `graphQuery` (CLI)
+
+Build or reuse a syntax graph with `graphBuild`, then explore the exact scope with
+`graphQuery`. Both use `{queries:[...]}` and `--json` for machine output, and are
+absent from MCP `tools/list`. Query the build's exact path even when pinning its ID.
+Snapshots live under the current workspace's `.octocode/graph`. `keep` defaults
+to three per scope; increase it when retaining comparison baselines. Query
+continuations pin the snapshot, and every successful query reports freshness.
+Call traversal defaults to high confidence. Verify consequential findings with
+LSP and source reads. See [code graph architecture](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli).

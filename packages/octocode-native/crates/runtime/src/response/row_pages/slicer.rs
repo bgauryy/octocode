@@ -1,6 +1,4 @@
-use super::{
-    Fragment, FragmentArena, Planned, continues_chars, empty_secondary_lists, mark_continuations,
-};
+use super::{Fragment, FragmentArena, Planned, continues_chars, mark_continuations};
 use serde_json::Value;
 use std::ops::Range;
 
@@ -138,7 +136,7 @@ impl Slicer {
         let row_split = &arena.splits[self.split];
         let mut single = row_split.skeleton.clone();
         if at != self.first {
-            empty_secondary_lists(&mut single, &row_split.pointer);
+            arena.empty_secondary_lists(&mut single, &row_split.pointer);
         }
         if let Some(slot) = single.pointer_mut(&row_split.pointer) {
             *slot = Value::Array(vec![row_split.items[index].clone()]);

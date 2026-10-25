@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ROOT } from './paths.mjs';
-import { checks, startServer, writeResults } from './mcp-client.mjs';
+import { checks, startServer, writeResults, LIVE } from './mcp-client.mjs';
 import { rowData, sourceLines } from './responses.mjs';
 
+if (!LIVE) throw new Error('real LSP integration requires OCTOCODE_LIVE=1');
 const { check, summary } = checks('lsp-importers');
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-lsp-importers-')));
 let client;

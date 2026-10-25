@@ -1,5 +1,38 @@
 use super::*;
 
+#[tokio::test(start_paused = true)]
+async fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() {
+    let pool = pool(4, 60_000);
+    let first = pool
+        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .await
+        .expect("install")
+        .expect("client");
+    let (release, wait) = oneshot::channel();
+    *first.resume_gate.lock().await = Some(wait);
+    let next = pool.acquire("k".into(), || async {
+        panic!("a live client must not restart")
+    });
+    tokio::pin!(next);
+    std::future::poll_fn(|context| {
+        assert!(
+            next.as_mut().poll(context).is_pending(),
+            "acquire waits for readiness resumption"
+        );
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert_eq!(first.resumes.load(Ordering::SeqCst), 1);
+    release.send(()).expect("release readiness");
+    let second = next.await.expect("reuse").expect("client");
+    assert!(
+        first.same(&second),
+        "resumption preserves the exact pooled client"
+    );
+    assert_eq!(first.stops.load(Ordering::SeqCst), 0);
+    assert_eq!(first.resumes.load(Ordering::SeqCst), 1);
+}
+
 #[test]
 fn idle_servers_outlive_agent_think_time() {
     assert!(LspPoolOptions::default().idle_timeout_ms >= 300_000);

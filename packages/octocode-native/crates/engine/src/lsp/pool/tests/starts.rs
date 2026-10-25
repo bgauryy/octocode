@@ -1,5 +1,62 @@
 use super::*;
 
+#[tokio::test(start_paused = true)]
+async fn blocked_start_does_not_block_another_key_and_cancelled_waiter_keeps_owner() {
+    let pool = Arc::new(pool(4, 60_000));
+    let (entered, observed) = oneshot::channel();
+    let (release, wait) = oneshot::channel();
+    let owner = tokio::spawn({
+        let pool = Arc::clone(&pool);
+        async move {
+            pool.acquire("a".into(), || async {
+                entered.send(()).unwrap();
+                wait.await.unwrap();
+                Ok(Some(FakeClient::new(1)))
+            })
+            .await
+        }
+    });
+    observed.await.unwrap();
+    let trace = crate::lsp::diagnostics::Trace::default();
+    let waiter = tokio::spawn({
+        let pool = Arc::clone(&pool);
+        let trace = trace.clone();
+        async move {
+            trace
+                .run(pool.acquire("a".into(), || async {
+                    panic!("the existing start must be shared")
+                }))
+                .await
+        }
+    });
+    tokio::task::yield_now().await;
+    let independent = pool
+        .acquire("b".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(independent.id, 2);
+    assert!(!owner.is_finished());
+    tokio::time::advance(Duration::from_millis(10)).await;
+    waiter.abort();
+    assert!(waiter.await.unwrap_err().is_cancelled());
+    assert!(
+        trace
+            .summary()
+            .contains("acquire: 10ms, completed=0, failed=0, cancelled=1")
+    );
+    release.send(()).unwrap();
+    assert_eq!(owner.await.unwrap().unwrap().unwrap().id, 1);
+    let reused = pool
+        .acquire("a".into(), || async {
+            panic!("must reuse the surviving owner")
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reused.id, 1);
+}
+
 #[tokio::test]
 async fn concurrent_starts_are_deduplicated() {
     let pool = Arc::new(pool(4, 60_000));

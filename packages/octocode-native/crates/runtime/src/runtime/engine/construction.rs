@@ -166,6 +166,7 @@ impl ToolRuntime {
         let lsp_execution_config = Arc::new(crate::tools::lsp_search::LspExecutionConfig {
             config_path: config.resolved.lsp.config_path.clone(),
             trust_project_config: config.resolved.lsp.trust_project_config,
+            trace: config.resolved.lsp.trace,
             // A resolved setting the engine reads by name: `lsp.cacheDir` may
             // come from `.octocoderc`, not only the environment, and the
             // resolved value wins either way.

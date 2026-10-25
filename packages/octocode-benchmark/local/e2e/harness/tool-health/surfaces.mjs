@@ -13,6 +13,7 @@ import { statusClass } from './driver.mjs';
 import { addBulkPullRequest } from './mock-model.mjs';
 import { startMock } from './mock-server.mjs';
 import { startRegistryProxy } from './mock-registry-proxy.mjs';
+import { configureMockLsp, stopTestBrokers } from './mock-lsp-config.mjs';
 
 const DEAD_PROXY = 'http://127.0.0.1:9';
 const ISOLATED_ENV = /^(GITHUB_|GH_|OCTOCODE_|NPM_CONFIG_|npm_config_|GIT_)/;
@@ -38,9 +39,9 @@ function lspAvailable(fixture, env) {
   return null;
 }
 
-function hermeticEnv(home, mockUrl) {
+function hermeticEnv(home, mockUrl, live, tmp) {
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !ISOLATED_ENV.test(k) && !ISOLATED_NAMES.has(k)));
-  for (const [name, directory] of [['RUSTUP_HOME', '.rustup'], ['CARGO_HOME', '.cargo']]) {
+  for (const [name, directory] of live ? [['RUSTUP_HOME', '.rustup'], ['CARGO_HOME', '.cargo']] : []) {
     const installed = path.join(os.homedir(), directory);
     if (inherited[name] === undefined && fs.statSync(installed, { throwIfNoEntry: false })?.isDirectory()) inherited[name] = installed;
   }
@@ -48,12 +49,13 @@ function hermeticEnv(home, mockUrl) {
     ...inherited,
     PATH: [path.join(ROOT, 'node_modules', '.bin'), inherited.PATH].filter(Boolean).join(path.delimiter),
     HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), GH_CONFIG_DIR: path.join(home, '.gh'),
+    TMPDIR: tmp, TMP: tmp, TEMP: tmp,
     GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0',
     // Network defaults reject non-loopback traffic; startSurfaces replaces only
     // HTTPS with the allowlisted local registry proxy.
     NO_PROXY: '127.0.0.1,localhost,::1', no_proxy: '127.0.0.1,localhost,::1',
     HTTPS_PROXY: DEAD_PROXY, https_proxy: DEAD_PROXY, HTTP_PROXY: DEAD_PROXY, http_proxy: DEAD_PROXY, ALL_PROXY: DEAD_PROXY, all_proxy: DEAD_PROXY,
-    OCTOCODE_HOME: path.join(home, '.octocode'), OCTOCODE_BETA: 'true', OCTOCODE_LSP_AUTO_INSTALL: 'off',
+    OCTOCODE_HOME: path.join(home, '.octocode'), OCTOCODE_BETA: 'true', OCTOCODE_LSP_AUTO_INSTALL: 'off', OCTOCODE_LSP_PREWARM: 'off',
     GITHUB_API_URL: `${mockUrl}/api/v3`, OCTOCODE_ALLOW_PRIVATE_REGISTRY: 'true',
     OCTOCODE_CLASSIFICATION_API_HOST: mockUrl,
   };
@@ -84,7 +86,9 @@ async function mcpCall(server, tool, input) {
  * tool's own credential; `needs[kind]()` says why a capability is missing (or null).
  */
 export async function startSurfaces(fixture) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-tool-health-'));
+  const live = process.env.OCTOCODE_LIVE === '1';
+  // macOS Unix sockets have a short path limit; isolate broker sockets as well as HOME.
+  const tmp = fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'octocode-tool-health-'));
   const home = path.join(tmp, 'home');
   fs.mkdirSync(home, { recursive: true });
   const allTokens = contract.tools.flatMap(t => ['cli', 'mcp'].map(s => tokenFor(t.name, s)));
@@ -92,7 +96,7 @@ export async function startSurfaces(fixture) {
   let registry;
   try { registry = await startRegistryProxy(tmp); }
   catch (error) { await mock.close(); fs.rmSync(tmp, { recursive: true, force: true }); throw error; }
-  const env = { ...hermeticEnv(home, mock.url), HTTPS_PROXY: registry.proxyUrl, https_proxy: registry.proxyUrl, SSL_CERT_FILE: registry.caFile, SSL_CERT_DIR: '' };
+  const env = { ...hermeticEnv(home, mock.url, live, tmp), ...(!live && configureMockLsp(home)), HTTPS_PROXY: registry.proxyUrl, https_proxy: registry.proxyUrl, SSL_CERT_FILE: registry.caFile, SSL_CERT_DIR: '' };
   const envFor = (tool, surface) => ({ ...env, GITHUB_TOKEN: tokenFor(tool, surface), OCTOCODE_CLASSIFICATION_API: tokenFor(tool, surface) });
   const scenario = new AsyncLocalStorage();
   let scenarioIndex = 0;
@@ -116,9 +120,16 @@ export async function startSurfaces(fixture) {
       finally { server?.close(); }
     },
     needs: {
-      lsp: () => lspAvailable(fixture, env),
+      lsp: () => live ? lspAvailable(fixture, env) : null,
       clone: () => (mock.git ? null : `git smart-HTTP mock unavailable: ${mock.gitUnavailable}`),
     },
-    close: async () => { await registry.close(); await mock.close(); fs.rmSync(tmp, { recursive: true, force: true }); },
+    close: async () => {
+      await registry.close(); await mock.close(); await stopTestBrokers(tmp);
+      try { fs.rmSync(tmp, { recursive: true, force: true }); }
+      catch (error) {
+        if (error.code !== 'ENOTEMPTY') throw error;
+        process.emitWarning(`Tool-health retained ${tmp}: an owned broker was still finishing its writes.`);
+      }
+    },
   };
 }

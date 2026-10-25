@@ -37,6 +37,9 @@ export function hermeticEnv(
   }
   env['OCTOCODE_HOME'] = home;
   env['GH_CONFIG_DIR'] = join(home, 'gh');
+  env['OCTOCODE_LSP_PREWARM'] = 'off';
+  env['OCTOCODE_LSP_AUTO_INSTALL'] = 'off';
+  env['OCTOCODE_TRUST_PROJECT_LSP_CONFIG'] = 'false';
   for (const name of PROXY_ENV) env[name] = env[name.toLowerCase()] = DEAD_PROXY;
   env['NO_PROXY'] = env['no_proxy'] = LOOPBACK_NO_PROXY;
   return env;

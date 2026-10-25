@@ -17,11 +17,11 @@ function makeFakeBin(body: string): string {
 }
 
 describe('resolveNativeBin', () => {
-  it('resolves the platform binary directly (no launcher shim) or says why not', () => {
+  it('resolves the platform binary directly (no launcher shim) or says why not', async () => {
     // Environment-agnostic: with no OCTOCODE_NATIVE_BIN the result is either the
     // compiled platform binary (monorepo/installed) or the resolver's own
     // error text — never a throw, never a `.cjs` launcher.
-    const resolved = resolveNativeBin({});
+    const resolved = await resolveNativeBin({});
     if ('error' in resolved) {
       expect(resolved.error.length).toBeGreaterThan(0);
     } else {
@@ -30,8 +30,8 @@ describe('resolveNativeBin', () => {
     }
   });
 
-  it('names the missing path when OCTOCODE_NATIVE_BIN points nowhere', () => {
-    const resolved = resolveNativeBin({
+  it('names the missing path when OCTOCODE_NATIVE_BIN points nowhere', async () => {
+    const resolved = await resolveNativeBin({
       OCTOCODE_NATIVE_BIN: '/no/such/octocode',
     });
     expect(resolved).toEqual({
@@ -42,11 +42,11 @@ describe('resolveNativeBin', () => {
     );
   });
 
-  it('keeps the resolver error, with its install fix, instead of a generic line', () => {
+  it('keeps the resolver error, with its install fix, instead of a generic line', async () => {
     const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { value: 'plan9' });
     try {
-      const resolved = resolveNativeBin({});
+      const resolved = await resolveNativeBin({});
       expect(resolved).toEqual({
         error: expect.stringContaining("unsupported platform 'plan9-"),
       });
@@ -55,22 +55,25 @@ describe('resolveNativeBin', () => {
     }
   });
 
-  it('returns the explicit path when it exists', () => {
+  it('returns the explicit path when it exists', async () => {
     const bin = makeFakeBin('process.exit(0)');
-    expect(resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin })).toEqual({ bin });
+    await expect(
+      resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin })
+    ).resolves.toEqual({ bin });
   });
 
-  it('ignores OCTOCODE_NATIVE_BIN in production', () => {
+  it('ignores OCTOCODE_NATIVE_BIN in production', async () => {
     const bin = makeFakeBin('process.exit(0)');
-    expect(
+    const fallback = await resolveNativeBin({});
+    await expect(
       resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin, NODE_ENV: 'production' })
-    ).toEqual(resolveNativeBin({}));
-    expect(
+    ).resolves.toEqual(fallback);
+    await expect(
       resolveNativeBin({
         OCTOCODE_NATIVE_BIN: '/no/such/octocode',
         NODE_ENV: 'production',
       })
-    ).toEqual(resolveNativeBin({}));
+    ).resolves.toEqual(fallback);
   });
 });
 

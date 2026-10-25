@@ -825,10 +825,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 21.0.1
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=bc9c0b&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=c210d3&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/496761c66a57e5a31e132c5d9e655105569e5765a4be0e0ea8dc4946503ed5d8c33201e9fbb4cd11b8feba2622a0bc02ca54f404686f3aa51ccf5967e69d1361
+  checksum: 10c0/280fd27c991f583128135d3ae2ba23743343a228f56f8f3385f39a28563ca00af3cd0db4a89321e7e7e4187f8cf1bda1fd9e2b5a5cb1865a762c53b8ab14d305
   languageName: node
   linkType: hard
 
@@ -847,6 +847,12 @@ __metadata:
 "@octocodeai/octocode-native-linux-arm64-gnu@workspace:*, @octocodeai/octocode-native-linux-arm64-gnu@workspace:packages/octocode-native/npm/linux-arm64-gnu":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-native-linux-arm64-gnu@workspace:packages/octocode-native/npm/linux-arm64-gnu"
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/octocode-native-linux-arm64-musl@workspace:*, @octocodeai/octocode-native-linux-arm64-musl@workspace:packages/octocode-native/npm/linux-arm64-musl":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-native-linux-arm64-musl@workspace:packages/octocode-native/npm/linux-arm64-musl"
   languageName: unknown
   linkType: soft
 
@@ -878,33 +884,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-native@workspace:packages/octocode-native"
   dependencies:
-    "@octocodeai/octocode-native-darwin-arm64": "npm:20.2.0"
-    "@octocodeai/octocode-native-darwin-x64": "npm:20.2.0"
-    "@octocodeai/octocode-native-linux-arm64-gnu": "npm:20.2.0"
-    "@octocodeai/octocode-native-linux-x64-gnu": "npm:20.2.0"
-    "@octocodeai/octocode-native-linux-x64-musl": "npm:20.2.0"
-    "@octocodeai/octocode-native-win32-arm64-msvc": "npm:20.2.0"
-    "@octocodeai/octocode-native-win32-x64-msvc": "npm:20.2.0"
     "@types/node": "npm:^24.19.2"
     vite: "npm:^8.3.4"
     vitest: "npm:^5.0.4"
-  dependenciesMeta:
-    "@octocodeai/octocode-native-darwin-arm64":
-      optional: true
-    "@octocodeai/octocode-native-darwin-x64":
-      optional: true
-    "@octocodeai/octocode-native-linux-arm64-gnu":
-      optional: true
-    "@octocodeai/octocode-native-linux-x64-gnu":
-      optional: true
-    "@octocodeai/octocode-native-linux-x64-musl":
-      optional: true
-    "@octocodeai/octocode-native-win32-arm64-msvc":
-      optional: true
-    "@octocodeai/octocode-native-win32-x64-msvc":
-      optional: true
-  bin:
-    octocode-native: ./bin/octocode.cjs
   languageName: unknown
   linkType: soft
 
@@ -2628,6 +2610,7 @@ __metadata:
     "@octocodeai/octocode-native-darwin-arm64": "npm:20.2.0"
     "@octocodeai/octocode-native-darwin-x64": "npm:20.2.0"
     "@octocodeai/octocode-native-linux-arm64-gnu": "npm:20.2.0"
+    "@octocodeai/octocode-native-linux-arm64-musl": "npm:20.2.0"
     "@octocodeai/octocode-native-linux-x64-gnu": "npm:20.2.0"
     "@octocodeai/octocode-native-linux-x64-musl": "npm:20.2.0"
     "@octocodeai/octocode-native-win32-arm64-msvc": "npm:20.2.0"
@@ -2648,6 +2631,8 @@ __metadata:
     "@octocodeai/octocode-native-darwin-x64":
       optional: true
     "@octocodeai/octocode-native-linux-arm64-gnu":
+      optional: true
+    "@octocodeai/octocode-native-linux-arm64-musl":
       optional: true
     "@octocodeai/octocode-native-linux-x64-gnu":
       optional: true
@@ -2681,6 +2666,7 @@ __metadata:
     "@octocodeai/octocode-native-darwin-arm64": "npm:20.2.0"
     "@octocodeai/octocode-native-darwin-x64": "npm:20.2.0"
     "@octocodeai/octocode-native-linux-arm64-gnu": "npm:20.2.0"
+    "@octocodeai/octocode-native-linux-arm64-musl": "npm:20.2.0"
     "@octocodeai/octocode-native-linux-x64-gnu": "npm:20.2.0"
     "@octocodeai/octocode-native-linux-x64-musl": "npm:20.2.0"
     "@octocodeai/octocode-native-win32-arm64-msvc": "npm:20.2.0"
@@ -2698,6 +2684,8 @@ __metadata:
     "@octocodeai/octocode-native-darwin-x64":
       optional: true
     "@octocodeai/octocode-native-linux-arm64-gnu":
+      optional: true
+    "@octocodeai/octocode-native-linux-arm64-musl":
       optional: true
     "@octocodeai/octocode-native-linux-x64-gnu":
       optional: true

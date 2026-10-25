@@ -23,6 +23,79 @@ The graph is syntax evidence: `astSearch` and `graph` start no language server. 
 
 `ast_graph/algorithms.rs` holds the one cycle engine (`Cycles`): the dependency view of a file graph (data and module-tree edges removed), its strongly connected groups, and the groups its eager-load (runtime) edges close. `graph query cycles`, the `cycle` detector, `drift` and the health summary read it. The engine crate supplies the primitives (`engine/src/graph/algorithms.rs`): strongly connected components (iterative Tarjan) and the condensation.
 
+## Agent graph tools (CLI)
+
+`graphBuild` and `graphQuery` expose the same Rust store through the standard
+`{queries:[...]}` envelope. Use `--json` for machine callers, including errors:
+
+```sh
+octocode --json graphBuild '{"queries":[{"path":".","keep":10}]}'
+octocode --json graphQuery '{"queries":[{"operation":"stats","path":"."}]}'
+octocode schema graphQuery --view query
+```
+
+These two tools are **CLI-only** and are absent from MCP `tools/list`. Core owns
+their generated input/output schemas, parser IDs and descriptions; the Rust
+runtime owns execution. Octocode Code registers native tools with these names,
+reads the CLI schemas and invokes the installed binary with JSON on stdin. Its
+`request` wrapper and `reason` field belong to the host, not the Rust CLI input.
+
+`graphBuild` accepts one query per call; `graphQuery` accepts up to five.
+Inspect `octocode schema graphBuild --view query` or the query schema above for
+the contract embedded in the installed binary. Query alternatives reject
+missing required inputs and options that do not apply to the chosen operation.
+
+A build writes only under the current workspace's `.octocode/graph`, refusing
+scopes or storage symlinks that escape it. Unchanged inputs and options reuse a
+snapshot. An OS lock serializes build publication, `latest` and retention across
+processes; cancellation releases the lock. `keep` defaults to three snapshots per
+scope, with a maximum of 100 for retained baselines. Builds redact stored text and
+return location, digest, counts, coverage, diagnostics and elapsed milliseconds.
+
+Queries select the newest snapshot of exactly `path`, or an exact `graph` ID of
+that scope. **Use the build's path even when supplying its ID**; omitting path
+means the workspace root. The build's `related` stats call includes both fields.
+Every successful query reports freshness, including added files and
+linking inputs. A truncated scan cannot be reported fresh. Paging cursors pin the
+snapshot ID; a pruned snapshot fails explicitly instead of switching to `latest`.
+`next.*` continues evidence; `related` starts another question. Traversal defaults
+to high-confidence calls. Graph absence is not proof of unused code: verify symbol
+identity and consequential callers with `lspSearch` and source reads. The `issues`
+heuristics remain on the legacy graph CLI; the public query tool exposes the other
+16 operations. No language server or LLM is required for snapshot creation.
+
+### Choosing a query
+
+| Operation | Inputs beyond scope | Result and defaults |
+|---|---|---|
+| `stats` | None | Counts, coverage, languages and diagnostic totals |
+| `find` | Required `target`; optional `kind` | Name/path search returning exact node IDs |
+| `node`, `symbols` | Required `target`; optional `kind` | One node or its nested symbols |
+| `deps`, `dependents` | Required `target`; optional edge filters, `direction`, `depth`, `kind` | Outgoing/incoming imports for files/packages, calls for symbols; one hop |
+| `callers`, `callees` | Required `target`; same traversal options | Incoming/outgoing calls; one hop; file targets include their symbols |
+| `walk` | Required `target`; same traversal options | All edge kinds, outgoing, two hops |
+| `path` | Required `target` and `to`; optional edge filters, `direction`, `kind` | Shortest path; calls between two symbols, otherwise imports; no depth option |
+| `cycles` | Optional edge filters | Production cycles; imports by default |
+| `hubs` | Optional edge filters, `kind`, `direction: in/out` | Production nodes ranked by incoming edge count by default |
+| `diagnostics` | Optional `target` code or file prefix | Matching scan/link diagnostics |
+| `stale` | None | Source and linking-input changes since the snapshot |
+| `impact` | At least one of `target`, `changed`, `since`; optional `kind`, `depth` | Combined change seeds, three hops by default |
+| `drift` | Required `baseline` snapshot ID | Structural changes from baseline to selected snapshot; use matching scopes |
+
+Edge filters are `edges` and `confidence`; confidence defaults to `high` and
+affects only call edges. `cycles` and `hubs` exclude test edges. List operations
+accept `limit` (default 50, maximum 1,000); `stats`, `node` and `path` do not.
+Depth is bounded to 1–20 where supported. `impact` uses its own impact analysis
+and does not accept edge or direction overrides.
+
+For a continuation, pass its entire `input` back to the named tool; do not add
+query fields to a cursor request. For a new investigation, reuse a suitable
+snapshot and check freshness before rebuilding. Choose a scope that contains
+both ends of the relationships being investigated. Use `localSearch` or
+`astSearch` for one-off lookups; a snapshot pays off across repeated questions.
+Future parsers belong to the Rust [grammar registry](SUPPORTED_LANGUAGES_AND_FEATURES.md#language-matrix)
+and core parser contract, so Octocode Code needs no grammar-specific change.
+
 ## Persisted graphs (CLI)
 
 `npx octocode graph ingest <path>` runs the `build_graph` linker. It projects the result into file, symbol, and package nodes with

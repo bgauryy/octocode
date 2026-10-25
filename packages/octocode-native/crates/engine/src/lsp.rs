@@ -2,6 +2,7 @@ mod bundled_tsgo;
 pub mod client;
 mod commands;
 pub mod config;
+pub mod diagnostics;
 pub mod family;
 pub(crate) mod grammar;
 pub mod managed;

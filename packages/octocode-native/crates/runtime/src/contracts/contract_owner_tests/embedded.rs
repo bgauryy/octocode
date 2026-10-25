@@ -71,9 +71,9 @@ fn embedded_contract_is_compact_json() {
     // compactly (the source is pretty-printed at 3.4x the size).
     let text = contract_json();
     assert!(!text.contains('\n'), "embedded contract is pretty-printed");
-    // Canonical Zod constraints and per-candidate failure receipts: 2,572,176 bytes.
+    // Includes strict graph operation alternatives in executable follow-up schemas.
     assert!(
-        text.len() < 2_573_000,
+        text.len() < 2_850_000,
         "embedded contract is {} bytes",
         text.len()
     );

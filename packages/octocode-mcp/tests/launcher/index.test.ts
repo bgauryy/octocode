@@ -38,7 +38,7 @@ describe('launcher', () => {
 
   it('starts the native binary as `octocode mcp` and exits with its code', async () => {
     process.argv = ['node', 'octocode-mcp', '--flag'];
-    resolveNativeBin.mockReturnValue({ bin: '/native/octocode' });
+    resolveNativeBin.mockResolvedValue({ bin: '/native/octocode' });
     delegateToNative.mockResolvedValue(3);
 
     await launch();
@@ -52,7 +52,7 @@ describe('launcher', () => {
   });
 
   it('reports an unresolvable binary as a startup failure', async () => {
-    resolveNativeBin.mockReturnValue({ error: 'no binary for plan9' });
+    resolveNativeBin.mockResolvedValue({ error: 'no binary for plan9' });
 
     await launch();
 
@@ -63,7 +63,7 @@ describe('launcher', () => {
   });
 
   it('reports a binary that cannot start as a startup failure', async () => {
-    resolveNativeBin.mockReturnValue({ bin: '/native/octocode' });
+    resolveNativeBin.mockResolvedValue({ bin: '/native/octocode' });
     delegateToNative.mockRejectedValue(new Error('spawn EACCES'));
 
     await launch();

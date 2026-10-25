@@ -7,6 +7,7 @@ import { decodeBody, isBinaryType, pageFetcher, readCapped, type PageFetcher } f
 import { asText } from './helpers.js';
 import { collapseLinkRuns, describeHtml, htmlToText, mainContent } from '../src/web/html.js';
 import { parseDuckDuckGo } from '../src/web/search.js';
+import { adversarialPages } from '../scripts/bench-web-scan-fixtures.js';
 
 const servers: http.Server[] = [];
 /** Each case reads through its own fetcher, so no case sees a page another one cached. */
@@ -236,24 +237,11 @@ describe('web', () => {
     );
   });
 
-  it.each([
-    ['unclosed links', '<a href="x">t'.repeat(80_000)],
-    ['an unclosed nav', `<nav>${'word '.repeat(200_000)}`],
-    ['unclosed navs', '<nav>w'.repeat(170_000)],
-    ['lone <', '<'.repeat(1_000_000)],
-    ['one tag of opening links', `${'<a '.repeat(330_000)}>`],
-    ['unclosed hidden elements', '<div hidden>'.repeat(85_000)],
-    ['unclosed headings, list items and scripts', '<h1<li<script'.repeat(75_000)],
-    ['unclosed quotes', '<a x="'.repeat(170_000)],
-    ['unclosed comments and empty links', '<!--[]('.repeat(140_000)],
-    ['tags searched for role=main', '<a'.repeat(500_000)],
-  ])('reads a 1 MB page of %s in linear time', (_, html) => {
-    const started = process.cpuUsage();
-    describeHtml(html, 'https://example.com/');
-    // About 100 ms alone; a pattern that rescans to the end per unclosed tag takes minutes. CPU time, not wall-clock
-    // time: the work is synchronous, and a loaded machine stretches the wall clock but not the CPU it needs.
-    const used = process.cpuUsage(started);
-    expect((used.user + used.system) / 1000).toBeLessThan(2_000);
+  it.each(adversarialPages())('reads a large page of %s without measuring CPU time', (_, html) => {
+    vi.spyOn(process, 'cpuUsage').mockImplementation(() => { throw new Error('correctness checks must not measure CPU time'); });
+    const described = describeHtml(html, 'https://example.com/');
+    expect(described).toContain('Source: https://example.com/ · static HTML');
+    expect(described.length).toBeLessThanOrEqual(html.length + 2000);
   });
 
   it('recognises binary content types', () => {

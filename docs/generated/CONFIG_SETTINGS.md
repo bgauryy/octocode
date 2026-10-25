@@ -32,6 +32,7 @@ This reference is generated from [`packages/octocode-config/config-contract.json
     "autoInstall": "prompt",
     "cacheDir": null,
     "trustProjectConfig": false,
+    "trace": false,
     "prewarm": "targeted"
   },
   "output": {
@@ -68,6 +69,7 @@ Environment values take precedence over `.octocoderc`. Each setting has at most 
 | `lsp.autoInstall` | `OCTOCODE_LSP_AUTO_INSTALL` | `"prompt"` | `prompt` or `off` or `auto` | Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. OCTOCODE_LSP_AUTO_INSTALL: shell or trusted home .env |
 | `lsp.cacheDir` | `OCTOCODE_LSP_CACHE_DIR` | unset | path | Directory for managed language-server installs; default <octocode home>/lsp. OCTOCODE_LSP_CACHE_DIR: shell or trusted home .env |
 | `lsp.trustProjectConfig` | `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | `false` | boolean | Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries. OCTOCODE_TRUST_PROJECT_LSP_CONFIG: shell or trusted home .env |
+| `lsp.trace` | `OCTOCODE_LSP_TRACE` | `false` | boolean | Emit per-call LSP phase timings and completion counts on stderr, outside tool results. Includes no source text, paths, or credentials. |
 | `lsp.prewarm` | `OCTOCODE_LSP_PREWARM` | `"targeted"` | `targeted` or `all` or `off` | Language-server prewarm: targeted starts the server an offered lspSearch call names; all also warms the file a read or search names; off disables it. |
 | `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | `false` | boolean | Mask email addresses such as GitHub commit authors. OCTOCODE_REDACT_EMAILS: shell or trusted home .env |
 | `storage.mode` | `OCTOCODE_STORAGE_MODE` | `"persistent"` | `persistent` or `memory` | Whether caches and runtime state may persist on disk. OCTOCODE_STORAGE_MODE: shell or trusted home .env |

@@ -45,7 +45,7 @@ pub(super) use unix::{call, run, stop_all};
 /// that writes the clone cache or the user's files runs in process.
 pub(super) const fn runs_on_server(tool: ToolId) -> bool {
     match tool {
-        ToolId::GhCloneRepo => false,
+        ToolId::GhCloneRepo | ToolId::GraphBuild | ToolId::GraphQuery => false,
         ToolId::Clasify
         | ToolId::GhSearchRepo
         | ToolId::GhSearchCode

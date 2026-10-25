@@ -26,10 +26,11 @@ Inspect schema availability, auth status and `lsp-server status <file>` as neede
 
 Follow [configuration](configuration.md) for credentials/settings. Inline `classification:{predicates:[...],context?,longContext?}` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. Public clasify also requires a successful provider ping; beta is not required. No setting change is implied by a missing capability.
 
-## 14 public tools
+## 16 public tools
 
-The default catalog contains 12 tools over MCP and 13 in the CLI; the full inventory includes clasify when its provider is configured and its ping succeeds. Discovery is authoritative for the configured environment.
+The default catalog contains 12 tools over MCP and 15 in the CLI; the full inventory includes clasify when its provider is configured and its ping succeeds. Discovery is authoritative for the configured environment.
 
+- Graph (CLI): graphBuild creates or reuses workspace snapshots; graphQuery explores them with freshness and pinned continuations. Verify graph candidates with LSP and source reads.
 - GitHub: ghSearchRepo, ghSearchCode, ghStructure, ghGetFileContent, ghSearchHistory, ghGetHistoryItem, ghCloneRepo.
 - Local: localSearch, structureSearch, astSearch, localFetch, lspSearch.
 - Other: artifactSearch, clasify.

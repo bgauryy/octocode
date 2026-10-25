@@ -48,7 +48,7 @@ fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
         assert!(text.starts_with(shared), "{off:?}: {text}");
         assert!(
             text.ends_with(
-                "<cli>CLI only: ghCloneRepo. Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
+                "<cli>CLI only: ghCloneRepo, graphBuild, graphQuery. Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
             ),
             "{text}"
         );

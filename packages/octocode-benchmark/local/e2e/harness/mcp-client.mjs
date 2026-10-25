@@ -6,8 +6,14 @@ import path from 'node:path';
 import { CLI, RESULTS, ROOT } from './paths.mjs';
 import { collect } from './responses.mjs';
 
-/** OCTOCODE_LIVE=1 enables suites and sections that reach GitHub, package registries or the paid classifier. */
+/** OCTOCODE_LIVE=1 opts into real-provider and OS process-tree integration suites. */
 export const LIVE = process.env.OCTOCODE_LIVE === '1';
+
+/** Preserve complete envelopes; otherwise wrap one query or an array. */
+function toolInput(queries, extra) {
+  if (queries && !Array.isArray(queries) && typeof queries === 'object' && (Array.isArray(queries.queries) || typeof queries.cursor === 'string')) return { ...queries, ...extra };
+  return { queries: Array.isArray(queries) ? queries : [queries], ...extra };
+}
 
 /** Start the MCP server at `entry`; `env` is merged over process.env, or with `replaceEnv` is the whole environment. */
 export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, entry = path.join(ROOT, 'packages/octocode-mcp/dist/index.js'), timeoutMs = Number(process.env.OCTOCODE_TEST_CALL_TIMEOUT_MS ?? 240_000) } = {}) {
@@ -47,7 +53,15 @@ export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, en
   const rpc = (method, params, timeout = timeoutMs) => new Promise((resolve, reject) => {
     if (closed) { reject(new Error('MCP server unavailable')); return; }
     const n = ++id;
-    const timer = setTimeout(() => { pending.delete(n); process.exitCode = 1; reject(new Error(`timeout ${method} after ${timeout}ms`)); }, timeout);
+    const timer = setTimeout(() => {
+      if (method !== 'initialize') {
+        server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: n, reason: 'test request deadline exceeded' } }) + '\n');
+      }
+      process.exitCode = 1;
+      fail(new Error(`timeout ${method} after ${timeout}ms`));
+      clearTimeout(deadline);
+      forceTerminate();
+    }, timeout);
     pending.set(n, { resolve: message => { clearTimeout(timer); pending.delete(n); resolve(message); }, reject: error => { clearTimeout(timer); pending.delete(n); reject(error); } });
     server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: n, method, params }) + '\n');
   });
@@ -61,18 +75,6 @@ export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, en
   tools = listing.result.tools;
   } catch (error) { clearTimeout(deadline); terminate(); throw error; }
   const log = [];
-
-  /**
-   * Call a tool with one query (or an array) plus optional top-level args. No fields are invented.
-   * A complete `{queries:[...], responseChars, ...}` envelope runs as given: wrapping it again would nest one
-   * envelope in a row, which the runtime rejects.
-   */
-  async function call(tool, queries, extra = {}, label = '') {
-    if (queries && !Array.isArray(queries) && typeof queries === 'object' && (Array.isArray(queries.queries) || typeof queries.cursor === 'string')) {
-      return raw(tool, { ...queries, ...extra }, label);
-    }
-    return raw(tool, { queries: Array.isArray(queries) ? queries : [queries], ...extra }, label);
-  }
 
   /**
    * Call with arguments exactly as given (e.g. a typed continuation or related input).
@@ -103,7 +105,7 @@ export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, en
   }
 
   return {
-    server, init: init.result, tools, log, call, raw, follow, rpc,
+    server, init: init.result, tools, log, call: (tool, queries, extra = {}, label = '') => raw(tool, toolInput(queries, extra), label), raw, follow, rpc,
     stderr: () => stderr,
     close: () => { closed = true; clearTimeout(deadline); fail(new Error('MCP client closed')); terminate(); const timer = setTimeout(() => { try { process.kill(-server.pid, 'SIGKILL'); } catch {} }, 3000); timer.unref(); },
   };

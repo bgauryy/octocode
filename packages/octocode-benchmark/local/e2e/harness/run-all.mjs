@@ -8,8 +8,8 @@
 // with a fresh empty OCTOCODE_HOME and GH_CONFIG_DIR, no GitHub or classifier
 // credentials, and HTTP(S) routed to a dead proxy (loopback stays reachable),
 // so a hidden network or home dependency fails instead of passing by luck.
-// LIVE suites call GitHub and package registries with the caller's credentials;
-// they run only with OCTOCODE_LIVE=1.
+// LIVE suites exercise real providers or OS process trees; remote suites use
+// the caller's credentials. They run only with OCTOCODE_LIVE=1.
 // Performance and historical benchmark programs run separately.
 //
 // Each suite prints one `PASS <suite>` or `FAIL <suite>` line; the exit code
@@ -28,11 +28,10 @@ const HERMETIC = {
   acceptance: ['--test', '--test-reporter=spec', path.join(TESTING, 'harness', '*.test.mjs'), path.join(TESTING, 'harness', 'tool-health', '*.test.mjs')],
   transport: script('transport'),
   grammar: script('grammar'),
-  'lsp-importers': script('lsp-importers'),
   'classification-retry': script('classification-retry'),
   'tool-health': script('tool-health'),
 };
-const LIVE_SUITES = { remote: script('remote') };
+const LIVE_SUITES = { remote: script('remote'), 'lsp-importers': script('lsp-importers'), 'process-tree': ['--test', path.join(TESTING, 'harness', 'mcp-client.integration.mjs')] };
 const ALL = { ...HERMETIC, ...LIVE_SUITES };
 
 const named = process.argv[2]?.split(',');

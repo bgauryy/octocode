@@ -31,7 +31,6 @@ import {
 } from './dev-resolution-contract.mjs';
 
 const PKG_PATH = join(ROOT, 'package.json');
-const NATIVE_PKG_PATH = join(ROOT, 'packages/octocode-native/package.json');
 const argv = process.argv.slice(2);
 const flags = {
   dryRun: argv.includes('--dry-run') || argv.includes('-n'),
@@ -53,11 +52,9 @@ for (const arg of argv) {
   }
 }
 
-const nativePkg = JSON.parse(readFileSync(NATIVE_PKG_PATH, 'utf8'));
-
 /** Packages that should resolve to this workspace during development. */
 const WORKSPACE_RESOLUTIONS = Object.fromEntries(
-  workspaceResolutionPackages(nativePkg).map(name => [name, 'workspace:*'])
+  workspaceResolutionPackages().map(name => [name, 'workspace:*'])
 );
 const coreResolution = localCoreResolution(ROOT);
 const agentTestingResolution = localAgentTestingResolution(ROOT);
@@ -74,7 +71,7 @@ pkg.resolutions ??= {};
 
 if (flags.reset) {
   const removed = [];
-  for (const name of managedResolutionPackages(nativePkg)) {
+  for (const name of managedResolutionPackages()) {
     if (!isLocalResolution(pkg.resolutions[name])) continue;
     delete pkg.resolutions[name];
     removed.push(name);

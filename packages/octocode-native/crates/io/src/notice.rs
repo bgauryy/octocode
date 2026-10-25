@@ -84,7 +84,7 @@ impl Scope {
     /// The scope the running code is in: the one its future runs in
     /// ([`Self::run`]), else its thread's ([`Self::enter`]).
     #[must_use]
-    fn current() -> Option<Self> {
+    pub fn current() -> Option<Self> {
         THREAD.with(|thread| thread.borrow().clone())
     }
 
@@ -151,9 +151,40 @@ pub fn raise(kind: &'static str, text: impl Into<String>) {
     }
 }
 
+/// Emit a repeatable diagnostic to its captured scope, outside result data. A scoped caller's
+/// warm-server reply relays it just like a notice, without deduplication.
+/// Unscoped diagnostics go only to stderr, never to unrelated live calls.
+pub fn emit(text: impl Into<String>, scope: Option<&Scope>) {
+    let text = text.into();
+    let text = match SCRUBBER.get() {
+        Some(scrub) => scrub(&text),
+        None => text,
+    };
+    if let Some(scope) = scope {
+        lock(&scope.0).push(("", text.clone()));
+    }
+    eprintln!("{text}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Scope, carried, raise};
+
+    #[tokio::test]
+    async fn repeated_diagnostics_are_scoped_and_unscoped_ones_are_not_broadcast() {
+        let a = Scope::default();
+        let b = Scope::default();
+        a.run(async {
+            super::emit("trace-repeat", Scope::current().as_ref());
+            super::emit("trace-repeat", Scope::current().as_ref());
+        })
+        .await;
+        b.run(async { super::emit("trace-unscoped", None) }).await;
+        assert_eq!(of(&a, "trace-repeat"), ["trace-repeat", "trace-repeat"]);
+        assert!(of(&a, "trace-unscoped").is_empty());
+        assert!(of(&b, "trace-repeat").is_empty());
+        assert!(of(&b, "trace-unscoped").is_empty());
+    }
 
     fn of(scope: &Scope, kind: &str) -> Vec<String> {
         scope

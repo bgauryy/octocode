@@ -29,6 +29,7 @@ export interface RequiredLspConfig {
   autoInstall: "prompt" | "off" | "auto";
   cacheDir: string | undefined;
   trustProjectConfig: boolean;
+  trace: boolean;
   prewarm: "targeted" | "all" | "off";
 }
 
@@ -289,6 +290,20 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": false
   },
   {
+    "path": "lsp.trace",
+    "section": "lsp",
+    "key": "trace",
+    "type": "boolean",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Emit per-call LSP phase timings and completion counts on stderr, outside tool results. Includes no source text, paths, or credentials.",
+    "env": {
+      "name": "OCTOCODE_LSP_TRACE"
+    },
+    "defaultValue": false
+  },
+  {
     "path": "lsp.prewarm",
     "section": "lsp",
     "key": "prewarm",
@@ -419,4 +434,4 @@ export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD"
 export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_LSP_CACHE_DIR","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_REDACT_EMAILS","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */
 export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_STORAGE_MODE":"memory"};
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com", "graphqlEnabled": true }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined }, "tools": { "enabled": null, "disabled": null }, "network": { "allowPrivateRegistry": false }, "lsp": { "configPath": undefined, "autoInstall": "prompt", "cacheDir": undefined, "trustProjectConfig": false, "prewarm": "targeted" }, "output": { "redactEmails": false }, "storage": { "mode": "persistent", "stats": false }, "classification": { "model": undefined } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com", "graphqlEnabled": true }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined }, "tools": { "enabled": null, "disabled": null }, "network": { "allowPrivateRegistry": false }, "lsp": { "configPath": undefined, "autoInstall": "prompt", "cacheDir": undefined, "trustProjectConfig": false, "trace": false, "prewarm": "targeted" }, "output": { "redactEmails": false }, "storage": { "mode": "persistent", "stats": false }, "classification": { "model": undefined } };

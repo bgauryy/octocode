@@ -13,23 +13,27 @@ impl NativeLspClient {
     /// one that never reported progress or is still busy. The returned string
     /// is one of `"progressIdle"`, `"settledWithoutProgress"`, or `"timeout"`.
     pub(crate) async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
-        let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
-        let readiness = self
-            .inner
-            .progress
-            .wait_until_idle(timeout_ms, self.settle_ms(STARTUP_SETTLE_MS))
+        crate::lsp::diagnostics::Phase::Readiness
+            .measure(async {
+                let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
+                let readiness = self
+                    .inner
+                    .progress
+                    .wait_until_idle(timeout_ms, self.settle_ms(STARTUP_SETTLE_MS))
+                    .await
+                    .as_str()
+                    .to_owned();
+                {
+                    let mut slot = self
+                        .inner
+                        .readiness
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    *slot = Some(readiness.clone());
+                }
+                Ok(readiness)
+            })
             .await
-            .as_str()
-            .to_owned();
-        {
-            let mut slot = self
-                .inner
-                .readiness
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            *slot = Some(readiness.clone());
-        }
-        Ok(readiness)
     }
 
     /// `false` if the client was never started/already stopped, or if its

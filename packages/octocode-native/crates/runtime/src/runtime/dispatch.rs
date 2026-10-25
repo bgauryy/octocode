@@ -20,6 +20,7 @@ pub(super) struct LocalEnv<'a> {
     pub paths: &'a PathPolicy,
     pub security: &'a ContentSecurity,
     pub views: &'a crate::security::scan::SanitizedViewMemo,
+    pub cargo: Option<&'a str>,
     pub selection: Option<&'a crate::tools::selection::Runtime>,
 }
 
@@ -36,6 +37,7 @@ pub(super) fn execute_local(
         security,
         views,
         selection,
+        cargo,
     } = env;
     // Generated query types carry the meta fields, so every tool parses the
     // validated row as-is through `parse_query`.
@@ -48,6 +50,16 @@ pub(super) fn execute_local(
         };
     }
     match tool {
+        ToolId::GraphBuild | ToolId::GraphQuery => {
+            if tool == ToolId::GraphBuild {
+                let _ = parsed!(octocode_contract_types::GraphBuildQuery);
+            } else {
+                let _ = parsed!(octocode_contract_types::GraphQueryQuery);
+            }
+            crate::tools::ast_graph::store::tools::execute(
+                tool, query, paths, security, context, cargo,
+            )
+        }
         ToolId::LocalFetch => {
             let request = parsed!(LocalFetchQuery);
             let scan = crate::security::scan::MemoizedScan::new(security, views);

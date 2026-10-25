@@ -1521,6 +1521,85 @@
           "source"
         ]
       }
+    },
+    "graphBuild": {
+      "evidence": [
+        "src/tools/ast_graph/store/tools/tests.rs",
+        "src/tools/ast_graph/store/tests/ingest.rs",
+        "src/tools/ast_graph/store/tests/stale.rs"
+      ],
+      "fields": {
+        "path": [
+          "source"
+        ],
+        "exclude": [
+          "filter"
+        ],
+        "maxFiles": [
+          "filter"
+        ],
+        "force": [
+          "execution"
+        ],
+        "parserGlobs": [
+          "matcher"
+        ],
+        "keep": [
+          "execution"
+        ]
+      }
+    },
+    "graphQuery": {
+      "evidence": [
+        "src/tools/ast_graph/store/tools/tests.rs",
+        "src/tools/ast_graph/store/tests/queries.rs",
+        "src/tools/ast_graph/store/tests/impact.rs",
+        "src/tools/ast_graph/store/tests/issues.rs"
+      ],
+      "fields": {
+        "path": [
+          "source"
+        ],
+        "graph": [
+          "source"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "target": [
+          "filter"
+        ],
+        "to": [
+          "navigation"
+        ],
+        "edges": [
+          "filter"
+        ],
+        "kind": [
+          "filter"
+        ],
+        "direction": [
+          "navigation"
+        ],
+        "depth": [
+          "navigation"
+        ],
+        "confidence": [
+          "filter"
+        ],
+        "limit": [
+          "view"
+        ],
+        "changed": [
+          "source"
+        ],
+        "since": [
+          "source"
+        ],
+        "baseline": [
+          "source"
+        ]
+      }
     }
   }
 }

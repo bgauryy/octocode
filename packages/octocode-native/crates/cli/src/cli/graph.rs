@@ -232,6 +232,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand, mode: super::O
                 list,
             } = *args;
             let options = QueryOptions {
+                check_freshness: false,
                 op,
                 target,
                 to,

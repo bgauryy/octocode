@@ -1,6 +1,6 @@
 # Octocode CLI
 
-`octocode` runs the same native tools and input contract as MCP. The npm package is a launcher; native owns validation, behavior, output and exit codes.
+`octocode` runs the Rust engine used by MCP, with additional CLI-only tools. Shared tools use the same input contract. The npm package is a launcher; native owns validation, behavior, output and exit codes.
 
 ## Quick start
 
@@ -15,7 +15,7 @@ npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"start
 
 ### Tool commands
 
-Use `octocode <tool> '<JSON envelope>'`. All 14 tool names are listed in the [tools reference](OCTOCODE_TOOLS.md). `ghCloneRepo` is CLI-only; public clasify requires a classification credential and a successful provider ping. Authenticated GitHub endpoints require a token; inspect `octocode auth status`.
+Use `octocode <tool> '<JSON envelope>'`. All 16 tool names are listed in the [tools reference](OCTOCODE_TOOLS.md). `ghCloneRepo`, `graphBuild` and `graphQuery` are CLI-only; public clasify requires a classification credential and a successful provider ping. Authenticated GitHub endpoints require a token; inspect `octocode auth status`.
 
 ### System commands
 
@@ -85,6 +85,12 @@ octocode ghCloneRepo '{"queries":[{"owner":"bgauryy","repo":"octocode"}]}'
 Use the returned path with local tools. Clone storage requires persistent mode; configuration owns [cache storage](CONFIGURATION.md#cache-storage-and-lifecycle).
 
 ## `graph` — persisted code graph
+
+Machine callers can use `graphBuild` and `graphQuery` with the standard JSON
+envelope and generated schemas. These are CLI-only tools, also used by Octocode
+Code. See [agent graph tools](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli)
+for operation requirements and workspace snapshot storage. The positional
+commands below use the same Rust graph store.
 
 Parse a repository once, then answer structural questions in milliseconds
 without re-reading source. Local tools must be enabled. Unlike tool commands,
@@ -331,4 +337,4 @@ Node, npm, network access, or another `octocode` on `PATH`.
 
 ## How the CLI aligns with MCP
 
-Core owns one schema and vocabulary; config generates it; native validates and executes it. Both transports accept the same JSON envelopes and return the same evidence. MCP lists only available tools and excludes CLI-only ghCloneRepo. The launchers contain no tool logic.
+Core owns one schema and vocabulary; config generates it; native validates and executes it. Both transports accept the same JSON envelopes and return the same evidence for shared tools. MCP lists only available tools and excludes CLI-only `ghCloneRepo`, `graphBuild` and `graphQuery`. The launchers contain no tool logic.

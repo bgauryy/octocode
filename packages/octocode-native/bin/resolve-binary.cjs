@@ -2,59 +2,82 @@
 
 /**
  * Shared platform → binary resolver: the single place that maps the current
- * platform to a compiled native binary. Used by this package's launcher bin
- * (`octocode.cjs`) and by the `octocode` npm CLI's
- * delegation boundary, so the platform-selection logic is never duplicated and
- * the npm CLI spawns the native binary directly instead of routing through a
- * second shim.
+ * platform to its compiled native binary. The `octocode` and `octocode-mcp`
+ * launchers bundle it and spawn the binary directly.
  */
 
 const { join } = require('path');
 const { existsSync } = require('fs');
-const { PLATFORMS, executableName, getPlatformSuffix } = require('./platform.cjs');
+const { PLATFORMS, executableName, getPlatformSuffix, platformPackageName } = require('./platform.cjs');
+
+/** `error.code` when this platform's package was not installed (a skipped optional dependency). */
+const PLATFORM_PACKAGE_MISSING = 'OCTOCODE_PLATFORM_PACKAGE_MISSING';
+
+function packageDir(name) {
+  // require.resolve finds the package.json; strip it to get the dir.
+  return require.resolve(`${name}/package.json`).replace(/[\/\\]package\.json$/, '');
+}
+
+/** Platform packages installed for other platforms: node_modules copied from another machine. */
+function foreignPlatformPackages(suffix) {
+  return Object.keys(PLATFORMS).filter(other => {
+    if (other === suffix) return false;
+    try {
+      packageDir(platformPackageName(other));
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function missingPackageError(suffix) {
+  const name = platformPackageName(suffix);
+  const foreign = foreignPlatformPackages(suffix);
+  const reason = foreign.length
+    ? `node_modules holds ${foreign.join(', ')} instead: it was installed on another platform ` +
+      '(copied into a container, VM or another machine). Reinstall dependencies on this machine.'
+    : 'The optional dependency was skipped (--omit=optional, --no-optional, or a lockfile written ' +
+      'on another platform). Reinstall with optional dependencies enabled.';
+  return Object.assign(new Error(`octocode: platform package '${name}' is not installed.\n${reason}`), {
+    code: PLATFORM_PACKAGE_MISSING,
+    suffix,
+  });
+}
 
 /**
- * Resolve the absolute path to a compiled native binary for the current
- * platform. Throws a descriptive Error when the platform is unsupported, the
- * platform package was not installed, or the binary is absent.
+ * Resolve the absolute path to the native binary for the current platform.
+ * Throws a descriptive Error when the platform is unsupported, the platform
+ * package was not installed (`code: PLATFORM_PACKAGE_MISSING`), or the binary
+ * is absent.
  *
- * @param {string} [binary='octocode'] native binary name without extension
  * @returns {string} absolute path to the native binary
  */
-function resolveNativeBinaryPath(binary = 'octocode') {
+function resolveNativeBinaryPath() {
   const suffix = getPlatformSuffix();
   if (!suffix) {
     const key = `${process.platform}-${process.arch}`;
     throw new Error(
-      `${binary}: unsupported platform '${key}'.\n` +
+      `octocode: unsupported platform '${key}'.\n` +
         `Supported: ${Object.keys(PLATFORMS).join(', ')}`
     );
   }
 
-  const pkgName = `@octocodeai/octocode-native-${suffix}`;
-
-  let pkgDir;
+  let dir;
   try {
-    // require.resolve finds the package.json; strip it to get the dir.
-    pkgDir = require
-      .resolve(`${pkgName}/package.json`)
-      .replace(/[\/\\]package\.json$/, '');
+    dir = packageDir(platformPackageName(suffix));
   } catch {
-    throw new Error(
-      `${binary}: platform package '${pkgName}' is not installed.\n` +
-        'This usually means the optional dependency was skipped.\n' +
-        `Try: npm install ${pkgName}`
-    );
+    throw missingPackageError(suffix);
   }
 
-  const binaryPath = join(pkgDir, executableName(binary));
+  const binaryPath = join(dir, executableName('octocode'));
   if (!existsSync(binaryPath)) {
     throw new Error(
-      `${binary}: binary not found at '${binaryPath}'.\n` +
+      `octocode: binary not found at '${binaryPath}'.\n` +
         'Rebuild: yarn workspace @octocodeai/octocode-native build'
     );
   }
   return binaryPath;
 }
 
-module.exports = { resolveNativeBinaryPath };
+module.exports = { PLATFORM_PACKAGE_MISSING, resolveNativeBinaryPath };

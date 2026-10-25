@@ -1,29 +1,32 @@
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const OCTOCODE_CORE_PACKAGE = '@octocodeai/octocode-core';
 export const AGENT_TESTING_PACKAGE = '@octocodeai/agent-testing';
 
-export function nativePlatformPackages(nativePackage) {
-  return Object.keys(nativePackage.optionalDependencies ?? {}).filter(name =>
-    name.startsWith('@octocodeai/octocode-native-')
-  );
+const { PLATFORMS, platformPackageName } = createRequire(import.meta.url)(
+  '../../../packages/octocode-native/bin/platform.cjs'
+);
+
+/** The per-platform binary packages, from the one platform list. */
+export function nativePlatformPackages() {
+  return Object.keys(PLATFORMS).map(platformPackageName);
 }
 
-export function workspaceResolutionPackages(nativePackage) {
+export function workspaceResolutionPackages() {
   return [
     '@octocodeai/config',
     // The Pi extension depends on `octocode-mcp@latest`; development runs the workspace server instead.
     'octocode-mcp',
-    '@octocodeai/octocode-native',
-    ...nativePlatformPackages(nativePackage),
+    ...nativePlatformPackages(),
   ];
 }
 
-export function managedResolutionPackages(nativePackage) {
+export function managedResolutionPackages() {
   return [
-    ...workspaceResolutionPackages(nativePackage),
+    ...workspaceResolutionPackages(),
     OCTOCODE_CORE_PACKAGE,
     AGENT_TESTING_PACKAGE,
   ];
