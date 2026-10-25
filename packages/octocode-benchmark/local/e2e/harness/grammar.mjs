@@ -75,7 +75,7 @@ for (const [lang, l] of Object.entries(L)) {
     check(`${lang}: UTF-16 column after emoji`, !!capture && capture.column === expected, res.utf16);
   }
   const k = await call('astSearch', { operation: 'match', path: dir, parser: ({ TypeScript: 'typescript', JavaScript: 'javascript', TSX: 'tsx', 'C++': 'cpp', 'C#': 'csharp', Assembly: 'asm' }[lang] ?? lang.toLowerCase()), rule: { kind: l.kind }, view: 'countMatches' });
-  // Minimal countMatches: per-file matchCount (restored from `shared`).
+  // countMatches reports matchCount on each file.
   const kc = (rowData(k)?.files ?? []).reduce((sum, f) => sum + (f.matchCount ?? 0), 0);
   res.kind = `${l.kind}=${kc}`;
   check(`${lang}: kind rule ${l.kind}`, kc > 0, k.text.slice(0, 80));

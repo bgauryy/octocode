@@ -31,12 +31,28 @@ async fn read(server: &MockServer, row: Value) -> Value {
 async fn read_with_budget(server: &MockServer, row: Value, page_chars: Option<usize>) -> Value {
     let provider = mock_provider(server, RetryPolicy::default());
     let context = fixture_context(Duration::from_secs(10), 4 << 20);
+    let (owner, repo) = (row["owner"].clone(), row["repo"].clone());
     let mut request = HistoryItemRequest::from_row(row).expect("valid row");
     request.auto_page_chars = page_chars;
-    execute(&provider, &request, &context, &Passthrough)
+    let data = execute(&provider, &request, &context, &Passthrough)
         .await
         .expect("history item")
-        .data
+        .data;
+    let items = data
+        .get("pullRequests")
+        .or_else(|| data.get("issues"))
+        .and_then(Value::as_array);
+    for item in items.map_or_else(|| vec![&data], |items| items.iter().collect()) {
+        assert_eq!(
+            item["owner"], owner,
+            "saved item retains its repository: {item}"
+        );
+        assert_eq!(
+            item["repo"], repo,
+            "saved item retains its repository: {item}"
+        );
+    }
+    data
 }
 
 fn changed_file(name: &str) -> Value {
@@ -50,14 +66,8 @@ fn commit_raw(sha: &str, message: &str) -> Value {
         "author":{"login":"ada"}})
 }
 
-fn assert_history_page_contract(query: &Value, data: &Value) {
-    let shaped = crate::response::rows::result_row(
-        crate::id::ToolId::GhGetHistoryItem,
-        0,
-        query,
-        data.clone(),
-        None,
-    );
+fn assert_history_page_contract(data: &Value) {
+    let shaped = crate::response::rows::result_row(0, data.clone(), None);
     crate::tools::test_support::validate_sealed("ghGetHistoryItem", &json!({"results": [shaped]}))
         .expect("actual normalized history row satisfies the canonical output contract");
 }

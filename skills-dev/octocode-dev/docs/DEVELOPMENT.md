@@ -25,6 +25,8 @@ The package map is in `<repo>/AGENTS.md`. Native Cargo crates under `packages/oc
 |---|---|---|
 | `runtime` | `octocode-native` | Tool catalog, validation, config resolution, GitHub auth, providers, security, response shaping, pagination, `clasify`; `build.rs` embeds `packages/octocode-config/contract/` |
 | `engine` | `octocode-engine` | Primitives: text search, tree-sitter AST, LSP client pool, minification, secret scanning, code graph |
+| `io` | `octocode-io` | Shared low-level I/O, HTTP and resource primitives; no tool or provider policy |
+| `contract-types` | `octocode-contract-types` | Generated tool wire types from the config contract; no hand-written schema or tool logic |
 | `github` | `octocode-github` | GitHub REST/GraphQL transport, bounded provider operations, credential traits |
 | `cli` | `octocode-cli` | The native `octocode` binary: tool commands, `schema`, `config`, `auth`, `graph`, `skill`, `install`, and the stdio MCP server (`mcp`, on rmcp) |
 

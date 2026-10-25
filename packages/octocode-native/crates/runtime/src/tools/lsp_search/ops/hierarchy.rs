@@ -77,9 +77,8 @@ impl Operation<'_, '_> {
                     "The fallback could not establish the type hierarchy anchor.",
                     true,
                 );
-                partial_with_retry(
+                crate::response::paging::mark_partial(
                     &mut row,
-                    query,
                     "typeHierarchyExpansionFailed",
                     &[failure.message],
                 );

@@ -277,7 +277,7 @@ async fn commit_path_scope_keeps_the_unfiltered_observed_count_separate() {
     let query = json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,
         "sections":["files"],"include":["src/**"]});
     let data = read(&server, query.clone()).await;
-    assert_history_page_contract(&query, &data);
+    assert_history_page_contract(&data);
     assert_eq!(data["files"], json!(["M +1 -1 src/a.rs"]), "{data}");
     assert_eq!(data["changedFilesCount"], 3, "unfiltered observed files");
     assert!(data.get("changedFilesCountScope").is_none(), "{data}");

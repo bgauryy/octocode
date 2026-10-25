@@ -67,7 +67,7 @@ pub(super) fn validate(
     if REFERENCE_ONLY.with(Cell::get) {
         return reference(root, branches, exclusive, value, path, mode);
     }
-    if accept(root, branches, exclusive, value, path, mode) {
+    if accept(root, branches, exclusive, value, path, mode)? {
         return Ok(());
     }
     if speculative() {
@@ -94,32 +94,32 @@ fn accept(
     value: &mut Value,
     path: &[String],
     mode: ValidationMode,
-) -> bool {
+) -> Result<bool, ContractValidationError> {
     let _speculation = Speculation::enter();
     let mut accepted = None;
     for branch in branches {
         if certainly_rejects(root, branch, value) {
             continue;
         }
-        let Some(result) = try_branch(root, branch, value, path, mode) else {
+        let Some(result) = try_branch(root, branch, value, path, mode)? else {
             continue;
         };
         if accepted.is_some() {
             // A second match fails an exclusive union.
-            return false;
+            return Ok(false);
         }
         if !exclusive {
             keep(value, result);
-            return true;
+            return Ok(true);
         }
         accepted = Some(result);
     }
     match accepted {
         Some(result) => {
             keep(value, result);
-            true
+            Ok(true)
         }
-        None => false,
+        None => Ok(false),
     }
 }
 
@@ -139,16 +139,26 @@ fn try_branch(
     value: &mut Value,
     path: &[String],
     mode: ValidationMode,
-) -> Option<Accepted> {
+) -> Result<Option<Accepted>, ContractValidationError> {
     if mode == ValidationMode::ReadOnly {
-        return validate_with_mode(root, branch, value, &mut path.to_vec(), mode)
-            .is_ok()
-            .then_some(Accepted::InPlace);
+        return super::schema::probe(validate_with_mode(
+            root,
+            branch,
+            value,
+            &mut path.to_vec(),
+            mode,
+        ))
+        .map(|accepted| accepted.then_some(Accepted::InPlace));
     }
     let mut candidate = value.clone();
-    validate_with_mode(root, branch, &mut candidate, &mut path.to_vec(), mode)
-        .is_ok()
-        .then_some(Accepted::Normalized(candidate))
+    super::schema::probe(validate_with_mode(
+        root,
+        branch,
+        &mut candidate,
+        &mut path.to_vec(),
+        mode,
+    ))
+    .map(|accepted| accepted.then_some(Accepted::Normalized(candidate)))
 }
 
 /// Take an accepting branch's result.
@@ -236,6 +246,7 @@ fn reference(
                     success = Some(candidate);
                 }
             }
+            Err(error) if error.is_contract_error() => return Err(error),
             Err(error) => failures.push(error.issues),
         }
     }
@@ -254,38 +265,6 @@ fn reference(
     }
     if let Some(mixed) = mixed_forms(&failures, path) {
         return Err(mixed);
-    }
-    // Zod 4.6.2 returns the sole non-aborted branch before constructing an
-    // invalid_union issue. Shape-only key errors and ordinary checks continue;
-    // missing values, invalid types and selectors abort a branch.
-    let non_aborted = failures
-        .iter()
-        .filter(|issues| {
-            issues.iter().all(|issue| {
-                matches!(
-                    issue.rule_id.as_str(),
-                    "schema.unknown-field"
-                        | "schema.size"
-                        | "schema.range"
-                        | "schema.order"
-                        | "schema.pattern"
-                        | "schema.uri"
-                        | "schema.repository-url"
-                        | "schema.clone-suffix"
-                )
-            })
-        })
-        .collect::<Vec<_>>();
-    if non_aborted.len() == 1 {
-        let mut issues = non_aborted[0].clone();
-        annotate_sibling_branch_fields(&mut issues, root, branches, value);
-        annotate_forbidden_fields(&mut issues, root, branches, value, path);
-        return Err(ContractValidationError {
-            // Preserve the original unknown-field path and knownFields schema.
-            // The stable error projector uses both to produce an actionable
-            // spelling suggestion; grouping them here discards that context.
-            issues,
-        });
     }
     // Each branch pins its selector fields to distinct literals, so any single
     // branch's const/enum issue names only that branch's value(s). Collect the

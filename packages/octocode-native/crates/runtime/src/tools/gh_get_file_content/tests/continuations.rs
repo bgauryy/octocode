@@ -167,7 +167,7 @@ async fn a_minified_comment_range_leads_to_the_read_as_is() {
     )
     .await
     .unwrap_or_else(|failure| panic!("{}", failure.message));
-    let data = &read.output.data;
+    let data = &read.data;
     assert_eq!(data["content"], "", "{data}");
     assert!(
         data["hints"].as_array().is_some_and(|hints| hints

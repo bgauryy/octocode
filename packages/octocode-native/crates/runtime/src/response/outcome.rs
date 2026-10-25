@@ -16,7 +16,6 @@ pub struct ToolOutcome {
 pub(crate) struct DomainResult {
     pub diagnostics: crate::response::result::ToolDiagnostics,
     pub data: Value,
-    pub cache: bool,
     pub status: Option<&'static str>,
     pub(crate) source_digest: Option<String>,
     pub failure: Option<FailureKind>,
@@ -37,7 +36,6 @@ impl DomainResult {
         });
         Self {
             diagnostics: Default::default(),
-            cache: false,
             data,
             status,
             source_digest: None,
@@ -65,7 +63,6 @@ impl DomainResult {
         }
         Self {
             diagnostics: Default::default(),
-            cache: false,
             data,
             status: Some("error"),
             source_digest: None,

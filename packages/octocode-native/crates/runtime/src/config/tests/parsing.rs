@@ -1,7 +1,7 @@
 use super::*;
 
-/// The identity digest follows every setting and declared variable,
-/// including the config file's content, and ignores undeclared ones.
+/// Settings and declared environment affect identity; shell directory labels
+/// do not replace the actual working directory supplied to the runtime.
 #[test]
 fn identity_digest_tracks_declared_settings_only() {
     let digest = |env: &[(&str, &str)], file: Option<&str>| {
@@ -15,17 +15,36 @@ fn identity_digest_tracks_declared_settings_only() {
     assert_eq!(digest(&[], None), base);
     assert_eq!(digest(&[("TERM_SESSION_ID", "x")], None), base);
     for name in DECLARED_ENV_KEYS {
-        assert_ne!(
-            digest(&[(name, &valid_value(name, "x"))], None),
-            base,
-            "{name}"
-        );
+        let changed = digest(&[(name, &valid_value(name, "x"))], None);
+        if SHELL_DIRECTORY_ENV.contains(name) {
+            assert_eq!(changed, base, "a shell directory label");
+        } else {
+            assert_ne!(changed, base, "{name}");
+        }
     }
     assert_ne!(
         digest(&[], Some("{\"local\":{\"enabled\":false}}")),
         base,
         "a config file edit"
     );
+}
+
+#[test]
+fn shell_directory_labels_preserve_identity_and_effective_environment() {
+    let base = resolve_config(&input(BTreeMap::new(), None)).identity_digest();
+    for labels in [
+        BTreeMap::from([("PWD".into(), "/work".into())]),
+        BTreeMap::from([
+            ("PWD".into(), "/different-shell-label".into()),
+            ("OLDPWD".into(), "/previous".into()),
+        ]),
+    ] {
+        let config = resolve_config(&input(labels.clone(), None));
+        assert_eq!(config.identity_digest(), base);
+        for (name, value) in labels {
+            assert_eq!(config.env_value(&name), Some(value.as_str()));
+        }
+    }
 }
 
 #[test]

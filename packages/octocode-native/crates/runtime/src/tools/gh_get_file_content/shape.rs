@@ -85,7 +85,6 @@ pub(super) fn shape(
             commit_sha: acquired.resolved_ref,
             file_type: file_type(access::path(query)),
             match_not_found: match_not_found.then_some(true),
-            from_cache: acquired.from_cache,
             calls: next,
             last_modified: None,
             last_modified_by: None,

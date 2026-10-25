@@ -21,11 +21,11 @@ fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
         .expect("page");
         let page = prepared.value;
         if let Some(pagination) = page.get("responsePagination") {
-            assert_eq!(
-                pagination["returnedChars"].as_u64(),
-                Some(page.to_string().encode_utf16().count() as u64)
-            );
+            let chars = page.to_string().encode_utf16().count();
+            assert!(chars <= budget || pagination["oversized"] == true);
             for removed in [
+                "returnedChars",
+                "totalChars",
                 "scope",
                 "snapshot",
                 "offset",

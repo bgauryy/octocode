@@ -72,15 +72,83 @@ async function mixedRangeBatch(ctx, surface, checks, expected) {
   orderedEqual(checks, `read.valid-sibling-evidence.${surface}`, pairs([rows[2]?.data ?? {}]), expected);
 }
 
+async function pagedMixedReads(ctx, surface, checks) {
+  const queries = [
+    { path: windows, ranges: [{ startLine: 1, endLine: 2 }] },
+    { path: windows, matchString: ['missing-paged-read-evidence'] },
+    { path: windows, ranges: [{ startLine: 4, endLine: 2 }] },
+    { path: model, ranges: [{ startLine: 14, endLine: 16 }] },
+    { path: windows, ranges: [{ startLine: 6, endLine: 7 }] },
+  ];
+  const report = await ctx.explore('localFetch', { queries, responseChars: 300 }, surface);
+  const responses = report.responses.filter(entry => entry.tool === 'localFetch');
+  const rows = responses.flatMap(entry => entry.result.json?.results ?? []);
+  checks.push([`read.paged-batch.complete.${surface}`, report.failures.length === 0, JSON.stringify(report.failures)]);
+  checks.push([`read.paged-batch.response-pages.${surface}`, responses.some(entry => entry.result.json?.responsePagination?.hasMore === true), `${responses.length} calls`]);
+  checks.push([`read.paged-batch.source-pages.${surface}`, rows.some(row => row.data?.next?.continueWindow), `${rows.length} rows`]);
+  equal(checks, `read.paged-batch.status-indexes.${surface}`, rows.filter(row => row.status).map(row => [row.index, row.status]), [[1, 'empty'], [2, 'error']]);
+  for (const { index, file, start, end } of [
+    { index: 0, file: 'read/windows.txt', start: 1, end: 2 },
+    { index: 3, file: 'code/model.ts', start: 14, end: 16 },
+    { index: 4, file: 'read/windows.txt', start: 6, end: 7 },
+  ]) {
+    const expected = sourcePairs(sourceText(ctx, file)).filter(([line]) => line >= start && line <= end);
+    orderedEqual(checks, `read.paged-batch.evidence-index-${index}.${surface}`, pairs(rows.filter(row => row.index === index).map(row => row.data)), expected);
+  }
+}
+
+async function pagedMatchIdentity(ctx, surface, checks) {
+  const query = {
+    path: fixturePath('read/match-identity.txt'),
+    matchString: ['(?<=qualifier\\n)same'],
+    regexEngine: 'pcre2',
+    contextLines: { before: 0, after: 2 },
+  };
+  for (const responseChars of [20000, 300]) {
+    const label = `read.match-identity.${responseChars}`;
+    const result = await scenario(ctx, 'localFetch', surface, { label, query, checks, responseChars });
+    orderedEqual(checks, `${label}.source.${surface}`, pairs(result.data), [[2, 'same'], [3, 'other'], [4, 'same']]);
+    const identity = result.data.map(data => ({ lines: sourceLines(data).map(([line]) => line), hits: data.matchedLines }));
+    checks.push([`${label}.page-hits.${surface}`, identity.every(({ lines, hits }) =>
+      JSON.stringify(hits) === JSON.stringify(lines.filter(line => line === 2))), JSON.stringify(identity)]);
+    if (responseChars === 300) checks.push([`${label}.context-only-page.${surface}`,
+      identity.some(({ lines, hits }) => lines.includes(4) && Array.isArray(hits) && hits.length === 0), JSON.stringify(identity)]);
+  }
+}
+
+async function uncapturedStreamRecovery(ctx, surface, checks) {
+  const file = fixturePath('read/uncaptured-stream.txt');
+  const absolute = path.join(ctx.cwd, file);
+  const original = 'old evidence\n'.repeat(900_000);
+  fs.writeFileSync(absolute, original);
+  try {
+    const refused = await ctx.call(ctx.q({ path: file, ranges: [{ startLine: 1, endLine: 1 }],
+      classification: { predicates: ['Find evidence'] } }), surface);
+    const data = refused.json.results[0].data;
+    const recovery = data.related?.find(call => call.tool === 'localFetch');
+    checks.push([`read.uncaptured-stream.optional.${surface}`, data.errorCode === 'invalidInput'
+      && !data.next && recovery?.kind === 'related' && Array.isArray(recovery.input?.queries), JSON.stringify(data)]);
+    if (!recovery?.input?.queries) return;
+    fs.writeFileSync(absolute, original.replaceAll('old', 'new'));
+    const current = await ctx.call(recovery.input, surface);
+    orderedEqual(checks, `read.uncaptured-stream.current.${surface}`,
+      pairs((current.json?.results ?? []).map(row => row.data)), [[1, 'new evidence']]);
+  } finally { fs.rmSync(absolute, { force: true }); }
+}
+
 export async function advancedRead(ctx) {
   const checks = [];
   const longPath = fixturePath('read/complete-unicode.txt');
   const source = Array.from({ length: 240 }, (_, i) => `row ${i + 1}: 界😀 source evidence ${'x'.repeat(40)}`).join('\n');
   fs.writeFileSync(path.join(ctx.cwd, longPath), source);
+  fs.writeFileSync(path.join(ctx.cwd, fixturePath('read/match-identity.txt')), 'qualifier\nsame\nother\nsame\n');
   for (const surface of ctx.surfaces) {
     await selections(ctx, surface, checks);
     await views(ctx, surface, checks);
     await orderedRanges(ctx, surface, checks);
+    await pagedMixedReads(ctx, surface, checks);
+    await pagedMatchIdentity(ctx, surface, checks);
+    await uncapturedStreamRecovery(ctx, surface, checks);
     const walked = await scenario(ctx, 'localFetch', surface, { label: 'read.unicode-walk', query: { path: longPath }, checks, responseChars: 800 });
     orderedEqual(checks, `read.exact-once-utf8.${surface}`, pairs(walked.data), sourcePairs(source));
     checks.push([`read.exercised-continuation.${surface}`, walked.pages > 1, `${walked.pages} pages`]);

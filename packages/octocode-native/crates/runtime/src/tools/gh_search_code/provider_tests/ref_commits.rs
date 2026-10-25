@@ -44,7 +44,7 @@ async fn the_ref_commit_resolves_while_the_search_runs() {
     let out = execute(&provider, &query, &context, &Passthrough)
         .await
         .expect("search");
-    assert_eq!(out.data["commitSha"], SHA, "{}", out.data);
+    assert_eq!(out.data["files"][0]["commitSha"], SHA, "{}", out.data);
     // The page's core-quota cost: one contents read (an `extras:["stats"]` field).
     assert_eq!(out.data["contentReads"], 1, "{}", out.data);
     assert_eq!(
@@ -113,7 +113,9 @@ async fn default_branch_lines_are_read_at_the_indexed_commit() {
         .await
         .expect("search");
     let data = &out.data;
-    assert_eq!(data["commitSha"], SHA, "{data}");
+    for file in data["files"].as_array().expect("files") {
+        assert_eq!(file["commitSha"], SHA, "{file}");
+    }
     assert_eq!(data["contentReads"], 2, "{data}");
     let listed = data["files"]
         .as_array()
@@ -212,7 +214,9 @@ async fn path_only_rows_name_their_indexed_commit() {
     let shared = execute(&provider, &search("app"), &context, &Passthrough)
         .await
         .expect("search");
-    assert_eq!(shared.data["commitSha"], SHA, "{}", shared.data);
+    for file in shared.data["files"].as_array().expect("files") {
+        assert_eq!(file["commitSha"], SHA, "{file}");
+    }
     let mixed = execute(&provider, &search("lib"), &context, &Passthrough)
         .await
         .expect("search");

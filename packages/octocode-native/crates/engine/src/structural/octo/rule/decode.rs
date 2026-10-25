@@ -72,14 +72,6 @@ pub(in crate::structural) fn decode_rule(
     Ok(raw)
 }
 
-/// Whether `value` is a rule object the engine accepts: its shape, not the
-/// grammar it will run in.
-pub fn validate_rule_shape(value: &serde_json::Value) -> Result<(), String> {
-    decode_rule(value)
-        .map(|_| ())
-        .map_err(|error| error.diagnostic().message)
-}
-
 fn normalize_selectors(raw: &mut RawRule, depth: usize) -> Result<(), CompileError> {
     if depth >= 64 {
         return Err(CompileError::rule(

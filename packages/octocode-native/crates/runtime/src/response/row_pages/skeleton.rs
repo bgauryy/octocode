@@ -159,21 +159,21 @@ pub(super) fn collection_pointer(row: &Value, paths: &[&str]) -> Option<String> 
     })
 }
 
-/// A later slice of a split row repeats its skeleton; the lists of records
+/// A later slice of a split row repeats its skeleton; the evidence lists
 /// beside the paged array, at each level of its `pointer` (diagnostics
 /// beside the paged files, a cycle's edges beside its files), were delivered
 /// with the first part, so later slices carry them emptied: each record
 /// once.
 pub(super) fn empty_secondary_lists(skeleton: &mut Value, pointer: &str) {
-    fn empty_records(value: &mut Value) {
+    fn empty_collections(value: &mut Value) {
         match value {
-            Value::Array(items) if items.iter().all(|item| item.is_object() || item.is_array()) => {
+            Value::Array(items) => {
                 items.clear();
             }
             Value::Object(map) => {
                 for (name, child) in map {
                     if name != PAGES_KEY && name != HINTS_KEY {
-                        empty_records(child);
+                        empty_collections(child);
                     }
                 }
             }
@@ -195,10 +195,9 @@ pub(super) fn empty_secondary_lists(skeleton: &mut Value, pointer: &str) {
                 if *name == key || name == PAGES_KEY || name == HINTS_KEY {
                     continue;
                 }
-                // Records (objects, or tuples such as a runtime cycle's
-                // members), including nested lists, not scalar descriptors
-                // or executable continuation queries.
-                empty_records(value);
+                // Compact scalar rows are evidence too. Continuation inputs
+                // stay intact behind the next/hints boundary above.
+                empty_collections(value);
             }
         }
         node = match current {
@@ -211,14 +210,14 @@ pub(super) fn empty_secondary_lists(skeleton: &mut Value, pointer: &str) {
 
 /// A later slice of a split element (a pull request whose comments page)
 /// names the element, not its description again: on each array element the
-/// paged `pointer` passes through, its descriptive scalars (a body, a head
-/// SHA) ride the first part only; the fields its entry schema requires
-/// (`required`), its lists (emptied beside the paged one, and dropped by
+/// paged `pointer` passes through, descriptive scalars ride the first part
+/// only. Required fields and core-classified provenance/disclosures stay,
+/// along with its lists (emptied beside the paged one, and dropped by
 /// [`drop_emptied_lists`] once the part is whole) and nested objects stay.
 pub(super) fn lean_elements(
     skeleton: &mut Value,
     pointer: &str,
-    required: &std::collections::BTreeSet<String>,
+    context: &crate::contracts::output_fields::PageContextFields,
 ) {
     let segments = pointer
         .trim_start_matches('/')
@@ -236,7 +235,8 @@ pub(super) fn lean_elements(
                 name == key
                     || name == PAGES_KEY
                     || name == HINTS_KEY
-                    || required.contains(name)
+                    || context.required.contains(name)
+                    || context.optional.contains(name)
                     || value.is_array()
                     || value.is_object()
             });

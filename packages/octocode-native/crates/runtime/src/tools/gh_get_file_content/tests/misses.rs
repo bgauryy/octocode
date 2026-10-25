@@ -17,10 +17,14 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     )
     .await
     .expect("read");
-    let data = &read.output.data;
-    assert_eq!(read.output.status, Some("empty"), "{data}");
+    let data = &read.data;
+    assert_eq!(read.status, Some("empty"), "{data}");
     assert_eq!(data["matchNotFound"], true, "{data}");
     assert_eq!(data["content"], "", "{data}");
+    assert_eq!(
+        data["commitSha"], sha,
+        "a pinned read retains its source: {data}"
+    );
     crate::tools::test_support::validate_sealed(
         "ghGetFileContent",
         &serde_json::json!({"results":[{"index":0,"status":"empty","data":data}]}),
@@ -36,8 +40,6 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     ] {
         assert!(data.get(junk).is_none(), "{junk}: {data}");
     }
-    // FIX §0 #4: the runnable lead is the next step: a repository search
-    // for a small file.
     let lead = crate::tools::test_support::checks::related_call(data, "ghSearchCode", |_| true);
     assert_eq!(lead["tool"], "ghSearchCode", "{data}");
     assert_eq!(
@@ -45,8 +47,8 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
         serde_json::json!(["absent"]),
         "{data}"
     );
-    // The search stays at the read's ref, never the default branch.
-    assert_eq!(lead["input"]["queries"][0]["ref"], sha, "{data}");
+    // Code search explores the default index; the separate history lead is pinned.
+    assert!(lead["input"]["queries"][0].get("ref").is_none(), "{data}");
     // The text may live only on a branch or pull request: the file's
     // commits at the read's ref, and pull requests whose text names it
     // (approximate: their discussion, not their diffs).
@@ -96,7 +98,7 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     )
     .await
     .expect("read");
-    let data = &sensitive.output.data;
+    let data = &sensitive.data;
     assert_eq!(
         data["warnings"],
         serde_json::json!(["1 line matches ignoring case."]),
@@ -151,7 +153,7 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
         let read = run_default(&provider, with(fields.clone()))
             .await
             .expect("read");
-        let data = &read.output.data;
+        let data = &read.data;
         assert_eq!(data["matchNotFound"], true, "{fields}: {data}");
         assert!(data["next"].get("ignoreCase").is_none(), "{fields}: {data}");
         assert!(data.get("warnings").is_none(), "{fields}: {data}");
@@ -164,7 +166,7 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
     )
     .await
     .expect("read");
-    let data = &ranged.output.data;
+    let data = &ranged.data;
     assert_eq!(data["matchNotFound"], true, "{data}");
     assert_eq!(
         data["warnings"],
@@ -202,7 +204,7 @@ async fn no_match_in_a_large_file_leads_to_a_repository_search() {
     )
     .await
     .expect("read");
-    let data = &read.output.data;
+    let data = &read.data;
     assert!(data["next"].get("clasify").is_none(), "{data}");
     let lead = crate::tools::test_support::checks::related_call(data, "ghSearchCode", |_| true);
     assert_eq!(lead["tool"], "ghSearchCode", "{data}");

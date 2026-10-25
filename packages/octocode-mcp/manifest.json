@@ -35,7 +35,7 @@
   "tools": [
     {
       "name": "clasify",
-      "description": "Clasify (beta: requires OCTOCODE_BETA and OCTOCODE_CLASSIFICATION_API)"
+      "description": "Clasify (conditional: requires OCTOCODE_CLASSIFICATION_API)"
     },
     {
       "name": "ghSearchRepo",

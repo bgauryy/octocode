@@ -132,7 +132,7 @@ fn fallback_graph_pages(
                     let continued: LspSearchQuery = serde_json::from_value(next.clone()).expect("executable nextPage");
                     assert!(lsp_search_query::page(&continued) > lsp_search_query::page(&query), "page cursor must advance");
                 }
-                let published = crate::tools::test_support::published(ToolId::LspSearch, &wire, &row);
+                let published = crate::tools::test_support::published(ToolId::LspSearch, &row);
                 walker.accept(Page { output: without_rerun(published, &query), rows: match_rows(&row) });
                 pages.push(row);
             }

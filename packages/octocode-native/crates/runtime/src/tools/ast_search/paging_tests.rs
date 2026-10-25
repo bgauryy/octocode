@@ -31,7 +31,7 @@ fn walk(root: &std::path::Path, row: Value, rows: fn(&Value) -> Vec<String>) -> 
             assert!(pagination["hasMore"].is_boolean(), "{out}");
         }
         let page = checks::Page {
-            output: crate::tools::test_support::published(crate::id::ToolId::AstSearch, row, &out),
+            output: crate::tools::test_support::published(crate::id::ToolId::AstSearch, &out),
             rows: rows(&out),
         };
         outputs.push(out);
@@ -263,12 +263,7 @@ fn a_syntax_tree_pages_by_bytes_and_reaches_every_node_once() {
     );
     let mut ids = Vec::new();
     for (index, out) in outputs.iter().enumerate() {
-        // As delivered: `returnedBytes` is a `stats` extra a default row drops.
-        let mut delivered = out.clone();
-        delivered
-            .as_object_mut()
-            .map(|row| row.remove("returnedBytes"));
-        let chars = octocode_engine::json_size::utf16_units(&delivered).unwrap_or(0);
+        let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
         assert!(chars <= WINDOW, "page {index} is {chars} chars");
         ids.extend(
             out["nodes"]

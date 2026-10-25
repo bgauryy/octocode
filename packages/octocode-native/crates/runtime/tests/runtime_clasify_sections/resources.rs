@@ -211,3 +211,69 @@ async fn local_ranges_bound_the_assessed_text_and_an_empty_selection_is_an_error
     );
     runtime.close().await;
 }
+
+#[tokio::test]
+async fn partial_redacted_context_is_unsupported_without_blocking_healthy_sections() {
+    let provider = provider().await;
+    let workspace = Workspace::new();
+    let credential = ["https://", "fixture-user:fixture-password@", "example.com"].concat();
+    let first = format!("{} {credential}\n", "x".repeat(7_900));
+    let second = format!("dependent-target {}\n", "y".repeat(600));
+    workspace.write("context.txt", format!("{first}{second}"));
+    workspace.write("healthy.txt", "Independent restart instructions.\n");
+    let runtime = clasify_runtime(&workspace, &provider, &[]);
+    let out = sections(
+        &runtime,
+        json!({
+            "context": {"tool":"localFetch","query":{"path":"context.txt"}},
+            "healthy": {"tool":"localFetch","query":{"path":"healthy.txt"}},
+        }),
+    )
+    .await;
+    let planned = out["resources"]["context"]["sections"]
+        .as_array()
+        .expect("both source sections are reported");
+    assert_eq!(planned.len(), 2, "{out:#}");
+    assert_eq!(planned[0]["answers"]["q"]["status"], "answered", "{out:#}");
+    assert_eq!(
+        planned[1]["answers"]["q"]["status"], "unsupported",
+        "{out:#}"
+    );
+    assert_eq!(
+        planned[1]["answers"]["q"]["error"]["errorCode"],
+        "classificationContextUnavailable"
+    );
+    let hints = planned[1]["answers"]["q"]["error"]["hints"]
+        .as_array()
+        .expect("actionable redaction recovery");
+    assert!(hints.iter().any(|hint| {
+        hint.as_str().is_some_and(|text| {
+            text.contains("sanitized source") && text.contains("complete lines")
+        })
+    }));
+    let hint_text = hints.iter().filter_map(Value::as_str).collect::<String>();
+    assert!(!hint_text.contains("persistent storage") && !hint_text.contains("expired"));
+    assert!(
+        !planned[1]["context"]
+            .as_array()
+            .expect("planned context")
+            .is_empty()
+    );
+    assert_eq!(
+        out["resources"]["healthy"]["sections"][0]["answers"]["q"]["status"],
+        "answered"
+    );
+    let sent = judged(&provider).await;
+    assert!(
+        sent.contains("[REDACTED"),
+        "the complete redacted first line remains assessable"
+    );
+    assert!(sent.contains("Independent restart instructions."));
+    assert!(
+        !sent.contains("dependent-target"),
+        "incomplete context must not reach inference"
+    );
+    assert!(!sent.contains("fixture-password"));
+    assert!(!out.to_string().contains("fixture-password"));
+    runtime.close().await;
+}

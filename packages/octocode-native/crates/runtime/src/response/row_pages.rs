@@ -108,8 +108,6 @@ pub(super) struct RowSource {
     /// Each row's per-call provider facts, regained by its first part.
     volatile: Vec<Option<Map<String, Value>>>,
     budget: usize,
-    /// UTF-16 length of the whole envelope.
-    total: usize,
     snapshot: String,
 }
 
@@ -141,7 +139,6 @@ impl RowSource {
             total_pages: total.max(1),
             has_more,
             returned_chars: total,
-            total_chars: total,
             snapshot: snapshot.clone(),
             next_offset: has_more.then_some(total),
             oversized: None,
@@ -166,7 +163,6 @@ impl RowSource {
             plan,
             volatile,
             budget,
-            total,
             snapshot,
         }
     }
@@ -179,13 +175,8 @@ impl RowSource {
         remaining: &[Vec<Remaining>],
         block: &dyn Fn(&ResponsePagination) -> usize,
     ) -> Result<(Map<String, Value>, ResponsePagination), super::pager::ResponseError> {
-        let Self {
-            plan,
-            rows_key,
-            total,
-            ..
-        } = self;
-        let (rows_key, total) = (*rows_key, *total);
+        let Self { plan, rows_key, .. } = self;
+        let rows_key = *rows_key;
         let mut structured = self.skeleton.clone();
         let requested = options.response_offset.unwrap_or(0);
         let changed = options.response_snapshot.as_deref() != Some(&self.snapshot);
@@ -205,7 +196,6 @@ impl RowSource {
             total_pages: plan.total_pages,
             has_more,
             returned_chars: char_length,
-            total_chars: total,
             snapshot: self.snapshot.clone(),
             next_offset: has_more.then_some(requested + 1),
             oversized: None,
@@ -213,7 +203,8 @@ impl RowSource {
         };
         // Oversized: the page with its own block still passes the budget, because
         // one fragment could not be divided further.
-        pagination.oversized = (char_length + block(&pagination) > self.budget).then_some(true);
+        pagination.oversized =
+            (pagination.returned_chars + block(&pagination) > self.budget).then_some(true);
         Ok((structured, pagination))
     }
 }

@@ -81,7 +81,7 @@ fn references(extra: &[(&str, &str)]) -> (Fixture, serde_json::Value) {
             None,
         ))
         .expect("row");
-    assert_row_contract(ToolId::LspSearch, &query_row, &row);
+    assert_row_contract(ToolId::LspSearch, &row);
     (dir, row)
 }
 

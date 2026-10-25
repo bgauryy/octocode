@@ -6,7 +6,7 @@ use super::anchor::Position;
 use super::cancellable;
 use super::failure::{
     ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, LspFailure, RequestFailures, empty,
-    mark_anchor_line_errors, mark_diagnostics_unpublished, partial_with_retry, shown_paths,
+    mark_anchor_line_errors, mark_diagnostics_unpublished, partial_with_related_rerun, shown_paths,
     text_search_lead,
 };
 use super::heritage;
@@ -121,15 +121,14 @@ fn mark_scan_answer(
     note: String,
     unread: &[String],
 ) {
-    partial_with_retry(row, query, SERVER_UNANSWERED, &[note]);
+    partial_with_related_rerun(row, query, SERVER_UNANSWERED, &[note]);
     if unread.is_empty() || !row.is_object() {
         return;
     }
     // The warning and the lead name each file the way the response does.
     let unread = shown_paths(paths, unread);
-    partial_with_retry(
+    crate::response::paging::mark_partial(
         row,
-        query,
         HERITAGE_UNREAD,
         &[heritage::describe_unread(&unread)],
     );

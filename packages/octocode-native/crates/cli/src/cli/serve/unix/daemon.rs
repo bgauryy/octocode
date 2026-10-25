@@ -160,6 +160,7 @@ impl Daemon {
         if built != identity {
             return Err("it runs under another configuration than this call".into());
         }
+        let runtime = runtime.check_clasify_provider().await;
         let served = std::rc::Rc::new(Served {
             runtime,
             identity: built,

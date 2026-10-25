@@ -76,7 +76,7 @@ async fn read(provider: &GitHubProvider, query: Value) -> GhGetFileContentResult
 async fn run_default(
     provider: &GitHubProvider,
     query: Value,
-) -> Result<FileRead, crate::tools::gh_shared::GhFailure> {
+) -> Result<ToolData, crate::tools::gh_shared::GhFailure> {
     let query = query;
     let query: GhGetFileContentQuery = serde_json::from_value(query).expect("query");
     run(

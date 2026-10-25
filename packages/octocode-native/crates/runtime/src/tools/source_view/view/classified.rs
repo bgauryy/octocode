@@ -202,7 +202,9 @@ pub(super) fn attach_unfiltered(
             .build(),
         );
     }
-    if let Some(token) = chosen.next_candidates() {
+    if calls.continue_window.is_none()
+        && let Some(token) = chosen.next_candidates()
+    {
         let mut page = q.clone();
         local_fetch_query::set_progress(&mut page, None);
         local_fetch_query::set_selection(&mut page, Some(token))
@@ -229,11 +231,10 @@ pub(super) fn invalid_continuation(q: &LocalFetchQuery, error: String) -> LocalF
     )
 }
 
-/// A classified read refused before any selection ran: its unfiltered lead
-/// is the caller's own read without `classification`, window and view kept
-/// (`readProgress`, `ranges`, `view`), so dropping the
-/// classifier is the only change. `digest` binds the lead to the source
-/// version the refusal saw.
+/// A classified read refused before selection: recover its public view and
+/// ranges without classification or private progress. A captured `digest`
+/// makes this a source-bound continuation; refusal before capture offers an
+/// optional fresh read.
 pub(crate) fn unsupported_selection(
     q: &LocalFetchQuery,
     message: &str,
@@ -247,7 +248,11 @@ pub(crate) fn unsupported_selection(
     result.source_sha256 = digest.map(str::to_owned);
     result.next = Some(NextCalls {
         unfiltered: match unfiltered_read(q) {
-            Ok(read) => Some(read),
+            Ok(read) => Some(if digest.is_some() {
+                read
+            } else {
+                FetchCall::related(read.query)
+            }),
             Err(error) => return invalid_continuation(q, error),
         },
         ..NextCalls::default()

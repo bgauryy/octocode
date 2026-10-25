@@ -9,7 +9,7 @@ fn clasify_missing_key_is_actionable() {
     }]});
     let output = workspace
         .cli()
-        .env("OCTOCODE_BETA", "true")
+        .env("OCTOCODE_BETA", "false")
         .args(["clasify", &query.to_string(), "--json"])
         .output()
         .expect("missing-key execution");
@@ -24,18 +24,23 @@ fn clasify_missing_key_is_actionable() {
 
     let beta_off = workspace
         .cli()
+        .env("OCTOCODE_BETA", "false")
         .env("OCTOCODE_CLASSIFICATION_API", "fixture-key")
+        .env("OCTOCODE_CLASSIFICATION_API_HOST", "http://127.0.0.1:9")
         .args(["clasify", &query.to_string(), "--json"])
         .output()
-        .expect("missing-beta execution");
+        .expect("unreachable-provider execution");
     assert_eq!(exit_code(&beta_off), Some(5));
     let beta_off = stdout(&beta_off);
-    assert!(beta_off.contains("missingConfiguration"), "{beta_off}");
-    assert!(beta_off.contains("OCTOCODE_BETA"), "{beta_off}");
+    assert!(
+        beta_off.contains("classificationProviderUnavailable"),
+        "{beta_off}"
+    );
+    assert!(!beta_off.contains("OCTOCODE_BETA"), "{beta_off}");
 }
 
 #[test]
-fn clasify_with_every_resource_failed_exits_by_failure_class() {
+fn clasify_with_unreachable_provider_exits_by_failure_class() {
     let workspace = Workspace::new();
     let run = |question: serde_json::Value| {
         let query = serde_json::json!({"queries":[{
@@ -44,7 +49,7 @@ fn clasify_with_every_resource_failed_exits_by_failure_class() {
         }]});
         workspace
             .cli()
-            .env("OCTOCODE_BETA", "true")
+            .env("OCTOCODE_BETA", "false")
             .env("OCTOCODE_CLASSIFICATION_API", "dummy")
             .env("OCTOCODE_CLASSIFICATION_API_HOST", "http://127.0.0.1:9")
             .args(["clasify", &query.to_string()])
@@ -54,9 +59,31 @@ fn clasify_with_every_resource_failed_exits_by_failure_class() {
     // A provider that cannot be reached is an execution failure, not bad input.
     let unreachable = run(serde_json::json!({"type":"noul","instructions":"Is it relevant?"}));
     assert_eq!(exit_code(&unreachable), Some(5), "{}", stdout(&unreachable));
-    // A removed question type rejects the caller's request.
-    let removed = run(serde_json::json!({"type":"locate","instructions":"fact"}));
-    assert_eq!(exit_code(&removed), Some(2), "{}", stdout(&removed));
+}
+
+#[tokio::test]
+async fn clasify_rejects_removed_question_types_after_a_successful_ping() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"models":[]})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let query = serde_json::json!({"queries":[{"operation":"evaluate","content":{"fact":"present"},"questions":{"q":{"type":"locate","instructions":"fact"}}}]});
+    let mut command = workspace.cli();
+    command
+        .env("OCTOCODE_CLASSIFICATION_API", "dummy")
+        .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri())
+        .env("OCTOCODE_BETA", "false")
+        .args(["clasify", &query.to_string()]);
+    let output = tokio::task::spawn_blocking(move || command.output().expect("clasify"))
+        .await
+        .unwrap();
+    assert_eq!(exit_code(&output), Some(2), "{}", stdout(&output));
 }
 
 #[test]

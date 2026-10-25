@@ -21,11 +21,7 @@ fn canonical_match_wire_keeps_source_coordinates_and_counters() {
     assert_eq!(wire["sourceBytes"], 27);
     assert_eq!(wire["returnedBytes"], 17);
     assert_eq!(wire["totalLines"], 5);
-    crate::tools::test_support::published(
-        crate::id::ToolId::LocalFetch,
-        &serde_json::to_value(req).expect("query"),
-        &wire,
-    );
+    crate::tools::test_support::published(crate::id::ToolId::LocalFetch, &wire);
 }
 
 #[test]

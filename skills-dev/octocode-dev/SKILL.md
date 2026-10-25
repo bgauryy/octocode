@@ -37,14 +37,18 @@ Paths: `<repo>` is the monorepo root. `CORE` is `../octocode-mcp-host/packages/o
 
 The working, contract and change rules live in `<repo>/AGENTS.md`; its two flows draw the contract pipeline and the native-change steps ([contract pipeline](docs/DEVELOPMENT.md#contract-pipeline)). Commands for the native-change flow (native, engine, or CLI change): `yarn workspace @octocodeai/octocode-native build:dev` → `yarn workspace octocode build:dev` (or `octocode-mcp`) → `$OCTO config --json && $OCTO schema` → call the changed tool.
 
+For local checks and tests, follow the [host-only build rule](../../AGENTS.md#setup-run-develop): on macOS, build only the current Mac architecture. Use native `build:dev`, or native `build` when testing release-mode behavior, then rebuild affected launchers. Run `--all`, `build:all` or `build:publish` only for explicitly requested release or cross-platform work.
+
+`verify` and `check-outputs` check the host binary. Use `check-outputs --all` to check every staged platform before a release.
+
 ## Task runner
 
 Root `package.json` keeps only `contracts:regen`. Run every other repo task with `$DEV`. Extra arguments pass through; `$DEV --help` lists all tasks.
 
 | Need | Command |
 |---|---|
-| Fast local build (default) | `$DEV build:dev` |
-| Release build (slow) | `$DEV build` |
+| Fast local build (native host only) | `$DEV build:dev` |
+| Release-mode build (native host only, slow) | `$DEV build` |
 | Tests / lint / typecheck | `$DEV test` · `$DEV lint` · `$DEV typecheck` (`:ci` variants skip benchmark) |
 | Fix formatting that lint checks | `$DEV format` (each workspace `format`: prettier `--write`) |
 | Every tool end to end (CLI + MCP, hermetic, after `build:dev`) | `$DEV test:tools [tool,...]` |

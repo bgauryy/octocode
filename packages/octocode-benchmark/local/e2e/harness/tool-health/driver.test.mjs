@@ -26,6 +26,7 @@ function surface(script) {
   } };
 }
 const rows = (_tool, key) => key === 'remaining' ? data => data.items ?? [] : undefined;
+const indexedItems = (index, items, next) => ({ index, data: { items, ...(next && { next: { remaining: continuation(next) } }) } });
 
 // Same shape at an arbitrary evidence position must never become executable.
 test('only schema-declared typed calls execute, including named resource reads', async () => {
@@ -56,6 +57,54 @@ test('opaque continuation walk reconstructs every row once without modifying any
   assert.deepEqual(report.failures, []);
   assert.deepEqual(s.calls.map(c => c.input), [input, { cursor: 'second' }, { cursor: 'third' }]);
   assert.deepEqual(report.chains.map(c => ({ rows: c.rows, ended: c.ended, pages: c.pages })), [{ rows: ['a', 'b', 'c'], ended: true, pages: 3 }]);
+});
+
+test('query continuations retain their origin when resumed rows move and fan out', async () => {
+  const s = surface((_tool, input) => ({ results: input.cursor === 'tail'
+    ? [indexedItems(2, ['b']), indexedItems(2, ['c'], 'last')]
+    : input.cursor === 'last' ? [indexedItems(2, ['d'])]
+      : [indexedItems(0, ['unrelated']), indexedItems(1, []), indexedItems(2, ['a'], 'tail')] }));
+  const report = await driver().explore('t', { queries: [{}, {}, {}] }, { surface: 'cli', call: s.call, rows });
+  assert.deepEqual(report.failures, []);
+  assert.deepEqual(report.chains.map(chain => chain.rows), [['a', 'b', 'c', 'd']]);
+  assert.equal(report.chains[0].ended, true);
+});
+
+test('display pages reconstruct all batch rows, including captured indexed errors', async () => {
+  const s = surface((_tool, input) => input.cursor ? { results: [
+    { index: 1, status: 'error', data: { errorCode: 'invalidInput', error: 'invalid sibling' } },
+    { index: 2, data: { items: ['b'] } },
+  ] } : { results: [{ index: 0, data: { items: ['a'] } }], responsePagination: { next: continuation('rest') } });
+  const report = await driver().explore('t', { queries: [{}, {}, {}] }, {
+    surface: 'cli', call: s.call, rows: (_tool, key) => key === 'responsePagination.next' ? data => data.items ?? [] : undefined,
+  });
+  assert.deepEqual(report.failures, []);
+  assert.deepEqual(report.chains[0].rows, ['a', 'b']);
+});
+
+test('transport validation joins display pages and isolates unrelated tool outcomes', async () => {
+  const groups = [];
+  const s = surface((tool, input) => tool === 'u' ? ok({ items: ['related'] }) : input.cursor
+    ? ok({ items: ['tail'] }) : { ...ok({ items: ['first'], related: [related('u', { queries: [{}] })] }), responsePagination: { next: continuation('rest') } });
+  const report = await driver({ validateTransport: (channel, responses) => {
+    groups.push({ surface: channel, rows: responses.flatMap(response => response.json.results.flatMap(row => row.data.items)) });
+    return responses.length === 2 ? 'deliberate full-batch failure' : null;
+  } }).explore('t', { queries: [{}] }, { surface: 'mcp', call: s.call });
+  assert.deepEqual(groups, [{ surface: 'mcp', rows: ['first', 'tail'] }, { surface: 'mcp', rows: ['related'] }]);
+  assert.deepEqual(report.failures.map(failure => failure.check), ['transport']);
+});
+
+test('identical related calls from sibling rows converge while duplicate required work fails', async () => {
+  for (const kind of ['related', 'continue']) {
+    const lead = kind === 'related' ? related('u', { queries: [{}] }) : continuation('read', 'u');
+    const s = surface((tool) => tool === 't' ? { results: [0, 1].map(index => ({ index, data:
+      kind === 'related' ? { related: [lead] } : { next: { remaining: lead } },
+    })) } : ok({ items: ['evidence'] }));
+    const report = await driver().explore('t', { queries: [{}, {}] }, { surface: 'cli', call: s.call });
+    assert.equal(s.calls.filter(call => call.tool === 'u').length, 1);
+    if (kind === 'related') { assert.deepEqual(report.failures, []); assert.equal(report.converged, 1); }
+    else assert.ok(report.failures.some(failure => failure.check === 'lead.repeat'));
+  }
 });
 
 test('continuations have priority over optional work and caps disclose unfinished evidence', async () => {

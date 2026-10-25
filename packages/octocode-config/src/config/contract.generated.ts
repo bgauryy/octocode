@@ -368,7 +368,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": false,
     "credential": true,
-    "description": "Classification provider API key, required for read-tool classifiers and the beta clasify tool.",
+    "description": "Classification provider API key, required for read-tool classifiers and clasify. Clasify also requires a successful provider ping.",
     "notes": "Credential values are omitted from resolved configuration and diagnostics.",
     "env": {
       "name": "OCTOCODE_CLASSIFICATION_API",

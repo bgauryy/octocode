@@ -143,6 +143,10 @@ fn follow_expansions(result: &LocalSearchResult, policy: &PathPolicy) -> (usize,
         .flatten()
     {
         if name.starts_with("expandValues") {
+            assert_eq!(
+                call["kind"], "continue",
+                "recovering clipped evidence must be required work"
+            );
             pending.push_back(call["input"].clone());
         }
     }
@@ -204,7 +208,6 @@ fn walk_search(
             let page = crate::tools::test_support::checks::Page {
                 output: crate::tools::test_support::published(
                     crate::id::ToolId::LocalSearch,
-                    row,
                     &body,
                 ),
                 rows: row_ids(&body),

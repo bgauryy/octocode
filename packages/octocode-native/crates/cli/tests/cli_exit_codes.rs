@@ -174,6 +174,11 @@ async fn github_failures_exit_by_failure_kind() {
 
 async fn classification_provider(delay: std::time::Duration) -> MockServer {
     let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models":[]})))
+        .mount(&server)
+        .await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(
@@ -193,7 +198,7 @@ async fn classification_provider(delay: std::time::Duration) -> MockServer {
 fn clasify_command(workspace: &Workspace, server: &MockServer) -> Command {
     let mut command = workspace.cli();
     command
-        .env("OCTOCODE_BETA", "true")
+        .env("OCTOCODE_BETA", "false")
         .env("OCTOCODE_CLASSIFICATION_API", "secret")
         .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri());
     command
@@ -263,11 +268,12 @@ async fn interrupted_call_exits_130() -> Result<(), String> {
         .stderr(std::process::Stdio::null());
     let mut child = command.spawn().unwrap();
     let started = std::time::Instant::now();
-    while server
+    while !server
         .received_requests()
         .await
         .unwrap_or_default()
-        .is_empty()
+        .iter()
+        .any(|request| request.method.as_str() == "POST")
     {
         if let Some(status) = child.try_wait().unwrap() {
             return Err(format!(

@@ -127,9 +127,14 @@ async fn refs_with_ref_resolves_one_ref() {
     )
     .await
     .expect("one ref");
-    assert_eq!(
-        row_data(&outcome),
-        &json!({"commitSha": "7".repeat(40), "refKind": "tag"})
+    let data = row_data(&outcome);
+    assert_eq!(data["owner"], "a");
+    assert_eq!(data["repo"], "b");
+    assert_eq!(data["commitSha"], "7".repeat(40));
+    assert_eq!(data["refKind"], "tag");
+    assert!(
+        data.get("next").is_none(),
+        "a resolved ref is complete: {data}"
     );
     runtime.close().await;
 }

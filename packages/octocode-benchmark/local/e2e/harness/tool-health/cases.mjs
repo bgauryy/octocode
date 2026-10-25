@@ -14,6 +14,15 @@ const LOCAL = 6000, REMOTE = 6000;
 const repo = { owner: 'octo', repo: 'demo' };
 const source = { tool: 'localFetch', query: { path: 'src/greeter.ts', ranges: [{ startLine: 1, endLine: 4 }] } };
 const questions = { named: { type: 'noul', instructions: 'Does this declare a field named text?' } };
+const LSP_PAGE_CALLS = 24;
+
+function lspWorkspace(ctx) {
+  const dir = path.join(ctx.tmp, 'lsp-workspace');
+  fs.cpSync(ctx.fixture, dir, { recursive: true });
+  // Enough independent evidence to page even when provider metadata sets a soft budget floor.
+  fs.writeFileSync(path.join(dir, 'src/paging.ts'), `export function pagingTarget() {}\n${'pagingTarget();\n'.repeat(LSP_PAGE_CALLS)}`);
+  return dir;
+}
 
 function readerWorkspace(ctx) {
   const dir = path.join(ctx.tmp, 'reader-workspace');
@@ -63,9 +72,12 @@ export const CASES = {
     ],
   },
   lspSearch: {
-    budgetMs: 25000, needs: 'lsp',
+    budgetMs: 25000, needs: 'lsp', workspace: lspWorkspace,
     happy: { query: { path: 'src/greeter.ts', symbolName: 'greet', line: 6, operation: 'references' }, fields: ['matches', 'matchCount'], rows: data => lspLocations({ sc: { results: [{ data }] } }).map(l => `${l.path}:${l.displayRange.startLine}:${l.displayRange.startCharacter}`), min: 6 },
-    page: page({ path: 'src/greeter.ts', symbolName: 'greet', line: 6, operation: 'references' }),
+    page: {
+      ...page({ path: 'src/paging.ts', symbolName: 'pagingTarget', line: 1, operation: 'references' }),
+      expect: () => ['src/paging.ts:1:17', ...Array.from({ length: LSP_PAGE_CALLS }, (_, i) => `src/paging.ts:${i + 2}:1`)],
+    },
     empty: { query: { operation: 'workspaceSymbol', workspaceRoot: '.', symbolQuery: 'zzzNoSuchSymbol' } },
     invalid: { query: { path: 'src/greeter.ts', symbolName: 'greet' } },
     explore: [{ label: 'callers', query: { path: 'src/greeter.ts', symbolName: 'greet', line: 6, operation: 'callers' } }],
@@ -140,7 +152,6 @@ export const CASES = {
     },
   },
   clasify: {
-    mixedBatch: 'reject',
     budgetMs: REMOTE,
     happy: { query: { operation: 'evaluate', content: { fields: { text: 'string' } }, questions }, fields: ['answers', 'model', 'usage'], rows: data => Object.keys(data.answers ?? {}), min: 1, check: data => typeof data.answers?.named?.noul === 'number' ? null : 'typed answer missing' },
     page: { na: 'one small judgment is indivisible; large-answer walks are covered by native CLI/MCP integration' },

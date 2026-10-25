@@ -175,7 +175,7 @@ Defaults, ranges, enums, and env mappings: [generated settings](generated/CONFIG
 
 - **Storage:** `storage.stats` and the `ghCloneRepo` cache are overridden by `storage.mode: "memory"`.
 - **Language servers:** `~/.octocode/lsp-servers.json` (or the `lsp.configPath` / `OCTOCODE_LSP_CONFIG` file) maps an extension to a server, replacing the built-in one: `{"languageServers":{".ts":{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}}}`. Assembly servers come only from this file. `lsp.trustProjectConfig` also trusts a project `.octocode/lsp-servers.json`; `lsp.autoInstall` governs `npx octocode lsp-server install`; `lsp.cacheDir` moves managed installs; a per-server `maxMemoryMb` in `lsp-servers.json` overrides the host-derived memory cap (`0` disables it); `lsp.prewarm` controls background starts. See [LSP server lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md).
-- **Classification:** `OCTOCODE_CLASSIFICATION_API` exposes `classification` on four readers; public `clasify` also needs beta. Gates, fields and recovery: [clasify guide](OCTOCODE_CLASIFY.md#availability).
+- **Classification:** `OCTOCODE_CLASSIFICATION_API` exposes `classification` on four readers; public `clasify` also needs a successful provider ping. Gates, fields and recovery: [clasify guide](OCTOCODE_CLASIFY.md#availability).
 
 ### Fixed internal limits
 

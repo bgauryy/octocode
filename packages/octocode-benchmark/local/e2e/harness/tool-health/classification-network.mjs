@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import { data, noul, PNG, same } from './classification-checks.mjs';
 import { errorCodes } from './driver.mjs';
-import { tokenFor } from './surfaces.mjs';
+import { tokenFor, withoutReadinessPings } from './surfaces.mjs';
 
 async function loopbackCanary() {
   let connections = 0;
@@ -39,7 +39,7 @@ function deniedInputs(port) {
 export async function urlPolicyChecks(ctx, surface, provider) {
   const canary = await loopbackCanary();
   const token = tokenFor('clasify', surface);
-  const requests = () => ctx.mock.requestsFrom.filter(entry => entry.token === token).length;
+  const requests = () => withoutReadinessPings(ctx.mock.requestsFrom.filter(entry => entry.token === token)).length;
   const before = { http: requests(), inference: provider.sent.length };
   const checks = [];
   try {

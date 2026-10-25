@@ -95,7 +95,6 @@ fn walk_pages_budget(root: &std::path::Path, start: Value, budget: Option<usize>
             let page = crate::tools::test_support::checks::Page {
                 output: crate::tools::test_support::published(
                     crate::id::ToolId::StructureSearch,
-                    row,
                     &out,
                 ),
                 rows: listed(&out)

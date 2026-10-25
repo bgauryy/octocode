@@ -5,6 +5,7 @@ mod cursors;
 mod execute;
 mod graph;
 mod page_replay;
+mod provider_check;
 
 use crate::config::{self, ConfigInput, ConfigOutput, RuntimeSurface};
 use crate::contracts;
@@ -92,8 +93,8 @@ pub struct ToolRuntime {
     section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
     /// Registry answers for artifactSearch; `None` under memory storage.
     artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
-    /// Resolved once from the immutable config and surface. Provider
-    /// failures are request-local and do not remove an advertised tool.
+    /// Resolved from config, surface, and the startup provider ping. Later
+    /// provider failures are request-local and do not remove an advertised tool.
     availability: Arc<crate::execution::availability::ToolAvailability>,
     /// Provider settings and selection availability, resolved once.
     evaluator: crate::tools::judgment::Evaluator,

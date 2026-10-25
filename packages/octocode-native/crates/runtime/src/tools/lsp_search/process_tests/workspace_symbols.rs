@@ -107,7 +107,7 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
                 found[2]["displayRange"],
                 json!({"startLine":1,"startCharacter":4,"endLine":1})
             );
-            assert_row_contract(ToolId::LspSearch, &wire, &row);
+            assert_row_contract(ToolId::LspSearch, &row);
         }
         // An empty workspace-symbol answer is an empty row with its notice
         // and recovery leads, not a partial one.
@@ -128,7 +128,7 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
                 partial,
                 "{row}"
             );
-            assert_row_contract(ToolId::LspSearch, &wire, &row);
+            assert_row_contract(ToolId::LspSearch, &row);
         }
         client.stop().await.expect("fixture server closed");
     });
@@ -189,7 +189,7 @@ fn workspace_symbols_at_the_server_limit_say_capped() {
                         .is_some_and(|text| text.contains("at most 256 workspace symbols"))
                 });
             assert_eq!(says_capped, capped, "{name}: {row}");
-            assert_row_contract(ToolId::LspSearch, &wire, &row);
+            assert_row_contract(ToolId::LspSearch, &row);
         }
         client.stop().await.expect("fixture server closed");
     });

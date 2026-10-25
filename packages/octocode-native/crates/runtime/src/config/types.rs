@@ -278,9 +278,9 @@ impl ConfigOutput {
     }
     /// A digest of what this configuration makes a runtime do: its home, the
     /// resolved settings, the selected credential (by digest), and the
-    /// effective value of every variable the config contract declares. Two
-    /// configurations with equal digests run tools alike, so a warm server
-    /// keyed on it never answers under stale settings.
+    /// effective declared environment, excluding shell directory labels.
+    /// Runtime scope binds the actual working directory separately, so cold
+    /// and warm calls share an identity without trusting `PWD` or `OLDPWD`.
     #[must_use]
     pub fn identity_digest(&self) -> String {
         use std::fmt::Write as _;
@@ -294,6 +294,9 @@ impl ConfigOutput {
             );
         }
         for name in DECLARED_ENV_KEYS {
+            if super::SHELL_DIRECTORY_ENV.contains(name) {
+                continue;
+            }
             if let Some(value) = self.effective_env.get(*name) {
                 let _ = writeln!(identity, "{name}={value}");
             }

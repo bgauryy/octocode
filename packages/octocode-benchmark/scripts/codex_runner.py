@@ -54,7 +54,7 @@ def semantic_gates(server, env):
     credential = bool(effective.get('OCTOCODE_CLASSIFICATION_API', '').strip())
     selected = {name.strip() for name in effective.get('TOOLS_TO_RUN', '').split(',') if name.strip()}
     disabled = {name.strip() for name in effective.get('DISABLE_TOOLS', '').split(',') if name.strip()}
-    clasify = (credential and effective.get('OCTOCODE_BETA') == 'true'
+    clasify = (credential
                and (not selected or 'clasify' in selected) and 'clasify' not in disabled)
     # Readers expose classification whenever a provider credential exists, even with clasify hidden.
     return clasify, credential

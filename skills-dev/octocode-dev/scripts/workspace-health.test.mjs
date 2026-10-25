@@ -8,15 +8,23 @@ import { fileURLToPath } from 'node:url';
 
 const WORKSPACE_HEALTH_LIB = ['lib/workspaces.mjs', 'lib/workspace-checks.mjs', 'lib/workspace-run.mjs'];
 
-test('repo verify executes an additional workspace gate and propagates its failure', t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-verify-gates-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+function copyWorkspaceHealth(root) {
   const scripts = path.join(root, 'skills-dev/octocode-dev/scripts');
   fs.mkdirSync(scripts, { recursive: true });
   fs.mkdirSync(path.join(scripts, 'lib'));
   for (const name of ['workspace-health.mjs', 'artifact-freshness.mjs', ...WORKSPACE_HEALTH_LIB]) {
     fs.copyFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), path.join(scripts, name));
   }
+  const platform = 'packages/octocode-native/bin/platform.cjs';
+  fs.mkdirSync(path.dirname(path.join(root, platform)), { recursive: true });
+  fs.copyFileSync(fileURLToPath(new URL(`../../../${platform}`, import.meta.url)), path.join(root, platform));
+  return scripts;
+}
+
+test('repo verify executes an additional workspace gate and propagates its failure', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-verify-gates-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const scripts = copyWorkspaceHealth(root);
   for (const name of ['dedupe-deps.mjs', 'docs-verify.mjs', 'check-research-guidance.mjs', 'workspace-health.test.mjs']) fs.writeFileSync(path.join(scripts, name), '');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ workspaces: ['skills/*'] }));
   for (const [name, extra] of [['plain', {}], ['recovery', { verify: 'release-smoke' }]]) {
@@ -47,12 +55,7 @@ test('repo verify executes an additional workspace gate and propagates its failu
 test('check enforces the config/native layering and keeps mcp-cli standalone', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-layering-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const scripts = path.join(root, 'skills-dev/octocode-dev/scripts');
-  fs.mkdirSync(scripts, { recursive: true });
-  fs.mkdirSync(path.join(scripts, 'lib'));
-  for (const name of ['workspace-health.mjs', 'artifact-freshness.mjs', ...WORKSPACE_HEALTH_LIB]) {
-    fs.copyFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), path.join(scripts, name));
-  }
+  const scripts = copyWorkspaceHealth(root);
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
   const scriptSet = Object.fromEntries(['build', 'lint', 'test', 'typecheck', 'verify'].map(name => [name, name]));
   const write = (dir, pkg) => {

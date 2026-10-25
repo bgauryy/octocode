@@ -30,12 +30,6 @@ impl ResponsePageOptions {
         self.response_offset = Some(cursor.offset);
         self.paging = true;
     }
-    pub(crate) fn rows_scope(&self) -> bool {
-        self.paging
-    }
-    pub(crate) fn scoped(&self) -> bool {
-        self.paging
-    }
     pub(crate) fn pages(&self, structured: &Value, auto_page: usize) -> bool {
         self.paging
             || self
@@ -62,7 +56,6 @@ pub(crate) struct ResponsePagination {
     pub(crate) total_pages: usize,
     pub(crate) has_more: bool,
     pub(crate) returned_chars: usize,
-    pub(crate) total_chars: usize,
     pub(crate) snapshot: String,
     pub(crate) next_offset: Option<usize>,
     pub(crate) oversized: Option<bool>,

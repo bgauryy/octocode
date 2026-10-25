@@ -60,7 +60,7 @@ mod walk;
 mod words;
 
 pub use failure::LspFailure;
-use failure::{empty, failure, partial_with_retry, with_next};
+use failure::{empty, failure, partial_with_related_rerun, with_next};
 pub(crate) use output::Output;
 use page::*;
 use paths::*;

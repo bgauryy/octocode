@@ -33,11 +33,15 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
             .as_str()
             .is_some_and(|w| w.contains("deeper level"))
     );
-    assert_eq!(row["next"]["retry"]["tool"], "lspSearch");
+    let retry = crate::tools::test_support::checks::related_call(&row, "lspSearch", |_| true);
+    assert_eq!(
+        retry["input"]["queries"][0],
+        crate::tools::lsp_search::failure::same_query_rerun(&q)
+    );
     crate::contracts::validate_output("lspSearch", &public_row(&row))
         .expect("partial hierarchy row satisfies the output contract");
 
-    // The disclosure is one count plus next.retry; every distinct failure
+    // The disclosure is one count plus an optional reattempt; every distinct failure
     // is listed once, with its count, in the verbose `expansionFailures`.
     let mut failures = (0..6)
         .map(|n| expansion_error(&format!("LSP error: node {n}")))
@@ -78,7 +82,7 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
     );
 }
 
-/// `next.retry` only when asking again can change the answer: a relation
+/// An optional reattempt only when asking again can change the answer: a relation
 /// the walk could not establish is partial without it; a timed-out request
 /// beside it keeps it.
 #[test]
@@ -96,11 +100,21 @@ fn a_partial_walk_retries_only_a_transient_failure() {
         serde_json::json!(["typeHierarchyExpansionFailed"])
     );
     assert!(row.pointer("/next/retry").is_none(), "{row}");
+    assert!(
+        !row["related"].as_array().is_some_and(|calls| calls
+            .iter()
+            .any(|call| { call["kind"] == "related" && call["tool"] == "lspSearch" })),
+        "{row}"
+    );
 
     let timeout = LspFailure::overdue("no answer in time".into());
     let mut row = items_payload(&q, "subtypes", items, TEST_BUDGET);
     mark_partial_expansion(&mut row, &q, &[unestablished, timeout]);
-    assert_eq!(row["next"]["retry"]["tool"], "lspSearch", "{row}");
+    let retry = crate::tools::test_support::checks::related_call(&row, "lspSearch", |_| true);
+    assert_eq!(
+        retry["input"]["queries"][0],
+        crate::tools::lsp_search::failure::same_query_rerun(&q)
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]

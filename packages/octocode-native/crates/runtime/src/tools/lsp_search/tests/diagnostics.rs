@@ -104,7 +104,7 @@ fn diagnostics_use_the_one_based_public_coordinates() {
 }
 
 /// A server that pushed nothing inside the wait has not said "no
-/// diagnostics": the empty row is partial, with a retry, never a clean result.
+/// diagnostics": the empty row is partial, with an optional reattempt, never a clean result.
 #[test]
 fn unpublished_diagnostics_are_partial_not_clean() {
     let q = query(serde_json::json!({
@@ -118,7 +118,11 @@ fn unpublished_diagnostics_are_partial_not_clean() {
         serde_json::json!(["diagnosticsNotPublished"]),
         "{row}"
     );
-    assert_eq!(row["next"]["retry"]["tool"], "lspSearch", "{row}");
+    assert_eq!(
+        crate::tools::test_support::checks::related_call(&row, "lspSearch", |_| true)["tool"],
+        "lspSearch",
+        "{row}"
+    );
     assert!(
         row["reason"]
             .as_str()

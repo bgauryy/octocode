@@ -12,10 +12,10 @@ mod search_page;
 #[cfg(test)]
 mod selection_tests;
 
-use crate::id::ToolId;
+use crate::id::{ToolId, gh_search_code_policy::PAGE_SIZE};
 use crate::num::usize_of;
 use crate::response::paging::{mark_partial, push_warnings};
-use crate::response::result::{Continuation, ToolData, query_row};
+use crate::response::result::{Continuation, ToolData, fresh_query_row, query_row};
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{
     GhFailure, SearchCompleteness, SearchWindow, add_next, apply_partial, field_names, pick_rows,
@@ -54,8 +54,8 @@ pub async fn run(
         Some(context)
             if error.reason == Some(octocode_github::ProviderErrorReason::SearchWindowExceeded) =>
         {
-            let window_last = SearchWindow::PageEnd.last_page(per_search(query, page_size(query)));
-            let first = search_page(provider, query, 1, page_size(query), context)
+            let window_last = SearchWindow::PageEnd.last_page(per_search(query, PAGE_SIZE));
+            let first = search_page(provider, query, 1, PAGE_SIZE, context)
                 .await
                 .ok();
             let last = first
@@ -71,7 +71,7 @@ pub async fn run(
             search_failure(error),
             ToolId::GhSearchCode,
             query,
-            page_size(query),
+            PAGE_SIZE,
             repo,
         );
         if let Some((last, reachable)) = window {
@@ -80,7 +80,7 @@ pub async fn run(
             failure.message = format!(
                 "Page {} is past GitHub's search window: at pageSize {}, page {last} is the last{}.",
                 usize_of(query.page),
-                page_size(query),
+                PAGE_SIZE,
                 reachable.map_or_else(String::new, |total| format!(
                     ", reaching the first {total} results"
                 )),
@@ -120,11 +120,6 @@ fn per_search(query: &GhSearchCodeQuery, per: usize) -> usize {
     per.div_ceil(query.extensions.len().max(1)).max(1)
 }
 
-/// Files per page.
-fn page_size(_query: &GhSearchCodeQuery) -> usize {
-    crate::id::gh_search_code_policy::PAGE_SIZE
-}
-
 pub(crate) async fn execute(
     provider: &GitHubProvider,
     query: &GhSearchCodeQuery,
@@ -132,7 +127,7 @@ pub(crate) async fn execute(
     security: &(impl ContentScan + Sync),
 ) -> Result<ToolData, ProviderError> {
     let current = usize_of(query.page);
-    let per = page_size(query);
+    let per = PAGE_SIZE;
     SearchWindow::PageEnd.reject(current, per_search(query, per))?;
     // A ref search's lines are read at the ref's commit, which does not
     // depend on the hits: resolve it during the index search, not after.
@@ -178,14 +173,13 @@ pub(crate) async fn execute(
     // the files read through the contents API.
     let content_reads = resolution.as_ref().map_or(0, |resolution| resolution.reads);
     if resolution.is_none() {
-        code_output::index_commits(&mut value, &mut items, &data.items, query);
+        code_output::index_commits(&mut items, &data.items, query);
     }
-    let reads = code_output::shape_files(&mut value, &mut items, query, resolution);
+    let reads = code_output::shape_files(&mut items, query, resolution);
     if content_reads > 0 {
         value["contentReads"] = json!(content_reads);
     }
     code_output::merge_identical(&mut items);
-    code_output::hoist_shared(&mut value, &mut items);
     value["files"] = json!(items);
     // The shared sanitizer and selector need the captured hit evidence.
     // A classified response applies the caller's projection after selection.
@@ -302,9 +296,8 @@ async fn empty_page(
     .await?;
     if value.get("hints").is_none() && code_output::path_mode_given_code(query) {
         // Path matching never sees file contents: search them instead.
-        let mut content = query_row(query, &[]);
+        let mut content = fresh_query_row(ToolId::GhSearchCode, &query_row(query, &[]));
         content["matchIn"] = json!(["content"]);
-        content["page"] = json!(1);
         value["calls"]["findCode"] = Continuation::related(ToolId::GhSearchCode, content).build();
     }
     let hints = code_output::empty_hints(query);
@@ -327,7 +320,7 @@ async fn empty_page(
 }
 
 /// What a `fields` pick always keeps of a code row: its identity (path, and
-/// repository on owner-wide pages) and the facts that qualify its lines
+/// repository) and the facts that qualify its lines
 /// (where else the same evidence sits, how many hits exist, whether the
 /// lines were read at the ref, and the commit they were read at).
 const CODE_ROW_ID: &[&str] = &[

@@ -68,7 +68,7 @@ pub struct ArtifactItem {
     pub downloads_monthly: Option<u64>,
     /// Commit or tag this version was published from; it pins the
     /// `viewReleaseSource` lead. `verification` says how it was checked.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
     pub source_ref: Option<String>,
     /// How the release source is known: `provenance` (attested), `tag`
     /// (upstream tag checked to exist), `registryRef` (the registry said so,

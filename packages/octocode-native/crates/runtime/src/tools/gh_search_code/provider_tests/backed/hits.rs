@@ -6,8 +6,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Repo-scoped hits list every keyword line of the top files with its
-/// line number (`grep -n` over the fetched blob), name owner/repo
-/// once, and read the top hit by line range.
+/// line number, retain repository and commit identity, and read the top hit.
 #[tokio::test]
 async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
     let server = MockServer::builder().start().await;
@@ -32,10 +31,6 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
     .await
     .expect("search");
     let data = &out.data;
-    // A repo-scoped page echoes no owner/repo: they are the query's.
-    assert!(data.get("owner").is_none(), "{data}");
-    assert!(data.get("repo").is_none(), "{data}");
-    assert_eq!(data["commitSha"], TREE_SHA, "{data}");
     let files = data["files"].as_array().expect("files");
     let routing = files
         .iter()
@@ -51,10 +46,9 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
         "{data}"
     );
     for row in files {
-        assert!(
-            row.get("owner").is_none() && row.get("repo").is_none(),
-            "{row}"
-        );
+        assert_eq!(row["owner"], "a", "{row}");
+        assert_eq!(row["repo"], "b", "{row}");
+        assert_eq!(row["commitSha"], TREE_SHA, "{row}");
         assert!(
             row["matches"]
                 .as_array()
@@ -175,8 +169,7 @@ async fn fully_shown_hit_files_get_no_hit_read() {
     assert!(out.data["next"].get("readHits").is_none(), "{}", out.data);
 }
 
-/// Owner-wide searches spend no contents quota: rows keep their
-/// owner/repo, and fragment offsets stay out of default output.
+/// Unresolved owner-wide hits retain repository identity and fragment offsets.
 #[tokio::test]
 async fn owner_wide_hits_keep_fragments_without_offsets() {
     let server = MockServer::builder().start().await;
@@ -190,25 +183,12 @@ async fn owner_wide_hits_keep_fragments_without_offsets() {
     let out = run(&server, json!({"owner":"a","keywords":["wrap_app"]}))
         .await
         .expect("search");
-    // Every row is in a/b: the page names the repository once.
     let row = &out.data["files"][0];
-    assert_eq!(out.data["owner"], "a", "{}", out.data);
-    assert_eq!(out.data["repo"], "b", "{}", out.data);
-    assert!(row.get("owner").is_none(), "{}", out.data);
+    assert_eq!(row["owner"], "a", "{}", out.data);
+    assert_eq!(row["repo"], "b", "{}", out.data);
     assert!(row["matches"][0]["value"].is_string(), "{}", out.data);
-    // Offsets are a diagnostics extra (core field class): the default
-    // response drops them, `extras:["diagnostics"]` keeps them.
-
-    assert!(out.data.get("commitSha").is_none(), "{}", out.data);
-    // The diagnostics extra keeps the offsets.
-    let diagnostics = run(&server, json!({"owner":"a","keywords":["wrap_app"]}))
-        .await
-        .expect("search");
-    assert!(
-        diagnostics.data["files"][0]["matches"][0]["matchIndices"].is_array(),
-        "{}",
-        diagnostics.data
-    );
+    assert!(row.get("commitSha").is_none(), "{row}");
+    assert!(row["matches"][0]["matchIndices"].is_array(), "{row}");
 }
 
 /// Path matches carry no empty snippet list.

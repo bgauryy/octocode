@@ -99,7 +99,7 @@
     {"files":["packages/octocode-benchmark/local/e2e/harness/sensors.mjs"],"rules":{"complexity":["error",{"max":24}],"max-depth":["error",{"max":6}],"no-console":"off","unicorn/consistent-function-scoping":"off","unicorn/no-array-sort":"off"}},
     {"files":["packages/octocode-benchmark/local/e2e/harness/soak.mjs"],"rules":{"complexity":["error",{"max":23}],"no-console":"off","no-empty":"off","no-shadow":"off","unicorn/consistent-function-scoping":"off"}},
     {"files":["packages/octocode-benchmark/local/e2e/harness/tool-health.mjs"],"rules":{"no-console":"off"}},
-    {"files":["packages/octocode-benchmark/local/e2e/harness/tool-health/driver.mjs"],"rules":{"complexity":["error",{"max":42}],"max-depth":["error",{"max":5}],"unicorn/consistent-function-scoping":"off"}},
+    {"files":["packages/octocode-benchmark/local/e2e/harness/tool-health/driver.mjs"],"rules":{"complexity":["error",{"max":41}],"max-depth":["error",{"max":5}],"unicorn/consistent-function-scoping":"off"}},
     {"files":["packages/octocode-benchmark/local/e2e/harness/tool-health/mock-server.mjs"],"rules":{"no-console":"off"}},
     {"files":["packages/octocode-benchmark/local/e2e/harness/version-compare.mjs"],"rules":{"complexity":["error",{"max":19}],"max-depth":["error",{"max":5}],"no-console":"off","no-empty":"off","typescript/require-array-sort-compare":"off","unicorn/consistent-function-scoping":"off","unicorn/no-array-sort":"off"}},
     {"files":["packages/octocode-benchmark/scripts/classification_proxy.mjs"],"rules":{"complexity":["error",{"max":28}],"max-lines-per-function":["error",{"max":102,"skipBlankLines":false,"skipComments":false}],"unicorn/no-useless-spread":"off"}},

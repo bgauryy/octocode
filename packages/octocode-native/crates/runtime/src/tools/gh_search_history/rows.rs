@@ -142,32 +142,35 @@ pub(super) fn item_number(item: &Value) -> Option<u64> {
     item.get("number").and_then(Value::as_u64)
 }
 
-/// The repository a cross-repository row reads from, as the ghGetHistoryItem
-/// inputs it feeds: `repo` when the query fixed only the owner, `owner` and
-/// `repo` when it fixed neither; a repository-scoped row names neither.
+/// Retain a row's source identity, including when the request scoped the repository.
 pub(super) fn name_repository(
     row: &mut Value,
     item: &Value,
     owner: Option<&str>,
     repo: Option<&str>,
 ) {
-    if repo.is_some() {
-        return;
-    }
-    let Some((item_owner, item_repo)) = item_repo(item) else {
+    let Some((item_owner, item_repo)) =
+        item_repo(item).or_else(|| Some((owner?.to_owned(), repo?.to_owned())))
+    else {
         return;
     };
-    if owner.is_none_or(|owner| !owner.eq_ignore_ascii_case(&item_owner)) {
-        row["owner"] = json!(item_owner);
-    }
+    row["owner"] = json!(item_owner);
     row["repo"] = json!(item_repo);
 }
 
 /// `owner`/`repo` of a search item, from its `repository_url`
 /// (`…/repos/{owner}/{repo}`).
 pub(super) fn item_repo(item: &Value) -> Option<(String, String)> {
-    let url = item.get("repository_url").and_then(Value::as_str)?;
-    let (owner, repo) = url.rsplit_once("/repos/")?.1.split_once('/')?;
+    let full_name = item
+        .pointer("/repository/full_name")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            item.get("repository_url")
+                .and_then(Value::as_str)?
+                .rsplit_once("/repos/")
+                .map(|(_, name)| name)
+        })?;
+    let (owner, repo) = full_name.split_once('/')?;
     (!owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
         .then(|| (owner.to_owned(), repo.to_owned()))
 }

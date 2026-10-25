@@ -87,15 +87,19 @@ fn terminal_json_is_indented() {
             stderr(&output)
         );
         let value: Value = serde_json::from_str(&shown).expect("JSON on the terminal");
+        let piped = workspace.cli().args(&args).output().expect("piped JSON");
+        assert!(piped.status.success(), "{args:?}: {}", stderr(&piped));
         assert_eq!(
-            shown,
-            format!(
-                "{}\n",
-                serde_json::to_string_pretty(&value).expect("pretty")
-            ),
-            "{args:?}"
+            value,
+            serde_json::from_slice::<Value>(&piped.stdout).expect("same JSON in a pipe"),
+            "terminal formatting must preserve every value: {args:?}"
         );
-        assert!(shown.lines().count() > 1, "{args:?}: {shown}");
+        assert!(
+            shown.lines().any(|line| {
+                line.starts_with(char::is_whitespace) && line.trim_start().starts_with('"')
+            }),
+            "terminal object fields must be indented: {args:?}: {shown}"
+        );
     }
 }
 

@@ -179,6 +179,7 @@
   },
   {
     "id": "artifact.registry-query",
+    "diagnostics": true,
     "tool": "artifactSearch",
     "accepted": false,
     "input": {
@@ -190,10 +191,21 @@
           "registryUrl": "https://registry.example.org/?token=x"
         }
       ]
-    }
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "registryUrl"
+        ],
+        "message": "Use an HTTP(S) registry URL without credentials, query or fragment."
+      }
+    ]
   },
   {
     "id": "artifact.registry-fragment",
+    "diagnostics": true,
     "tool": "artifactSearch",
     "accepted": false,
     "input": {
@@ -205,10 +217,21 @@
           "registryUrl": "https://registry.example.org/#package"
         }
       ]
-    }
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "registryUrl"
+        ],
+        "message": "Use an HTTP(S) registry URL without credentials, query or fragment."
+      }
+    ]
   },
   {
     "id": "artifact.registry-invalid",
+    "diagnostics": false,
     "tool": "artifactSearch",
     "accepted": false,
     "input": {
@@ -1069,6 +1092,378 @@
     }
   },
   {
+    "id": "ast-search.ordinal-boundary-0",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "2147483647n+2147483647"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "page": 1,
+          "operation": "match",
+          "matchPage": 1,
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "nthChild": "2147483647n+2147483647"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-1",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "-2147483648n-2147483648"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "page": 1,
+          "operation": "match",
+          "matchPage": 1,
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "nthChild": "-2147483648n-2147483648"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-2",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "0 0 2n - 0 1"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "page": 1,
+          "operation": "match",
+          "matchPage": 1,
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "nthChild": "0 0 2n - 0 1"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-3",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "n+ 2"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "page": 1,
+          "operation": "match",
+          "matchPage": 1,
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "nthChild": "n+ 2"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-4",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "2147483648n"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ast-search.ordinal-boundary-5",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "-2147483649"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ast-search.ordinal-boundary-6",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "n+2147483648"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ast-search.ordinal-boundary-7",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "n﻿+2"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "artifact.registry-empty-query",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https://registry.example.org/?"
+        }
+      ]
+    },
+    "accepted": false,
+    "diagnostics": true,
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "registryUrl"
+        ],
+        "message": "Use an HTTP(S) registry URL without credentials, query or fragment."
+      }
+    ]
+  },
+  {
+    "id": "artifact.registry-empty-fragment",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https://registry.example.org/#"
+        }
+      ]
+    },
+    "accepted": false,
+    "diagnostics": true,
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "registryUrl"
+        ],
+        "message": "Use an HTTP(S) registry URL without credentials, query or fragment."
+      }
+    ]
+  },
+  {
+    "id": "artifact.registry-components-0",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https://registry.example.org/%3F%23"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https://registry.example.org/%3F%23"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.registry-components-1",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "HTTPS://registry.example.org/npm/"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "HTTPS://registry.example.org/npm/"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.registry-components-2",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https:/registry.example.org/"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https:/registry.example.org/"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.multiple-box-diagnostics",
+    "tool": "clasify",
+    "input": {
+      "queries": [
+        {
+          "operation": "models"
+        },
+        {
+          "operation": "evaluate",
+          "content": "a picture",
+          "questions": {
+            "first": {
+              "type": "box"
+            },
+            "last": {
+              "type": "box"
+            }
+          }
+        }
+      ]
+    },
+    "accepted": false,
+    "diagnostics": true,
+    "issues": [
+      {
+        "path": [
+          "queries",
+          1,
+          "questions",
+          "first"
+        ],
+        "message": "box questions need an image in assets."
+      },
+      {
+        "path": [
+          "queries",
+          1,
+          "questions",
+          "last"
+        ],
+        "message": "box questions need an image in assets."
+      }
+    ]
+  },
+  {
     "id": "github-repo.keyword-only",
     "tool": "ghSearchRepo",
     "accepted": true,
@@ -1514,6 +1909,7 @@
   },
   {
     "id": "github-code.ref-without-repo",
+    "diagnostics": true,
     "tool": "ghSearchCode",
     "accepted": false,
     "input": {
@@ -1526,7 +1922,17 @@
           "ref": "main"
         }
       ]
-    }
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "repo"
+        ],
+        "message": "ref requires one repository."
+      }
+    ]
   },
   {
     "id": "github-code.path-classification",
@@ -1885,6 +2291,7 @@
   },
   {
     "id": "structure-search.depth-range",
+    "diagnostics": true,
     "tool": "structureSearch",
     "accepted": false,
     "input": {
@@ -1896,7 +2303,17 @@
           "maxDepth": 2
         }
       ]
-    }
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "minDepth"
+        ],
+        "message": "minDepth must be less than or equal to maxDepth."
+      }
+    ]
   },
   {
     "id": "history-search.global-pr",
@@ -2259,6 +2676,7 @@
   },
   {
     "id": "history-search.open-merged",
+    "diagnostics": true,
     "tool": "ghSearchHistory",
     "accepted": false,
     "input": {
@@ -2273,7 +2691,18 @@
           }
         }
       ]
-    }
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "filters",
+          "isMerged"
+        ],
+        "message": "An open pull request cannot be merged."
+      }
+    ]
   },
   {
     "id": "history-search.issue-scope",
@@ -3611,6 +4040,7 @@
   },
   {
     "id": "lsp.proc-macros",
+    "diagnostics": true,
     "tool": "lspSearch",
     "accepted": false,
     "input": {
@@ -3623,7 +4053,18 @@
           }
         }
       ]
-    }
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "rustContext",
+          "procMacros"
+        ],
+        "message": "procMacros requires buildScripts:true because rust-analyzer builds procedural macros through Cargo."
+      }
+    ]
   },
   {
     "id": "lsp.callers-depth-zero",
@@ -4302,6 +4743,7 @@
   },
   {
     "id": "clasify.box-without-image",
+    "diagnostics": true,
     "tool": "clasify",
     "accepted": false,
     "messages": [
@@ -4320,7 +4762,18 @@
           }
         }
       ]
-    }
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "questions",
+          "where"
+        ],
+        "message": "box questions need an image in assets."
+      }
+    ]
   },
   {
     "id": "clasify.sections-empty",

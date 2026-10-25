@@ -75,9 +75,8 @@ pub(super) struct FragmentArena {
     pub(super) records: Vec<RecordSplit>,
     pub(super) collection_paths: Option<&'static [&'static str]>,
     pub(super) splits: Vec<RowSplit>,
-    /// Fields an entry schema of the responding tool requires: a later
-    /// slice keeps them on the elements it passes through.
-    pub(super) required: Option<&'static std::collections::BTreeSet<String>>,
+    /// Core-declared required and optional context for later entry fragments.
+    pub(super) page_context: Option<&'static crate::contracts::output_fields::PageContextFields>,
 }
 
 impl FragmentArena {
@@ -266,9 +265,9 @@ impl FragmentArena {
         let mut value = self.build(fragment);
         // Pruned once the fragment is whole: a list the skeleton emptied
         // may be the slot a joined split fills.
-        if let Some(required) = self.required {
+        if let Some(context) = self.page_context {
             for pointer in later {
-                drop_emptied_lists(&mut value, &pointer, required);
+                drop_emptied_lists(&mut value, &pointer, &context.required);
             }
         }
         value
@@ -310,8 +309,8 @@ impl FragmentArena {
                 let mut value = row_split.skeleton.clone();
                 if *start > 0 {
                     empty_secondary_lists(&mut value, &row_split.pointer);
-                    if let Some(required) = self.required {
-                        lean_elements(&mut value, &row_split.pointer, required);
+                    if let Some(context) = self.page_context {
+                        lean_elements(&mut value, &row_split.pointer, context);
                     }
                 }
                 if let Some(slot) = value.pointer_mut(&row_split.pointer) {

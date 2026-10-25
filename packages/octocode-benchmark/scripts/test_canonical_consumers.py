@@ -1,9 +1,11 @@
-"""Current benchmark callers execute real local requests without provider traffic."""
+"""Current benchmark callers execute real local requests without provider inference."""
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+from threading import Thread
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +16,17 @@ from mcp_probe import LOCAL_READERS, probe
 ROOT = Path(__file__).resolve().parents[3]
 
 
+class ProviderPing(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200 if self.path == '/v1/models' else 404)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(b'{"models":[]}')
+
+    def log_message(self, *_args):
+        pass
+
+
 class CurrentConsumerTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='octocode-benchmark-contract-')
@@ -21,6 +34,10 @@ class CurrentConsumerTests(unittest.TestCase):
         self.root = Path(self.directory.name).resolve()
         self.lab = self.root / 'lab'
         self.lab.mkdir()
+        provider = ThreadingHTTPServer(('127.0.0.1', 0), ProviderPing)
+        self.addCleanup(provider.server_close)
+        self.addCleanup(provider.shutdown)
+        Thread(target=provider.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True).start()
         resolver = ROOT / 'packages/octocode-native/bin/resolve-binary.cjs'
         self.binary = Path(subprocess.check_output(
             ['node', '-e', 'process.stdout.write(require(process.argv[1]).resolveNativeBinaryPath())', str(resolver)],
@@ -28,8 +45,8 @@ class CurrentConsumerTests(unittest.TestCase):
         env = {'PATH': os.environ['PATH'], 'HOME': str(self.root), 'OCTOCODE_HOME': str(self.root / 'octocode'),
                'OCTOCODE_ENABLE_LOCAL': 'true', 'OCTOCODE_STORAGE_MODE': 'persistent',
                'WORKSPACE_ROOT': str(self.lab), 'ALLOWED_PATHS': str(self.lab),
-               'OCTOCODE_CLASSIFICATION_API': 'fixture-key', 'OCTOCODE_CLASSIFICATION_API_HOST': 'http://127.0.0.1:9',
-               'OCTOCODE_BETA': 'true', 'NO_PROXY': '127.0.0.1,localhost',
+               'OCTOCODE_CLASSIFICATION_API': 'fixture-key', 'OCTOCODE_CLASSIFICATION_API_HOST': f'http://127.0.0.1:{provider.server_port}',
+               'OCTOCODE_BETA': 'false', 'NO_PROXY': '127.0.0.1,localhost',
                'HTTP_PROXY': 'http://127.0.0.1:9', 'HTTPS_PROXY': 'http://127.0.0.1:9'}
         self.environment = patch.dict(os.environ, env, clear=True)
         self.environment.start()

@@ -6,12 +6,28 @@ import { dataOf, rowsOf } from './driver.mjs';
 const CLI_ONLY = new Set(contract.tools.filter(tool => tool.cliOnly).map(tool => tool.name));
 const EXIT = { invalidInput: 2, notFound: 3, authentication: 4, permission: 4, execution: 5, rateLimited: 7 };
 
+export function transportPagesProblem(surface, responses) {
+  const json = responses.length === 1 && !responses[0].json?.responsePagination
+    ? responses[0].json : { results: responses.flatMap(response => rowsOf(response.json)) };
+  for (const [index, response] of responses.entries()) {
+    // Rejected admission rows appear only in the first response. Later CLI
+    // requests resume the admitted work, whose failure class can differ.
+    const outcome = surface === 'cli' && index > 0 ? response.json : json;
+    const problem = transportProblem(surface, { ...response, json: outcome });
+    if (problem) return problem;
+  }
+  return null;
+}
+
 export function transportProblem(surface, response) {
   const { json } = response;
   const rows = rowsOf(json);
   const failures = rows.filter(row => row.status === 'error' || row.data?.errorCode);
+  // A display page cannot reveal siblings on other pages. The completed walk
+  // checks the full logical batch with transportPagesProblem.
+  if (json?.responsePagination && !json.errorCode) return partialTransportProblem(surface, response, rows, failures);
   if (surface === 'mcp') {
-    const allFailed = !!json?.errorCode || rows.length > 0 && failures.length === rows.length;
+    const allFailed = allRowsFailed(json, rows, failures);
     return response.isError === allFailed ? null : `isError ${response.isError}, expected ${allFailed}`;
   }
   const classes = new Set([json?.errorCode, ...failures.map(row => row.data?.errorCode)].filter(Boolean).map(code => contract.errorCodes[code]));
@@ -19,6 +35,14 @@ export function transportProblem(surface, response) {
   if (classes.has('invalidInput')) exit = 2;
   else if (classes.size) exit = classes.size === 1 ? EXIT[[...classes][0]] : 5;
   return response.status === exit ? null : `exit ${response.status}, expected ${exit}`;
+}
+
+const allRowsFailed = (json, rows, failures) => !!json?.errorCode || rows.length > 0 && failures.length === rows.length;
+
+function partialTransportProblem(surface, response, rows, failures) {
+  if (surface === 'mcp') return response.isError && failures.length < rows.length ? 'isError true despite a successful batch row' : null;
+  if (failures.some(row => row.data?.errorCode === 'invalidInput')) return response.status === 2 ? null : `exit ${response.status}, expected 2`;
+  return [0, 1, 2, 3, 4, 5, 7].includes(response.status) ? null : `invalid exit ${response.status}`;
 }
 
 export function firstError(json) {

@@ -2,6 +2,7 @@
 // credential per tool and surface, and a TLS proxy that answers registry hosts
 // locally. The built CLI and MCP server return uniform response records.
 import { spawnSync } from 'node:child_process';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,6 +20,9 @@ const ISOLATED_NAMES = new Set(['ALLOWED_PATHS', 'WORKSPACE_ROOT', 'TOOLS_TO_RUN
 
 /** One fake credential per tool and surface: the runtime paces GitHub searches per credential. */
 export const tokenFor = (tool, surface) => ['th', 'fake', tool, surface, String(process.pid)].join('-');
+
+/** Startup may ping model readiness even when admission rejects the tool input. */
+export const withoutReadinessPings = requests => requests.filter(entry => entry.request !== 'GET /v1/models');
 
 function lspAvailable(fixture, env) {
   const names = ['tsgo', 'tsserver', 'typescript-language-server'];
@@ -90,8 +94,10 @@ export async function startSurfaces(fixture) {
   catch (error) { await mock.close(); fs.rmSync(tmp, { recursive: true, force: true }); throw error; }
   const env = { ...hermeticEnv(home, mock.url), HTTPS_PROXY: registry.proxyUrl, https_proxy: registry.proxyUrl, SSL_CERT_FILE: registry.caFile, SSL_CERT_DIR: '' };
   const envFor = (tool, surface) => ({ ...env, GITHUB_TOKEN: tokenFor(tool, surface), OCTOCODE_CLASSIFICATION_API: tokenFor(tool, surface) });
+  const scenario = new AsyncLocalStorage();
+  let scenarioIndex = 0;
   /** The CLI, asynchronously so tools run in parallel. */
-  const cliArgs = async (argv, { tool = 'schema', cwd = fixture, extraEnv = {} } = {}) => cliRecord(await spawnCli(argv, { cwd, env: { ...envFor(tool, 'cli'), ...extraEnv } }));
+  const cliArgs = async (argv, { tool = 'schema', cwd = fixture, extraEnv = {} } = {}) => cliRecord(await spawnCli(argv, { cwd, env: { ...envFor(tool, 'cli'), ...(scenario.getStore()?.surface === 'cli' ? scenario.getStore().env : {}), ...extraEnv } }));
   return {
     ctx: { mock, registry, fixture, tmp },
     workspace: name => {
@@ -102,7 +108,13 @@ export async function startSurfaces(fixture) {
     cliArgs,
     cliCall: (tool, input, { credentialTool = tool, ...opts } = {}) => cliArgs([tool, JSON.stringify(input), '--json'], { tool: credentialTool, ...opts }),
     mcpServer: (tool, cwd) => startServer({ cwd, env: envFor(tool, 'mcp'), replaceEnv: true, timeoutMs: 60_000 }),
-    mcpCall,
+    mcpCall: (server, tool, input) => mcpCall(scenario.getStore()?.server ?? server, tool, input),
+    scenario: async ({ tool, surface, cwd = fixture, name }, callback) => {
+      const scopedEnv = envFor(`${tool}-${name}-${++scenarioIndex}`, surface);
+      const server = surface === 'mcp' ? await startServer({ cwd, env: scopedEnv, replaceEnv: true, timeoutMs: 60_000 }) : null;
+      try { return await scenario.run({ surface, env: scopedEnv, server }, callback); }
+      finally { server?.close(); }
+    },
     needs: {
       lsp: () => lspAvailable(fixture, env),
       clone: () => (mock.git ? null : `git smart-HTTP mock unavailable: ${mock.gitUnavailable}`),

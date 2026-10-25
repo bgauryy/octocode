@@ -48,7 +48,7 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
             pages += 1;
             assert!(pages <= 3);
             let data = read(&server, query.clone()).await;
-            assert_history_page_contract(&query, &data);
+            assert_history_page_contract(&data);
             all.extend(
                 data["pullRequests"][0]["commits"]
                     .as_array()
@@ -144,7 +144,7 @@ async fn commit_file_boundary_is_a_lower_bound_with_or_without_a_final_link() {
                 "no phantom page past the hard provider boundary"
             );
             let data = read(&server, query.clone()).await;
-            assert_history_page_contract(&query, &data);
+            assert_history_page_contract(&data);
             all.extend(data["files"].as_array().expect("files").iter().map(|file| {
                 file.as_str()
                     .expect("root-file inventory row")
@@ -218,7 +218,7 @@ async fn a_commit_under_the_commit_page_counts_every_file_on_a_small_page() {
     let query = json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,
         "sections":["files"],"pageSize":20});
     let data = read(&server, query.clone()).await;
-    assert_history_page_contract(&query, &data);
+    assert_history_page_contract(&data);
     assert_eq!(data["changedFilesCount"], 113, "{data}");
     assert!(data.get("changedFilesCountScope").is_none(), "{data}");
     let page = &data["contentPagination"]["files"];

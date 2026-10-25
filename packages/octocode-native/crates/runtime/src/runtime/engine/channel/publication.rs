@@ -32,11 +32,7 @@ impl ChannelRun {
             }
         }
         pending.bind_github_identity(identity);
-        if self.cursors.retain(pending) {
-            Ok(())
-        } else {
-            Err(ExecutionError::WorkerFailed)
-        }
+        self.cursors.retain(pending, context)
     }
 
     pub(super) fn publish(
@@ -45,14 +41,25 @@ impl ChannelRun {
         scope: &continuations::Scope<'_>,
         pending: &mut Pending,
     ) -> Result<(), contracts::ContractValidationError> {
-        continuations::finalize(structured, self.id, scope, &mut |target, mut input| {
-            if input.get("responseChars").is_none()
-                && let Some(chars) = self.response_query.get("responseChars")
-            {
-                input["responseChars"] = chars.clone();
-            }
-            pending.insert(target, input, SavedWork::ToolResume)
-        })
+        continuations::finalize(
+            structured,
+            self.id,
+            scope,
+            &mut |target, mut input, origin| {
+                if input.get("responseChars").is_none()
+                    && let Some(chars) = self.response_query.get("responseChars")
+                {
+                    input["responseChars"] = chars.clone();
+                }
+                pending.insert(
+                    target,
+                    input,
+                    SavedWork::ToolResume {
+                        index: self.origin_index.or(origin),
+                    },
+                )
+            },
+        )
     }
 
     pub(super) fn register_page(

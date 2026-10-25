@@ -57,7 +57,7 @@ describe('published package release contract', () => {
     );
   });
 
-  it('advertises both beta and API prerequisites for clasify', async () => {
+  it('advertises the API prerequisite for clasify independently of beta', async () => {
     const { configFieldEnvName } = await import('@octocodeai/config');
     const { getPublicToolCatalog, TOOL_NAMES } =
       await import('@octocodeai/config/schema');
@@ -68,7 +68,10 @@ describe('published package release contract', () => {
     const apiEnv = configFieldEnvName('classification.api');
 
     expect(descriptions.get(TOOL_NAMES.CLASIFY)).toContain(
-      `(${betaGate} and ${apiEnv})`
+      `(conditional: requires ${apiEnv})`
+    );
+    expect(descriptions.get(TOOL_NAMES.CLASIFY)).not.toContain(
+      configFieldEnvName('local.beta')
     );
     for (const tool of getPublicToolCatalog().tools) {
       if (

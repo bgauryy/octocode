@@ -97,12 +97,7 @@ impl Operation<'_, '_> {
                 .await
         };
         if !warnings.is_empty() {
-            super::super::failure::partial_with_retry(
-                &mut row,
-                query,
-                "definitionHopFailed",
-                &warnings,
-            );
+            crate::response::paging::mark_partial(&mut row, "definitionHopFailed", &warnings);
         }
         Ok(row)
     }

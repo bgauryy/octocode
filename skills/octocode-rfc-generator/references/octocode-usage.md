@@ -24,11 +24,11 @@ Use observed paths, lines, refs and identifiers. Shared fields have one form: `m
 
 Inspect schema availability, auth status and `lsp-server status <file>` as needed. Unavailable is a coverage gap, not an empty answer. `ghCloneRepo` is CLI-only and needs persistent storage; local analysis also needs local tools enabled.
 
-Follow [configuration](configuration.md) for credentials/settings. Inline `classification:{predicates:[...],context?,longContext?}` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. Public clasify additionally requires beta. No setting change is implied by a missing capability.
+Follow [configuration](configuration.md) for credentials/settings. Inline `classification:{predicates:[...],context?,longContext?}` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. Public clasify also requires a successful provider ping; beta is not required. No setting change is implied by a missing capability.
 
 ## 14 public tools
 
-The default catalog contains 12 tools over MCP and 13 in the CLI; the full inventory includes beta clasify. Discovery is authoritative for the configured environment.
+The default catalog contains 12 tools over MCP and 13 in the CLI; the full inventory includes clasify when its provider is configured and its ping succeeds. Discovery is authoritative for the configured environment.
 
 - GitHub: ghSearchRepo, ghSearchCode, ghStructure, ghGetFileContent, ghSearchHistory, ghGetHistoryItem, ghCloneRepo.
 - Local: localSearch, structureSearch, astSearch, localFetch, lspSearch.

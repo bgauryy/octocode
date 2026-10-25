@@ -64,6 +64,31 @@ fn arbitrary_selector_names_obey_their_schema() {
 }
 
 #[test]
+fn an_explicit_selector_keeps_its_branch_over_a_closer_sibling_shape() {
+    let point = json!({"type":"object","additionalProperties":false,
+        "properties":{"format":{"const":"point"}},"required":["format"]});
+    let walk = json!({"type":"object","additionalProperties":false,
+        "properties":{"format":{"const":"walk"},"depth":{"type":"integer"}},
+        "required":["format","depth"]});
+    for branches in [vec![walk.clone(), point.clone()], vec![point, walk]] {
+        let schema = json!({"anyOf":branches});
+        let mut value = json!({"format":"point","depth":2});
+        let before = value.clone();
+        let error = validate_schema(&schema, &schema, &mut value, &mut vec![])
+            .expect_err("a point has no walk depth");
+        assert_eq!(value, before);
+        assert_eq!(error.issues.len(), 1, "{error:?}");
+        assert_eq!(error.issues[0].path, ["depth"]);
+        assert_eq!(error.issues[0].rule_id, "schema.unknown-field");
+        let message = crate::contracts::format_input_error("example", &error).to_string();
+        assert!(message.contains("walk"), "{message}");
+        value["format"] = json!("walk");
+        validate_schema(&schema, &schema, &mut value, &mut vec![])
+            .expect("the stated format admits its field");
+    }
+}
+
+#[test]
 fn ordered_bounds_in_a_union_report_the_invalid_bound() {
     for (kind, lower, upper) in [
         ("number", json!(12), json!(4)),
@@ -134,6 +159,78 @@ fn reversed_source_ranges_keep_the_range_diagnostic_in_every_read_form() {
             query["ranges"][0]["endLine"] = json!(12);
             prepare_many_and_validate(tool, json!({"queries":[query]}))
                 .expect("repairing the bound preserves the read form");
+        }
+    }
+}
+
+#[test]
+fn a_declared_field_with_wrong_type_is_not_diagnosed_as_an_unknown_field() {
+    let bare = json!({"type":"object","additionalProperties":false,
+        "properties":{"name":{"type":"string"}},"required":["name"]});
+    let selected = json!({"type":"object","additionalProperties":false,
+        "properties":{"name":{"type":"string"},"patterns":{"type":"array","items":{"type":"string"}}},
+        "required":["name","patterns"]});
+    for branches in [vec![bare.clone(), selected.clone()], vec![selected, bare]] {
+        let schema = json!({"anyOf":branches});
+        let mut value = json!({"name":"source","patterns":"needle"});
+        let before = value.clone();
+        let error = validate_schema(&schema, &schema, &mut value, &mut vec![])
+            .expect_err("a scalar is not an array");
+        assert_eq!(value, before);
+        assert_eq!(error.issues.len(), 1, "{error:?}");
+        assert_eq!(error.issues[0].path, ["patterns"]);
+        assert_eq!(error.issues[0].rule_id, "schema.type");
+        value["patterns"] = json!(["needle"]);
+        validate_schema(&schema, &schema, &mut value, &mut vec![])
+            .expect("repairing the type preserves the selected form");
+        value["unknown"] = json!(true);
+        let error = validate_schema(&schema, &schema, &mut value, &mut vec![])
+            .expect_err("unknown fields remain rejected");
+        assert_eq!(error.issues.len(), 1, "{error:?}");
+        assert_eq!(error.issues[0].path, ["unknown"]);
+        assert_eq!(error.issues[0].rule_id, "schema.unknown-field");
+    }
+}
+
+#[test]
+fn reader_matching_forms_report_the_invalid_field_types() {
+    for tool in ["localFetch", "ghGetFileContent"] {
+        for (patterns, context, fields) in [
+            (
+                json!("needle"),
+                json!({"before":8,"after":8}),
+                vec!["matchString"],
+            ),
+            (json!(["needle"]), json!(8), vec!["contextLines"]),
+            (
+                json!("needle"),
+                json!(8),
+                vec!["matchString", "contextLines"],
+            ),
+        ] {
+            let mut query =
+                json!({"path":"source.rs","matchString":patterns,"contextLines":context});
+            if tool == "ghGetFileContent" {
+                query["owner"] = json!("o");
+                query["repo"] = json!("r");
+            }
+            let error = prepare_many_and_validate(tool, json!({"queries":[query.clone()]}))
+                .expect_err("invalid field types");
+            assert_eq!(error.issues.len(), fields.len(), "{tool}: {error:?}");
+            for field in fields {
+                assert!(
+                    error.issues.iter().any(|issue| {
+                        issue.path == ["queries", "0", field] && issue.rule_id == "schema.type"
+                    }),
+                    "{tool}: {field}: {error:?}"
+                );
+            }
+            let rendered = crate::contracts::format_input_error(tool, &error).to_string();
+            assert!(!rendered.contains("Unknown field"), "{tool}: {rendered}");
+            query["matchString"] = json!(["needle"]);
+            query["contextLines"] = json!({"before":8,"after":8});
+            prepare_many_and_validate(tool, json!({"queries":[query]}))
+                .expect("correcting only the field types admits the matching form");
         }
     }
 }

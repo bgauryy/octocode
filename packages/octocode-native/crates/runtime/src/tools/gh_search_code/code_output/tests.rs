@@ -1,48 +1,68 @@
-//! Row shaping: hoisted shared fields, repo-scoped echoes, identical files listed once.
+//! File identity, source-read guidance, and identical evidence at multiple paths.
 use super::super::leads::unsearched_ref_read;
 use super::*;
 
-/// An owner-wide page whose rows share a repository and commit names
-/// them once on the row; a field the rows disagree on stays per row.
+/// Shaping preserves source identity for both repository and owner scopes,
+/// with or without resolved source lines.
 #[test]
-fn owner_wide_rows_hoist_shared_repository_and_commit() {
-    let mut value = json!({});
-    let mut items = vec![
-        json!({"owner":"o","repo":"r","commitSha":"c1","path":"a.rs"}),
-        json!({"owner":"o","repo":"r","commitSha":"c1","path":"b.rs"}),
-    ];
-    hoist_shared(&mut value, &mut items);
-    assert_eq!(value, json!({"owner":"o","repo":"r","commitSha":"c1"}));
-    assert_eq!(items, vec![json!({"path":"a.rs"}), json!({"path":"b.rs"})]);
-    let mut value = json!({});
-    let mut items = vec![
-        json!({"owner":"o","repo":"r","commitSha":"c1","path":"a.rs"}),
-        json!({"owner":"o","repo":"s","commitSha":"c2","path":"b.rs"}),
-        json!({"owner":"o","repo":"s","path":"c.rs"}),
-    ];
-    hoist_shared(&mut value, &mut items);
-    assert_eq!(value, json!({"owner":"o"}));
-    assert_eq!(items[0], json!({"repo":"r","commitSha":"c1","path":"a.rs"}));
-    assert_eq!(items[2], json!({"repo":"s","path":"c.rs"}));
+fn shaped_files_retain_repository_and_commit_identity() {
+    use super::super::lines::FileHits;
+    for repo in [Some("r"), None] {
+        let query: GhSearchCodeQuery = serde_json::from_value(json!({
+            "owner":"o", "repo":repo, "keywords":["needle"]
+        }))
+        .expect("query");
+        for resolved in [false, true] {
+            let sha = "a".repeat(40);
+            let mut items = vec![
+                json!({"owner":"o","repo":"r","path":"a.rs","matches":[]}),
+                json!({"owner":"o","repo":"r","path":"b.rs","matches":[]}),
+            ];
+            let resolution = resolved.then(|| Resolution {
+                sha: Some(sha.clone()),
+                reference: None,
+                reads: 2,
+                hits: (0..2)
+                    .map(|_| {
+                        (
+                            sha.clone(),
+                            FileHits::Lines {
+                                lines: vec!["1\tneedle".into()],
+                                clipped: false,
+                                first: 1,
+                                last: 1,
+                                best: 1,
+                                total: 1,
+                                line_count: 1,
+                                declaration: None,
+                                resume_after: None,
+                            },
+                        )
+                    })
+                    .collect(),
+            });
+            shape_files(&mut items, &query, resolution);
+            for (row, path) in items.iter().zip(["a.rs", "b.rs"]) {
+                assert_eq!(row["owner"], "o");
+                assert_eq!(row["repo"], "r");
+                assert_eq!(row["path"], path);
+                if resolved {
+                    assert_eq!(row["commitSha"], sha);
+                    assert_eq!(row["lines"], json!(["1\tneedle"]));
+                } else {
+                    assert!(row.get("commitSha").is_none());
+                }
+            }
+        }
+    }
 }
 
-/// A repo-scoped page names no owner/repo: they are the query's, and the
-/// shared minimizer would drop the echo.
 #[test]
-fn repo_scoped_pages_carry_no_owner_repo_echo() {
+fn unsearched_ref_guidance_distinguishes_named_files_and_scopes() {
     let query: GhSearchCodeQuery = serde_json::from_value(json!({
         "owner":"o","repo":"r","keywords":["x"],"ref":"dev"
     }))
     .expect("query");
-    let mut value = json!({});
-    let mut items = vec![json!({"owner":"o","repo":"r","path":"src/a.rs","matches":[]})];
-    shape_files(&mut value, &mut items, &query, None);
-    assert!(value.get("owner").is_none(), "{value}");
-    assert!(value.get("repo").is_none(), "{value}");
-    // The index is always the default branch (the description says
-    // so): no constant `indexRef` echo.
-    assert!(value.get("indexRef").is_none(), "{value}");
-    assert!(items[0].get("owner").is_none(), "{:?}", items[0]);
     // The empty row's one fact is the ref the index did not cover; a
     // named file at that ref is read there.
     assert_eq!(
@@ -105,8 +125,8 @@ fn identical_files_are_listed_once_with_every_path() {
     );
 }
 
-/// Evidence is every field but `pathPrefix`, wherever `pathPrefix` sits in the row and
-/// in the row's order; a row without a `pathPrefix` is never merged.
+/// Evidence is every field but `path`, wherever `path` sits in the row and
+/// in the row's order; a row without a `path` is never merged.
 #[test]
 fn identical_evidence_ignores_only_the_path_entry() {
     let lines = json!(["1\tfn main()"]);

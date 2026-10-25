@@ -238,18 +238,19 @@ pub(super) fn mixed_forms(
     None
 }
 
-pub(super) fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {
+/// Honor explicit selectors before comparing the fields of failed branches.
+pub(super) fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 5] {
     let at_field = |issue: &&ValidationIssue| issue.path.len() == depth + 1;
     [
         issues
             .iter()
             .filter(at_field)
-            .filter(|issue| {
-                matches!(
-                    issue.rule_id.as_str(),
-                    "schema.const" | "schema.enum" | "schema.unknown-field"
-                )
-            })
+            .filter(|issue| matches!(issue.rule_id.as_str(), "schema.const" | "schema.enum"))
+            .count(),
+        issues
+            .iter()
+            .filter(at_field)
+            .filter(|issue| issue.rule_id == "schema.unknown-field")
             .count(),
         issues
             .iter()

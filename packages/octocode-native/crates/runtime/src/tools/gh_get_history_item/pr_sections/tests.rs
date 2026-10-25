@@ -1,6 +1,8 @@
 //! Pull-request comment, review and commit sections.
-use super::super::util::map_comments;
+use super::super::util::{array, map_comments};
 use super::*;
+
+mod commit_files;
 
 fn review_comments() -> HistoryItemRequest {
     HistoryItemRequest::from_row(json!({

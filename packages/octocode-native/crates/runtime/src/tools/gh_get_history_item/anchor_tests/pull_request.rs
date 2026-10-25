@@ -132,7 +132,7 @@ async fn pr_match_string_miss_offers_the_unfiltered_read() {
         assert!(inventory.get(absent).is_none(), "{absent}: {inventory}");
     }
     checks::assert_leads_valid(&out);
-    let published = published(ToolId::GhGetHistoryItem, &query, &out);
+    let published = published(ToolId::GhGetHistoryItem, &out);
     let calls = checks::leads(&published);
     assert!(!calls.is_empty());
     assert!(calls.iter().all(|call| call.kind == "related"));

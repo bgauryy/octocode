@@ -18,7 +18,6 @@ mod relation;
 pub(super) use decode::RULE_DECODE_COUNT;
 use decode::check_kinds;
 pub(in crate::structural) use decode::decode_rule;
-pub use decode::validate_rule_shape;
 use relation::Relation;
 
 #[derive(Default, Deserialize)]

@@ -28,10 +28,10 @@ const SKILLS_COMMON = [yarn('workspace', '@octocodeai/skills-common', 'lint'), y
 
 /** task → [description, steps]; extra CLI args go to the last step. */
 const TASKS = {
-  build: ['Release build of every workspace (slow)', [health('run', 'build', '--parallel')]],
-  'build:dev': ['Fast debug build of every workspace (default locally)', [health('run', 'build', '--parallel', '--prefer', 'build:dev')]],
+  build: ['Release-mode build of every workspace (native host only, slow)', [health('run', 'build', '--parallel')]],
+  'build:dev': ['Fast debug build of every workspace (native host only, default locally)', [health('run', 'build', '--parallel', '--prefer', 'build:dev')]],
   'build:ci': ['Resolution check, then release build without benchmark or native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
-  'build:publish': ['Resolution check, 6-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
+  'build:publish': ['Resolution check, all-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
   test: ['Run every workspace test script', [health('run', 'test')]],
   'test:ci': ['Skill checks, then tests without benchmark or native', [...SKILL_CHECKS, health('run', 'test', ...CI_EXCLUDE)]],
   'skills:check': ['Skill lint, shared report viewer, and skill script tests', [...SKILL_CHECKS, ...SKILLS_COMMON]],
@@ -48,7 +48,7 @@ const TASKS = {
   verify: ['Full repo contract: baselines, core lint-copy sync, dedupe, docs, per-package verify', [...BASELINES, script('core-lint-sync.mjs'), health('verify')]],
   'health:check': ['Required workspace scripts exist', [health('check')]],
   'health:report': ['Workspace script matrix', [health('report')]],
-  'check-outputs': ['Build outputs exist and staged native artifacts match the current version and contract', [health('check-outputs')]],
+  'check-outputs': ['Build outputs and host native version/contract match (--all checks every staged platform)', [health('check-outputs')]],
   clean: ['Remove every workspace build output (dist/, out/, native target/ + staged binaries)', [yarn('workspaces', 'foreach', '-A', 'run', 'clean')]],
   'clean:cache': ['Drop stale native build copies; compiled dependencies stay warm', [yarn('workspace', '@octocodeai/octocode-native', 'clean:cache')]],
   'docs:verify': ['Docs links, catalog, config keys, publishing contracts', [script('docs-verify.mjs')]],

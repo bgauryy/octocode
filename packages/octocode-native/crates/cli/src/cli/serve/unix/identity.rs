@@ -1,20 +1,14 @@
 //! What keys a server: the build, the workspace, and the call identity
 //! drawn from the configuration and the environment.
 
+use octocode_native::config::SHELL_DIRECTORY_ENV;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// The variables a shell's `cd` sets to name its working directories
-/// (POSIX `cd`: `PWD`, `OLDPWD`). A server answers for many directories, a
-/// call's own travels as its `cwd`, and no setting or tool reads them.
-pub(super) const SHELL_DIRECTORY_ENV: &[&str] = &["PWD", "OLDPWD"];
-
 /// The environment a call runs with on a server, and the one its identity
 /// and runtime are keyed by: `env` without [`SHELL_DIRECTORY_ENV`]. The
-/// config identity covers `PWD`, so with it two directories of one
-/// repository would never share a server; and `OLDPWD` changes after every
-/// `cd`, so with it one directory would get a new runtime (a config
-/// resolve, an empty credential memo) per `cd`.
+/// call's actual directory travels separately as `cwd`. Dropping shell labels
+/// also lets the server reuse its runtime when only a shell's history changes.
 pub(super) fn served_env(mut env: BTreeMap<String, String>) -> BTreeMap<String, String> {
     env.retain(|name, _| !SHELL_DIRECTORY_ENV.contains(&name.as_str()));
     env

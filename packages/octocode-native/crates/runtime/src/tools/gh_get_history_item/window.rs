@@ -90,6 +90,18 @@ pub(super) struct Loaded {
 }
 
 impl Loaded {
+    /// The commit endpoint can stop at its file limit without a next link or
+    /// authoritative total. Count skipped raw files too: later unfiltered
+    /// windows can reach that boundary without loading the earlier batches.
+    pub(super) fn mark_commit_file_limit(&mut self) {
+        if self.state.exhausted
+            && self.state.skipped.saturating_add(self.items.len())
+                >= MAX_COMMIT_FILE_BATCHES * COMMIT_FILE_BATCH
+        {
+            self.state.capped = true;
+        }
+    }
+
     pub(super) fn complete(items: Vec<Value>) -> Self {
         Self {
             items,

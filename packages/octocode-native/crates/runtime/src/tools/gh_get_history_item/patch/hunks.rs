@@ -44,8 +44,8 @@ pub(super) struct PatchView {
     pub(super) hits: Vec<usize>,
 }
 
-/// Diff lines kept around each `matchString` hit: `contextLines`, else the
-/// contract's `limits.defaultReadContextLines`. Related reads offer
+/// Diff lines kept around each `matchString` hit: `contextLines`, defaulting
+/// to zero before and after. Related reads offer
 /// unfiltered patches beyond that selection.
 pub(in crate::tools::gh_get_history_item) fn match_context(
     query: &HistoryItemRequest,

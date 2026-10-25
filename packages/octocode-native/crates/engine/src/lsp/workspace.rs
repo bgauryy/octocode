@@ -3,6 +3,7 @@ use crate::text::lexical;
 use std::path::{Path, PathBuf};
 
 mod cargo;
+mod modules;
 pub use cargo::{cargo_workspace_root, declares_cargo_workspace};
 
 const MARKERS: [&str; 12] = [
@@ -123,7 +124,9 @@ pub struct PackageIncludes {
 /// script: without one no build-script output exists to load.
 pub fn cargo_package_includes(file: &Path, limit: usize) -> Option<PackageIncludes> {
     let package = cargo_package_dir(file.parent()?)?;
-    let has_build_script = cargo_package_build_script(&package).is_some();
+    let build_script = cargo_package_build_script(&package);
+    let has_build_script = build_script.is_some();
+    let targets = cargo::TargetRoots::new(&package, build_script);
     let root = package.clone();
     let walker = ignore::WalkBuilder::new(&package)
         .filter_entry(move |entry| {
@@ -134,6 +137,7 @@ pub fn cargo_package_includes(file: &Path, limit: usize) -> Option<PackageInclud
         .build();
     let anchor = lexical(file);
     let mut includes = PackageIncludes::default();
+    let mut modules = modules::ModuleSources::default();
     let mut visited = 0;
     for entry in walker.flatten() {
         let path = entry.path();
@@ -165,76 +169,10 @@ pub fn cargo_package_includes(file: &Path, limit: usize) -> Option<PackageInclud
                 }
             }
         }
-        if declares_module(path, &text, &anchor) {
-            includes.declared_by.push(path.to_path_buf());
-        }
+        modules.push(path, &text);
     }
+    includes.declared_by = modules.declared_by(&anchor, &targets);
     Some(includes)
-}
-
-/// Whether `text` (the source of `path`) declares `anchor` as a module, by
-/// its `#[path = "…"]` (relative to `path`'s directory) or by Cargo's
-/// layout: `mod x;` names `x.rs` or `x/mod.rs` under `path`'s directory
-/// (a crate root or `mod.rs`) or under its own stem directory (any other
-/// file). Line comments are skipped; inline `mod x { … }` names no file.
-fn declares_module(path: &Path, text: &str, anchor: &Path) -> bool {
-    let Some(directory) = path.parent() else {
-        return false;
-    };
-    let stem_directory = path.file_stem().map(|stem| directory.join(stem));
-    let mut attribute_path: Option<&str> = None;
-    for line in text.lines() {
-        let code = line.split("//").next().unwrap_or(line).trim();
-        if code.is_empty() {
-            continue;
-        }
-        if let Some(rest) = code.strip_prefix("#[path") {
-            attribute_path = rest
-                .trim_start()
-                .strip_prefix('=')
-                .and_then(|value| value.trim_start().strip_prefix('"'))
-                .and_then(|value| value.split('"').next());
-            continue;
-        }
-        if code.starts_with("#[") {
-            continue;
-        }
-        let declared = module_declaration(code);
-        let pending = attribute_path.take();
-        let Some(name) = declared else {
-            continue;
-        };
-        let named = match pending {
-            Some(target) => lexical(&directory.join(target)) == anchor,
-            None => std::iter::once(directory.to_path_buf())
-                .chain(stem_directory.clone())
-                .any(|base| {
-                    lexical(&base.join(format!("{name}.rs"))) == anchor
-                        || lexical(&base.join(name).join("mod.rs")) == anchor
-                }),
-        };
-        if named {
-            return true;
-        }
-    }
-    false
-}
-
-/// The module name of an out-of-line declaration `[pub[(…)]] mod name;`.
-fn module_declaration(code: &str) -> Option<&str> {
-    let rest = match code.strip_prefix("pub") {
-        Some(rest) => {
-            let rest = rest.trim_start();
-            match rest.strip_prefix('(') {
-                Some(scoped) => scoped.split_once(')')?.1.trim_start(),
-                None => rest,
-            }
-        }
-        None => code,
-    };
-    let name = rest.strip_prefix("mod ")?.trim().strip_suffix(';')?.trim();
-    let name = name.strip_prefix("r#").unwrap_or(name);
-    (!name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')).then_some(name)
 }
 
 /// What an `include!` reads: a build-script value (`env!`, possibly in a
@@ -284,45 +222,21 @@ fn include_arguments(text: &str) -> Vec<IncludeArgument> {
 /// directory), when it has one: `[package] build = "path"`, else `build.rs`
 /// beside the manifest (Cargo's default), unless `build = false`.
 fn cargo_package_build_script(package: &Path) -> Option<PathBuf> {
-    let manifest = std::fs::read_to_string(package.join(CARGO_MANIFEST)).ok()?;
-    let mut table = "";
-    let mut is_package = false;
-    let mut declared = None;
-    for line in manifest.lines().map(str::trim) {
-        if let Some(header) = table_header(line) {
-            table = header;
-            is_package |= table == "package";
-            continue;
-        }
-        if table == "package"
-            && let Some(value) = line
-                .strip_prefix("build")
-                .map(str::trim_start)
-                .and_then(|rest| rest.strip_prefix('='))
-        {
-            declared = Some(value.trim());
-        }
-    }
-    // A virtual manifest (no `[package]`) builds nothing.
-    if !is_package {
+    let manifest = cargo::manifest(package)?;
+    let settings = manifest.get("package")?;
+    if settings.get("build").and_then(toml::Value::as_bool) == Some(false) {
         return None;
     }
-    let script = match declared {
-        Some("false") => return None,
-        Some(value) if value.starts_with('"') => package.join(value.trim_matches('"')),
-        _ => package.join("build.rs"),
-    };
+    let script = package.join(
+        settings
+            .get("build")
+            .and_then(toml::Value::as_str)
+            .unwrap_or("build.rs"),
+    );
     script.is_file().then_some(script)
 }
 
 const CARGO_MANIFEST: &str = "Cargo.toml";
-
-fn table_header(line: &str) -> Option<&str> {
-    let inner = line.strip_prefix('[')?;
-    let inner = inner.strip_prefix('[').unwrap_or(inner);
-    let end = inner.find(']')?;
-    Some(inner[..end].trim())
-}
 
 /// The nearest ancestor of `directory` (itself included) holding a project
 /// marker, or `None` when no ancestor has one.

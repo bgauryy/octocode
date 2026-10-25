@@ -126,7 +126,7 @@ fn publish_for_assertion(tool: &str, output: &Value) -> Value {
         &crate::response::continuations::Scope {
             is_available: &|_| true,
         },
-        &mut |target, input| {
+        &mut |target, input, _| {
             SAVED_REQUESTS.with(|saved| {
                 let mut saved = saved.borrow_mut();
                 let id = saved.len();
@@ -146,21 +146,15 @@ pub(crate) fn validate_sealed(
     validate_output(tool, &publish_for_assertion(tool, output))
 }
 
-pub(crate) fn published(tool: ToolId, query: &Value, row: &Value) -> Value {
-    let shaped =
-        crate::response::rows::result_row(tool, 0, query, row.clone(), row["status"].as_str());
+pub(crate) fn published(tool: ToolId, row: &Value) -> Value {
+    let shaped = crate::response::rows::result_row(0, row.clone(), row["status"].as_str());
     let mut output = serde_json::json!({"results":[shaped]});
     crate::response::notices::place(&mut output, "results");
     publish_for_assertion(tool.as_str(), &output)
 }
 
-pub(crate) fn published_next_page(
-    tool: ToolId,
-    query: &Value,
-    row: &Value,
-    _paths: &PathPolicy,
-) -> Value {
-    let public = published(tool, query, row);
+pub(crate) fn published_next_page(tool: ToolId, row: &Value) -> Value {
+    let public = published(tool, row);
     opened_input(
         tool,
         &public["results"][0]["data"]["next"]["nextPage"]["input"],
@@ -172,19 +166,18 @@ pub(crate) fn assert_next_page_keeps_the_budget(
     tool: ToolId,
     query: &Value,
     row: &Value,
-    paths: &PathPolicy,
     budget_of: impl Fn(Option<usize>, &Value) -> usize,
 ) {
-    let next = published_next_page(tool, query, row, paths);
+    let next = published_next_page(tool, row);
     for window in [None, Some(4_000), Some(20_000), Some(100_000)] {
         assert_eq!(budget_of(window, &next), budget_of(window, query));
     }
 }
 
-/// A tool's raw executor `row` for `query`, as [`published`], satisfies the
+/// A tool's raw executor `row`, as [`published`], satisfies the
 /// tool's output contract.
-pub(crate) fn assert_row_contract(tool: ToolId, query: &Value, row: &Value) {
-    checks::assert_output_contract(tool.as_str(), &published(tool, query, row));
+pub(crate) fn assert_row_contract(tool: ToolId, row: &Value) {
+    checks::assert_output_contract(tool.as_str(), &published(tool, row));
 }
 
 /// The path policy of a workspace rooted at `root`.

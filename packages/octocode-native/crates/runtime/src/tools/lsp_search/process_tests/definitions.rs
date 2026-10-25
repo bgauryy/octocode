@@ -83,7 +83,12 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
                         .any(|warning| warning.contains("injected follow-up failure"))),
                     "{row}"
                 );
-                assert_eq!(row["next"]["retry"]["tool"], "lspSearch");
+                assert!(
+                    !row["related"].as_array().is_some_and(|calls| calls
+                        .iter()
+                        .any(|call| { call["kind"] == "related" && call["tool"] == "lspSearch" })),
+                    "a failed definition hop is not a retryable rerun: {row}"
+                );
             } else {
                 assert!(
                     !row["partialReasons"]

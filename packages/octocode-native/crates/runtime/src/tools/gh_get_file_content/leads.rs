@@ -28,11 +28,10 @@ pub(super) fn empty_match_leads(
     }
     let (owner, repo) = (access::owner(query), access::repo(query));
     let reference = access::reference(query);
-    let mut code = json!({"owner": owner, "repo": repo, "keywords": [first]});
+    let code = json!({"owner": owner, "repo": repo, "keywords": [first]});
     let mut commits = json!({"operation": "commit", "owner": owner, "repo": repo, "pathPrefix": access::path(query)});
-    // The search and the history read at the read's ref, not the default branch.
+    // Code search explores the default-branch index; only history honors this ref.
     if let Some(reference) = reference {
-        code["ref"] = json!(reference);
         commits["ref"] = json!(reference);
     }
     let pulls =
@@ -142,6 +141,37 @@ mod tests {
             row[key] = value.clone();
         }
         FetchCall::continued(serde_json::from_value(row).expect("read"))
+    }
+
+    #[test]
+    fn empty_match_search_uses_the_index_while_history_keeps_the_ref() {
+        for reference in ["main", "0123456789abcdef0123456789abcdef01234567"] {
+            let source: GhGetFileContentQuery = serde_json::from_value(json!({
+                "owner":"o", "repo":"r", "path":"README.md", "ref":reference,
+                "matchString":["missing literal"]
+            }))
+            .expect("query");
+            let local: LocalFetchQuery = serde_json::from_value(json!({
+                "path":"README.md", "matchString":["missing literal"]
+            }))
+            .expect("local query");
+            let leads = empty_match_leads(&source, &local);
+            let code = &leads
+                .iter()
+                .find(|(name, _)| *name == "findCode")
+                .expect("code")
+                .1;
+            assert_eq!(code["kind"], "related");
+            let code_query = &code["input"]["queries"][0];
+            assert_eq!(code_query["keywords"], json!(["missing literal"]));
+            assert!(code_query.get("ref").is_none(), "{code}");
+            let history = &leads
+                .iter()
+                .find(|(name, _)| *name == "listCommits")
+                .expect("history")
+                .1;
+            assert_eq!(history["input"]["queries"][0]["ref"], reference);
+        }
     }
 
     /// The whole-source recovery of a whole read keeps that scope

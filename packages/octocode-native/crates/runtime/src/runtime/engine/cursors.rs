@@ -1,21 +1,22 @@
 //! Issued handles for saved tool work and immutable response pages.
 //! A handle selects a member of one retained set. It never contains caller-editable progress.
 use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
+use crate::execution::{ExecutionContext, ExecutionError};
 use crate::id::ToolId;
 use crate::response::cursor::Cursor;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const PREFIX: &str = "cursor1.";
 const TTL: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) enum SavedWork {
-    ToolResume,
+    ToolResume { index: Option<usize> },
     ResponsePage(Cursor),
 }
 
@@ -37,6 +38,8 @@ pub(super) struct CursorSet {
 pub(super) struct Registry {
     store: Store<CursorSet>,
     policy: String,
+    disk: Option<PathBuf>,
+    mutation: Mutex<()>,
 }
 
 pub(super) struct Pending {
@@ -68,8 +71,10 @@ impl Opened {
 impl Registry {
     pub fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
         Self {
-            store: Store::new(config, disk),
+            store: Store::new(config, disk.clone()),
             policy,
+            disk,
+            mutation: Mutex::new(()),
         }
     }
 
@@ -86,19 +91,93 @@ impl Registry {
     }
 
     /// Every handle in one output becomes reachable atomically, before publication.
-    pub fn retain(&self, pending: Pending) -> bool {
+    pub fn retain(
+        &self,
+        mut pending: Pending,
+        context: &ExecutionContext,
+    ) -> Result<(), ExecutionError> {
         if pending.set.members.is_empty() {
-            return true;
+            return Ok(());
+        }
+        let _storage = self.process_lock(context)?;
+        let _mutation = self.mutation_lock(context)?;
+        context.check()?;
+        let key = self.key(&pending.id);
+        if let Some(current) = self.store.get_current(&key) {
+            if current.value.access != pending.set.access
+                || current.value.github_identity != pending.set.github_identity
+            {
+                return Err(ExecutionError::WorkerFailed);
+            }
+            // Two callers may extend the same earlier page. Keep every handle
+            // already published by either branch before publishing this one.
+            for (id, member) in &current.value.members {
+                pending
+                    .set
+                    .members
+                    .entry(id.clone())
+                    .or_insert_with(|| member.clone());
+            }
         }
         let bytes = octocode_engine::json_size::bytes(&pending.set).unwrap_or(usize::MAX);
-        self.store
-            .put_confirmed(
-                self.key(&pending.id),
-                pending.set,
-                bytes,
-                CacheClass::Volatile { ttl: TTL },
-            )
-            .1
+        let saved = self
+            .store
+            .put_confirmed(key, pending.set, bytes, CacheClass::Volatile { ttl: TTL })
+            .1;
+        if saved {
+            Ok(())
+        } else {
+            Err(ExecutionError::WorkerFailed)
+        }
+    }
+
+    fn mutation_lock(
+        &self,
+        context: &ExecutionContext,
+    ) -> Result<std::sync::MutexGuard<'_, ()>, ExecutionError> {
+        loop {
+            context.check()?;
+            match self.mutation.try_lock() {
+                Ok(guard) => return Ok(guard),
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    return Err(ExecutionError::WorkerFailed);
+                }
+                Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(
+                    octocode_io::lock::LOCK_POLL
+                        .min(context.deadline.saturating_duration_since(Instant::now())),
+                ),
+            }
+        }
+    }
+
+    fn process_lock(
+        &self,
+        context: &ExecutionContext,
+    ) -> Result<Option<octocode_io::lock::LockedFile>, ExecutionError> {
+        let Some(disk) = &self.disk else {
+            return Ok(None);
+        };
+        let file = octocode_io::lock::open_lock_file(&disk.join("continuations.lock"))
+            .map_err(|_| ExecutionError::WorkerFailed)?;
+        // One stable sidecar bounds lock files and serializes short merges.
+        loop {
+            context.check()?;
+            let wait = context
+                .deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(100));
+            match octocode_io::lock::lock_within(
+                file.try_clone().map_err(|_| ExecutionError::WorkerFailed)?,
+                wait,
+                octocode_io::lock::LOCK_POLL,
+            ) {
+                Ok(lock) => return Ok(Some(lock)),
+                Err(octocode_io::lock::LockError::Busy) => {}
+                Err(octocode_io::lock::LockError::Io(_)) => {
+                    return Err(ExecutionError::WorkerFailed);
+                }
+            }
+        }
     }
 
     pub fn open(&self, tool: ToolId, token: &str, access: [u8; 32]) -> Option<Opened> {
@@ -107,7 +186,7 @@ impl Registry {
             return None;
         }
         let (id, member) = encoded.split_at(32);
-        let set = self.store.get(&self.key(id))?.value;
+        let set = self.store.get_current(&self.key(id))?.value;
         if set.access != access || set.members.get(member)?.tool != tool.as_str() {
             return None;
         }
@@ -161,189 +240,4 @@ fn random_id() -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn registry(policy: &str) -> Registry {
-        Registry::new(
-            CacheConfig {
-                max_entries: 8,
-                max_bytes: 1024 * 1024,
-                disk_bytes: 1024 * 1024,
-            },
-            None,
-            policy.into(),
-        )
-    }
-
-    #[test]
-    fn issued_work_retains_the_complete_request_and_rejects_other_access_or_tool() {
-        let registry = registry("contract-and-policy");
-        let input = json!({"queries":[{"path":"src","matchString":["exact"],"page":2}],"responseChars":1024});
-        let mut pending = Pending::new([7; 32], Some("github-user".into())).expect("randomness");
-        let token = pending
-            .insert(ToolId::LocalSearch, input.clone(), SavedWork::ToolResume)
-            .expect("randomness");
-        assert!(
-            registry
-                .open(ToolId::LocalSearch, &token, [7; 32])
-                .is_none()
-        );
-        assert!(registry.retain(pending));
-        let opened = registry
-            .open(ToolId::LocalSearch, &token, [7; 32])
-            .expect("issued handle");
-        assert_eq!(opened.member().input, input);
-        assert_eq!(opened.github_identity(), Some("github-user"));
-        assert!(registry.open(ToolId::LocalFetch, &token, [7; 32]).is_none());
-        assert!(
-            registry
-                .open(ToolId::LocalSearch, &token, [8; 32])
-                .is_none()
-        );
-        assert!(
-            registry
-                .open(ToolId::LocalSearch, &format!("{token}0"), [7; 32])
-                .is_none()
-        );
-        assert!(
-            registry
-                .open(ToolId::LocalSearch, "c1.eyJzdGF0ZSI6e319", [7; 32])
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn a_set_retains_many_members_without_evicting_its_own_handles() {
-        let registry = registry("policy");
-        let mut pending = Pending::new([0; 32], None).expect("randomness");
-        let tokens = (0..30)
-            .map(|page| {
-                pending
-                    .insert(
-                        ToolId::LocalSearch,
-                        json!({"queries":[{"path":"src","page":page}]}),
-                        SavedWork::ToolResume,
-                    )
-                    .expect("randomness")
-            })
-            .collect::<Vec<_>>();
-        assert!(registry.retain(pending));
-        for token in tokens {
-            assert!(
-                registry
-                    .open(ToolId::LocalSearch, &token, [0; 32])
-                    .is_some()
-            );
-        }
-    }
-    #[test]
-    fn disk_reopen_preserves_work_but_different_contract_or_policy_cannot_open_it() {
-        let disk = tempfile::tempdir().expect("disk");
-        let config = CacheConfig {
-            max_entries: 8,
-            max_bytes: 1024 * 1024,
-            disk_bytes: 1024 * 1024,
-        };
-        let first = Registry::new(
-            config.clone(),
-            Some(disk.path().into()),
-            "contract-a;policy-a".into(),
-        );
-        let input = json!({"queries":[{"path":"a.ts","ranges":[{"startLine":2,"endLine":7}],"readProgress":{"unit":"lines","offset":4},"snapshot":"source-pin"}],"responseChars":3000});
-        let mut pending = Pending::new([3; 32], Some("account-a".into())).expect("randomness");
-        let token = pending
-            .insert(ToolId::LocalFetch, input.clone(), SavedWork::ToolResume)
-            .expect("randomness");
-        assert!(first.retain(pending));
-        first.clear_memory();
-        let second = Registry::new(
-            config.clone(),
-            Some(disk.path().into()),
-            "contract-a;policy-a".into(),
-        );
-        let opened = second
-            .open(ToolId::LocalFetch, &token, [3; 32])
-            .expect("disk replay");
-        assert_eq!(opened.member().input, input);
-        assert_eq!(opened.github_identity(), Some("account-a"));
-        let changed = Registry::new(
-            config,
-            Some(disk.path().into()),
-            "contract-b;policy-a".into(),
-        );
-        assert!(changed.open(ToolId::LocalFetch, &token, [3; 32]).is_none());
-        let mut altered = token.clone().into_bytes();
-        let at = altered.len() - 1;
-        altered[at] = if altered[at] == b'0' { b'1' } else { b'0' };
-        assert!(
-            second
-                .open(
-                    ToolId::LocalFetch,
-                    std::str::from_utf8(&altered).expect("ascii"),
-                    [3; 32]
-                )
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn unavailable_storage_never_claims_an_issued_handle() {
-        let registry = Registry::new(
-            CacheConfig {
-                max_entries: 0,
-                max_bytes: 32,
-                disk_bytes: 0,
-            },
-            None,
-            "policy".into(),
-        );
-        let mut pending = Pending::new([0; 32], None).expect("randomness");
-        let token = pending
-            .insert(
-                ToolId::LocalSearch,
-                json!({"queries":[{"path":"src","matchString":["run"]}]}),
-                SavedWork::ToolResume,
-            )
-            .expect("randomness");
-        assert!(!registry.retain(pending));
-        assert!(
-            registry
-                .open(ToolId::LocalSearch, &token, [0; 32])
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn extending_saved_response_pages_retains_earlier_source_work() {
-        let registry = registry("policy");
-        let mut pending = Pending::new([1; 32], None).expect("randomness");
-        let first = pending
-            .insert(
-                ToolId::LocalSearch,
-                json!({"queries":[{"path":"src","matchString":["run"],"page":2}]}),
-                SavedWork::ToolResume,
-            )
-            .expect("randomness");
-        assert!(registry.retain(pending));
-        let opened = registry
-            .open(ToolId::LocalSearch, &first, [1; 32])
-            .expect("first");
-        let mut pending = opened.pending();
-        let next = pending
-            .insert(
-                ToolId::LocalFetch,
-                json!({"queries":[{"path":"src/a.ts"}]}),
-                SavedWork::ToolResume,
-            )
-            .expect("randomness");
-        assert!(registry.retain(pending));
-        assert!(
-            registry
-                .open(ToolId::LocalSearch, &first, [1; 32])
-                .is_some()
-        );
-        assert!(registry.open(ToolId::LocalFetch, &next, [1; 32]).is_some());
-    }
-}
+mod tests;

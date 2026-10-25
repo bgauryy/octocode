@@ -197,6 +197,21 @@ fn local_fetch_single_line_windows_share_gap_markers_and_round_trip() {
 }
 
 #[test]
+fn numbered_file_pages_preserve_match_identity() {
+    for tool in [ToolId::LocalFetch, ToolId::GhGetFileContent] {
+        for matched in [json!([]), json!([7]), json!([7, 8])] {
+            let mut page = json!({"results":[{"index":0,"data":{
+                "content":"same\nsame\n", "sourceLineRanges":[{"line":7,"endLine":8}],
+                "matchedLines":matched, "selectedMatchCount":2}}]});
+            number_read_rows(tool, &mut page);
+            let data = &page["results"][0]["data"];
+            assert_eq!(data["matchedLines"], matched, "{tool:?}: {page}");
+            assert_eq!(data["content"], "7\tsame\n8\tsame\n");
+        }
+    }
+}
+
+#[test]
 fn numbers_local_and_github_rows_and_drops_redundant_anchors() {
     let mut local = json!({"results":[{"index":0,"data":{
             "path":"a.rs","content":"x\ny\n","sourceLineRanges":[{"line":7,"endLine":8}],
@@ -204,7 +219,7 @@ fn numbers_local_and_github_rows_and_drops_redundant_anchors() {
     number_read_rows(ToolId::LocalFetch, &mut local);
     assert_eq!(
         local["results"][0]["data"],
-        json!({"path":"a.rs","content":"7\tx\n8\ty\n"})
+        json!({"path":"a.rs","content":"7\tx\n8\ty\n","matchedLines":[7,8]})
     );
     let mut window = json!({"results":[{"index":0,"data":{
             "content":"x\ny\n","sourceLineRanges":[{"line":7,"endLine":8}],"matchedLines":[8]}}]});

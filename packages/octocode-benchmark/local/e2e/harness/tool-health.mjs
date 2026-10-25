@@ -39,8 +39,10 @@ import { nativeBinaryStamp } from './native-binary.mjs';
 import { CASES } from './tool-health/cases.mjs';
 import { ADVANCED } from './tool-health/advanced.mjs';
 import { createDriver } from './tool-health/driver.mjs';
+import { transportPagesProblem } from './tool-health/compare.mjs';
 import { runParked, runTool } from './tool-health/run-tool.mjs';
 import { startSurfaces } from './tool-health/surfaces.mjs';
+import { formatCheckSummary, summarizeChecks } from './tool-health/check-summary.mjs';
 
 const started = performance.now();
 const FIXTURE = path.join(FIXTURES, 'tool-health');
@@ -53,8 +55,9 @@ const TOOLS = new Set(contract.tools.map(t => t.name));
 /** Parked tools (contract `disabled`) run on no surface, beta included. */
 const PARKED = new Set(contract.tools.filter(t => t.disabled).map(t => t.name));
 
-// ---- contract validation: one compiled validator per tool and schema
-const { validateOutput, validateInput } = contractValidators();
+// Compile before serving mocks: synchronous schema compilation can otherwise
+// prevent a healthy provider from answering within the startup ping deadline.
+const { validateOutput, validateInput } = contractValidators({ precompile: true });
 
 const surfaces = await startSurfaces(FIXTURE);
 const { cliArgs } = surfaces;
@@ -91,7 +94,7 @@ try {
     exitCode = 1;
   }
 
-  const driver = createDriver({ validate: validateOutput, validateInput, tools: TOOLS, cliOnly: CLI_ONLY, schemaOf: tool => outputSchemas.get(tool) });
+  const driver = createDriver({ validate: validateOutput, validateInput, validateTransport: transportPagesProblem, tools: TOOLS, cliOnly: CLI_ONLY, schemaOf: tool => outputSchemas.get(tool) });
   surfaceServer.close();
   surfaceServer = null;
   const suite = { driver, surfaces, deep: DEEP, validateOutput, validateInput, advanced: ADVANCED };
@@ -105,10 +108,11 @@ try {
     while (queue.length) {
       const [name, spec] = queue.shift();
       let result;
-      try { result = await (PARKED.has(name) ? runParked : runTool)(suite, name, spec); } catch (error) { result = { tool: name, status: 'FAIL', firstFailure: `harness: ${error.stack?.split('\n').slice(0, 2).join(' ') ?? error}`, checks: [], timings: [] }; }
+      try { result = await (PARKED.has(name) ? runParked : runTool)(suite, name, spec); } catch (error) { result = { tool: name, status: 'FAIL', firstFailure: `harness: ${error.stack?.split('\n').slice(0, 2).join(' ') ?? error}`, errorStack: error.stack, checks: [], timings: [] }; }
+      result.checkSummary = summarizeChecks(result.checks);
       results.set(name, result);
-      const line = `${result.status.padEnd(4)} ${name.padEnd(17)} ${String(result.ms ?? 0).padStart(6)}ms  slowest ${String(result.slowestMs ?? 0).padStart(5)}/${String(result.budgetMs ?? '-').padEnd(5)}ms  ${String(result.calls ?? 0).padStart(3)} calls  ${result.checks.filter(c => c.ok).length}/${result.checks.filter(c => c.ok !== null).length} checks`;
-      const failedCount = result.checks.filter(c => c.ok === false).length;
+      const line = `${result.status.padEnd(4)} ${name.padEnd(17)} ${String(result.ms ?? 0).padStart(6)}ms  slowest ${String(result.slowestMs ?? 0).padStart(5)}/${String(result.budgetMs ?? '-').padEnd(5)}ms  ${String(result.calls ?? 0).padStart(3)} calls  checks: ${formatCheckSummary(result.checkSummary)}`;
+      const failedCount = result.checkSummary.failed;
       const tail = result.status === 'FAIL' ? ` — ${result.firstFailure}${failedCount > 1 ? ` (+${failedCount - 1} more)` : ''}` : result.reason ? ` — ${result.reason}` : '';
       console.log(line + tail + (result.mockUnhandled ? ` [mock unhandled: ${result.mockUnhandled.slice(0, 2).join('; ')}]` : ''));
     }
@@ -142,7 +146,7 @@ report.measurements = Object.fromEntries(['cli', 'mcp'].map(surface => {
   return [surface, { calls: calls.length, latencyMs: distribution(calls.map(call => call.ms)), responseBytes: { measuredCalls: bytes.length, total: bytes.reduce((sum, value) => sum + value, 0), ...distribution(bytes) } }];
 }));
 report.measurementScope = 'Per-call elapsed time includes startup for CLI and uses a persistent MCP process per tool. responseBytes measures CLI stdout or the serialized MCP result/error body; it excludes JSON-RPC framing and stderr. Samples mix query shapes and concurrency; they are not transport speed comparisons.';
-report.summary = { pass: count('PASS'), fail: count('FAIL'), skip: count('SKIP'), exitCode };
+report.summary = { pass: count('PASS'), fail: count('FAIL'), skip: count('SKIP'), exitCode, checks: summarizeChecks(report.tools.flatMap(tool => tool.checks)) };
 const file = writeResults('tool-health', report);
-console.log(`\ntool-health${DEEP ? ' --deep' : ''}: ${count('PASS')} passed, ${count('FAIL')} failed, ${count('SKIP')} skipped of ${report.tools.length} tools, ${report.tools.reduce((n, t) => n + (t.calls ?? 0), 0)} calls in ${report.seconds}s — ${path.relative(ROOT, file)}`);
+console.log(`\ntool-health${DEEP ? ' --deep' : ''}: ${count('PASS')} passed, ${count('FAIL')} failed, ${count('SKIP')} skipped of ${report.tools.length} tools, ${report.tools.reduce((n, t) => n + (t.calls ?? 0), 0)} calls in ${report.seconds}s; checks: ${formatCheckSummary(report.summary.checks)} — ${path.relative(ROOT, file)}`);
 process.exitCode = exitCode;

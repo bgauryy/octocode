@@ -1,43 +1,27 @@
 //! Per-tool cache-contract integration tests.
 //!
-//! Every cacheable tool must have at least one test that proves a cache hit
-//! occurs (or does not occur) under the expected conditions. Every
-//! non-cacheable tool must have a test that confirms the `cache` row flag is
-//! never set.
-//!
-//! # Layout
-//!
-//! | Section | Tool | Contract |
-//! |---|---|---|
-//! | ghGetFileContent | ghGetFileContent | hit sets `cache:1`; forceRefresh bypasses |
-//! | ghStructure | ghStructure | tree traversal hit saves one HTTP round-trip |
-//! | ghSearchHistory | ghSearchHistory | never sets `cache:1` |
-//! | ghGetHistoryItem | ghGetHistoryItem | never sets `cache:1` |
-//! | artifactSearch | artifactSearch | memory-mode disables in-process cache |
-//! | local tools | localSearch/localFetch | never sets `cache:1` |
-//!
-//! The cacheable GitHub reads (the first two rows and ghGetHistoryItem's
-//! revalidation) live in [`github_reads`].
+//! Provider request counts and returned evidence prove cache reuse or refresh.
+//! Cache telemetry is absent on every tool's public result rows.
 
 use crate::support;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use serde_json::{Value, json};
+use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
-use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod github_reads;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-/// Returns the `cache` field value from the first result row, or 0 if absent.
-fn row_cache_flag(outcome: &octocode_native::response::outcome::ToolOutcome) -> u64 {
-    outcome
-        .structured_content
-        .pointer("/results/0/cache")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
+fn assert_no_cache_telemetry(outcome: &octocode_native::response::outcome::ToolOutcome) {
+    assert!(
+        outcome
+            .structured_content
+            .pointer("/results/0/cache")
+            .is_none()
+    );
 }
 
 /// A 40-char hex string used as a branch SHA that skips commit resolution.
@@ -48,17 +32,14 @@ fn sha(ch: char) -> String {
 // ─── ghSearchHistory ─────────────────────────────────────────────────────────
 
 /// `ghSearchHistory` bypasses `ConditionalCache` intentionally — history
-/// search results are mutable.  Neither call should ever set `cache:1`.
+/// search results are mutable. Both calls must reach the provider.
 #[tokio::test]
-async fn ghsearchhistory_never_sets_cache_flag() {
+async fn ghsearchhistory_revalidates_without_cache_telemetry() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
-        .and(path("/api/v3/search/issues"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 0,
-            "incomplete_results": false,
-            "items": []
-        })))
+        .and(path("/api/v3/repos/o/r/pulls"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(2)
         .mount(&server)
         .await;
 
@@ -76,10 +57,12 @@ async fn ghsearchhistory_never_sets_cache_flag() {
             .await
             .unwrap();
         assert_eq!(
-            row_cache_flag(&outcome),
-            0,
-            "ghSearchHistory must never set cache:1 — history is mutable"
+            row_status(&outcome),
+            "empty",
+            "{}",
+            outcome.structured_content
         );
+        assert_no_cache_telemetry(&outcome);
     }
     runtime.close().await;
 }
@@ -143,7 +126,7 @@ async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
 // ─── local tools (no caching) ────────────────────────────────────────────────
 
 /// `localSearch` and `localFetch` never cache their results.  Repeated calls
-/// for the same file must never produce a `cache:1` row flag.
+/// for the same file must not add public cache telemetry.
 #[tokio::test]
 async fn local_tools_never_set_cache_flag() {
     let workspace = Workspace::new();
@@ -162,21 +145,13 @@ async fn local_tools_never_set_cache_flag() {
         )
         .await
         .unwrap();
-        assert_eq!(
-            row_cache_flag(&search),
-            0,
-            "localSearch must never set cache:1"
-        );
+        assert_no_cache_telemetry(&search);
 
         // localFetch
         let fetch = call(&runtime, "localFetch", json!({"path": target}))
             .await
             .unwrap();
-        assert_eq!(
-            row_cache_flag(&fetch),
-            0,
-            "localFetch must never set cache:1"
-        );
+        assert_no_cache_telemetry(&fetch);
     }
     runtime.close().await;
 }

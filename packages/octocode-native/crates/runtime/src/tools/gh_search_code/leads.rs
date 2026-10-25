@@ -3,7 +3,7 @@
 use super::code_output::{Resolution, requested_ref, row_repo};
 use crate::id::ToolId;
 use crate::num::u32_of_usize;
-use crate::response::result::{Continuation, continuation_row_mut, query_row};
+use crate::response::result::{Continuation, continuation_row_mut, fresh_query_row, query_row};
 use crate::tools::leads::broaden::{Broaden, broaden};
 use octocode_contract_types::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
 use serde_json::{Value, json};
@@ -280,7 +280,7 @@ pub(super) fn or_split(query: &GhSearchCodeQuery) -> Option<Value> {
     let rows = alternatives
         .into_iter()
         .map(|alternative| {
-            let mut row = query_row(query, &[]);
+            let mut row = fresh_query_row(ToolId::GhSearchCode, &query_row(query, &[]));
             row["keywords"][index] = json!(alternative);
             row
         })

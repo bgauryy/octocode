@@ -28,5 +28,8 @@ pub(crate) use resolver::{get_config_value, inspector_data, is_stats_enabled};
 pub use resolver::{is_persistent_storage_enabled, resolve_config};
 pub use types::*;
 
+/// Shell directory labels. Runtime scope uses its explicit working directory.
+pub const SHELL_DIRECTORY_ENV: &[&str] = &["PWD", "OLDPWD"];
+
 #[cfg(test)]
 mod tests;

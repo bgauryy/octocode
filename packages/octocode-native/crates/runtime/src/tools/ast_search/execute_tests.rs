@@ -73,8 +73,7 @@ fn syntax_tree_is_the_only_tree_surface() {
     assert_eq!(syntax["operation"], "syntaxTree");
     assert!(syntax.get("treeKind").is_none(), "{syntax}");
     // One compact row per node: id, kind (an anonymous token quoted),
-    // 1-based line:column span, and `^parent`. Byte offsets are
-    // verbose (the verbose stage drops `returnedBytes` unless `debug`).
+    // 1-based line:column span, and `^parent`, with byte spans in the same order.
     let nodes = syntax["nodes"].as_array().expect("node rows");
     assert_eq!(nodes[0], "0 program 1:1-2:1", "{syntax}");
     assert_eq!(nodes[1], "1 export_statement 1:1-1:24 ^0", "{syntax}");
@@ -95,9 +94,9 @@ fn syntax_tree_is_the_only_tree_surface() {
     )
     .expect("token tree");
     assert_eq!(tokens["nodes"][2], "2 \"export\" 1:1-1:7 ^1", "{tokens}");
-    assert_eq!(syntax["returnedBytes"][0], "0-24", "{syntax}");
+    assert_eq!(syntax["byteRanges"][0], "0-24", "{syntax}");
     assert_eq!(
-        syntax["returnedBytes"].as_array().map(Vec::len),
+        syntax["byteRanges"].as_array().map(Vec::len),
         Some(nodes.len()),
         "{syntax}"
     );

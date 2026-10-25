@@ -54,7 +54,7 @@ async fn listing_paths_are_normalized_and_escapes_rejected() {
 
 /// The happy-path anchors: each `dir` with its entry names (the
 /// next read's path), the resolved branch and its `commitSha` (the
-/// next read's ref); no query field is echoed.
+/// next read's ref), with repository identity for saved results.
 #[tokio::test]
 async fn a_listing_row_carries_dir_entries_commit_and_resolved_ref() {
     let server = server().await;
@@ -79,7 +79,9 @@ async fn a_listing_row_carries_dir_entries_commit_and_resolved_ref() {
     );
     assert_eq!(data["resolvedRef"], "main", "{data}");
     assert_eq!(data["commitSha"], SHA, "{data}");
-    for echo in ["owner", "repo", "path", "operation", "ref"] {
+    assert_eq!(data["owner"], "a", "{data}");
+    assert_eq!(data["repo"], "b", "{data}");
+    for echo in ["path", "operation", "ref"] {
         assert!(data.get(echo).is_none(), "{echo} echoed: {data}");
     }
     let read = &crate::tools::test_support::checks::related_call(data, "ghGetFileContent", |_| {

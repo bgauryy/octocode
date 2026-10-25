@@ -25,7 +25,7 @@ import { hermeticEnv } from '../../../../../test-utils/hermetic-env.ts';
 
 const script = name => [path.join(TESTING, 'harness', `${name}.mjs`)];
 const HERMETIC = {
-  acceptance: ['--test', '--test-reporter=spec', path.join(TESTING, 'harness', 'responses.test.mjs'), path.join(TESTING, 'harness', 'query-defaults.test.mjs'), path.join(TESTING, 'harness', 'tool-health', '*.test.mjs')],
+  acceptance: ['--test', '--test-reporter=spec', path.join(TESTING, 'harness', '*.test.mjs'), path.join(TESTING, 'harness', 'tool-health', '*.test.mjs')],
   transport: script('transport'),
   grammar: script('grammar'),
   'lsp-importers': script('lsp-importers'),

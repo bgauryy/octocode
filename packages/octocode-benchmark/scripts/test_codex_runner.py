@@ -54,9 +54,9 @@ class CodexRunnerTests(unittest.TestCase):
         self.assertTrue(has_classification({'properties':{'queries':{'items':{'properties':{'classification':{'type':'object'}}}}}}))
         self.assertFalse(has_classification({'description':'classifiers are optional'}))
         self.assertFalse(has_classification({'properties':{'queries':{'items':{'properties':{'goals':{'type':'array'}}}}}}))
-    def test_clasify_needs_beta_and_credential_while_reader_classifiers_need_only_the_credential(self):
+    def test_clasify_and_reader_classifiers_need_a_credential_independent_of_beta(self):
         inherited = {'OCTOCODE_CLASSIFICATION_API': 'test-credential'}
-        for beta, expected in [('false', (False, True)), ('true', (True, True))]:
+        for beta, expected in [('false', (True, True)), ('true', (True, True))]:
             with self.subTest(beta=beta):
                 self.assertEqual(semantic_gates({'env': {'OCTOCODE_BETA': beta}}, inherited), expected)
         for restriction in [{'TOOLS_TO_RUN':'localSearch,localFetch'}, {'DISABLE_TOOLS':'clasify'}]:

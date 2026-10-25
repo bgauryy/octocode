@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
+    let lines = (0..30)
+        .map(|line| json!(format!("{line}\t{}", "evidence ".repeat(20))))
+        .collect::<Vec<_>>();
+    let identity = json!({"owner":"owner","repo":"repo","path":"source.rs",
+        "commitSha":"f".repeat(40),"atRef":false,"lineResolved":false});
+    let mut file = identity.clone();
+    file["lines"] = json!(lines);
+    let plan = PreparedRows::new(
+        vec![json!({"index":0,"data":{"files":[file]}})],
+        &[None],
+        Some(crate::id::ToolId::GhSearchCode),
+    )
+    .plan(1000);
+    assert!(plan.total_pages > 1);
+    let mut seen = Vec::new();
+    for page in 0..plan.total_pages {
+        for row in plan.build_page(page, &[None], &[]) {
+            for file in row["data"]["files"].as_array().expect("files") {
+                for (key, expected) in identity.as_object().expect("identity") {
+                    assert_eq!(&file[key], expected, "page {page}: missing {key}");
+                }
+                seen.extend(file["lines"].as_array().expect("lines").iter().cloned());
+            }
+        }
+    }
+    assert_eq!(seen, lines);
+}
+
+#[test]
 fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
     let matches = (0..200)
         .map(|line| json!({"line":line,"value":"x".repeat(40)}))
@@ -110,59 +140,71 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
     assert_eq!(bodies, 1, "the body rides one part");
 }
 
-/// A row with two large arrays (a comparison's commits and files)
-/// delivers each array once; slices of one never repeat the other.
+/// Every secondary collection is delivered once, even when it is too small
+/// to trigger a separate page of its own.
 #[test]
-fn rows_scope_never_repeats_a_second_large_array_per_fragment() {
+fn rows_scope_never_repeats_secondary_evidence_per_fragment() {
     let commits = (0..100)
         .map(|n| json!({"sha":format!("{n:040}"),"messageHeadline":"x".repeat(40)}))
         .collect::<Vec<_>>();
-    let files = (0..100)
-        .map(|n| format!("M +1 -1 src/file_{n:03}.rs"))
-        .collect::<Vec<_>>();
-    let structured = json!({"results":[{"index":0,"data":{
-        "type":"compare","aheadBy":100,"commits":commits,"files":files
-    }}]});
-    let full = structured.to_string();
-    let options = ResponsePageOptions {
-        response_chars: Some(6_000),
-        paging: true,
-        ..Default::default()
-    };
-    let (_, first) = paginate_rows(
-        structured.as_object().unwrap().clone(),
-        &options,
-        Vec::new(),
-        &[],
-        None,
-    );
-    let (mut commits_seen, mut files_seen, mut chars) = (0, 0, 0);
-    for page in 0..first.total_pages {
-        let options = ResponsePageOptions {
-            response_offset: Some(page),
-            response_snapshot: Some(first.snapshot.clone()),
-            ..options.clone()
-        };
-        let (envelope, _) = paginate_rows(
-            structured.as_object().unwrap().clone(),
-            &options,
-            Vec::new(),
-            &[],
-            None,
-        );
-        chars +=
-            octocode_engine::json_size::utf16_units(&Value::Object(envelope.clone())).unwrap_or(0);
-        for row in envelope["results"].as_array().unwrap() {
-            commits_seen += row["data"]["commits"].as_array().map_or(0, Vec::len);
-            files_seen += row["data"]["files"].as_array().map_or(0, Vec::len);
+    for count in [1, 8, 100] {
+        for files in [
+            (0..count)
+                .map(|n| json!(format!("M +1 -1 src/file_{n:03}.rs")))
+                .collect::<Vec<_>>(),
+            (0..count).map(|n| json!(n)).collect::<Vec<_>>(),
+        ] {
+            let structured = json!({"results":[{"index":0,"data":{
+                "commits":commits,"files":files
+            }}]});
+            let options = ResponsePageOptions {
+                response_chars: Some(6_000),
+                paging: true,
+                ..Default::default()
+            };
+            let (_, first) = paginate_rows(
+                structured.as_object().unwrap().clone(),
+                &options,
+                Vec::new(),
+                &[],
+                None,
+            );
+            assert!(first.total_pages > 1);
+            let (mut actual_commits, mut actual_files) = (Vec::new(), Vec::new());
+            for page in 0..first.total_pages {
+                let options = ResponsePageOptions {
+                    response_offset: Some(page),
+                    response_snapshot: Some(first.snapshot.clone()),
+                    ..options.clone()
+                };
+                let (envelope, _) = paginate_rows(
+                    structured.as_object().unwrap().clone(),
+                    &options,
+                    Vec::new(),
+                    &[],
+                    None,
+                );
+                for row in envelope["results"].as_array().unwrap() {
+                    actual_commits.extend(
+                        row["data"]["commits"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .cloned(),
+                    );
+                    actual_files.extend(
+                        row["data"]["files"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .cloned(),
+                    );
+                }
+            }
+            assert_eq!(actual_commits, commits);
+            assert_eq!(actual_files, files);
         }
     }
-    assert_eq!((commits_seen, files_seen), (100, 100));
-    assert!(
-        chars < full.len() + full.len() / 4,
-        "{chars} vs {}",
-        full.len()
-    );
 }
 
 /// A skeleton (stats, pagination) that nearly fills the budget must not

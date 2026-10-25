@@ -2,6 +2,8 @@ use super::*;
 use crate::test_support::TmpDir;
 use std::fs;
 
+mod modules;
+
 /// A source directory resolves to the project above it; a tree with no
 /// marker has no project root.
 #[test]

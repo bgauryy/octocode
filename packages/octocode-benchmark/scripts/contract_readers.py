@@ -12,9 +12,9 @@ def has_classification(value):
 
 
 def contract_readers():
-    """(readers, local_readers, classifier_readers): MCP read tools other than beta clasify,
+    """(readers, local_readers, classifier_readers): MCP read tools other than clasify,
     the local-family subset, and the readers that take classification."""
-    tools = [t for t in json.loads(CONTRACT.read_text())['tools'] if not t['cliOnly'] and not t['beta']]
+    tools = [t for t in json.loads(CONTRACT.read_text())['tools'] if not t['cliOnly'] and not t['beta'] and t['name'] != 'clasify']
     readers = {t['name'] for t in tools}
     local = {t['name'] for t in tools if t['family'] == 'local'}
     classifier_readers = {t['name'] for t in tools if has_classification(t['inputSchema'])}

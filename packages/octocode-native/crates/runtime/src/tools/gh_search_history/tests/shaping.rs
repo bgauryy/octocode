@@ -253,23 +253,33 @@ fn rows_filtered_on_the_created_window_keep_created_at() {
     ));
 }
 
-/// A cross-repository PR search names each row's repository as the
-/// ghGetHistoryItem inputs (`owner`, `repo`); an owner-scoped search names
-/// only `repo` (the owner is the query's own).
+/// Saved history rows carry the repository required to read their item.
 #[test]
 fn cross_repository_rows_name_owner_and_repo() {
     let item = json!({"number": 3, "repository_url": "https://api.github.com/repos/acme/widget"});
     for ((owner, repo), expected) in [
         ((None, None), json!({"owner":"acme","repo":"widget"})),
-        ((Some("Acme"), None), json!({"repo":"widget"})),
+        (
+            (Some("Acme"), None),
+            json!({"owner":"acme","repo":"widget"}),
+        ),
         (
             (Some("other"), None),
             json!({"owner":"acme","repo":"widget"}),
         ),
-        ((Some("acme"), Some("widget")), json!({})),
+        (
+            (Some("acme"), Some("widget")),
+            json!({"owner":"acme","repo":"widget"}),
+        ),
     ] {
         let mut row = json!({});
         rows::name_repository(&mut row, &item, owner, repo);
         assert_eq!(row, expected, "{owner:?}/{repo:?}");
     }
+    let mut listed = json!({"commitSha":"abc"});
+    rows::name_repository(&mut listed, &json!({}), Some("acme"), Some("widget"));
+    assert_eq!(
+        listed,
+        json!({"commitSha":"abc", "owner":"acme", "repo":"widget"})
+    );
 }

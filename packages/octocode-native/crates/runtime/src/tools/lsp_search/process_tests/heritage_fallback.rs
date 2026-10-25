@@ -172,11 +172,15 @@ fn subtypes_fall_back_to_a_labelled_heritage_scan_when_implementation_fails() {
             row["warnings"].to_string().contains("unverified"),
             "the rows are labelled unverified: {row}"
         );
-        let query = serde_json::to_value(&query).expect("query json");
-        assert_row_contract(ToolId::LspSearch, &query, &row);
-        // The scan is a labelled stand-in: the same query, retried, asks the
-        // server again.
-        assert_eq!(row["next"]["retry"]["tool"], "lspSearch", "{row}");
+        assert_row_contract(ToolId::LspSearch, &row);
+        // The scan is a labelled stand-in; a same-query related call can ask
+        // the server again.
+        assert!(
+            row["related"].as_array().is_some_and(|calls| calls
+                .iter()
+                .any(|call| { call["kind"] == "related" && call["tool"] == "lspSearch" })),
+            "{row}"
+        );
         assert_eq!(row["isPartial"], true, "{row}");
         client.stop().await.expect("fixture server closed");
     });
@@ -323,13 +327,20 @@ fn implementation_on_a_type_falls_back_to_the_labelled_heritage_scan() {
         "the note speaks of the operation asked: {row}"
     );
     assert_eq!(row["isPartial"], true, "{row}");
-    assert_eq!(row["next"]["retry"]["tool"], "lspSearch", "{row}");
+    let retry = row["related"]
+        .as_array()
+        .and_then(|calls| {
+            calls
+                .iter()
+                .find(|call| call["kind"] == "related" && call["tool"] == "lspSearch")
+        })
+        .expect("same-query optional reattempt");
+    assert_eq!(retry["tool"], "lspSearch", "{row}");
     assert_eq!(
-        row["next"]["retry"]["input"]["queries"][0]["operation"], "implementation",
+        retry["input"]["queries"][0]["operation"], "implementation",
         "{row}"
     );
-    let query = serde_json::json!({"operation": "implementation", "path": "b.ts", "symbolName": "Base", "line": 1});
-    assert_row_contract(ToolId::LspSearch, &query, &row);
+    assert_row_contract(ToolId::LspSearch, &row);
 }
 
 /// A member has no heritage clause to scan: `implementation` on it keeps

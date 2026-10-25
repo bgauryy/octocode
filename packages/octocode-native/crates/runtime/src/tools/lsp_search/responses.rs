@@ -92,7 +92,7 @@ pub(super) fn annotate(
     if session.open_readiness.as_deref() == Some("timeout")
         && result.get("status") != Some(&"error".into())
     {
-        partial_with_retry(
+        partial_with_related_rerun(
             result,
             query,
             "languageServerIndexing",

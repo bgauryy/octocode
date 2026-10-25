@@ -169,7 +169,7 @@ pub(super) async fn open_session(
     } = acquire_leased_client(query, target, pool, cancel).await?;
     // A readiness timeout means the live server announced progress and is
     // still indexing. Do not sync or query it yet: return the established
-    // incomplete row with the same-query retry instead.
+    // incomplete row with an optional same-query reattempt instead.
     if client.readiness().as_deref() == Some("timeout") {
         let mut row = empty(
             query,
@@ -177,7 +177,7 @@ pub(super) async fn open_session(
             "The language server is still indexing the project; semantic results are not ready yet.",
             true,
         );
-        partial_with_retry(&mut row, query, "languageServerIndexing", &[]);
+        partial_with_related_rerun(&mut row, query, "languageServerIndexing", &[]);
         return Err(Exit::Row(row));
     }
     if let Some(capability) = receipt::required_capability(lsp_search_query::operation(query))

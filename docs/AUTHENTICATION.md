@@ -114,7 +114,7 @@ npx octocode auth login --hostname github.mycompany.com
 
 ## Classification key (`clasify`)
 
-The classification key enables read-tool `classification`; the beta `clasify` tool also needs `OCTOCODE_BETA` ([availability](OCTOCODE_CLASIFY.md#availability)). Get a key from the [provider docs](https://docs.typesafe.ai/introduction); what is sent: [SECURITY.md](SECURITY.md#classification-egress).
+The classification key enables read-tool `classification`; the `clasify` tool also needs a successful provider ping ([availability](OCTOCODE_CLASIFY.md#availability)). Get a key from the [provider docs](https://docs.typesafe.ai/introduction); what is sent: [SECURITY.md](SECURITY.md#classification-egress).
 
 | Variable | Purpose |
 |---|---|
@@ -143,5 +143,5 @@ The classification key enables read-tool `classification`; the beta `clasify` to
 | `login requires an interactive terminal` | Use a token variable in CI and scripts |
 | Enterprise login or refresh rejected | Set `OCTOCODE_GITHUB_CLIENT_ID` for that host and `GITHUB_API_URL` in the shell or home config |
 | Enterprise requests hit github.com | `GITHUB_API_URL` was set in a workspace file (ignored); set it in the shell or home config |
-| `clasify` missing | Set a nonblank `OCTOCODE_CLASSIFICATION_API` and enable beta; see the [availability table](OCTOCODE_CLASIFY.md#availability) |
+| `clasify` missing | Set a nonblank `OCTOCODE_CLASSIFICATION_API` and verify the provider ping succeeds; see the [availability table](OCTOCODE_CLASIFY.md#availability) |
 | Private npm package not found | Put a registry-scoped `_authToken` in your user npmrc and pass that `registryUrl` in the query |

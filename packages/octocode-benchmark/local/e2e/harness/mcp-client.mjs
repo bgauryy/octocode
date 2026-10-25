@@ -160,16 +160,25 @@ export function runCli(tool, input, { cwd = ROOT, env = {}, timeout, maxBuffer =
 /**
  * Run a CLI (`bin`, default the built one) with raw `argv`, asynchronously so
  * calls run in parallel: `env` is the whole environment and a call past
- * `timeoutMs` is killed. Resolves {status, stdout, stderr, ms}.
+ * `timeoutMs` loses its whole process group/tree, including inherited pipes.
+ * Resolves {status, stdout, stderr, ms}.
  */
 export function spawnCli(argv, { bin = CLI, cwd = ROOT, env = process.env, timeoutMs = 120_000 } = {}) {
   return new Promise((resolve, reject) => {
     const started = performance.now();
-    const child = spawn(process.execPath, [bin, ...argv], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [bin, ...argv], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    const timer = setTimeout(() => {
+      if (!child.pid) return;
+      if (process.platform === 'win32') {
+        const taskkill = path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
+        spawnSync(taskkill, ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      } else {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      }
+    }, timeoutMs);
     child.on('error', error => { clearTimeout(timer); reject(error); });
     child.on('close', status => { clearTimeout(timer); resolve({ status, stdout, stderr, ms: performance.now() - started }); });
   });

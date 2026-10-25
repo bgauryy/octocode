@@ -15,7 +15,7 @@ npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"start
 
 ### Tool commands
 
-Use `octocode <tool> '<JSON envelope>'`. All 14 tool names are listed in the [tools reference](OCTOCODE_TOOLS.md). `ghCloneRepo` is CLI-only; public clasify requires beta and a classification credential. Authenticated GitHub endpoints require a token; inspect `octocode auth status`.
+Use `octocode <tool> '<JSON envelope>'`. All 14 tool names are listed in the [tools reference](OCTOCODE_TOOLS.md). `ghCloneRepo` is CLI-only; public clasify requires a classification credential and a successful provider ping. Authenticated GitHub endpoints require a token; inspect `octocode auth status`.
 
 ### System commands
 

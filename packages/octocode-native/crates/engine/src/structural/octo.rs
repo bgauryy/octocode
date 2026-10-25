@@ -19,7 +19,7 @@ mod selector;
 
 pub(super) use error::CompileError;
 pub(super) use matching::{ExecutionError, named_children, node_text, parse_tree_with_deadline};
-pub use rule::{EXAMPLE_RULE, validate_rule_shape};
+pub use rule::EXAMPLE_RULE;
 pub(super) use rule::{RawPattern, RawRule, decode_rule};
 
 #[cfg(test)]

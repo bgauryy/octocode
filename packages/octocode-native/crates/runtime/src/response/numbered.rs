@@ -159,9 +159,8 @@ fn is_transformed(data: &Value) -> bool {
         || data.pointer("/pagination/unit").and_then(Value::as_str) == Some("bytes")
 }
 
-/// Number one file-read row in place. The numbers state the source range, so
-/// `sourceLineRanges` leaves the row; `matchedLines` leaves when every
-/// returned line matched (a grep-style map).
+/// Number one file-read row in place. The numbers replace `sourceLineRanges`;
+/// `matchedLines` still distinguishes hits from returned context.
 fn number_file_row(data: &mut Value) -> bool {
     if is_transformed(data) {
         return false;
@@ -185,14 +184,6 @@ fn number_file_row(data: &mut Value) -> bool {
     else {
         return false;
     };
-    let returned: u64 = ranges.iter().map(|(start, end)| end + 1 - start).sum();
-    let all_matched = map
-        .get("matchedLines")
-        .and_then(Value::as_array)
-        .is_some_and(|lines| lines.len() as u64 == returned);
-    if all_matched {
-        map.remove("matchedLines");
-    }
     map.insert("content".into(), Value::String(numbered));
     map.remove("sourceLineRanges");
     true

@@ -125,8 +125,16 @@ export function renderRust(header: string, bundleJson: string, roots = nativeIde
 }`
       )
       .join('\n');
-    return `${header}\n${generated}\n${display}\n`;
+    return `${header}\n${unicodePatterns(generated)}\n${display}\n`;
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/** JSON Schema patterns use Unicode mode in both admission and typed decoding. */
+function unicodePatterns(generated: string): string {
+  return generated.replace(
+    /::\s*regress\s*::\s*Regex\s*::\s*new\s*\(\s*("(?:\\.|[^"\\])*")\s*,?\s*\)/g,
+    '::regress::Regex::with_flags($1, "u")'
+  );
 }

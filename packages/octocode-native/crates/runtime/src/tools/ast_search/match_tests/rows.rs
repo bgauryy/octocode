@@ -17,13 +17,7 @@ fn match_rows_without_unread_pages_are_complete() {
     let out = run(&root.0, base.clone()).expect("match");
     assert_eq!(out["coverage"]["state"], "complete", "{out}");
     assert!(out["next"].get("expandCaptures").is_some(), "{out}");
-    let row = crate::response::rows::result_row(
-        crate::id::ToolId::AstSearch,
-        0,
-        &base,
-        out.clone(),
-        None,
-    );
+    let row = crate::response::rows::result_row(0, out.clone(), None);
     assert!(row.pointer("/data/isPartial").is_none(), "{row}");
     let mut capped = base;
     capped["maxFiles"] = json!(1);

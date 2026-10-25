@@ -37,7 +37,7 @@ async fn commit_patch_continuations_preserve_match_context_and_exact_stream() {
             pages += 1;
             assert!(pages < 100, "patch walk must terminate");
             let data = read_with_budget(&server, query.clone(), Some(40)).await;
-            assert_history_page_contract(&query, &data);
+            assert_history_page_contract(&data);
             actual.push_str(data["files"][0]["patch"].as_str().expect("patch window"));
             let Some(next) = data.pointer("/next/continuePatch/input") else {
                 break;
@@ -96,7 +96,7 @@ async fn commit_file_batches_resolve_a_movable_ref_once_before_paging() {
     let query = json!({"operation":"commit","owner":"o","repo":"r","ref":"main",
         "sections":["files"],"include":["old-last.rs"]});
     let data = read(&server, query.clone()).await;
-    assert_history_page_contract(&query, &data);
+    assert_history_page_contract(&data);
     assert_eq!(data["commitSha"], HEAD, "{data}");
     assert_eq!(data["files"], json!(["M +1 -1 old-last.rs"]), "{data}");
     let requests = server.received_requests().await.expect("requests");
@@ -125,7 +125,7 @@ async fn a_one_batch_commit_read_by_branch_sends_no_separate_resolution() {
     let query = json!({"operation":"commit","owner":"o","repo":"r","ref":"main",
         "sections":["files"],"pageSize":10});
     let data = read(&server, query.clone()).await;
-    assert_history_page_contract(&query, &data);
+    assert_history_page_contract(&data);
     assert_eq!(data["commitSha"], HEAD, "{data}");
     let requests = server.received_requests().await.expect("requests");
     assert_eq!(requests.len(), 1, "one read of the commit by its name");

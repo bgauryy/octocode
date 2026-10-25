@@ -1,22 +1,14 @@
-mod artifact;
 #[cfg(test)]
 mod canonical_tests;
-mod clasify;
-mod depth_range;
 mod issues;
-mod lsp;
 mod messages;
 #[cfg(test)]
 mod numeric_tests;
 mod output;
 #[cfg(test)]
 mod pattern_tests;
-mod relations;
-mod rules;
 mod schema;
-mod structural_rule;
 mod union;
-use rules::{apply_validation_rules, query_values};
 
 pub(crate) use issues::levenshtein;
 use issues::{internal, issue, query_label, schema_issue, sibling_requirement};
@@ -46,6 +38,15 @@ pub struct ContractValidationError {
     pub issues: Vec<ValidationIssue>,
 }
 
+impl ContractValidationError {
+    fn is_contract_error(&self) -> bool {
+        self.issues.iter().any(|issue| {
+            issue.rule_id.starts_with("contract.")
+                || issue.rule_id.starts_with("schema.unsupported-")
+        })
+    }
+}
+
 impl Display for ContractValidationError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -67,13 +68,22 @@ fn contract_tool(tool_name: &str) -> Result<(ToolId, &'static Value), ContractVa
             format!("Unknown tool: {tool_name}"),
         )
     })?;
-    super::tool_contract(id)
-        .map(|tool| (id, tool))
-        .map_err(|error| internal(error.to_string()))
+    let tool = super::tool_contract(id).map_err(|error| internal(error.to_string()))?;
+    static AUDITS: [std::sync::OnceLock<Result<(), ContractValidationError>>; ToolId::ALL.len()] =
+        [const { std::sync::OnceLock::new() }; ToolId::ALL.len()];
+    AUDITS[id.index()]
+        .get_or_init(|| {
+            for field in ["querySchema", "inputSchema", "outputSchema"] {
+                schema::audit::validate(&tool[field])?;
+            }
+            Ok(())
+        })
+        .clone()?;
+    Ok((id, tool))
 }
 
 /// Validates the canonical input, applying schema defaults and integer number
-/// representations before typed decoding. Relation rules follow structural parsing.
+/// representations before typed decoding.
 pub fn validate(tool_name: &str, input: Value) -> Result<Value, ContractValidationError> {
     validate_from(tool_name, input, false)
 }
@@ -157,29 +167,13 @@ pub(crate) fn validate_batch(
                 parsed = validate_input_schema(&tool["inputSchema"], item_schema, query, &mut path);
             }
             if let Err(error) = parsed {
+                if error.is_contract_error() {
+                    return Err(error);
+                }
                 let mut issues = error.issues;
                 mark_envelope_fields(id, tool, &mut issues);
                 rows.push(issues);
                 continue;
-            }
-            // Row rules see a one-row batch; the row moves in and back out.
-            let scoped = serde_json::json!({"queries":[std::mem::take(query)]});
-            let ruled = apply_validation_rules(&tool["rules"], &scoped);
-            if let Value::Object(mut scoped) = scoped
-                && let Some(Value::Array(mut rows)) = scoped.remove("queries")
-                && let Some(row) = rows.pop()
-            {
-                *query = row;
-            }
-            if let Err(mut error) = ruled {
-                for issue in &mut error.issues {
-                    if issue.path.first().is_some_and(|part| part == "queries")
-                        && issue.path.get(1).is_some_and(|part| part == "0")
-                    {
-                        issue.path[1] = index.to_string();
-                    }
-                }
-                issues.extend(error.issues);
             }
             rows.push(issues);
         }
@@ -187,21 +181,12 @@ pub(crate) fn validate_batch(
     // The rows were checked above; the envelope pass checks only the
     // envelope (its own fields and the batch size), and reports its issues
     // beside the rows' so one repair can fix every one.
-    let envelope = validate_envelope_with(tool, plan, &mut input)
-        .err()
-        .map(|error| error.issues)
-        .unwrap_or_default();
+    let envelope = match validate_envelope_with(tool, plan, &mut input) {
+        Ok(()) => Vec::new(),
+        Err(error) if error.is_contract_error() => return Err(error),
+        Err(error) => error.issues,
+    };
     Ok((input, BatchIssues { rows, envelope }))
-}
-
-/// The envelope pass of [`validate_batch`] alone: the envelope's own fields
-/// and the batch size over rows that are validated already.
-pub(crate) fn validate_envelope(
-    tool_name: &str,
-    input: &mut Value,
-) -> Result<(), ContractValidationError> {
-    let (id, tool) = contract_tool(tool_name)?;
-    validate_envelope_with(tool, RowPlan::of(id, tool), input)
 }
 
 fn validate_envelope_with(

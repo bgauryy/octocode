@@ -8,7 +8,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md) | Research-tool routing: which tool first, what each result proves, one diagram per flow |
 | [OCTOCODE_TOOLS.md](OCTOCODE_TOOLS.md) | Every tool's fields, defaults, limits, results, and continuations |
 | [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md) | The shared request and result envelope: rows, result shapes, `next` continuations, `related` calls, and prose `hints` |
-| [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | `classification` on search and fetch, and the beta `clasify` tool: choose a route, read the answers, limits and gates |
+| [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md) | `classification` on search and fetch, and the `clasify` tool: choose a route, read the answers, limits and gates |
 | [OCTOCODE_MCP.md](OCTOCODE_MCP.md) | The MCP server: client setup, registered tools, instructions, lifecycle |
 | [OCTOCODE_CLI.md](OCTOCODE_CLI.md) | The CLI: commands, flags, output, exit codes |
 | [CONFIGURATION.md](CONFIGURATION.md) | Config files, precedence, storage and caches, feature gates, fixed internal limits, troubleshooting |

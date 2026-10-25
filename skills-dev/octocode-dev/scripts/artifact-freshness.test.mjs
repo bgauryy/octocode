@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { staleArtifacts, stagedNativeArtifacts } from './artifact-freshness.mjs';
+import { PLATFORMS, executableName, getPlatformSuffix } from '../../../packages/octocode-native/bin/platform.cjs';
 
 const FINGERPRINT = 'aa8c48f2b9d5159056b3e8d61b4d2d6c9b50dd37e725b5f4d524ee33169c5a06';
 const VERSION = '20.2.0';
@@ -37,5 +38,17 @@ test('staged native artifacts are the binary of each platform, and nothing else'
   stage(root, 'darwin-arm64', 'octocode-native.darwin-arm64.node', 'x');
   stage(root, 'darwin-arm64', 'package.json', '{}');
   stage(root, 'win32-x64-msvc', 'octocode.exe', 'x');
-  assert.deepEqual(stagedNativeArtifacts(root).sort(), [binary, path.join(root, 'win32-x64-msvc', 'octocode.exe')].sort());
+  assert.deepEqual(stagedNativeArtifacts(root, { all: true }).sort(), [binary, path.join(root, 'win32-x64-msvc', 'octocode.exe')].sort());
+});
+
+test('local freshness ignores stale foreign binaries while explicit all-platform checks retain them', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-fresh-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const host = getPlatformSuffix();
+  const foreign = Object.keys(PLATFORMS).find(platform => platform !== host);
+  const fresh = stage(root, host, executableName('octocode', PLATFORMS[host].os), `${FINGERPRINT} ${VERSION}`);
+  const stale = stage(root, foreign, executableName('octocode', PLATFORMS[foreign].os), 'old');
+  assert.deepEqual(stagedNativeArtifacts(root), [fresh]);
+  assert.deepEqual(staleArtifacts(stagedNativeArtifacts(root), FINGERPRINT, VERSION), []);
+  assert.deepEqual(staleArtifacts(stagedNativeArtifacts(root, { all: true }), FINGERPRINT, VERSION), [stale]);
 });

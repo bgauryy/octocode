@@ -22,7 +22,11 @@ All operations use the shared queries envelope. Evaluate either `content` or `so
 {"queries":[{"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"src/cache.ts","ranges":[{"startLine":1,"endLine":80}]}},"questions":{"restart":{"type":"noul","instructions":"Does this source require restarting after credential rotation?"}}}]}
 ```
 
-A source names an allowed reader and its typed source query, or a supported HTTPS URL. Text questions may use supplied JSON content instead. Captured source bodies are not repeated in the answer; the emitted read continuation inspects the exact evidence.
+A source names an allowed reader and its typed source query, or a supported HTTPS URL. Use `source` to scout an unread resource; paths or URLs inside `content` are literal data and are not fetched. Several keyed questions share the captured resource. Text questions may also use supplied JSON content directly, without a source or an agent-specific wrapper.
+
+For GitHub, use `source:{tool:"ghGetFileContent",query:{owner,repo,path,ref}}` with discovered values. Native uses the same authorized GitHub reader and cache as an ordinary file read, pins the capture to its resolved commit and sends the selected source and questions to JEV internally. The agent receives typed answers, usage and an executable inspection handle, not an automatic copy of the resource body. Source limits fail explicitly instead of judging a silently clipped prefix.
+
+A label-only task may finish with the answers. Follow the captured-source read only when you need to inspect the evidence or quote it; it preserves the judged selection and rejects a changed local source instead of silently reading its new contents. Complete any remaining answer or assessment pages needed for your task. An uncertain judgment is not proof that the source lacks something, and a classifier's answer does not establish symbol identity.
 
 ### Research text sections across resources
 
@@ -52,7 +56,7 @@ A question must use its declared type and shape. Input errors identify the rejec
 
 ## Availability
 
-A nonblank `OCTOCODE_CLASSIFICATION_API` or `classification.api` enables inline classification. Public clasify additionally requires beta (`OCTOCODE_BETA` or `local.beta`). Reader availability and storage policy still apply. Inspect live schema/config before using a capability.
+A nonblank `OCTOCODE_CLASSIFICATION_API` or `classification.api` enables inline classification. Public clasify also requires a successful authenticated `GET /v1/models` ping at host startup, with one attempt and a two-second deadline. It does not depend on `OCTOCODE_BETA` or `local.beta`. A failed ping omits clasify from the enabled CLI tool listing and MCP discovery and blocks execution until a new runtime starts. Its named CLI schema remains inspectable and reports disabled availability. Explicit tool allowlists and exclusions still apply. CLI `--help` uses configuration only and does not contact the provider. Reader availability and storage policy still apply. Inspect live schema/config before using a capability.
 
 ## Limits
 

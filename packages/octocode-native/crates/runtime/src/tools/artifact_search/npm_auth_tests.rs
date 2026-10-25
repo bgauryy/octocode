@@ -121,7 +121,8 @@ async fn exact_lookup_offers_one_release_lead_at_the_package_directory() {
         assert!(release.get("source").is_none(), "{data}");
         assert!(release.get("verification").is_none(), "{data}");
         let row = data["artifacts"][0].as_object().expect("row");
-        assert_eq!(row["sourceRef"], sha, "{data}");
+        assert_eq!(row["ref"], sha, "{data}");
+        assert!(!row.contains_key("sourceRef"), "{data}");
         assert_eq!(row["verification"], "registryRef", "{data}");
         assert!(row.keys().all(|key| key != "gitHead"), "{data}");
         assert_eq!(
@@ -166,6 +167,7 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
         "{data}"
     );
     let row = &data["artifacts"][0];
+    assert!(row.get("ref").is_none(), "{data}");
     assert!(row.get("sourceRef").is_none(), "{data}");
     assert_eq!(row["verification"], "defaultBranch", "{data}");
     assert_eq!(
@@ -183,7 +185,7 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
             ..call(deadline, true)
         };
         let data = execute(query.clone(), checked).await.expect("lookup");
-        assert_eq!(data["artifacts"][0]["sourceRef"], sha, "{data}");
+        assert_eq!(data["artifacts"][0]["ref"], sha, "{data}");
         assert_eq!(
             data["artifacts"][0]["verification"], "registryRef",
             "{data}"

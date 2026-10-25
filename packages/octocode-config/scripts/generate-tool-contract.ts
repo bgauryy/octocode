@@ -14,7 +14,7 @@
 //
 // octocode-native's build.rs embeds contract/ in place, so regenerating here
 // is the whole change. Outputs are committed and never hand-edited; `--check`
-// (no cargo needed) fails when any is stale.
+// requires cargo-typify to compare the Rust body and fails when any output is stale.
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';

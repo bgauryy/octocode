@@ -12,8 +12,7 @@ use std::collections::HashMap;
 /// owner-wide) at each hit's indexed commit (from its `html_url`), the
 /// commit the index matched.
 pub(in crate::tools::gh_search_code) struct Resolution {
-    /// The one commit every row was read at; `None` when rows differ (each
-    /// row then names its own `commitSha`).
+    /// Common commit for page-level verification; file rows retain their own.
     pub(in crate::tools::gh_search_code) sha: Option<String>,
     pub(in crate::tools::gh_search_code) reference: Option<String>,
     /// Per row: the commit it was read at, and its hits.
@@ -49,11 +48,9 @@ fn indexed_commit(html_url: &str) -> Option<String> {
 
 /// The commit each row of a page that read no lines (a path-only search, a
 /// `fields` pick without `lines`) was indexed at, from its hit's `html_url`:
-/// `data.commitSha` when every row shares one, else each row's own, so a
-/// read of a listed path is pinned to the commit the index matched. A `ref`
+/// a read of each listed path is pinned to the commit the index matched. A `ref`
 /// search's rows name no index commit (the index is the default branch's).
 pub(in crate::tools::gh_search_code) fn index_commits(
-    value: &mut Value,
     items: &mut [Value],
     found: &[CodeSearchItem],
     query: &GhSearchCodeQuery,
@@ -72,20 +69,9 @@ pub(in crate::tools::gh_search_code) fn index_commits(
             })
             .and_then(|item| indexed_commit(&item.html_url))
     };
-    let commits = items
-        .iter()
-        .map(|row| row.as_object().and_then(commit_of))
-        .collect::<Vec<_>>();
-    match commits.first() {
-        Some(Some(first)) if commits.iter().all(|commit| commit.as_ref() == Some(first)) => {
-            value["commitSha"] = json!(first);
-        }
-        _ => {
-            for (row, commit) in items.iter_mut().zip(commits) {
-                if let (Some(row), Some(commit)) = (row.as_object_mut(), commit) {
-                    row.insert("commitSha".into(), json!(commit));
-                }
-            }
+    for row in items.iter_mut().filter_map(Value::as_object_mut) {
+        if let Some(commit) = commit_of(row) {
+            row.insert("commitSha".into(), json!(commit));
         }
     }
 }

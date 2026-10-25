@@ -1,6 +1,8 @@
 /** Key-based clasify and reader-selection availability in built CLI and fresh MCP hosts. */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/client';
@@ -21,29 +23,30 @@ const selectionTools = new Set([
 await fs.mkdir(base, { recursive: true });
 const fixture = await fs.mkdtemp(path.join(base, 'fixture-'));
 
-function cli(project, env, args) {
-  const result = spawnSync(process.execPath, [cliPath, ...args], {
-    env,
-    cwd: project,
-    encoding: 'utf8',
-    timeout: 15000,
-  });
-  return {
-    ...result,
-    json: (() => {
-      try {
-        return JSON.parse(result.stdout);
-      } catch {
-        return undefined;
-      }
-    })(),
-  };
+const exec = promisify(execFile);
+async function cli(project, env, args) {
+  try {
+    return {
+      ...(await exec(process.execPath, [cliPath, ...args], {
+        env,
+        cwd: project,
+        timeout: 15000,
+      })),
+      status: 0,
+    };
+  } catch (error) {
+    return {
+      stdout: error.stdout ?? '',
+      stderr: error.stderr ?? '',
+      status: error.code,
+    };
+  }
 }
 
-function schema(project, env, args) {
-  const result = cli(project, env, ['schema', ...args]);
+async function schema(project, env, args) {
+  const result = await cli(project, env, ['schema', ...args]);
   assert.equal(result.status, 0, `${args.join(' ')}: ${result.stderr}`);
-  return result.json;
+  return JSON.parse(result.stdout);
 }
 
 const selection = { predicates: ['Does this contain selected evidence?'] };
@@ -72,6 +75,35 @@ function checkAdmission(schema, row, { enabled, envelope, label }) {
 }
 
 const cases = [
+  {
+    name: 'process-key-beta-unset',
+    env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key' },
+    context: true,
+    clasify: true,
+  },
+  {
+    name: 'provider-rejects-key',
+    env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key' },
+    providerStatus: 401,
+    context: true,
+    clasify: false,
+  },
+  {
+    name: 'provider-down',
+    env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key' },
+    providerStatus: 503,
+    context: true,
+    clasify: false,
+  },
+  {
+    name: 'provider-unreachable',
+    env: {
+      OCTOCODE_CLASSIFICATION_API: 'fixture-key',
+      OCTOCODE_CLASSIFICATION_API_HOST: 'http://127.0.0.1:9',
+    },
+    context: true,
+    clasify: false,
+  },
   { name: 'absent', context: false, clasify: false },
   {
     name: 'empty',
@@ -89,7 +121,7 @@ const cases = [
     name: 'process-key-beta-off',
     env: { OCTOCODE_CLASSIFICATION_API: 'fixture-key', OCTOCODE_BETA: 'false' },
     context: true,
-    clasify: false,
+    clasify: true,
   },
   {
     name: 'process-key-beta-on',
@@ -101,7 +133,6 @@ const cases = [
     name: 'hidden-public-clasify-keeps-context',
     env: {
       OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-      OCTOCODE_BETA: 'true',
       DISABLE_TOOLS: 'clasify',
     },
     context: true,
@@ -109,7 +140,7 @@ const cases = [
   },
   {
     name: 'home-env-key',
-    homeEnv: 'OCTOCODE_CLASSIFICATION_API=fixture-key\nOCTOCODE_BETA=true\n',
+    homeEnv: 'OCTOCODE_CLASSIFICATION_API=fixture-key\n',
     context: true,
     clasify: true,
   },
@@ -117,11 +148,11 @@ const cases = [
     name: 'project-env-key',
     projectEnv: 'OCTOCODE_CLASSIFICATION_API=fixture-key\n',
     context: true,
-    clasify: false,
+    clasify: true,
   },
   {
     name: 'config-key',
-    config: { classification: { api: 'fixture-key' }, local: { beta: true } },
+    config: { classification: { api: 'fixture-key' } },
     context: true,
     clasify: true,
   },
@@ -137,7 +168,6 @@ const cases = [
     name: 'key-with-no-classification-route',
     env: {
       OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-      OCTOCODE_BETA: 'true',
       TOOLS_TO_RUN: 'ghSearchHistory',
     },
     context: false,
@@ -148,7 +178,6 @@ const cases = [
     name: 'standalone-only',
     env: {
       OCTOCODE_CLASSIFICATION_API: 'fixture-key',
-      OCTOCODE_BETA: 'true',
       TOOLS_TO_RUN: 'clasify',
     },
     context: false,
@@ -163,9 +192,20 @@ const cases = [
   },
 ];
 
+let providerStatus = 200;
+const provider = http.createServer((req, res) => {
+  assert.equal(req.method, 'GET');
+  assert.equal(req.url, '/v1/models');
+  assert.equal(req.headers.authorization, 'Bearer fixture-key');
+  res.writeHead(providerStatus, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ models: [] }));
+});
+await new Promise(resolve => provider.listen(0, '127.0.0.1', resolve));
+const providerUrl = `http://127.0.0.1:${provider.address().port}`;
 const results = [];
 try {
   for (const row of cases) {
+    providerStatus = row.providerStatus ?? 200;
     const home = path.join(fixture, row.name, 'home');
     const project = path.join(fixture, row.name, 'project');
     await fs.mkdir(home, { recursive: true });
@@ -189,7 +229,7 @@ try {
       WORKSPACE_ROOT: project,
       ALLOWED_PATHS: project,
       OCTOCODE_STORAGE_MODE: 'memory',
-      OCTOCODE_CLASSIFICATION_API_HOST: 'http://127.0.0.1:9',
+      OCTOCODE_CLASSIFICATION_API_HOST: providerUrl,
       DISABLE_TOOLS: '',
       TOOLS_TO_RUN: '',
       ...row.env,
@@ -214,12 +254,26 @@ try {
         row.clasify,
         `${row.name}: MCP clasify`
       );
-      const cliCatalog = schema(project, env, ['--view', 'full']);
+      const cliCatalog = await schema(project, env, ['--view', 'full']);
       assert.equal(
         cliCatalog.tools.some(tool => tool.name === 'clasify'),
         row.clasify,
         `${row.name}: CLI clasify`
       );
+      if (row.clasify) {
+        const input = { queries: [{ operation: 'models' }] };
+        const called = await cli(project, env, [
+          'clasify',
+          JSON.stringify(input),
+          '--json',
+        ]);
+        assert.equal(called.status, 0, called.stdout + called.stderr);
+        const mcpCalled = await client.callTool({
+          name: 'clasify',
+          arguments: input,
+        });
+        assert.notEqual(mcpCalled.isError, true);
+      }
       for (const name of selectionTools) {
         const mcpTool = catalog.tools.find(tool => tool.name === name);
         if (row.readers === false) {
@@ -233,7 +287,7 @@ try {
           label: `${row.name}: MCP ${name}`,
         });
         checkAdmission(
-          schema(project, env, [name]).querySchema,
+          (await schema(project, env, [name])).querySchema,
           queryFor(name),
           {
             enabled: row.context,
@@ -250,7 +304,7 @@ try {
             predicates: ['Does this contain selected evidence?'],
           },
         };
-        const rejected = cli(project, env, [
+        const rejected = await cli(project, env, [
           'localFetch',
           JSON.stringify({ queries: [query] }),
           '--json',
@@ -289,6 +343,7 @@ try {
     }
   }
 } finally {
+  await new Promise(resolve => provider.close(resolve));
   await fs.writeFile(
     path.join(base, 'results.json'),
     `${JSON.stringify(results, null, 2)}\n`

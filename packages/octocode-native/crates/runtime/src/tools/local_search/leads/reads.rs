@@ -142,7 +142,7 @@ fn numbered_calls(name: &str, reads: &[Value]) -> Vec<(String, Value)> {
             .collect::<Vec<_>>();
         for chunk in rows.chunks(crate::response::result::rows_per_call(tool)) {
             let key = crate::id::numbered(name, calls.len());
-            let call = Continuation::related_input(tool, json!({ "queries": chunk })).build();
+            let call = Continuation::continued_input(tool, json!({ "queries": chunk })).build();
             calls.push((key, call));
         }
     }

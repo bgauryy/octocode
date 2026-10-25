@@ -5,8 +5,8 @@ use super::*;
 use octocode_contract_types::LocalSearchQuery;
 
 /// A verified importer whose references request fails is a gap in the
-/// answer: the row is partial with `importerRequestFailed`, the error, and
-/// a retry; it never reads as complete.
+/// answer: the row is partial with `importerRequestFailed`, the error, and an
+/// optional related reattempt; it never reads as complete.
 #[test]
 fn a_failed_importer_request_marks_the_row_partial() {
     if !require_node() {
@@ -36,7 +36,7 @@ fn a_failed_importer_request_marks_the_row_partial() {
             None,
         ))
         .expect("row");
-    assert_row_contract(ToolId::LspSearch, &query_row, &row);
+    assert_row_contract(ToolId::LspSearch, &row);
     assert_eq!(row["isPartial"], true, "{row}");
     assert!(
         row["partialReasons"]
@@ -50,7 +50,16 @@ fn a_failed_importer_request_marks_the_row_partial() {
             .contains("importer references failed"),
         "{row}"
     );
-    assert!(row["next"].get("retry").is_some(), "{row}");
+    assert!(
+        row["next"].get("retry").is_none(),
+        "a fresh retry is not mandatory continuation work: {row}"
+    );
+    assert!(
+        row["related"].as_array().is_some_and(|calls| calls
+            .iter()
+            .any(|call| { call["kind"] == "related" && call["tool"] == "lspSearch" })),
+        "a typed transient importer failure offers a same-query related reattempt: {row}"
+    );
 }
 
 /// `includeDeclaration:false` drops the anchor's declaration, never an
@@ -96,7 +105,7 @@ fn importer_recovery_without_declarations_keeps_import_bindings() {
                 None,
             ))
             .expect("row");
-        assert_row_contract(ToolId::LspSearch, &query_row, &row);
+        assert_row_contract(ToolId::LspSearch, &row);
         let mut rows = reference_rows(&row);
         rows.sort();
         rows
@@ -156,7 +165,7 @@ fn symlinked_twins_list_each_site_once_under_its_real_path() {
                 None,
             ))
             .expect("row");
-        assert_row_contract(ToolId::LspSearch, &query_row, &row);
+        assert_row_contract(ToolId::LspSearch, &row);
         let mut sites = Vec::new();
         for site in row["matches"].as_array().expect("full reference locations") {
             let path = Path::new(site["path"].as_str().expect("path"));
@@ -216,7 +225,7 @@ fn importer_recovery_names_gitignored_files_it_skipped() {
             None,
         ))
         .expect("row");
-    assert_row_contract(ToolId::LspSearch, &query_row, &row);
+    assert_row_contract(ToolId::LspSearch, &row);
     assert!(
         row["matches"]
             .as_array()

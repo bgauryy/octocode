@@ -22,10 +22,7 @@ pub(super) struct PageReads {
     pub(super) hits: Vec<Value>,
 }
 
-/// Shape file rows: resolved files list numbered `lines` instead of index
-/// fragments; fragment `matchIndices` are verbose (core field class); a repo-scoped
-/// page names owner/repo once. The top read is a line range of the top
-/// resolved hit, else `fragment_read` kept inside the verified source scope.
+/// Whether source lines must be read before projecting the returned fields.
 /// Content classification needs the normal hit evidence even when the host
 /// requests only paths. Ordinary path projections still avoid line reads.
 fn reads_lines(query: &GhSearchCodeQuery) -> bool {
@@ -44,7 +41,6 @@ fn picks(query: &GhSearchCodeQuery, field: &str) -> bool {
 }
 
 pub(super) fn shape_files(
-    value: &mut Value,
     items: &mut [Value],
     query: &GhSearchCodeQuery,
     resolution: Option<Resolution>,
@@ -55,18 +51,11 @@ pub(super) fn shape_files(
     let fragment = items.first().cloned();
     let mut top = None;
     if let Some(resolution) = &resolution {
-        if let Some(sha) = &resolution.sha {
-            value["commitSha"] = json!(sha);
-        }
         for (row, (sha, hits)) in items.iter_mut().zip(&resolution.hits) {
             let Some(row) = row.as_object_mut() else {
                 continue;
             };
-            // Rows read at different commits each name theirs.
-            if resolution.sha.is_none()
-                && !sha.is_empty()
-                && matches!(hits, super::lines::FileHits::Lines { .. })
-            {
+            if !sha.is_empty() {
                 row.insert("commitSha".into(), json!(sha));
             }
             match hits {
@@ -127,12 +116,6 @@ pub(super) fn shape_files(
             }
         }
     }
-    for row in items.iter_mut().filter_map(Value::as_object_mut) {
-        if query.repo.is_some() {
-            row.shift_remove("owner");
-            row.shift_remove("repo");
-        }
-    }
     let top = top.flatten().or_else(|| {
         let read = fragment.as_ref().and_then(read_top_match);
         scoped_fragment_read(read, query, resolution.as_ref())
@@ -140,30 +123,6 @@ pub(super) fn shape_files(
     PageReads {
         top,
         hits: hit_reads,
-    }
-}
-
-/// Fields an owner-wide page names once, on the row, when every file row
-/// carries the same value: the repository and the commit its lines were
-/// read at.
-const HOISTED_FIELDS: [&str; 3] = ["owner", "repo", "commitSha"];
-
-/// Move each of [`HOISTED_FIELDS`] that every file row shares to the row
-/// itself (a repo-scoped page names owner/repo there already).
-pub(super) fn hoist_shared(value: &mut Value, items: &mut [Value]) {
-    for field in HOISTED_FIELDS {
-        let mut rows = items.iter().map(|row| row.get(field));
-        let Some(Some(first)) = rows.next() else {
-            continue;
-        };
-        if value.get(field).is_some() || !rows.all(|other| other == Some(first)) {
-            continue;
-        }
-        let first = first.clone();
-        for row in items.iter_mut().filter_map(Value::as_object_mut) {
-            row.shift_remove(field);
-        }
-        value[field] = first;
     }
 }
 

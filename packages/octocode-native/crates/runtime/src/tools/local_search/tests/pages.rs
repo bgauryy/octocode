@@ -119,6 +119,11 @@ fn truncated_search_values_have_reads_that_recover_the_full_source() {
     );
     let found = search_in(&q, &policy, &security, Some(2500)).expect("search");
     let serialized = serde_json::to_value(&found).expect("result");
+    crate::contracts::validate_output(
+        "localSearch",
+        &serde_json::json!({"results": [{"index": 0, "data": {"files": serialized["files"]}}]}),
+    )
+    .expect("clipped match evidence satisfies the core contract");
     let shown = &serialized["files"][0]["matches"][0];
     if shown.get("originalChars").is_some() {
         let (reads, content) = follow_expansions(&found, &policy);

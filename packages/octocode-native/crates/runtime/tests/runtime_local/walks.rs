@@ -258,7 +258,7 @@ async fn default_excludes_false_walks_dependency_directories() {
     );
     assert_eq!(
         row_data(&pruned)["skippedPaths"],
-        json!({"entries":[{"path":workspace.workspace.join("node_modules"),"cause":"default-excluded"}],"sampled":false}),
+        json!({"entries":[{"path":"node_modules","cause":"default-excluded"}],"sampled":false}),
         "{}",
         names(&pruned)
     );

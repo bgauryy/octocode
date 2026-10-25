@@ -46,7 +46,6 @@ fn sort_keys_order_evidence_in_both_directions() {
             let out = run(&root.0, query.clone()).expect("sorted");
             crate::tools::test_support::assert_row_contract(
                 crate::id::ToolId::StructureSearch,
-                &query,
                 &out,
             );
             let entries = listed(&out);

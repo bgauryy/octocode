@@ -95,11 +95,7 @@ fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
             let rows = page["symbols"].as_array().expect("rows").clone();
             paged.extend(rows.iter().cloned());
             checks::Page {
-                output: crate::tools::test_support::published(
-                    crate::id::ToolId::AstSearch,
-                    row,
-                    &page,
-                ),
+                output: crate::tools::test_support::published(crate::id::ToolId::AstSearch, &page),
                 rows: rows.iter().map(serde_json::Value::to_string).collect(),
             }
         });

@@ -106,30 +106,24 @@ fn lists_path(row: &serde_json::Value, name: &str) -> bool {
     paths_in(row).iter().any(|path| path.ends_with(name))
 }
 
-/// `published` without its `next.retry` lead, which reruns this same call
-/// (checked here, with the output's other leads), so a page walk must not
-/// follow it.
+/// `published` without its optional same-query related reattempt, so a page
+/// walk only follows required continuations.
 fn without_rerun(mut published: serde_json::Value, query: &LspSearchQuery) -> serde_json::Value {
     crate::tools::test_support::checks::assert_leads_valid(&published);
-    if let Some(next) = published
-        .pointer_mut("/results/0/data/next")
-        .and_then(serde_json::Value::as_object_mut)
+    if let Some(related) = published
+        .pointer_mut("/results/0/data/related")
+        .and_then(serde_json::Value::as_array_mut)
     {
-        if let Some(retry) = next.remove("retry") {
-            let rerun: LspSearchQuery =
-                serde_json::from_value(crate::tools::test_support::opened_input(ToolId::LspSearch, &retry["input"])["queries"][0].clone()).expect("retry query");
-            assert_eq!(
-                lsp_search_query::to_row(&rerun),
-                lsp_search_query::to_row(query),
-                "retry reruns this call"
-            );
-        }
-        if next.is_empty() {
-            published["results"][0]["data"]
-                .as_object_mut()
-                .expect("data")
-                .remove("next");
-        }
+        related.retain(|call| {
+            let rerun = call["kind"] == "related"
+                && call["tool"] == "lspSearch"
+                && crate::tools::test_support::opened_input(ToolId::LspSearch, &call["input"])
+                    .get("queries")
+                    .and_then(serde_json::Value::as_array)
+                    .and_then(|queries| queries.first())
+                    .is_some_and(|rerun| rerun == &super::failure::same_query_rerun(query));
+            !rerun
+        });
     }
     published
 }

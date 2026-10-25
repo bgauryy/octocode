@@ -55,8 +55,7 @@ async fn unloaded_includes_flag_unanswered_files() {
         json!([BUILD_SCRIPTS_REASON]),
         "{later}"
     );
-    let shaped =
-        crate::response::rows::result_row(ToolId::LspSearch, 0, &later_fields, later.clone(), None);
+    let shaped = crate::response::rows::result_row(0, later.clone(), None);
     assert_eq!(
         shaped["data"], later,
         "row assembly preserves producer coverage guidance"

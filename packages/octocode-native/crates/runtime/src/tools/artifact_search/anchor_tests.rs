@@ -29,7 +29,7 @@ fn an_exact_row_carries_the_release_source_anchors() {
         "version",
         "owner",
         "repo",
-        "sourceRef",
+        "ref",
         "verification",
     ] {
         assert!(row.contains_key(anchor), "{anchor}: {data}");
@@ -37,13 +37,14 @@ fn an_exact_row_carries_the_release_source_anchors() {
     assert_eq!(row["owner"], "colinhacks");
     assert_eq!(row["repo"], "zod");
     assert!(!row.contains_key("repository"), "{data}");
+    assert!(!row.contains_key("sourceRef"), "{data}");
     assert_eq!(row["verification"], "provenance");
     assert!(
         !row.contains_key("ecosystem") && !row.contains_key("type"),
         "{data}"
     );
     let tree = &related_call(&data, "ghStructure", |_| true)["input"]["queries"][0];
-    assert_eq!(tree["ref"], row["sourceRef"], "{data}");
+    assert_eq!(tree["ref"], row["ref"], "{data}");
 }
 
 /// A discovery row whose registry names no repository but whose

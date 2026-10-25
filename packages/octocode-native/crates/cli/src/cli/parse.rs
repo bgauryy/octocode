@@ -149,10 +149,9 @@ pub(super) fn is_help(error: &clap::Error) -> bool {
     )
 }
 
-/// Help lists only the tools this surface can run, as MCP `tools/list` does;
-/// a hidden tool stays callable by name and keeps its own help. Only the
-/// configuration is resolved: help starts no runtime, cache maintenance, or
-/// config warnings.
+/// Help lists tools allowed by configuration; schema and execution also
+/// check provider readiness. A hidden tool keeps its own help. Help starts
+/// no runtime, cache maintenance, provider request, or config warnings.
 pub(super) fn hide_unavailable_tools(mut command: clap::Command) -> clap::Command {
     use octocode_native::config::{acquire_config_input, resolve_config};
     let (Ok(cwd), Some(home)) = (std::env::current_dir(), std::env::home_dir()) else {

@@ -12,6 +12,31 @@ fn every_core_fixture_has_the_same_admission_and_defaults_in_native() {
         let result = validate(tool, fixture["input"].clone());
         if result.is_ok() != fixture["accepted"].as_bool().unwrap() {
             failures.push(format!("{}: {result:?}", fixture["id"]));
+        } else if let (Err(error), Some(expected)) = (&result, fixture.get("issues")) {
+            let actual: Vec<Value> = error
+                .issues
+                .iter()
+                .map(|issue| {
+                    json!({
+                        "path": issue.path,
+                        "message": issue.message,
+                    })
+                })
+                .collect();
+            let mut expected = expected.clone();
+            for issue in expected.as_array_mut().unwrap() {
+                for part in issue["path"].as_array_mut().unwrap() {
+                    if !part.is_string() {
+                        *part = Value::from(part.to_string());
+                    }
+                }
+            }
+            if Value::from(actual) != expected {
+                failures.push(format!(
+                    "{}: diagnostics differ: {error:?}; expected {expected}",
+                    fixture["id"]
+                ));
+            }
         } else if let (Ok(actual), Some(expected)) = (result, fixture.get("normalized"))
             && &actual != expected
         {
@@ -127,4 +152,12 @@ fn admission_preserves_content_and_does_not_rewrite_legacy_inputs() {
             "{field}"
         );
     }
+}
+
+#[test]
+fn invalid_rows_cannot_hide_an_oversized_batch() {
+    let mut queries = vec![json!({"path":"source.rs"}); 5];
+    queries.push(json!({"path":"source.rs","unknown":true}));
+    let error = prepare_rows("localFetch", json!({"queries":queries})).unwrap_err();
+    assert!(error.issues.iter().any(|issue| issue.path == ["queries"]));
 }

@@ -43,6 +43,8 @@ pub(super) struct ChannelRun {
     pub(super) rejected_rows: Vec<(usize, Value)>,
     /// Original input index of each admitted row (`row_indices` module).
     pub(super) row_indices: Vec<usize>,
+    /// Query that issued this saved work; fresh requests use their own indices.
+    pub(super) origin_index: Option<usize>,
     pub(super) response_query: Value,
     pub(super) clasify: bool,
     pub(super) dispatcher: crate::runtime::domain_dispatch::DomainDispatcher,
@@ -97,9 +99,7 @@ impl ChannelRun {
                     return Err(ExecutionError::WorkerFailed);
                 };
                 self.register_page(outcome, next, &mut pending)?;
-                if !self.cursors.retain(pending) {
-                    return Err(ExecutionError::WorkerFailed);
-                }
+                self.cursors.retain(pending, context)?;
             }
             return Ok(result);
         }
@@ -114,12 +114,7 @@ impl ChannelRun {
         let scope = continuations::Scope {
             is_available: &available,
         };
-        if self.clasify {
-            debug_assert!(rejected.is_empty(), "admission refuses clasify as a whole");
-            self.run_clasify(&scope, context)
-        } else {
-            self.run_rows(rejected, &scope, context)
-        }
+        self.run_rows(rejected, &scope, context)
     }
 
     /// The shared response-stage input for `structured`; the caller sets the
@@ -142,62 +137,7 @@ impl ChannelRun {
         }
     }
 
-    /// Clasify evaluates once; its settled answers use the same saved-page store.
-    fn run_clasify(
-        &self,
-        scope: &continuations::Scope<'_>,
-        context: &ExecutionContext,
-    ) -> StageResult {
-        let mut receipts = crate::tools::clasify::call(
-            &self.dispatcher.evaluator,
-            &self.queries,
-            &self.dispatcher,
-            context,
-            crate::tools::clasify::sections::Runtime {
-                sessions: &self.section_sessions,
-                access: self.access,
-                can_resume: self.mcp || self.replays.0.persistent,
-            },
-        )?;
-        let mut pending = self.pending()?;
-        if let Err(error) = receipts
-            .structured
-            .edit(|structured| self.publish(structured, scope, &mut pending))
-        {
-            return Ok(Err(error));
-        }
-        let mut failure = receipts.failure;
-        let remaining = match stage::settle(
-            self.id,
-            &mut receipts.structured,
-            &self.response_query,
-            &mut failure,
-        ) {
-            Ok(remaining) => remaining,
-            Err(error) => return Ok(Err(error)),
-        };
-        let settled = Settled {
-            response_query: &self.response_query,
-            failure,
-        };
-        let (
-            stage::Staged {
-                result: mut finished,
-                mut next,
-            },
-            seed,
-        ) = self.respond_settled(&settled, receipts.structured, remaining, context)?;
-        if let Ok(outcome) = &mut finished {
-            if let Some(seed) = seed {
-                self.remember_page(outcome, &mut next, seed, context)?;
-            }
-            self.register_page(outcome, next, &mut pending)?;
-            self.retain_pending(pending, context)?;
-        }
-        Ok(finished)
-    }
-
-    /// Ordinary rows: execute, shape each row, envelope, continuations, then
+    /// Execute, shape each row, envelope, continuations, then
     /// the shared response stage (and a replay seed when the response pages).
     /// The rows are shaped and settled once, rejected rows included, so
     /// every row a caller reads is published and validated alike. A batch
@@ -227,6 +167,7 @@ impl ChannelRun {
                 Ok(remaining) => remaining,
                 Err(error) => return Ok(Err(error)),
             };
+        structured.edit(|output| crate::runtime::row_indices::inherit(output, self.origin_index));
         let settled = Settled {
             response_query: &response_query,
             failure,

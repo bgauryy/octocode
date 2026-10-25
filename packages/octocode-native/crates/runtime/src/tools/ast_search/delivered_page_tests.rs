@@ -88,7 +88,7 @@ fn every_mode_cuts_page_two_from_page_one_budget() {
         let out = execute_ast(&typed(&row), &paths, &security, &NeverCancel, Some(WINDOW))
             .unwrap_or_else(|error| panic!("{row}: {error:?}"));
         assert_eq!(out["pagination"]["hasMore"], true, "{row} spans pages");
-        assert_next_page_keeps_the_budget(ToolId::AstSearch, &validated, &out, &paths, budget_of);
+        assert_next_page_keeps_the_budget(ToolId::AstSearch, &validated, &out, budget_of);
     }
 }
 
@@ -104,7 +104,7 @@ fn delivered_walk(root: &Fixture, row: Value, rows: fn(&Value) -> Vec<String>) -
             .expect("a published lead validates");
         let out = execute_ast(&typed(&row), &paths, &security, &NeverCancel, Some(WINDOW))
             .unwrap_or_else(|error| panic!("{row}: {error:?}"));
-        let output = published(ToolId::AstSearch, &row, &out);
+        let output = published(ToolId::AstSearch, &out);
         pages.push(output.clone());
         checks::Page {
             rows: rows(&output["results"][0]["data"]),

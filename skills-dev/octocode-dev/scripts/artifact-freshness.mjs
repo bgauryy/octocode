@@ -4,15 +4,18 @@
 // still runs, so existence alone (check-outputs) does not catch it.
 import fs from 'node:fs';
 import path from 'node:path';
+import { getPlatformSuffix } from '../../../packages/octocode-native/bin/platform.cjs';
 
 const ARTIFACT = /^octocode(\.exe)?$/;
 
-/** Every staged binary under `npmRoot/<platform>/`. */
-export function stagedNativeArtifacts(npmRoot) {
+/** The host's staged binaries; all platforms only when explicitly requested. */
+export function stagedNativeArtifacts(npmRoot, { all = false } = {}) {
+  const platform = all ? null : getPlatformSuffix();
+  if (!all && !platform) throw new Error(`Unsupported native host ${process.platform}-${process.arch}`);
   if (!fs.existsSync(npmRoot)) return [];
   return fs
     .readdirSync(npmRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
+    .filter(entry => entry.isDirectory() && (all || entry.name === platform))
     .flatMap(entry => {
       const dir = path.join(npmRoot, entry.name);
       return fs

@@ -4,6 +4,27 @@ use super::{
 };
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 
+#[test]
+fn match_selection_preserves_empty_context_and_missed_matches() {
+    use super::{LocalFetchResult, ReadStatus};
+
+    for (content, count, hits) in [
+        ("same\n", 1, vec![2]),
+        ("same\n", 1, vec![]),
+        ("", 0, vec![]),
+    ] {
+        let mut result = LocalFetchResult::blank(ReadStatus::Success);
+        result.content = Some(content.into());
+        result.selected_match_count = Some(count);
+        result.matched_lines = hits.clone();
+        let wire = serde_json::to_value(result).expect("read result");
+        assert_eq!(wire["matchedLines"], serde_json::json!(hits), "{wire}");
+    }
+    let plain = serde_json::to_value(LocalFetchResult::blank(ReadStatus::Success))
+        .expect("unselected read");
+    assert!(plain.get("matchedLines").is_none(), "{plain}");
+}
+
 /// Every lead `line_read` builds (continueBlock,
 /// readBoundedLines) spells lines with the published `ranges`, never
 /// startLine/endLine, and clears a span the caller sent.

@@ -2,15 +2,20 @@
 //!
 //! Tool-agnostic structural validation of a value against a (sub)schema:
 //! `$ref`/`not`/`oneOf`/`anyOf` resolution, `const`/`enum`, and the
-//! object/array/string/number/size checks. Per-tool rule logic lives in the
-//! parent module; union-branch selection lives in `super::union`.
+//! object/array/string/number/size checks. Union-branch selection lives in `super::union`.
 
+pub(super) mod audit;
+mod checks;
 mod object;
 mod pattern;
+mod predicates;
+mod relationships;
 mod scalar;
 use super::{ContractValidationError, issue, schema_issue, union};
 use object::validate_object;
 use pattern::{compiled_pattern, describe_unreadable_pattern, pattern_message};
+use predicates::predicate_root;
+pub(super) use predicates::probe;
 use scalar::{check_size, validate_array, validate_number, validate_string};
 use serde_json::Value;
 
@@ -96,6 +101,18 @@ fn validate_schema_with_ref_depth(
     ref_depth: usize,
     mode: ValidationMode,
 ) -> Result<(), ContractValidationError> {
+    match schema {
+        Value::Bool(true) => return Ok(()),
+        Value::Bool(false) => {
+            return Err(issue("schema.false", path.clone(), "Value is forbidden"));
+        }
+        Value::Object(_) => {}
+        _ => {
+            return Err(super::internal(
+                "Schema must be an object or boolean".into(),
+            ));
+        }
+    }
     if mode == ValidationMode::Input {
         normalize_integer(schema, value);
     }
@@ -103,8 +120,8 @@ fn validate_schema_with_ref_depth(
     if let Some(reference) = schema.get("$ref") {
         let target = reference
             .as_str()
-            .and_then(|reference| reference.strip_prefix("#/$defs/"))
-            .and_then(|name| root["$defs"].get(name))
+            .filter(|reference| reference.starts_with("#/$defs/"))
+            .and_then(|reference| root.pointer(&reference[1..]))
             .filter(|_| ref_depth < 32)
             .ok_or_else(|| {
                 issue(
@@ -119,7 +136,7 @@ fn validate_schema_with_ref_depth(
 
     // Preserve successful branch defaults, but retain enclosing field errors
     // after a failed refinement so its discriminator remains diagnostic.
-    let union_issues = union_issues(root, schema, value, path, mode);
+    let union_issues = union_issues(root, schema, value, path, mode)?;
 
     let mut intersection_issues = Vec::new();
     if let Some(branches) = schema.get("allOf").and_then(Value::as_array) {
@@ -127,6 +144,9 @@ fn validate_schema_with_ref_depth(
             if let Err(error) =
                 validate_schema_with_ref_depth(root, branch, value, path, ref_depth, mode)
             {
+                if error.is_contract_error() {
+                    return Err(error);
+                }
                 intersection_issues.extend(error.issues);
             }
         }
@@ -170,52 +190,14 @@ fn validate_schema_with_ref_depth(
     issues.extend(union_issues);
     issues.extend(intersection_issues);
     if issues.is_empty() {
-        validate_order(schema, value, path)?;
+        relationships::validate(schema, value, path)?;
+        checks::validate(schema, value, path)?;
     }
     if issues.is_empty() {
         Ok(())
     } else {
         Err(ContractValidationError { issues })
     }
-}
-
-fn validate_order(
-    schema: &Value,
-    value: &Value,
-    path: &[String],
-) -> Result<(), ContractValidationError> {
-    let Some(order) = schema.get("x-order") else {
-        return Ok(());
-    };
-    let (Some(lower), Some(upper)) = (order["lower"].as_str(), order["upper"].as_str()) else {
-        return Err(issue(
-            "schema.order",
-            path.to_vec(),
-            "Invalid order annotation",
-        ));
-    };
-    let (Some(left), Some(right)) = (value.get(lower), value.get(upper)) else {
-        return Ok(());
-    };
-    let valid = match order["kind"].as_str() {
-        Some("number") => left.as_f64().zip(right.as_f64()).map(|(a, b)| a <= b),
-        Some("timestamp") => left
-            .as_str()
-            .and_then(crate::civil_date::rfc3339_millis)
-            .zip(right.as_str().and_then(crate::civil_date::rfc3339_millis))
-            .map(|(a, b)| a <= b),
-        _ => None,
-    };
-    if valid == Some(true) {
-        return Ok(());
-    }
-    let mut at = path.to_vec();
-    at.push(upper.into());
-    Err(issue(
-        "schema.order",
-        at,
-        format!("{upper} must be at least {lower}; bounds are inclusive."),
-    ))
 }
 
 /// Reject a value its schema's `not` accepts.
@@ -231,13 +213,25 @@ fn reject_forbidden(
     };
     // Only acceptance matters here: probe speculatively, and an empty
     // schema accepts every value without a copy.
-    let accepted = forbidden.as_object().is_some_and(serde_json::Map::is_empty) || {
+    let accepted = {
         let _speculation = union::Speculation::enter();
         if mode == ValidationMode::ReadOnly {
-            validate_with_mode(root, forbidden, value, &mut path.to_vec(), mode).is_ok()
+            probe(validate_with_mode(
+                root,
+                forbidden,
+                value,
+                &mut path.to_vec(),
+                mode,
+            ))?
         } else {
             let mut candidate = value.clone();
-            validate_with_mode(root, forbidden, &mut candidate, &mut path.to_vec(), mode).is_ok()
+            probe(validate_with_mode(
+                root,
+                forbidden,
+                &mut candidate,
+                &mut path.to_vec(),
+                mode,
+            ))?
         }
     };
     if accepted {
@@ -260,12 +254,15 @@ fn union_issues(
     value: &mut Value,
     path: &[String],
     mode: ValidationMode,
-) -> Vec<super::ValidationIssue> {
+) -> Result<Vec<super::ValidationIssue>, ContractValidationError> {
     let mut union_issues = Vec::new();
     for (keyword, exclusive) in [("oneOf", true), ("anyOf", false)] {
         if let Some(branches) = schema.get(keyword).and_then(Value::as_array)
             && let Err(error) = union::validate(root, branches, exclusive, value, path, mode)
         {
+            if error.is_contract_error() {
+                return Err(error);
+            }
             union_issues.extend(error.issues);
         }
     }
@@ -282,7 +279,7 @@ fn union_issues(
             }
         }
     }
-    union_issues
+    Ok(union_issues)
 }
 
 /// Reject a value other than the schema's `const`, or outside its `enum`,

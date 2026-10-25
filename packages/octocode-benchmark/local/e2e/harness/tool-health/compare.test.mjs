@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mapDeclared } from './calls.mjs';
-import { firstDiff, parityView, transportProblem } from './compare.mjs';
+import { firstDiff, parityView, transportProblem, transportPagesProblem } from './compare.mjs';
 
 const response = (cursor, line) => ({ results: [{ index: 0, data: {
   path: 'src/a.ts', content: `${line}\tconst answer = 42;`,
@@ -35,4 +35,19 @@ test('advanced calls cannot hide a failure behind a valid payload or a successfu
   assert.equal(transportProblem('cli', { json: mixed, status: 2 }), null);
   assert.equal(transportProblem('mcp', { json: mixed, isError: false }), null);
   assert.ok(transportProblem('mcp', { json: mixed, isError: true }));
+});
+
+test('transport flags describe the whole captured batch across error-only and success-only pages', () => {
+  const errors = { results: [{ index: 1, status: 'error', data: { errorCode: 'invalidInput', error: 'bad sibling' } }], responsePagination: { page: 1, hasMore: true } };
+  const success = { results: [{ index: 0, data: { content: '1\tcomplete evidence' } }], responsePagination: { page: 2, hasMore: false } };
+  const pages = [{ json: errors, isError: false, status: 2 }, { json: success, isError: false, status: 0 }];
+  for (const surface of ['cli', 'mcp']) {
+    for (const page of pages) assert.equal(transportProblem(surface, page), null);
+    assert.equal(transportPagesProblem(surface, pages), null);
+    assert.ok(transportPagesProblem(surface, pages.map(page => ({ ...page, isError: true, status: 0 }))));
+  }
+  assert.ok(transportPagesProblem('mcp', [{ json: errors, isError: false }]));
+  assert.equal(transportPagesProblem('mcp', [{ json: errors, isError: true }]), null);
+  const empty = { ...success, results: [{ index: 0, status: 'empty', data: {} }] };
+  assert.equal(transportPagesProblem('cli', [pages[0], { json: empty, status: 1 }]), null);
 });

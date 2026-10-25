@@ -93,13 +93,13 @@ pub(crate) fn respond(
     if allow_auto_paging {
         options.auto_paginate(&structured, auto_page_chars);
     }
-    if options.scoped()
+    if options.paging
         && let Some(slot) = keep
     {
         *slot = Some(structured.clone());
     }
     context.check()?;
-    let reshaped = options.rows_scope();
+    let reshaped = options.paging;
     let mut structured_content = structured;
     let mut next = None;
     structured_content
@@ -143,7 +143,7 @@ pub(crate) fn respond_saved(
     } = input;
     let all_failed = response_all_failed(envelope);
     context.check()?;
-    let reshaped = options.rows_scope();
+    let reshaped = options.paging;
     let mut next = None;
     let structured_content = envelope
         .cut(|envelope| {

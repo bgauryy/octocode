@@ -121,26 +121,39 @@ fn semantic_operations_require_their_advertised_lsp_capability() {
 fn hover_rejects_walk_controls_with_the_operations_that_take_them() {
     for (field, value, applies) in [
         ("graphDepth", serde_json::json!(2), "callers"),
-        ("groupByFile", serde_json::json!(true), "references"),
+        ("view", serde_json::json!("files"), "references"),
     ] {
         let mut row = serde_json::json!({"operation":"hover","path":"/tmp/a.rs","symbolName":"main","line":1});
         row[field] = value;
-        let error = crate::contracts::validate("lspSearch", serde_json::json!({"queries":[row]}))
-            .expect_err("hover with a walk control");
-        let issue = error
-            .issues
-            .iter()
-            .find(|issue| {
-                issue.rule_id == "schema.unknown-field"
-                    && issue.path.last().is_some_and(|part| part == field)
-            })
-            .expect("unsupported operation field");
+        let error =
+            crate::contracts::validate("lspSearch", serde_json::json!({"queries":[row.clone()]}))
+                .expect_err("hover with a walk control");
         assert!(
-            issue.message.contains(field),
-            "field-specific rejection: {issue:?}"
+            error.issues.iter().any(|issue| {
+                issue.rule_id == "schema.unknown-field" && issue.path == ["queries", "0", field]
+            }),
+            "unsupported operation field {field}: {error:?}"
         );
-        let _ = applies;
+        let rendered = crate::contracts::format_input_error("lspSearch", &error).to_string();
+        assert!(rendered.contains(applies), "{field}: {rendered}");
+        row["operation"] = serde_json::json!(applies);
+        crate::contracts::validate("lspSearch", serde_json::json!({"queries":[row]}))
+            .expect("the stated operation accepts its control");
     }
+}
+
+#[test]
+fn retired_grouping_field_is_not_accepted_as_a_view_alias() {
+    let row = serde_json::json!({"operation":"references","path":"/tmp/a.rs",
+        "symbolName":"main","line":1,"groupByFile":true});
+    let error = crate::contracts::validate("lspSearch", serde_json::json!({"queries":[row]}))
+        .expect_err("the retired grouping field is not a supported alias");
+    assert!(
+        error.issues.iter().any(|issue| {
+            issue.rule_id == "schema.unknown-field" && issue.path == ["queries", "0", "groupByFile"]
+        }),
+        "{error:?}"
+    );
 }
 
 /// A definition reached through a symlink and through its target is

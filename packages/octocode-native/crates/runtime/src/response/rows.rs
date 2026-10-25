@@ -11,34 +11,23 @@ use serde_json::{Value, json};
 #[derive(Default)]
 pub(crate) struct RowParts {
     pub(crate) diagnostics: crate::response::result::ToolDiagnostics,
-    pub(crate) cache: bool,
     pub(crate) remaining: Vec<super::result::Remaining>,
 }
 
 pub(crate) fn finish_row(
     tool: ToolId,
     index: usize,
-    query: &Value,
     data: Value,
     status: Option<&str>,
     parts: RowParts,
 ) -> Value {
-    let mut row = result_row(tool, index, query, data, status);
+    let mut row = result_row(index, data, status);
     attach_diagnostics(&mut row, parts.diagnostics);
-    if parts.cache {
-        row["cache"] = json!(1);
-    }
     super::pages::note_remaining(&mut row, tool, parts.remaining);
     row
 }
 
-pub(crate) fn result_row(
-    _tool: ToolId,
-    index: usize,
-    _query: &Value,
-    mut data: Value,
-    status: Option<&str>,
-) -> Value {
+pub(crate) fn result_row(index: usize, mut data: Value, status: Option<&str>) -> Value {
     if let Some(status) = status
         && data.get("status").and_then(Value::as_str) == Some(status)
         && let Some(data) = data.as_object_mut()

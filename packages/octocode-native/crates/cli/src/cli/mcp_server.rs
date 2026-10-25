@@ -73,7 +73,7 @@ pub(super) async fn run() -> ! {
         ..HostOptions::default()
     };
     let runtime = match ToolRuntime::from_host(host) {
-        Ok(runtime) => Arc::new(runtime),
+        Ok(runtime) => Arc::new(runtime.check_clasify_provider().await),
         Err(error) => {
             fail_startup(&format!("Server initialization failed: {}", error.message)).await
         }

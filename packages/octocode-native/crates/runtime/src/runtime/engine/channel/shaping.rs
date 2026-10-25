@@ -61,9 +61,26 @@ impl ChannelRun {
     }
 
     /// Runs every row (sharing the response window) and shapes it: result
-    /// row, diagnostics, cache mark, hint policy, verbose prune, minimize.
+    /// row, evidence, diagnostics and remaining-work notes.
     fn evaluate_rows(&self, context: &ExecutionContext) -> Result<EvaluatedRows, ExecutionError> {
         let (id, queries, dispatcher) = (self.id, &self.queries, &self.dispatcher);
+        if self.clasify {
+            let receipts = crate::tools::clasify::call(
+                &dispatcher.evaluator,
+                queries,
+                dispatcher,
+                context,
+                crate::tools::clasify::sections::Runtime {
+                    sessions: &self.section_sessions,
+                    access: self.access,
+                    can_resume: self.mcp || self.replays.0.persistent,
+                },
+            )?;
+            return Ok(EvaluatedRows {
+                rows: receipts.rows,
+                failure: receipts.failure,
+            });
+        }
         let response_page = self
             .options
             .response_chars
@@ -75,7 +92,7 @@ impl ChannelRun {
         let mut rows = Vec::with_capacity(queries.len());
         let mut failure = None;
         let mut evaluated = evaluated.into_iter();
-        for (index, query) in queries.iter().enumerate() {
+        for index in 0..queries.len() {
             context.check()?;
             let result = evaluated.next().ok_or(ExecutionError::WorkerFailed)?;
             context.check()?;
@@ -83,12 +100,10 @@ impl ChannelRun {
             let row = rows::finish_row(
                 id,
                 index,
-                query,
                 result.data,
                 result.status,
                 rows::RowParts {
                     diagnostics: result.diagnostics,
-                    cache: result.cache,
                     remaining: result.remaining,
                 },
             );

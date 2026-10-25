@@ -175,24 +175,19 @@ fn prepare(
                 super::unavailable("The call stopped while planning sections; no inference ran.")
             })?;
             let target = location(&section.target);
-            let contexts = section
+            let context_ranges = section.context.iter().map(&location).collect::<Vec<_>>();
+            let context_text = section
                 .context
                 .iter()
-                .filter_map(|range| safe.slice(range).ok().map(|text| (range, text)))
-                .collect::<Vec<_>>();
-            let context_ranges = contexts
-                .iter()
-                .map(|(range, _)| location(range))
-                .collect::<Vec<_>>();
-            let context_text = contexts
-                .iter()
-                .map(|(range, text)| json!({"range":location(range),"text":text}))
-                .collect::<Vec<_>>();
-            let target_text = safe.slice(&section.target);
-            let state = target_text.as_ref().map_or(
-                Value::Null,
-                |text| json!({"target":{"range":target,"text":text},"context":context_text}),
-            );
+                .map(|range| {
+                    safe.slice(range)
+                        .map(|text| json!({"range":location(range),"text":text}))
+                })
+                .collect::<Result<Vec<_>, _>>();
+            let state = safe.slice(&section.target).and_then(|text| {
+                context_text
+                    .map(|context| json!({"target":{"range":target,"text":text},"context":context}))
+            });
             let mut metadata = json!({"id":format!("s{ordinal}"),"kind":section.kind,"target":target,"context":context_ranges});
             if let Some(name) = section.name {
                 let (name, _) = dispatcher
@@ -202,12 +197,13 @@ fn prepare(
                 metadata["name"] = json!(name);
             }
             let cells = row.questions.iter().map(|question| {
-            if let Err(error) = &target_text {
+            if let Err(error) = &state {
                 Some(json!({"status":"unsupported","error":error_value(error)}))
             } else {
                 (question["type"] == "box").then(|| json!({"status":"unsupported","error":{"errorCode":ErrorCode::CapabilityUnavailable,"error":"Box questions require an explicit image asset; this operation assesses text sections."}}))
             }
         }).collect();
+            let state = state.unwrap_or(Value::Null);
             let unit = Unit {
                 metadata,
                 chars: crate::tools::selection::serialized_chars(&state),
@@ -321,8 +317,10 @@ impl<'a> SafeSource<'a> {
             .take_while(|(line, _)| line.start < range.end)
         {
             if line.start < range.start || line.end > range.end {
-                return Err(super::unavailable(
-                    "This target crosses an interior byte boundary of a redacted line. Its original coordinates remain available, but no partial secret-bearing text was submitted.",
+                return Err(ClassificationError::new(
+                    ErrorCode::ClassificationContextUnavailable,
+                    "This section's target or supporting context crosses an interior byte boundary of a redacted line. Its original coordinates remain available, but no partial secret-bearing text was submitted.",
+                    "Use the resource's read call to inspect the sanitized source; for a new evaluation, select complete lines.",
                 ));
             }
             output.push_str(&self.raw[offset..line.start]);

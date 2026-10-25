@@ -215,7 +215,7 @@ async fn walk_pages(
             }
         }
         walker.accept(Page {
-            output: crate::tools::test_support::published(ToolId::LspSearch, &row, &result),
+            output: crate::tools::test_support::published(ToolId::LspSearch, &result),
             rows: match_rows(&result),
         });
         pages.push(Walked {

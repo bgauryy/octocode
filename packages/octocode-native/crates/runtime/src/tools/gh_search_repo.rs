@@ -11,7 +11,7 @@ mod rows;
 #[cfg(test)]
 mod tests;
 
-use crate::id::ToolId;
+use crate::id::{ToolId, gh_search_repo_policy::PAGE_SIZE};
 use crate::response::result::{Continuation, ToolData};
 use crate::tools::gh_shared::{
     GhFailure, SearchWindow, add_next, pick_rows, rerun_renamed, search_failure,
@@ -48,7 +48,7 @@ pub async fn run(
             search_failure(error),
             ToolId::GhSearchRepo,
             query,
-            page_size(query),
+            PAGE_SIZE,
             access::repo(query),
         );
         let failure = match access::owner(query) {
@@ -67,11 +67,6 @@ pub async fn run(
     })
 }
 
-/// Repositories per page.
-fn page_size(_query: &GhSearchRepoQuery) -> usize {
-    crate::id::gh_search_repo_policy::PAGE_SIZE
-}
-
 pub(crate) async fn execute(
     provider: &GitHubProvider,
     query: &GhSearchRepoQuery,
@@ -82,7 +77,7 @@ pub(crate) async fn execute(
     }
     crate::tools::gh_shared::reject_boolean_keywords(&access::keywords(query))?;
     let current = access::page(query);
-    let per = page_size(query);
+    let per = PAGE_SIZE;
     let fetched = fetch_page(provider, query, current, per, context).await;
     // GitHub search does not follow renames: a search inside one
     // repository that a rename could explain reruns once under the

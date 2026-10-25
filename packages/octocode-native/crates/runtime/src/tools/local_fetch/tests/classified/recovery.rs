@@ -5,6 +5,43 @@ use super::*;
 use octocode_contract_types::LocalFetchQuery;
 
 #[test]
+fn uncaptured_stream_recovery_is_optional_and_reads_the_current_source() {
+    let temp = Fixture::new();
+    let path = temp.0.join("stream.txt");
+    let line = "old evidence\n";
+    let original =
+        line.repeat(crate::tools::local_fetch::acquire::MAX_SOURCE_BYTES as usize / line.len() + 1);
+    fs::write(&path, &original).expect("stream above whole-file ceiling");
+    let paths = Paths(temp.0.clone());
+    let query = qj(
+        &path,
+        serde_json::json!({
+            "ranges": [{"startLine": 1, "endLine": 1}],
+            "classification": {"predicates": ["Find evidence"]}
+        }),
+    );
+    let refused = fetch(&query, &paths);
+    assert_eq!(refused.error_code, Some(ErrorCode::InvalidInput));
+    assert!(refused.source_sha256.is_none(), "no source was captured");
+    let recovery = refused
+        .next
+        .expect("recovery")
+        .unfiltered
+        .expect("unfiltered");
+    let call = serde_json::to_value(&recovery).expect("public call");
+    assert_eq!(
+        call["kind"], "related",
+        "an uncaptured read starts new work"
+    );
+    assert!(local_fetch_query::snapshot(&recovery.query).is_none());
+    assert!(!local_fetch_query::has_classification(&recovery.query));
+    fs::write(&path, original.replace("old", "new")).expect("change source");
+    let current = fetch(&recovery.query, &paths);
+    assert_eq!(current.error_code, None);
+    assert_eq!(current.content.as_deref(), Some("new evidence\n"));
+}
+
+#[test]
 fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
     let temp = Fixture::new();
     let path = temp.0.join("evidence.txt");

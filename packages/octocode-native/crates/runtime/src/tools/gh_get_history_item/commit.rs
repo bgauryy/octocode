@@ -78,15 +78,7 @@ pub(super) async fn commit(
         context,
     )
     .await?;
-    // The commit API ends at its file boundary without an authoritative
-    // file total or a next link. At that boundary the observed count is a
-    // lower bound, including for an include-filtered read.
-    if loaded.state.exhausted
-        && loaded.state.skipped.saturating_add(loaded.items.len())
-            >= MAX_COMMIT_FILE_BATCHES * COMMIT_FILE_BATCH
-    {
-        loaded.state.capped = true;
-    }
+    loaded.mark_commit_file_limit();
     let state = loaded.state;
     let raw = &loaded.first;
     let unmatched = path

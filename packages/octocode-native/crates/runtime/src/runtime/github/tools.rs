@@ -73,10 +73,7 @@ impl GitHubServices {
                 )
                 .await
                 {
-                    Ok(read) => DomainResult {
-                        cache: read.cache,
-                        ..tool_row(Ok(read.output))
-                    },
+                    Ok(read) => tool_row(Ok(read)),
                     Err(failure) => tool_row(Err(failure)),
                 }
             }

@@ -28,8 +28,12 @@ async fn fields_project_listed_commits_end_to_end() {
     )
     .await
     .expect("commit listing");
-    // The pick keeps the commit's id (commitSha) beside the picked keys.
-    assert_eq!(data["commits"][0], json!({"commitSha": "aaa"}), "{data}");
+    // Projection keeps the complete identity needed to read the commit.
+    assert_eq!(
+        data["commits"][0],
+        json!({"owner":"o", "repo":"r", "commitSha": "aaa"}),
+        "{data}"
+    );
 }
 
 /// A picked key no row carries (here a typo) still answers, with one
@@ -61,7 +65,11 @@ async fn an_absent_picked_key_is_named_once() {
     )
     .await
     .expect("commit listing");
-    assert_eq!(data["commits"][0], json!({"commitSha": "aaa"}), "{data}");
+    assert_eq!(
+        data["commits"][0],
+        json!({"owner":"o", "repo":"r", "commitSha": "aaa"}),
+        "{data}"
+    );
     assert_eq!(
         data["warnings"],
         json!(["No row has messageHedline."]),
@@ -101,7 +109,7 @@ async fn picked_keys_survive_the_implied_drop() {
     .expect("pull request search");
     assert_eq!(
         data["pullRequests"][0],
-        json!({"number": 7, "state": "merged", "createdAt": "2026-09-19T10:00:00Z"}),
+        json!({"owner":"o", "repo":"r", "number": 7, "state": "merged", "createdAt": "2026-09-19T10:00:00Z"}),
         "{data}"
     );
     assert!(data.get("warnings").is_none(), "{data}");

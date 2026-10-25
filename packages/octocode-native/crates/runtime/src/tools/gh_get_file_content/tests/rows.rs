@@ -109,7 +109,7 @@ async fn a_block_read_row_carries_path_commit_gutter_and_blocks() {
     )
     .await
     .expect("read");
-    let mut data = read.output.data.clone();
+    let mut data = read.data.clone();
     assert_eq!(data["path"], "src/main.rs", "{data}");
     assert_eq!(data["commitSha"], sha, "{data}");
     assert_eq!(
@@ -151,7 +151,7 @@ async fn a_zero_byte_file_is_a_successful_read() {
     )
     .await
     .unwrap_or_else(|failure| panic!("{}", failure.message));
-    assert_eq!(read.output.status, None, "{}", read.output.data);
-    assert_eq!(read.output.data["content"], "", "{}", read.output.data);
-    assert_eq!(read.output.data["sourceBytes"], 0, "{}", read.output.data);
+    assert_eq!(read.status, None, "{}", read.data);
+    assert_eq!(read.data["content"], "", "{}", read.data);
+    assert_eq!(read.data["sourceBytes"], 0, "{}", read.data);
 }

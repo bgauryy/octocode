@@ -137,7 +137,8 @@ fn the_row_states_its_release_source_and_label() {
     row.source_ref = Some("abc".into());
     label_release_source(&mut row, true);
     let encoded = serde_json::to_value(&row).expect("row");
-    assert_eq!(encoded["sourceRef"], "abc");
+    assert_eq!(encoded["ref"], "abc");
+    assert!(encoded.get("sourceRef").is_none(), "{encoded}");
     assert_eq!(encoded["verification"], "registryRef");
     let mut discovery = item(ArtifactType::Npm, "https://github.com/o/r");
     label_release_source(&mut discovery, false);

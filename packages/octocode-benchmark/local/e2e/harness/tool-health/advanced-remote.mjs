@@ -3,9 +3,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { inventoryRows, nextHints, sourceLines, structureFiles, rawPatch } from '../responses.mjs';
-import { tokenFor } from './surfaces.mjs';
+import { inventoryRows, nextHints, sourceLines, sourceView, structureFiles, rawPatch } from '../responses.mjs';
+import { tokenFor, withoutReadinessPings } from './surfaces.mjs';
 import { advancedRegistries } from './advanced-registry.mjs';
+import { advancedHistoryForms } from './advanced-history.mjs';
+import { addedLines, blobSha } from './mock-model.mjs';
 
 const REPO = { owner: 'octo', repo: 'demo' };
 const data = result => result?.json?.results?.[0]?.data ?? {};
@@ -13,6 +15,7 @@ const equal = (actual, expected) => JSON.stringify(actual) === JSON.stringify(ex
 const names = rows => (rows ?? []).map(row => row.repo);
 const paths = rows => (rows ?? []).map(row => row.path).toSorted();
 const numbers = rows => (rows ?? []).map(row => row.number);
+const readerRequests = (ctx, surface) => withoutReadinessPings(ctx.mock.requestsFrom.filter(entry => entry.token === tokenFor('ghGetFileContent', surface)));
 const sourceEvidence = result => !result?.isError && result?.json?.results?.[0]?.status === undefined
   && !data(result).errorCode && sourceLines(data(result)).length > 0;
 const checks = async (ctx, cases) => {
@@ -51,7 +54,8 @@ async function code(ctx) {
   return checks(ctx, [
     ['filters.intersection', { ...REPO, keywords: ['greet'], pathPrefix: 'src', nameContains: 'greeter', extensions: ['ts', 'md'] }, d => equal(paths(d.files), ['src/greeter.ts'])],
     ['path.only', { ...REPO, keywords: ['greeter'], matchIn: ['path'] }, d => equal(paths(d.files), ['src/greeter.ts']) && d.files.every(file => !file.lines?.length)],
-    ['ref.reRead', { ...REPO, keywords: ['healthMarker'], pathPrefix: 'src', ref: ctx.mock.model.head.oid }, d => d.commitSha === ctx.mock.model.head.oid && equal(paths(d.files), ['src/app.ts', 'src/greeter.ts', 'src/util.ts'])],
+    ['ref.reRead', { ...REPO, keywords: ['healthMarker'], pathPrefix: 'src', ref: ctx.mock.model.head.oid }, d => equal(paths(d.files), ['src/app.ts', 'src/greeter.ts', 'src/util.ts'])
+      && d.files.every(file => file.owner === REPO.owner && file.repo === REPO.repo && file.commitSha === ctx.mock.model.head.oid)],
     ['scope.owner', { owner: 'octo', keywords: ['greeter'], extensions: ['md'] }, d => (d.files ?? []).some(file => file.path === 'README.md')],
   ]);
 }
@@ -94,15 +98,191 @@ async function reader(ctx) {
     const first = report.responses[0]?.result;
     const lead = first && nextHints(first.json).find(call => call.kind === 'continue');
     if (lead) {
-      const before = ctx.mock.requests.filter(request => request.includes('/contents/guide.txt')).length;
+      const before = readerRequests(ctx, surface).filter(entry => entry.request.includes('/contents/guide.txt')).length;
       const a = await ctx.callOn(surface)(lead.tool, lead.input);
       const b = await ctx.callOn(surface)(lead.tool, lead.input);
-      const after = ctx.mock.requests.filter(request => request.includes('/contents/guide.txt')).length;
+      const after = readerRequests(ctx, surface).filter(entry => entry.request.includes('/contents/guide.txt')).length;
       const original = report.responses.find(row => row.tool === lead.tool && equal(row.input, lead.input))?.result;
       const exact = sourceEvidence(original) && sourceEvidence(a) && sourceEvidence(b)
         && equal(sourceLines(data(a)), sourceLines(data(original))) && equal(sourceLines(data(b)), sourceLines(data(original)));
       out.push([`advanced.cursor.immutableReplay.${surface}`, exact && before === after, `original page ${sourceLines(data(original)).length} lines; statuses ${[original,a,b].map(result => result?.json?.results?.[0]?.status).join(",")}; provider content calls ${before}→${after}`]);
     } else out.push([`advanced.cursor.issued.${surface}`, false, 'large source did not issue a continuation']);
+  }
+  return [...out, ...await readerForms(ctx), ...await readerFlows(ctx)];
+}
+
+const readRows = report => report.responses.filter(row => row.tool === 'ghGetFileContent').flatMap(row => row.result.json?.results ?? []);
+const numberedSource = text => addedLines(text).map((line, index) => [index + 1, line]);
+const readText = rows => rows.map(row => sourceView(row.data).text).join('');
+const readEvidence = result => result.json.results.map(row => [row.index, row.status ?? null, row.data.errorCode ?? null, sourceView(row.data).text]);
+
+async function readerForms(ctx) {
+  const source = numberedSource(ctx.mock.model.files['src/greeter.ts']);
+  const lines = (...wanted) => d => equal(sourceLines(d), source.filter(([line]) => wanted.includes(line)));
+  const row = { ...REPO, path: 'src/greeter.ts' };
+  const out = await checks(ctx, [
+    ['ranges.union', { ...row, ranges: [{ startLine: 8, endLine: 9 }, { startLine: 6, endLine: 8 }, { startLine: 7, endLine: 7 }] }, lines(6, 7, 8, 9)],
+    ['matcher.rangeIntersection', { ...row, ranges: [{ startLine: 6, endLine: 8 }], matchString: ['greeter-1', 'greeter-2', 'greeter-1'], contextLines: { before: 100, after: 100 } }, lines(6, 7, 8)],
+    ['matcher.multilineContained', { ...row, ranges: [{ startLine: 6, endLine: 7 }], matchString: ['export function greet(name: string): Greeting {\n  // healthMarker greeter-1'] }, lines(6, 7)],
+    ['matcher.multilineExcluded', { ...row, ranges: [{ startLine: 6, endLine: 6 }], matchString: ['export function greet(name: string): Greeting {\n  // healthMarker greeter-1'] }, (d, r) => r.json.results[0].status === 'empty' && d.content === '' && d.matchNotFound === true],
+    ['ranges.block', { ...row, ranges: [{ startLine: 7, endLine: 7 }], block: true }, lines(6, 7, 8, 9)],
+    ['ranges.clamped', { ...row, ranges: [{ startLine: 17, endLine: 100 }] }, d => lines(17, 18)(d) && d.warnings?.length > 0],
+    ['matcher.blockOutsideRange', { ...row, ranges: [{ startLine: 7, endLine: 7 }], matchString: ['greeter-1'], block: true }, lines(6, 7, 8, 9)],
+    ['matcher.smartPerTerm', { ...row, matchString: ['GREETER', 'greeting'], wholeWord: true }, lines(2, 6)],
+    ['matcher.insensitive', { ...row, matchString: ['HEALTHMARKER'], caseMode: 'insensitive' }, lines(7, 15)],
+    ['view.compactRange', { ...row, view: 'compact', ranges: [{ startLine: 6, endLine: 9 }] }, d => d.view === 'compact' && d.content.includes('`hello ${name}`') && d.content.includes('return') && !d.content.includes('healthMarker') && !d.content.includes('class Greeter')],
+    ['view.compactBlock', { ...row, view: 'compact', ranges: [{ startLine: 7, endLine: 7 }], block: true }, d => d.view === 'compact' && d.content.includes('function greet') && d.content.includes('`hello ${name}`') && !d.content.includes('healthMarker')],
+  ]);
+  for (const surface of ctx.surfaces) for (const extra of [{ minify: true }, { matchString: 'greet' }, { view: 'compact', matchString: ['greet'] }, { view: 'symbols', ranges: [{ startLine: 1, endLine: 2 }] }]) {
+    const before = readerRequests(ctx, surface).length;
+    const result = await ctx.call(ctx.q({ ...row, ...extra }), surface);
+    const failure = data(result).errorCode ?? result.json?.errorCode;
+    out.push([`advanced.forms.rejected.${JSON.stringify(extra)}.${surface}`, failure === 'invalidInput' && readerRequests(ctx, surface).length === before, JSON.stringify(result.json)]);
+  }
+  return out;
+}
+
+function readFixtureReply(request, sources) {
+  const target = request.p.replace('/repos/octo/demo/contents/', '');
+  if (!Object.hasOwn(sources, target)) return null;
+  const text = sources[target];
+  if (String(request.headers.accept).includes('raw')) return { body: text, headers: { 'content-type': 'application/vnd.github.raw; charset=utf-8' } };
+  return { body: { type: 'file', path: target, encoding: 'base64', size: Buffer.byteLength(text), content: Buffer.from(text).toString('base64'), sha: blobSha(text) } };
+}
+
+async function exactRead(ctx, surface, out, { label, query, expected, responseChars }) {
+  const report = await ctx.explore('ghGetFileContent', { queries: [query], responseChars }, surface);
+  const rows = readRows(report);
+  const opaque = report.responses.flatMap(entry => nextHints(entry.result.json)).filter(call => call.kind === 'continue').every(call => equal(Object.keys(call.input), ['cursor']));
+  out.push([`advanced.flow.${label}.${surface}`, opaque && !report.failures.length && rows.length > 0 && rows.every(row => !row.status && !row.data.errorCode) && readText(rows) === expected, `${rows.length} rows/${report.responses.length} calls; ${JSON.stringify(report.failures)}; expected ${Buffer.byteLength(expected)} bytes, got ${Buffer.byteLength(readText(rows))}`]);
+  return report;
+}
+
+async function readerBatch(ctx, surface, out, sources) {
+  const ref = ctx.mock.model.head.oid;
+  const at = file => ({ ...REPO, ref, path: file });
+  const report = await ctx.explore('ghGetFileContent', { responseChars: 500, queries: [
+    { ...at('flow-lines.txt'), ranges: [{ startLine: 3, endLine: 2 }] },
+    at('src/no-such-reader.ts'), at('flow-lines.txt'),
+    { ...at('flow-lines.txt'), matchString: ['absent-needle'] },
+    { ...at('src/greeter.ts'), ranges: [{ startLine: 2, endLine: 4 }] },
+  ] }, surface);
+  const rows = readRows(report);
+  const forIndex = index => rows.filter(row => row.index === index);
+  const failures = forIndex(0).length === 1 && forIndex(0)[0].data.errorCode === 'invalidInput'
+    && forIndex(1).length === 1 && forIndex(1)[0].data.errorCode === 'notFound';
+  const empty = forIndex(3).length === 1 && forIndex(3)[0].status === 'empty';
+  const evidence = readText(forIndex(2)) === sources['flow-lines.txt']
+    && equal(forIndex(4).flatMap(row => sourceLines(row.data)), [[2, 'export interface Greeting {'], [3, '  text: string;'], [4, '}']]);
+  out.push([`advanced.flow.batchIndexes.${surface}`, !report.failures.length && failures && empty && evidence && rows.every(row => row.index >= 0 && row.index <= 4), `${report.responses.length} calls; indexes ${rows.map(row => row.index)}; ${JSON.stringify(report.failures)}`]);
+  await readerBatchReplay(ctx, surface, out, report);
+}
+
+async function readerBatchReplay(ctx, surface, out, report) {
+  const issued = report.responses.find(entry => entry.input.cursor && entry.result.json?.results?.some(row => row.index === 2 && row.data.content));
+  if (!issued) { out.push([`advanced.flow.batchReplay.${surface}`, false, 'No issued page for batch index2']); return; }
+  const before = readerRequests(ctx, surface).length;
+  const replay = await ctx.callOn(surface)(issued.tool, issued.input);
+  out.push([`advanced.flow.batchReplay.${surface}`, !replay.isError && equal(readEvidence(replay), readEvidence(issued.result)) && readerRequests(ctx, surface).length === before, JSON.stringify(readEvidence(replay))]);
+}
+
+async function readerMatchPages(ctx, surface, out, sources) {
+  const query = { ...REPO, ref: ctx.mock.model.head.oid, path: 'flow-lines.txt', ranges: [{ startLine: 4, endLine: 22 }], matchString: ['needle', 'needle'], contextLines: { before: 0, after: 1 } };
+  const report = await ctx.explore('ghGetFileContent', { queries: [query], responseChars: 1 }, surface);
+  const expected = numberedSource(sources['flow-lines.txt']).filter(([line]) => line >= 4 && line <= 22 && line % 3 !== 0);
+  const rows = readRows(report);
+  const matches = rows.flatMap(row => row.data.matchedLines ?? []);
+  out.push([`advanced.flow.matchPages.${surface}`, !report.failures.length && equal(rows.flatMap(row => sourceLines(row.data)), expected) && equal(matches, [4, 7, 10, 13, 16, 19, 22]), `${report.responses.length} calls; matched ${matches}`]);
+  await exactRead(ctx, surface, out, {
+    label: 'oversizedMatchRange', query: { ...query, path: 'flow-long.txt', matchString: ['0:界😀;', '5999:界😀;'], ranges: [{ startLine: 1, endLine: 1 }], contextLines: { before: 100, after: 100 } },
+    expected: sources['flow-long.txt'].split('\n')[0] + '\n', responseChars: 1000,
+  });
+}
+
+async function readerMatchAttribution(ctx, surface, out) {
+  const query = { ...REPO, ref: ctx.mock.model.head.oid, path: 'flow-attribution.txt', matchString: ['(?<=prefix\n)same'], regexEngine: 'pcre2', contextLines: { before: 0, after: 1 } };
+  const report = await ctx.explore('ghGetFileContent', { queries: [query], responseChars: 1 }, surface);
+  const rows = readRows(report);
+  const attribution = rows.map(row => ({ lines: sourceLines(row.data), matched: row.data.matchedLines }));
+  out.push([`advanced.flow.identicalContextAttribution.${surface}`, !report.failures.length && equal(attribution, [
+    { lines: [[2, 'same']], matched: [2] }, { lines: [[3, 'same']], matched: [] },
+  ]), JSON.stringify(attribution)]);
+}
+
+async function readerRecoveries(ctx, surface, out) {
+  const source = numberedSource(ctx.mock.model.files['src/greeter.ts']);
+  for (const scenario of [
+    { label: 'compactComments', fields: { view: 'compact', ranges: [{ startLine: 7, endLine: 7 }] }, status: 'empty', lines: [7] },
+    { label: 'pastEnd', fields: { ranges: [{ startLine: 99, endLine: 100 }] }, status: 'error', lines: [17, 18] },
+  ]) {
+    const initial = await ctx.call(ctx.q({ ...REPO, path: 'src/greeter.ts', ...scenario.fields }), surface);
+    const repair = nextHints(initial.json).find(call => call.kind === 'related' && call.tool === 'ghGetFileContent');
+    const report = repair && await ctx.explore(repair.tool, repair.input, surface);
+    const expected = source.filter(([line]) => scenario.lines.includes(line));
+    out.push([`advanced.flow.${scenario.label}Recovery.${surface}`, initial.json.results[0].status === scenario.status && !!report && !report.failures.length && equal(readRows(report).flatMap(row => sourceLines(row.data)), expected), JSON.stringify({ initial: initial.json, repair })]);
+  }
+}
+
+async function readerSymbols(ctx, surface, out) {
+  const report = await ctx.explore('ghGetFileContent', { queries: [{ ...REPO, path: 'src/greeter.ts', view: 'symbols' }], responseChars: 1 }, surface);
+  const source = addedLines(ctx.mock.model.files['src/greeter.ts']);
+  const expected = [[2, 4], [3, 3], [6, 9], [11, 18], [12, 12], [14, 17]].map(([start, end]) => `${start === end ? start : `${start}-${end}`}\t${source[start - 1]}`);
+  const rows = readRows(report);
+  const actual = rows.flatMap(row => (row.data.content ?? '').split('\n').filter(Boolean));
+  out.push([`advanced.flow.symbolPages.${surface}`, !report.failures.length && rows.every(row => !row.status && row.data.view === 'symbols') && equal(actual, expected), `${report.responses.length} calls; ${JSON.stringify(actual)}`]);
+}
+
+async function readerPinned(ctx, surface, out, sources) {
+  const token = tokenFor('ghGetFileContent', surface);
+  let moved = false;
+  const commits = [ctx.mock.model.head.oid, ctx.mock.model.commits[0].oid];
+  const original = sources['flow-lines.txt'];
+  const changed = original.replaceAll('source', 'changed');
+  ctx.mock.model.githubResponders.set(token, request => {
+    if (request.p === '/repos/octo/demo/commits/reader-moving') return { body: commits[Number(moved)] };
+    return readFixtureReply(request, { 'flow-pinned.txt': request.url.searchParams.get('ref') === commits[0] ? original : changed });
+  });
+  const query = { ...REPO, path: 'flow-pinned.txt', ref: 'reader-moving', forceRefresh: true };
+  const first = await ctx.call({ queries: [query], responseChars: 500 }, surface);
+  const continuation = nextHints(first.json).find(call => call.kind === 'continue');
+  moved = true;
+  const before = readerRequests(ctx, surface).length;
+  const report = continuation && await ctx.explore(continuation.tool, continuation.input, surface);
+  const originalRows = [first.json.results[0], ...(report ? readRows(report) : [])];
+  out.push([`advanced.flow.refPinned.${surface}`, !!report && !report.failures.length && data(first).commitSha === commits[0] && readText(originalRows) === original && readerRequests(ctx, surface).length === before, `${originalRows.length} rows; provider calls ${before}→${readerRequests(ctx, surface).length}`]);
+  const fresh = await exactRead(ctx, surface, out, { label: 'forceRefreshMoves', query, expected: changed, responseChars: 500 });
+  out.push([`advanced.flow.newCommit.${surface}`, data(fresh.responses[0]?.result).commitSha === commits[1], JSON.stringify(data(fresh.responses[0]?.result))]);
+}
+
+async function readerFlows(ctx) {
+  const out = [];
+  const sources = {
+    'flow-lines.txt': Array.from({ length: 24 }, (_, index) => `source ${index + 1}: 界😀 café\t${index % 3 === 0 ? 'needle' : 'plain'}`).join('\r\n') + '\r\n',
+    'flow-long.txt': Array.from({ length: 6000 }, (_, index) => `${index}:界😀;`).join('') + '\r\ntail界😀',
+    'flow-data.json': JSON.stringify({ marker: 'literal // text', unicode: '界😀', values: [0, false, null, { nested: 'café' }] }, null, 2) + '\n',
+    'flow-empty.txt': '',
+    'flow-attribution.txt': 'prefix\nsame\nsame\n',
+  };
+  for (const surface of ctx.surfaces) {
+    const token = tokenFor('ghGetFileContent', surface);
+    ctx.mock.model.githubResponders.set(token, request => readFixtureReply(request, sources));
+    try {
+      const at = file => ({ ...REPO, path: file, ref: ctx.mock.model.head.oid });
+      await exactRead(ctx, surface, out, { label: 'unicodeCrlfTiny', query: at('flow-lines.txt'), expected: sources['flow-lines.txt'], responseChars: 1 });
+      await exactRead(ctx, surface, out, { label: 'oversizedUnicode', query: at('flow-long.txt'), expected: sources['flow-long.txt'], responseChars: 1000 });
+      await exactRead(ctx, surface, out, { label: 'zeroBytes', query: at('flow-empty.txt'), expected: '', responseChars: 1 });
+      const compact = await ctx.explore('ghGetFileContent', { queries: [{ ...at('flow-data.json'), view: 'compact' }], responseChars: 1 }, surface);
+      const compactRows = readRows(compact);
+      let compactValue;
+      try { compactValue = JSON.parse(readText(compactRows)); } catch { compactValue = null; }
+      out.push([`advanced.flow.compactJson.${surface}`, !compact.failures.length && compactRows.every(row => row.data.view === 'compact') && equal(compactValue, JSON.parse(sources['flow-data.json'])), readText(compactRows)]);
+      await readerBatch(ctx, surface, out, sources);
+      await readerMatchPages(ctx, surface, out, sources);
+      await readerMatchAttribution(ctx, surface, out);
+      await readerSymbols(ctx, surface, out);
+      await readerRecoveries(ctx, surface, out);
+      await readerPinned(ctx, surface, out, sources);
+    } finally { ctx.mock.model.githubResponders.delete(token); }
   }
   return out;
 }
@@ -137,6 +317,7 @@ async function historyItem(ctx) {
     ['pr.patchMatch', { ...REPO, operation: 'pullRequest', number: 4, sections: ['patches'], include: ['pkg/huge.ts'], matchString: ['huge line 2999'], contextLines: { before: 1, after: 1 } }, d => { const patch = rawPatch(files(d)[0]?.patch); return patch.includes('+export const huge2998 = 2998; // healthMarker huge line 2999') && !patch.includes('huge line 1\n'); }],
     ['issue.missing', { ...REPO, operation: 'issue', number: 99999 }, error('notFound')],
   ]);
+  out.push(...await advancedHistoryForms(ctx));
   for (const surface of ctx.surfaces) {
     const report = await ctx.explore('ghGetHistoryItem', { queries: [{ ...REPO, operation: 'pullRequest', number: 4, sections: ['patches'], include: ['pkg/huge.ts'] }], responseChars: 6000 }, surface);
     const lines = report.responses.filter(row => row.tool === 'ghGetHistoryItem').flatMap(row => row.result.json?.results?.flatMap(item => files(item.data).flatMap(file => rawPatch(file.patch).split('\n').filter(line => line.startsWith('+export const')))) ?? []);
@@ -161,7 +342,7 @@ async function artifacts(ctx) {
   const out = await checks(ctx, [
     ['resolve.exact', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '1.0.0', registryUrl }, d => d.artifacts?.[0]?.version === '1.0.0' && equal(d.artifacts[0].dependencies, ['tiny-greet@^2.0.0'])],
     ['resolve.range', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '^1.0.0', registryUrl }, d => d.artifacts?.[0]?.version === '1.2.3'],
-    ['resolve.tag', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-greet', version: 'latest', registryUrl }, d => d.artifacts?.[0]?.version === '2.1.0' && d.artifacts[0].sourceRef === ctx.mock.model.head.oid],
+    ['resolve.tag', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-greet', version: 'latest', registryUrl }, d => d.artifacts?.[0]?.version === '2.1.0' && d.artifacts[0].ref === ctx.mock.model.head.oid && !Object.hasOwn(d.artifacts[0], 'sourceRef')],
     ['resolve.missingVersion', { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.0.0', registryUrl }, error('versionNotFound')],
     ['search.intersection', { operation: 'search', ecosystem: 'npm', keywords: ['health', 'greet'], registryUrl }, d => equal((d.artifacts ?? []).map(a => a.packageName), ['tiny-greet'])],
   ]);

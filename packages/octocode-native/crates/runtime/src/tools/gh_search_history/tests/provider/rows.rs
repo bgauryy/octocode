@@ -276,25 +276,20 @@ async fn happy_path_rows_carry_the_next_hop_anchors() {
                 .unwrap_or_else(|error| panic!("{row}: {error:?}"))
         }
     };
-    let keys = |row: &Value| {
-        row.as_object()
-            .expect("row")
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
+    let assert_repository = |row: &Value| {
+        assert_eq!(row["owner"], "o", "{row}");
+        assert_eq!(row["repo"], "r", "{row}");
     };
 
     let prs = run(json!({"operation":"pullRequest","owner":"o","repo":"r"})).await;
-    assert_eq!(
-        keys(&prs["pullRequests"][0]),
-        ["number", "title", "state", "mergedAt", "author"],
-        "{prs}"
-    );
-    assert_eq!(
-        keys(&prs["pullRequests"][1]),
-        ["number", "title", "state", "author", "createdAt"],
-        "{prs}"
-    );
+    for row in prs["pullRequests"].as_array().expect("pull requests") {
+        assert_repository(row);
+        assert!(row["number"].is_u64(), "{row}");
+        assert_eq!(row["author"], "dev", "{row}");
+    }
+    assert_eq!(prs["pullRequests"][0]["state"], "merged");
+    assert_eq!(prs["pullRequests"][0]["mergedAt"], "2026-09-02T00:00:00Z");
+    assert_eq!(prs["pullRequests"][1]["createdAt"], "2026-09-03T00:00:00Z");
     // A state the query fixes is not restated per row.
     let open =
         run(json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"state":"open"}}))
@@ -302,21 +297,17 @@ async fn happy_path_rows_carry_the_next_hop_anchors() {
     assert!(open["pullRequests"][1].get("state").is_none(), "{open}");
 
     let issues = run(json!({"operation":"issue","owner":"o","repo":"r"})).await;
-    assert_eq!(
-        keys(&issues["issues"][0]),
-        ["number", "title", "state", "author", "createdAt"],
-        "{issues}"
-    );
+    assert_repository(&issues["issues"][0]);
+    assert!(issues["issues"][0]["number"].is_u64(), "{issues}");
 
     let listed = run(json!({"operation":"commit","owner":"o","repo":"r"})).await;
     let searched =
         run(json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix"]})).await;
     for data in [&listed, &searched] {
-        assert_eq!(
-            keys(&data["commits"][0]),
-            ["commitSha", "date", "messageHeadline", "author"],
-            "{data}"
-        );
+        let row = &data["commits"][0];
+        assert_repository(row);
+        assert!(row["commitSha"].is_string(), "{row}");
+        assert!(row["messageHeadline"].is_string(), "{row}");
         // The commit-search window is the default branch (the description
         // says so once): no per-response scope label.
         assert!(data.get("scope").is_none(), "{data}");

@@ -19,7 +19,7 @@ pub(super) fn compiled_pattern(pattern: &str) -> Result<std::sync::Arc<Regex>, S
     if let Some(compiled) = cache.get(pattern) {
         return compiled.clone();
     }
-    let compiled = Regex::new(pattern)
+    let compiled = Regex::with_flags(pattern, "u")
         .map(std::sync::Arc::new)
         .map_err(|error| error.to_string());
     cache.insert(pattern.to_owned(), compiled.clone());

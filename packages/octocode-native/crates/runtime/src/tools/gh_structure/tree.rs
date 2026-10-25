@@ -50,6 +50,8 @@ pub(super) async fn execute_tree(
         page.entries
     };
     let mut value = json!({
+        "owner": query.owner,
+        "repo": query.repo,
         "files": build_structure(shown_entries, &page_dates.entries),
         "summary": summary(&traversal.entries),
         "resolvedRef": resolved_branch,

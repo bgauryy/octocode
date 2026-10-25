@@ -1,10 +1,5 @@
 use serde_json::{Map, Value};
 
-/// Per-row fields that describe how a call was served (e.g. cache warmth),
-/// not the evidence. A paged response drops them so a copied continuation
-/// served from a warmer cache keeps the same snapshot, page plan, and bytes.
-const TRANSIENT_ROW_FIELDS: &[&str] = &["cache"];
-
 /// Row `data` fields that differ on every execution of the same request:
 /// provider request ids and rate-limit state (remaining, reset, retry-after).
 const VOLATILE_DATA_FIELDS: &[&str] = &["requestId", "rateLimit", "retryAfterSeconds"];
@@ -16,14 +11,6 @@ fn rows_mut(structured: &mut Map<String, Value>) -> impl Iterator<Item = &mut Ma
         .into_iter()
         .flatten()
         .filter_map(Value::as_object_mut)
-}
-
-pub(super) fn strip_row_telemetry(structured: &mut Map<String, Value>) {
-    for row in rows_mut(structured) {
-        for field in TRANSIENT_ROW_FIELDS {
-            row.remove(*field);
-        }
-    }
 }
 
 /// Move each row's per-call provider facts out of the envelope, by row.

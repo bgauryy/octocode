@@ -15,8 +15,18 @@ import { binary, jsonCall, posix, spawn, tempWorkspace, waitFor } from './helper
 
 const runtime = await import('../dist/runtime.js');
 
-// A preload that reports the moment the process installs its SIGINT handler, for commands with no other observable (the read-only "inbox wait").
-const GUARD_PROBE = 'data:text/javascript,' + encodeURIComponent("const on = process.on.bind(process); process.on = (event, listener) => { const result = on(event, listener); if (event === 'SIGINT') process.stderr.write('signal-guard-installed\\n'); return result; };");
+// Read-only "inbox wait" has no output: report readiness only after both signal handlers are installed.
+const GUARD_PROBE = 'data:text/javascript,' + encodeURIComponent(`
+  const on = process.on.bind(process);
+  process.on = (event, listener) => {
+    const result = on(event, listener);
+    if (process.listenerCount('SIGINT') > 0 && process.listenerCount('SIGTERM') > 0) {
+      process.on = on;
+      process.stderr.write('signal-guard-installed\\n');
+    }
+    return result;
+  };
+`);
 
 /** A started command: its captured output, when it closed and when it is past the signal guard. */
 interface Started {
@@ -57,6 +67,24 @@ const interrupt = async (process_: Started, signal: NodeJS.Signals) => {
   process_.child.kill(signal);
   return process_.closed;
 };
+
+test('guard readiness waits for both signal handlers', { skip: !posix }, async t => {
+  const child = spawn(process.execPath, ['--import', GUARD_PROBE, '--input-type=module', '-e', `
+    process.on('SIGINT', () => process.exit(130));
+    process.stdin.once('data', () => process.on('SIGTERM', () => process.exit(143)));
+    process.stderr.write('partial-guard\\n');
+  `], { stdio: ['pipe', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+  let stderr = '';
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  await waitFor(() => stderr.includes('partial-guard\n'));
+  assert.doesNotMatch(stderr, /signal-guard-installed/, 'one handler must not announce readiness for both signals');
+  child.stdin.write('install SIGTERM\n');
+  await waitFor(() => stderr.includes('signal-guard-installed\n'));
+  child.kill('SIGTERM');
+  assert.deepEqual(await closed, { code: 143, signal: null }, stderr);
+});
 
 const interruptions: [NodeJS.Signals, number][] = [['SIGINT', 130], ['SIGTERM', 143]];
 for (const [signal, code] of interruptions) {

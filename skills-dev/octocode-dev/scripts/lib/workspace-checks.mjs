@@ -139,17 +139,17 @@ export function checkRequiredScripts(workspaces) {
 }
 
 /** Staged native artifacts built for another version or contract. */
-function staleNativeFailures() {
-  const artifacts = stagedNativeArtifacts(path.join(ROOT, 'packages/octocode-native/npm'));
-  if (artifacts.length === 0) return [];
+function staleNativeFailures(options) {
+  const artifacts = stagedNativeArtifacts(path.join(ROOT, 'packages/octocode-native/npm'), options);
+  if (artifacts.length === 0) return options.all ? [] : ['Host native binary is missing; run build:dev.'];
   const { contractFingerprint } = readJson(path.join(ROOT, 'packages/octocode-config/contract/provenance.json'));
   const { version } = readJson(path.join(ROOT, 'packages/octocode-native/package.json'));
   return staleArtifacts(artifacts, contractFingerprint, version).map(
-    file => `${path.relative(ROOT, file)} is stale for ${version} / contract ${contractFingerprint.slice(0, 12)}; rebuild with build:publish before publishing`
+    file => `${path.relative(ROOT, file)} is stale for ${version} / contract ${contractFingerprint.slice(0, 12)}; rebuild with ${options.all ? 'build:publish before publishing' : 'build:dev'}`
   );
 }
 
-export function checkBuildOutputs(workspaces) {
+export function checkBuildOutputs(workspaces, options = {}) {
   const failures = [];
 
   for (const workspace of workspaces) {
@@ -162,7 +162,9 @@ export function checkBuildOutputs(workspaces) {
       }
     }
   }
-  failures.push(...staleNativeFailures());
+  if (workspaces.some(workspace => workspace.name === '@octocodeai/octocode-native')) {
+    failures.push(...staleNativeFailures(options));
+  }
 
   if (failures.length > 0) {
     console.error('Build output verification failed:');

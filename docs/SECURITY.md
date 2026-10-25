@@ -34,7 +34,7 @@ The runtime scans untrusted provider and filesystem content before rendering. De
 - one state: the caller's literal `content`, or the complete selected source captured through the authorized reader and sanitized like a direct tool call;
 - optional explicitly referenced PNG/JPEG assets, captured internally and sent as their original bytes. Image pixels and metadata are not text-scanned or redacted.
 
-Treat questions and selected evidence as disclosed to that provider. Ordinary calls without `classification` send no request, and the model catalog operation sends no evidence. Source and image locators pass the input and path policy before capture; credential-looking locators are rejected. A URL source is fetched over HTTPS only, under the address policy at connection and every redirect, with bounded size and redirects, and no stored credential is sent to that origin. Image bytes stay out of tool responses, which return capture identity and a saved inspection path instead.
+Treat questions and selected evidence as disclosed to that provider. Ordinary calls without `classification` send no evidence. When public `clasify` is configured and allowed, host startup sends an authenticated model-catalog ping; neither that ping nor the model catalog operation sends evidence. Source and image locators pass the input and path policy before capture; credential-looking locators are rejected. A URL source is fetched over HTTPS only, under the address policy at connection and every redirect, with bounded size and redirects, and no stored credential is sent to that origin. Image bytes stay out of tool responses, which return capture identity and a saved inspection path instead.
 
 ## Filesystem policy
 
@@ -48,7 +48,7 @@ Treat questions and selected evidence as disclosed to that provider. Ordinary ca
 
 Denial messages name the path as requested or relative to `~`; outside-root denials list the allowed roots.
 
-`OCTOCODE_ENABLE_LOCAL=false` disables local tools. `OCTOCODE_BETA=true` (or `local.beta: true`; shell or home config only; default off) gates the beta `clasify` tool.
+`OCTOCODE_ENABLE_LOCAL=false` disables local tools. `clasify` requires a nonblank classification credential and a successful provider ping; it is independent of `OCTOCODE_BETA`.
 
 ## External processes
 

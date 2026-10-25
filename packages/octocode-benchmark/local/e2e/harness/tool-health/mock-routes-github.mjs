@@ -119,7 +119,11 @@ function commitRoute(r, m) {
   const commit = commitByRef(r.model, m[1]);
   if (!commit) r.send(422, { message: `No commit found for SHA: ${m[1]}` });
   else if (String(r.headers.accept ?? '').includes('vnd.github.sha')) r.send(200, commit.oid);
-  else r.send(200, commitJson(r.base, r.repo, commit, r.model));
+  else {
+    const body = commitJson(r.base, r.repo, commit, r.model);
+    const { slice, headers } = page(body.files, r.url, r.base);
+    r.send(200, { ...body, files: slice }, headers);
+  }
   return true;
 }
 

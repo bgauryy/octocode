@@ -248,13 +248,18 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         .map(|item| {
             let mut row = rows::map_issue(item.clone(), by_update);
             rows::drop_implied(&mut row, state.as_deref(), true, &fields);
+            rows::name_repository(
+                &mut row,
+                item,
+                gh_search_history_query::owner(query),
+                gh_search_history_query::repo(query),
+            );
             row
         })
         .collect::<Vec<_>>();
-    // The rows' repository is the query's own owner/repo: not echoed.
     let mut v = json!({"issues":issues,
         "effectiveQuery":terms,"pagination":paging.pagination()});
-    pick_rows(&mut v, "issues", &["number"], &fields);
+    pick_rows(&mut v, "issues", &["number", "owner", "repo"], &fields);
     if let Some(total) = paging.reported_total() {
         v["pagination"]["totalItems"] = json!(total);
     }
@@ -274,11 +279,20 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
     let fields = gh_search_history_query::fields(query);
     if gh_search_history_query::keywords(query).is_empty() {
         let commits = items
-            .into_iter()
-            .map(rows::map_commit_list)
+            .iter()
+            .map(|item| {
+                let mut row = rows::map_commit_list(item.clone());
+                rows::name_repository(
+                    &mut row,
+                    item,
+                    gh_search_history_query::owner(query),
+                    gh_search_history_query::repo(query),
+                );
+                row
+            })
             .collect::<Vec<_>>();
         let mut v = json!({"commits":commits});
-        pick_rows(&mut v, "commits", &["commitSha"], &fields);
+        pick_rows(&mut v, "commits", &["commitSha", "owner", "repo"], &fields);
         // `shape` adds the reachable `next.nextPage`. A complete list says
         // so too (`hasMore:false`): the REST list has no total, so a missing
         // block would leave the end of the history unstated.
@@ -288,9 +302,19 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
                 .to_value();
         return v;
     }
-    // No per-row html_url: it is owner/repo/commit/sha, all already in the
-    // row and its envelope (issue and PR rows omit it too).
-    let commits = items.iter().map(commit::row).collect::<Vec<_>>();
+    let commits = items
+        .iter()
+        .map(|item| {
+            let mut row = commit::row(item);
+            rows::name_repository(
+                &mut row,
+                item,
+                gh_search_history_query::owner(query),
+                gh_search_history_query::repo(query),
+            );
+            row
+        })
+        .collect::<Vec<_>>();
     let mut facts =
         crate::response::pages::PageFacts::open(paging.page, Some(paging.per), paging.more)
             .out_of_range(paging.past_end);
@@ -298,7 +322,7 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
         facts = facts.with_items(total);
     }
     let mut v = json!({"commits":commits,"pagination":facts.to_value()});
-    pick_rows(&mut v, "commits", &["commitSha"], &fields);
+    pick_rows(&mut v, "commits", &["commitSha", "owner", "repo"], &fields);
     v
 }
 

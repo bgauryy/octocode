@@ -126,13 +126,7 @@ async fn capture(server: &MockServer, query: &Value, runtime: &Runtime) -> Value
     )
     .await
     .expect("mocked GitHub search");
-    let row = crate::response::rows::result_row(
-        ToolId::GhSearchCode,
-        0,
-        query,
-        output.data,
-        output.status,
-    );
+    let row = crate::response::rows::result_row(0, output.data, output.status);
     crate::security::ContentSecurity::new()
         .seal_output(json!({"results":[row]}), false, || runtime.context.check())
         .expect("shared output sanitization")
@@ -306,8 +300,7 @@ fn selected_equivalent_paths_keep_their_reads_without_admitting_other_repositori
     let primary = read("r", "src/main.rs");
     let alias = read("r", "src/copy.rs");
     let mut page = json!({
-        "owner":"o","repo":"r",
-        "files":[{"path":"src/main.rs","alsoAt":["src/copy.rs"],"lines":["1\twrap_app();"]}],
+        "files":[{"owner":"o","repo":"r","path":"src/main.rs","alsoAt":["src/copy.rs"],"lines":["1\twrap_app();"]}],
         "next":{"readHits":alias.clone(),"otherRepo":read("other", "src/copy.rs"),"read":primary.clone(),"excluded":read("r", "src/excluded.rs")}
     });
     super::finish_code_selection(&mut page, &json!({"owner":"o"}), &[]);
@@ -329,11 +322,12 @@ fn a_hidden_file_with_unlisted_hits_gets_a_judged_read_and_an_excluded_one_none(
     };
     let context = json!({"predicates":["Does this code quit on a NUL byte?"]});
     let mut page = json!({
-        "owner":"o","repo":"r",
-        "files":[{"path":"src/shown.rs","lines":["1\tquit()"]}],
+        "files":[{"owner":"o","repo":"r","path":"src/shown.rs","lines":["1\tquit()"]}],
         "next":{"readHits":read("src/hidden.rs"),"readHits2":read("src/excluded.rs")}
     });
-    let hidden = [json!({"path":"src/hidden.rs","lines":["3\tDetection"],"matchCount":14})];
+    let hidden = [
+        json!({"owner":"o","repo":"r","path":"src/hidden.rs","lines":["3\tDetection"],"matchCount":14}),
+    ];
     super::finish_code_selection(
         &mut page,
         &json!({"owner":"o","repo":"r","classification":context}),

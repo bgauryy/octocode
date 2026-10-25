@@ -47,7 +47,7 @@ Results use `results: [{index, data, status?, rowPart?}]`. Required work appears
 
 ## Tool catalog
 
-The contract has 14 tools. With default settings MCP registers 12; beta plus a classification credential adds `clasify` (13). Unavailable tools are left out of `tools/list`, not registered as failing calls.
+The contract has 14 tools. With default settings MCP registers 12; a classification credential and successful provider ping add `clasify` (13). Unavailable tools are left out of `tools/list`, not registered as failing calls.
 
 | Family | Tools |
 |--------|-------|
@@ -57,7 +57,7 @@ The contract has 14 tools. With default settings MCP registers 12; beta plus a c
 | Semantic assessment | `clasify` |
 
 - `ghCloneRepo` is never registered on MCP, and no MCP description or lead names it. Run `npx octocode ghCloneRepo`. File graphs (imports, cycles, dead code) come from the CLI's `npx octocode graph ingest` and `graph query`.
-- `clasify` needs beta and a nonblank classification API credential; `classification` on four readers needs only the credential. See [availability](OCTOCODE_CLASIFY.md#availability).
+- `clasify` needs a nonblank classification API credential and a successful provider ping; `classification` on four readers needs only the credential. See [availability](OCTOCODE_CLASIFY.md#availability).
 - Every tool takes up to 5 `queries` per call. MCP publishes input schemas, titles, and descriptions, not output schemas.
 - Server instructions are one prompt of at most 2,000 characters, as a project instruction-size budget; tool-specific parts follow the enabled tool set, and `<clasify>` follows classification availability. The CLI adds a `<cli>` line and the grammar inventory; MCP clients get schemas through `tools/list`.
 

@@ -99,7 +99,7 @@ fn generated_contract_is_enforcement_only() {
                 && object.contains_key("querySchema")
                 && object.contains_key("inputSchema")
                 && object.contains_key("outputSchema")
-                && object.contains_key("rules"),
+                && !object.contains_key("rules"),
             "{name} enforcement fields"
         );
     }

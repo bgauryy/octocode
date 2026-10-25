@@ -100,7 +100,7 @@ impl ToolRuntime {
         let access = page_replay_key("", mcp, &[], &[], admission.github_credential());
         let opened = if let Some(token) = input.get("cursor").and_then(Value::as_str) {
             contracts::validate(&tool, input.clone())
-                .map_err(|error| super::admission::invalid_input_error(&tool, &input, error))?;
+                .map_err(|error| super::admission::invalid_input_error(&tool, error))?;
             Some(
                 self.cursors
                     .open(id, token, access)
@@ -114,6 +114,10 @@ impl ToolRuntime {
             .and_then(|opened| opened.github_identity().map(str::to_owned));
         let saved = opened.as_ref().map(super::cursors::Opened::member);
         let normalized_input = saved.map_or(&input, |member| &member.input);
+        let origin_index = saved.and_then(|member| match &member.work {
+            super::cursors::SavedWork::ToolResume { index } => *index,
+            super::cursors::SavedWork::ResponsePage(_) => None,
+        });
         let mut options = ResponsePageOptions::deserialize(normalized_input).unwrap_or_default();
         let mut cursor_set = None;
         let (queries, rejected_rows, row_indices, response_query, replay_key, replayed) =
@@ -157,7 +161,10 @@ impl ToolRuntime {
                     &tool,
                     mcp,
                     &queries,
-                    &row_indices,
+                    &origin_index.map_or_else(
+                        || row_indices.clone(),
+                        |index| vec![index; row_indices.len()],
+                    ),
                     admission.github_credential(),
                 );
                 (
@@ -178,6 +185,7 @@ impl ToolRuntime {
             queries,
             rejected_rows,
             row_indices,
+            origin_index,
             response_query,
             clasify,
             dispatcher,

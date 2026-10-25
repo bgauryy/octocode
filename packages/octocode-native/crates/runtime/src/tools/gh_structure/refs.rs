@@ -58,7 +58,8 @@ pub(super) async fn refs(
                 .reference_kind(owner, repo, reference, &sha, context)
                 .await?
         };
-        let mut value = json!({ "commitSha": sha, "refKind": kind.as_str() });
+        let mut value =
+            json!({ "owner": owner, "repo": repo, "commitSha": sha, "refKind": kind.as_str() });
         if let Some((warning, _)) = crate::tools::gh_shared::canonical_query(
             provider,
             query,
@@ -84,6 +85,8 @@ pub(super) async fn refs(
         tag_page(transport, owner, repo, page, per_page, context),
     )?;
     let mut value = json!({
+        "owner": owner,
+        "repo": repo,
         "defaultBranch": default_branch,
         "commitSha": head,
         "tags": tags.names,
@@ -207,7 +210,7 @@ pub(super) async fn languages(
         .into_iter()
         .map(|(name, bytes)| (name, json!(bytes)))
         .collect();
-    let mut value = json!({ "languages": languages });
+    let mut value = json!({ "owner": query.owner, "repo": query.repo, "languages": languages });
     if let Some((warning, _)) = crate::tools::gh_shared::canonical_query(
         provider,
         query,

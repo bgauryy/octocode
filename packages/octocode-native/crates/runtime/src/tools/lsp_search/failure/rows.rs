@@ -110,17 +110,24 @@ pub(super) const OUTSIDE_INCLUDE_TIP: &str = "A name defined in source this pack
 /// (`rustContext.buildScripts: true`, the rest of its Rust context kept),
 /// from the walk's first page.
 pub(in super::super) fn build_scripts_rerun(query: &LspSearchQuery) -> Value {
+    let mut rerun = same_query_rerun(query);
+    let mut context =
+        lsp_search_query::rust_context(query).map_or_else(|| json!({}), |context| json!(context));
+    context["buildScripts"] = json!(true);
+    rerun["rustContext"] = context;
+    crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, rerun).build()
+}
+
+/// A contract-valid fresh LSP query: current execution state (page, snapshot,
+/// and other state fields) is not public input for a new related reattempt.
+pub(in super::super) fn same_query_rerun(query: &LspSearchQuery) -> Value {
     let mut rerun = lsp_search_query::to_row(query);
     if let Some(fields) = rerun.as_object_mut() {
         fields.retain(|key, value| {
             !value.is_null() && !crate::contracts::state_fields(ToolId::LspSearch).contains(key)
         });
     }
-    let mut context =
-        lsp_search_query::rust_context(query).map_or_else(|| json!({}), |context| json!(context));
-    context["buildScripts"] = json!(true);
-    rerun["rustContext"] = context;
-    crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, rerun).build()
+    rerun
 }
 
 /// Whether the request already runs build scripts (`rustContext.buildScripts`).
@@ -166,7 +173,7 @@ pub(in super::super) fn mark_diagnostics_unpublished(
     row["reason"] = json!(format!(
         "The language server published no diagnostics for this document within {wait_ms} ms."
     ));
-    partial_with_retry(row, query, "diagnosticsNotPublished", &[]);
+    partial_with_related_rerun(row, query, "diagnosticsNotPublished", &[]);
 }
 
 /// Partial reason of an empty answer on a line where the server reports an
@@ -231,8 +238,9 @@ pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &V
 }
 
 /// Flag a row as incomplete with a machine-readable reason, human warnings,
-/// and an executable `next.retry` of the same query.
-pub(in super::super) fn partial_with_retry(
+/// and an optional fresh reattempt. Reattempting a server after it changes is
+/// related work, never a mandatory continuation of this response.
+pub(in super::super) fn partial_with_related_rerun(
     row: &mut Value,
     query: &LspSearchQuery,
     reason: &str,
@@ -242,5 +250,9 @@ pub(in super::super) fn partial_with_retry(
         return;
     }
     crate::response::paging::mark_partial(row, reason, warnings);
-    row["next"]["retry"] = continuation(lsp_search_query::to_row(query));
+    crate::response::result::attach_related(
+        row,
+        crate::response::result::Continuation::related(ToolId::LspSearch, same_query_rerun(query))
+            .build(),
+    );
 }

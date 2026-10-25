@@ -88,12 +88,18 @@ DEV='node skills-dev/octocode-dev/scripts/dev.mjs'   # repo tasks; $DEV --help l
 OCTO='node packages/octocode/out/octocode.js'        # the local CLI
 corepack enable
 $DEV setup && yarn install       # local resolutions: workspace packages, sibling core
-$DEV build:dev                   # default local build
+$DEV build:dev                   # local build; native targets this machine only
 $OCTO auth status                # GitHub tools need a token: `auth login` or `gh auth login`
 $OCTO schema [<tool> --view query]
 $OCTO <tool> '{"queries":[…]}'
 $DEV verify                      # dedupe, docs, and each package's verify
 ```
+
+For local development, checks and tests, build only the current host's native binary
+(on macOS, only the current Mac architecture) and the affected launchers. Use `build:dev`;
+when release-mode behavior matters, the native package's `build` also targets only the host.
+Reserve `--all`, `build:all` and `build:publish` for explicitly requested release or
+cross-platform work.
 
 Without `setup`, `@octocodeai/octocode-core` resolves from npm at the version pinned in
 `packages/octocode-config/package.json`. The local MCP server is the stdio command

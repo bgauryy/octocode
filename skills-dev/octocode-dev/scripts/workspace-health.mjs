@@ -56,7 +56,7 @@ async function main() {
       console.log('Workspace contract check passed.');
       return;
     case 'check-outputs':
-      checkBuildOutputs(workspaces);
+      checkBuildOutputs(workspaces, { all: positional.includes('--all') });
       console.log('Build outputs verified.');
       return;
     case 'run':

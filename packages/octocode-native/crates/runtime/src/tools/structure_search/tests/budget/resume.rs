@@ -29,7 +29,7 @@ fn a_time_cut_listing_resumes_exactly_where_it_stopped() {
             windows += 1;
             assert!(windows <= 40, "{operation}: the walk never finishes");
             let out = within_checked(&root.0, query.clone(), STEP * 3, &Slow);
-            assert_row_contract(ToolId::StructureSearch, &query, &out);
+            assert_row_contract(ToolId::StructureSearch, &out);
             chained.extend(listed_entries(&out));
             let Some(next) = out["next"].get("continueWalk") else {
                 assert!(out.get("isPartial").is_none(), "{operation}: {out}");
@@ -154,7 +154,7 @@ fn a_sorted_listing_cut_before_the_rows_an_earlier_window_listed_lists_none_and_
     query["scanOffset"] = json!(4);
     query["maxEntries"] = json!(8);
     let out = within_checked(&root.0, query.clone(), STEP * 5 / 3, &Slow);
-    assert_row_contract(ToolId::StructureSearch, &query, &out);
+    assert_row_contract(ToolId::StructureSearch, &out);
     assert!(listed_entries(&out).is_empty(), "{out}");
     assert_eq!(out["terminalLimit"], true, "{out}");
     assert!(out["next"].get("continueWalk").is_none(), "{out}");

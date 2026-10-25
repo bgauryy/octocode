@@ -71,7 +71,7 @@ fn a_listing_out_of_time_is_partial_names_where_it_stopped_and_leads_narrower() 
         let root = tree();
         let query = rows(operation, &root.0);
         let out = within(&root.0, query.clone(), Duration::ZERO);
-        assert_row_contract(ToolId::StructureSearch, &query, &out);
+        assert_row_contract(ToolId::StructureSearch, &out);
         assert_eq!(out["isPartial"], true, "{operation}: {out}");
         assert_eq!(out["partialReasons"], json!(["walkDeadline"]), "{out}");
         assert_eq!(out["terminalLimit"], true, "{out}");
@@ -175,7 +175,7 @@ fn follow_outputs(
             &NeverCancel
         };
         let out = within_checked(root, query.clone(), budget, cancel);
-        assert_row_contract(ToolId::StructureSearch, &query, &out);
+        assert_row_contract(ToolId::StructureSearch, &out);
         assert!(
             out["next"].get("nextPage").is_none(),
             "a fixture window is one page: {out}"

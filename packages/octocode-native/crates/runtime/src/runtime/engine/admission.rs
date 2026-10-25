@@ -14,7 +14,6 @@ use serde_json::{Value, json};
 fn rejected_row(
     tool: ToolId,
     index: usize,
-    raw: Value,
     error: &contracts::ContractValidationError,
 ) -> (usize, Value) {
     let formatted = contracts::format_input_error(tool.as_str(), error);
@@ -25,15 +24,11 @@ fn rejected_row(
     {
         data["hints"] = details.clone();
     }
-    (
-        index,
-        rows::result_row(tool, index, &raw, data, Some("error")),
-    )
+    (index, rows::result_row(index, data, Some("error")))
 }
 
 pub(super) fn invalid_input_error(
     tool: &str,
-    _input: &Value,
     error: contracts::ContractValidationError,
 ) -> RuntimeError {
     let mut payload = contracts::format_input_error(tool, &error);
@@ -93,6 +88,14 @@ impl ToolRuntime {
             return Ok(id);
         }
         let reason = availability.reason_text();
+        if let crate::execution::availability::Availability::ProviderUnavailable { code, .. } =
+            availability
+        {
+            return Err(RuntimeError::new(
+                *code,
+                format!("Tool {tool} is not available: {reason}"),
+            ));
+        }
         if !mcp && availability.needs_opt_in() {
             let mut message = format!("Tool {tool} is not available: {reason}");
             if id == ToolId::Clasify
@@ -112,8 +115,8 @@ impl ToolRuntime {
     }
 
     /// Validated, security-checked rows to run, and the rows rejected by
-    /// index. A batch isolates invalid rows; clasify (whose matrices share
-    /// batch-level rules) and a call with no valid row fail as a whole.
+    /// index. Every tool isolates invalid rows; a call with no valid row
+    /// fails as a whole.
     pub(super) fn admit_queries(
         &self,
         id: ToolId,
@@ -125,14 +128,9 @@ impl ToolRuntime {
             valid: prepared,
             mut invalid,
         } = prepare_queries(tool, input, saved)?;
-        let bulk = true;
         let mut queries = Vec::with_capacity(prepared.len());
         for (index, query) in prepared {
-            let prefix = if bulk {
-                vec!["queries".to_owned(), index.to_string()]
-            } else {
-                Vec::new()
-            };
+            let prefix = vec!["queries".to_owned(), index.to_string()];
             // What the row asks of the runtime, read before the gate rewrites
             // it in place.
             let mut later = Vec::new();
@@ -183,27 +181,19 @@ impl ToolRuntime {
             }
         }
         invalid.sort_by_key(|(index, _)| *index);
-        if !invalid.is_empty() && (queries.is_empty() || id.is_clasify()) {
+        if !invalid.is_empty() && queries.is_empty() {
             let issues = invalid
                 .into_iter()
                 .flat_map(|(_, error)| error.issues)
                 .collect();
             return Err(invalid_input_error(
                 tool,
-                input,
                 contracts::ContractValidationError { issues },
             ));
         }
-        let raw_rows = input.get("queries").and_then(Value::as_array);
         let rejected = invalid
             .iter()
-            .map(|(index, error)| {
-                let raw = raw_rows
-                    .and_then(|rows| rows.get(*index))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                rejected_row(id, *index, raw, error)
-            })
+            .map(|(index, error)| rejected_row(id, *index, error))
             .collect();
         Ok(AdmittedRows { queries, rejected })
     }
@@ -231,7 +221,7 @@ fn prepare_queries(tool: &str, input: &Value, saved: bool) -> Result<PreparedRow
     } else {
         contracts::prepare_rows(tool, input.clone())
     }
-    .map_err(|error| invalid_input_error(tool, input, error))?;
+    .map_err(|error| invalid_input_error(tool, error))?;
     let mut prepared = PreparedRows {
         valid: Vec::with_capacity(rows.len()),
         invalid: Vec::new(),

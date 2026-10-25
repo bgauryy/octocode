@@ -312,7 +312,7 @@
           "type": "string",
           "default": null,
           "credential": true,
-          "description": "Classification provider API key, required for read-tool classifiers and the beta clasify tool.",
+          "description": "Classification provider API key, required for read-tool classifiers and clasify. Clasify also requires a successful provider ping.",
           "env": {
             "name": "OCTOCODE_CLASSIFICATION_API",
             "dotenv": "all",

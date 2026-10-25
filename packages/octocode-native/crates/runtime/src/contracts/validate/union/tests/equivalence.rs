@@ -10,12 +10,13 @@ fn both<T>(check: impl Fn() -> T) -> (T, T) {
     (fast, reference)
 }
 
-/// Output validation as `validate_output` runs it, keeping the
-/// normalized copy so defaults chosen by union branches compare too.
+/// Run the public output checks, then keep a separately normalized copy
+/// so defaults chosen by union branches compare too.
 fn validate_output_normalized(
     tool: &str,
     output: &Value,
 ) -> Result<Value, super::super::ContractValidationError> {
+    crate::contracts::validate_output(tool, output)?;
     let schema = &super::super::super::contract_tool(tool)?.1["outputSchema"];
     let mut candidate = output.clone();
     super::super::validate_schema(schema, schema, &mut candidate, &mut Vec::new())?;
@@ -43,6 +44,36 @@ fn assert_in_place_matches(tool: &str, output: &Value) {
         serde_json::to_string(output).expect("json"),
         "{tool}"
     );
+}
+
+#[test]
+fn output_equivalence_preserves_the_public_undeclared_field_check() {
+    let output = json!({"results":[{"index":0,"data":{
+        "kind":"hover",
+        "path":"source.ts",
+        "lsp":{"serverAvailable":true,"provider":"hoverProvider"},
+        "hover":{"contents":{"kind":"plaintext","value":"function example(): void"}}
+    }}]});
+    assert_eq!(
+        crate::contracts::validate_output("lspSearch", &output),
+        Ok(())
+    );
+    let (fast, reference) = both(|| validate_output_normalized("lspSearch", &output));
+    assert_eq!(fast, Ok(output.clone()));
+    assert_eq!(reference, fast);
+    assert_in_place_matches("lspSearch", &output);
+
+    let mut undeclared = output;
+    undeclared["results"][0]["data"]["lsp"]["tool"] = json!("nope");
+    let expected = crate::contracts::validate_output("lspSearch", &undeclared)
+        .expect_err("the nested undeclared field must be rejected");
+    assert_eq!(expected.issues.len(), 1);
+    assert_eq!(expected.issues[0].rule_id, "undeclaredOutputField");
+    assert_eq!(expected.issues[0].path, ["results", "data", "lsp", "tool"]);
+    let (fast, reference) = both(|| validate_output_normalized("lspSearch", &undeclared));
+    assert_eq!(fast, Err(expected.clone()));
+    assert_eq!(reference, Err(expected));
+    assert_in_place_matches("lspSearch", &undeclared);
 }
 
 fn fixtures() -> Vec<Value> {
@@ -127,59 +158,104 @@ fn fast_union_acceptance_matches_the_reference_on_every_input_fixture_full_matri
     compare_input_fixtures(1);
 }
 
-/// The same on output envelopes, where a row's continuation is the
-/// 16-branch `ExecutableContinuation` union: every fixture query and a
-/// sixth of its variants as a continuation in its tool's output, some
-/// under a wrong tool name; each tool's first query in every output.
-/// `stride` samples the variants further (see [`SAMPLE`]).
-fn compare_continuation_outputs(stride: usize) {
+fn output_with_call(call: Value, related: bool) -> Value {
+    let mut data = json!({"error":"Not found","errorCode":"notFound"});
+    if related {
+        data["related"] = json!([call]);
+    } else {
+        data["next"] = json!({"retry":call});
+    }
+    json!({"results":[{"index":0,"status":"error","data":data}]})
+}
+
+/// Accepted core fixtures supply authored related calls and opaque cursor
+/// continuations. Error rows carry either kind for every output tool without
+/// inventing another tool's successful data. Every case has an independent
+/// expected verdict, so two validators rejecting everything cannot pass.
+#[test]
+fn fast_union_acceptance_matches_the_reference_on_current_output_envelopes() {
     let tools: Vec<&str> = crate::contracts::parsed_contract().expect("contract")["tools"]
         .as_array()
         .expect("tools")
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect();
-    let envelope = |continuation: Value| {
-        json!({"results":[
-            {"index":0,"data":{"path":"a.txt","content":"x\n","totalLines":1,
-                "next":{"continueWindow":continuation.clone()}}},
-            {"index":1,"status":"error","data":{"error":"Not found","errorCode":"notFound",
-                "next":{"retry":continuation}}}
-        ]})
-    };
-    // Collect every (output tool, envelope) pair, then compare them on all
-    // cores: the reference algorithm is slow on this union, and each
-    // worker's `REFERENCE_ONLY` flag is its own thread-local.
-    let mut cases: Vec<(String, Value)> = Vec::new();
+    let mut cases: Vec<(String, Value, bool)> = Vec::new();
     let mut seen = Vec::new();
-    for (ordinal, fixture) in fixtures().iter().enumerate() {
+    for fixture in fixtures()
+        .iter()
+        .filter(|fixture| fixture["accepted"] == true)
+    {
         let tool = fixture["tool"].as_str().expect("tool").to_owned();
-        let Some(query) = fixture["input"]["queries"].get(0) else {
-            continue;
-        };
-        let unchanged = envelope(json!({"tool":tool,"query":{"queries":[query]}}));
-        let output_tools = if seen.contains(&tool) {
-            vec![tool.as_str()]
+        let related = fixture["input"].get("cursor").is_none();
+        let kind = if related { "related" } else { "continue" };
+        let call_path = if related {
+            "/results/0/data/related/0"
         } else {
-            tools.clone()
+            "/results/0/data/next/retry"
         };
-        for (index, output_tool) in output_tools.into_iter().enumerate() {
-            if output_tool == tool || sampled(ordinal, index, stride) {
-                cases.push((output_tool.to_owned(), unchanged.clone()));
-            }
+        let call = json!({"kind":kind,"tool":tool,"input":fixture["input"]});
+        let output = output_with_call(call, related);
+        cases.push((tool.clone(), output.clone(), true));
+
+        let mut invalid_input = output.clone();
+        let input = &mut invalid_input.pointer_mut(call_path).expect("call")["input"];
+        if related {
+            input["queries"][0]["unexpectedField"] = json!(true);
+        } else {
+            input["cursor"] = json!("");
         }
-        for (index, variant) in query_variants(query).into_iter().enumerate().step_by(6) {
-            if index > 0 && !sampled(ordinal, index / 6, stride) {
-                continue;
-            }
-            let named = if index % 7 == 6 { "localFetch" } else { &tool };
-            let output = envelope(json!({"tool":named,"query":{"queries":[variant]}}));
-            cases.push((tool.clone(), output));
+        cases.push((tool.clone(), invalid_input, false));
+
+        if seen.contains(&(tool.clone(), related)) {
+            continue;
         }
-        seen.push(tool);
+        seen.push((tool.clone(), related));
+        for field in ["kind", "tool", "input"] {
+            let mut missing = output.clone();
+            missing
+                .pointer_mut(call_path)
+                .expect("call")
+                .as_object_mut()
+                .expect("object")
+                .remove(field);
+            cases.push((tool.clone(), missing, false));
+        }
+        for (field, value) in [
+            ("kind", json!(if related { "continue" } else { "related" })),
+            ("tool", json!("unknownTool")),
+            ("input", json!({})),
+            ("unexpectedField", json!(true)),
+        ] {
+            let mut malformed = output.clone();
+            malformed.pointer_mut(call_path).expect("call")[field] = value;
+            cases.push((tool.clone(), malformed, false));
+        }
+
+        // A row can lead to another tool, but a whole-response cursor must
+        // return to the tool whose response was saved.
+        let other =
+            tools[(tools.iter().position(|name| *name == tool).expect("tool") + 1) % tools.len()];
+        cases.push((other.to_owned(), output, true));
+        if !related {
+            let mut page = json!({"results":[],"responsePagination":{"hasMore":true,
+                "next":{"kind":"continue","tool":tool,"input":fixture["input"]}}});
+            cases.push((tool.clone(), page.clone(), true));
+            page["responsePagination"]["next"]["tool"] = json!(other);
+            cases.push((tool.clone(), page, false));
+        }
     }
-    let compare = |(output_tool, output): &(String, Value)| {
+    for tool in &tools {
+        for related in [false, true] {
+            assert!(
+                seen.contains(&(tool.to_string(), related)),
+                "missing {tool} call kind: related={related}"
+            );
+        }
+    }
+    let compare = |(output_tool, output, expected): &(String, Value, bool)| {
         let (fast, reference) = both(|| validate_output_normalized(output_tool, output));
+        assert_eq!(fast.is_ok(), *expected, "{output_tool}: {output}: {fast:?}");
         assert_eq!(fast, reference, "{output_tool}: {output}");
         assert_in_place_matches(output_tool, output);
         fast.is_err()
@@ -208,23 +284,11 @@ fn compare_continuation_outputs(stride: usize) {
             })
             .sum()
     });
-    let compared = cases.len();
-    eprintln!("compared {compared} outputs, {rejected} rejected");
-    assert!(
-        compared * stride > 600 && rejected * stride > 200,
-        "{compared}/{rejected}"
+    eprintln!(
+        "validated {} current outputs: {} accepted, {rejected} rejected",
+        cases.len(),
+        cases.len() - rejected
     );
-}
-
-#[test]
-fn fast_union_acceptance_matches_the_reference_on_sampled_continuation_outputs() {
-    compare_continuation_outputs(SAMPLE);
-}
-
-#[test]
-#[ignore = "full matrix: cargo test -- --ignored full_matrix"]
-fn fast_union_acceptance_matches_the_reference_on_continuation_outputs_full_matrix() {
-    compare_continuation_outputs(1);
 }
 
 /// Recorded responses (`OCTOCODE_RECORDED_OUTPUTS`: a directory
@@ -236,6 +300,7 @@ fn fast_union_acceptance_matches_the_reference_on_continuation_outputs_full_matr
 fn fast_union_acceptance_matches_the_reference_on_recorded_outputs() {
     let dir = std::env::var("OCTOCODE_RECORDED_OUTPUTS").expect("OCTOCODE_RECORDED_OUTPUTS");
     let mut compared = 0;
+    let mut invalid_baselines = Vec::new();
     for entry in std::fs::read_dir(dir).expect("corpus dir") {
         let path = entry.expect("entry").path();
         let name = path
@@ -252,9 +317,12 @@ fn fast_union_acceptance_matches_the_reference_on_recorded_outputs() {
         if output.get("thrown").is_some() {
             continue;
         }
-        crate::contracts::validate_output(tool, &output).unwrap_or_else(|error| {
-            panic!("{name}: unmodified {tool} output was rejected: {error:?}")
-        });
+        if let Err(error) = crate::contracts::validate_output(tool, &output) {
+            invalid_baselines.push(format!(
+                "{name}: unmodified {tool} output was rejected: {error:?}"
+            ));
+            continue;
+        }
         let mut variants = vec![output.clone()];
         for (row_index, row) in output["results"]
             .as_array()
@@ -282,6 +350,11 @@ fn fast_union_acceptance_matches_the_reference_on_recorded_outputs() {
             compared += 1;
         }
     }
+    assert!(
+        invalid_baselines.is_empty(),
+        "{}",
+        invalid_baselines.join("\n")
+    );
     assert!(compared > 0);
     eprintln!("compared {compared} recorded outputs and variants");
 }

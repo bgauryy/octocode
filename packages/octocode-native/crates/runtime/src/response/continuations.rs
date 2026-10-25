@@ -13,7 +13,7 @@ pub(crate) fn finalize(
     structured: &mut Value,
     tool: ToolId,
     scope: &Scope<'_>,
-    seal: &mut dyn FnMut(ToolId, Value) -> Option<String>,
+    seal: &mut dyn FnMut(ToolId, Value, Option<usize>) -> Option<String>,
 ) -> Result<(), ContractValidationError> {
     let mut positions = Vec::new();
     visit_calls(tool, structured, &mut |_, path| {
@@ -22,10 +22,22 @@ pub(crate) fn finalize(
     let mut issues = Vec::new();
     for path in positions.into_iter().rev() {
         let pointer = pointer(&path);
+        let origin = path
+            .first()
+            .filter(|key| key.as_str() == "results")
+            .and_then(|_| path.get(1)?.parse::<usize>().ok())
+            .and_then(|position| {
+                structured
+                    .get("results")?
+                    .get(position)?
+                    .get("index")?
+                    .as_u64()
+            })
+            .and_then(|index| usize::try_from(index).ok());
         let Some(call) = structured.pointer_mut(&pointer) else {
             continue;
         };
-        match publish(call, scope, seal) {
+        match publish(call, scope, seal, origin) {
             Ok(true) => {}
             Ok(false) => remove_at(structured, &path),
             Err(error) => issues.extend(error.issues.into_iter().map(|mut issue| {
@@ -44,7 +56,8 @@ pub(crate) fn finalize(
 fn publish(
     call: &mut Value,
     scope: &Scope<'_>,
-    seal: &mut dyn FnMut(ToolId, Value) -> Option<String>,
+    seal: &mut dyn FnMut(ToolId, Value, Option<usize>) -> Option<String>,
+    origin: Option<usize>,
 ) -> Result<bool, ContractValidationError> {
     let target = call["tool"]
         .as_str()
@@ -70,7 +83,7 @@ fn publish(
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
     input["queries"] = Value::Array(rows);
-    let token = seal(target, input)
+    let token = seal(target, input, origin)
         .ok_or_else(|| defect(&[], "Continuation storage failed; no handle was published."))?;
     call["input"] = serde_json::json!({"cursor":token});
     Ok(true)

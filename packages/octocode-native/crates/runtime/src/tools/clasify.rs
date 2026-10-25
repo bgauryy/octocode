@@ -11,7 +11,7 @@
 //! and retrieval `classifiers` alike.
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::response::result::FailureKind;
-use crate::security::{CheckedQuery, Sanitized};
+use crate::security::CheckedQuery;
 use crate::tools::judgment::{ClassificationError, Evaluator, Judged, stats::ClassificationUsage};
 use crate::tools::source_capture::{Captured, SourceReader};
 use serde_json::{Value, json};
@@ -44,9 +44,9 @@ impl crate::response::output::ToolOutput for Output {
     }
 }
 
-/// The finished result envelope and its call-level facts.
+/// The finished result rows and their call-level facts.
 pub(crate) struct Receipts {
-    pub structured: Sanitized,
+    pub rows: Vec<Value>,
     pub failure: Option<FailureKind>,
 }
 
@@ -84,8 +84,8 @@ enum Target {
 }
 
 /// Evaluate every row; a failed row keeps its own error and never hides a
-/// sibling's answers. Admission refuses a clasify call with any invalid
-/// row as a whole (its rows share batch rules), so every row runs here.
+/// sibling's answers. The shared runtime merges admission failures back
+/// into their original positions and sanitizes the complete envelope.
 pub(crate) fn call(
     evaluator: &Evaluator,
     rows: &[CheckedQuery],
@@ -203,12 +203,8 @@ pub(crate) fn call(
             row
         })
         .collect();
-    let structured =
-        dispatcher
-            .security()
-            .seal_output(json!({ "results": results }), false, || context.check())?;
     Ok(Receipts {
-        structured,
+        rows: results,
         failure,
     })
 }

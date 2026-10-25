@@ -39,11 +39,7 @@ use fixtures::*;
 /// A raw lspSearch row as the response layer publishes it: `status` and
 /// other row-level fields lifted out of `data` (see `response::rows`).
 fn public_row(data: &serde_json::Value) -> serde_json::Value {
-    crate::tools::test_support::published(
-        crate::id::ToolId::LspSearch,
-        &serde_json::json!({}),
-        data,
-    )
+    crate::tools::test_support::published(crate::id::ToolId::LspSearch, data)
 }
 
 /// Client options for fake servers, which answer at once: no settle wait.

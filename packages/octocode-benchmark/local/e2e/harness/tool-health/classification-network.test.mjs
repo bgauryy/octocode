@@ -6,7 +6,7 @@ import { urlPolicyChecks } from './classification-network.mjs';
 import { tokenFor } from './surfaces.mjs';
 
 test('a policy refusal cannot hide an attempted connection or provider work', async () => {
-  for (const effect of ['none', 'connection', 'http', 'inference']) {
+  for (const effect of ['none', 'readiness', 'connection', 'http', 'inference']) {
     const provider = { sent: [] }, mock = { requestsFrom: [] };
     let called = false;
     const checks = await urlPolicyChecks({
@@ -20,11 +20,12 @@ test('a policy refusal cannot hide an attempted connection or provider work', as
             await once(socket, 'close');
           }
           if (effect === 'http') mock.requestsFrom.push({ request: 'GET /unexpected', token: tokenFor('clasify', 'cli') });
+          if (effect === 'readiness') mock.requestsFrom.push({ request: 'GET /v1/models', token: tokenFor('clasify', 'cli') });
           if (effect === 'inference') provider.sent.push({ request: {} });
         }
         return { json: { error: 'Refused.', errorCode: 'securityValidationFailed' } };
       },
     }, 'cli', provider);
-    assert.equal(checks.find(([label]) => label === 'urlPolicy.source.loopback')?.[1], effect === 'none', effect);
+    assert.equal(checks.find(([label]) => label === 'urlPolicy.source.loopback')?.[1], effect === 'none' || effect === 'readiness', effect);
   }
 });

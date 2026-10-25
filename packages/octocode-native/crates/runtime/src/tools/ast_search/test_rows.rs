@@ -139,7 +139,7 @@ pub(super) fn ast_chain(
             assert!(out.get("terminalLimit").is_none(), "{out}");
         }
         let walked = checks::Page {
-            output: crate::tools::test_support::published(ToolId::AstSearch, row, &out),
+            output: crate::tools::test_support::published(ToolId::AstSearch, &out),
             rows: ast_rows(std::slice::from_ref(&out)),
         };
         pages.push(out);

@@ -311,13 +311,7 @@ async fn empty_index_pages_keep_the_collection_when_partial_normalization_answer
                 assert!(out.data["next"].get("retry").is_none(), "{}", out.data);
                 assert_ne!(out.data["isPartial"], true, "{}", out.data);
             }
-            let shaped = crate::response::rows::result_row(
-                crate::id::ToolId::GhSearchCode,
-                0,
-                &row,
-                out.data,
-                out.status,
-            );
+            let shaped = crate::response::rows::result_row(0, out.data, out.status);
             // An empty page stays empty when GitHub's results were
             // incomplete: its only call is a retry of the same page.
             assert_eq!(shaped["status"], "empty", "{shaped}");

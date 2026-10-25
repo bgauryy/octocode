@@ -12,19 +12,20 @@ fn scope() -> Scope<'static> {
 fn continuation_retains_complete_normalized_request_and_publishes_only_issued_handle() {
     let request =
         json!({"queries":[{"operation":"tree","path":"src","page":2}],"responseChars":2000});
-    let mut output = json!({"results":[{"index":0,"data":{"next":{"nextPage":Continuation::continued_input(ToolId::StructureSearch,request.clone()).build()}}}]});
+    let mut output = json!({"results":[{"index":7,"data":{"next":{"nextPage":Continuation::continued_input(ToolId::StructureSearch,request.clone()).build()}}}]});
     let mut saved = Vec::new();
     finalize(
         &mut output,
         ToolId::StructureSearch,
         &scope(),
-        &mut |tool, input| {
-            saved.push((tool, input));
+        &mut |tool, input, origin| {
+            saved.push((tool, input, origin));
             Some("issued-handle".into())
         },
     )
     .expect("valid continuation");
     assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].2, Some(7));
     assert_eq!(saved[0].0, ToolId::StructureSearch);
     assert_eq!(saved[0].1["queries"][0]["path"], "src");
     assert_eq!(saved[0].1["queries"][0]["page"], 2);
@@ -44,7 +45,7 @@ fn related_requests_remain_complete_and_never_create_cursor_work() {
         &mut output,
         ToolId::StructureSearch,
         &scope(),
-        &mut |_, _| panic!("related request must not be saved"),
+        &mut |_, _, _| panic!("related request must not be saved"),
     )
     .expect("related");
     assert_eq!(output["results"][0]["data"]["related"][0]["input"], input);
@@ -58,7 +59,7 @@ fn provider_data_that_resembles_a_call_is_never_rewritten() {
         &mut output,
         ToolId::ArtifactSearch,
         &scope(),
-        &mut |_, _| panic!("provider evidence is not a continuation"),
+        &mut |_, _, _| panic!("provider evidence is not a continuation"),
     )
     .expect("no declared calls");
     assert_eq!(output["results"][0]["data"]["metadata"], lookalike);
@@ -76,7 +77,7 @@ fn storage_failure_and_invalid_private_state_never_publish_a_handle() {
                 &mut output,
                 ToolId::StructureSearch,
                 &scope(),
-                &mut |_, _| None
+                &mut |_, _, _| None
             )
             .is_err()
         );
@@ -98,7 +99,7 @@ fn unavailable_required_work_fails_and_optional_related_work_is_removed() {
         &mut output,
         ToolId::StructureSearch,
         &unavailable,
-        &mut |_, _| None,
+        &mut |_, _, _| None,
     )
     .expect("optional unavailable lead");
     assert_eq!(output["results"][0]["data"]["related"], json!([]));
@@ -108,7 +109,7 @@ fn unavailable_required_work_fails_and_optional_related_work_is_removed() {
             &mut output,
             ToolId::StructureSearch,
             &unavailable,
-            &mut |_, _| None
+            &mut |_, _, _| None
         )
         .is_err()
     );
@@ -136,7 +137,7 @@ fn named_evidence_channels_and_classification_resources_publish_issued_handles()
         ),
     ] {
         let mut saved = Vec::new();
-        finalize(&mut output, tool, &scope(), &mut |target, input| {
+        finalize(&mut output, tool, &scope(), &mut |target, input, _| {
             saved.push((target, input));
             Some("issued-resource".into())
         })
@@ -164,7 +165,7 @@ fn removing_multiple_unavailable_related_requests_preserves_other_array_members(
         &Scope {
             is_available: &|tool| tool == "structureSearch",
         },
-        &mut |_, _| panic!("related is not saved"),
+        &mut |_, _, _| panic!("related is not saved"),
     )
     .expect("filter unavailable");
     let related = output["results"][0]["data"]["related"].as_array().unwrap();

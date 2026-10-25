@@ -20,7 +20,7 @@ use files::search_files_detailed;
 pub use files::{Rebuilt, file_matches, search_files};
 pub use octo::{
     COMPILE_FAILED, EXAMPLE_RULE, MATCH_DEADLINE, PARSE_INTERRUPTED, PatternDeclaration,
-    RULE_INVALID, validate_rule_shape,
+    RULE_INVALID,
 };
 pub use query::QUERY_INVALID;
 pub use syntax_errors::count_syntax_errors;

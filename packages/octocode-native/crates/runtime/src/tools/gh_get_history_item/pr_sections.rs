@@ -1,12 +1,13 @@
 //! Pull-request discussion, review and commit sections: one public page of
 //! each, with per-item body windows.
 use super::axis::Axis;
+use super::filter::{FileFilter, FileScope};
 use super::inventory::compact_inventory;
 use super::remaining::BodyWindows;
 use super::text::{body_matches, delivered_earlier, needle, shape_comment, window_body};
-use super::util::{array, str_at, string};
-use super::window::{WindowState, paginate_window};
-use super::{HistoryItemRequest, fetch};
+use super::util::{str_at, string};
+use super::window::{WindowState, lift_page_limits};
+use super::{HistoryItemRequest, validation};
 use crate::id::ToolId;
 use crate::response::result::remove_nulls;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
@@ -17,6 +18,8 @@ use futures_util::{StreamExt as _, TryStreamExt as _};
 use octocode_github::MAX_PER_PAGE;
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
+
+mod commit_files;
 
 /// Commit-detail requests in flight at once for `commits.includeFiles`.
 const COMMIT_DETAIL_CONCURRENCY: usize = 4;
@@ -226,9 +229,8 @@ pub(super) fn shape_pr_reviews(
 }
 
 /// Shape one page of PR commits. With `commitFiles` each commit lists its
-/// changed paths (the inventory rows, no patches: a commit read returns
-/// those) from one commit-detail read; a commit with more files than one
-/// file page shows continues on the row's `next`
+/// changed paths in the caller's file scope (inventory rows, no patches).
+/// A commit with more matching files than one page continues on the row's `next`
 /// (`continueCommitFiles`, `continueCommitFiles2`, …: that commit's next file
 /// page), never in a list nested in the commit. Returns those
 /// continuations.
@@ -242,13 +244,18 @@ pub(super) async fn shape_pr_commits(
     context: &RequestContext,
 ) -> Result<Vec<(String, Value)>, ProviderError> {
     let include_files = query.sections().has(Section::CommitFiles);
+    let scope = FileScope::from_query(query).map_err(|message| validation(&message))?;
+    let filter = FileFilter {
+        needle: None,
+        scope: scope.as_ref(),
+    };
     let (slice, page) = state.paginate(
         commits,
         gh_get_history_item_query::page(query),
         Some(gh_get_history_item_query::collection_page_size(query)),
     );
-    // Each commit's files are one detail request: a few run at once, in
-    // page order, through the transport's shared admission and deadline.
+    // Each commit's file window runs through shared admission and deadline;
+    // a few commits load at once, preserving the commit page's order.
     let shaped: Vec<(Value, Option<Value>)> = futures_util::stream::iter(slice)
         .map(|item| async move {
             let sha = string(item.get("sha"));
@@ -260,24 +267,10 @@ pub(super) async fn shape_pr_commits(
             }
             let mut more_files = None;
             if include_files {
-                // One provider batch of paths per commit.
                 let per_page = MAX_PER_PAGE;
-                let (detail, more) = fetch(
-                    transport,
-                    &[
-                        "repos",
-                        gh_get_history_item_query::owner(query),
-                        gh_get_history_item_query::repo(query),
-                        "commits",
-                        &sha,
-                    ],
-                    &[("per_page", per_page.to_string()), ("page", "1".into())],
-                    context,
-                )
-                .await?;
-                let files = array(detail.get("files").cloned().unwrap_or(json!([])));
                 let (files, mut files_page) =
-                    paginate_window(files, 0, !more, Some(1), Some(per_page));
+                    commit_files::first_page(transport, query, &sha, filter, per_page, context)
+                        .await?;
                 commit["files"] = Value::Array(compact_inventory(&files));
                 // The cursor rides the continuation, never the block.
                 if let Some(next_page) = files_page
@@ -285,8 +278,10 @@ pub(super) async fn shape_pr_commits(
                     .and_then(|page| page.remove("nextPage"))
                     .and_then(|page| page.as_u64())
                 {
+                    more_files = Some(commit_files::next_page(query, &sha, next_page, per_page));
+                }
+                if more_files.is_some() || files_page["terminalLimit"] == true {
                     commit["contentPagination"][Axis::Files.key()] = files_page;
-                    more_files = Some(commit_files_page(query, &sha, next_page, per_page));
                 }
             }
             Ok::<_, ProviderError>((commit, more_files))
@@ -296,7 +291,10 @@ pub(super) async fn shape_pr_commits(
         .await?;
     let mut continuations = Vec::new();
     let mut commits = Vec::with_capacity(shaped.len());
-    for (commit, more_files) in shaped {
+    for (mut commit, more_files) in shaped {
+        if let Some(page) = commit.pointer_mut("/contentPagination/files") {
+            lift_page_limits(row, page);
+        }
         commits.push(commit);
         if let Some(read) = more_files {
             let name = crate::id::numbered("continueCommitFiles", continuations.len());
@@ -306,17 +304,6 @@ pub(super) async fn shape_pr_commits(
     row["commits"] = Value::Array(commits);
     pagination.insert(Axis::Commits.key().into(), page);
     Ok(continuations)
-}
-
-/// The next changed-file page of one PR commit: the commit read of its
-/// paths at `page`.
-fn commit_files_page(query: &HistoryItemRequest, sha: &str, page: u64, page_size: usize) -> Value {
-    crate::response::result::Continuation::continued(
-        ToolId::GhGetHistoryItem,
-        json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"ref":sha,
-            "sections":["files"],"page":page,"pageSize":page_size}),
-    )
-    .build()
 }
 
 #[cfg(test)]

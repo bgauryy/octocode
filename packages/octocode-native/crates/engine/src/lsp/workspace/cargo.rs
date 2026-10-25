@@ -4,7 +4,10 @@ use super::{CARGO_MANIFEST, lexical};
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
-fn manifest(directory: &Path) -> Option<toml::Table> {
+mod targets;
+pub(super) use targets::TargetRoots;
+
+pub(super) fn manifest(directory: &Path) -> Option<toml::Table> {
     std::fs::read_to_string(directory.join(CARGO_MANIFEST))
         .ok()?
         .parse()

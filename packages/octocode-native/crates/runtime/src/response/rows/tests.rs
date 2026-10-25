@@ -5,13 +5,7 @@ use serde_json::json;
 fn every_tool_keeps_complete_row_data_without_hoisting_or_pruning() {
     let evidence = json!({"path":"/workspace/a","content":"exact\n😀","facts":[1,2,3],"nested":{"kind":"related","tool":"provider-text","input":{"evidence":true}}});
     for tool in ToolId::ALL {
-        let row = result_row(
-            tool,
-            3,
-            &json!({"path":"/workspace/a"}),
-            evidence.clone(),
-            None,
-        );
+        let row = result_row(3, evidence.clone(), None);
         assert_eq!(row, json!({"index":3,"data":evidence}));
         assert_eq!(envelope(tool, vec![row.clone()]), json!({"results":[row]}));
     }
@@ -35,19 +29,13 @@ fn partial_diagnostics_keep_their_reasons_and_full_guidance() {
 #[test]
 fn explicit_common_status_consumes_only_its_equal_producer_copy() {
     let evidence = json!({"status":"empty","provider":{"status":"empty"}});
-    let row = result_row(
-        ToolId::LspSearch,
-        0,
-        &json!({}),
-        evidence.clone(),
-        Some("empty"),
-    );
+    let row = result_row(0, evidence.clone(), Some("empty"));
     assert_eq!(
         row,
         json!({"index":0,"status":"empty","data":{"provider":{"status":"empty"}}})
     );
     for status in [None, Some("complete")] {
-        let row = result_row(ToolId::LspSearch, 0, &json!({}), evidence.clone(), status);
+        let row = result_row(0, evidence.clone(), status);
         assert_eq!(row["data"], evidence);
     }
 }

@@ -134,12 +134,98 @@ async function answerPages(ctx, surface, provider) {
   return checks;
 }
 
+function batchAnswer(request) {
+  const body = classificationAnswer(request);
+  if (request.state?.batch === 'left' || request.state?.batch === 'right') {
+    for (const answer of Object.values(body.answers)) answer.noul = request.state.batch === 'left' ? 0.1 : 0.8;
+  }
+  return { body };
+}
+
+const batchQuery = batch => ({ operation: 'evaluate', content: { batch }, questions: { sameKey: noul('Is the batch value left?') } });
+
+async function batchChecks(ctx, surface, provider) {
+  const file = path.join(ctx.cwd, `batch-sections-${surface}.rs`);
+  fs.writeFileSync(file, Array.from({ length: 8 }, (_, i) => `pub fn batch_${i}() { println!("batch ${i}"); }\n`).join(''));
+  const queries = [
+    { ...batchQuery('invalid'), questions: {} }, batchQuery('left'),
+    { operation: 'sections', resources: { picked: { tool: 'localFetch', query: { path: file, ranges: [{ startLine: 2, endLine: 3 }, { startLine: 7, endLine: 8 }] } } }, questions: { evidence: noul('Does the section print its batch number?') } },
+    { operation: 'evaluate', source: { tool: 'localFetch', query: { path: path.join(ctx.cwd, 'missing-batch-source.txt') } }, questions: { sameKey: noul('Is the source available?') } },
+    batchQuery('right'),
+  ];
+  const before = provider.sent.length;
+  provider.set(batchAnswer);
+  try {
+    const report = await ctx.explore('clasify', { queries, responseChars: 700 }, surface);
+    const rows = report.responses.filter(response => response.tool === 'clasify').flatMap(response => response.result.json?.results ?? []);
+    const at = index => rows.filter(row => row.index === index);
+    const packets = provider.sent.slice(before);
+    const judged = packets.filter(packet => packet.request.state?.batch).map(packet => packet.request.state.batch).toSorted();
+    const checks = [['batch.isolation', report.failures.length === 0 && same(judged, ['left', 'right'])
+      && batchEvidence(at), { failures: report.failures, judged, rows }]];
+    const sections = at(2).flatMap(row => row.data.resources?.picked?.sections ?? []);
+    const lines = sections.filter(section => section.answers.evidence?.status === 'answered').map(section => section.target.lines.startLine).toSorted((a, b) => a - b);
+    checks.push(['batch.sectionsCoordinates', same(lines, [2, 3, 7, 8]) && sections.every(section => section.target.lines.startLine === section.target.lines.endLine), sections]);
+    return checks;
+  } finally {
+    provider.set(request => ({ body: classificationAnswer(request) }));
+    fs.rmSync(file);
+  }
+}
+
+function batchEvidence(at) {
+  const answer = index => at(index).flatMap(row => Object.entries(row.data.answers ?? {}));
+  const failure = (index, code) => at(index).length === 1 && at(index)[0].data.errorCode === code;
+  return failure(0, 'invalidInput') && failure(3, 'pathNotFound')
+    && same(answer(1), [['sameKey', { type: 'noul', noul: 0.1 }]])
+    && same(answer(4), [['sameKey', { type: 'noul', noul: 0.8 }]]);
+}
+
+async function boundaryQuestions(ctx, surface, provider) {
+  const questions = Object.fromEntries(Array.from({ length: 25 }, (_, index) => [`q${index}`, noul(`Is question ${index} present?`)]));
+  const before = provider.sent.length;
+  const pages = await display(ctx, surface, 'clasify', { queries: [{ operation: 'evaluate', content: 'Question limit evidence', questions }], responseChars: 1 });
+  const answers = pages.rows.flatMap(row => Object.entries(row.answers ?? {}));
+  const sent = provider.sent.slice(before).flatMap(packet => Object.values(packet.request.questions));
+  return [['questions.boundaryComplete', same(answers.map(([key]) => key).toSorted(), Object.keys(questions).toSorted())
+    && answers.every(([, answer]) => answer.type === 'noul' && answer.noul === 0.9)
+    && sent.length === 25 && Object.values(questions).every(question => sent.filter(value => same(value, question)).length === 1),
+  { pages: pages.results.length, answers: answers.length, questionsSent: sent.length }]];
+}
+
+function invalidShapes() {
+  const row = providerQuery('Rejected field evidence');
+  const source = { tool: 'localFetch', query: { path: 'src/app.ts' } };
+  return Object.entries({
+    scalarContent: { ...row, content: true }, matchString: { ...row, matchString: ['evidence'] }, minify: { ...row, minify: true },
+    sourceMatcher: { operation: 'evaluate', source: { ...source, query: { ...source.query, matchString: ['export'] } }, questions: row.questions },
+    sourceMinify: { operation: 'evaluate', source: { ...source, query: { ...source.query, minify: true } }, questions: row.questions },
+    assetRange: { ...row, assets: { image: { source: { ...source, query: { ...source.query, ranges: [{ startLine: 1, endLine: 2 }] } } } } },
+    privateAssessment: { operation: 'sections', assessment: 'not-issued' },
+    tooManyQuestions: { ...row, questions: Object.fromEntries(Array.from({ length: 26 }, (_, i) => [`q${i}`, noul('Is evidence present?')])) },
+    emptyChoice: { ...row, questions: { choice: { type: 'choice', criteria: {} } } },
+    emptyScore: { ...row, questions: { score: { type: 'score', criteria: [] } } },
+    scoreOverflow: { ...row, questions: { score: { type: 'score', criteria: Array(11).fill('level') } } },
+  });
+}
+
+async function admissionChecks(ctx, surface, provider) {
+  const checks = [], before = provider.sent.length;
+  for (const [label, query] of invalidShapes()) {
+    const input = ctx.q(query), result = await ctx.call(input, surface);
+    const errorCode = result.json?.errorCode ?? data(result)?.errorCode;
+    checks.push([`admission.${label}`, ctx.validateInput('clasify', input) !== null && errorCode === 'invalidInput'
+      && provider.sent.length === before, result.json]);
+  }
+  return checks;
+}
+
 async function clasifyChecks(ctx) {
   const checks = [];
   for (const surface of ctx.surfaces) {
     const provider = providerSession(ctx, 'clasify', surface);
     try {
-      for (const run of [literalChecks, providerChecks, sourceChecks, imageChecks, githubImageChecks, urlPolicyChecks, answerPages, sectionChecks, unreadSectionsChecks, memorySectionsChecks]) {
+      for (const run of [literalChecks, providerChecks, sourceChecks, imageChecks, githubImageChecks, urlPolicyChecks, answerPages, sectionChecks, unreadSectionsChecks, memorySectionsChecks, batchChecks, boundaryQuestions, admissionChecks]) {
         for (const [label, ok, detail] of await run(ctx, surface, provider)) checks.push([`${surface}.${label}`, ok, JSON.stringify(detail)]);
       }
     } finally { provider.close(); }

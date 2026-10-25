@@ -159,13 +159,7 @@ fn a_glob_that_reaches_above_path_is_named_by_both_operations() {
             let mut resumed = query;
             resumed["walkOffset"] = json!(1);
             let window = run(&root.0, resumed.clone()).expect("resumed window");
-            let row = crate::response::rows::result_row(
-                crate::id::ToolId::StructureSearch,
-                0,
-                &resumed,
-                window,
-                None,
-            );
+            let row = crate::response::rows::result_row(0, window, None);
             assert!(
                 names(&row["data"], "notices") && !names(&row["data"], "warnings"),
                 "a resumed walk preserves the diagnostic: {operation} {key}: {row}"

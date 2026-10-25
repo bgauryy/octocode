@@ -21,8 +21,8 @@ def executable(path, body):
     path.chmod(0o755)
 
 
-# Mirrors native's gates: clasify needs OCTOCODE_BETA=true plus a provider credential; reader
-# classification (the classifiers schema) needs only the credential.
+# Configured clasify and reader classification both require a provider credential.
+# The real server also pings the provider before offering clasify.
 FAKE_MCP = '''#!/usr/bin/env python3
 import json, os, sys
 from pathlib import Path
@@ -31,7 +31,7 @@ classifier_readers = set(json.loads(os.environ['BENCH_TEST_CLASSIFIER_READERS'])
 selected = os.getenv('TOOLS_TO_RUN', '')
 names = set(selected.split(',')) if selected else set(readers) | {'clasify'}
 credential = bool(os.getenv('OCTOCODE_CLASSIFICATION_API', '').strip())
-if not (credential and os.getenv('OCTOCODE_BETA') == 'true'): names.discard('clasify')
+if not credential: names.discard('clasify')
 snapshot = {key: os.getenv(key) for key in GATE_KEYS}
 with Path(os.environ['BENCH_TEST_ENV_LOG']).open('a') as log: log.write(json.dumps(snapshot) + '\\n')
 for line in sys.stdin:

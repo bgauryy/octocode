@@ -14,13 +14,7 @@ pub(super) fn render_tree_page(
     TreePage { r, more, facts }: TreePage,
     snapshot: &str,
 ) -> serde_json::Value {
-    // Line/column locate every node; byte offsets are verbose (core field
-    // class): the verbose stage keeps `returnedBytes` for `debug`.
-    let node_bytes = r
-        .nodes
-        .iter()
-        .map(|n| format!("{}-{}", n.start_byte, n.end_byte))
-        .collect::<Vec<_>>();
+    let byte_ranges = r.nodes.iter().map(node_byte_range).collect::<Vec<_>>();
     let nodes = r.nodes.iter().map(node_page_row).collect::<Vec<_>>();
     let codes = r
         .diagnostics
@@ -62,7 +56,7 @@ pub(super) fn render_tree_page(
     let page = ast_search_query_syntax_tree::page(q);
     let complete = r.status == "ok" && !more;
     let pagination = facts.to_value();
-    let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"returnedBytes":node_bytes,"snapshot":snapshot,"isPartial":!complete,
+    let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"byteRanges":byte_ranges,"snapshot":snapshot,"isPartial":!complete,
         "pagination":pagination});
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
@@ -121,11 +115,13 @@ fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
     )
 }
 
-/// Characters a node adds to its delivered page: its row. Its
-/// `returnedBytes` entry is a `stats` extra a default row drops, so a page
-/// asking for stats may run past the window by those entries.
+fn node_byte_range(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
+    format!("{}-{}", n.start_byte, n.end_byte)
+}
+
+/// Characters a node adds to both arrays, including quotes and separators.
 pub(super) fn node_page_chars(n: &octocode_engine::structural::SyntaxTreeNode) -> usize {
-    octocode_engine::json_size::string_body_units(&node_page_row(n)) + 1
+    octocode_engine::json_size::string_body_units(&node_page_row(n)) + node_byte_range(n).len() + 6
 }
 
 /// One node as `"<id> [<field>:]<kind> <startLine>:<startColumn>-<endLine>:<endColumn>

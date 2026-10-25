@@ -51,7 +51,7 @@ pub(super) fn read_page(
         )
     })?;
     let source_digest = result.source_digest.clone();
-    let row_value = rows::result_row(id, 0, &prepared, result.data, result.status);
+    let row_value = rows::result_row(0, result.data, result.status);
     let state = rows::envelope(id, vec![row_value]);
     let state = dispatcher
         .security()

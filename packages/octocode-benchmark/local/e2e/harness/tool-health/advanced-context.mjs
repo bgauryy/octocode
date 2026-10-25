@@ -38,5 +38,6 @@ export function advancedContext(run) {
     });
     return Object.assign(report, { responses });
   };
-  return { driver: suite.driver, schemaOf: tool => schemas.get(tool), callOn, call: (input, surface) => callOn(surface)(run.name, input), cliCall: (tool, input, options) => callOn('cli')(tool, input, options), explore };
+  const scenario = (name, surface, callback) => suite.surfaces.scenario({ tool: run.name, surface, cwd: run.cwd, name }, callback);
+  return { scenario, driver: suite.driver, schemaOf: tool => schemas.get(tool), callOn, call: (input, surface) => callOn(surface)(run.name, input), cliCall: (tool, input, options) => callOn('cli')(tool, input, options), explore };
 }

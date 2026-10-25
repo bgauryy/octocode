@@ -219,6 +219,8 @@ async fn a_path_mode_search_of_code_leads_to_the_content_search_alone() {
         crate::tools::test_support::checks::related_call(&out.data, "ghSearchCode", |input| {
             input["queries"][0]["matchIn"] == json!(["content"])
         });
+    crate::contracts::validate("ghSearchCode", next["input"].clone())
+        .expect("a related content search must accept an authored input");
     assert_eq!(next["tool"], "ghSearchCode", "{}", out.data);
     assert_eq!(
         next["input"]["queries"][0]["matchIn"],
@@ -246,11 +248,14 @@ async fn an_empty_search_of_an_or_phrase_splits_it_into_rows() {
             .any(|hint| hint == "keywords take no OR; send one row per alternative.")),
         "{data}"
     );
-    let rows = &crate::tools::test_support::checks::related_call(data, "ghSearchCode", |input| {
+    let split = crate::tools::test_support::checks::related_call(data, "ghSearchCode", |input| {
         input["queries"].as_array().is_some_and(|rows| {
             rows.len() == 2 && rows[0]["keywords"] == json!(["SearcherBuilder", "pub"])
         })
-    })["input"]["queries"];
+    });
+    crate::contracts::validate("ghSearchCode", split["input"].clone())
+        .expect("each related alternative must accept an authored input");
+    let rows = &split["input"]["queries"];
     assert_eq!(
         rows[0]["keywords"],
         json!(["SearcherBuilder", "pub"]),

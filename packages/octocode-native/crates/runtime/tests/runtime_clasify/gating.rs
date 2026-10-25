@@ -1,4 +1,4 @@
-//! Whether clasify is offered: beta and key gating, and inputs rejected at validation before any work.
+//! Whether clasify is offered: key gating and provider readiness, and inputs rejected at validation before any work.
 
 use super::{content_row, noul, provider};
 use crate::support::{Run as _, Workspace, clasify_runtime, provider_env};
@@ -14,12 +14,12 @@ async fn retired_jev_vendor_key_does_not_enable_clasify() {
 }
 
 #[tokio::test]
-async fn public_clasify_requires_beta_and_a_nonblank_key_independently() {
+async fn public_clasify_requires_a_nonblank_key_regardless_of_beta() {
     let workspace = Workspace::new();
     for (env, missing) in [
         (
-            vec![("OCTOCODE_CLASSIFICATION_API", "secret".into())],
-            "OCTOCODE_BETA",
+            vec![("OCTOCODE_BETA", "false".into())],
+            "OCTOCODE_CLASSIFICATION_API",
         ),
         (
             vec![("OCTOCODE_BETA", "true".into())],
@@ -50,7 +50,7 @@ async fn public_clasify_requires_beta_and_a_nonblank_key_independently() {
 }
 
 #[tokio::test]
-async fn configured_clasify_is_available_without_contacting_the_provider() {
+async fn configuration_resolution_does_not_contact_the_provider() {
     let server = provider(0).await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);

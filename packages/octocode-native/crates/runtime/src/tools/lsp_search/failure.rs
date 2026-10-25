@@ -24,7 +24,8 @@ pub(super) use paging::{
 use rows::attach_text_search;
 pub(super) use rows::{
     BUILD_SCRIPTS_COST, build_scripts_rerun, continuation, empty, mark_anchor_line_errors,
-    mark_diagnostics_unpublished, partial_with_retry, runs_build_scripts, stamp_coverage,
+    mark_diagnostics_unpublished, partial_with_related_rerun, runs_build_scripts, same_query_rerun,
+    stamp_coverage,
 };
 
 /// A request-level failure `execute` could not render as a row. The
@@ -231,7 +232,14 @@ pub(super) fn failure(
         value["path"] = json!(super::render::uri_to_path(canonical_uri));
     }
     if code == ErrorCode::Timeout {
-        value["next"]["retry"] = continuation(lsp_search_query::to_row(query));
+        crate::response::result::attach_related(
+            &mut value,
+            crate::response::result::Continuation::related(
+                ToolId::LspSearch,
+                same_query_rerun(query),
+            )
+            .build(),
+        );
     }
     if lsp_search_query::path(query).is_some() {
         attach_recovery_next(&mut value, query);

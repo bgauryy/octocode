@@ -152,7 +152,7 @@ async fn small_results_need_no_response_page() {
 }
 
 #[tokio::test]
-async fn a_paged_partial_batch_counts_rejected_rows_in_its_rendered_size_once() {
+async fn a_paged_partial_batch_discloses_oversized_pages_and_returns_rejections_once() {
     let workspace = Workspace::new();
     workspace.write(
         "large.txt",
@@ -175,7 +175,8 @@ async fn a_paged_partial_batch_counts_rejected_rows_in_its_rendered_size_once() 
         support::checks::assert_output_contract("localSearch", &output);
         let pagination = &output["responsePagination"];
         let chars = output.to_string().encode_utf16().count();
-        assert_eq!(pagination["returnedChars"], chars);
+        assert!(pagination.get("returnedChars").is_none());
+        assert!(pagination.get("totalChars").is_none());
         if chars > 800 {
             assert_eq!(pagination["oversized"], true);
         }

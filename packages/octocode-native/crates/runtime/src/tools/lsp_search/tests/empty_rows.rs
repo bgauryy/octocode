@@ -15,11 +15,14 @@ fn empty_and_failed_rows_keep_acquisition_separate_from_retry() {
         let related = row["related"].as_array().expect("source acquisition");
         assert!(related.iter().all(|call| call["kind"] == "related"));
         assert_eq!(
-            row.pointer("/next/retry").is_some(),
+            crate::tools::test_support::checks::find_related_call(&row, "lspSearch", |_| true,)
+                .is_some(),
             code == ErrorCode::Timeout
         );
         if code == ErrorCode::Timeout {
-            assert_eq!(row["next"]["retry"]["kind"], "continue");
+            let retry =
+                crate::tools::test_support::checks::related_call(&row, "lspSearch", |_| true);
+            assert_eq!(retry["kind"], "related");
         }
         crate::contracts::validate_output("lspSearch", &public_row(&row))
             .expect("valid public channels");

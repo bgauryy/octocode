@@ -26,6 +26,15 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path: string): string =>
   readFileSync(resolve(packageRoot, path), 'utf8');
 
+it('keeps Unicode schema patterns in generated typed decoders', () => {
+  const generated = read('contract/tool_types.rs');
+  expect(generated).toContain('::regress::Regex::with_flags(');
+  expect(generated).toContain(', "u")');
+  expect(generated).toContain('White_Space');
+  expect(generated).not.toMatch(/Regex\s*::\s*new\s*\(/);
+});
+
+// Full-contract generation is an integration check, not a five-second latency assertion.
 describe('generated tool types', () => {
   it('are current with the core Zod contract (embed, fixtures, TS, bundle, Rust header)', async () => {
     const { files, rustHeader } = await generateToolContract();
@@ -36,7 +45,7 @@ describe('generated tool types', () => {
     expect(TOOL_TYPES_CONTRACT_FINGERPRINT).toBe(
       getNativeContractFingerprint()
     );
-  });
+  }, 30_000);
 
   it('pins the Rust types to the exact bundle they were generated from', () => {
     const digest = createHash('sha256')
@@ -176,11 +185,13 @@ describe('generated tool types in use', () => {
       const run = spawnSync(process.execPath, [link, '--check'], {
         encoding: 'utf8',
         env: { PATH: '' },
+        timeout: 25_000,
       });
+      expect(run.error).toBeUndefined();
       expect(run.stderr).toMatch(/cargo-typify .*is required/);
       expect(run.status).not.toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });

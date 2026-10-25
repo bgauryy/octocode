@@ -154,9 +154,8 @@ pub(crate) type RowValidation = Result<serde_json::Value, ContractValidationErro
 /// Validate a fresh-query envelope once and isolate its invalid rows, so
 /// valid rows can still execute. Rejected rows carry issue paths at their
 /// original index. Isolation does not apply, and the whole call fails with
-/// every issue, for a malformed envelope shape, a single-row input, clasify
-/// (matrices share batch-level rules), every row invalid, or an envelope
-/// issue that persists over the valid rows alone.
+/// every issue, for a malformed envelope shape, every row invalid, or an envelope
+/// issue, including the original batch size.
 pub(crate) fn prepare_rows(
     tool_name: &str,
     input: serde_json::Value,
@@ -204,22 +203,8 @@ fn prepare_rows_from(
     if failed == 0 && batch.envelope.is_empty() {
         return Ok(rows.into_iter().map(Ok).collect());
     }
-    if failed == 0 || failed == rows.len() || tool_name == ToolId::Clasify.as_str() {
+    if failed == 0 || failed == rows.len() || !batch.envelope.is_empty() {
         return Err(whole(batch));
-    }
-    // An envelope issue may be the invalid rows' own (the batch size): check
-    // the envelope again over the valid rows alone.
-    if !batch.envelope.is_empty() {
-        let valid = rows
-            .iter()
-            .zip(&batch.rows)
-            .filter(|(_, issues)| issues.is_empty())
-            .map(|(row, _)| row.clone())
-            .collect();
-        validated["queries"] = serde_json::Value::Array(valid);
-        if validate::validate_envelope(tool_name, &mut validated).is_err() {
-            return Err(whole(batch));
-        }
     }
     Ok(rows
         .into_iter()

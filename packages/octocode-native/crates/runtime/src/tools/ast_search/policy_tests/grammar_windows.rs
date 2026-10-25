@@ -177,11 +177,7 @@ fn directory_scan_windows_infer_each_files_grammar_without_losing_other_language
             }
         }
         checks::Page {
-            output: crate::tools::test_support::published(
-                crate::id::ToolId::AstSearch,
-                query,
-                &out,
-            ),
+            output: crate::tools::test_support::published(crate::id::ToolId::AstSearch, &out),
             rows: ast_rows(std::slice::from_ref(&out)),
         }
     });

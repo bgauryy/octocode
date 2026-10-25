@@ -16,8 +16,9 @@ pub(in super::super) const IMPORTER_REQUEST_FAILED: &str = "importerRequestFaile
 /// failure: it ends the request.
 #[derive(Debug, Default)]
 pub(in super::super) struct RequestFailures {
-    /// Distinct messages with how many requests hit each, in first-seen order.
-    pub(super) distinct: Vec<(String, usize)>,
+    /// Distinct messages with their count and whether every matching failure
+    /// was transient, in first-seen order.
+    distinct: Vec<(String, usize, bool)>,
 }
 
 impl RequestFailures {
@@ -26,7 +27,11 @@ impl RequestFailures {
         if failure.is_cancelled() {
             return Err(failure);
         }
-        self.push(format!("{} ({})", failure.message, failure.code), 1);
+        self.push(
+            format!("{} ({})", failure.message, failure.code),
+            1,
+            failure.retryable,
+        );
         Ok(())
     }
 
@@ -38,25 +43,33 @@ impl RequestFailures {
         self.record(LspFailure::from_engine(error))
     }
 
-    pub(super) fn push(&mut self, message: String, hits: usize) {
-        match self.distinct.iter_mut().find(|(seen, _)| *seen == message) {
-            Some((_, count)) => *count += hits,
-            None => self.distinct.push((message, hits)),
+    fn push(&mut self, message: String, hits: usize, retryable: bool) {
+        match self
+            .distinct
+            .iter_mut()
+            .find(|(seen, _, _)| *seen == message)
+        {
+            Some((_, count, all_retryable)) => {
+                *count += hits;
+                *all_retryable &= retryable;
+            }
+            None => self.distinct.push((message, hits, retryable)),
         }
     }
 
     pub(in super::super) fn extend(&mut self, other: Self) {
-        for (message, hits) in other.distinct {
-            self.push(message, hits);
+        for (message, hits, retryable) in other.distinct {
+            self.push(message, hits, retryable);
         }
     }
 
     pub(super) fn total(&self) -> usize {
-        self.distinct.iter().map(|(_, count)| count).sum()
+        self.distinct.iter().map(|(_, count, _)| count).sum()
     }
 
     /// Mark `row` partial with `reason`: how many `stage` requests failed
-    /// and the most frequent error, plus a retry of the row's query.
+    /// and the most frequent error. A fresh same-query reattempt is related
+    /// work only when every failed request was classified as transient.
     pub(in super::super) fn disclose(
         &self,
         row: &mut Value,
@@ -64,10 +77,10 @@ impl RequestFailures {
         reason: &str,
         stage: &str,
     ) {
-        let Some((message, count)) =
+        let Some((message, count, _)) =
             self.distinct
                 .iter()
-                .fold(None::<&(String, usize)>, |top, entry| match top {
+                .fold(None::<&(String, usize, bool)>, |top, entry| match top {
                     Some(top) if top.1 >= entry.1 => Some(top),
                     _ => Some(entry),
                 })
@@ -86,7 +99,10 @@ impl RequestFailures {
                 self.distinct.len()
             )
         };
-        partial_with_retry(row, query, reason, &[warning]);
+        crate::response::paging::mark_partial(row, reason, &[warning]);
+        if self.distinct.iter().all(|(_, _, retryable)| *retryable) {
+            partial_with_related_rerun(row, query, reason, &[]);
+        }
     }
 }
 

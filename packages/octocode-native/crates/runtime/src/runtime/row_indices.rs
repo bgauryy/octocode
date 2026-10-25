@@ -12,20 +12,29 @@ pub(crate) fn admitted_indices(admitted: usize, rejected: &[usize]) -> Vec<usize
         .collect()
 }
 
+/// Saved tool work continues the originating query, including fan-out reads.
+pub(crate) fn inherit(structured: &mut Value, origin: Option<usize>) {
+    if let Some(index) = origin {
+        for row in structured
+            .get_mut("results")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            row["index"] = json!(index);
+        }
+    }
+}
+
 /// Take the rejected rows out of a settled envelope, leaving the body a page
 /// continuation reproduces; returns the remaining-notes of the rows it keeps
-/// and the rejected rows themselves.
+/// and the rejected rows themselves. Positions refer to the settled array,
+/// since fan-out continuations can share an originating query index.
 pub(crate) fn split_rejected(
     structured: &mut Value,
     remaining: Vec<Vec<Remaining>>,
     rejected: &[usize],
 ) -> (Vec<Vec<Remaining>>, Vec<Value>) {
-    let is_rejected = |row: &Value| {
-        row["index"]
-            .as_u64()
-            .and_then(|index| usize::try_from(index).ok())
-            .is_some_and(|index| rejected.contains(&index))
-    };
     let Some(rows) = structured
         .get_mut("results")
         .and_then(Value::as_array_mut)
@@ -35,9 +44,9 @@ pub(crate) fn split_rejected(
     };
     let mut notes = remaining.into_iter();
     let (mut kept, mut kept_notes, mut taken) = (Vec::new(), Vec::new(), Vec::new());
-    for row in rows {
+    for (position, row) in rows.into_iter().enumerate() {
         let note = notes.next().unwrap_or_default();
-        if is_rejected(&row) {
+        if rejected.contains(&position) {
             taken.push(row);
         } else {
             kept.push(row);

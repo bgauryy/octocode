@@ -16,16 +16,10 @@ pub(super) fn finish_code_selection(
 ) {
     use serde_json::Value;
     type Identity = (String, String, String);
-    let identities = |file: &Value, value: &Value| -> Vec<Identity> {
-        let identity = |key: &str| {
-            file[key]
-                .as_str()
-                .or_else(|| value[key].as_str())
-                .or_else(|| query[key].as_str())
-                .unwrap_or_default()
-                .to_owned()
+    let identities = |file: &Value| -> Vec<Identity> {
+        let (Some(owner), Some(repo)) = (file["owner"].as_str(), file["repo"].as_str()) else {
+            return Vec::new();
         };
-        let (owner, repo) = (identity("owner"), identity("repo"));
         file["path"]
             .as_str()
             .into_iter()
@@ -36,18 +30,18 @@ pub(super) fn finish_code_selection(
                     .flatten()
                     .filter_map(Value::as_str),
             )
-            .map(|path| (owner.clone(), repo.clone(), path.to_owned()))
+            .map(|path| (owner.to_owned(), repo.to_owned(), path.to_owned()))
             .collect()
     };
     let selected = value["files"]
         .as_array()
         .into_iter()
         .flatten()
-        .flat_map(|file| identities(file, value))
+        .flat_map(&identities)
         .collect::<std::collections::HashSet<_>>();
     let hidden = hidden
         .iter()
-        .flat_map(|file| identities(file, value))
+        .flat_map(identities)
         .collect::<std::collections::HashSet<_>>();
     let read_identity = |read: &Value| -> Option<Identity> {
         Some((

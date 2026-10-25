@@ -24,11 +24,7 @@ async fn paths_resolve_like_listings_or_are_refused_unsent() {
     )
     .await
     .unwrap_or_else(|failure| panic!("{}", failure.message));
-    assert_eq!(
-        read.output.data["path"], "README.md",
-        "{}",
-        read.output.data
-    );
+    assert_eq!(read.data["path"], "README.md", "{}", read.data);
     let requests = server.received_requests().await.expect("requests");
     assert_eq!(
         requests

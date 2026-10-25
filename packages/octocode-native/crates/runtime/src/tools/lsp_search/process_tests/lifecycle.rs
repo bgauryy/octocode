@@ -75,7 +75,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
         "symbolName": "a", "line": 1
     });
     let query: LspSearchQuery = serde_json::from_value(query_row.clone()).expect("query");
-    let expected_retry = lsp_search_query::to_row(&query);
+    let expected_retry = crate::tools::lsp_search::failure::same_query_rerun(&query);
     let paths = crate::tools::test_support::workspace_policy(&root);
     let runtime = tokio::runtime::Runtime::new().expect("rt");
     let first = runtime
@@ -88,7 +88,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
             None,
         ))
         .expect("indexing row");
-    assert_row_contract(ToolId::LspSearch, &query_row, &first);
+    assert_row_contract(ToolId::LspSearch, &first);
     assert_eq!(first["status"], "empty", "{first}");
     assert_eq!(first["category"], "languageServerIndexing", "{first}");
     assert!(
@@ -99,7 +99,15 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
     );
     assert_eq!(first["lsp"]["serverAvailable"], true, "{first}");
     assert_eq!(first["isPartial"], true, "{first}");
-    let retry = first["next"]["retry"]["input"]["queries"][0].clone();
+    let retry = first["related"]
+        .as_array()
+        .and_then(|calls| {
+            calls
+                .iter()
+                .find(|call| call["kind"] == "related" && call["tool"] == "lspSearch")
+        })
+        .expect("same-query optional reattempt")["input"]["queries"][0]
+        .clone();
     assert_eq!(retry, expected_retry, "{first}");
     let pids = std::fs::read_to_string(root.join("pids.txt")).expect("server pid");
     assert_eq!(
@@ -120,7 +128,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
             None,
         ))
         .expect("retry row");
-    assert_row_contract(ToolId::LspSearch, &query_row, &second);
+    assert_row_contract(ToolId::LspSearch, &second);
     assert_eq!(second["kind"], "hover", "{second}");
     assert_eq!(second["hover"]["contents"], "ready", "{second}");
     let pids = std::fs::read_to_string(root.join("pids.txt")).expect("server pid");

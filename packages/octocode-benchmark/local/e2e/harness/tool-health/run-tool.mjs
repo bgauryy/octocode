@@ -5,7 +5,7 @@ import { contract } from '../contract.mjs';
 import { CASES } from './cases.mjs';
 import { dataOf, errorCodes, rowsOf, statusClass } from './driver.mjs';
 import { firstDiff, firstError, parityView } from './compare.mjs';
-import { tokenFor } from './surfaces.mjs';
+import { tokenFor, withoutReadinessPings } from './surfaces.mjs';
 import { inputBoundaries } from './input-boundaries.mjs';
 import { advancedContext } from './advanced-context.mjs';
 
@@ -224,8 +224,8 @@ async function invalidPhase(run) {
 
 async function boundaryPhase(run) {
   const tokens = new Set(run.surfaces.map(surface => tokenFor(run.name, surface)));
-  const providerCalls = () => run.ctx.mock.requestsFrom?.filter(request => tokens.has(request.token)).length;
-  const before = providerCalls();
+  const providerCalls = () => run.ctx.mock.requestsFrom?.filter(request => tokens.has(request.token));
+  const before = providerCalls()?.length;
   const inputSchema = contract.tools.find(tool => tool.name === run.name).inputSchema;
   for (const [label, input] of inputBoundaries(run.input(run.spec.happy), inputSchema)) {
     run.record(`input.${label}.schema`, run.suite.validateInput(run.name, input) !== null, 'boundary must be rejected by the published schema');
@@ -235,20 +235,16 @@ async function boundaryPhase(run) {
       run.record(`input.${label}.${surface}`, rejected && (surface === 'cli' ? actual.status === EXIT.invalid : actual.isError), JSON.stringify(actual.json));
     }
   }
-  if (before !== undefined) run.record('input.noProviderWork', providerCalls() === before, `${providerCalls() - before} provider requests during invalid admission`);
+  if (before !== undefined) {
+    const observed = withoutReadinessPings(providerCalls().slice(before));
+    run.record('input.noToolExecution', observed.length === 0, JSON.stringify(observed));
+  }
 }
 
 async function rowIsolationPhase(run) {
   const row = run.input(run.spec.happy).queries[0];
   for (const surface of run.surfaces) {
-    const token = tokenFor(run.name, surface);
-    const providerCalls = () => run.ctx.mock.requestsFrom.filter(request => request.token === token).length;
-    const before = providerCalls();
     const actual = await run.call({ queries: [row, { ...row, unexpectedField: true }] }, surface);
-    if (run.spec.mixedBatch === 'reject') {
-      run.record(`input.batchAtomic.${surface}`, rejectsWholeBatch(actual, surface) && providerCalls() === before, JSON.stringify(actual.json));
-      continue;
-    }
     const rows = rowsOf(actual.json);
     const valid = rows.find(entry => entry.index === 0);
     const invalid = rows.find(entry => entry.index === 1);
@@ -256,9 +252,6 @@ async function rowIsolationPhase(run) {
       && invalid?.data?.errorCode === 'invalidInput' && (surface === 'cli' ? actual.status === EXIT.invalid : !actual.isError)
       && !run.suite.validateOutput(run.name, actual.json), JSON.stringify(actual.json));
   }
-}
-function rejectsWholeBatch(actual, surface) {
-  return actual.json?.errorCode === 'invalidInput' && (surface === 'cli' ? actual.status === EXIT.invalid : actual.isError);
 }
 
 /** Additional behavior checks supplied by a tool case. */

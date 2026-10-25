@@ -142,11 +142,7 @@ fn a_name_filter_miss_leads_to_the_listing_without_its_name_filters() {
     ] {
         let out = run(&root.0, query.clone()).expect("empty listing");
         assert_eq!(out["status"], "empty", "{out}");
-        crate::tools::test_support::assert_row_contract(
-            crate::id::ToolId::StructureSearch,
-            &query,
-            &out,
-        );
+        crate::tools::test_support::assert_row_contract(crate::id::ToolId::StructureSearch, &out);
         let lead = &related(&out, "structureSearch");
         assert_eq!(lead["tool"], "structureSearch", "{out}");
         let row = &lead["input"]["queries"][0];

@@ -41,6 +41,30 @@ pub(super) fn validate_array(
             }
         }
     }
+    if let Some(contains) = schema.get("contains") {
+        let mut found = false;
+        for item in array.iter_mut() {
+            if super::probe(super::validate_read_only(
+                super::predicate_root(root, contains),
+                contains,
+                item,
+                &mut path.clone(),
+            ))? {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            issues.extend(
+                issue(
+                    "schema.contains",
+                    path.clone(),
+                    "Array has no matching item",
+                )
+                .issues,
+            );
+        }
+    }
     if issues.is_empty() {
         Ok(())
     } else {
@@ -82,8 +106,28 @@ pub(super) fn validate_string(
             ));
         }
     }
-    if schema.get("format").and_then(Value::as_str) == Some("uri") && Url::parse(string).is_err() {
-        return Err(issue("schema.uri", path.to_vec(), "Expected a valid URI"));
+    if schema.get("format").and_then(Value::as_str) == Some("uri") {
+        let parsed = Url::parse(string)
+            .map_err(|_| issue("schema.uri", path.to_vec(), "Expected a valid URI"))?;
+        if let Some(policy) = schema.get("x-url") {
+            let denied = policy["protocols"].as_array().is_some_and(|schemes| {
+                !schemes
+                    .iter()
+                    .any(|scheme| scheme.as_str() == Some(parsed.scheme()))
+            }) || (policy["credentials"] == false
+                && (!parsed.username().is_empty() || parsed.password().is_some()))
+                || (policy["query"] == false && parsed.query().is_some())
+                || (policy["fragment"] == false && parsed.fragment().is_some());
+            if denied {
+                return Err(issue(
+                    policy["id"].as_str().unwrap_or("schema.uri"),
+                    path.to_vec(),
+                    policy["message"]
+                        .as_str()
+                        .unwrap_or("URL components are not allowed"),
+                ));
+            }
+        }
     }
     Ok(())
 }

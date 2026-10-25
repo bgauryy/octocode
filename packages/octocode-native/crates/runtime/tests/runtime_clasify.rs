@@ -9,6 +9,7 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 mod failures;
 mod gating;
 mod judgments;
+mod readiness;
 mod sources;
 
 /// Answers every question by its own type, as the provider does: Noul 0.9,

@@ -125,6 +125,9 @@ pub async fn run(args: Args) -> u8 {
         command => command,
     };
     let runtime = match ToolRuntime::from_host(cli_host()) {
+        Ok(runtime) if matches!(command, Command::Schema { .. }) => {
+            runtime.check_clasify_provider().await
+        }
         Ok(runtime) => runtime,
         Err(error) => return start_failed(&error, mode),
     };
@@ -252,7 +255,7 @@ async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
         return code;
     }
     let runtime = match ToolRuntime::from_host(cli_host()) {
-        Ok(runtime) => runtime,
+        Ok(runtime) => runtime.check_clasify_provider().await,
         Err(error) => return start_failed(&error, mode),
     };
     let code = execute(&runtime, tool.name, input, mode).await;

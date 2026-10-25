@@ -9,7 +9,7 @@ pub(crate) use cut::measure_page;
 use cut::{cut_rows, pagination_block_chars};
 use serde_json::{Map, Value};
 use std::sync::OnceLock;
-use telemetry::{strip_row_telemetry, take_volatile_fields};
+use telemetry::take_volatile_fields;
 use tokio_util::sync::CancellationToken;
 use window::{build_continuation, page_cursor};
 
@@ -66,7 +66,7 @@ pub(crate) fn prepare(
     let Value::Object(structured) = std::mem::take(&mut input.structured) else {
         return Err(ResponseError::StructuredContentMustBeObject);
     };
-    if input.options.rows_scope() {
+    if input.options.paging {
         let source = row_source(structured, &input)?;
         if cancelled.is_cancelled() {
             return Err(ResponseError::Cancelled);
@@ -111,7 +111,6 @@ fn row_source(
     mut structured: Map<String, Value>,
     input: &ResponseInput,
 ) -> Result<RowSource, ResponseError> {
-    strip_row_telemetry(&mut structured);
     // Row pages re-attach per-call provider facts to the row they came
     // from; the snapshot and page plan never see them.
     let volatile = take_volatile_fields(&mut structured);

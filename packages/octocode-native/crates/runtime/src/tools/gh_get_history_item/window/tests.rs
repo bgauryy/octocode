@@ -6,6 +6,36 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+#[test]
+fn commit_file_limit_uses_raw_extent_and_preserves_existing_caps() {
+    for (skipped, count, exhausted, capped, expected) in [
+        (0, 2999, true, false, false),
+        (0, 3000, true, false, true),
+        (2700, 300, true, false, true),
+        (2700, 299, true, false, false),
+        (0, 3000, false, false, false),
+        (0, 1, false, true, true),
+    ] {
+        let mut loaded = Loaded {
+            items: vec![Value::Null; count],
+            state: WindowState {
+                skipped,
+                exhausted,
+                capped,
+            },
+            first: Value::Null,
+        };
+        loaded.mark_commit_file_limit();
+        assert_eq!(
+            loaded.state.capped, expected,
+            "skipped={skipped}, count={count}, exhausted={exhausted}, capped={capped}"
+        );
+        assert_eq!(loaded.state.skipped, skipped);
+        assert_eq!(loaded.state.exhausted, exhausted);
+        assert_eq!(loaded.items.len(), count);
+    }
+}
+
 /// Mount provider batch `page` of `/files` (100 items each, `total` in
 /// all), answering after `delay` and expecting `reads` requests.
 async fn mount_batch(server: &MockServer, page: usize, total: usize, reads: u64) {

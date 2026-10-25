@@ -174,7 +174,7 @@ impl LocalFetchResult {
 
 /// Wire view of [`Pagination`]: the view total in `unit`. A line view's
 /// total is stated only when it differs from the top-level `totalLines`; a
-/// byte view always states it, because `sourceBytes` is debug-only.
+/// byte view always states its total in bytes.
 struct PaginationWire<'a> {
     page: &'a Pagination,
     source_lines: Option<usize>,
@@ -230,6 +230,11 @@ impl LocalFetchResult {
     /// end) locates nothing: its leads carry the coordinates to read.
     fn serialize_anchors<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
         opt(map, "totalLines", &self.total_lines)?;
+        // Hit identity is not derivable from the text: a match-selected
+        // page can contain only context, including text identical to a hit.
+        if self.selected_match_count.is_some() || !self.matched_lines.is_empty() {
+            map.serialize_entry("matchedLines", &self.matched_lines)?;
+        }
         if self.content.as_deref().is_some_and(str::is_empty) {
             return opt(map, "selectedMatchCount", &self.selected_match_count);
         }
@@ -242,7 +247,6 @@ impl LocalFetchResult {
         if !self.match_ranges_are_redundant(&match_ranges) {
             list(map, "matchRanges", &match_ranges)?;
         }
-        list(map, "matchedLines", &self.matched_lines)?;
         if !self.match_keys.is_empty() {
             map.serialize_entry(
                 "matchKeys",

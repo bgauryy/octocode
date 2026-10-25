@@ -1,6 +1,6 @@
 # Octocode tools reference
 
-The full catalog has 14 tools. The default catalog contains 12 tools over MCP and 13 in the CLI. `ghCloneRepo` is CLI-only; `clasify` also requires beta and a classification credential. Live discovery reports availability for the current configuration.
+The full catalog has 14 tools. The default catalog contains 12 tools over MCP and 13 in the CLI. `ghCloneRepo` is CLI-only; `clasify` requires a classification credential and a successful provider ping. Live discovery reports availability for the current configuration.
 
 ## How every tool call works
 

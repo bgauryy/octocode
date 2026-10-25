@@ -59,11 +59,9 @@ async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
         );
         assert!(row["matches"].is_array(), "{}", out.data);
         assert!(row["repo"].is_string(), "{}", out.data);
-        assert!(row.get("owner").is_none(), "{}", out.data);
+        assert_eq!(row["owner"], "o", "{}", out.data);
+        assert_eq!(row["commitSha"], SHA, "{}", out.data);
     }
-    // What every row shares (owner, one commit) is stated once.
-    assert_eq!(out.data["owner"], "o", "{}", out.data);
-    assert_eq!(out.data["commitSha"], SHA, "{}", out.data);
     let read = &out.data["next"]["read"]["input"]["queries"][0];
     assert_eq!(read["ref"], SHA, "{}", out.data);
     assert_eq!(read["owner"], "o", "{}", out.data);
@@ -91,9 +89,7 @@ async fn owner_wide_row_missing_at_its_commit_keeps_fragments() {
     assert!(row.get("lines").is_none(), "{}", out.data);
 }
 
-/// Anchors: a repo-scoped page states the commit its lines were read at once
-/// (`commitSha`); each file row is its `pathPrefix` and numbered `lines`
-/// ("N\ttext"), with no owner/repo/ref echo of the query.
+/// Each scoped file retains the repository, path and commit of its numbered lines.
 #[tokio::test]
 async fn a_repo_scoped_row_is_path_and_numbered_lines_at_one_commit() {
     let server = MockServer::builder().start().await;
@@ -129,7 +125,9 @@ async fn a_repo_scoped_row_is_path_and_numbered_lines_at_one_commit() {
     let out = execute(&provider, &query, &context, &Passthrough)
         .await
         .expect("search");
-    assert_eq!(out.data["commitSha"], SHA, "{}", out.data);
+    assert_eq!(out.data["files"][0]["commitSha"], SHA, "{}", out.data);
+    assert_eq!(out.data["files"][0]["owner"], "a", "{}", out.data);
+    assert_eq!(out.data["files"][0]["repo"], "b", "{}", out.data);
     assert_eq!(
         out.data["files"][0]["lines"],
         json!(["2\tfn wrap_app() {}"]),

@@ -69,8 +69,6 @@ fn pagination_value(
         "page": pagination.page,
         "totalPages": pagination.total_pages,
         "hasMore": pagination.has_more,
-        "returnedChars": pagination.returned_chars,
-        "totalChars": pagination.total_chars,
     });
     if let Some(next) = &pagination.next {
         value["next"] = next.clone();
@@ -90,17 +88,11 @@ pub(crate) fn measure_page(output: &mut Value, budget: Option<usize>) -> Result<
         if let Some(page) = output["responsePagination"].as_object_mut() {
             page.remove("oversized");
         }
-        for _ in 0..3 {
-            let rendered = octocode_engine::json_size::utf16_units(output)
-                .ok_or(ResponseError::Unserializable)?;
-            output["responsePagination"]["returnedChars"] = json!(rendered);
-            if budget.is_some_and(|budget| rendered > budget) {
-                output["responsePagination"]["oversized"] = json!(true);
-            }
-        }
         let rendered =
             octocode_engine::json_size::utf16_units(output).ok_or(ResponseError::Unserializable)?;
-        output["responsePagination"]["returnedChars"] = json!(rendered);
+        if budget.is_some_and(|budget| rendered > budget) {
+            output["responsePagination"]["oversized"] = json!(true);
+        }
     }
     Ok(())
 }

@@ -3,33 +3,17 @@
 //! ghGetHistoryItem revalidates every read.
 use super::*;
 
-/// A second identical `ghGetFileContent` call must be served from the
-/// `GitHubContentCache` and report `cache:1` in the result row.
-///
-/// Flow:
-///  1. First call: 200 + ETag "v1"  →  stored in cache, `cache` flag absent.
-///  2. Second call: If-None-Match sent, server replies 304  →  served from
-///     cache, `cache:1` set in the result row.
+/// Pinned content is reused without another HTTP request or public cache telemetry.
 #[tokio::test]
-async fn ghgetfilecontent_second_call_sets_cache_flag() {
+async fn ghgetfilecontent_reuses_cached_evidence_without_public_telemetry() {
     let server = MockServer::builder().start().await;
     let sha = sha('a');
-    // Serve the file; respond with 304 when a conditional request arrives.
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/contents/file.rs"))
-        .respond_with(|req: &Request| {
-            if req.headers.get("if-none-match").is_some() {
-                ResponseTemplate::new(304)
-            } else {
-                ResponseTemplate::new(200)
-                    .insert_header("etag", "\"etag-v1\"")
-                    .set_body_json(json!({
-                        "type": "file",
-                        "encoding": "base64",
-                        "content": STANDARD.encode("hello cache\n"),
-                    }))
-            }
-        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file", "encoding":"base64", "content":STANDARD.encode("hello cache\n")
+        })))
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -39,31 +23,25 @@ async fn ghgetfilecontent_second_call_sets_cache_flag() {
 
     let runtime = workspace.runtime(&settings);
 
-    // First call: cache miss — result must NOT carry cache:1.
+    // The first read fills the immutable content cache.
     let first = call(&runtime, "ghGetFileContent", query.clone())
         .await
         .unwrap();
     assert_eq!(row_status(&first), "success");
-    assert_eq!(
-        row_cache_flag(&first),
-        0,
-        "first call must not be a cache hit"
-    );
+    assert_no_cache_telemetry(&first);
 
-    // Second call: cache hit — result MUST carry cache:1.
+    // The second read must preserve evidence without another provider request.
     let second = call(&runtime, "ghGetFileContent", query).await.unwrap();
     assert_eq!(row_status(&second), "success");
-    assert_eq!(
-        row_cache_flag(&second),
-        1,
-        "second call must be served from cache (cache:1)"
-    );
+    assert_no_cache_telemetry(&second);
+    assert_eq!(row_data(&first), row_data(&second));
+    server.verify().await;
     assert_eq!(row_data(&second)["content"], "1\thello cache\n");
     runtime.close().await;
 }
 
 /// `forceRefresh: true` must bypass the populated cache and issue a fresh HTTP
-/// request, leaving `cache:1` absent from the result row.
+/// request. Public results retain evidence rather than cache telemetry.
 #[tokio::test]
 async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
     let server = MockServer::builder().start().await;
@@ -108,12 +86,8 @@ async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
     .await
     .unwrap();
     assert_eq!(row_status(&second), "success");
-    assert_eq!(
-        row_cache_flag(&second),
-        0,
-        "forceRefresh must bypass cache; no cache:1"
-    );
-    // wiremock verifies expect(2) on drop
+    assert_no_cache_telemetry(&second);
+    server.verify().await;
     runtime.close().await;
 }
 
@@ -167,7 +141,7 @@ async fn ghsearch_tree_second_call_hits_cache_and_skips_http() {
 
 /// `ghGetHistoryItem` revalidates every read: the second read of the same PR
 /// sends the stored ETag, a 304 serves the same item without a body, and the
-/// row never claims `cache:1` (the item was checked, not assumed).
+/// requests prove the item was revalidated.
 #[tokio::test]
 async fn ghgethistoryitem_revalidates_with_a_conditional_read() {
     let server = MockServer::builder().start().await;
@@ -225,11 +199,7 @@ async fn ghgethistoryitem_revalidates_with_a_conditional_read() {
             .await
             .unwrap();
         rows.push(row_data(&outcome)["pullRequests"].clone());
-        assert_eq!(
-            row_cache_flag(&outcome),
-            0,
-            "ghGetHistoryItem must never set cache:1 — items are mutable"
-        );
+        assert_no_cache_telemetry(&outcome);
     }
     assert_eq!(rows[0], rows[1], "a 304 serves the same item");
     let conditional = server

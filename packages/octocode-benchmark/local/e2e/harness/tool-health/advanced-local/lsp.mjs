@@ -11,9 +11,15 @@ const locations = (ctx, data) => data.flatMap(row => lspLocations({ sc: { result
 
 async function locationsAndReferences(ctx, surface, checks) {
   for (const view of ['content', 'files']) {
-    const definition = await scenario(ctx, 'lspSearch', surface, { label: `lsp.definition.${view}`, query: { workspaceRoot, path: use, line: 4, symbolName: 'add', operation: 'definition', view }, checks, responseChars: 600 });
-    const found = view === 'content' ? locations(ctx, definition.data) : files(definition.data).flatMap(file => file.lines.map(line => [relative(ctx, file.path), line]));
-    equal(checks, `lsp.definition.${view}.${surface}`, found, [['code/model.ts', 14]]);
+    for (const { expected, ...query } of [
+      { operation: 'definition', path: use, line: 4, symbolName: 'add', expected: [['code/model.ts', 14]] },
+      { operation: 'implementation', path: model, line: 1, symbolName: 'Shape', expected: [['code/model.ts', 5], ['code/model.ts', 12]] },
+      { operation: 'typeDefinition', path: use, line: 3, symbolName: 'square', expected: [['code/model.ts', 5]] },
+    ]) {
+      const result = await scenario(ctx, 'lspSearch', surface, { label: `lsp.${query.operation}.${view}`, query: { workspaceRoot, ...query, view }, checks, responseChars: 600 });
+      const found = view === 'content' ? locations(ctx, result.data) : files(result.data).flatMap(file => file.lines.map(sourceLine => [relative(ctx, file.path), sourceLine]));
+      equal(checks, `lsp.${query.operation}.${view}.${surface}`, found, expected);
+    }
     for (const includeDeclaration of [true, false]) {
       const refs = await scenario(ctx, 'lspSearch', surface, { label: `lsp.references.${view}.${includeDeclaration}`, query: { ...anchor, operation: 'references', view, includeDeclaration }, checks, responseChars: 600 });
       const expected = [['code/model.ts', 19], ['code/model.ts', 20], ['code/use.ts', 4]];
@@ -26,10 +32,6 @@ async function locationsAndReferences(ctx, surface, checks) {
       checks.push([`lsp.import-binding-once.${view}.${includeDeclaration}.${surface}`, observed.filter(([file, line]) => file === 'code/use.ts' && line === 1).length <= 1, JSON.stringify(observed)]);
     }
   }
-  const implementation = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.implementation', query: { workspaceRoot, path: model, line: 1, symbolName: 'Shape', operation: 'implementation' }, checks });
-  equal(checks, `lsp.implementations.${surface}`, locations(ctx, implementation.data), [['code/model.ts', 5], ['code/model.ts', 12]]);
-  const types = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.typeDefinition', query: { workspaceRoot, path: use, line: 3, symbolName: 'square', operation: 'typeDefinition' }, checks });
-  checks.push([`lsp.inferred-type.${surface}`, locations(ctx, types.data).some(([file, line]) => file === 'code/model.ts' && line === 5), JSON.stringify(types.data)]);
   for (const occurrence of [0, 1]) {
     const row = await scenario(ctx, 'lspSearch', surface, { label: `lsp.occurrence.${occurrence}`, query: { workspaceRoot, path: model, line: 25, symbolName: 'run', occurrence, operation: 'definition' }, checks });
     equal(checks, `lsp.occurrence.${occurrence}.${surface}`, locations(ctx, row.data), [['code/model.ts', 23 + occurrence]]);

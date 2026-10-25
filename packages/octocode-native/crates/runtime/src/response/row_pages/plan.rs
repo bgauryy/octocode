@@ -118,7 +118,7 @@ impl PreparedRows {
         } = self;
         let shares = fair_shares(&sizes, row_budget);
         let mut arena = FragmentArena {
-            required: tool.map(crate::contracts::output_fields::required_entry_fields),
+            page_context: tool.map(crate::contracts::output_fields::page_context_fields),
             collection_paths: tool.and_then(|tool| tool.output().collection_paths()),
             ..FragmentArena::default()
         };

@@ -13,7 +13,6 @@ fn checked_streamed_page(query: &LocalFetchQuery, paths: &Paths) -> LocalFetchRe
     let result = fetch(&admitted, paths);
     crate::tools::test_support::published(
         crate::id::ToolId::LocalFetch,
-        &query_json,
         &serde_json::to_value(&result).expect("output"),
     );
     result

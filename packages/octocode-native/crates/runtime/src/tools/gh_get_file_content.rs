@@ -39,21 +39,12 @@ pub struct GhGetFileContentFile {
     pub file_type: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_not_found: Option<bool>,
-    #[serde(skip)]
-    pub from_cache: bool,
     #[serde(flatten, serialize_with = "crate::response::result::serialize_calls")]
     pub calls: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_modified: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_modified_by: Option<String>,
-}
-
-/// One ghGetFileContent row as the runtime emits it.
-pub struct FileRead {
-    pub output: ToolData,
-    /// Every byte came from the content cache.
-    pub cache: bool,
 }
 
 /// What shapes a fetched body, owned, so a ranked read shapes it on a
@@ -77,13 +68,13 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     request: Result<&RequestContext, ProviderError>,
     window: Option<usize>,
     shaping: Shaping<S>,
-) -> Result<FileRead, GhFailure> {
+) -> Result<ToolData, GhFailure> {
     let resolved = resolved_at(query).map_err(|error| errors::failure(error, query, None))?;
     let query = resolved.as_ref().unwrap_or(query);
     let request_context = request.map_err(|error| errors::failure(error, query, None))?;
     let error = match execute(provider, query, request_context, window, shaping).await {
         Ok(result) => {
-            return file_read(result, query).map_err(|error| errors::failure(error, query, None));
+            return file_read(result).map_err(|error| errors::failure(error, query, None));
         }
         Err(error) => error,
     };
@@ -169,31 +160,18 @@ fn resolved_at(
     Ok(Some(resolved))
 }
 
-/// The row of a read: its status from the file, and the resolved commit
-/// unless the caller already named that full SHA.
-fn file_read(
-    result: GhGetFileContentResult,
-    query: &GhGetFileContentQuery,
-) -> Result<FileRead, ProviderError> {
+/// The read's status and source identity, including its resolved commit.
+fn file_read(result: GhGetFileContentResult) -> Result<ToolData, ProviderError> {
     let status = result.file.content.status.row_status();
-    let cache = result.file.from_cache;
-    let mut data = serde_json::to_value(&result).map_err(|error| {
+    let data = serde_json::to_value(&result).map_err(|error| {
         ProviderError::new(
             octocode_github::ProviderErrorKind::Decode,
             error.to_string(),
         )
     })?;
-    if data["commitSha"].as_str() == access::reference(query)
-        && let Some(map) = data.as_object_mut()
-    {
-        map.remove("commitSha");
-    }
-    Ok(FileRead {
-        output: ToolData {
-            status,
-            ..ToolData::from(data)
-        },
-        cache,
+    Ok(ToolData {
+        status,
+        ..ToolData::from(data)
     })
 }
 

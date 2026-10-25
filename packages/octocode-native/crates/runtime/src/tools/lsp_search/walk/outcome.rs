@@ -7,7 +7,7 @@ use super::{
     Expansion, HierarchyWalk, MAX_HIERARCHY_DEPTH, MAX_HIERARCHY_FAN_OUT, MAX_HIERARCHY_NODES,
     Resume,
 };
-use crate::tools::lsp_search::failure::{LspFailure, continuation, partial_with_retry};
+use crate::tools::lsp_search::failure::{LspFailure, continuation, partial_with_related_rerun};
 use crate::tools::lsp_search::render::uri_to_path;
 use crate::tools::lsp_search::{LspSearchQuery, Op, lsp_search_query};
 use serde_json::{Value, json};
@@ -72,7 +72,7 @@ pub(in crate::tools::lsp_search) fn mark_partial_expansion(
         }
     };
     if failures.iter().any(|failure| failure.retryable) {
-        partial_with_retry(row, query, reason, &[warning]);
+        partial_with_related_rerun(row, query, reason, &[warning]);
     } else {
         crate::response::paging::mark_partial(row, reason, &[warning]);
     }

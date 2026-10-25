@@ -127,11 +127,7 @@ async fn reference_pages_reach_every_location_once_and_preserve_the_saved_reques
                             .expect("source line")
                     }),
             );
-            crate::tools::test_support::assert_row_contract(
-                ToolId::LspSearch,
-                &lsp_search_query::to_row(&current),
-                &row,
-            );
+            crate::tools::test_support::assert_row_contract(ToolId::LspSearch, &row);
             let Some(call) = row.pointer("/next/nextPage") else {
                 break;
             };

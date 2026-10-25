@@ -113,7 +113,7 @@ pub async fn execute(
     let mut query = HistorySearch::new(query)?;
     crate::tools::gh_shared::reject_boolean_keywords(&gh_search_history_query::keywords(&query))?;
     let page = gh_search_history_query::page(&query).unwrap_or(1);
-    let per = page_size(&query);
+    let per = crate::id::gh_search_history_policy::PAGE_SIZE;
     let searching = query::uses_search(&query);
     if searching
         && let Err(error) = crate::tools::gh_shared::SearchWindow::PageStart.reject(page, per)
@@ -218,12 +218,6 @@ async fn confirm_commit_users(
         }
     }
     Ok(warnings)
-}
-
-/// The page size: the stamped contract default, else the schema default,
-/// within the schema maximum.
-fn page_size(_query: &HistorySearch) -> usize {
-    crate::id::gh_search_history_policy::PAGE_SIZE
 }
 
 /// Output facts the shared response stages ask about.

@@ -214,6 +214,26 @@ pub async fn execute(
     if let Some(matcher) = &query.matcher {
         matcher.result()?;
     }
+    let identify = |row: &mut Value| {
+        row["owner"] = Value::from(gh_get_history_item_query::owner(query));
+        row["repo"] = Value::from(gh_get_history_item_query::repo(query));
+    };
+    let collection = match gh_get_history_item_query::operation(query) {
+        ItemOperation::PullRequest => Some("pullRequests"),
+        ItemOperation::Issue => Some("issues"),
+        ItemOperation::Commit | ItemOperation::Compare => None,
+    };
+    if let Some(collection) = collection {
+        if let Some(rows) = output
+            .data
+            .get_mut(collection)
+            .and_then(Value::as_array_mut)
+        {
+            rows.iter_mut().for_each(identify);
+        }
+    } else {
+        identify(&mut output.data);
+    }
     sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?;
     remove_nulls(&mut output.data);
     crate::tools::gh_shared::finish_calls(&mut output.data);
