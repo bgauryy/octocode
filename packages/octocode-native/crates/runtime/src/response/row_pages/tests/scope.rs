@@ -1,4 +1,5 @@
 use super::*;
+use tokio_util::sync::CancellationToken;
 
 #[test]
 fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
@@ -14,11 +15,15 @@ fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
         &[None],
         Some(crate::id::ToolId::GhSearchCode),
     )
-    .plan(1000);
+    .plan(1000, &CancellationToken::new())
+    .expect("valid plan");
     assert!(plan.total_pages > 1);
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
-        for row in plan.build_page(page, &[None], &[]) {
+        for row in plan
+            .build_page(page, &[None], &[], &CancellationToken::new())
+            .expect("valid build_page")
+        {
             for file in row["data"]["files"].as_array().expect("files") {
                 for (key, expected) in identity.as_object().expect("identity") {
                     assert_eq!(&file[key], expected, "page {page}: missing {key}");
@@ -207,32 +212,55 @@ fn rows_scope_never_repeats_secondary_evidence_per_fragment() {
     }
 }
 
-/// A skeleton (stats, pagination) that nearly fills the budget must not
-/// explode one row into one fragment per match, each repeating it.
+/// A fitting skeleton does not justify oversized batching to reduce page count.
 #[test]
-fn rows_scope_does_not_repeat_a_dominant_skeleton_per_item() {
+fn rows_scope_preserves_dominant_context_with_complete_bounded_pages() {
     let matches = (0..30)
         .map(|line| json!({"line":line,"value":"x".repeat(20)}))
         .collect::<Vec<_>>();
     let structured = json!({"results":[{"index":0,"data":{
         "stats":{"note":"s".repeat(300)},
-        "files":[{"path":"a","matches":matches}]
+        "files":[{"path":"a","matches":matches.clone()}]
     }}]});
     let options = ResponsePageOptions {
         response_chars: Some(600),
         paging: true,
         ..Default::default()
     };
-    let (first, pagination) = paginate_rows(
+    let (_, pagination) = paginate_rows(
         structured.as_object().unwrap().clone(),
         &options,
         Vec::new(),
         &[],
         None,
     );
-    let items = first["results"][0]["data"]["files"][0]["matches"]
-        .as_array()
-        .map_or(0, Vec::len);
-    assert!(items > 1, "each fragment carries several items: {first:?}");
-    assert!(pagination.total_pages < 15, "{}", pagination.total_pages);
+    let mut seen = Vec::new();
+    assert!(pagination.total_pages > 1);
+    for page in 0..pagination.total_pages {
+        let (envelope, current) = paginate_rows(
+            structured.as_object().unwrap().clone(),
+            &ResponsePageOptions {
+                response_offset: Some(page),
+                response_snapshot: Some(pagination.snapshot.clone()),
+                ..options.clone()
+            },
+            Vec::new(),
+            &[],
+            None,
+        );
+        let envelope = Value::Object(envelope);
+        assert!(octocode_engine::json_size::utf16_units(&envelope).unwrap() <= 600);
+        assert_eq!(current.total_pages, pagination.total_pages);
+        assert_eq!(current.has_more, page + 1 < pagination.total_pages);
+        for row in envelope["results"].as_array().unwrap() {
+            assert_eq!(
+                row["data"]["stats"],
+                structured["results"][0]["data"]["stats"]
+            );
+            for file in row["data"]["files"].as_array().unwrap() {
+                seen.extend(file["matches"].as_array().unwrap().iter().cloned());
+            }
+        }
+    }
+    assert_eq!(seen, matches);
 }

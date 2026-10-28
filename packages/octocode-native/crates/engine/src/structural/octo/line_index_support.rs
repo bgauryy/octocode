@@ -6,10 +6,12 @@ use crate::structural::types::{MetavarRange, StructuralMatch};
 use crate::text::LineIndex;
 
 use super::matching::{RawRange, node_text};
+use super::source_context::SourceContext;
 
 /// Converts raw tree-sitter capture positions into `MetavarRange`s (1-based
 /// line, char column), pairing each range with its captured text by index.
 fn build_metavar_ranges(
+    source: &SourceContext,
     content: &str,
     line_index: &LineIndex,
     values: &HashMap<String, Vec<String>>,
@@ -21,7 +23,9 @@ fn build_metavar_ranges(
             let mapped = ranges
                 .into_iter()
                 .enumerate()
-                .map(|(i, (sr, sc, er, ec))| MetavarRange {
+                .map(|(i, (sr, sc, er, ec, start, end, tree))| MetavarRange {
+                    source_span: source.range(tree, start, end),
+                    source_origin: None,
                     text: texts.and_then(|t| t.get(i)).cloned().unwrap_or_default(),
                     line: sr + 1,
                     column: line_index.row_col_to_utf16_column(content, sr, sc),
@@ -51,10 +55,47 @@ pub(super) fn to_structural_match_with_index(
     metavars: HashMap<String, Vec<String>>,
     metavar_ranges_raw: HashMap<String, Vec<RawRange>>,
 ) -> StructuralMatch {
+    let source = SourceContext::root(node, content);
+    to_structural_match_with_context(
+        &source,
+        node,
+        content,
+        line_index,
+        metavars,
+        metavar_ranges_raw,
+    )
+}
+
+pub(super) fn to_structural_match_with_context(
+    source: &SourceContext,
+    node: Node<'_>,
+    content: &str,
+    line_index: &LineIndex,
+    metavars: HashMap<String, Vec<String>>,
+    metavar_ranges_raw: HashMap<String, Vec<RawRange>>,
+) -> StructuralMatch {
     let start = node.start_position();
     let end = node.end_position();
-    let metavar_ranges = build_metavar_ranges(content, line_index, &metavars, metavar_ranges_raw);
+    let metavar_ranges =
+        build_metavar_ranges(source, content, line_index, &metavars, metavar_ranges_raw);
+    let source_span = source.span(node);
+    let header = block_header(node, content);
+    let header_span = header
+        .as_ref()
+        .map(|header| crate::text::analysis::ObservedSpan {
+            unit: source_span.unit,
+            range: crate::text::analysis::ByteRange::new(
+                source_span.start_byte,
+                source_span.start_byte + header.len() as u32,
+            ),
+        });
     StructuralMatch {
+        source_span,
+        header_span,
+        source_templates: std::sync::Arc::clone(&source.templates),
+        source_origin: None,
+        header_origin: None,
+        source_descriptors: None,
         start_line: (start.row as u32) + 1,
         end_line: (end.row as u32) + 1,
         start_col: line_index.row_col_to_utf16_column(
@@ -66,7 +107,7 @@ pub(super) fn to_structural_match_with_index(
         text: node_text(node, content).to_owned(),
         metavars,
         metavar_ranges,
-        header: block_header(node, content),
+        header,
     }
 }
 

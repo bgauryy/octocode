@@ -168,6 +168,19 @@ Progress-aware servers must reach a full quiet interval before readiness is conf
 
 Pull-capable servers use `textDocument/diagnostic`. Push diagnostics are retained in a bounded per-document cache; content updates clear stale entries, versions reject older publications, and notifications for another document cannot satisfy a waiter.
 
+Anchored navigation records available diagnostic health in `lsp.analysisContext`.
+An empty answer waits up to one second for diagnostics; a nonempty answer uses
+already published diagnostics without adding a pull request. Errors anywhere in
+the document can degrade semantic coverage, including errors outside the queried
+line. `noErrorsReported` describes the received report, not compilation success;
+`unavailable` and an incomplete diagnostic report remain distinct. A diagnostic
+follow-up preserves the query's workspace and Rust context.
+
+C-family rows also list configuration candidates found in ancestor locations.
+`configuration:"found"` records file presence; `command:"unverified"` explicitly
+leaves the effective compiler command and indexed scope unverified. Missing
+configuration and reported errors supply separate coverage warnings.
+
 Semantic results are sorted and deduplicated before pagination. Continuations bind to the query, server identity, workspace/configuration fingerprints, and result snapshot. A changed result set produces a restart rather than combining pages from different semantic states.
 
 ## Rust context

@@ -19,8 +19,8 @@ need_stdout = false
 command = ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]
 need_stdout = false
 
-# The two `yarn test:rust` selections, verbatim (tests/build-publication.test.cjs
-# checks it). Narrow a run: `bacon test -- <filter>`.
+# The Rust test selections (`SELECTIONS` in scripts/rust-tests.cjs), verbatim
+# (tests/build-publication.test.cjs checks it). Narrow a run: `bacon test -- <filter>`.
 [jobs.test]
 command = [
     "cargo", "nextest", "run", "--hide-progress-bar", "--failure-output", "final",

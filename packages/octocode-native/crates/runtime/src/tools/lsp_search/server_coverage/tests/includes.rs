@@ -90,6 +90,73 @@ async fn unloaded_includes_flag_unanswered_files() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rust_coverage_uses_inherited_settings_and_preserves_explicit_overrides() {
+    let dir = include_fixture();
+    let root = dir.path().canonicalize().expect("root");
+    std::fs::write(
+        root.join("pkg/src/user.rs"),
+        "#[cfg(feature = \"extra\")]\nfn u(q: &R) { q.include_diff(); }\n",
+    )
+    .expect("gated use");
+    let lib = "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\nimpl R { fn include_diff(&self) {} }\n";
+    let mut options = octocode_engine::lsp::config::rust_analyzer_headless_options();
+    options["cargo"]["features"] = json!("all");
+    options["cargo"]["buildScripts"]["enable"] = json!(true);
+    options["procMacro"]["enable"] = json!(true);
+    let inherited = rust_row_configured(&root, lib, json!({}), &["lib.rs"], options.clone()).await;
+    let explicit = rust_row_configured(
+        &root,
+        lib,
+        json!({"rustContext":{"features":"all","buildScripts":true,"procMacros":true}}),
+        &["lib.rs"],
+        options.clone(),
+    )
+    .await;
+    assert_eq!(inherited, explicit);
+    assert!(inherited.get("partialReasons").is_none(), "{inherited}");
+    assert_eq!(inherited["coverage"]["textOnlyFiles"], 1);
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&inherited, "lspSearch", |_| true)
+            .is_none(),
+        "{inherited}"
+    );
+
+    let disabled = rust_row_configured(
+        &root,
+        lib,
+        json!({"rustContext":{"features":[],"buildScripts":false,"procMacros":false}}),
+        &["lib.rs"],
+        options.clone(),
+    )
+    .await;
+    assert_eq!(
+        disabled["partialReasons"],
+        json!([BUILD_SCRIPTS_REASON, "cfgGatedFiles"]),
+        "{disabled}"
+    );
+    let build =
+        &crate::tools::test_support::checks::related_call(&disabled, "lspSearch", |input| {
+            input["queries"][0]["rustContext"]["buildScripts"] == true
+        })["input"]["queries"][0];
+    assert_eq!(
+        build["rustContext"],
+        json!({"features":[],"buildScripts":true,"procMacros":false})
+    );
+    let features =
+        &crate::tools::test_support::checks::related_call(&disabled, "lspSearch", |input| {
+            input["queries"][0]["rustContext"]["features"] == "all"
+        })["input"]["queries"][0];
+    assert_eq!(
+        features["rustContext"],
+        json!({"features":"all","buildScripts":false,"procMacros":false})
+    );
+    for rerun in [build, features] {
+        assert!(rerun.get("page").is_none() && rerun.get("snapshot").is_none());
+        configured_rust(&query(rerun.clone()), options.clone());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn outside_includes_keep_partial_coverage_without_build_script_reruns() {
     let dir = include_fixture();
     let root = dir.path().canonicalize().expect("root");

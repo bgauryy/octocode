@@ -1,9 +1,11 @@
 //! Pages of list answers and the paste-ready `next` commands that continue them.
 use super::*;
 
-pub(super) struct Page {
-    pub(super) rows: Vec<Value>,
+pub(super) struct Page<T = Value> {
+    pub(super) rows: Vec<T>,
     pub(super) total: usize,
+    /// Absolute result offset of the first materialized row.
+    pub(super) start: usize,
 }
 
 pub(super) const LIST_PREVIEW: usize = 100;
@@ -39,7 +41,11 @@ pub(super) fn select_list(
     };
     let total = rows.len();
     extra.insert("list".into(), json!(list));
-    Ok(Some(Page { rows, total }))
+    Ok(Some(Page {
+        rows,
+        total,
+        start: 0,
+    }))
 }
 
 pub(super) fn preview_extra_lists(
@@ -100,7 +106,7 @@ pub(super) fn run_page(
     let rows = page
         .rows
         .into_iter()
-        .skip(offset)
+        .skip(offset.saturating_sub(page.start))
         .take(limit)
         .collect::<Vec<_>>();
     let shown = rows.len();
@@ -174,15 +180,19 @@ pub(super) fn command(options: &QueryOptions, id: &str) -> String {
     parts.join(" ")
 }
 
-/// `--graph <id>` plus the `--workspace` holding it: what pins a command to
-/// the snapshot an answer came from (a later ingest moves `latest`).
+/// Retain an explicit canonical snapshot path; otherwise pin its id and workspace.
 pub(super) fn snapshot_flags(options: &QueryOptions, id: &str) -> String {
+    let reference = options
+        .graph
+        .as_deref()
+        .filter(|value| Path::new(value).is_absolute())
+        .unwrap_or(id);
     match &options.workspace {
         Some(workspace) => format!(
             "--graph {} --workspace {}",
-            quote(id),
+            quote(reference),
             quote(&workspace.to_string_lossy())
         ),
-        None => format!("--graph {}", quote(id)),
+        None => format!("--graph {}", quote(reference)),
     }
 }

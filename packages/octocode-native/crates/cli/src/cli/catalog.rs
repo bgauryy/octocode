@@ -76,6 +76,7 @@ pub(super) fn machine_catalog(runtime: &ToolRuntime) -> Result<Value, String> {
     Ok(json!({
         "fingerprint": catalog["fingerprint"],
         "grammarCapabilities": catalog["grammarCapabilities"],
+        "sourceDecoding": catalog["sourceDecoding"],
         // The language servers this runtime resolves: `schema lspSearch`
         // names them as MCP's description does.
         "lspServers": catalog["lspServers"],

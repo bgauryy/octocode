@@ -27,6 +27,7 @@ pub(super) fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
     Page {
         total: rows.len(),
         rows,
+        start: 0,
     }
 }
 
@@ -106,10 +107,12 @@ pub(super) fn stale(g: &Graph, paths: &PathPolicy) -> (Map<String, Value>, Page)
         })
         .collect::<Vec<_>>();
     let mut extra = Map::new();
+    let analysis_current = super::super::analysis_current(&g.manifest);
+    extra.insert("analysisCurrent".into(), json!(analysis_current));
     extra.insert("checked".into(), json!(g.t.digests.len()));
     extra.insert(
         "fresh".into(),
-        json!(rows.is_empty() && freshness.added_checked),
+        json!(rows.is_empty() && freshness.added_checked && analysis_current),
     );
     let scan = &g.manifest["scan"];
     let max_files = scan["maxFiles"].as_u64();
@@ -123,7 +126,7 @@ pub(super) fn stale(g: &Graph, paths: &PathPolicy) -> (Map<String, Value>, Page)
         );
     }
     // A scan cut at maxFiles names its widened re-ingest in the graph block.
-    if !rows.is_empty() && freshness.added_checked {
+    if (!rows.is_empty() || !analysis_current) && freshness.added_checked {
         extra.insert("reingest".into(), json!(reingest_command(&g.manifest)));
     }
     (
@@ -131,6 +134,7 @@ pub(super) fn stale(g: &Graph, paths: &PathPolicy) -> (Map<String, Value>, Page)
         Page {
             total: rows.len(),
             rows,
+            start: 0,
         },
     )
 }

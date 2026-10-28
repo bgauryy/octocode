@@ -3,8 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Declaration {
+    pub test_identity: Option<octocode_engine::graph::GraphTestIdentity>,
     /// Stable occurrence id from the facts (file + name + position + kind).
     pub id: String,
+    pub source_range: Option<octocode_engine::text::analysis::ObservedSpan>,
+    pub selection_byte_range: Option<octocode_engine::text::analysis::ObservedSpan>,
+    pub parse_assessment: octocode_engine::graph::GraphParseAssessment,
     pub name: String,
     pub kind: String,
     pub line: u32,
@@ -29,6 +33,7 @@ impl Declaration {
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Import {
+    pub id: String,
     pub imported_name: String,
     /// Binding name inside the importing file (`import { a as b }` → `b`).
     pub local_name: Option<String>,
@@ -47,6 +52,10 @@ pub(crate) struct Reexport {
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Call {
+    pub id: String,
+    pub binding: octocode_engine::graph::GraphCallBinding,
+    pub source_range: Option<octocode_engine::text::analysis::ObservedSpan>,
+    pub parse_assessment: octocode_engine::graph::GraphParseAssessment,
     /// Declaration id of the caller; `None` for module-level code.
     pub caller_id: Option<String>,
     pub callee: String,
@@ -71,12 +80,17 @@ pub(crate) struct Heritage {
 }
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FileFacts {
+    pub source: super::graph::capture::CapturedSource,
+    /// Every file relationship observation before topology deduplication.
+    pub file_edges: Vec<(String, String, u32)>,
     pub declarations: Vec<Declaration>,
     pub imports: Vec<Import>,
     pub reexports: Vec<Reexport>,
     /// Line of each linked re-export statement (named or `*`), by target.
     pub reexport_lines: Vec<(String, u32)>,
     pub calls: Vec<Call>,
+    pub argument_sites: Vec<octocode_engine::graph::GraphFactArgumentSite>,
+    pub argument_scan_complete: bool,
     /// Base-type relations of this file's declarations.
     pub heritage: Vec<Heritage>,
     /// Value-reference count per declaration id (declaration names, export
@@ -85,6 +99,7 @@ pub(crate) struct FileFacts {
     pub language: String,
     /// Source content digest (`octocode_engine::digest::sha256`).
     pub digest: String,
+    pub source_digest: String,
     /// Size and change times of the bytes `digest` hashed, when settled.
     pub stamp: Option<octocode_engine::stamp::SourceStamp>,
     /// What the scanned source says about the file (roles, entry markers).
@@ -177,6 +192,9 @@ pub(crate) enum ImportOutcome {
 /// projects it into the persisted [`super::store::tables`].
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BuiltGraph {
+    pub resolution_inputs: BTreeMap<String, String>,
+    pub parsed_files: usize,
+    pub reused_files: usize,
     pub root: std::path::PathBuf,
     pub facts: BTreeMap<String, FileFacts>,
     pub nodes: BTreeMap<String, FileGraphNode>,

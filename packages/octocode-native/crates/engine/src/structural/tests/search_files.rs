@@ -33,6 +33,7 @@ fn search_files_finds_matches_and_prefilters_non_matching_files() {
 
 /// A scan reports, per file, whether recovered syntax could hide a match:
 /// the file whose method a macro attribute garbled, not the clean one.
+#[cfg(feature = "tree-sitter-cpp")]
 #[test]
 fn search_files_flags_the_file_whose_recovered_syntax_could_hide_a_match() {
     let root = TmpDir::new();

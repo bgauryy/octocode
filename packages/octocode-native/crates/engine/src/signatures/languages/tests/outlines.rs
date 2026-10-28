@@ -103,6 +103,7 @@ fn c_family_function_names_come_from_the_declarator_not_the_return_type() {
         ),
         vec!["sched_fair_init", "this_rq"]
     );
+    #[cfg(feature = "tree-sitter-cpp")]
     assert_eq!(
         names(
             "Tensor cat(const Tensor& a) { return a; }\nauto Engine::execute(int n) -> int { return n; }\nstd::string name() { return \"\"; }\nconst Tensor& ref(const Tensor& t) { return t; }\n",
@@ -119,6 +120,7 @@ fn c_family_function_names_come_from_the_declarator_not_the_return_type() {
         ),
         vec!["f", "g", "h"]
     );
+    #[cfg(feature = "tree-sitter-cpp")]
     assert_eq!(
         names(
             "namespace at { Tensor& add_(Tensor& self); }\nextern \"C\" { int c_api(void); }\n",
@@ -171,12 +173,15 @@ fn declarations_carry_the_comment_block_directly_above_them() {
         doc_lines("# Adds.\ndef add(a: int) -> int: ...\n", "m.pyi"),
         vec![("add".into(), Some(0))]
     );
-    let asm = doc_lines("; Entry point.\n_start:\n    ret\n", "boot.asm");
-    assert!(
-        asm.iter()
-            .any(|(name, doc)| name == "_start" && *doc == Some(0)),
-        "{asm:?}"
-    );
+    #[cfg(feature = "tree-sitter-asm")]
+    {
+        let asm = doc_lines("; Entry point.\n_start:\n    ret\n", "boot.asm");
+        assert!(
+            asm.iter()
+                .any(|(name, doc)| name == "_start" && *doc == Some(0)),
+            "{asm:?}"
+        );
+    }
     let c = doc_lines("#define N 1\nint f(void) { return N; }\n", "a.c");
     assert!(
         c.iter().any(|(name, doc)| name == "f" && doc.is_none()),
@@ -184,6 +189,7 @@ fn declarations_carry_the_comment_block_directly_above_them() {
     );
 }
 
+#[cfg(feature = "tree-sitter-c-sharp")]
 #[test]
 fn csharp_outlines_namespaces_records_properties_and_delegates() {
     let source = "namespace Acme.Core\n{\n    /// <summary>A person.</summary>\n    public record Person(string Name);\n    public class Resolver\n    {\n        public int Count { get; set; }\n        public void Resolve() {}\n    }\n    public delegate void Handler();\n}\n";

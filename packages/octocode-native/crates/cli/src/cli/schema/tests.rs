@@ -114,14 +114,16 @@ fn select_reads_one_operation_row() {
 #[test]
 fn grammar_line_states_the_common_feature_set_once() {
     let capabilities = json!([
-        { "language": "TypeScript", "languageId": "typescript", "selectorAliases": [], "extensions": ["ts"], "structuralSearch": true, "signatureOutline": true, "graphFacts": true },
-        { "language": "Go", "languageId": "go", "selectorAliases": [], "extensions": ["go"], "structuralSearch": true, "signatureOutline": true, "graphFacts": true },
+        { "language": "TypeScript", "languageId": "typescript", "selectorAliases": [], "extensions": ["ts"], "structuralSearch": true, "syntaxTree": true, "signatureOutline": true, "facts": {"declarations": true}, "graphFacts": true },
+        { "language": "Go", "languageId": "go", "selectorAliases": [], "extensions": ["go"], "structuralSearch": true, "syntaxTree": true, "signatureOutline": true, "facts": {"declarations": true}, "graphFacts": true },
         { "language": "Asm", "languageId": "asm", "selectorAliases": ["s"], "extensions": ["asm", "s"], "structuralSearch": true, "signatureOutline": false, "graphFacts": false },
         { "language": "Plain", "languageId": "plain", "selectorAliases": [], "extensions": [], "structuralSearch": true },
+        { "language": "Declarations", "languageId": "decl", "extensions": ["decl"], "facts": {"declarations": true}, "graphFacts": true },
+        { "language": "Unavailable", "languageId": "none", "extensions": ["none"], "structuralSearch": false, "syntaxTree": false, "signatureOutline": false, "graphFacts": false },
     ]);
     assert_eq!(
         grammar_instruction(&capabilities).expect("line"),
-        "Runtime grammar inventory (structural+outline+graph unless noted): TypeScript (typescript: .ts); Go (go: .go); Asm (asm,s: .asm .s; structural). Parser availability does not imply an installed language server or complete cross-file linking."
+        "Runtime grammar inventory (structural+syntaxTree+outline+declarations+graph unless noted): TypeScript (typescript: .ts); Go (go: .go); Asm (asm,s: .asm .s; structural); Plain (plain; structural); Declarations (decl: .decl; declarations+graph). Parser availability does not imply an installed language server or complete cross-file linking."
     );
     assert!(grammar_instruction(&json!([])).is_none());
 }

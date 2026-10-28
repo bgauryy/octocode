@@ -4,11 +4,15 @@
 /// and the runtime tools share this bound.
 pub const MAX_PARSE_SIZE: usize = 8 * 1024 * 1024;
 
+mod arguments;
+mod calls;
 pub(crate) mod extractor;
 pub mod graph_facts;
 pub(crate) mod js_oxc;
 mod nodes;
+mod visibility;
 
+mod js_oxc_arguments;
 mod js_oxc_calls;
 mod js_oxc_commonjs;
 mod js_oxc_receiver;
@@ -16,8 +20,8 @@ mod js_oxc_references;
 mod js_oxc_shared;
 pub(crate) mod receiver_fields;
 
-/// v2: diagnostics are typed records (`code`, `message`, `line`), not text.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 2;
+/// v6: operation-specific source templates and unit-bearing spans.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 6;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking
@@ -26,13 +30,28 @@ pub const TYPE_DECLARATION_KINDS: &[&str] =
     &["class", "interface", "struct", "trait", "type", "enum"];
 
 /// An empty native syntax facts document for `file`, parsed as `language`.
-fn native_graph_facts(language: String, file: &str) -> crate::graph::GraphFactsDocument {
+#[expect(
+    clippy::expect_used,
+    reason = "OXC admission rejects input above MAX_PARSE_SIZE before this private constructor"
+)]
+fn native_graph_facts(
+    language: String,
+    file: &str,
+    content: &str,
+) -> crate::graph::GraphFactsDocument {
     crate::graph::GraphFactsDocument {
         kind: "graphFacts".to_owned(),
         schema_version: GRAPH_FACTS_SCHEMA_VERSION,
         source: "native-ast".to_owned(),
+        source_templates: crate::text::analysis::SourceTemplates::new(
+            content,
+            crate::text::analysis::Producer::new(format!("oxc-facts:{language}"), "6"),
+            crate::text::analysis::AnalysisOperation::GraphFacts,
+        )
+        .expect("parser input is bounded to MAX_PARSE_SIZE"),
         language,
         file: file.to_owned(),
+        source_digest: crate::digest::sha256(content.as_bytes()),
         ..Default::default()
     }
 }
@@ -93,6 +112,12 @@ pub fn extract_declarations_document(
 ) -> Option<crate::graph::GraphFactsDocument> {
     js_oxc::extract_declarations(content, file_path)
         .or_else(|| tree_sitter_declarations(content, file_path))
+        .map(|mut facts| {
+            if let Some(unit) = facts.source_templates.units.first_mut() {
+                unit.operation = crate::text::analysis::AnalysisOperation::Declarations;
+            }
+            facts
+        })
 }
 
 /// [`extract_declarations_document`] parsed with the grammar of `extension`
@@ -150,7 +175,10 @@ fn signatures_with_declarations(
     if content.len() > MAX_PARSE_SIZE {
         return (Err(OutlineUnavailable::TooLarge), None);
     }
-    if let Some(declarations) = js_oxc::extract_declarations(content, file_path) {
+    if let Some(mut declarations) = js_oxc::extract_declarations(content, file_path) {
+        if let Some(unit) = declarations.source_templates.units.first_mut() {
+            unit.operation = crate::text::analysis::AnalysisOperation::Declarations;
+        }
         return (
             extract_signatures_inner(content, file_path),
             Some(declarations),
@@ -177,7 +205,7 @@ fn signatures_with_declarations(
                 language: entry.language.clone(),
                 body_query: entry.body_query,
             };
-            if entry.body_query.is_empty() {
+            if !entry.admits(crate::text::analysis::AnalysisOperation::SignatureOutline) {
                 return Err(OutlineUnavailable::UnsupportedLanguage);
             }
             let tree = tree.as_ref().ok_or(OutlineUnavailable::ParseFailed)?;
@@ -352,7 +380,7 @@ fn extract_by_ext(content: &str, ext: &str) -> Result<String, OutlineUnavailable
     // heuristics. Languages outside the canonical registry have no outline
     // and the caller falls back to the standard/none view.
     let entry = languages::find_entry(ext)
-        .filter(|entry| !entry.body_query.is_empty())
+        .filter(|entry| entry.admits(crate::text::analysis::AnalysisOperation::SignatureOutline))
         .ok_or(OutlineUnavailable::UnsupportedLanguage)?;
     let cfg = LangExtractConfig {
         language: entry.language.clone(),

@@ -16,6 +16,7 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | [AUTHENTICATION.md](AUTHENTICATION.md) | GitHub tokens, OAuth, `gh` passthrough, Enterprise, the `clasify` key, npm credentials |
 | [SECURITY.md](SECURITY.md) | Input validation, secret redaction, filesystem policy, credentials, egress |
 | [SUPPORTED_LANGUAGES_AND_FEATURES.md](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) | Languages, grammars, and what each feature supports |
+| [SOURCE_CORRESPONDENCE.md](../packages/octocode-native/docs/engine/SOURCE_CORRESPONDENCE.md) | Raw bytes, analyzer representations, source origins, descriptor closure and mapping limits |
 | [LSP_SERVER_LIFECYCLE.md](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) | Language servers: discovery, install, lifecycle |
 | [CODE_GRAPH.md](../packages/octocode-native/docs/engine/CODE_GRAPH.md) | The persisted code graph: `graph ingest` and `graph query` |
 

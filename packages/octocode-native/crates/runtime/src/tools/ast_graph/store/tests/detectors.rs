@@ -1,6 +1,8 @@
 //! Cycle and dead-code detectors judged on one fixture each.
 use super::*;
 
+mod health;
+
 /// One fixture per edge class a cycle can run through: a runtime import
 /// loop, a type-only one, one closed by a dynamic `import()`, one closed by
 /// a Python import inside a function (it runs on call), a Rust `use` loop,
@@ -124,6 +126,11 @@ fn every_cycle_surface_reports_the_same_groups() {
         })
         .collect::<Groups>();
     assert_eq!(found, expected, "graph query issues: {}", issues.value);
+    assert!(
+        issues.value["summary"]["detectorMs"]["health"].is_number(),
+        "{}",
+        issues.value
+    );
 }
 
 /// A TypeScript package for the dead-code detectors: an entry, a

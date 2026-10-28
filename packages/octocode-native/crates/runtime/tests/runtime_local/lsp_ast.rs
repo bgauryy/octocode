@@ -180,6 +180,24 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
         "{}",
         outcome.structured_content
     );
+    assert!(
+        row_data(&outcome)["hints"][0]
+            .as_str()
+            .expect("recovery hint")
+            .contains("semantic results remain unavailable")
+    );
+    let outline = crate::support::checks::related_call(row_data(&outcome), "localFetch", |input| {
+        input["queries"][0]["view"] == "symbols"
+    });
+    let headings = call(&runtime, "localFetch", outline["input"].clone())
+        .await
+        .expect("outline recovery");
+    assert!(
+        row_data(&headings)["content"]
+            .as_str()
+            .expect("headings")
+            .contains("# title")
+    );
     let symbol_failure = call(
         &runtime,
         "lspSearch",
@@ -211,6 +229,53 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
             .as_str()
             .expect("content")
             .contains("title")
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn unsupported_ast_batch_keeps_indices_hints_and_executable_document_recovery() {
+    use crate::support::Run;
+    let workspace = Workspace::new();
+    let path = workspace.write(
+        "instructions.md",
+        "# Instructions\nRead this.\n## Details\nMore text.\n",
+    );
+    let runtime = workspace.runtime(&[]);
+    let response = runtime
+        .run_mcp(
+            "unsupported-batch".into(),
+            "astSearch".into(),
+            json!({"queries":[
+                {"operation":"notAnOperation","path":path},
+                {"operation":"syntaxTree","path":path}
+            ]}),
+        )
+        .await
+        .expect("MCP error batch");
+    assert_eq!(response["isError"], true);
+    let rows = &response["structuredContent"]["results"];
+    assert_eq!(rows[0]["index"], 0);
+    assert_eq!(rows[1]["index"], 1);
+    assert_eq!(rows[0]["data"]["errorCode"], "invalidInput");
+    assert!(rows[0]["data"]["hints"][0].is_string());
+    let data = &rows[1]["data"];
+    assert_eq!(data["errorCode"], "languageUnsupported");
+    assert!(
+        data["hints"][0]
+            .as_str()
+            .expect("hint")
+            .contains("localFetch")
+    );
+    let read = crate::support::checks::related_call(data, "localFetch", |_| true);
+    let recovered = call(&runtime, "localFetch", read["input"].clone())
+        .await
+        .expect("outline read");
+    assert_eq!(row_data(&recovered)["view"], "symbols");
+    let content = row_data(&recovered)["content"].as_str().expect("headings");
+    assert!(
+        content.contains("# Instructions") && content.contains("## Details"),
+        "{content}"
     );
     runtime.close().await;
 }

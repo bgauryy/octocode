@@ -33,9 +33,18 @@ fn row_chars(row: &MatchRow) -> usize {
 }
 
 /// The row price of a match under `q`'s row shape.
-fn match_price(q: MatchQuery<'_>, m: &StructuralDetailedMatch) -> u32 {
-    let row = match_value(m, q.capture_text().unwrap_or(false), content_length(q));
-    u32_of_usize(row_chars(&row))
+fn match_price(
+    q: MatchQuery<'_>,
+    m: &StructuralDetailedMatch,
+    cancel: &dyn CancellationCheck,
+) -> Result<u32, ToolError> {
+    let row = match_value(
+        m,
+        q.capture_text().unwrap_or(false),
+        content_length(q),
+        cancel,
+    )?;
+    Ok(u32_of_usize(row_chars(&row)))
 }
 
 /// What a directory scan keeps of each match: a file view needs only the
@@ -107,7 +116,7 @@ fn run_match(
     }
     let budget = crate::response::page_windows::page_budget(response_window, &q.to_value());
     let row_paths = super::RowPaths::new(paths, &scope.canonical, scope.is_file);
-    let mut grouped = group_files(q, &scan.files, budget, row_paths, &inapplicable);
+    let mut grouped = group_files(q, &scan.files, budget, row_paths, &inapplicable, cancel)?;
     grouped.skipped_grammars = inapplicable.counts();
     // Group paths are rooted at the scope's parent; the notice names them as
     // the response names rows.
@@ -115,30 +124,35 @@ fn run_match(
         .recovered
         .respelled(|shown| row_paths.delivered(shown));
     let shown = file_page(q, &grouped.groups, budget).window;
-    if let Ok(incomplete) = rebuild_page(
+    match rebuild_page(
         q,
         &scope,
         &scan.files,
         &mut grouped.groups[shown],
         budget,
         row_paths,
+        cancel,
     ) {
-        // Counted and disclosed as the scan counts a file its limit cut.
-        grouped.unevaluated_files += incomplete.len() as u32;
-        grouped
-            .diagnostics
-            .extend(incomplete.iter().flatten().map(diag));
-    } else {
-        // A file on this page changed after the scan priced it.
-        if !fresh {
-            if let Some(stale) = q.snapshot() {
-                SCANS.evict(&stale);
-            }
-            return execute_match(q, paths, cancel, response_window);
+        Ok(incomplete) => {
+            // Counted and disclosed as the scan counts a file its limit cut.
+            grouped.unevaluated_files += incomplete.len() as u32;
+            grouped
+                .diagnostics
+                .extend(incomplete.iter().flatten().map(diag));
         }
-        return Ok(crate::response::result::stale_snapshot(
-            crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),
-        ));
+        Err(groups::RebuildError::Evidence(error)) => return Err(error),
+        Err(groups::RebuildError::SourceChanged) => {
+            // A file on this page changed after the scan priced it.
+            if !fresh {
+                if let Some(stale) = q.snapshot() {
+                    SCANS.evict(&stale);
+                }
+                return execute_match(q, paths, cancel, response_window);
+            }
+            return Ok(crate::response::result::stale_snapshot(
+                crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),
+            ));
+        }
     }
     if !scan.truncated
         && q.scan_offset() == 0
@@ -191,6 +205,7 @@ fn run_match(
         &snapshot,
         gaps,
         (budget, row_paths),
+        cancel,
     )?;
     if exact_miss_scope {
         match exact_miss(q, &scope, paths, cancel) {

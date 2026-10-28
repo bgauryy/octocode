@@ -2,6 +2,32 @@
 use super::*;
 
 #[test]
+fn older_analysis_is_readable_but_stale_and_never_reused() {
+    let dir = fixture();
+    let first = ingest_fixture(dir.0.as_path(), None);
+    let graph_dir = PathBuf::from(first.value["dir"].as_str().expect("dir"));
+    let manifest_path = graph_dir.join(MANIFEST_FILE);
+    let mut manifest = read_manifest(&graph_dir).expect("manifest");
+    manifest
+        .as_object_mut()
+        .expect("object")
+        .remove("analysisVersion");
+    std::fs::write(&manifest_path, serde_json::to_vec(&manifest).expect("json")).expect("write");
+    let out = ask(dir.0.as_path(), "stats", None, |o| o.check_freshness = true);
+    assert_eq!(out.class, ExitClass::Success);
+    assert_eq!(out.value["freshness"]["fresh"], false, "{}", out.value);
+    assert_eq!(out.value["freshness"]["analysisCurrent"], false);
+    let stale = ask(dir.0.as_path(), "stale", None, |_| {});
+    assert_eq!(stale.value["fresh"], false);
+    let rebuilt = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(rebuilt.class, ExitClass::Success);
+    assert_ne!(rebuilt.value["reused"], true, "{}", rebuilt.value);
+    assert_ne!(rebuilt.value["id"], first.value["id"]);
+    let reused = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(reused.value["reused"], true);
+}
+
+#[test]
 fn oversized_snapshot_is_rejected_before_allocation() {
     let dir = Fixture::new();
     let file = dir.0.as_path().join(GRAPH_FILE);
@@ -82,6 +108,30 @@ fn stale_detects_edits_and_prune_keeps_the_newest_snapshots() {
     }
     let home = dir.0.as_path().join(".octocode").join("graph");
     assert_eq!(list_snapshots(&home).len(), 1);
+}
+
+#[test]
+fn same_second_retention_never_reuses_a_pruned_id_or_prunes_the_newest() {
+    let dir = Fixture::new();
+    let home = dir.0.join("graphs");
+    std::fs::create_dir_all(&home).expect("graph home");
+    let base = "20261026T070632Z-scope-123456";
+    let mut published = Vec::new();
+    for _ in 0..14 {
+        let id = next_snapshot_id(&home, base).expect("next id");
+        assert!(!published.contains(&id), "snapshot id was reused: {id}");
+        let manifest = json!({"kind": MANIFEST_KIND, "root": dir.0, "id": id});
+        super::super::ingest::publish(&home, &id, "20261026T070632Z", b"snapshot", &manifest)
+            .expect("publish");
+        published.push(id.clone());
+        prune(&home, &dir.0, 3);
+        assert!(
+            home.join(&id).join(GRAPH_FILE).is_file(),
+            "new snapshot pruned"
+        );
+        let retained = list_snapshots(&home);
+        assert_eq!(retained, published[published.len().saturating_sub(3)..]);
+    }
 }
 
 #[test]

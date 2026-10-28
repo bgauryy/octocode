@@ -63,10 +63,23 @@ impl ToolError {
     ) -> Self {
         use octocode_engine::fact_scan::GraphScanError;
         let code = match error {
+            GraphScanError::Source(error) => return Self::source(error.clone()),
             GraphScanError::UnsupportedLanguage(_) => ErrorCode::LanguageUnsupported,
             GraphScanError::InvalidGlob(_) => ErrorCode::InvalidGlob,
             GraphScanError::Failed(_) if cancel.check().is_err() => ErrorCode::Cancelled,
             GraphScanError::Failed(_) => ErrorCode::ScanFailed,
+        };
+        Self::new(code, error.to_string())
+    }
+
+    pub(crate) fn source(error: octocode_engine::text::analysis::SourceError) -> Self {
+        use octocode_engine::text::{Refusal, analysis::SourceError};
+        let code = match &error {
+            SourceError::Cancelled | SourceError::Deadline => ErrorCode::Cancelled,
+            SourceError::LimitExceeded(_) => ErrorCode::ScopeTooBroad,
+            SourceError::Refused(Refusal::Binary) => ErrorCode::BinaryFileUnsupported,
+            SourceError::Refused(Refusal::NotUnicode) => ErrorCode::FileReadFailed,
+            SourceError::InvalidMap(_) => ErrorCode::ExecutionFailed,
         };
         Self::new(code, error.to_string())
     }

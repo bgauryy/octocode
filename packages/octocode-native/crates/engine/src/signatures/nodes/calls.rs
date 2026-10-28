@@ -15,8 +15,6 @@ pub(in crate::signatures) fn is_call_node(kind: &str) -> bool {
             | "member_call_expression"
             | "macro_invocation"
             | "command"
-            | "object_creation_expression"
-            | "constructor_invocation"
     )
 }
 

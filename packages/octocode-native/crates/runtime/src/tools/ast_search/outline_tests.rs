@@ -6,6 +6,7 @@ use crate::tools::test_support::{Fixture, checks, simple_policy, skipped_names};
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
+mod evidence;
 mod names;
 mod recovered;
 mod rows;

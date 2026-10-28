@@ -166,6 +166,40 @@ fn tsconfig_aliases_and_workspace_packages_link_in_a_built_graph() {
 }
 
 #[test]
+fn tsconfig_dependency_aliases_stay_external_without_hiding_internal_gaps() {
+    let dir = Fixture::new();
+    let root = dir.0.as_path().canonicalize().unwrap();
+    dir.write(
+        "tsconfig.json",
+        r#"{"compilerOptions":{"paths":{
+            "typebox":["./node_modules/typebox"],
+            "@dep/*":["./node_modules/dep/*"],
+            "@dep/local":["./src/missing.ts"],
+            "@mixed/*":["./node_modules/mixed/*","./src/*"],
+            "@suffix/*.js":["./src/*"]
+        }}}"#,
+    );
+    dir.write("src/main.ts", "import { a } from 'typebox';\nimport { b } from '@dep/sub';\nimport { c } from '@dep/local';\nimport { d } from '@mixed/missing';\nimport { e } from '@suffix/not-ts';\n");
+    let built = fixture_graph(&root, &[]);
+    let imports = &built.facts["src/main.ts"].imports;
+    for (spec, external) in [
+        ("typebox", true),
+        ("@dep/sub", true),
+        ("@dep/local", false),
+        ("@mixed/missing", false),
+        ("@suffix/not-ts", true),
+    ] {
+        let import = imports
+            .iter()
+            .find(|import| import.specifier == spec)
+            .unwrap();
+        assert_eq!(import.external, external, "{spec}");
+        assert!(import.target.is_none(), "{spec}");
+    }
+    assert_eq!(built.imports[..3], [0, 3, 2]);
+}
+
+#[test]
 fn python_absolute_imports_use_src_layout_roots_and_submodules() {
     let known = known(&[
         "proj/src/pkg/__init__.py",

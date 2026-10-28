@@ -98,7 +98,8 @@ fn weight(document: &GraphFactsDocument) -> usize {
         + document.edges.len()
         + document.modules.len()
         + document.paths.len();
-    512 + document.declarations.len() * DECLARATION
+    512 + document.source_templates.heap_bytes()
+        + document.declarations.len() * DECLARATION
         + facts * FACT
         + document
             .diagnostics

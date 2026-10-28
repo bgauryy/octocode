@@ -257,6 +257,7 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
             None,
             digest,
             crate::signatures::MAX_PARSE_SIZE as u64,
+            &|| false,
         )
         .expect("rebuild");
         let super::Rebuilt::Matches(rebuilt) = rebuilt else {
@@ -289,6 +290,7 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
                 None,
                 changed.source_sha256.as_deref().expect("digest"),
                 crate::signatures::MAX_PARSE_SIZE as u64,
+                &|| false,
             )
             .expect("rebuild"),
             super::Rebuilt::Changed

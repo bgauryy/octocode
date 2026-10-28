@@ -198,6 +198,7 @@ fn unterminated_patterns_are_invalid_not_empty() {
         ("ts", "foo($A)"),
         ("c", "foo($A)"),
         ("go", "foo($A)"),
+        #[cfg(feature = "tree-sitter-c-sharp")]
         ("cs", "Log($A)"),
     ] {
         assert!(

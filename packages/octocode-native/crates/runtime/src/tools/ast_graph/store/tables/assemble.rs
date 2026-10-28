@@ -157,11 +157,15 @@ impl<'a> Projector<'a> {
             })
             .collect();
         let mut tables = GraphTables {
+            sources: self.sources.table,
             components,
             entries,
             strings: self.strings.strings,
             nodes: self.nodes,
             edges: self.edges,
+            witnesses: self.witnesses,
+            unresolved: self.unresolved,
+            declarations: self.declarations,
             diagnostics,
             digests,
             stamps,

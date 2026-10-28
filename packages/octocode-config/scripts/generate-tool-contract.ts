@@ -78,8 +78,10 @@ export async function generateToolContract(): Promise<{
 async function main(): Promise<void> {
   const { files, bundleJson, rustHeader: header } = await generateToolContract();
   if (!process.argv.includes('--check')) {
+    // Finish fallible generation before publishing any part of the contract.
+    const rust = renderRust(header, bundleJson);
     for (const [path, content] of files) writeFileSync(path, content);
-    writeFileSync(rustPath, renderRust(header, bundleJson));
+    writeFileSync(rustPath, rust);
     return;
   }
   const read = (path: string): string => {

@@ -14,7 +14,7 @@ fn next(row: &Value, id: &str, offset: usize, list: Option<&str>, target: Option
     Continuation::continued(ToolId::GraphQuery, request).build()
 }
 
-pub(super) fn convert(data: &mut Value, row: &Value) {
+pub(super) fn convert(data: &mut Value, row: &Value, intent: Option<&QueryOptions>) {
     let Some(id) = data["graph"]["id"].as_str().map(str::to_owned) else {
         return;
     };
@@ -44,7 +44,22 @@ pub(super) fn convert(data: &mut Value, row: &Value) {
         data["related"] = json!(related);
     }
     let mut calls = serde_json::Map::new();
-    if data["next"].is_string() {
+    if let Some(intent) = intent {
+        let mut request = json!({
+            "operation": intent.op, "path": row["path"].as_str().unwrap_or("."),
+            "graph": id, "target": intent.target, "offset": intent.offset.unwrap_or(0),
+        });
+        if let Some(kind) = &intent.kind {
+            request["kind"] = json!(kind);
+        }
+        if let Some(limit) = intent.limit {
+            request["limit"] = json!(limit);
+        }
+        calls.insert(
+            "page".into(),
+            Continuation::continued(ToolId::GraphQuery, request).build(),
+        );
+    } else if data["next"].is_string() {
         let offset = data["offset"].as_u64().unwrap_or(0) as usize;
         let shown = data["results"].as_array().map_or(0, Vec::len);
         calls.insert("page".into(), next(row, &id, offset + shown, None, None));

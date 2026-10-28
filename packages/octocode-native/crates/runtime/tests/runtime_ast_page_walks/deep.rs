@@ -73,7 +73,7 @@ fn node_ids(data: &Value) -> Vec<String> {
         .into_iter()
         .flatten()
         .map(|node| {
-            let node = node.as_str().expect("a node row");
+            let node = node["node"].as_str().expect("a node row");
             node.split(' ').next().unwrap_or_default().to_owned()
         })
         .collect()

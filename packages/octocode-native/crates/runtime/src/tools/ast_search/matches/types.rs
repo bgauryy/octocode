@@ -152,6 +152,8 @@ pub(super) fn recovered_notice(files: &NamedFiles) -> Option<String> {
 /// One file's row on the result page, with what its match page withheld.
 pub(super) struct Group {
     pub(super) row: Value,
+    pub(super) source_descriptors:
+        Vec<std::sync::Arc<octocode_engine::text::analysis::SourceDescriptors>>,
     /// What the file adds to a file page: its first match page.
     pub(super) chars: usize,
     /// This match page starts past the file's last match.

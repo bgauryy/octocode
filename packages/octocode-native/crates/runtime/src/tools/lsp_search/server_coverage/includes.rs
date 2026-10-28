@@ -17,6 +17,7 @@ pub(super) fn annotate_includes(
     query: &LspSearchQuery,
     anchor: &str,
     scope: &Scope,
+    build_scripts: bool,
 ) {
     let Some(includes) = package_includes(anchor) else {
         return;
@@ -64,7 +65,7 @@ pub(super) fn annotate_includes(
         );
         flag_noted(row, query, SHARED_MODULE_REASON, note, scope);
     }
-    if includes.generated.is_empty() || runs_build_scripts(query) {
+    if includes.generated.is_empty() || build_scripts {
         return;
     }
     // Which load hides a missed file is not known: when the outside include

@@ -1,3 +1,4 @@
+use super::GraphParseAssessment;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
@@ -21,6 +22,13 @@ pub struct GraphFactDeclaration {
     pub line: u32,
     pub range: GraphRange,
     pub selection_range: GraphRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<crate::text::analysis::ObservedSpan>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection_byte_range: Option<crate::text::analysis::ObservedSpan>,
+    pub parse_assessment: GraphParseAssessment,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_identity: Option<super::GraphTestIdentity>,
     pub exported: bool,
     /// Public names when an exported local binding is exported under another
     /// name (`export { foo as bar }`, named default exports).
@@ -89,9 +97,31 @@ fn is_zero(value: &u32) -> bool {
     *value == 0
 }
 
+/// The lookup premise established by the call syntax adapter.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum GraphCallBinding {
+    #[default]
+    SyntaxLookup,
+    /// The source names a constructed type, not a selected overload.
+    ConstructedType,
+    Unassessed {
+        reason: GraphCallBoundary,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum GraphCallBoundary {
+    TargetTypeUnavailable,
+    ConstructorDelegation,
+    UnsupportedConstructorForm,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GraphFactCall {
+    pub binding: GraphCallBinding,
     pub id: String,
     pub caller: String,
     /// Declaration id of the enclosing caller; absent for module-level code.
@@ -100,6 +130,9 @@ pub struct GraphFactCall {
     pub callee: String,
     pub line: u32,
     pub range: GraphRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<crate::text::analysis::ObservedSpan>,
+    pub parse_assessment: GraphParseAssessment,
     pub kind: String,
     /// Syntactic type of a member call's receiver (`x` in `x.m()`) as written,
     /// without references, pointers or generic arguments; absent when the
@@ -165,6 +198,8 @@ pub enum GraphFactCode {
     RustModuleAttributes,
     /// The crate root carries inner conditional or custom attributes.
     RustCrateAttributes,
+    /// An observed export-forwarding clause has no admitted member binding.
+    UnsupportedExportForwarding,
 }
 
 impl GraphFactCode {
@@ -173,7 +208,10 @@ impl GraphFactCode {
     pub fn is_linking_only(self) -> bool {
         matches!(
             self,
-            Self::RustMacroExpansion | Self::RustModuleAttributes | Self::RustCrateAttributes
+            Self::RustMacroExpansion
+                | Self::RustModuleAttributes
+                | Self::RustCrateAttributes
+                | Self::UnsupportedExportForwarding
         )
     }
 }
@@ -206,10 +244,15 @@ pub struct GraphFactsDocument {
     pub source: String,
     pub language: String,
     pub file: String,
+    /// SHA-256 of the UTF-8 text supplied to the parser, before extraction.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub source_digest: String,
+    pub source_templates: crate::text::analysis::SourceTemplates,
     pub declarations: Vec<GraphFactDeclaration>,
     pub imports: Vec<GraphFactImport>,
     pub exports: Vec<GraphFactExport>,
     pub calls: Vec<GraphFactCall>,
+    pub argument_sites: Vec<super::GraphFactArgumentSite>,
     pub common_js: Vec<GraphFactCommonJs>,
     pub edges: Vec<GraphFactEdge>,
     pub diagnostics: Vec<GraphFactDiagnostic>,
@@ -227,6 +270,24 @@ pub struct GraphFactsDocument {
     pub paths: Vec<GraphFactPath>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rust_root_unsupported: Option<bool>,
+}
+
+impl GraphFactsDocument {
+    pub fn observed_spans(&self) -> impl Iterator<Item = crate::text::analysis::ObservedSpan> + '_ {
+        self.declarations
+            .iter()
+            .flat_map(|d| {
+                [d.source_range, d.selection_byte_range]
+                    .into_iter()
+                    .flatten()
+            })
+            .chain(self.calls.iter().filter_map(|c| c.source_range))
+            .chain(
+                self.argument_sites
+                    .iter()
+                    .flat_map(super::GraphFactArgumentSite::observed_spans),
+            )
+    }
 }
 
 #[derive(Clone, Debug)]

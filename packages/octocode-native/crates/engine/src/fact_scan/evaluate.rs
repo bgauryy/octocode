@@ -4,14 +4,17 @@ use std::{path::Path, sync::Arc};
 
 use rayon::prelude::*;
 
-use super::memo::{FACTS_MEMO, ParsedFacts, facts_heap_bytes};
+mod cached;
 use super::{
     FactsSource, GraphFactsMappedScan, GraphFactsView, GraphScanError, MAX_GRAPH_SOURCE_BYTES,
-    ParserOverride, parser_overrides,
+    ParserOverride, parser_overrides_with_registry,
 };
 use crate::search::walk::Stop;
 use crate::stamp::SourceStamp;
 use crate::types::{GraphFactsScanDiagnostic, GraphFactsScanOptions};
+
+use crate::signatures::languages::{RegistryEntry, RegistryView};
+use crate::text::analysis::{AnalysisOperation, MapLimits};
 
 enum GraphFactsScanOutcome<T> {
     /// A parsed file and what the caller's map kept of it (`None`: nothing).
@@ -29,6 +32,7 @@ fn skipped<T>(relative_path: String, code: &str, message: &str) -> GraphFactsSca
 
 /// Read, parse and map the walked candidates of a scan, within its time
 /// budget when `max_files` is unset.
+#[cfg(test)]
 pub(super) fn evaluate_walk<T: Send>(
     options: GraphFactsScanOptions,
     query: crate::types::FileSystemQueryResult,
@@ -38,8 +42,33 @@ pub(super) fn evaluate_walk<T: Send>(
     stop: &Stop<'_>,
     budget: Option<std::time::Duration>,
 ) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
+    evaluate_walk_with_registry(
+        options,
+        query,
+        source,
+        keep,
+        map,
+        stop,
+        budget,
+        RegistryView::installed(),
+        MapLimits::default(),
+    )
+}
+
+pub(super) fn evaluate_walk_with_registry<T: Send>(
+    options: GraphFactsScanOptions,
+    query: crate::types::FileSystemQueryResult,
+    source: FactsSource<'_>,
+    keep: &(dyn Fn(&str) -> bool + Sync),
+    map: &(dyn Fn(&GraphFactsView<'_>) -> Option<T> + Sync),
+    stop: &Stop<'_>,
+    budget: Option<std::time::Duration>,
+    registry: RegistryView<'_>,
+    map_limits: MapLimits,
+) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
     let root = std::path::PathBuf::from(&options.path);
-    let overrides = parser_overrides(&root, options.language_globs.as_deref())?;
+    let overrides =
+        parser_overrides_with_registry(&root, options.language_globs.as_deref(), registry)?;
     let timed = options.max_files.is_none();
     let max_file_bytes = options.max_file_bytes.unwrap_or(MAX_GRAPH_SOURCE_BYTES);
     let truncated = query.was_capped;
@@ -55,6 +84,8 @@ pub(super) fn evaluate_walk<T: Send>(
         // Read once, on the calling thread: a file written after the scan
         // began is not settled, and parallel reads share one clock.
         settle_now: crate::stamp::settle_clock(),
+        registry,
+        map_limits,
         overrides: &overrides,
         max_file_bytes,
         source,
@@ -117,6 +148,8 @@ pub(super) fn evaluate_walk<T: Send>(
 /// What evaluating one walked file needs: the settle time, the byte limit,
 /// the parser overrides, and the caller's prefilter, map and stop.
 struct EntryEvaluator<'s, T> {
+    registry: RegistryView<'s>,
+    map_limits: MapLimits,
     settle_now: std::time::SystemTime,
     overrides: &'s [ParserOverride],
     max_file_bytes: u32,
@@ -156,15 +189,32 @@ impl<T> EntryEvaluator<'_, T> {
             Err(crate::text::ReadError::TooLarge(_)) => return too_large(),
             Err(_) => return outcome("graph.scan.readFailed", "file could not be opened"),
         };
-        let Ok(admitted) = source.admit(crate::text::Decoding::Unicode) else {
-            return outcome(
-                "graph.scan.readFailed",
-                "file could not be admitted as text (binary, or not UTF-8 or BOM-marked UTF-16)",
-            );
+        let cancelled = || (self.stop)();
+        let mut map_budget = crate::text::analysis::MapBudget::new(
+            self.map_limits,
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            &cancelled,
+        );
+        let admitted = match crate::text::analysis::AdmittedSource::from_bytes(
+            &source.bytes,
+            &path
+                .canonicalize()
+                .map_err(|error| GraphScanError::Failed(format!("source identity: {error}")))?
+                .to_string_lossy(),
+            &mut map_budget,
+        ) {
+            Ok(admitted) => admitted,
+            Err(crate::text::analysis::SourceError::Refused(_)) => {
+                return outcome(
+                    "graph.scan.readFailed",
+                    "file could not be admitted as text (binary, or not UTF-8 or BOM-marked UTF-16)",
+                );
+            }
+            Err(error) => return Err(GraphScanError::Source(error)),
         };
-        let content = admitted.text;
+        let content = admitted.text();
         let metadata = &source.metadata;
-        if !(self.keep)(&content) {
+        if !(self.keep)(content) {
             return Ok(None);
         }
         let selected = self
@@ -187,62 +237,109 @@ impl<T> EntryEvaluator<'_, T> {
             .filter(|meta| meta.len() == source.bytes.len() as u64)
             .and_then(|meta| SourceStamp::settled(meta, self.settle_now));
         let parser = selected.iter().next().copied();
-        if let FactsSource::Declarations(extract) = self.source {
-            let Some(facts) = extract(&content, path, parser) else {
+        let extension = crate::text::extension_of(&relative_path, true, "");
+        let grammar_extension = crate::text::file_extension::grammar_extension(content, &extension);
+        let selected_entry = self.registry.find(parser.unwrap_or(grammar_extension));
+        let operation = if matches!(self.source, FactsSource::Declarations(_)) {
+            AnalysisOperation::Declarations
+        } else {
+            AnalysisOperation::GraphFacts
+        };
+        let Some(selected_entry) = selected_entry.filter(|entry| entry.admits(operation)) else {
+            return outcome(
+                "graph.scan.operationUnsupported",
+                "selected provider does not admit this analysis operation",
+            );
+        };
+        if let RegistryEntry::Facts(provider) = selected_entry {
+            let Some(facts) = (provider.extract)(content, &relative_path, operation)
+                .map_err(GraphScanError::Source)?
+            else {
                 return outcome(
                     "graph.scan.extractFailed",
-                    "native graph-fact extraction returned no result",
+                    "facts provider returned no result",
                 );
             };
-            let kept = (self.map)(&GraphFactsView {
-                relative_path: &relative_path,
-                content: &content,
-                content_digest: &content_digest,
+            let kept = self.map_uncached(
+                &facts,
+                &admitted,
+                &relative_path,
+                &content_digest,
                 source_stamp,
-                facts: &facts,
-                reference_counts: &[],
-            });
+                &mut map_budget,
+            )?;
             return Ok(Some(GraphFactsScanOutcome::Entry(relative_path, kept)));
         }
-        let memo_key = format!(
-            "{content_digest}\u{0}{relative_path}\u{0}{}",
-            parser.unwrap_or("")
-        );
-        let parsed = if let Some(hit) = FACTS_MEMO.get(&memo_key) {
-            hit
-        } else {
-            let extraction = if let Some(extension) = parser {
-                crate::signatures::graph_facts::extract_graph_facts_with_metadata_with_extension(
-                    &content,
-                    &relative_path,
-                    extension,
-                )
-            } else {
-                crate::signatures::extract_graph_facts_with_metadata_inner(&content, &relative_path)
-            };
-            let Some(extraction) = extraction else {
+        if let FactsSource::Declarations(extract) = self.source {
+            let Some(facts) = extract(content, path, parser) else {
                 return outcome(
                     "graph.scan.extractFailed",
                     "native graph-fact extraction returned no result",
                 );
             };
-            let weight = facts_heap_bytes(&extraction.facts, &extraction.reference_counts);
-            let parsed = Arc::new(ParsedFacts {
-                facts: extraction.facts,
-                reference_counts: extraction.reference_counts,
-                weight: u32::try_from(weight).unwrap_or(u32::MAX),
-            });
-            FACTS_MEMO.insert(memo_key, Arc::clone(&parsed));
-            parsed
+            let kept = self.map_uncached(
+                &facts,
+                &admitted,
+                &relative_path,
+                &content_digest,
+                source_stamp,
+                &mut map_budget,
+            )?;
+            return Ok(Some(GraphFactsScanOutcome::Entry(relative_path, kept)));
+        }
+        let Some((parsed, reused)) = self.cached_facts(
+            content,
+            &relative_path,
+            parser,
+            selected_entry,
+            &content_digest,
+        ) else {
+            return outcome(
+                "graph.scan.extractFailed",
+                "native graph-fact extraction returned no result",
+            );
         };
+        let bound = parsed
+            .facts
+            .source_templates
+            .bind(&admitted, &mut map_budget)
+            .map_err(GraphScanError::Source)?;
         let kept = (self.map)(&GraphFactsView {
+            admitted: &admitted,
+            source: &bound,
             relative_path: &relative_path,
-            content: &content,
+            content,
             content_digest: &content_digest,
             source_stamp,
             facts: &parsed.facts,
             reference_counts: &parsed.reference_counts,
+            reused,
         });
         Ok(Some(GraphFactsScanOutcome::Entry(relative_path, kept)))
+    }
+    fn map_uncached(
+        &self,
+        facts: &crate::graph::GraphFactsDocument,
+        admitted: &crate::text::analysis::AdmittedSource<'_>,
+        relative_path: &str,
+        content_digest: &str,
+        source_stamp: Option<SourceStamp>,
+        map_budget: &mut crate::text::analysis::MapBudget<'_>,
+    ) -> Result<Option<T>, GraphScanError> {
+        let source = facts
+            .source_templates
+            .bind(admitted, map_budget)
+            .map_err(GraphScanError::Source)?;
+        Ok((self.map)(&GraphFactsView {
+            admitted,
+            source: &source,
+            relative_path,
+            content: admitted.text(),
+            content_digest,
+            source_stamp,
+            facts,
+            reference_counts: &[],
+            reused: false,
+        }))
     }
 }

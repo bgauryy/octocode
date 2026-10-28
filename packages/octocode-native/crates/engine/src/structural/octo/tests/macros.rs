@@ -103,7 +103,7 @@ const C_DEFINE_SOURCE: &str = "#define NODE_FREE(array) zfree((array)->alloc)\n#
 /// pattern reaches the calls inside them at file coordinates.
 #[test]
 fn c_family_patterns_match_inside_define_bodies() {
-    for ext in ["c", "cpp", "cu"] {
+    let assert_matches = |ext: &str| {
         let found = run_pattern(C_DEFINE_SOURCE, ext, "zfree($$$A)");
         let texts: Vec<_> = found.iter().map(|m| m.text.as_str()).collect();
         assert_eq!(
@@ -119,7 +119,12 @@ fn c_family_patterns_match_inside_define_bodies() {
         let limit = run_pattern(C_DEFINE_SOURCE, ext, "limit($N)");
         assert_eq!(limit.len(), 1, ".{ext}");
         assert_eq!(limit[0].metavars["N"], ["8"], ".{ext}");
-    }
+    };
+    assert_matches("c");
+    #[cfg(feature = "tree-sitter-cpp")]
+    assert_matches("cpp");
+    #[cfg(feature = "tree-sitter-cuda")]
+    assert_matches("cu");
 }
 
 #[test]
@@ -148,7 +153,7 @@ fn c_family_define_bodies_keep_enclosing_ancestors_and_the_kind_fast_path() {
 #[test]
 fn c_family_define_bodies_that_are_not_code_add_no_noise() {
     let source = "#define OPEN {\n#define TYPE unsigned int\n#define EMPTY\n#define CAT(a, b) a ## b\n#define MSG \"zfree(x)\"\n#define LIST 1, 2, 3\n";
-    for ext in ["c", "cpp", "cu"] {
+    let assert_no_noise = |ext: &str| {
         assert!(run_pattern(source, ext, "zfree($$$A)").is_empty(), ".{ext}");
         assert!(
             run_rule(source, ext, json!({"kind":"ERROR"})).is_empty(),
@@ -158,5 +163,143 @@ fn c_family_define_bodies_that_are_not_code_add_no_noise() {
             run_rule(source, ext, json!({"kind":"call_expression"})).is_empty(),
             ".{ext}"
         );
+    };
+    assert_no_noise("c");
+    #[cfg(feature = "tree-sitter-cpp")]
+    assert_no_noise("cpp");
+    #[cfg(feature = "tree-sitter-cuda")]
+    assert_no_noise("cu");
+}
+
+#[test]
+fn macro_source_units_keep_outer_captures_in_original_representation() {
+    use crate::text::analysis::*;
+    let text = "fn outer() {\n assert!(value.unwrap());\n}\n";
+    let rule = json!({"pattern":"$X.unwrap()","inside":{"pattern":"fn $NAME() { $$$BODY }","stopBy":"end"}});
+    let found = run_rule(text, "rs", rule);
+    assert_eq!(found.len(), 1);
+    let matched = &found[0];
+    assert_ne!(matched.source_span.unit, UnitHandle(0));
+    let name = &matched.metavar_ranges["NAME"][0];
+    assert_eq!(name.source_span.unit, UnitHandle(0));
+    assert_eq!(
+        &text[name.source_span.start_byte as usize..name.source_span.end_byte as usize],
+        "outer"
+    );
+    let mut budget = MapBudget::new(
+        MapLimits::default(),
+        std::time::Instant::now() + std::time::Duration::from_secs(10),
+        &|| false,
+    );
+    let admitted = AdmittedSource::from_bytes(text.as_bytes(), "a.rs", &mut budget).unwrap();
+    let bound = matched
+        .source_templates
+        .bind(&admitted, &mut budget)
+        .unwrap();
+    let main = bound.project(matched.source_span, &mut budget).unwrap();
+    let outer = bound.project(name.source_span, &mut budget).unwrap();
+    assert_ne!(main.analysis_unit_id, outer.analysis_unit_id);
+    assert_ne!(
+        bound
+            .representation_for_unit(matched.source_span.unit)
+            .unwrap()
+            .id,
+        bound
+            .representation_for_unit(name.source_span.unit)
+            .unwrap()
+            .id
+    );
+    assert!(
+        main.segments
+            .iter()
+            .all(|s| s.analysis == AnalysisMembership::Included)
+    );
+}
+
+#[test]
+fn synthetic_c_tail_is_unmapped_and_never_a_match() {
+    use crate::text::analysis::*;
+    let text = "#define RUN(x) work(x)\n";
+    let found = run_pattern(text, "c", "work($X)");
+    assert_eq!(found.len(), 1);
+    let matched = &found[0];
+    assert_eq!(matched.text, "work(x)");
+    let mut budget = MapBudget::new(
+        MapLimits::default(),
+        std::time::Instant::now() + std::time::Duration::from_secs(10),
+        &|| false,
+    );
+    let admitted = AdmittedSource::from_bytes(text.as_bytes(), "a.c", &mut budget).unwrap();
+    let bound = matched
+        .source_templates
+        .bind(&admitted, &mut budget)
+        .unwrap();
+    let descriptor = bound
+        .representation_for_unit(matched.source_span.unit)
+        .unwrap();
+    let tail = bound
+        .project(
+            ObservedSpan {
+                unit: matched.source_span.unit,
+                range: ByteRange::new(descriptor.byte_length - 1, descriptor.byte_length),
+            },
+            &mut budget,
+        )
+        .unwrap();
+    assert_eq!(
+        tail.segments[0].branches,
+        vec![OriginBranch::Unmapped(UnmappedReason::Synthetic)]
+    );
+    let occurrence = bound.project(matched.source_span, &mut budget).unwrap();
+    assert!(
+        occurrence
+            .segments
+            .iter()
+            .flat_map(|s| &s.branches)
+            .all(|b| matches!(b, OriginBranch::Copied(_)))
+    );
+}
+
+#[test]
+#[expect(
+    clippy::print_stderr,
+    reason = "explicit resource-profile test emits its measured accounting receipt"
+)]
+fn macro_projection_budget_profile_uses_real_producer() {
+    use crate::text::analysis::*;
+    let mut text = "fn run() {\n".to_owned();
+    for index in 0..256 {
+        text.push_str(&format!("assert!(value{index}.unwrap());\n"));
     }
+    text.push_str("}\n");
+    let mut matches = run_pattern(&text, "rs", "$X.unwrap()");
+    assert_eq!(matches.len(), 256);
+    let mut budget = MapBudget::new(
+        MapLimits::default(),
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        &|| false,
+    );
+    let admitted = AdmittedSource::from_bytes(text.as_bytes(), "macros.rs", &mut budget).unwrap();
+    let mut binder = crate::structural::SourceBinder::with_budget(&admitted, budget);
+    let mut origins = 0;
+    for matched in &mut matches {
+        binder.bind_raw_match(matched).unwrap();
+        assert_ne!(matched.source_span.unit, UnitHandle(0));
+        let origin = matched.source_origin.as_ref().unwrap();
+        origins += origin.owned_bytes();
+        assert!(
+            origin
+                .segments
+                .iter()
+                .flat_map(|segment| &segment.branches)
+                .all(|branch| matches!(branch, OriginBranch::Copied(_)))
+        );
+    }
+    eprintln!(
+        "256 real Rust macro matches: raw={} originOwned={origins} usage={:?}",
+        text.len(),
+        binder.usage()
+    );
+    assert_eq!(binder.usage().representations, 512);
+    assert!(binder.usage().bytes < MapLimits::default().bytes);
 }

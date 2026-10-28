@@ -52,7 +52,7 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
 
 | Path | npm name | What it is |
 |---|---|---|
-| `packages/octocode-native` | `@octocodeai/octocode-native` | The Rust engine: every tool, the native `octocode` binary (CLI commands and the stdio MCP server, `octocode mcp`). One platform package per target under `npm/<platform>` carries the binaries |
+| `packages/octocode-native` | `@octocodeai/octocode-native` (private) | The Rust engine: every tool, the native `octocode` binary (CLI commands and the stdio MCP server, `octocode mcp`). One published platform package per `bin/platform.cjs` entry under `npm/<platform>` carries the binaries |
 | `packages/octocode-mcp` | `octocode-mcp` | Thin launcher (`npx octocode-mcp`): runs `octocode mcp` from the native binary over the same stdio; native serves both MCP protocol eras |
 | `packages/octocode` | `octocode` | Node CLI launcher (`npx octocode`): forwards unchanged arguments and stdio to the native binary; native owns all commands |
 | `packages/octocode-config` | `@octocodeai/config` (private) | The only tool-contract generator, plus configuration loading (home, `.env`, `.octocoderc`). Bundled into the MCP server and CLI |
@@ -145,8 +145,7 @@ slot you have not verified.
 ## Release
 
 Publishing is owner-triggered and never runs from CI or an agent session. One release line ships
-at one version: the native platform packages, `@octocodeai/octocode-native`, `octocode-mcp`
-and `octocode`. Core publishes first at its own version; the Claude and Codex plugins, Homebrew
+at one version: the native platform packages, `octocode-mcp` and `octocode`. Core publishes first at its own version; the Claude and Codex plugins, Homebrew
 formula and VS Code extension follow. The Pi extension, agents-communication and Chrome DevTools
 packages have their own cadence. Details: [release guide](skills-dev/octocode-dev/docs/RELEASE.md).
 

@@ -1,14 +1,15 @@
+use super::arena::{Evidence, FragmentKind, Window};
+use super::evidence::DependencyError;
 use super::{Fragment, FragmentArena, Planned, continues_chars, mark_continuations};
 use serde_json::Value;
 use std::ops::Range;
 
-/// The items of a split not yet in a fragment.
 #[derive(Clone, Copy)]
 pub(super) enum Open {
-    /// Items from `start` form a new slice of `chars` (skeleton included).
-    Chunk { start: usize, chars: usize },
-    /// Items from `start` join fragment `at`, the last part of a recursed
-    /// element, now `chars`.
+    Chunk {
+        start: usize,
+        chars: usize,
+    },
     Tail {
         at: usize,
         start: usize,
@@ -16,110 +17,158 @@ pub(super) enum Open {
     },
 }
 
-/// Greedy slicing of one split's items: the row's first fragment is bounded
-/// by `head`, every later one by `budget`.
-pub(super) struct Slicer {
+pub(super) struct Slicer<'a> {
     pub(super) split: usize,
     pub(super) enclosing: Option<(String, usize)>,
-    /// The paged array's pointer.
     pub(super) pointer: String,
     pub(super) first: usize,
-    pub(super) head: usize,
-    pub(super) budget: usize,
-    pub(super) base: usize,
+    pub(super) window: Window<'a>,
+    pub(super) catalog: Option<usize>,
     pub(super) open: Open,
+    pub(super) open_evidence: Evidence,
 }
 
-impl Slicer {
-    /// The bound of the fragment at position `at` of the plan.
+impl Slicer<'_> {
     fn limit(&self, at: usize) -> usize {
         if at == self.first {
-            self.head
+            self.window.head
         } else {
-            self.budget
+            self.window.later_limit(
+                self.enclosing
+                    .as_ref()
+                    .map_or(0, |(array, index)| continues_chars(array, *index)),
+            )
         }
     }
 
-    /// Place item `index` of `item` serialized chars (its comma included).
+    fn start_chunk(
+        &mut self,
+        arena: &FragmentArena,
+        index: usize,
+        item: usize,
+        added: &Evidence,
+    ) -> Result<(), DependencyError> {
+        let context = &arena.splits[self.split].contexts[usize::from(index > 0)];
+        self.open_evidence = context.evidence.clone();
+        let chars = context.chars
+            + item
+            + arena.evidence_delta(&self.open_evidence, added, self.window.cancelled)?;
+        arena.merge_evidence(&mut self.open_evidence, added, self.window.cancelled)?;
+        self.open = Open::Chunk {
+            start: index,
+            chars,
+        };
+        Ok(())
+    }
+
     pub(super) fn push(
         &mut self,
         arena: &mut FragmentArena,
         index: usize,
         item: usize,
         out: &mut Vec<Planned>,
-    ) {
-        if self.base + item > self.limit(out.len()) {
-            self.oversized(arena, index, out);
-            return;
+    ) -> Result<(), DependencyError> {
+        self.window.check()?;
+        let added = arena.splits[self.split].evidence[index].clone();
+        let base = &arena.splits[self.split].contexts[usize::from(index > 0)];
+        if base.chars
+            + item
+            + arena.evidence_delta(&base.evidence, &added, self.window.cancelled)?
+            > self.limit(out.len())
+        {
+            return self.oversized(arena, index, out);
         }
-        self.open = match self.open {
+        let delta =
+            item + arena.evidence_delta(&self.open_evidence, &added, self.window.cancelled)?;
+        match self.open {
             Open::Chunk { start, chars }
-                if index > start && chars + item > self.limit(out.len()) =>
+                if index > start && chars + delta > self.limit(out.len()) =>
             {
                 self.flush(start, index, chars, out);
-                Open::Chunk {
-                    start: index,
-                    chars: self.base + item,
-                }
+                self.start_chunk(arena, index, item, &added)?;
             }
-            Open::Chunk { start, chars } => Open::Chunk {
-                start,
-                chars: chars + item,
-            },
-            Open::Tail { at, start, chars } if chars + item > self.limit(at) => {
+            Open::Chunk { start, chars } => {
+                arena.merge_evidence(&mut self.open_evidence, &added, self.window.cancelled)?;
+                self.open = Open::Chunk {
+                    start,
+                    chars: chars + delta,
+                };
+            }
+            Open::Tail { at, start, chars } if chars + delta > self.limit(at) => {
                 self.close_tail(at, start..index, chars, out);
-                Open::Chunk {
-                    start: index,
-                    chars: self.base + item,
-                }
+                self.start_chunk(arena, index, item, &added)?;
             }
-            Open::Tail { at, start, chars } => Open::Tail {
-                at,
-                start,
-                chars: chars + item,
-            },
-        };
+            Open::Tail { at, start, chars } => {
+                arena.merge_evidence(&mut self.open_evidence, &added, self.window.cancelled)?;
+                self.open = Open::Tail {
+                    at,
+                    start,
+                    chars: chars + delta,
+                };
+            }
+        }
+        Ok(())
     }
 
-    /// Item `index` alone exceeds a fragment: it recurses on a one-item row.
-    /// The open slice before it joins the element's first fragment when both
-    /// fit the bound, and the items after it join its last fragment while
-    /// they fit, so a seam never leaves a part short of its page.
-    fn oversized(&mut self, arena: &mut FragmentArena, index: usize, out: &mut Vec<Planned>) {
+    fn oversized(
+        &mut self,
+        arena: &mut FragmentArena,
+        index: usize,
+        out: &mut Vec<Planned>,
+    ) -> Result<(), DependencyError> {
         if let Open::Chunk { start, chars } = self.open
             && index > start
         {
-            let pending = chars - self.base;
+            let base = &arena.splits[self.split].contexts[usize::from(start > 0)];
+            let pending = (chars - arena.evidence_chars(&self.open_evidence)?)
+                - (base.chars - arena.evidence_chars(&base.evidence)?);
             let at = out.len();
             let limit = self.limit(at);
             let mut trial = Vec::new();
+            // Reserve only neighbouring JSON here. The trial may share all of
+            // its descriptors; the exact union decides whether the join fits.
             let head = limit.saturating_sub(pending).max(1);
-            arena.plan(self.single(arena, index, at), head, self.budget, &mut trial);
-            if trial[0].1 + pending <= limit {
+            arena.plan_in(
+                self.single(arena, index, at),
+                self.catalog,
+                self.window
+                    .with_head(head)
+                    .with_continuation(continues_chars(&self.pointer, index)),
+                &mut trial,
+            )?;
+            let extra = arena.evidence_delta(
+                &trial[0].0.evidence,
+                &self.open_evidence,
+                self.window.cancelled,
+            )?;
+            if trial[0].1 + pending + extra <= limit {
                 out.extend(trial);
                 mark_continuations(&self.pointer, at, index, out);
-                self.join_before(at, start..index, pending, out);
+                self.join_before(arena, at, start..index, pending + extra, out)?;
             } else {
-                // The trial's arena entries are never built.
                 self.flush(start, index, chars, out);
                 let at = out.len();
-                arena.plan(
+                arena.plan_in(
                     self.single(arena, index, at),
-                    self.limit(at),
-                    self.budget,
+                    self.catalog,
+                    self.window
+                        .with_head(self.limit(at))
+                        .with_continuation(continues_chars(&self.pointer, index)),
                     out,
-                );
+                )?;
                 mark_continuations(&self.pointer, at, index, out);
             }
         } else {
-            self.close(index, out);
+            self.close(arena, index, out);
             let at = out.len();
-            arena.plan(
+            arena.plan_in(
                 self.single(arena, index, at),
-                self.limit(at),
-                self.budget,
+                self.catalog,
+                self.window
+                    .with_head(self.limit(at))
+                    .with_continuation(continues_chars(&self.pointer, index)),
                 out,
-            );
+            )?;
             mark_continuations(&self.pointer, at, index, out);
         }
         let last = out.len() - 1;
@@ -128,51 +177,50 @@ impl Slicer {
             start: index + 1,
             chars: out[last].1,
         };
+        self.open_evidence = out[last].0.evidence.clone();
+        Ok(())
     }
 
-    /// Item `index` as a one-item row planned at position `at`; after the
-    /// split's first fragment it carries the secondary lists emptied.
     fn single(&self, arena: &FragmentArena, index: usize, at: usize) -> Value {
-        let row_split = &arena.splits[self.split];
-        let mut single = row_split.skeleton.clone();
-        if at != self.first {
-            arena.empty_secondary_lists(&mut single, &row_split.pointer);
-        }
-        if let Some(slot) = single.pointer_mut(&row_split.pointer) {
-            *slot = Value::Array(vec![row_split.items[index].clone()]);
+        let split = &arena.splits[self.split];
+        let mut single = split.contexts[usize::from(at != self.first)].value.clone();
+        if let Some(slot) = single.pointer_mut(&split.pointer) {
+            *slot = Value::Array(vec![split.items[index].clone()]);
         }
         single
     }
 
-    pub(super) fn close(&mut self, end: usize, out: &mut Vec<Planned>) {
+    pub(super) fn close(&mut self, arena: &FragmentArena, end: usize, out: &mut Vec<Planned>) {
         match self.open {
             Open::Chunk { start, chars } => self.flush(start, end, chars, out),
             Open::Tail { at, start, chars } => self.close_tail(at, start..end, chars, out),
         }
+        let context = &arena.splits[self.split].contexts[usize::from(end > 0)];
         self.open = Open::Chunk {
             start: end,
-            chars: self.base,
+            chars: context.chars,
         };
+        self.open_evidence = context.evidence.clone();
     }
 
-    /// Push the slice of items `start..end`. A slice after the split's
-    /// first part continues the element its array lies in, if any.
     fn flush(&self, start: usize, end: usize, chars: usize, out: &mut Vec<Planned>) {
         if end <= start {
             return;
         }
-        let split = self.split;
-        let chunk = Fragment::Chunk { split, start, end };
+        let chunk = FragmentKind::Chunk {
+            split: self.split,
+            start,
+            end,
+        };
         let element = (out.len() > self.first)
             .then(|| self.enclosing.clone())
             .flatten();
-        out.push(match element {
+        let (kind, size) = match element {
             Some((array, index)) => {
                 let size = chars - 1 + continues_chars(&array, index);
-                let inner = Box::new(chunk);
                 (
-                    Fragment::Continues {
-                        inner,
+                    FragmentKind::Continues {
+                        inner: Box::new(chunk),
                         array,
                         index,
                     },
@@ -180,35 +228,53 @@ impl Slicer {
                 )
             }
             None => (chunk, chars - 1),
-        });
+        };
+        out.push((
+            Fragment {
+                kind,
+                evidence: self.open_evidence.clone(),
+            },
+            size,
+        ));
     }
 
-    /// Items `before` precede the one element part of fragment `at`.
-    fn join_before(&self, at: usize, before: Range<usize>, chars: usize, out: &mut [Planned]) {
+    fn join_before(
+        &self,
+        arena: &FragmentArena,
+        at: usize,
+        before: Range<usize>,
+        chars: usize,
+        out: &mut [Planned],
+    ) -> Result<(), DependencyError> {
         let (fragment, size) = &mut out[at];
-        let inner = std::mem::replace(fragment, Fragment::Whole(0));
-        *fragment = Fragment::Joined {
+        let inner = std::mem::replace(&mut fragment.kind, FragmentKind::Whole(0));
+        fragment.kind = FragmentKind::Joined {
             inner: Box::new(inner),
             split: self.split,
             before,
             after: 0..0,
         };
+        arena.merge_evidence(
+            &mut fragment.evidence,
+            &self.open_evidence,
+            self.window.cancelled,
+        )?;
         *size += chars;
+        Ok(())
     }
 
-    /// Items `after` follow the one element part of fragment `at`, now `chars`.
     fn close_tail(&self, at: usize, after: Range<usize>, chars: usize, out: &mut [Planned]) {
         if after.is_empty() {
             return;
         }
         let (fragment, size) = &mut out[at];
-        match fragment {
-            Fragment::Joined {
+        match &mut fragment.kind {
+            FragmentKind::Joined {
                 split, after: slot, ..
             } if *split == self.split => *slot = after,
             _ => {
-                let inner = std::mem::replace(fragment, Fragment::Whole(0));
-                *fragment = Fragment::Joined {
+                let inner = std::mem::replace(&mut fragment.kind, FragmentKind::Whole(0));
+                fragment.kind = FragmentKind::Joined {
                     inner: Box::new(inner),
                     split: self.split,
                     before: 0..0,
@@ -216,6 +282,7 @@ impl Slicer {
                 };
             }
         }
+        fragment.evidence = self.open_evidence.clone();
         *size = chars;
     }
 }

@@ -1,6 +1,8 @@
 //! Rust module-path resolution: crate roots, `mod` children, inline paths
 //! and call targets.
 use super::*;
+mod modules;
+pub(super) use modules::{ModuleResolution, RustModules};
 
 /// The directory holding the importer's child modules: `foo/` for
 /// `foo/mod.rs` (and crate roots), `foo/bar/` for `foo/bar.rs`.
@@ -171,6 +173,7 @@ pub(super) fn rust_call_target(
     imports: &[Import],
     known: &BTreeSet<String>,
     cargo_crates: &CargoCrates,
+    modules: &RustModules,
 ) -> Option<String> {
     let (prefix, _) = callee.rsplit_once("::")?;
     let first = prefix.split("::").next()?;
@@ -188,14 +191,14 @@ pub(super) fn rust_call_target(
     match bound {
         Some(import) => match &prefix[first.len()..] {
             "" => import.target.clone(),
-            rest => resolve_rust(
+            rest => modules.resolve(
                 &format!("{}{rest}", import.specifier),
                 file,
                 known,
                 cargo_crates,
             ),
         },
-        None => resolve_rust(prefix, file, known, cargo_crates),
+        None => modules.resolve(prefix, file, known, cargo_crates),
     }
 }
 

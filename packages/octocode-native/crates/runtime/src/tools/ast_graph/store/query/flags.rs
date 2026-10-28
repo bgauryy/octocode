@@ -48,9 +48,9 @@ impl Flags {
             }
         };
         let weakest = match options.confidence.as_deref() {
-            None | Some("low") => Confidence::Low,
+            Some("low") => Confidence::Low,
             Some("medium") => Confidence::Medium,
-            Some("high") => Confidence::High,
+            None | Some("high") => Confidence::High,
             Some(other) => {
                 return Err(invalid(format!(
                     "unknown --confidence {other:?}; expected high, medium, or low"

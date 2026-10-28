@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ROOT } from '../paths.mjs';
+import { nativeBinaryPath } from '../native-binary.mjs';
 import { spawnCli, startServer } from '../mcp-client.mjs';
 import { contract } from '../contract.mjs';
 import { statusClass } from './driver.mjs';
@@ -47,6 +48,7 @@ function hermeticEnv(home, mockUrl, live, tmp) {
   }
   return {
     ...inherited,
+    NODE_ENV: 'test', OCTOCODE_NATIVE_BIN: nativeBinaryPath(),
     PATH: [path.join(ROOT, 'node_modules', '.bin'), inherited.PATH].filter(Boolean).join(path.delimiter),
     HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), GH_CONFIG_DIR: path.join(home, '.gh'),
     TMPDIR: tmp, TMP: tmp, TEMP: tmp,

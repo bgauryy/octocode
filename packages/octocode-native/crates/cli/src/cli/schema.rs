@@ -100,6 +100,10 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
     if let Some(grammars) = grammar_instruction(&machine["grammarCapabilities"]) {
         value["grammars"] = Value::String(grammars);
     }
+    if view.is_some() {
+        value["grammarCapabilities"] = machine["grammarCapabilities"].clone();
+        value["sourceDecoding"] = machine["sourceDecoding"].clone();
+    }
     value["tools"] = Value::Array(listed);
     if view.is_none() {
         if let Some(tools) = value["tools"].as_array_mut() {

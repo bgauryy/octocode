@@ -1,4 +1,5 @@
 use super::*;
+use tokio_util::sync::CancellationToken;
 
 /// The plan a response gets is the one the earlier two-step choice made:
 /// plan with the block of a finished page and keep it only when it is one
@@ -57,7 +58,9 @@ fn the_reserve_is_chosen_before_planning_as_planning_twice_chose_it() {
             volatile.clone(),
             None,
             &block,
-        );
+            &CancellationToken::new(),
+        )
+        .expect("valid source");
 
         let mut skeleton = structured;
         let Some(Value::Array(rows)) = skeleton.remove("results") else {
@@ -69,20 +72,32 @@ fn the_reserve_is_chosen_before_planning_as_planning_twice_chose_it() {
         let row_budget = |reserve: usize| budget.saturating_sub(overhead + banner + reserve).max(1);
         let prepared = PreparedRows::new(rows, &volatile, None);
         let earlier = if envelope.utf16_units + finished <= budget {
-            let plan = prepared.clone().plan(row_budget(finished));
+            let plan = prepared
+                .clone()
+                .plan(row_budget(finished), &CancellationToken::new())
+                .expect("valid plan");
             if plan.total_pages == 1 {
                 plan
             } else {
-                prepared.plan(row_budget(widest))
+                prepared
+                    .plan(row_budget(widest), &CancellationToken::new())
+                    .expect("valid plan")
             }
         } else {
-            prepared.plan(row_budget(widest))
+            prepared
+                .plan(row_budget(widest), &CancellationToken::new())
+                .expect("valid plan")
         };
         assert_eq!(source.plan.total_pages, earlier.total_pages, "case {case}");
         for page in 0..earlier.total_pages {
             assert_eq!(
-                source.plan.build_page(page, &source.volatile, &[]),
-                earlier.build_page(page, &volatile, &[]),
+                source
+                    .plan
+                    .build_page(page, &source.volatile, &[], &CancellationToken::new())
+                    .expect("valid build_page"),
+                earlier
+                    .build_page(page, &volatile, &[], &CancellationToken::new())
+                    .expect("valid build_page"),
                 "case {case} page {page}"
             );
         }

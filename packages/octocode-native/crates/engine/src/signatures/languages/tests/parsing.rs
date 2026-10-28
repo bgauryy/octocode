@@ -122,6 +122,13 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
         // success with an empty result after dispatching to the wrong grammar.
         let rule = serde_json::json!({"kind": tree.root_node().kind()});
         for ext in entry.extensions {
+            let commonjs;
+            let source = if matches!(*ext, "cjs" | "cts") {
+                commonjs = source.replace("export ", "");
+                commonjs.as_str()
+            } else {
+                source
+            };
             assert!(extensions.insert(*ext), "duplicate grammar alias .{ext}");
             let matches = crate::structural::search(source, ext, None, Some(&rule))
                 .unwrap_or_else(|error| panic!(".{ext}: {error}"));
@@ -133,6 +140,23 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
                     .unwrap_or_else(|| panic!(".{ext}: advertised graph extraction unavailable"));
             let graph: serde_json::Value = serde_json::from_str(&graph_json)
                 .unwrap_or_else(|error| panic!(".{ext}: invalid graph JSON: {error}"));
+            assert_eq!(
+                graph["sourceDigest"],
+                crate::digest::sha256(source.as_bytes())
+            );
+            for declaration in graph["declarations"].as_array().expect("declarations") {
+                assert_eq!(
+                    declaration["parseAssessment"]["status"], "parsed",
+                    ".{ext}: {declaration}"
+                );
+                let span = &declaration["selectionByteRange"]["range"];
+                let start = span["start_byte"].as_u64().expect("start byte") as usize;
+                let end = span["end_byte"].as_u64().expect("end byte") as usize;
+                assert!(
+                    source.get(start..end).is_some(),
+                    ".{ext}: valid UTF-8 range"
+                );
+            }
             assert!(
                 graph["declarations"]
                     .as_array()
@@ -141,7 +165,7 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
                         .any(|declaration| declaration["name"] == "target")),
                 ".{ext}: target declaration missing from graph facts: {graph_json}"
             );
-            if entry.extensions[0] != "asm" {
+            if entry.fact_capabilities.calls {
                 assert!(
                     graph["calls"]
                         .as_array()

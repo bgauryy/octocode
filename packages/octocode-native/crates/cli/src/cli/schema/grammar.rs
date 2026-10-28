@@ -2,36 +2,36 @@ use serde_json::Value;
 
 /// The runtime grammar inventory line, stating the common feature set once.
 pub(super) fn grammar_instruction(capabilities: &Value) -> Option<String> {
-    let structural: Vec<&Value> = capabilities
+    let features_of = |capability: &Value| {
+        [
+            (capability["structuralSearch"] == true, "structural"),
+            (capability["syntaxTree"] == true, "syntaxTree"),
+            (capability["signatureOutline"] == true, "outline"),
+            (capability["facts"]["declarations"] == true, "declarations"),
+            (capability["graphFacts"] == true, "graph"),
+        ]
+        .into_iter()
+        .filter_map(|(supported, name)| supported.then_some(name))
+        .collect::<Vec<_>>()
+        .join("+")
+    };
+    let supported: Vec<(&Value, String)> = capabilities
         .as_array()?
         .iter()
-        .filter(|capability| {
-            capability["structuralSearch"] == true
-                && capability["extensions"]
-                    .as_array()
-                    .is_some_and(|extensions| !extensions.is_empty())
+        .filter_map(|capability| {
+            let features = features_of(capability);
+            (!features.is_empty()).then_some((capability, features))
         })
         .collect();
-    if structural.is_empty() {
+    if supported.is_empty() {
         return None;
     }
-    let features_of = |capability: &Value| {
-        let mut features = vec!["structural"];
-        if capability["signatureOutline"] == true {
-            features.push("outline");
-        }
-        if capability["graphFacts"] == true {
-            features.push("graph");
-        }
-        features.join("+")
-    };
     // Most common feature set; the first one seen wins a tie.
     let mut counts: Vec<(String, usize)> = Vec::new();
-    for capability in &structural {
-        let features = features_of(capability);
-        match counts.iter_mut().find(|(seen, _)| *seen == features) {
+    for (_, features) in &supported {
+        match counts.iter_mut().find(|(seen, _)| seen == features) {
             Some((_, count)) => *count += 1,
-            None => counts.push((features, 1)),
+            None => counts.push((features.clone(), 1)),
         }
     }
     let mut common = &counts[0];
@@ -50,9 +50,9 @@ pub(super) fn grammar_instruction(capabilities: &Value) -> Option<String> {
             .map(str::to_owned)
             .collect()
     };
-    let inventory = structural
+    let inventory = supported
         .iter()
-        .map(|capability| {
+        .map(|(capability, features)| {
             let mut ids: Vec<String> = capability["languageId"]
                 .as_str()
                 .filter(|id| !id.is_empty())
@@ -66,19 +66,18 @@ pub(super) fn grammar_instruction(capabilities: &Value) -> Option<String> {
                 .map(|extension| format!(".{extension}"))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let features = features_of(capability);
-            let tag = if features == common {
+            let tag = if *features == common {
                 String::new()
             } else {
                 format!("; {features}")
             };
-            let ids = if ids.is_empty() {
-                String::new()
-            } else {
-                format!("{ids}: ")
+            let selector = match (ids.is_empty(), extensions.is_empty()) {
+                (false, false) => format!("{ids}: {extensions}"),
+                (false, true) => ids,
+                (true, _) => extensions,
             };
             format!(
-                "{} ({ids}{extensions}{tag})",
+                "{} ({selector}{tag})",
                 capability["language"].as_str().unwrap_or_default()
             )
         })

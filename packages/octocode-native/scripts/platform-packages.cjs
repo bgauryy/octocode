@@ -12,11 +12,11 @@
  */
 
 const { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } = require('fs');
-const { join, relative } = require('path');
+const nodePath = require('node:path');
 const { PLATFORMS, executableName, platformPackageName } = require('../bin/platform.cjs');
 
-const ROOT = join(__dirname, '..');
-const REPO = join(ROOT, '..', '..');
+const ROOT = nodePath.join(__dirname, '..');
+const REPO = nodePath.join(ROOT, '..', '..');
 const LAUNCHERS = ['packages/octocode/package.json', 'packages/octocode-mcp/package.json'];
 
 const json = value => `${JSON.stringify(value, null, 2)}\n`;
@@ -59,19 +59,19 @@ function launcherPins(version) {
 
 /** Every derived file as `{ path, content }`, plus npm/ directories PLATFORMS no longer names. */
 function derivedFiles() {
-  const native = readJson(join(ROOT, 'package.json'));
+  const native = readJson(nodePath.join(ROOT, 'package.json'));
   const files = [];
   for (const suffix of Object.keys(PLATFORMS)) {
-    files.push({ path: join(ROOT, 'npm', suffix, 'package.json'), content: json(platformManifest(suffix, native)) });
-    files.push({ path: join(ROOT, 'npm', suffix, 'README.md'), content: platformReadme(suffix) });
+    files.push({ path: nodePath.join(ROOT, 'npm', suffix, 'package.json'), content: json(platformManifest(suffix, native)) });
+    files.push({ path: nodePath.join(ROOT, 'npm', suffix, 'README.md'), content: platformReadme(suffix) });
   }
   for (const launcher of LAUNCHERS) {
-    const path = join(REPO, launcher);
+    const path = nodePath.join(REPO, launcher);
     const manifest = readJson(path);
     manifest.optionalDependencies = launcherPins(native.version);
     files.push({ path, content: json(manifest) });
   }
-  const stale = readdirSync(join(ROOT, 'npm')).filter(name => !Object.hasOwn(PLATFORMS, name));
+  const stale = readdirSync(nodePath.join(ROOT, 'npm')).filter(name => !Object.hasOwn(PLATFORMS, name));
   return { files, stale };
 }
 
@@ -80,17 +80,17 @@ function drift() {
   const { files, stale } = derivedFiles();
   const differing = files
     .filter(({ path, content }) => !existsSync(path) || readFileSync(path, 'utf8') !== content)
-    .map(({ path }) => relative(REPO, path));
-  return [...differing, ...stale.map(name => `${relative(REPO, join(ROOT, 'npm', name))}/ (not in PLATFORMS)`)];
+    .map(({ path }) => nodePath.relative(REPO, path));
+  return [...differing, ...stale.map(name => `${nodePath.relative(REPO, nodePath.join(ROOT, 'npm', name))}/ (not in PLATFORMS)`)];
 }
 
 function write() {
   const { files, stale } = derivedFiles();
   for (const { path, content } of files) {
-    mkdirSync(join(path, '..'), { recursive: true });
+    mkdirSync(nodePath.join(path, '..'), { recursive: true });
     if (!existsSync(path) || readFileSync(path, 'utf8') !== content) {
       writeFileSync(path, content);
-      console.log(`wrote ${relative(REPO, path)}`);
+      console.log(`wrote ${nodePath.relative(REPO, path)}`);
     }
   }
   for (const name of stale) console.error(`npm/${name} is not in PLATFORMS: remove it`);

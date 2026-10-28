@@ -7,7 +7,11 @@ impl Graph {
         self.t.str(self.t.nodes[id as usize].key)
     }
 
-    pub(super) fn node_json(&self, id: u32) -> Map<String, Value> {
+    pub(super) fn node_json(
+        &self,
+        id: u32,
+        cancel: &dyn crate::execution::cancel::CancellationCheck,
+    ) -> Result<Map<String, Value>, GraphOutput> {
         let node = &self.t.nodes[id as usize];
         let mut out = Map::new();
         out.insert("id".into(), json!(self.key(id)));
@@ -24,6 +28,46 @@ impl Graph {
                 }
             }
             NodeKind::Symbol => {
+                if let Ok(index) = self.t.declarations.binary_search_by_key(&id, |d| d.node) {
+                    let decl = &self.t.declarations[index];
+                    if let Ok(identity) =
+                        serde_json::from_str::<Value>(self.t.str(decl.test_identity))
+                        && !identity.is_null()
+                    {
+                        out.insert("testIdentity".into(), identity);
+                    }
+                    out.insert("occurrenceId".into(), json!(self.t.str(decl.occurrence)));
+                    out.insert("sourceDigest".into(), json!(self.t.str(decl.source_digest)));
+                    if decl.source_start != NONE {
+                        out.insert(
+                            "sourceRange".into(),
+                            sources::range(octocode_engine::text::analysis::ByteRange::new(
+                                decl.source_start,
+                                decl.source_end,
+                            ))?,
+                        );
+                        out.insert(
+                            "sourceOrigin".into(),
+                            self.origin(decl.source_origin, cancel)?,
+                        );
+                    }
+                    if decl.selection_start != NONE {
+                        out.insert(
+                            "selectionByteRange".into(),
+                            sources::range(octocode_engine::text::analysis::ByteRange::new(
+                                decl.selection_start,
+                                decl.selection_end,
+                            ))?,
+                        );
+                        out.insert(
+                            "selectionOrigin".into(),
+                            self.origin(decl.selection_origin, cancel)?,
+                        );
+                    }
+                    if let Ok(assessment) = serde_json::from_str(self.t.str(decl.assessment)) {
+                        out.insert("parseAssessment".into(), assessment);
+                    }
+                }
                 out.insert("name".into(), json!(self.t.str(node.name)));
                 out.insert("symbolKind".into(), json!(detail));
                 out.insert("file".into(), json!(self.key(node.file)));
@@ -42,7 +86,7 @@ impl Graph {
                 out.insert("ecosystem".into(), json!(detail));
             }
         }
-        out
+        Ok(out)
     }
 
     pub(super) fn edge_fields(&self, out: &mut Map<String, Value>, edge: &EdgeRec) {
@@ -60,32 +104,6 @@ impl Graph {
         if edge.test {
             out.insert("test".into(), json!(true));
         }
-    }
-
-    /// How complete call edges are for `node`'s language: the share of call
-    /// sites naming an in-repo declaration that the syntax linker resolved.
-    pub(super) fn coverage(&self, node: u32) -> Value {
-        let file = self.t.nodes[node as usize].file;
-        let language = if file == NONE {
-            ""
-        } else {
-            self.t.str(self.t.nodes[file as usize].detail)
-        };
-        let recall = self.manifest["callRecallByLanguage"][language]
-            .as_f64()
-            .or_else(|| self.manifest["callInternalRecall"].as_f64())
-            .unwrap_or(1.0);
-        let mut coverage = json!({"language": language, "callInternalRecall": recall});
-        if recall < 0.9 {
-            coverage["warning"] = json!(format!(
-                "Syntax-linked calls: about {:.0}% of {} call sites that name code in this repo are linked; \
-                 method calls on values of unknown type are missing. Treat call results as a lower bound \
-                 and confirm with lspSearch references.",
-                recall * 100.0,
-                if language.is_empty() { "all" } else { language }
-            ));
-        }
-        coverage
     }
 
     /// The snapshot every answer names. A scan cut (the `maxFiles` bound,
@@ -114,98 +132,6 @@ impl Graph {
             out["reingest"] = json!(reingest_command(&self.manifest));
         }
         out
-    }
-
-    /// Resolves a user reference to exactly one node.
-    pub(super) fn resolve(&self, reference: &str, kind: Option<NodeKind>) -> Result<u32, Failure> {
-        let admit = |id: &u32| kind.is_none_or(|k| self.t.nodes[*id as usize].kind == k);
-        let trimmed = reference.trim().trim_start_matches("./");
-        let root = self.manifest["root"].as_str().unwrap_or_default();
-        // The snapshot root is canonical; canonicalize the reference too so a
-        // symlinked spelling (macOS `/var` → `/private/var`) still matches.
-        let absolute = std::fs::canonicalize(trimmed).unwrap_or_else(|_| PathBuf::from(trimmed));
-        let relative = absolute
-            .strip_prefix(root)
-            .ok()
-            .map(octocode_engine::text::slash_path);
-        for key in [Some(trimmed.to_owned()), relative].into_iter().flatten() {
-            if let Some(id) = self.t.by_key(&key).filter(admit) {
-                return Ok(id);
-            }
-        }
-        let mut found = self
-            .name_range(&trimmed.to_lowercase(), false)
-            .filter(|id| self.t.str(self.t.nodes[*id as usize].name) == trimmed)
-            .filter(admit)
-            .collect::<Vec<_>>();
-        if found.is_empty() && trimmed.contains(['.', '#']) {
-            let suffix = format!("#{}", trimmed.trim_start_matches('#'));
-            found = (0..self.t.nodes.len() as u32)
-                .filter(|id| self.key(*id).ends_with(&suffix))
-                .filter(admit)
-                .collect();
-        }
-        if found.is_empty() {
-            let suffix = format!("/{trimmed}");
-            found = (0..self.t.nodes.len() as u32)
-                .filter(|id| {
-                    self.t.nodes[*id as usize].kind == NodeKind::File
-                        && self.key(*id).ends_with(&suffix)
-                })
-                .filter(admit)
-                .collect();
-        }
-        match found.as_slice() {
-            [only] => Ok(*only),
-            [] => {
-                let suggestions = self
-                    .name_range(&trimmed.to_lowercase(), true)
-                    .filter(admit)
-                    .take(5)
-                    .map(|id| self.key(id).to_owned())
-                    .collect::<Vec<_>>();
-                let mut out = GraphOutput::error(
-                    ErrorCode::NotFound,
-                    format!(
-                        "no node matches {reference:?}; try `octocode graph query find <text>`"
-                    ),
-                );
-                if !suggestions.is_empty() {
-                    out.value["suggestions"] = json!(suggestions);
-                }
-                Err(Box::new(out))
-            }
-            many => {
-                // `--kind` narrows only candidates of several kinds.
-                let first = self.t.nodes[many[0] as usize].kind;
-                let narrow = if many
-                    .iter()
-                    .all(|id| self.t.nodes[*id as usize].kind == first)
-                {
-                    ""
-                } else {
-                    " (or --kind)"
-                };
-                let mut out = GraphOutput::error(
-                    ErrorCode::InvalidInput,
-                    format!(
-                        "{} nodes match {reference:?}; pass one of the candidate ids{narrow}",
-                        many.len()
-                    ),
-                );
-                out.value["candidates"] = json!(
-                    many.iter()
-                        .take(MAX_CANDIDATES)
-                        .map(|id| Value::Object(self.node_json(*id)))
-                        .collect::<Vec<_>>()
-                );
-                if many.len() > MAX_CANDIDATES {
-                    out.value["total"] = json!(many.len());
-                    out.value["truncated"] = json!(true);
-                }
-                Err(Box::new(out))
-            }
-        }
     }
 
     /// Node ids whose lowercase name equals (or, with `prefix`, starts with)

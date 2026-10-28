@@ -119,6 +119,7 @@ mod tests {
         let count = crate::response::result::rows_per_call(ToolId::LocalFetch) + 2;
         let groups = (0..count)
             .map(|index| Group {
+                source_descriptors: Vec::new(),
                 row: json!({"path":format!("/workspace/source/{index}.rs")}),
                 chars: 0,
                 out_of_range: false,

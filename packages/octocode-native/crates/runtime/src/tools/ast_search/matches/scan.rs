@@ -19,9 +19,17 @@ mod walk_log;
 
 use walk_log::WalkLog;
 
-pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolError> {
+pub(super) fn scan_file(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    cancel: &dyn CancellationCheck,
+) -> Result<Scan, ToolError> {
     let canonical = &scope.canonical;
-    super::super::language::validate_file_language(canonical, scope.language.as_deref())?;
+    super::super::language::validate_file_language(
+        canonical,
+        scope.language.as_deref(),
+        octocode_engine::text::analysis::AnalysisOperation::StructuralSearch,
+    )?;
     let Some(bytes) = super::super::source::read_parse_source(canonical)? else {
         let mut error = ToolError::new(
             ErrorCode::FileTooLarge,
@@ -41,10 +49,13 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
     };
     // Parse the file as the directory scan does: admitted by the one text
     // rule, raw. Output strings are redacted by the response stage.
-    let source = super::super::source::parse_text(canonical, &bytes)?;
+    let stop = || cancel.check().is_err();
+    let mut maps = super::super::source::mapping_budget(&stop);
+    let admitted = super::super::source::admitted(canonical, &bytes, &mut maps)?;
+    let source = admitted.text();
     let source_path = canonical.to_string_lossy();
     let mut r = octocode_engine::structural::search_detailed(
-        &source,
+        source,
         &source_path,
         super::super::language::parser_override(canonical, scope.language.as_deref()).as_deref(),
         None,
@@ -62,11 +73,15 @@ pub(super) fn scan_file(q: MatchQuery<'_>, scope: &Scope) -> Result<Scan, ToolEr
             },
         );
     }
+    let mut binder = octocode_engine::structural::SourceBinder::with_budget(&admitted, maps);
+    for matched in &mut r.matches {
+        binder.bind_match(matched).map_err(ToolError::source)?;
+    }
     if let Some(region) = q.scope() {
-        super::super::region::select(region, &source, &mut r.matches)?;
+        super::super::region::select(region, source, &mut r.matches)?;
     }
     if let Some(note) =
-        super::super::language::cpp_header_note(canonical, q.language().as_deref(), &source)
+        super::super::language::cpp_header_note(canonical, q.language().as_deref(), source)
     {
         r.diagnostics.push(StructuralDiagnostic {
             code: super::super::language::CPP_HEADER_NOTE.to_owned(),
@@ -123,7 +138,17 @@ pub(super) fn scan_directory(
         ignore_rules,
         q.include_hidden() == Some(true),
     );
-    let price = |m: &StructuralDetailedMatch| match_price(q, m);
+    let projection_failure = std::sync::Mutex::new(None);
+    let price = |m: &StructuralDetailedMatch| match match_price(q, m, cancel) {
+        Ok(price) => price,
+        Err(error) => {
+            projection_failure
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get_or_insert(error);
+            0
+        }
+    };
     let r = octocode_engine::structural::search_files(
         StructuralSearchFilesOptions {
             path: scope.canonical.to_string_lossy().into_owned(),
@@ -145,9 +170,21 @@ pub(super) fn scan_directory(
         demand(q, &price),
         &|path| log.admit(path),
         &|path| parser_extension(scope, path),
-        &|| cancel.check().is_err(),
-    )
-    .map_err(super::super::errors::native_error)?;
+        &|| {
+            cancel.check().is_err()
+                || projection_failure
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_some()
+        },
+    );
+    if let Some(error) = projection_failure
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        return Err(error);
+    }
+    let r = r.map_err(super::super::errors::native_error)?;
     if let Some(diagnostic) = error_diagnostic(&r.diagnostics) {
         return Err(diagnostic_error(diagnostic));
     }
@@ -261,19 +298,19 @@ pub(super) static DIRECTORY_SCANS: std::sync::Mutex<Vec<std::path::PathBuf>> =
     std::sync::Mutex::new(Vec::new());
 
 pub(super) fn sort_files(q: MatchQuery<'_>, files: &mut [ScannedFile]) {
+    let by_count = q.sort() == Some("matchCount");
+    let descending = q.reverse().unwrap_or(false);
     files.sort_by(|a, b| {
-        let ordering = if q.sort().as_deref() == Some("matchCount") {
-            b.matches
-                .len()
-                .cmp(&a.matches.len())
-                .then_with(|| a.path.cmp(&b.path))
+        let ordering = if by_count {
+            a.matches.len().cmp(&b.matches.len())
         } else {
             a.path.cmp(&b.path)
         };
-        if q.reverse().unwrap_or(false) {
+        let ordering = if descending {
             ordering.reverse()
         } else {
             ordering
-        }
+        };
+        ordering.then_with(|| a.path.cmp(&b.path))
     });
 }

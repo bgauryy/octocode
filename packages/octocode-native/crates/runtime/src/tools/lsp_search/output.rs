@@ -25,9 +25,9 @@ fn shape(query: &Value) -> (&str, bool) {
 /// (`anchorUnresolved`: `findSimilar`/`read`). A code shared by retryable
 /// and final causes names the row's `retryable` flag; the message names the
 /// cause.
-fn failure_hint(code: ErrorCode, query: &Value) -> &'static str {
+fn failure_hint(code: ErrorCode, query: &Value) -> Option<&'static str> {
     let (operation, has_path) = shape(query);
-    match code {
+    Some(match code {
         ErrorCode::InvalidInput => {
             "Correct the lspSearch fields the error names (see `octocode schema lspSearch`), then retry."
         }
@@ -52,9 +52,9 @@ fn failure_hint(code: ErrorCode, query: &Value) -> &'static str {
         ErrorCode::ServerUnavailable if operation == "workspaceSymbol" && !has_path => {
             "Provide path for a representative workspace source file so Octocode can select its language server."
         }
-        // The row's `next.read` (and `next.findText` for a symbol) is the
-        // fallback; no static tip repeats it.
-        ErrorCode::ServerUnavailable if has_path => NO_HINT,
+        ErrorCode::ServerUnavailable if has_path => {
+            "Use the related source read or text search; semantic results remain unavailable. Retry LSP only after configuring a server for this file."
+        }
         ErrorCode::ServerUnavailable => {
             "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
         }
@@ -69,12 +69,12 @@ fn failure_hint(code: ErrorCode, query: &Value) -> &'static str {
             "Use localSearch or astSearch to locate a bounded region, then read that exact source range."
         }
         ErrorCode::AnchorUnresolved => NO_HINT,
-        _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
-    }
+        _ => return None,
+    })
 }
 
 impl ToolOutput for Output {
     fn error_hint(&self, code: ErrorCode, query: &Value) -> Option<&'static str> {
-        Some(failure_hint(code, query))
+        failure_hint(code, query)
     }
 }

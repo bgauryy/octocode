@@ -1,6 +1,14 @@
 //! The snapshot manifest written beside `graph.bin`.
 use super::*;
 
+/// Bump when persisted linking semantics change without a binary format change.
+pub(super) const ANALYSIS_VERSION: u32 = 9;
+
+pub(super) fn analysis_current(manifest: &Value) -> bool {
+    manifest["analysisVersion"] == ANALYSIS_VERSION
+        && manifest["octocodeVersion"] == env!("CARGO_PKG_VERSION")
+}
+
 pub(super) struct ManifestInput<'a> {
     pub(super) id: &'a str,
     pub(super) scope: &'a str,
@@ -15,6 +23,8 @@ pub(super) struct ManifestInput<'a> {
     pub(super) language_globs: &'a BTreeMap<String, Vec<String>>,
     pub(super) inputs: &'a BTreeMap<String, String>,
     pub(super) build_ms: u64,
+    pub(super) registry: octocode_engine::signatures::languages::RegistryView<'a>,
+    pub(super) registry_identity: &'a str,
 }
 
 /// The manifest's `scan.languageGlobs`: absent when no glob was given.
@@ -41,9 +51,30 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         *by_code.entry(tables.str(diag.code)).or_default() += 1;
     }
     let imports = input.built.imports;
+    let call_extraction = tables
+        .nodes
+        .iter()
+        .filter(|node| node.kind == format::NodeKind::File)
+        .map(|node| tables.str(node.detail))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|language| {
+            let mut capabilities = input
+                .registry
+                .select(language)
+                .map(|entry| entry.capability().facts.calls);
+            let capability = capabilities
+                .next()
+                .filter(|first| capabilities.all(|next| next == *first));
+            (language, capability)
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut manifest = json!({
         "kind": MANIFEST_KIND,
         "formatVersion": format::FORMAT_VERSION,
+        "analysisVersion": ANALYSIS_VERSION,
+        "registryIdentity": input.registry_identity,
+        "registryExtensions": input.registry.extensions(octocode_engine::text::analysis::AnalysisOperation::GraphFacts),
         "id": input.id,
         "scope": input.scope,
         "createdAt": input.created_at,
@@ -76,8 +107,11 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
             "nonCode": imports[ImportOutcome::NonCode as usize],
         },
         "calls": input.projection.calls,
-        "callInternalRecall": (input.projection.calls.internal_recall() * 1000.0).round() / 1000.0,
-        "callRecallByLanguage": input.projection.calls.recall_by_language(),
+        "argumentCoverage": argument_coverage::coverage(input.built, tables),
+        "extraction": {"parsedFiles":input.built.parsed_files,"reusedFiles":input.built.reused_files},
+        "linkage": input.projection.calls.linkage(),
+        "linkageByLanguage": input.projection.calls.linkage_by_language(),
+        "callExtractionByLanguage": call_extraction,
         "languages": input.built.languages.iter().map(|(language, files, linking)| {
             json!({"language": language, "files": files, "linking": linking})
         }).collect::<Vec<_>>(),

@@ -153,6 +153,8 @@ class Definitions {
  * typify drops a string `const` (emitting a free `String`); a one-value
  * `enum` means the same and is enforced. Union keywords are left as authored:
  * closed objects can overlap, so `anyOf` is not `oneOf` (see `rustBundle`).
+ * The compact IR omits implied primitive types; restore them for stable
+ * generated names and typed fields instead of typify's generic Value fallback.
  */
 function stringConstsAsEnums(value: Json): Json {
   if (Array.isArray(value)) return value.map(stringConstsAsEnums);
@@ -163,6 +165,21 @@ function stringConstsAsEnums(value: Json): Json {
       stringConstsAsEnums(child),
     ])
   );
+  if (walked.type === undefined) {
+    const literals = Object.hasOwn(walked, 'const')
+      ? [walked.const]
+      : walked.enum;
+    if (Array.isArray(literals) && literals.length) {
+      const first = literals[0];
+      if (first === null && literals.every(item => item === null))
+        walked.type = 'null';
+      else if (
+        ['string', 'number', 'boolean'].includes(typeof first) &&
+        literals.every(item => typeof item === typeof first)
+      )
+        walked.type = typeof first;
+    }
+  }
   if (typeof walked.const === 'string' && walked.enum === undefined) {
     const { const: constant, ...rest } = walked;
     return { ...rest, enum: [constant] };
@@ -303,11 +320,18 @@ export function buildToolTypesBundle(
         title: local,
       });
     }
+    if (body.$ref === `#/$defs/${name}` && Object.keys(body).length === 1) {
+      if (definitions.defs[name] === undefined) {
+        throw new Error(`${name} references a missing root definition`);
+      }
+      return;
+    }
     definitions.add(name, {
       ...(normalize(body, name) as JsonObject),
       title: name,
     });
   };
+  register('AnalysisCapabilities', ir.analysisCapabilitiesSchema as JsonObject);
   for (const tool of ir.tools as unknown as ToolRecord[]) {
     const base = pascal(tool.name);
     register(`${base}Query`, tool.querySchema);

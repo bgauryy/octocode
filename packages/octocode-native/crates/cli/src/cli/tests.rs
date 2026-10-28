@@ -125,13 +125,10 @@ fn rejected_calls_print_the_runtime_projection() {
         payload: None,
         validation_issues: None,
     };
+    let expected = octocode_native::runtime::error::tool_error_result("localSearch", &timeout);
     let printed = Printed::finish("localSearch", Err(timeout), false, &json!({}), None);
-    assert_eq!(printed.exit, 5);
-    assert!(
-        printed.body.contains("Retry, or narrow"),
-        "{}",
-        printed.body
-    );
+    assert_eq!((printed.exit, printed.stream), (5, Stream::Stderr));
+    assert_eq!(printed.body, expected.text);
 }
 
 #[test]

@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod canonical_tests;
 mod issues;
+mod literals;
 mod messages;
 #[cfg(test)]
 mod numeric_tests;

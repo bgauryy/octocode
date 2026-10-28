@@ -139,7 +139,7 @@ if (added.length === 0 && removedStale.length === 0) {
 
 if (!flags.dryRun) {
   pkg.resolutions = Object.fromEntries(
-    Object.entries(pkg.resolutions).sort(([a], [b]) => a.localeCompare(b))
+    Object.entries(pkg.resolutions).toSorted(([a], [b]) => a.localeCompare(b))
   );
   writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + '\n');
 }

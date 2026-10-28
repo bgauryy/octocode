@@ -89,8 +89,18 @@ impl<'a> MatchQuery<'a> {
     pub fn language_globs(self) -> Option<std::collections::BTreeMap<String, Vec<String>>> {
         either_form!(self, parser_globs => parser_globs.as_ref().map(super::super::parser_globs))
     }
-    pub fn sort(self) -> Option<String> {
-        either_form!(self, sort => sort.as_ref().map(|sort| match sort.by.to_string().as_str() {"matchCount"=>"matchCount",_=>"path"}.to_owned()))
+    pub fn sort(self) -> Option<&'static str> {
+        use octocode_contract_types::{AstSearchQueryMatch0SortBy, AstSearchQueryMatchViewSortBy};
+        match self {
+            Self::Content(query) => query.sort.as_ref().map(|sort| match sort.by {
+                AstSearchQueryMatch0SortBy::MatchCount => "matchCount",
+                AstSearchQueryMatch0SortBy::Path => "path",
+            }),
+            Self::Summary(query) => query.sort.as_ref().map(|sort| match sort.by {
+                AstSearchQueryMatchViewSortBy::MatchCount => "matchCount",
+                AstSearchQueryMatchViewSortBy::Path => "path",
+            }),
+        }
     }
     pub fn result_view(self) -> Option<String> {
         either_form!(self, view => Some(view.to_string()))

@@ -8,29 +8,42 @@ pub(super) struct Walk<'f> {
     pub(super) filter: &'f EdgeFilter,
     pub(super) depth: u32,
     pub(super) kind: Option<NodeKind>,
+    /// Call answers include a seed reached by a real edge, without expanding it again.
+    pub(super) include_seeds: bool,
     /// Inward from a file, also step to the files that use its exports
     /// through a re-exporting module.
     pub(super) reexports: bool,
+    pub(super) window: std::ops::Range<usize>,
 }
 
 /// Breadth-first expansion from `seeds`; rows are in discovery order.
-pub(super) fn walk(g: &Graph, seeds: &[u32], how: &Walk) -> Page {
+pub(super) fn walk(
+    g: &Graph,
+    seeds: &[u32],
+    how: &Walk,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Page, GraphOutput> {
     let Walk {
         direction,
         filter,
         depth,
         kind,
+        include_seeds,
         reexports,
+        ref window,
     } = *how;
     let mut seen = vec![false; g.t.nodes.len()];
+    let mut emitted = vec![false; g.t.nodes.len()];
     let mut queue = VecDeque::new();
     for seed in seeds {
         seen[*seed as usize] = true;
+        emitted[*seed as usize] = !include_seeds;
         queue.push_back((*seed, 0u32));
     }
     let mut rows = Vec::new();
-    let mut visited = 0usize;
+    let mut total = 0;
     while let Some((id, level)) = queue.pop_front() {
+        check(cancel)?;
         if level >= depth {
             continue;
         }
@@ -41,29 +54,34 @@ pub(super) fn walk(g: &Graph, seeds: &[u32], how: &Walk) -> Page {
             .into_iter()
             .flatten();
         for (next, edge) in g.neighbors(id, direction, filter).chain(through) {
-            if seen[next as usize] {
+            if !seen[next as usize] {
+                seen[next as usize] = true;
+                queue.push_back((next, level + 1));
+            }
+            if emitted[next as usize] {
                 continue;
             }
-            seen[next as usize] = true;
-            visited += 1;
-            if visited > MAX_VISITED {
-                break;
-            }
-            queue.push_back((next, level + 1));
+            emitted[next as usize] = true;
             if kind.is_some_and(|k| g.t.nodes[next as usize].kind != k) {
                 continue;
             }
-            let mut row = g.node_json(next);
+            let position = total;
+            total += 1;
+            if !window.contains(&position) {
+                continue;
+            }
+            let mut row = g.node_json(next, cancel)?;
             row.insert("depth".into(), json!(level + 1));
             row.insert("from".into(), json!(g.key(id)));
             g.edge_fields(&mut row, edge);
             rows.push(Value::Object(row));
         }
     }
-    Page {
-        total: rows.len(),
+    Ok(Page {
+        total,
         rows,
-    }
+        start: window.start,
+    })
 }
 
 pub(super) fn path(
@@ -72,12 +90,14 @@ pub(super) fn path(
     to: u32,
     direction: Direction,
     filter: &EdgeFilter,
-) -> GraphOutput {
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<GraphOutput, GraphOutput> {
     let mut previous = vec![(NONE, None::<&EdgeRec>); g.t.nodes.len()];
     let mut seen = vec![false; g.t.nodes.len()];
     let mut queue = VecDeque::from([from]);
     seen[from as usize] = true;
     while let Some(id) = queue.pop_front() {
+        check(cancel)?;
         if id == to {
             break;
         }
@@ -91,29 +111,29 @@ pub(super) fn path(
     }
     let edges = json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>());
     if !seen[to as usize] {
-        return GraphOutput::empty(json!({
+        return Ok(GraphOutput::empty(json!({
             "graph": g.summary(), "op": "path", "found": false, "edges": edges,
             "from": g.key(from), "to": g.key(to),
             "hint": "No directed path over these edges; try --direction both or --edge imports,calls",
-        }));
+        })));
     }
     let mut hops = Vec::new();
     let mut cursor = to;
     while cursor != from {
         let (prev, edge) = previous[cursor as usize];
-        let mut row = g.node_json(cursor);
+        let mut row = g.node_json(cursor, cancel)?;
         if let Some(edge) = edge {
             g.edge_fields(&mut row, edge);
         }
         hops.push(Value::Object(row));
         cursor = prev;
     }
-    hops.push(Value::Object(g.node_json(from)));
+    hops.push(Value::Object(g.node_json(from, cancel)?));
     hops.reverse();
-    GraphOutput::ok(json!({
+    Ok(GraphOutput::ok(json!({
         "graph": g.summary(), "op": "path", "found": true, "edges": edges,
         "length": hops.len() - 1, "path": hops,
-    }))
+    })))
 }
 
 /// Iterative Tarjan over the filtered subgraph. Components are returned
@@ -208,6 +228,7 @@ pub(super) fn cycles(
         return Ok(Page {
             total: rows.len(),
             rows,
+            start: 0,
         });
     }
     let rows = components
@@ -223,6 +244,7 @@ pub(super) fn cycles(
     Ok(Page {
         total: rows.len(),
         rows,
+        start: 0,
     })
 }
 
@@ -231,7 +253,9 @@ pub(super) fn hubs(
     filter: &EdgeFilter,
     kind: Option<NodeKind>,
     rank_by: Direction,
-) -> Page {
+    range: std::ops::Range<usize>,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Page, GraphOutput> {
     let default_kind = match filter.kinds.as_slice() {
         [EdgeKind::Calls] => Some(NodeKind::Symbol),
         [EdgeKind::Imports] if rank_by == Direction::Out => Some(NodeKind::File),
@@ -244,32 +268,37 @@ pub(super) fn hubs(
         edges.dedup();
         edges.len()
     };
-    let mut ranked = (0..g.t.nodes.len() as u32)
-        .filter(|id| kind.is_none_or(|k| g.t.nodes[*id as usize].kind == k))
-        .map(|id| {
-            let fan_in = distinct(
-                g.t.incoming(id)
-                    .filter(|e| filter.admits(e))
-                    .map(|e| e.src)
-                    .collect(),
-            );
-            let fan_out = distinct(
-                g.t.out(id)
-                    .iter()
-                    .filter(|e| filter.admits(e))
-                    .map(|e| e.dst)
-                    .collect(),
-            );
-            (id, fan_in, fan_out)
-        })
-        .filter(|(_, fan_in, fan_out)| {
-            if rank_by == Direction::Out {
-                *fan_out > 0
-            } else {
-                *fan_in > 0
+    let mut ranked = Vec::new();
+    for id in 0..g.t.nodes.len() as u32 {
+        check(cancel)?;
+        if kind.is_some_and(|kind| g.t.nodes[id as usize].kind != kind) {
+            continue;
+        }
+        let mut incoming = Vec::new();
+        for edge in g.t.incoming(id) {
+            check(cancel)?;
+            if filter.admits(edge) {
+                incoming.push(edge.src);
             }
-        })
-        .collect::<Vec<_>>();
+        }
+        let mut outgoing = Vec::new();
+        for edge in g.t.out(id) {
+            check(cancel)?;
+            if filter.admits(edge) {
+                outgoing.push(edge.dst);
+            }
+        }
+        let fan_in = distinct(incoming);
+        let fan_out = distinct(outgoing);
+        if (if rank_by == Direction::Out {
+            fan_out
+        } else {
+            fan_in
+        }) > 0
+        {
+            ranked.push((id, fan_in, fan_out));
+        }
+    }
     ranked.sort_by(|a, b| {
         let (ka, kb) = if rank_by == Direction::Out {
             (a.2, b.2)
@@ -278,17 +307,19 @@ pub(super) fn hubs(
         };
         kb.cmp(&ka).then_with(|| g.key(a.0).cmp(g.key(b.0)))
     });
-    let rows = ranked
+    let total = ranked.len();
+    let start = range.start;
+    let mut rows = Vec::new();
+    for (id, fan_in, fan_out) in ranked
         .into_iter()
-        .map(|(id, fan_in, fan_out)| {
-            let mut row = g.node_json(id);
-            row.insert("fanIn".into(), json!(fan_in));
-            row.insert("fanOut".into(), json!(fan_out));
-            Value::Object(row)
-        })
-        .collect::<Vec<_>>();
-    Page {
-        total: rows.len(),
-        rows,
+        .skip(start)
+        .take(range.end.saturating_sub(start))
+    {
+        check(cancel)?;
+        let mut row = g.node_json(id, cancel)?;
+        row.insert("fanIn".into(), json!(fan_in));
+        row.insert("fanOut".into(), json!(fan_out));
+        rows.push(Value::Object(row));
     }
+    Ok(Page { total, rows, start })
 }

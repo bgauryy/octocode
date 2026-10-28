@@ -40,6 +40,7 @@ pub(super) fn module_outline(
     flatten_symbols(
         file_path,
         symbols,
+        line_index,
         None,
         &local_exports,
         &mut declarations,
@@ -118,6 +119,7 @@ pub(super) fn push_heritage_edges(
 fn flatten_symbols(
     file_path: &str,
     symbols: &[DocumentSymbol],
+    line_index: &SpanPositions,
     parent: Option<&str>,
     local_exports: &LocalExports,
     declarations: &mut Vec<GraphFactDeclaration>,
@@ -151,6 +153,10 @@ fn flatten_symbols(
             line,
             range: symbol.range.clone(),
             selection_range: symbol.selection_range.clone(),
+            source_range: Some(line_index.byte_range(&symbol.range).into()),
+            selection_byte_range: Some(line_index.byte_range(&symbol.selection_range).into()),
+            parse_assessment: crate::graph::GraphParseAssessment::parsed(symbol.range.clone()),
+            test_identity: None,
             exported: public_names.is_some(),
             exported_as,
             parent: parent.map(str::to_string),
@@ -170,6 +176,7 @@ fn flatten_symbols(
         flatten_symbols(
             file_path,
             &symbol.children,
+            line_index,
             Some(&id),
             local_exports,
             declarations,

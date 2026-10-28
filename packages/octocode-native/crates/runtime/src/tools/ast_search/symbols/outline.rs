@@ -1,7 +1,6 @@
 use super::ast_search_query_symbols;
 use super::names::{NameFilter, names_equal, names_match};
 use super::rows::{compact_declarations, error_text, name_impl_traits};
-use crate::id::ToolId;
 use crate::response::result::ToolError;
 use octocode_contract_types::AstSearchQuerySymbols;
 use octocode_contract_types::ErrorCode;
@@ -21,6 +20,7 @@ pub(crate) struct OutlineFile {
     pub(crate) off_kind: Vec<Value>,
     /// Its parse notes that bear on the answer.
     pub(crate) notes: Vec<GraphFactDiagnostic>,
+    pub(crate) source_descriptors: octocode_engine::text::analysis::SourceDescriptors,
 }
 
 /// One file's reduced rows: `(rows, off-kind rows, notes)`.
@@ -108,12 +108,15 @@ pub(super) fn reduce_document(
     filter: Option<&NameFilter>,
     facts: &octocode_engine::graph::GraphFactsDocument,
     source: impl FnOnce() -> Option<String>,
-) -> Reduced {
-    let declarations = match serde_json::to_value(&facts.declarations) {
-        Ok(Value::Array(rows)) => rows,
-        _ => vec![],
+    evidence: &mut super::super::evidence::FileEvidence<'_, '_, '_>,
+) -> Result<Reduced, ToolError> {
+    let Ok(Value::Array(declarations)) = serde_json::to_value(&facts.declarations) else {
+        return Err(ToolError::new(
+            ErrorCode::ExecutionFailed,
+            "Could not encode declarations.",
+        ));
     };
-    reduce_file(
+    let (mut rows, mut off_kind, notes) = reduce_file(
         q,
         filter,
         declarations,
@@ -124,7 +127,34 @@ pub(super) fn reduce_document(
         &facts.diagnostics,
         &facts.error_lines,
         source,
-    )
+    );
+    let declarations = facts
+        .declarations
+        .iter()
+        .map(|row| (row.id.as_str(), row))
+        .collect::<std::collections::HashMap<_, _>>();
+    for row in rows.iter_mut().chain(&mut off_kind) {
+        let id = row["occurrenceId"].as_str().unwrap_or("");
+        let declaration = declarations.get(id).ok_or_else(|| {
+            ToolError::new(
+                ErrorCode::ExecutionFailed,
+                "Declaration source occurrence is missing.",
+            )
+        })?;
+        if let Some(span) = declaration.source_range {
+            evidence.span(row, span, "sourceRange", "sourceOrigin", true)?;
+        }
+        if let Some(span) = declaration.selection_byte_range {
+            evidence.span(row, span, "selectionByteRange", "selectionOrigin", false)?;
+        }
+        row["occurrenceId"] = json!(crate::digest::json_sha256(&json!([
+            facts.file,
+            facts.language,
+            row["sourceOrigin"]["analysisUnitId"],
+            declaration.id
+        ])));
+    }
+    Ok((rows, off_kind, notes))
 }
 
 /// Declaration rows per file, after the kind filter and a name prefilter.
@@ -154,6 +184,7 @@ pub(super) fn outline_file(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
     display_path: &str,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Result<Outline, Value>, ToolError> {
     let Some(b) = crate::tools::ast_search::source::read_parse_source(canonical)? else {
         let name = q
@@ -169,19 +200,32 @@ pub(super) fn outline_file(
     };
     // Parse the file as the directory scan does: admitted by the one text
     // rule, raw. Output strings are redacted by the response stage.
-    let source = crate::tools::ast_search::source::parse_text(canonical, &b)?;
+    let cancelled = || cancel.check().is_err();
+    let mut maps = super::super::source::mapping_budget(&cancelled);
+    let admitted = super::super::source::admitted(canonical, &b, &mut maps)?;
+    let source = admitted.text();
     let source_path = canonical.to_string_lossy();
     let parser = crate::tools::ast_search::language::parser_override(
         canonical,
         ast_search_query_symbols::language(q).as_deref(),
     );
-    let unsupported = || json!({"status":"error","errorCode":ErrorCode::SymbolsUnsupported,"path":display_path,"error":"No native declaration extractor supports this source. Inspect its syntax tree or exact content."});
+    let unsupported = || {
+        let mut row = json!({"status":"error","errorCode":ErrorCode::SymbolsUnsupported,"path":display_path,"error":"No native declaration extractor supports this source."});
+        crate::response::result::attach_related(
+            &mut row,
+            super::super::output::unsupported_read(&source_path),
+        );
+        row
+    };
     let document = match parser.as_deref() {
         // An extension that selects no grammar outlines nothing: an empty
         // outline would read as a file without declarations. A document
         // format (Markdown, JSON, YAML, TOML) has no grammar to set: the
         // localFetch outline reads it.
-        None if crate::tools::ast_rule::file_grammar(canonical).is_none() => {
+        None if !crate::tools::ast_search::language::registered(canonical).is_some_and(
+            |entry| entry.admits(octocode_engine::text::analysis::AnalysisOperation::Declarations),
+        ) =>
+        {
             return Ok(Err(
                 if crate::content::DocumentFormat::of(&source_path).is_some() {
                     no_extractor(
@@ -196,7 +240,7 @@ pub(super) fn outline_file(
         }
         // The cache keys the parser extension used, so every override reuses
         // its own parse.
-        parser => declarations(&source, &source_path, parser),
+        parser => declarations(source, &source_path, parser),
     };
     let path = canonical.to_string_lossy().into_owned();
     let Some(document) = document else {
@@ -206,22 +250,30 @@ pub(super) fn outline_file(
     if let Some(note) = crate::tools::ast_search::language::cpp_header_note(
         canonical,
         ast_search_query_symbols::language(q).as_deref(),
-        &source,
+        source,
     ) {
         diagnostics
             .push(json!({"code":crate::tools::ast_search::language::CPP_HEADER_NOTE,"severity":"warning","message":note}));
     }
+    let bound = document
+        .source_templates
+        .bind(&admitted, &mut maps)
+        .map_err(ToolError::source)?;
+    let mut evidence = super::super::evidence::FileEvidence::new(&bound, &mut maps, cancel);
     let (rows, off_kind, notes) = reduce_document(
         q,
         ast_search_query_symbols::name_filter(q).as_ref(),
         &document,
         || Some(source.to_string()),
-    );
+        &mut evidence,
+    )?;
+    let source_descriptors = evidence.finish()?;
     let files = vec![OutlineFile {
         path,
         rows,
         off_kind,
         notes,
+        source_descriptors,
     }];
     let skipped = 0;
     Ok(Ok(Outline {
@@ -253,10 +305,6 @@ fn no_extractor(canonical: &std::path::Path, display_path: &str, kind: &str) -> 
             "symbols does not outline {kind} files; the read lead outlines this one, or search it with localSearch."
         )],
     });
-    row["calls"]["read"] = crate::response::result::Continuation::related(
-        ToolId::LocalFetch,
-        json!({"path": path, "view": "symbols"}),
-    )
-    .build();
+    row["calls"]["read"] = super::super::output::unsupported_read(&path);
     row
 }

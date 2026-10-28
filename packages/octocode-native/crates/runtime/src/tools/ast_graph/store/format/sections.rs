@@ -210,7 +210,7 @@ pub(super) fn read_file_tables(
         }
         tables.diagnostics.push(diag);
     }
-    for pair in sections.get(b"FDIG", "FDIG")?.var_vec()?.as_chunks::<2>().0 {
+    for pair in records::<2>(&sections.get(b"FDIG", "FDIG")?.var_vec()?, "FDIG")? {
         if !node_ok(pair[0]) || !string_ok(pair[1]) {
             return Err("graph digest references are out of range".into());
         }
@@ -218,7 +218,7 @@ pub(super) fn read_file_tables(
     }
     // Optional sections: absent in a snapshot means empty.
     if sections.0.contains_key(b"FCMP") {
-        for quad in sections.get(b"FCMP", "FCMP")?.var_vec()?.as_chunks::<4>().0 {
+        for quad in records::<4>(&sections.get(b"FCMP", "FCMP")?.var_vec()?, "FCMP")? {
             if !node_ok(quad[0]) || !quad[1..].iter().all(|id| string_ok(*id)) {
                 return Err("graph component references are out of range".into());
             }
@@ -244,7 +244,7 @@ pub(super) fn read_file_tables(
         }
     }
     if sections.0.contains_key(b"ENTR") {
-        for pair in sections.get(b"ENTR", "ENTR")?.var_vec()?.as_chunks::<2>().0 {
+        for pair in records::<2>(&sections.get(b"ENTR", "ENTR")?.var_vec()?, "ENTR")? {
             if !node_ok(pair[0]) || !string_ok(pair[1]) {
                 return Err("graph entry references are out of range".into());
             }
@@ -252,4 +252,14 @@ pub(super) fn read_file_tables(
         }
     }
     Ok(())
+}
+
+fn records<'a, const N: usize>(values: &'a [u32], section: &str) -> Result<&'a [[u32; N]], String> {
+    let (records, remainder) = values.as_chunks::<N>();
+    if !remainder.is_empty() {
+        return Err(format!(
+            "graph section {section} contains an incomplete record"
+        ));
+    }
+    Ok(records)
 }

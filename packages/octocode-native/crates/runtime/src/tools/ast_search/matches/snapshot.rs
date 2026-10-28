@@ -76,7 +76,7 @@ pub(super) fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolE
 }
 
 /// The match-row shape a snapshot was cut under; bumped by every row rename.
-pub(super) const MATCH_ROWS_VERSION: u32 = 4;
+pub(super) const MATCH_ROWS_VERSION: u32 = 5;
 
 /// Fingerprint over the query shape, ordered result set and scanned source bytes.
 /// Continuation cursors (page>1 or matchPage>1) that
@@ -105,7 +105,7 @@ pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> S
         q.language_globs(),
         q.reverse(),
         // Always present: validation stamps the contract defaults.
-        q.sort().as_deref().unwrap_or_default(),
+        q.sort().unwrap_or_default(),
         q.result_view().as_deref().unwrap_or_default(),
         q.max_files(),
         q.scan_offset(),

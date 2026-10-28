@@ -14,16 +14,19 @@ pub(crate) fn render_page(
     set: &SymbolSet,
     row_paths: RowPaths<'_>,
     response_window: Option<usize>,
-) -> Value {
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Value, crate::response::result::ToolError> {
     // A page without a snapshot pins nothing: it pages the current outline,
     // as `match` and structureSearch do; only a snapshot that no longer
     // matches is stale.
     if ast_search_query_symbols::page(q) > 1
         && ast_search_query_symbols::snapshot(q).is_some_and(|given| given != set.snapshot)
     {
-        return crate::response::result::stale_snapshot(crate::response::result::restart_query(
-            ToolId::AstSearch,
-            &crate::response::result::query_row(q, &[]),
+        return Ok(crate::response::result::stale_snapshot(
+            crate::response::result::restart_query(
+                ToolId::AstSearch,
+                &crate::response::result::query_row(q, &[]),
+            ),
         ));
     }
     let (skipped, truncated) = (set.skipped, set.truncated);
@@ -129,7 +132,8 @@ pub(crate) fn render_page(
         out["status"] = json!("empty");
         out["hints"] = json!([empty_hint(q, set.files_scanned)]);
     }
-    out
+    super::super::evidence::attach_page(&mut out, &set.source_descriptors, cancel)?;
+    Ok(out)
 }
 
 /// The top-level rows of one symbols page.

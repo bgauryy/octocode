@@ -56,6 +56,7 @@ pub(super) fn render_match_page(
     snapshot: &str,
     gaps: ScopeGaps,
     presentation: (usize, super::super::RowPaths<'_>),
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Value, crate::response::result::ToolError> {
     let (budget, row_paths) = presentation;
     let truncated = scan.truncated;
@@ -222,7 +223,27 @@ pub(super) fn render_match_page(
             out["calls"]["viewSyntax"] = tree_lead(q, scope, &file, line);
         }
     }
+    attach_source_evidence(&mut out, page_groups, cancel)?;
     Ok(out)
+}
+
+fn attach_source_evidence(
+    out: &mut Value,
+    groups: &[Group],
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<(), crate::response::result::ToolError> {
+    let mut projection = crate::response::source_evidence::ProjectionBudget::new(
+        crate::response::source_evidence::ProjectionLimits::default(),
+    );
+    let descriptors = crate::response::source_evidence::merge_descriptors(
+        groups
+            .iter()
+            .flat_map(|group| &group.source_descriptors)
+            .map(AsRef::as_ref),
+        &mut projection,
+        cancel,
+    )?;
+    super::super::evidence::attach_page(out, &descriptors, cancel)
 }
 
 /// The files' diagnostics plus the scan's: the scan repeats the diagnostics

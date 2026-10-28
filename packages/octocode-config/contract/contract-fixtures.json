@@ -354,7 +354,172 @@
     }
   },
   {
-    "id": "graph-query.valid-13-stale",
+    "id": "graph-query.valid-13-witnesses",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "target": "src/server.ts",
+          "edges": [
+            "calls"
+          ],
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "path": ".",
+          "limit": 1,
+          "edges": [
+            "calls"
+          ],
+          "confidence": "high",
+          "target": "src/server.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-14-witnesses",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "to": "src/worker.ts#run"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "path": ".",
+          "limit": 50,
+          "confidence": "high",
+          "to": "src/worker.ts#run"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-15-witnesses",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "edges": [
+            "passes"
+          ]
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "path": ".",
+          "limit": 50,
+          "edges": [
+            "passes"
+          ],
+          "confidence": "high"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-16-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "target": "src/server.ts",
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "path": ".",
+          "limit": 1,
+          "target": "src/server.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-17-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "edges": [
+            "passes"
+          ],
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "path": ".",
+          "limit": 1,
+          "edges": [
+            "passes"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-18-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "edges": [
+            "calls",
+            "passes"
+          ],
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "path": ".",
+          "limit": 1,
+          "edges": [
+            "calls",
+            "passes"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-19-stale",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -375,7 +540,7 @@
     }
   },
   {
-    "id": "graph-query.valid-14-impact",
+    "id": "graph-query.valid-20-impact",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -399,7 +564,7 @@
     }
   },
   {
-    "id": "graph-query.valid-15-impact",
+    "id": "graph-query.valid-21-impact",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -427,7 +592,7 @@
     }
   },
   {
-    "id": "graph-query.valid-16-impact",
+    "id": "graph-query.valid-22-impact",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -451,7 +616,7 @@
     }
   },
   {
-    "id": "graph-query.valid-17-impact",
+    "id": "graph-query.valid-23-impact",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -483,7 +648,7 @@
     }
   },
   {
-    "id": "graph-query.valid-18-drift",
+    "id": "graph-query.valid-24-drift",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -501,6 +666,58 @@
           "path": ".",
           "limit": 50,
           "baseline": "20261025-baseline"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-25-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "path": ".",
+          "target": "server",
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-26-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "path": "src",
+          "graph": "20261026-snapshot",
+          "target": "./server",
+          "kind": "symbol",
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "path": "src",
+          "graph": "20261026-snapshot",
+          "target": "./server",
+          "kind": "symbol",
+          "limit": 1
         }
       ]
     }
@@ -704,7 +921,74 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-16-node",
+    "id": "graph-query.invalid-16-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "to": "src/worker.ts"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-17-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "confidence": "low"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-18-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "edges": []
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-19-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "edges": [
+            "invokes"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-20-witnesses",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-21-node",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -718,7 +1002,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-17-find",
+    "id": "graph-query.invalid-22-find",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -732,7 +1016,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-18-path",
+    "id": "graph-query.invalid-23-path",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -747,7 +1031,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-19-hubs",
+    "id": "graph-query.invalid-24-hubs",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -760,7 +1044,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-20-cycles",
+    "id": "graph-query.invalid-25-cycles",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -773,7 +1057,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-21-cycles",
+    "id": "graph-query.invalid-26-cycles",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -786,7 +1070,7 @@
     "accepted": false
   },
   {
-    "id": "graph-query.invalid-22-impact",
+    "id": "graph-query.invalid-27-impact",
     "tool": "graphQuery",
     "input": {
       "queries": [
@@ -794,6 +1078,217 @@
           "operation": "impact",
           "since": "main",
           "confidence": "low"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-28-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-29-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": ""
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-30-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "kind": "method"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-31-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "limit": 0
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-32-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "limit": 1001
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-33-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "to": "other"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-34-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "edges": [
+            "calls"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-35-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "confidence": "high"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-36-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "depth": 1
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-37-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "direction": "out"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-38-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "changed": [
+            "src/a.ts"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-39-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "since": "main"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-40-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "baseline": "20261026-snapshot"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-41-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "list": "candidates"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-42-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "cycle": "server"
         }
       ]
     },
@@ -4322,6 +4817,34 @@
     }
   },
   {
+    "id": "lsp.rust-macros-inherited-builds",
+    "tool": "lspSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/lib.rs",
+          "operation": "diagnostic",
+          "rustContext": {
+            "procMacros": true
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "rustContext": {
+            "procMacros": true
+          },
+          "page": 1,
+          "path": "src/lib.rs",
+          "operation": "diagnostic"
+        }
+      ]
+    }
+  },
+  {
     "id": "lsp.rust-macros-build-disabled",
     "tool": "lspSearch",
     "accepted": false,
@@ -4849,7 +5372,8 @@
           "path": "src/lib.rs",
           "operation": "diagnostic",
           "rustContext": {
-            "procMacros": true
+            "procMacros": true,
+            "buildScripts": false
           }
         }
       ]
@@ -4862,7 +5386,7 @@
           "rustContext",
           "procMacros"
         ],
-        "message": "procMacros requires buildScripts:true because rust-analyzer builds procedural macros through Cargo."
+        "message": "procMacros requires buildScripts:true in effective configuration."
       }
     ]
   },

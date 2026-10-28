@@ -49,6 +49,14 @@ fn invalid_rows_are_explicit_failures_and_do_not_remove_other_rows() {
         2
     );
     assert_eq!(outcome.structured_content["results"][1]["status"], "error");
+    let failed = &outcome.structured_content["results"][1]["data"];
+    assert_eq!(failed["errorCode"], "outputContractViolation");
+    assert!(
+        failed["hints"][0]
+            .as_str()
+            .expect("contract recovery")
+            .contains("tool failure")
+    );
     assert!(outcome.failure.is_some());
     assert!(!outcome.all_failed);
     assert!(

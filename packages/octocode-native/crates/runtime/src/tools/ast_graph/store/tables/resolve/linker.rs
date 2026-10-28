@@ -3,15 +3,18 @@
 use super::*;
 
 /// A linked call: target symbols, how they were found, and the confidence.
-type Linked = (Vec<u32>, &'static str, Confidence);
+pub(super) type Linked = (Vec<u32>, &'static str, Confidence);
 
 /// Graph-wide lookups a call or base-type link needs.
 pub(crate) struct Linker<'r> {
     pub(crate) resolver: &'r ExportResolver<'r>,
     pub(crate) nodes: &'r [NodeRec],
+    pub(crate) strings: &'r [String],
     pub(crate) global_names: &'r HashMap<&'r str, Vec<u32>>,
     pub(crate) members: &'r MemberIndex<'r>,
     pub(crate) scope: &'r LinkScope<'r>,
+    pub(crate) bases: &'r BaseIndex,
+    pub(crate) is_type: &'r dyn Fn(u32) -> bool,
 }
 
 /// One call site (or base-type clause) to link.
@@ -44,6 +47,17 @@ impl Linker<'_> {
     pub(crate) fn link(&self, site: &Site) -> Option<Linked> {
         if site.name.is_empty() {
             return None;
+        }
+        if site.receiver()
+            && let Some(owner) = self.receiver_owner(site)
+        {
+            return self.bound_member(
+                site,
+                owner,
+                site.qualifier == "super",
+                Confidence::High,
+                "local",
+            );
         }
         if let Some(linked) = self.local(site) {
             return Some(linked);
@@ -117,23 +131,38 @@ impl Linker<'_> {
     }
 
     fn imported(&self, site: &Site) -> Option<Linked> {
-        let sources = site.bindings.named.get(site.name)?;
         let mut targets = Vec::new();
-        let mut hopped = false;
-        for (target, exported) in sources {
-            let (found, via) = self.resolver.exported(target, exported);
-            hopped |= via;
-            targets.extend(site.accepted(found));
-        }
+        let mut uncertain = false;
+        let via = if let Some(sources) = site.bindings.named.get(site.name) {
+            for (target, exported) in sources {
+                let resolved = self.resolver.resolved(target, exported);
+                uncertain |= resolved.uncertain;
+                targets.extend(site.accepted(resolved.targets));
+            }
+            "import"
+        } else {
+            if site.bindings.external.contains(site.name) {
+                return None;
+            }
+            uncertain |= site.bindings.unknown_wildcard;
+            for target in &site.bindings.wildcards {
+                let resolved = self.resolver.resolved(target, site.name);
+                uncertain |= resolved.uncertain;
+                targets.extend(site.accepted(resolved.targets));
+            }
+            "import-glob"
+        };
         targets.sort_unstable();
         targets.dedup();
-        let strong = if hopped {
+        // A re-export preserves identity; competing or unobserved branches
+        // weaken the candidate without erasing the targets we did resolve.
+        let strong = if uncertain {
             Confidence::Medium
         } else {
             Confidence::High
         };
         let confidence = confidence_for(&targets, strong);
-        (!targets.is_empty()).then_some((targets, "import", confidence))
+        (!targets.is_empty()).then_some((targets, via, confidence))
     }
 
     /// `ns.fn()`, `pkg.Func()`, `module::func()`: the qualifier's first
@@ -230,6 +259,11 @@ impl Linker<'_> {
     /// `Type::method` / `Type.method`, or `x.method()` with `x: Type`: a
     /// member of a container named `Type`.
     fn member(&self, site: &Site, type_head: &str, via: &'static str) -> Option<Linked> {
+        match self.typed_member(site, type_head, via) {
+            super::inherited::TypedMember::Linked(resolved) => return Some(resolved),
+            super::inherited::TypedMember::Missing => return None,
+            super::inherited::TypedMember::Unbound => {}
+        }
         let members = site.accepted(self.members.get(&(type_head, site.name))?.iter().copied());
         let id = match members.as_slice() {
             [] => return None,
@@ -302,7 +336,7 @@ pub(crate) struct LinkScope<'a> {
 
 impl LinkScope<'_> {
     /// The root-relative path of file node `id`.
-    fn path(&self, id: u32) -> Option<&str> {
+    pub(super) fn path(&self, id: u32) -> Option<&str> {
         self.file_paths
             .get(id as usize)
             .copied()

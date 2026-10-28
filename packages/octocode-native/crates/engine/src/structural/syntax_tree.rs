@@ -48,13 +48,13 @@ pub struct SyntaxTreeNode {
     pub start_column: u32,
     pub end_line: u32,
     pub end_column: u32,
-    pub start_byte: u32,
-    pub end_byte: u32,
+    pub source_span: crate::text::analysis::ObservedSpan,
 }
 
 #[derive(Clone)]
 pub struct SyntaxTreeInspectResult {
     pub nodes: Vec<SyntaxTreeNode>,
+    pub source_templates: crate::text::analysis::SourceTemplates,
     pub total_nodes: u32,
     pub next_offset: Option<u32>,
     pub status: String,
@@ -86,6 +86,7 @@ fn failed(
 ) -> SyntaxTreeInspectResult {
     SyntaxTreeInspectResult {
         nodes: Vec::new(),
+        source_templates: Default::default(),
         total_nodes: 0,
         next_offset: None,
         status: "error".to_owned(),
@@ -102,7 +103,7 @@ fn walk_root<'tree>(
     line: Option<u32>,
     named_only: bool,
     file_path: &str,
-) -> Result<(Node<'tree>, Option<StructuralDiagnostic>), SyntaxTreeInspectResult> {
+) -> Result<(Node<'tree>, Option<StructuralDiagnostic>), Box<SyntaxTreeInspectResult>> {
     let Some(line) = line else {
         return Ok((tree.root_node(), None));
     };
@@ -118,12 +119,12 @@ fn walk_root<'tree>(
                 file_path,
             )),
         )),
-        None => Err(failed(
+        None => Err(Box::new(failed(
             "syntaxTree.options.lineOutOfRange",
             "options",
             format!("line {line} is past the end of the file"),
             file_path,
-        )),
+        ))),
     }
 }
 
@@ -148,8 +149,10 @@ fn page_node(
         start_column: start.1,
         end_line: end.0 + 1,
         end_column: end.1,
-        start_byte: node.start_byte().min(u32::MAX as usize) as u32,
-        end_byte: node.end_byte().min(u32::MAX as usize) as u32,
+        source_span: crate::text::analysis::ObservedSpan::root(
+            node.start_byte() as u32,
+            node.end_byte() as u32,
+        ),
     }
 }
 
@@ -209,7 +212,9 @@ fn inspect_bounded(
         );
     }
 
-    let Some(entry) = languages::find_entry(&ext) else {
+    let Some(entry) = languages::find_entry(&ext)
+        .filter(|entry| entry.admits(crate::text::analysis::AnalysisOperation::SyntaxTree))
+    else {
         return failed(
             "syntaxTree.language.unsupported",
             "parse",
@@ -227,7 +232,7 @@ fn inspect_bounded(
     let line_index = LineIndex::tree_sitter(content);
     let (root, line_note) = match walk_root(&tree, content, options.line, named_only, file_path) {
         Ok(root) => root,
-        Err(failure) => return failure,
+        Err(failure) => return *failure,
     };
     let mut pending = vec![Pending {
         node: root,
@@ -333,6 +338,7 @@ fn inspect_bounded(
     // past a budget stop are unknown.
     let next_offset = (end < next_id).then_some(end as u32);
     SyntaxTreeInspectResult {
+        source_templates: source_templates(content, entry.name),
         nodes: page_nodes,
         total_nodes,
         next_offset,
@@ -341,5 +347,25 @@ fn inspect_bounded(
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "syntax admission bounds input to MAX_PARSE_SIZE before this private constructor"
+)]
+fn source_templates(content: &str, name: &str) -> crate::text::analysis::SourceTemplates {
+    crate::text::analysis::SourceTemplates::new(
+        content,
+        crate::text::analysis::Producer::new(format!("tree-sitter-syntax:{name}"), "1"),
+        crate::text::analysis::AnalysisOperation::SyntaxTree,
+    )
+    .expect("syntax source has passed the parser size limit")
+}
+
 #[cfg(test)]
 mod tests;
+
+impl std::ops::Deref for SyntaxTreeNode {
+    type Target = crate::text::analysis::ObservedSpan;
+    fn deref(&self) -> &Self::Target {
+        &self.source_span
+    }
+}

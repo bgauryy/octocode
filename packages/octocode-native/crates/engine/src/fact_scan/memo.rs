@@ -34,8 +34,12 @@ pub(super) fn facts_heap_bytes(
             .sum::<usize>()
     };
     let option_list = |values: &Option<Vec<String>>| values.as_deref().map_or(0, list);
-    let mut bytes =
-        text(&facts.kind) + text(&facts.source) + text(&facts.language) + text(&facts.file);
+    let mut bytes = text(&facts.kind)
+        + text(&facts.source)
+        + text(&facts.language)
+        + text(&facts.file)
+        + text(&facts.source_digest)
+        + facts.source_templates.heap_bytes();
     bytes += facts
         .declarations
         .iter()
@@ -46,6 +50,12 @@ pub(super) fn facts_heap_bytes(
                 + text(&d.kind)
                 + list(&d.exported_as)
                 + option(&d.parent)
+                + d.test_identity.as_ref().map_or(0, |test| match test {
+                    crate::graph::GraphTestIdentity::Googletest { suite, name, .. } => {
+                        suite.len() + name.len()
+                    }
+                    crate::graph::GraphTestIdentity::Rust { name, .. } => name.len(),
+                })
         })
         .sum::<usize>();
     bytes += facts
@@ -87,6 +97,7 @@ pub(super) fn facts_heap_bytes(
                 + option(&c.receiver_type)
         })
         .sum::<usize>();
+    bytes += (facts.calls.capacity() - facts.calls.len()) * size_of::<GraphFactCall>();
     bytes += facts
         .common_js
         .iter()
@@ -98,6 +109,13 @@ pub(super) fn facts_heap_bytes(
                 + option(&c.reason)
         })
         .sum::<usize>();
+    bytes += facts
+        .argument_sites
+        .iter()
+        .map(crate::graph::GraphFactArgumentSite::heap_bytes)
+        .sum::<usize>();
+    bytes += (facts.argument_sites.capacity() - facts.argument_sites.len())
+        * size_of::<crate::graph::GraphFactArgumentSite>();
     bytes += facts
         .edges
         .iter()
@@ -150,3 +168,72 @@ pub(super) static FACTS_MEMO: std::sync::LazyLock<moka::sync::Cache<String, Arc<
 
 /// Estimated heap bytes the parsed-facts cache may hold.
 const FACTS_MEMO_BYTES: u64 = 128 * 1024 * 1024;
+
+#[cfg(test)]
+mod argument_memory_tests {
+    use super::*;
+    use crate::graph::{
+        GraphArgumentGroup, GraphArgumentGroupObservation, GraphArgumentSlot, GraphFactArgumentSite,
+    };
+
+    #[test]
+    fn argument_vectors_include_spare_allocation_capacity() {
+        let mut facts = crate::signatures::extract_graph_facts_with_metadata_inner(
+            "consume(handler)",
+            "fixture.ts",
+        )
+        .expect("facts")
+        .facts;
+        let before = facts_heap_bytes(&facts, &[]);
+        let capacity = facts.argument_sites.capacity();
+        facts.argument_sites.reserve(20);
+        let expected = (facts.argument_sites.capacity() - capacity)
+            * std::mem::size_of::<GraphFactArgumentSite>();
+        assert_eq!(facts_heap_bytes(&facts, &[]) - before, expected);
+        let site = &mut facts.argument_sites[0];
+        let before = site.heap_bytes();
+        let capacity = site.groups.capacity();
+        site.groups.reserve(20);
+        let expected =
+            (site.groups.capacity() - capacity) * std::mem::size_of::<GraphArgumentGroup>();
+        assert_eq!(site.heap_bytes() - before, expected);
+        let before = site.heap_bytes();
+        let GraphArgumentGroupObservation::Slots { slots } = &mut site.groups[0].observation else {
+            panic!("slots")
+        };
+        let capacity = slots.capacity();
+        slots.reserve(20);
+        let expected = (slots.capacity() - capacity) * std::mem::size_of::<GraphArgumentSlot>();
+        assert_eq!(site.heap_bytes() - before, expected);
+    }
+}
+
+#[cfg(test)]
+mod call_memory_tests {
+    use super::*;
+
+    #[test]
+    fn constructor_admission_and_call_spare_capacity_are_accounted() {
+        let mut facts = crate::signatures::extract_graph_facts_with_metadata_inner(
+            "class C { C(){ super(); } }",
+            "fixture.java",
+        )
+        .expect("facts")
+        .facts;
+        assert_eq!(facts.calls.len(), 1);
+        let before = facts_heap_bytes(&facts, &[]);
+        let capacity = facts.calls.capacity();
+        facts.calls.reserve(20);
+        assert_eq!(
+            facts_heap_bytes(&facts, &[]) - before,
+            (facts.calls.capacity() - capacity) * std::mem::size_of::<GraphFactCall>()
+        );
+        let before = facts_heap_bytes(&facts, &[]);
+        facts.calls[0].binding = crate::graph::GraphCallBinding::ConstructedType;
+        assert_eq!(
+            facts_heap_bytes(&facts, &[]),
+            before,
+            "admission owns no heap buffers"
+        );
+    }
+}

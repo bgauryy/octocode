@@ -124,15 +124,32 @@ async fn walk_input(
         splits: 0,
     };
     let mut calls = 0;
+    let mut seen_inputs = BTreeSet::new();
+    let mut query_pages = None;
     loop {
         let (mut rows, mut has_more, mut next_page) = (Vec::new(), None, None);
+        let mut response_page = 1;
+        let mut response_pages = None;
         loop {
             calls += 1;
-            assert!(calls < 200, "mcp={mcp}: the walk terminates");
+            assert!(
+                seen_inputs.insert(input.to_string()),
+                "mcp={mcp}: repeated continuation"
+            );
             let envelope = call(runtime, mcp, calls, input.clone()).await;
             let row = &envelope["results"][0];
             let data = &row["data"];
             if let Some(pagination) = data.get("pagination") {
+                let page = pagination["page"].as_u64().expect("query page");
+                let total = pagination["totalPages"].as_u64().expect("query pages");
+                assert_eq!(page, walk.pages.len() as u64 + 1, "query pages advance");
+                assert_eq!(
+                    *query_pages.get_or_insert(total),
+                    total,
+                    "query page count is stable"
+                );
+                assert!(page <= total, "query page is within the declared walk");
+                assert_eq!(pagination["hasMore"] == true, page < total);
                 walk.totals
                     .insert(pagination["totalItems"].as_u64().expect("totalItems"));
                 has_more = Some(pagination["hasMore"] == true);
@@ -148,9 +165,22 @@ async fn walk_input(
                 next_page = Some(next.clone());
             }
             let response = &envelope["responsePagination"];
+            if !response.is_null() {
+                let page = response["page"].as_u64().expect("response page");
+                let total = response["totalPages"].as_u64().expect("response pages");
+                assert_eq!(page, response_page, "response pages advance");
+                assert_eq!(
+                    *response_pages.get_or_insert(total),
+                    total,
+                    "response page count is stable"
+                );
+                assert!(page <= total, "response page is within the declared plan");
+                assert_eq!(response["hasMore"] == true, page < total);
+            }
             if response["hasMore"] != true {
                 break;
             }
+            response_page += 1;
             walk.splits += 1;
             input = response["next"]["input"].clone();
             assert!(input.is_object(), "mcp={mcp}: {response}");
@@ -173,6 +203,11 @@ async fn walk_input(
     assert!(
         walk.pages.len() > 1,
         "mcp={mcp}: the fixture spans several pages"
+    );
+    assert_eq!(
+        Some(walk.pages.len() as u64),
+        query_pages,
+        "all declared query pages were read"
     );
     walk
 }

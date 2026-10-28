@@ -3,6 +3,7 @@
 use serde_json::json;
 
 use super::*;
+mod sorting;
 use crate::{
     execution::cancel::CancellationCheck,
     policy::path::{PathPolicy, PathPolicyConfig},
@@ -73,14 +74,17 @@ fn syntax_tree_is_the_only_tree_surface() {
     assert_eq!(syntax["operation"], "syntaxTree");
     assert!(syntax.get("treeKind").is_none(), "{syntax}");
     // One compact row per node: id, kind (an anonymous token quoted),
-    // 1-based line:column span, and `^parent`, with byte spans in the same order.
+    // 1-based line:column span, and `^parent`, paired with its byte span.
     let nodes = syntax["nodes"].as_array().expect("node rows");
-    assert_eq!(nodes[0], "0 program 1:1-2:1", "{syntax}");
-    assert_eq!(nodes[1], "1 export_statement 1:1-1:24 ^0", "{syntax}");
+    assert_eq!(nodes[0]["node"], "0 program 1:1-2:1", "{syntax}");
+    assert_eq!(
+        nodes[1]["node"], "1 export_statement 1:1-1:24 ^0",
+        "{syntax}"
+    );
     // A node that fills a grammar field names it before its kind: the
     // name a rule's `has`/`inside` `field` matches.
     assert!(
-        nodes.iter().any(|row| row
+        nodes.iter().any(|row| row["node"]
             .as_str()
             .is_some_and(|row| row.contains(" name:identifier 1:14-1:19 "))),
         "{syntax}"
@@ -93,13 +97,21 @@ fn syntax_tree_is_the_only_tree_surface() {
         &crate::execution::cancel::NeverCancel,
     )
     .expect("token tree");
-    assert_eq!(tokens["nodes"][2], "2 \"export\" 1:1-1:7 ^1", "{tokens}");
-    assert_eq!(syntax["byteRanges"][0], "0-24", "{syntax}");
     assert_eq!(
-        syntax["byteRanges"].as_array().map(Vec::len),
-        Some(nodes.len()),
+        tokens["nodes"][2]["node"], "2 \"export\" 1:1-1:7 ^1",
+        "{tokens}"
+    );
+    assert_eq!(
+        nodes[0]["sourceRange"],
+        json!({"startByte":0,"endByte":24}),
         "{syntax}"
     );
+    assert_eq!(
+        tokens["nodes"][2]["sourceRange"],
+        json!({"startByte":0,"endByte":6}),
+        "{tokens}"
+    );
+    assert!(syntax.get("byteRanges").is_none(), "{syntax}");
 
     for retired in [
         json!({"operation":"tree","treeKind":"filesystem","path":root.path().to_string_lossy()}),

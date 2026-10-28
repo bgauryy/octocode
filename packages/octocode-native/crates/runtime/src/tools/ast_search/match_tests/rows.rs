@@ -35,13 +35,20 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     let matches = out["files"][0]["matches"].as_array().expect("matches");
     // Lean rows (objects): the line and 1-based column (a span adds its
     // end line) and exact source text; no captures.
-    assert_eq!(
-        matches,
-        &vec![
-            json!({"line":1,"column":1,"value":"oldCall(one)"}),
-            json!({"line":2,"column":1,"endLine":4,"value":"oldCall(\n  two\n)"})
-        ],
-        "{out}"
+    assert_eq!(matches.len(), 2);
+    assert_copied_row(
+        &out,
+        &matches[0],
+        json!({"line":1,"column":1,"value":"oldCall(one)"}),
+        0..12,
+        None,
+    );
+    assert_copied_row(
+        &out,
+        &matches[1],
+        json!({"line":2,"column":1,"endLine":4,"value":"oldCall(\n  two\n)"}),
+        14..30,
+        None,
     );
     // Equal per-file counts repeat `matches.len()`.
     assert!(out["files"][0].get("totalMatchRows").is_none(), "{out}");
@@ -147,10 +154,12 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
     .expect("source");
     let query = json!({"operation":"match","path":source,"rule":{"kind":"function_item"}});
     let out = run(&root.0, query.clone()).expect("match");
-    assert_eq!(
-        out["files"][0]["matches"][0],
+    assert_copied_row(
+        &out,
+        &out["files"][0]["matches"][0],
         json!({"line":1,"column":1,"endLine":6,"value":"pub fn load(\n    path: &str,\n) -> Result<u8, String> …","clipped":true}),
-        "{out}"
+        0..98,
+        Some(0..52),
     );
     assert!(out["next"]["expandCaptures"].is_object(), "{out}");
 
@@ -274,9 +283,19 @@ fn happy_path_rows_carry_the_next_hop_anchors() {
     for row in rows {
         let keys = row.as_object().expect("row").keys().collect::<Vec<_>>();
         assert!(
-            keys.iter().all(
-                |key| ["line", "endLine", "value", "column", "clipped"].contains(&key.as_str())
-            ),
+            keys.iter().all(|key| [
+                "line",
+                "endLine",
+                "value",
+                "column",
+                "clipped",
+                "sourceRange",
+                "sourceOrigin",
+                "sourceDigest",
+                "headerSourceRange",
+                "headerOrigin"
+            ]
+            .contains(&key.as_str())),
             "{row}"
         );
     }

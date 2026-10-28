@@ -1,14 +1,17 @@
 //! Choosing and loading the snapshot a query reads.
 use super::*;
 
-pub(super) fn locate(options: &QueryOptions) -> Result<PathBuf, Failure> {
+pub(super) fn locate(options: &QueryOptions) -> Result<(PathBuf, bool), Failure> {
     if let Some(spec) = options.graph.as_deref() {
         let path = PathBuf::from(spec);
         if path.is_file() {
-            return Ok(path.parent().map(Path::to_path_buf).unwrap_or_default());
+            return Ok((
+                path.parent().map(Path::to_path_buf).unwrap_or_default(),
+                true,
+            ));
         }
         if path.join(GRAPH_FILE).is_file() {
-            return Ok(path);
+            return Ok((path, true));
         }
     }
     let home = graph_home(options.workspace.as_deref())
@@ -22,7 +25,7 @@ pub(super) fn locate(options: &QueryOptions) -> Result<PathBuf, Failure> {
             .filter(|id| ids.contains(id))
             .or_else(|| ids.last().cloned()),
     };
-    chosen.map(|id| home.join(id)).ok_or_else(|| {
+    chosen.map(|id| (home.join(id), false)).ok_or_else(|| {
         let message = match options.graph.as_deref() {
             Some(spec) => format!(
                 "no graph matches {spec:?} under {}; available: {}",
@@ -103,8 +106,12 @@ pub(super) fn ambiguous_graph(spec: &str, candidates: &[String]) -> Failure {
     Box::new(out)
 }
 
-pub(super) fn load(options: &QueryOptions, paths: &PathPolicy) -> Result<Graph, Failure> {
-    let dir = locate(options)?;
+pub(super) fn load(
+    options: &QueryOptions,
+    paths: &PathPolicy,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Graph, Failure> {
+    let (dir, explicit_path) = locate(options)?;
     let dir = paths
         .validate(&dir)
         .map_err(|error| fail(error.shared_code(), error.message))?
@@ -118,13 +125,42 @@ pub(super) fn load(options: &QueryOptions, paths: &PathPolicy) -> Result<Graph, 
                 format!("{} has no readable manifest", dir.display()),
             )
         })?;
+    let valid_registry = manifest["registryIdentity"]
+        .as_str()
+        .is_some_and(|identity| {
+            identity.len() == 64
+                && identity
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
+        && manifest["registryExtensions"]
+            .as_array()
+            .is_some_and(|extensions| {
+                extensions.iter().all(|extension| {
+                    extension
+                        .as_str()
+                        .is_some_and(|extension| !extension.is_empty())
+                })
+            });
+    if !valid_registry {
+        return Err(fail(
+            ErrorCode::Decode,
+            "graph manifest has no valid captured registry inventory; re-run `octocode graph ingest`",
+        ));
+    }
     let bytes = read_graph_file(&dir.join(GRAPH_FILE)).map_err(|error| {
         fail(
             ErrorCode::Decode,
             format!("cannot read {GRAPH_FILE}: {error}"),
         )
     })?;
-    let (t, digest) = decode(&bytes).map_err(|message| fail(ErrorCode::Decode, message))?;
+    let (t, digest) = decode_with_cancel(&bytes, cancel).map_err(|message| {
+        if let Err(cancelled) = cancel.check() {
+            fail(ErrorCode::Cancelled, cancelled)
+        } else {
+            fail(ErrorCode::Decode, message)
+        }
+    })?;
     if manifest["graph"]["sha256"].as_str() != Some(digest.as_str()) {
         return Err(fail(
             ErrorCode::Decode,
@@ -147,5 +183,11 @@ pub(super) fn load(options: &QueryOptions, paths: &PathPolicy) -> Result<Graph, 
         ));
     }
     let id = manifest["id"].as_str().unwrap_or_default().to_owned();
-    Ok(Graph { id, manifest, t })
+    Ok(Graph {
+        explicit_path: explicit_path.then_some(dir),
+        id,
+        manifest,
+        t,
+        ..Default::default()
+    })
 }

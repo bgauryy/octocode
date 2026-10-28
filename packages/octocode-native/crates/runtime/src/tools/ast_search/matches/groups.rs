@@ -7,6 +7,7 @@ use super::scan::parser_extension;
 use super::scope::Inapplicable;
 use super::types::{Group, Grouped, SKIP_CODES, ScannedFile, Scope};
 use super::{content_length, file_list, row_chars};
+use crate::execution::cancel::CancellationCheck;
 use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::is_compile_failure;
@@ -20,7 +21,8 @@ pub(super) fn group_files(
     budget: usize,
     row_paths: RowPaths<'_>,
     inapplicable: &Inapplicable,
-) -> Grouped {
+    cancel: &dyn CancellationCheck,
+) -> Result<Grouped, ToolError> {
     let mut grouped = Grouped::default();
     let file_list = file_list(q);
     let content_length = content_length(q);
@@ -77,9 +79,14 @@ pub(super) fn group_files(
                     let rows = held
                         .iter()
                         .map(|value| {
-                            match_value(value, q.capture_text().unwrap_or(false), content_length)
+                            match_value(
+                                value,
+                                q.capture_text().unwrap_or(false),
+                                content_length,
+                                cancel,
+                            )
                         })
-                        .collect();
+                        .collect::<Result<Vec<_>, _>>()?;
                     match_group(q, path.clone(), rows, budget, row_paths)
                 }
                 FileMatches::Priced(prices) if !file_list => {
@@ -102,7 +109,7 @@ pub(super) fn group_files(
             );
         }
     }
-    grouped
+    Ok(grouped)
 }
 
 /// A `files`/`countMatches` view row: the file, with its count when asked;
@@ -125,6 +132,7 @@ pub(super) fn listed_file(
         + row_paths.chars(&path)
         + 1;
     Group {
+        source_descriptors: Vec::new(),
         chars,
         row,
         out_of_range: false,
@@ -185,6 +193,7 @@ pub(super) fn priced_group(
         .collect::<Vec<_>>();
     let pages = match_pages(q, &path, &sizes, budget, row_paths);
     Group {
+        source_descriptors: Vec::new(),
         row: json!({"path": path}),
         chars: pages.first_chars,
         out_of_range: pages.out_of_range(),
@@ -197,7 +206,11 @@ pub(super) fn priced_group(
 
 /// A priced file changed after the scan priced it: its rows can no longer
 /// be rebuilt as priced.
-pub(super) struct SourceChanged;
+#[derive(Debug)]
+pub(super) enum RebuildError {
+    SourceChanged,
+    Evidence(ToolError),
+}
 
 /// Build the rows of the priced files on the file page `groups` shows,
 /// from each file's scanned bytes (see
@@ -214,7 +227,8 @@ pub(super) fn rebuild_page(
     groups: &mut [Group],
     budget: usize,
     row_paths: RowPaths<'_>,
-) -> Result<Vec<Vec<StructuralDiagnostic>>, SourceChanged> {
+    cancel: &dyn CancellationCheck,
+) -> Result<Vec<Vec<StructuralDiagnostic>>, RebuildError> {
     let mut priced = groups
         .iter()
         .enumerate()
@@ -222,7 +236,7 @@ pub(super) fn rebuild_page(
         .collect::<Vec<_>>();
     let workers = crate::tools::workers::workers(None, priced.len(), None);
     let rebuilt = crate::tools::workers::each_parallel(&mut priced, workers, |&mut (_, index)| {
-        rebuild_file(q, scope, &files[index])
+        rebuild_file(q, scope, &files[index], cancel)
     });
     let mut incomplete = Vec::new();
     for ((slot, index), outcome) in priced.into_iter().zip(rebuilt) {
@@ -250,10 +264,11 @@ fn rebuild_file(
     q: MatchQuery<'_>,
     scope: &Scope,
     file: &ScannedFile,
-) -> Result<RebuiltFile, SourceChanged> {
+    cancel: &dyn CancellationCheck,
+) -> Result<RebuiltFile, RebuildError> {
     let (Some((source, digest)), FileMatches::Priced(prices)) = (&file.source, &file.matches)
     else {
-        return Err(SourceChanged);
+        return Err(RebuildError::SourceChanged);
     };
     let matches = match octocode_engine::structural::file_matches(
         source,
@@ -262,23 +277,30 @@ fn rebuild_file(
         q.rule().as_ref(),
         digest,
         super::super::source::MAX_PARSE_SOURCE_BYTES as u64,
+        &|| cancel.check().is_err(),
     ) {
         Ok(octocode_engine::structural::Rebuilt::Matches(matches)) => matches,
         Ok(octocode_engine::structural::Rebuilt::Incomplete(diagnostics)) => {
             return Ok(RebuiltFile::Incomplete(diagnostics));
         }
-        Ok(octocode_engine::structural::Rebuilt::Changed) | Err(_) => {
-            return Err(SourceChanged);
+        Err(error) => {
+            return Err(RebuildError::Evidence(super::super::errors::native_error(
+                error,
+            )));
+        }
+        Ok(octocode_engine::structural::Rebuilt::Changed) => {
+            return Err(RebuildError::SourceChanged);
         }
     };
     let content_length = content_length(q);
     let rows = matches
         .iter()
-        .map(|m| match_value(m, q.capture_text().unwrap_or(false), content_length))
-        .collect::<Vec<_>>();
+        .map(|m| match_value(m, q.capture_text().unwrap_or(false), content_length, cancel))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(RebuildError::Evidence)?;
     let repriced = rows.iter().map(|row| u32_of_usize(row_chars(row)));
     if !repriced.eq(prices.iter().copied()) {
-        return Err(SourceChanged);
+        return Err(RebuildError::SourceChanged);
     }
     Ok(RebuiltFile::Rows(rows))
 }
@@ -287,6 +309,7 @@ fn rebuild_file(
 /// no rows and no match pages to continue.
 pub(super) fn unevaluated_group(path: String) -> Group {
     Group {
+        source_descriptors: Vec::new(),
         row: json!({"path": path}),
         chars: 0,
         out_of_range: false,
@@ -323,6 +346,18 @@ pub(super) fn match_group(
         .iter()
         .map(|row| row.value.clone())
         .collect::<Vec<_>>();
+    let mut source_descriptors = Vec::new();
+    for descriptor in page_rows
+        .iter()
+        .filter_map(|row| row.source_descriptors.as_ref())
+    {
+        if !source_descriptors
+            .iter()
+            .any(|known| std::sync::Arc::ptr_eq(known, descriptor))
+        {
+            source_descriptors.push(std::sync::Arc::clone(descriptor));
+        }
+    }
     let mut row = json!({"path":path,"matches":selected});
     // A file whose matches span match pages states its page facts (the
     // page stage counts the matches left from them); `next.nextMatchPage`
@@ -331,6 +366,7 @@ pub(super) fn match_group(
         row["pagination"] = pages.cut.facts.to_value();
     }
     Group {
+        source_descriptors,
         chars: first_chars,
         row,
         out_of_range,

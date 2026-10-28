@@ -4,16 +4,20 @@ use super::{
     build_continuation, is_saved_replay, page_cursor,
 };
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 /// One row page of `source`, with its pagination block and continuation.
 pub(super) fn cut_rows(
     source: &RowSource,
     input: &ResponseInput,
+    cancelled: &CancellationToken,
 ) -> Result<PreparedPage, ResponseError> {
-    let (mut envelope, mut pagination) =
-        source.page(&input.options, &input.remaining, &|pagination| {
-            pagination_block_chars(input, pagination)
-        })?;
+    let (mut envelope, mut pagination) = source.page(
+        &input.options,
+        &input.remaining,
+        &|pagination| pagination_block_chars(input, pagination),
+        cancelled,
+    )?;
     pagination.next = continuation(input, &pagination);
     if pagination.should_emit() || is_saved_replay(&input.options) {
         envelope.insert(

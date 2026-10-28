@@ -15,6 +15,9 @@ use crate::types::{FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsS
 mod evaluate;
 mod memo;
 
+use crate::signatures::languages::RegistryView;
+use crate::text::analysis::{AnalysisOperation, MapLimits};
+#[cfg(test)]
 use evaluate::evaluate_walk;
 #[cfg(test)]
 use memo::facts_heap_bytes;
@@ -32,7 +35,12 @@ pub struct GraphFactsView<'a> {
     pub content_digest: &'a str,
     pub source_stamp: Option<SourceStamp>,
     pub facts: &'a GraphFactsDocument,
+    pub admitted: &'a crate::text::analysis::AdmittedSource<'a>,
+    pub source: &'a crate::text::analysis::BoundSource<'a>,
     pub reference_counts: &'a [crate::types::GraphReferenceCount],
+    /// Full graph facts came from an in-memory or caller-provided cache.
+    /// The declarations-only extractor owns separate cache telemetry.
+    pub reused: bool,
 }
 
 impl GraphFactsView<'_> {
@@ -75,6 +83,7 @@ pub enum GraphScanError {
     UnsupportedLanguage(String),
     /// Walking or reading the tree failed, including a caller's path check.
     Failed(String),
+    Source(crate::text::analysis::SourceError),
 }
 
 impl std::fmt::Display for GraphScanError {
@@ -83,6 +92,7 @@ impl std::fmt::Display for GraphScanError {
             Self::InvalidGlob(message) => write!(f, "[ast.language.invalidGlob] {message}"),
             Self::UnsupportedLanguage(message) => write!(f, "[ast.language.unsupported] {message}"),
             Self::Failed(message) => f.write_str(message),
+            Self::Source(error) => error.fmt(f),
         }
     }
 }
@@ -105,6 +115,14 @@ pub fn parser_overrides(
     root: &Path,
     rules: Option<&[crate::types::GraphLanguageGlob]>,
 ) -> Result<Vec<ParserOverride>, GraphScanError> {
+    parser_overrides_with_registry(root, rules, RegistryView::installed())
+}
+
+pub fn parser_overrides_with_registry(
+    root: &Path,
+    rules: Option<&[crate::types::GraphLanguageGlob]>,
+    registry: RegistryView<'_>,
+) -> Result<Vec<ParserOverride>, GraphScanError> {
     if rules.unwrap_or_default().len() > 400 {
         return Err(GraphScanError::InvalidGlob(
             "languageGlobs exceeds 400 patterns".into(),
@@ -119,8 +137,9 @@ pub fn parser_overrides(
                     "glob must contain 1-256 characters".into(),
                 ));
             }
-            let extension = crate::signatures::languages::select_one(&rule.language)
-                .and_then(|entry| entry.extensions.first())
+            let extension = registry
+                .select_one(&rule.language)
+                .and_then(|entry| entry.extensions().first())
                 .ok_or_else(|| {
                     GraphScanError::UnsupportedLanguage(format!(
                         "languageGlobs key {:?} must select one registered grammar",
@@ -142,6 +161,9 @@ pub enum FactsSource<'a> {
     /// Full graph facts (declarations, calls, paths, references), parsed
     /// once per content version and kept in the scan's own memo.
     Graph,
+    /// Full facts may be reused from the caller's versioned persistent store,
+    /// after the scan reads and fingerprints the current source.
+    CachedGraph(&'a GraphFactsReuse<'a>),
     /// Declarations only, from the caller's [`DeclarationsExtraction`] and
     /// its cache. The scan keeps no copy, so one cache holds a file's
     /// declarations; the view's reference counts are empty.
@@ -154,6 +176,12 @@ pub enum FactsSource<'a> {
 pub type DeclarationsExtraction =
     dyn Fn(&str, &Path, Option<&str>) -> Option<Arc<GraphFactsDocument>> + Sync;
 
+/// `(relative path, raw source digest, parser override)` to previous facts.
+/// The caller namespaces its store by extractor version and parser policy.
+/// The scan rejects mismatched path/digest records and supplies current stamps.
+pub type GraphFactsReuse<'a> =
+    dyn Fn(&str, &str, Option<&str>) -> Option<GraphFactsTypedEntry> + Sync + 'a;
+
 /// The candidate files a graph-facts scan of `options` reads, in walk order:
 /// files of an outlined grammar (or mapped by `languageGlobs`) that `admit`
 /// passes, up to `max_files` (unset: the walk budget). A caller that needs
@@ -164,12 +192,22 @@ pub fn walk_graph_fact_files(
     admit: &(dyn Fn(&Path, Option<fs::FileType>) -> bool + Sync),
     stop: &Stop<'_>,
 ) -> Result<crate::types::FileSystemQueryResult, GraphScanError> {
+    walk_graph_fact_files_with_registry(options, admit, stop, RegistryView::installed())
+}
+
+pub fn walk_graph_fact_files_with_registry(
+    options: &GraphFactsScanOptions,
+    admit: &(dyn Fn(&Path, Option<fs::FileType>) -> bool + Sync),
+    stop: &Stop<'_>,
+    registry: RegistryView<'_>,
+) -> Result<crate::types::FileSystemQueryResult, GraphScanError> {
     let root = std::path::PathBuf::from(&options.path);
-    let overrides = parser_overrides(&root, options.language_globs.as_deref())?;
+    let overrides =
+        parser_overrides_with_registry(&root, options.language_globs.as_deref(), registry)?;
     let max_files = options
         .max_files
         .unwrap_or(u32::try_from(crate::scan_budget::walk_ceiling()).unwrap_or(u32::MAX));
-    let extensions = crate::signatures::graph_facts::graph_fact_extensions();
+    let extensions = registry.extensions(AnalysisOperation::GraphFacts);
     // A file only `languageGlobs` map to a grammar has an extension no grammar
     // claims, so with overrides the walk admits it by glob as well.
     let admitted = crate::search::fs_query::normalize_extensions(extensions.clone());
@@ -229,8 +267,30 @@ pub fn scan_walked_graph_facts<T: Send>(
     map: &(dyn Fn(&GraphFactsView<'_>) -> Option<T> + Sync),
     stop: &Stop<'_>,
 ) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
+    scan_walked_graph_facts_with_registry(
+        options,
+        walked,
+        source,
+        keep,
+        map,
+        stop,
+        RegistryView::installed(),
+        MapLimits::default(),
+    )
+}
+
+pub fn scan_walked_graph_facts_with_registry<T: Send>(
+    options: GraphFactsScanOptions,
+    walked: crate::types::FileSystemQueryResult,
+    source: FactsSource<'_>,
+    keep: &(dyn Fn(&str) -> bool + Sync),
+    map: &(dyn Fn(&GraphFactsView<'_>) -> Option<T> + Sync),
+    stop: &Stop<'_>,
+    registry: RegistryView<'_>,
+    map_limits: MapLimits,
+) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        evaluate_walk(
+        evaluate::evaluate_walk_with_registry(
             options,
             walked,
             source,
@@ -238,6 +298,8 @@ pub fn scan_walked_graph_facts<T: Send>(
             map,
             stop,
             Some(crate::scan_budget::SCAN_TIME_BUDGET),
+            registry,
+            map_limits,
         )
     }))
     .unwrap_or_else(|_| {

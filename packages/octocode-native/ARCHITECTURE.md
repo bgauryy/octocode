@@ -197,6 +197,10 @@ Config remains the shared home/dotenv policy owner; core contracts are unchanged
 
 `crates/engine/src/signatures/languages.rs` is the sole native grammar inventory. Structural search/rewrite, signatures, graph facts, syntax inspection, directory language filters, and LSP grammar adapters derive from that registry; built-in language-server routing comes from a separate server table (`lsp/config/catalog.rs`). Counts, grammar features, and per-language coverage: [SUPPORTED_LANGUAGES_AND_FEATURES.md](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md). An astSearch rule is a JSON object, decoded once into the engine's typed rule; YAML files are read as source text only.
 
+`RegistryView` separates structural search, syntax inspection, rendered outlines and fact capabilities. It can admit a versioned facts provider without requiring a Tree-sitter grammar; operation admission and the capability catalog use the same immutable view. Core's fingerprinted `AnalysisCapabilities` schema owns the served shape, including grammar-independent source decoding. Graph caches and manifests include registry identity.
+
+`engine::text::analysis` binds immutable parser templates to each admitted raw source and composes observed spans through representation maps. Runtime `tools::source_evidence` projects complete origins and descriptor closures through generated wire types; graph storage persists captured correspondence instead of reconstructing it from current files. [Source correspondence](docs/engine/SOURCE_CORRESPONDENCE.md) owns public coordinate meanings, paging and resource limits.
+
 `engine::lsp::managed` owns the pinned server manifest and the verified install layout `<home>/lsp/<server>/<tag>/<bin>` with a `.ok` marker; the CLI only downloads and installs. Route resolution order is in [LSP_SERVER_LIFECYCLE.md](docs/engine/LSP_SERVER_LIFECYCLE.md#resolution). Engine LSP discovery reads no `OCTOCODE_*` process environment; the runtime passes resolved options.
 
 Generic text search, reads, minification, file recognition, GitHub/history operations, artifact registries, and trusted custom LSP configuration do not consult the grammar allowlist. Syntax graph relations remain candidate evidence; callers use explicit LSP operations for semantic proof.
@@ -278,7 +282,7 @@ invocation with the committed lockfile.
 
 - The binary contains the full CLI, the MCP server and the runtime. The crate declares no default Cargo features.
 - Every build stages the host binary into its platform package so the local launchers execute the rebuilt runtime. Staging atomically replaces the inode — never an in-place overwrite, which can crash a running MCP server or leave a stale macOS code-signature cache.
-- Each platform package contains the optimized native binary only; there is no addon and no root entrypoint that loads one.
+- Each platform package contains the optimized native binary only; there is no addon. The workspace root is private: the launchers depend on the platform packages directly, and `bin/platform.cjs` (`PLATFORMS`) is the one platform list that `scripts/platform-packages.cjs` derives their manifests and pins from.
 - Host-platform staging and platform verification run the binary in a subprocess before release acceptance.
 - Release acceptance exercises the direct native CLI, the built Node launchers, and real stdio MCP calls (`octocode mcp` directly and through `octocode-mcp`).
 

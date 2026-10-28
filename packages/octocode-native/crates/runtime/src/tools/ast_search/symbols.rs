@@ -118,12 +118,12 @@ fn run_symbols(
     if meta.is_file() {
         let row_paths = super::RowPaths::new(paths, &p.canonical, true);
         let display_path = row_paths.delivered(&p.canonical.to_string_lossy());
-        let outline = match outline_file(q, &p.canonical, &display_path)? {
+        let outline = match outline_file(q, &p.canonical, &display_path, cancel)? {
             Ok(outline) => outline,
             Err(terminal) => return Ok(terminal),
         };
         let set = select(q, &p.canonical, outline, cancel)?;
-        return Ok(render_page(q, &set, row_paths, response_window));
+        return render_page(q, &set, row_paths, response_window, cancel);
     }
     let row_paths = super::RowPaths::new(paths, &p.canonical, false);
     // Later pages of a directory outline reuse page 1's selection while no
@@ -147,13 +147,13 @@ fn run_symbols(
         None
     };
     if let Some(hit) = hit {
-        let mut page = render_page(q, &hit.value, row_paths, response_window);
+        let mut page = render_page(q, &hit.value, row_paths, response_window, cancel)?;
         note_skipped(q, &p.canonical, mapped.as_ref(), paths, cancel, &mut page);
         return Ok(page);
     }
     let outline = outline_walked(q, &p.canonical, walk, cancel)?;
     let set = select(q, &p.canonical, outline, cancel)?;
-    let mut page = render_page(q, &set, row_paths, response_window);
+    let mut page = render_page(q, &set, row_paths, response_window, cancel)?;
     note_skipped(q, &p.canonical, mapped.as_ref(), paths, cancel, &mut page);
     let bytes = octocode_engine::json_size::bytes(&set).unwrap_or(usize::MAX);
     SYMBOL_PAGES.put(
@@ -183,6 +183,7 @@ fn check_language_scope(
         return super::language::validate_file_language(
             canonical,
             ast_search_query_symbols::language(q).as_deref(),
+            octocode_engine::text::analysis::AnalysisOperation::Declarations,
         );
     }
     if q.parser.is_none() {

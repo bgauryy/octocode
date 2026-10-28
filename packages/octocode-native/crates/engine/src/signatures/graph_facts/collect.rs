@@ -17,8 +17,8 @@ use crate::graph::{
 };
 
 use crate::signatures::nodes::{
-    call_callee, compact_identifier, declaration, declaration_extent, import_specifier,
-    is_call_node, is_exported_declaration, is_import_node, last_name_leaf, node_text,
+    declaration, declaration_extent, declaration_label, import_specifier, is_import_node,
+    last_name_leaf,
 };
 use crate::text::{JS_TS_EXTENSIONS, extension_of};
 
@@ -71,6 +71,7 @@ fn is_recovered_keyword_declaration(node: Node<'_>, name: &str, file_path: &str)
 /// not mix the two bases — use `range` for zero-based math and `line` for display.
 pub(super) fn collect_node_facts(
     node: Node<'_>,
+    ancestors: &[Node<'_>],
     content: &str,
     line_index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
@@ -79,6 +80,7 @@ pub(super) fn collect_node_facts(
     rust: Option<RustNodeContext<'_>>,
     deadline: std::time::Instant,
 ) -> Option<(String, String)> {
+    acc.test_context.observe(node, content);
     // Only item-level macro calls can generate `mod`/`use` items; their
     // bodies are re-read as Rust items after the main walk.
     if acc.ext == "rs"
@@ -88,7 +90,7 @@ pub(super) fn collect_node_facts(
     {
         record_macro_body(node, acc, active_decl, active_name, rust);
     }
-    let decl = declaration_fact(node, content, line_index, acc, active_decl);
+    let decl = declaration_fact(node, ancestors, content, line_index, acc, active_decl);
 
     // Keep the new declaration id alive for the entire child traversal so we
     // can pass it as &str without any per-child heap allocation.
@@ -140,8 +142,20 @@ pub(super) fn collect_node_facts(
         });
     }
 
-    if !acc.declarations_only && is_call_node(node.kind()) {
-        collect_call(node, content, line_index, acc, next_decl, next_name);
+    if acc.export_forwarding_node == Some(node.kind()) {
+        let mut diagnostic = super::note(crate::graph::GraphFactCode::UnsupportedExportForwarding);
+        diagnostic.line = Some(line_index.range(node).start.line + 1);
+        acc.diagnostics.push(diagnostic);
+    }
+    if !acc.declarations_only {
+        collect_call(
+            node, ancestors, content, line_index, acc, next_decl, next_name,
+        );
+    }
+    if !acc.declarations_only {
+        super::arguments::collect(
+            node, ancestors, content, line_index, acc, next_decl, next_name, deadline,
+        );
     }
 
     next_decl_identity
@@ -191,6 +205,7 @@ fn record_macro_body(
 /// non-reference.
 fn declaration_fact(
     node: Node<'_>,
+    ancestors: &[Node<'_>],
     content: &str,
     line_index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
@@ -198,8 +213,21 @@ fn declaration_fact(
 ) -> Option<GraphFactDeclaration> {
     declaration(node, content).and_then(|(kind, name_token)| {
         let kind = method_kind(kind, node, active_decl);
-        node_text(name_token, content)
-            .and_then(compact_identifier)
+        let test = super::test_adapter::test_identity(
+            node,
+            content,
+            &acc.ext,
+            name_token,
+            &acc.test_context,
+        );
+        let name_token = test
+            .as_ref()
+            .map_or(name_token, |(_, selection)| *selection);
+        let test_identity = test.map(|(identity, _)| identity);
+        test_identity
+            .as_ref()
+            .map(crate::graph::GraphTestIdentity::display_name)
+            .or_else(|| declaration_label(node, name_token, content))
             .filter(|name| !is_recovered_keyword_declaration(node, name, &acc.file_path))
             .map(|name| {
                 let range = line_index.declaration_range(declaration_extent(node));
@@ -215,7 +243,13 @@ fn declaration_fact(
                     node.start_byte(),
                     kind
                 );
-                let exported = is_exported_declaration(&acc.ext, node, content, &name, active_decl);
+                let exported = acc.visibility_adapter.exported(
+                    node,
+                    content,
+                    &name,
+                    active_decl,
+                    active_decl.is_some_and(|parent| acc.public_namespace_scopes.contains(parent)),
+                );
                 let parent = active_decl.map(str::to_owned);
                 acc.non_reference_tokens.insert(name_token.start_byte());
                 GraphFactDeclaration {
@@ -225,6 +259,10 @@ fn declaration_fact(
                     line,
                     range,
                     selection_range: line_index.range(name_token),
+                    source_range: Some(super::validity::byte_range(declaration_extent(node))),
+                    selection_byte_range: Some(super::validity::byte_range(name_token)),
+                    parse_assessment: super::validity::assess(node, ancestors, line_index),
+                    test_identity,
                     exported,
                     parent,
                     doc_line: None,
@@ -268,6 +306,9 @@ fn push_declaration(
             source: None,
         });
     }
+    if declaration.exported && acc.visibility_adapter.transparent_namespace(node) {
+        acc.public_namespace_scopes.insert(id.clone());
+    }
     acc.declarations.push(declaration);
     acc.declaration_spans
         .push((node.start_byte(), node.end_byte()));
@@ -279,19 +320,28 @@ fn push_declaration(
 /// any declaration, the module placeholder.
 fn collect_call(
     node: Node<'_>,
+    ancestors: &[Node<'_>],
     content: &str,
     line_index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
     caller_decl: Option<&str>,
     caller_name: Option<&str>,
 ) {
-    let Some((callee, callee_node)) = call_callee(node, content) else {
+    let Some(observation) = acc
+        .call_adapter
+        .and_then(|adapter| adapter.observe(node, content))
+    else {
         return;
     };
+    let callee = observation.callee;
     let target = callee
         .rsplit(['.', ':'])
         .find(|segment| !segment.is_empty());
-    if let Some(token) = target.and_then(|name| last_name_leaf(callee_node, content, name)) {
+    if let Some(token) = target.and_then(|name| {
+        observation
+            .name_token
+            .and_then(|token| last_name_leaf(token, content, name))
+    }) {
         acc.non_reference_tokens.insert(token.start_byte());
     }
     let range = line_index.range(node);
@@ -313,7 +363,10 @@ fn collect_call(
         callee: callee.to_owned(),
         line,
         range,
-        kind: "calls".to_owned(),
+        source_range: Some(super::validity::byte_range(node)),
+        parse_assessment: super::validity::assess(node, ancestors, line_index),
+        kind: observation.kind.to_owned(),
+        binding: observation.binding,
         receiver_type: None,
     });
     acc.edges.push(GraphFactEdge {

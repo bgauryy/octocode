@@ -37,6 +37,7 @@ mod limits;
 mod macros;
 mod owned_core;
 mod patterns;
+#[cfg(feature = "tree-sitter-cpp")]
 mod recovery;
 mod rule_features;
 mod rules;

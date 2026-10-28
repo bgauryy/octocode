@@ -81,15 +81,10 @@ fn normalize_integer(schema: &Value, value: &mut Value) {
     if !integer || !value.is_f64() {
         return;
     }
-    let Some(number) = value.as_f64().filter(|n| n.is_finite() && n.fract() == 0.0) else {
-        return;
-    };
-    // The rounded u64::MAX is 2^64: keep the upper bound exclusive so the
-    // cast cannot saturate. The negative i64 bound is exactly representable.
-    if number >= 0.0 && number < u64::MAX as f64 {
-        *value = Value::from(number as u64);
-    } else if number >= i64::MIN as f64 && number < 0.0 {
-        *value = Value::from(number as i64);
+    if let Value::Number(number) = value
+        && let Some(integer) = super::literals::integral_number(number)
+    {
+        *value = Value::Number(integer);
     }
 }
 
@@ -290,7 +285,7 @@ fn check_literals(
     path: &[String],
 ) -> Result<(), ContractValidationError> {
     if let Some(constant) = schema.get("const")
-        && value != constant
+        && !super::literals::equivalent(value, constant)
     {
         // Name the expected constant so a wrong variant selector is
         // self-correcting instead of a generic rejection.
@@ -306,7 +301,9 @@ fn check_literals(
         ));
     }
     if let Some(values) = schema.get("enum").and_then(Value::as_array)
-        && !values.contains(value)
+        && !values
+            .iter()
+            .any(|expected| super::literals::equivalent(value, expected))
     {
         // Name the allowed values, and the one a near miss means, so a wrong
         // view/entryType/etc. is self-correcting.

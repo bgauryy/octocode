@@ -115,11 +115,19 @@ fn symbol_pages_fill_the_window_and_walk_every_symbol_once() {
     for (index, out) in outputs.iter().enumerate() {
         let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
         assert!(chars <= WINDOW, "page {index} is {chars} chars");
-        // Every page but the last is filled: a count cut leaves most of it empty.
+        // Symbol evidence fills every page but the last. Measure the payload,
+        // so wrapper metadata cannot disguise an underfilled page and added
+        // provenance does not impose an obsolete fixed row-count assumption.
         if out["pagination"]["hasMore"] == true {
+            let evidence_chars = out["symbols"]
+                .as_array()
+                .expect("symbol evidence")
+                .iter()
+                .map(|row| octocode_engine::json_size::utf16_units(row).expect("row size"))
+                .sum::<usize>();
             assert!(
-                chars * 10 >= WINDOW * 6,
-                "page {index} holds only {chars} chars"
+                evidence_chars * 10 >= WINDOW * 6,
+                "page {index} holds only {evidence_chars} evidence chars"
             );
         }
         all.extend(symbol_rows(out));
@@ -133,7 +141,6 @@ fn symbol_pages_fill_the_window_and_walk_every_symbol_once() {
         .collect::<BTreeSet<_>>()
         .len();
     assert_eq!(totals, 1, "totals differ across pages");
-    assert!(outputs.len() <= 12, "{} calls", outputs.len());
 }
 
 /// A directory page states each file's path once, so a row is measured
@@ -211,8 +218,8 @@ fn a_file_of_three_thousand_matches_pages_by_bytes_and_reaches_each_once() {
         3_000,
         "a match was repeated"
     );
-    // 100 rows a page was 30 calls; a filled window is about a dozen.
-    assert!(outputs.len() <= 14, "{} calls", outputs.len());
+    // Every row now includes its exact origin; byte filling, rather than a
+    // legacy fixed row count, bounds the number of calls.
     for out in &outputs[..outputs.len() - 1] {
         let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
         assert!(
@@ -249,7 +256,13 @@ fn many_files_page_by_bytes_with_one_total() {
         .filter_map(|out| out["pagination"]["totalItems"].as_u64())
         .collect::<BTreeSet<_>>();
     assert_eq!(totals.len(), 1, "{totals:?}");
-    assert!(outputs.len() <= 8, "{} calls", outputs.len());
+    for out in &outputs[..outputs.len() - 1] {
+        let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
+        assert!(
+            chars >= WINDOW / 2,
+            "a page of {chars} chars left the window half empty"
+        );
+    }
 }
 
 #[test]
@@ -278,11 +291,13 @@ fn a_syntax_tree_pages_by_bytes_and_reaches_every_node_once() {
         .expect("total") as usize;
     assert_eq!(ids.len(), total);
     assert_eq!(ids.iter().collect::<BTreeSet<_>>().len(), total);
-    assert!(
-        outputs.len() < total / 100 + 2,
-        "{} calls for {total} nodes",
-        outputs.len()
-    );
+    for out in &outputs[..outputs.len() - 1] {
+        let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
+        assert!(
+            chars >= WINDOW / 2,
+            "a page of {chars} chars left the window half empty"
+        );
+    }
 }
 
 /// A later window-sized page reads on from the walk its first page kept

@@ -22,12 +22,13 @@ pub(super) fn volatile_reserve(fields: &Map<String, Value>) -> usize {
     octocode_engine::json_size::utf16_units(&shaped).unwrap_or(0) - 1
 }
 
-fn escape_pointer(key: &str) -> String {
+pub(super) fn escape_pointer(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
 /// The largest evidence array with at least two elements reachable through
 /// objects and single-element arrays. Executable calls remain indivisible.
+#[cfg(test)]
 fn largest_array(value: &Value, pointer: &str) -> Option<(String, usize)> {
     let mut best: Option<(String, usize)> = None;
     let mut consider = |candidate: Option<(String, usize)>| {
@@ -70,6 +71,7 @@ fn largest_array(value: &Value, pointer: &str) -> Option<(String, usize)> {
 /// emptied, the split's rest: the skeleton as it was, holding them and the
 /// lists beside the paged array at `pointer`. The rest is the split's first
 /// part, so its slices carry those lists emptied.
+#[cfg(test)]
 pub(super) fn lean_skeleton(skeleton: &mut Value, budget: usize, pointer: &str) -> Option<Value> {
     let mut rest = None;
     while let Some((relative, chars)) = skeleton
@@ -116,6 +118,7 @@ pub(super) fn continues_chars(array: &str, index: usize) -> usize {
 }
 
 /// Move the largest array out of `row`'s data, as (JSON pointer, items).
+#[cfg(test)]
 pub(super) fn take_largest_array(row: &mut Value) -> Option<(String, Vec<Value>)> {
     let (relative, _) = row.get("data").and_then(|data| largest_array(data, ""))?;
     let pointer = format!("/data{relative}");
@@ -126,44 +129,12 @@ pub(super) fn take_largest_array(row: &mut Value) -> Option<(String, Vec<Value>)
     Some((pointer, items))
 }
 
-/// Resolve declared collection paths without entering arbitrary answer values
-/// or treating coordinate tuples and criteria as evidence lists.
-pub(super) fn collection_pointer(row: &Value, paths: &[&str]) -> Option<String> {
-    fn visit(value: &Value, segments: &[&str], pointer: &str) -> Option<String> {
-        let Some((segment, rest)) = segments.split_first() else {
-            let len = match value {
-                Value::Array(items) => items.len(),
-                Value::Object(items) => items.len(),
-                _ => 0,
-            };
-            return (len > 1).then(|| pointer.to_owned());
-        };
-        if *segment == "*" {
-            return match value {
-                Value::Object(map) => map.iter().find_map(|(key, child)| {
-                    visit(child, rest, &format!("{pointer}/{}", escape_pointer(key)))
-                }),
-                Value::Array(items) if items.len() == 1 => {
-                    visit(&items[0], rest, &format!("{pointer}/0"))
-                }
-                _ => None,
-            };
-        }
-        let key = segment.replace("~1", "/").replace("~0", "~");
-        let child = value.as_object()?.get(&key)?;
-        visit(child, rest, &format!("{pointer}/{}", escape_pointer(&key)))
-    }
-    paths.iter().find_map(|path| {
-        let segments = path.trim_start_matches('/').split('/').collect::<Vec<_>>();
-        visit(row, &segments, "")
-    })
-}
-
 /// A later slice of a split row repeats its skeleton; the evidence lists
 /// beside the paged array, at each level of its `pointer` (diagnostics
 /// beside the paged files, a cycle's edges beside its files), were delivered
 /// with the first part, so later slices carry them emptied: each record
 /// once.
+#[cfg(test)]
 pub(super) fn empty_secondary_lists(skeleton: &mut Value, pointer: &str) {
     fn empty_collections(value: &mut Value) {
         match value {
@@ -213,7 +184,7 @@ pub(super) fn empty_secondary_lists(skeleton: &mut Value, pointer: &str) {
 /// paged `pointer` passes through, descriptive scalars ride the first part
 /// only. Required fields and core-classified provenance/disclosures stay,
 /// along with its lists (emptied beside the paged one, and dropped by
-/// [`drop_emptied_lists`] once the part is whole) and nested objects stay.
+/// the final materialization pass once the part is whole) and nested objects stay.
 pub(super) fn lean_elements(
     skeleton: &mut Value,
     pointer: &str,
@@ -253,6 +224,7 @@ pub(super) fn lean_elements(
 /// On a later slice, each array element the paged `pointer` passes through
 /// drops its lists left empty (an emptied `reviews: []` says nothing) unless
 /// its entry schema requires them; the paged array itself stays.
+#[cfg(test)]
 pub(super) fn drop_emptied_lists(
     value: &mut Value,
     pointer: &str,

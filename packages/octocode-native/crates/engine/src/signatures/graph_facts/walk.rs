@@ -70,7 +70,36 @@ pub(super) fn visit_macro_bodies(
             .flatten();
         match parsed {
             Some(tree) if !tree.root_node().has_error() => {
-                if !visit_node(
+                let starts = (
+                    acc.declarations.len(),
+                    acc.calls.len(),
+                    acc.argument_sites.len(),
+                );
+                let operation = acc.source_templates.units[0].operation;
+                let Ok(unit) = acc.source_templates.add_unit(
+                    crate::text::analysis::Producer::new("rust-item-macro-body", "1"),
+                    operation,
+                    crate::text::analysis::RepresentationHandle(0),
+                    vec![crate::text::analysis::ByteRange::new(
+                        range.start_byte as u32,
+                        range.end_byte as u32,
+                    )],
+                ) else {
+                    return false;
+                };
+                let outer_bindings = acc.argument_bindings.take();
+                if let Some(adapter) = acc.argument_adapter {
+                    acc.argument_bindings = Some(
+                        crate::signatures::arguments::binding::Bindings::collect(
+                            tree.root_node(),
+                            adapter,
+                            content,
+                            deadline,
+                        )
+                        .in_region(unit),
+                    );
+                }
+                let completed = visit_node(
                     tree.root_node(),
                     content,
                     line_index,
@@ -78,8 +107,26 @@ pub(super) fn visit_macro_bodies(
                     deadline,
                     &scope,
                     container.as_ref(),
-                ) {
+                );
+                acc.argument_bindings = outer_bindings;
+                if !completed {
                     return false;
+                }
+                for declaration in &mut acc.declarations[starts.0..] {
+                    if let Some(span) = &mut declaration.source_range {
+                        span.unit = unit;
+                    }
+                    if let Some(span) = &mut declaration.selection_byte_range {
+                        span.unit = unit;
+                    }
+                }
+                for call in &mut acc.calls[starts.1..] {
+                    if let Some(span) = &mut call.source_range {
+                        span.unit = unit;
+                    }
+                }
+                for site in &mut acc.argument_sites[starts.2..] {
+                    site.set_unit(unit);
                 }
             }
             _ => {
@@ -193,6 +240,7 @@ pub(super) fn visit_node(
         let calls_before = acc.calls.len();
         let identity = collect_node_facts(
             node,
+            &path,
             content,
             line_index,
             acc,

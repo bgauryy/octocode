@@ -135,6 +135,54 @@ async fn the_read_lead_returns_the_classified_capture() {
     runtime.close().await;
 }
 
+/// B210: an identical row recaptures its local source on every call, so an
+/// edit that keeps the size and restores the modification time still
+/// reaches the provider; only unchanged bytes replay a saved judgment.
+#[tokio::test]
+async fn an_identical_row_rejudges_a_local_source_after_an_edit() {
+    let server = provider(2).await;
+    let workspace = Workspace::new();
+    let original = "Restart the service after rotation.\n";
+    let edited = "Never restart; keys reload live now\n";
+    assert_eq!(original.len(), edited.len());
+    workspace.write("ops/runbook.md", original);
+    let file = workspace.workspace.join("ops/runbook.md");
+    let modified = std::fs::metadata(&file).unwrap().modified().unwrap();
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = || {
+        json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"ops/runbook.md"}},
+            "questions":{"restart":noul("Does rotation require a restart?")}
+        })
+    };
+    let first = clasify(&runtime, vec![row()]).await;
+    let unchanged = clasify(&runtime, vec![row()]).await;
+    assert!(
+        first["results"][0]["data"].get("replayed").is_none(),
+        "{first}"
+    );
+    assert_eq!(
+        unchanged["results"][0]["data"]["replayed"], true,
+        "{unchanged}"
+    );
+    workspace.write("ops/runbook.md", edited);
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    let after_edit = clasify(&runtime, vec![row()]).await;
+    assert!(
+        after_edit["results"][0]["data"].get("replayed").is_none(),
+        "{after_edit}"
+    );
+    let states = sent(&server).await;
+    assert_eq!(states.len(), 2);
+    assert_eq!(states[0]["state"]["text"], original);
+    assert_eq!(states[1]["state"]["text"], edited);
+    runtime.close().await;
+}
+
 #[tokio::test]
 async fn an_oversized_or_missing_source_fails_its_row_without_provider_work() {
     let server = provider(1).await;

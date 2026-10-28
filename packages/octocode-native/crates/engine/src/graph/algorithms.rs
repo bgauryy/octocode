@@ -19,6 +19,16 @@ pub struct FileGraphNode {
 /// importing itself). Tarjan runs on `u32` ids: graph keys hold ids
 /// `0..keys` in sorted order, edge-only (dangling) targets the ids after.
 pub fn scc(graph: &BTreeMap<String, FileGraphNode>, real_only: bool) -> Vec<Vec<String>> {
+    scc_filtered(graph, real_only, |_| true)
+}
+
+/// Strongly connected components of a borrowed edge view, without cloning
+/// the file graph or its evidence maps.
+pub fn scc_filtered(
+    graph: &BTreeMap<String, FileGraphNode>,
+    real_only: bool,
+    keep: impl Fn(&EdgeKinds) -> bool,
+) -> Vec<Vec<String>> {
     let mut ids = BTreeMap::new();
     let mut names = Vec::with_capacity(graph.len());
     for key in graph.keys() {
@@ -27,7 +37,7 @@ pub fn scc(graph: &BTreeMap<String, FileGraphNode>, real_only: bool) -> Vec<Vec<
     }
     let keys = names.len();
     for node in graph.values() {
-        for target in node.edges.keys() {
+        for (target, _) in node.edges.iter().filter(|(_, kinds)| keep(kinds)) {
             if !ids.contains_key(target.as_str()) {
                 ids.insert(target.as_str(), names.len() as u32);
                 names.push(target.as_str());
@@ -38,8 +48,9 @@ pub fn scc(graph: &BTreeMap<String, FileGraphNode>, real_only: bool) -> Vec<Vec<
     for (from, node) in graph {
         successors[ids[from.as_str()] as usize] = node
             .edges
-            .keys()
-            .map(|to| ids[to.as_str()])
+            .iter()
+            .filter(|(_, kinds)| keep(kinds))
+            .map(|(to, _)| ids[to.as_str()])
             .collect::<Vec<_>>();
     }
     let components = strongly_connected_components(0..keys as u32, names.len(), |id| {
@@ -62,7 +73,8 @@ pub fn scc(graph: &BTreeMap<String, FileGraphNode>, real_only: bool) -> Vec<Vec<
             c.len() > 1
                 || graph
                     .get(&c[0])
-                    .is_some_and(|n| n.edges.contains_key(&c[0]))
+                    .and_then(|n| n.edges.get(&c[0]))
+                    .is_some_and(&keep)
         });
     }
     out
@@ -189,6 +201,35 @@ mod tests {
                 })
                 .collect(),
             dynamic_only: BTreeSet::new(),
+        }
+    }
+
+    #[test]
+    fn filtered_scc_matches_materialized_edges_including_self_and_dangling_targets() {
+        let graph = BTreeMap::from([
+            ("a".into(), node(&["b", "missing"])),
+            ("b".into(), node(&["a"])),
+            ("self".into(), node(&["self"])),
+            ("isolated".into(), node(&[])),
+        ]);
+        for rejected in ["a", "b", "self", "missing"] {
+            let mut marked = graph.clone();
+            for node in marked.values_mut() {
+                if let Some(kinds) = node.edges.get_mut(rejected) {
+                    *kinds = BTreeMap::from([("excluded".into(), 1)]);
+                }
+            }
+            let mut materialized = marked.clone();
+            for node in materialized.values_mut() {
+                node.edges
+                    .retain(|_, kinds| !kinds.contains_key("excluded"));
+            }
+            for real_only in [false, true] {
+                assert_eq!(
+                    scc_filtered(&marked, real_only, |kinds| !kinds.contains_key("excluded")),
+                    scc(&materialized, real_only)
+                );
+            }
         }
     }
 

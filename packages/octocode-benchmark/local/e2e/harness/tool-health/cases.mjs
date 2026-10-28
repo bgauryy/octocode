@@ -2,7 +2,8 @@
 // followed from results. Tiny display budgets exercise transport pagination.
 import fs from 'node:fs';
 import path from 'node:path';
-import { declarations, lspLocations, structureFiles, sourceView, inventoryRows } from '../responses.mjs';
+import { declarations, lspLocations, structureFiles, sourceView, inventoryRows, unchangedContext } from '../responses.mjs';
+import { canon } from './calls.mjs';
 
 const files = data => (data?.files ?? []).flatMap(file => (file.matches ?? []).map(m => `${file.path}:${m.line}:${m.column ?? 0}`));
 const numbered = text => sourceView({ content: text ?? '' }).ranges.flatMap(r => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i));
@@ -15,6 +16,22 @@ const repo = { owner: 'octo', repo: 'demo' };
 const source = { tool: 'localFetch', query: { path: 'src/greeter.ts', ranges: [{ startLine: 1, endLine: 4 }] } };
 const questions = { named: { type: 'noul', instructions: 'Does this declare a field named text?' } };
 const LSP_PAGE_CALLS = 24;
+
+function codeSearchRows(data, json, context = new Map()) {
+  const row = json?.results?.find(result => result.data === data);
+  const continued = row?.rowPart?.part > 1 && row.rowPart.continues?.array === '/data/files';
+  return (data.files ?? []).flatMap((file, index) => {
+    const { matches, lines, ...metadata } = file;
+    const key = canon([row?.index ?? 0, file.owner, file.repo, file.path]);
+    const original = context.get(key);
+    const repeated = continued && index === 0 && unchangedContext(metadata, original);
+    const revision = file.commitSha ?? (repeated ? original.commitSha : undefined);
+    const evidenceKey = canon([row?.index ?? 0, file.owner, file.repo, file.path, revision]);
+    const own = repeated ? [] : [`file:${key}:${canon(metadata)}`];
+    if (!context.has(key)) context.set(key, metadata);
+    return [...own, ...(matches ?? []).map(match => `match:${evidenceKey}:${canon(match)}`), ...(lines ?? []).map(line => `line:${evidenceKey}:${canon(line)}`)];
+  });
+}
 
 function lspWorkspace(ctx) {
   const dir = path.join(ctx.tmp, 'lsp-workspace');
@@ -74,7 +91,7 @@ export const CASES = {
   },
   astSearch: {
     budgetMs: LOCAL,
-    happy: { query: { path: 'src', operation: 'symbols' }, fields: ['files'], rows: data => declarations({ sc: { results: [{ data }] } }).map(d => `${d.path}:${d.name}:${d.line}`), min: 6 },
+    happy: { query: { path: 'src', operation: 'symbols' }, fields: ['files'], rows: (data, json, context) => declarations({ sc: { results: [json?.results?.find(row => row.data === data) ?? { data }] } }, 0, context).map(d => d.occurrenceId ?? `${d.path}:${d.name}:${d.line}`), min: 6 },
     page: page({ path: 'src', operation: 'symbols' }),
     empty: { query: { path: 'src', operation: 'match', rule: { pattern: 'zzzNoSuchCall($A)' }, parser: 'typescript' } },
     invalid: { query: { path: 'src', operation: 'match' } },
@@ -105,7 +122,7 @@ export const CASES = {
   ghSearchCode: {
     budgetMs: REMOTE,
     happy: { query: { ...repo, keywords: ['greet'] }, fields: ['files'], rows: data => (data.files ?? []).map(f => f.path), min: 3 },
-    page: page({ ...repo, keywords: ['greet'] }),
+    page: { ...page({ ...repo, keywords: ['greet'] }), rows: codeSearchRows },
     empty: { query: { ...repo, keywords: ['zzznosuchtoken'] } },
     invalid: { query: { ...repo, keywords: 'greet' } },
   },

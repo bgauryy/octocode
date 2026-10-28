@@ -38,6 +38,13 @@ impl<'a> SpanPositions<'a> {
     pub(super) fn byte_offset(&self, line: u32, character: u32) -> u32 {
         self.index.position_to_byte(self.content, line, character)
     }
+
+    pub(super) fn byte_range(&self, range: &GraphRange) -> crate::graph::ByteRange {
+        crate::graph::ByteRange {
+            start_byte: self.byte_offset(range.start.line, range.start.character),
+            end_byte: self.byte_offset(range.end.line, range.end.character),
+        }
+    }
 }
 
 pub(super) fn module_export_name(name: &ModuleExportName) -> Option<String> {

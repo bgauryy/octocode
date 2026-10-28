@@ -84,6 +84,7 @@ fn link_file_keeps_heritage_and_call_kinds() {
     let known = known(&["a.ts"]);
     let security = crate::security::ContentSecurity::new();
     let inputs = super::super::LinkInputs {
+        rust_modules: &super::super::RustModules::default(),
         known: &known,
         security: &security,
         rust_cargo_unavailable: false,
@@ -136,6 +137,7 @@ fn facts_of_an_older_schema_are_skipped_not_linked() {
     let known = known(&["a.ts"]);
     let security = crate::security::ContentSecurity::new();
     let inputs = super::super::LinkInputs {
+        rust_modules: &super::super::RustModules::default(),
         known: &known,
         security: &security,
         rust_cargo_unavailable: false,

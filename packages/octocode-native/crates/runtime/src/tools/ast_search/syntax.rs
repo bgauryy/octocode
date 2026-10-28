@@ -1,15 +1,14 @@
 use crate::id::ToolId;
 use crate::num::usize_of;
 use crate::response::result::ToolError;
-use crate::{
-    execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
-};
+use crate::{execution::cancel::CancellationCheck, policy::path::PathPolicy};
 use octocode_contract_types::{AstSearchQuerySyntaxTree, ErrorCode};
 use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::{Value, json};
 
+mod pricing;
 mod render;
-use render::{node_page_chars, render_tree_page};
+use render::render_tree_page;
 
 /// Engine-unit views over the generated `syntaxTree` query.
 pub(crate) mod ast_search_query_syntax_tree {
@@ -33,17 +32,15 @@ pub(crate) mod ast_search_query_syntax_tree {
 pub fn execute_syntax(
     q: &AstSearchQuerySyntaxTree,
     paths: &PathPolicy,
-    security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
-    run_syntax(q, paths, security, cancel, response_window).map(super::output::finish)
+    run_syntax(q, paths, cancel, response_window).map(super::output::finish)
 }
 
 fn run_syntax(
     q: &AstSearchQuerySyntaxTree,
     paths: &PathPolicy,
-    security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
@@ -54,25 +51,47 @@ fn run_syntax(
     super::language::validate_file_language(
         &p.canonical,
         ast_search_query_syntax_tree::language(q).as_deref(),
+        octocode_engine::text::analysis::AnalysisOperation::SyntaxTree,
     )?;
     let display_path =
         super::RowPaths::new(paths, &p.canonical, true).delivered(&p.canonical.to_string_lossy());
     let Some(bytes) = super::source::read_parse_source(&p.canonical)? else {
         return Ok(super::source::source_limit(&display_path, None));
     };
-    let sanitized = security.sanitize_text(
-        &super::source::parse_text(&p.canonical, &bytes)?,
-        Some(&p.canonical),
-    );
-    let snapshot = crate::digest::json_sha256(&json!([
+    // Node rows expose grammar labels and coordinates, never source text.
+    // Redacting before parsing would move those coordinates and hide source edits.
+    let cancelled = || cancel.check().is_err();
+    let mut maps = super::source::mapping_budget(&cancelled);
+    let admitted = super::source::admitted(&p.canonical, &bytes, &mut maps)?;
+    let content = admitted.text();
+    let source_snapshot = crate::digest::json_sha256(&json!([
         // Node-row shape version (1-based columns).
-        "rows-v2",
+        "rows-v4",
         p.canonical.to_string_lossy(),
         q.parser,
-        sanitized.content,
+        octocode_engine::digest::sha256(&bytes),
         q.named_only,
         ast_search_query_syntax_tree::line(q)
     ]));
+    if let Some(line) = ast_search_query_syntax_tree::line(q) {
+        check_line(q, line, content)?;
+    }
+    cancel.check().map_err(ToolError::cancelled)?;
+    let source = Source {
+        admitted: &admitted,
+        content,
+        path: &p.canonical,
+        extension: super::language::parser_override(
+            &p.canonical,
+            ast_search_query_syntax_tree::language(q).as_deref(),
+        ),
+    };
+    let budget = crate::response::page_windows::page_budget(
+        response_window,
+        &crate::response::result::query_value(q),
+    );
+    let page = read_page(q, &source, budget, &source_snapshot, &mut maps, cancel)?;
+    let snapshot = view_snapshot(&source_snapshot, &page.r);
     // A page without a snapshot pins nothing: it pages the current tree, as
     // every astSearch and structureSearch listing does; only a snapshot
     // that no longer matches is stale.
@@ -86,24 +105,43 @@ fn run_syntax(
             ),
         ));
     }
-    if let Some(line) = ast_search_query_syntax_tree::line(q) {
-        check_line(q, line, &sanitized.content)?;
+    let mut out = render_tree_page(q, &display_path, &page, &snapshot);
+    if page.r.status != "error" && !page.r.nodes.is_empty() {
+        let bound = page
+            .r
+            .source_templates
+            .bind(&admitted, &mut maps)
+            .map_err(ToolError::source)?;
+        let mut evidence = super::evidence::FileEvidence::new(&bound, &mut maps, cancel);
+        let rows = out["nodes"].as_array_mut().ok_or_else(|| {
+            ToolError::new(ErrorCode::ExecutionFailed, "Syntax rows are missing.")
+        })?;
+        for (row, node) in rows.iter_mut().zip(&page.r.nodes) {
+            evidence.span(row, node.source_span, "sourceRange", "sourceOrigin", true)?;
+        }
+        let descriptors = evidence.finish()?;
+        super::evidence::attach_page(&mut out, &descriptors, cancel)?;
     }
-    cancel.check().map_err(ToolError::cancelled)?;
-    let source = Source {
-        content: &sanitized.content,
-        path: &p.canonical,
-        extension: super::language::parser_override(
-            &p.canonical,
-            ast_search_query_syntax_tree::language(q).as_deref(),
-        ),
-    };
-    let budget = crate::response::page_windows::page_budget(
-        response_window,
-        &crate::response::result::query_value(q),
-    );
-    let page = read_page(q, &source, budget, &snapshot, cancel)?;
-    Ok(render_tree_page(q, &display_path, page, &snapshot))
+    Ok(out)
+}
+
+/// The observed extent is part of identity: a cold replay with a different
+/// deadline census must restart rather than change a continuation's coverage.
+fn view_snapshot(
+    source: &str,
+    result: &octocode_engine::structural::SyntaxTreeInspectResult,
+) -> String {
+    crate::digest::json_sha256(&json!([
+        "syntax-view-v1",
+        source,
+        result.total_nodes,
+        result.status,
+        result
+            .diagnostics
+            .iter()
+            .map(|diagnostic| crate::tools::ast_rule::diagnostic_row(diagnostic, None))
+            .collect::<Vec<_>>()
+    ]))
 }
 
 /// A `line` past the file's last line is invalid input naming the line
@@ -139,6 +177,7 @@ struct TreePage {
 struct Walked {
     r: octocode_engine::structural::SyntaxTreeInspectResult,
     windows: Vec<std::ops::Range<usize>>,
+    prices: pricing::Prices,
 }
 
 static WALKS: crate::tools::page_memo::PageMemo<std::sync::Arc<Walked>> =
@@ -153,16 +192,19 @@ impl Walked {
             .map(|node| std::mem::size_of_val(node) + node.kind.len())
             .sum::<usize>()
             + self.windows.len() * std::mem::size_of::<std::ops::Range<usize>>()
+            + self.r.source_templates.heap_bytes()
+            + self.prices.weight()
     }
 
     /// Whether the walk read past `page`'s window, or read every node it can.
     fn reaches(&self, page: usize) -> bool {
-        self.windows.len() > page || self.r.next_offset.is_none() || self.r.status != "ok"
+        self.windows.len() > page || self.r.next_offset.is_none()
     }
 }
 
 /// The parsed file a syntax-tree page is read from.
 struct Source<'a> {
+    admitted: &'a octocode_engine::text::analysis::AdmittedSource<'a>,
     content: &'a str,
     path: &'a std::path::Path,
     /// The grammar's extension when the request overrides the file's own.
@@ -214,6 +256,7 @@ fn read_page(
     source: &Source<'_>,
     budget: usize,
     snapshot: &str,
+    maps: &mut octocode_engine::text::analysis::MapBudget<'_>,
     cancel: &dyn CancellationCheck,
 ) -> Result<TreePage, ToolError> {
     use crate::response::pages::PageFacts;
@@ -223,32 +266,24 @@ fn read_page(
     let walked = match stored {
         Some(walked) if walked.reaches(page) => walked,
         stored => {
-            let mut r = match stored {
-                Some(walked) => walked.r.clone(),
-                None => source.inspect(q, 0, NODE_CHUNK)?,
+            let (mut r, mut prices) = match stored {
+                Some(walked) => (walked.r.clone(), walked.prices.clone()),
+                None => (
+                    source.inspect(q, 0, NODE_CHUNK)?,
+                    pricing::Prices::default(),
+                ),
             };
-            let mut windows = page_windows(&r, budget);
-            while let Some(next) = r
-                .next_offset
-                .filter(|_| windows.len() <= page && r.status == "ok")
-            {
+            let mut windows =
+                pricing::windows(&r, &mut prices, source.admitted, maps, budget, cancel)?;
+            while let Some(next) = r.next_offset.filter(|_| windows.len() <= page) {
                 cancel.check().map_err(ToolError::cancelled)?;
-                let rest = source.inspect(q, next, NODE_CHUNK)?;
-                r.nodes.extend(rest.nodes);
-                r.next_offset = rest.next_offset;
-                r.status = rest.status;
-                for diagnostic in rest.diagnostics {
-                    if !r
-                        .diagnostics
-                        .iter()
-                        .any(|seen| seen.code == diagnostic.code)
-                    {
-                        r.diagnostics.push(diagnostic);
-                    }
-                }
-                windows = page_windows(&r, budget);
+                let remaining = r.total_nodes.saturating_sub(next);
+                let expected = remaining.min(NODE_CHUNK);
+                let rest = source.inspect(q, next, expected)?;
+                append_observed_window(&mut r, rest, next, expected)?;
+                windows = pricing::windows(&r, &mut prices, source.admitted, maps, budget, cancel)?;
             }
-            let walked = std::sync::Arc::new(Walked { r, windows });
+            let walked = std::sync::Arc::new(Walked { r, windows, prices });
             if walked.r.status != "error" {
                 WALKS.put(
                     snapshot.to_owned(),
@@ -263,7 +298,7 @@ fn read_page(
     let windows = &walked.windows;
     let total = usize_of(walked.r.total_nodes);
     let more = windows.len() > page;
-    let read_all = walked.r.next_offset.is_none() || walked.r.status != "ok";
+    let read_all = walked.r.next_offset.is_none();
     let facts = if read_all {
         PageFacts::sized(page, windows.len(), total, more)
             .out_of_range(page > 1 && page > windows.len())
@@ -275,6 +310,7 @@ fn read_page(
         .cloned()
         .unwrap_or(walked.r.nodes.len()..walked.r.nodes.len());
     let r = octocode_engine::structural::SyntaxTreeInspectResult {
+        source_templates: walked.r.source_templates.clone(),
         nodes: walked.r.nodes[window].to_vec(),
         total_nodes: walked.r.total_nodes,
         next_offset: walked.r.next_offset,
@@ -284,14 +320,33 @@ fn read_page(
     Ok(TreePage { r, more, facts })
 }
 
-/// The page windows of the nodes a walk read, under `budget`.
-fn page_windows(
-    r: &octocode_engine::structural::SyntaxTreeInspectResult,
-    budget: usize,
-) -> Vec<std::ops::Range<usize>> {
-    let sizes = r.nodes.iter().map(node_page_chars).collect::<Vec<_>>();
-    crate::response::page_windows::Paging::of(None, budget).windows(&sizes)
+/// Replays stay within the first walk's observed census and coverage facts.
+fn append_observed_window(
+    target: &mut octocode_engine::structural::SyntaxTreeInspectResult,
+    rest: octocode_engine::structural::SyntaxTreeInspectResult,
+    start: u32,
+    expected: u32,
+) -> Result<(), ToolError> {
+    if rest.nodes.len() != usize_of(expected)
+        || rest
+            .nodes
+            .iter()
+            .enumerate()
+            .any(|(index, node)| node.id != start + index as u32)
+    {
+        return Err(ToolError::new(
+            ErrorCode::ScopeTooBroad,
+            "The syntax-tree replay could not reproduce its already observed node window within the scan budget; narrow the tree with line.",
+        ));
+    }
+    target.nodes.extend(rest.nodes);
+    let end = start.saturating_add(expected);
+    target.next_offset = (end < target.total_nodes).then_some(end);
+    Ok(())
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Nodes read from the engine per call while a window-sized page is cut.
 const NODE_CHUNK: u32 = 100_000;

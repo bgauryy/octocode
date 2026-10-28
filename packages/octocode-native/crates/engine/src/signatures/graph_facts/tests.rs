@@ -120,3 +120,12 @@ mod heritage_edges;
 mod language_facts;
 mod references;
 mod rust_modules;
+
+mod test_discovery;
+mod validity;
+
+mod adapter_repairs;
+
+mod adapter_visibility;
+
+mod namespaces;

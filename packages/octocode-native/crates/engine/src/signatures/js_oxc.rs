@@ -31,9 +31,11 @@ use crate::graph::{GraphFactDeclaration, GraphFactEdge, GraphFactsDocument, Grap
 mod module_facts;
 mod outline;
 mod symbols;
+mod validity;
 mod walk;
 
 use outline::{module_outline, push_heritage_edges};
+use validity::assess_recovery;
 use walk::{collect_member_functions, collect_program};
 
 /// The kind of a TypeScript type alias, module-private: LSP has no type-alias
@@ -175,7 +177,7 @@ fn extract_graph_facts_with_metadata_inner(
         let line_index = SpanPositions::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
-        let (declarations, mut edges, imports, exports) = module_outline(
+        let (mut declarations, mut edges, imports, exports) = module_outline(
             &parser_ret.program,
             &line_index,
             file_path,
@@ -189,6 +191,7 @@ fn extract_graph_facts_with_metadata_inner(
         let mut calls = Vec::new();
         let mut heritage = Vec::new();
         collect_program_calls(&parser_ret.program, &line_index, &mut calls, &mut heritage);
+        assess_recovery(&parser_ret, &line_index, &mut declarations, &mut calls);
         if job_cancelled() {
             return None;
         }
@@ -255,11 +258,27 @@ fn extract_graph_facts_with_metadata_inner(
         }
         push_heritage_edges(&declarations, heritage, &mut edges);
 
+        let semantic = SemanticBuilder::new()
+            .with_build_nodes(true)
+            .build(&parser_ret.program)
+            .semantic;
+        let argument_sites = super::js_oxc_arguments::collect(
+            &semantic,
+            &parser_ret,
+            &line_index,
+            content,
+            file_path,
+            &declarations,
+            &imports,
+            &calls,
+        );
+
         let facts = GraphFactsDocument {
             declarations,
             imports,
             exports,
             calls,
+            argument_sites,
             common_js,
             edges,
             diagnostics: parser_ret
@@ -267,12 +286,8 @@ fn extract_graph_facts_with_metadata_inner(
                 .into_iter()
                 .map(|error| parse_error(error.message.to_string()))
                 .collect(),
-            ..super::native_graph_facts(ext, file_path)
+            ..super::native_graph_facts(ext, file_path, content)
         };
-        let semantic = SemanticBuilder::new()
-            .with_build_nodes(true)
-            .build(&parser_ret.program)
-            .semantic;
         if job_cancelled() {
             return None;
         }
@@ -309,13 +324,14 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFac
         collect_program(&parser_ret.program, &line_index, &mut symbols);
         collect_member_functions(&parser_ret.program.body, &line_index, &mut symbols);
         symbols.sort_by_key(|symbol| (symbol.range.start.line, symbol.range.start.character));
-        let (declarations, edges, imports, exports) = module_outline(
+        let (mut declarations, edges, imports, exports) = module_outline(
             &parser_ret.program,
             &line_index,
             file_path,
             content,
             &symbols,
         );
+        assess_recovery(&parser_ret, &line_index, &mut declarations, &mut []);
         if job_cancelled() {
             return None;
         }
@@ -329,7 +345,7 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFac
                 .into_iter()
                 .map(|error| parse_error(error.message.to_string()))
                 .collect(),
-            ..super::native_graph_facts(ext, file_path)
+            ..super::native_graph_facts(ext, file_path, content)
         })
     })
 }

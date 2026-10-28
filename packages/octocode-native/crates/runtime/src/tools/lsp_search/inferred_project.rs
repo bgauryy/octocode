@@ -8,9 +8,9 @@
 //! Such rows are flagged partial with reason `inferredProject`, a hint, and
 //! a lexical `localSearch` fallback over the workspace.
 //!
-//! clangd without a compilation database is the C/C++ analogue: it answers
-//! from the opened file alone, so its incoming-direction rows get reason
-//! `noCompileDatabase` and the same fallback.
+//! C-family rows record configuration files separately from an effective
+//! compilation command. Missing configuration is a coverage warning; finding
+//! a file does not verify the command or the server's indexed scope.
 
 use super::failure::flag_partial;
 use super::importers::{SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
@@ -85,28 +85,33 @@ pub(super) fn annotate(
 const COMPILE_DATABASE_HINT: &str = "Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.";
 /// Coverage reason of a C/C++ row answered without a compilation database.
 pub(super) const NO_COMPILE_DATABASE_REASON: &str = "noCompileDatabase";
-const NO_COMPILE_DATABASE_WARNING: &str = "clangd found no compile_commands.json, compile_flags.txt, or .clangd for this file, so it answered from the opened file alone: references in other files are missing. Generate a compilation database (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON; Make: bear -- make), or confirm with a localSearch of the name.";
+const NO_COMPILE_DATABASE_WARNING: &str = "No compile_commands.json, compile_flags.txt, or .clangd was found in the checked ancestor locations. The effective compilation command and indexed scope are unverified; confirm project setup and diagnostics before interpreting missing results.";
 
-/// Whether a clangd compilation database or flags file covers `start`
-/// (clangd also looks in a `build/` subdirectory of each ancestor).
-fn has_compile_database(start: &Path) -> bool {
+/// Configuration candidates in ancestor directories and their build folders.
+/// This inventory does not establish which configuration clangd selected.
+fn compile_configuration_sources(start: &Path) -> Vec<String> {
     let dir = if start.is_dir() {
         Some(start)
     } else {
         start.parent()
     };
-    dir.into_iter().flat_map(Path::ancestors).any(|dir| {
-        ["compile_commands.json", "compile_flags.txt", ".clangd"]
-            .iter()
-            .any(|name| dir.join(name).exists() || dir.join("build").join(name).exists())
-    })
+    let mut sources = Vec::new();
+    for dir in dir.into_iter().flat_map(Path::ancestors) {
+        for name in ["compile_commands.json", "compile_flags.txt", ".clangd"] {
+            for path in [dir.join(name), dir.join("build").join(name)] {
+                if path.is_file() {
+                    sources.push(path.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+    sources.sort();
+    sources.dedup();
+    sources
 }
 
-/// clangd without a compilation database answers from the opened file only.
-/// An empty answer is almost always the missing database, not a missing
-/// symbol: say so instead of the generic "verify the anchor" advice. A
-/// non-empty incoming-direction answer (references, callers) looks complete
-/// but holds single-file results: flag it partial with the same cause.
+/// Record discovered configuration separately from the effective command.
+/// File presence cannot establish command validity or indexed coverage.
 pub(super) fn annotate_compile_database(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -117,15 +122,25 @@ pub(super) fn annotate_compile_database(
     if !octocode_engine::lsp::family::is_c_family(language_id)
         || !row.is_object()
         || row.get("status").and_then(Value::as_str) == Some("error")
-        || has_compile_database(Path::new(anchor_path))
     {
+        return;
+    }
+    let sources = compile_configuration_sources(Path::new(anchor_path));
+    let found = !sources.is_empty();
+    super::analysis_context::context(row)["compilation"] = json!({
+        "configuration": if found { "found" } else { "notFound" },
+        "command": "unverified",
+        "sources": sources,
+    });
+    if found {
         return;
     }
     let empty = row.get("status").and_then(Value::as_str) == Some("empty")
         || row.pointer("/kind").and_then(Value::as_str) == Some("empty");
     if empty {
         row["hints"] = json!([COMPILE_DATABASE_HINT]);
-    } else if is_incoming(lsp_search_query::operation(query)) {
+    }
+    if empty || is_incoming(lsp_search_query::operation(query)) {
         flag_partial(
             row,
             query,
@@ -249,7 +264,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let file = dir.path().join("a.hpp");
         std::fs::write(&file, "int f();\n").expect("write");
-        if has_compile_database(dir.path()) {
+        if !compile_configuration_sources(dir.path()).is_empty() {
             return; // an ancestor of the temp dir has one
         }
         let query = refs_query(&format!("file://{}", file.display()));
@@ -277,7 +292,7 @@ mod tests {
             crate::tools::test_support::checks::related_call(&found, "localSearch", |_| true)["tool"],
             "localSearch"
         );
-        // clangd also answers CUDA, with the same single-file limitation.
+        // clangd also answers CUDA, with the same unverified-context warning.
         let mut cuda = refs_row();
         cuda["matches"] = json!([{"path":"a.hpp","line":1}]);
         annotate_compile_database(&mut cuda, &query, Some("cuda"), &path, &root);
@@ -290,9 +305,46 @@ mod tests {
         let mut row = json!({"status":"empty","kind":"empty","hints":["generic"]});
         annotate_compile_database(&mut row, &query, Some("cpp"), &path, &root);
         assert_eq!(row["hints"][0], "generic");
+        assert_eq!(
+            row["lsp"]["analysisContext"]["compilation"]["configuration"],
+            "found"
+        );
+        assert_eq!(
+            row["lsp"]["analysisContext"]["compilation"]["command"],
+            "unverified"
+        );
         let mut rust = json!({"status":"empty","kind":"empty","hints":["generic"]});
         annotate_compile_database(&mut rust, &query, Some("rust"), &path, &root);
         assert_eq!(rust["hints"][0], "generic");
+    }
+
+    #[test]
+    fn config_presence_is_not_a_verified_compilation_command() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let file = dir.path().join("a.cpp");
+        std::fs::write(&file, "int f();").expect("source");
+        let config = dir.path().join(".clangd");
+        std::fs::write(&config, "Diagnostics:\n  Suppress: unused-includes\n").expect("config");
+        let query = refs_query(&format!("file://{}", file.display()));
+        let scope = Scope::new(dir.path().to_string_lossy().into_owned(), Vec::new());
+        let mut row = refs_row();
+        annotate_compile_database(
+            &mut row,
+            &query,
+            Some("cpp"),
+            &file.to_string_lossy(),
+            &scope,
+        );
+        let assessment = &row["lsp"]["analysisContext"]["compilation"];
+        assert_eq!(assessment["configuration"], "found");
+        assert_eq!(assessment["command"], "unverified");
+        assert!(
+            assessment["sources"]
+                .as_array()
+                .expect("sources")
+                .contains(&json!(config.to_string_lossy()))
+        );
+        assert!(row.get("isPartial").is_none());
     }
 
     #[test]

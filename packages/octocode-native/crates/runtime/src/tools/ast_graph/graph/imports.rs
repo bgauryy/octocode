@@ -7,6 +7,16 @@ impl FileLink<'_, '_> {
         add_edge(self.b, &mut self.node, target, kind, line, &|line| {
             facts.test_scoped(line)
         });
+        if self
+            .node
+            .edges
+            .get(target)
+            .is_some_and(|kinds| kinds.contains_key(kind))
+        {
+            self.facts
+                .file_edges
+                .push((target.to_owned(), kind.to_owned(), line));
+        }
     }
 
     /// Whether `line` lies inside a function or method body of this file
@@ -27,6 +37,14 @@ impl FileLink<'_, '_> {
     }
 
     pub(super) fn resolve(&self, spec: &str, hint: Option<&str>, imported: &str) -> Option<String> {
+        if self.lang == Linker::Rust {
+            return self.inputs.rust_modules.resolve(
+                spec,
+                &self.file,
+                self.inputs.known,
+                self.inputs.cargo_crates,
+            );
+        }
         resolve(
             spec,
             &self.file,
@@ -78,6 +96,10 @@ impl FileLink<'_, '_> {
         for d in declarations {
             self.facts.declarations.push(Declaration {
                 id: d.id,
+                test_identity: d.test_identity,
+                source_range: d.source_range,
+                selection_byte_range: d.selection_byte_range,
+                parse_assessment: d.parse_assessment,
                 name: d.name,
                 kind: d.kind,
                 line: d.line,
@@ -107,6 +129,14 @@ impl FileLink<'_, '_> {
         let target = if include {
             join_within_root(dirname(&self.file), &i.specifier)
                 .filter(|target| self.inputs.known.contains(target))
+        } else if rust
+            && !self.inputs.rust_cargo_unavailable
+            && let ModuleResolution::Inside(target) =
+                self.inputs
+                    .rust_modules
+                    .import(&self.file, &i, self.inputs.cargo_crates)
+        {
+            target
         } else if rust
             && let Some(local) = rust_local_target(&i, &self.file, modules, self.inputs.known)
         {
@@ -154,6 +184,7 @@ impl FileLink<'_, '_> {
             }
         }
         self.facts.imports.push(Import {
+            id: i.id.clone(),
             imported_name: i.imported_name.unwrap_or_default(),
             local_name: i.local_name,
             specifier: i.specifier,
@@ -223,6 +254,7 @@ impl FileLink<'_, '_> {
         let imported_name = i.imported_name.unwrap_or_default();
         if linked_targets.is_empty() {
             self.facts.imports.push(Import {
+                id: i.id.clone(),
                 imported_name,
                 local_name: i.local_name,
                 specifier: i.specifier,
@@ -234,6 +266,7 @@ impl FileLink<'_, '_> {
         }
         for target in linked_targets {
             self.facts.imports.push(Import {
+                id: i.id.clone(),
                 imported_name: imported_name.clone(),
                 local_name: i.local_name.clone(),
                 specifier: i.specifier.clone(),

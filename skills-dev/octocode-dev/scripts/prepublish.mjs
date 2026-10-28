@@ -29,7 +29,7 @@
 import { isMainModule } from './lib/entrypoint.mjs';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { ROOT } from './lib/workspaces.mjs';
 import {
   isLocalResolution,
@@ -92,7 +92,9 @@ function workspaceManifests() {
     try {
       const manifest = JSON.parse(readFileSync(join(ROOT, 'packages', entry.name, 'package.json'), 'utf8'));
       if (manifest.name) manifests.set(manifest.name, manifest);
-    } catch {}
+    } catch {
+      // A directory without a readable package.json is not a workspace.
+    }
   }
   return manifests;
 }

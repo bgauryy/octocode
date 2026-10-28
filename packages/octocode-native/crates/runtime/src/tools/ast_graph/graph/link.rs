@@ -109,6 +109,7 @@ pub(super) fn sanitize(security: &ContentSecurity, text: &str) -> String {
 
 /// Per-scan inputs every file's linking reads.
 pub(super) struct LinkInputs<'x> {
+    pub rust_modules: &'x RustModules,
     pub(super) known: &'x BTreeSet<String>,
     pub(super) security: &'x ContentSecurity,
     pub(super) rust_cargo_unavailable: bool,
@@ -133,6 +134,17 @@ pub(super) fn link_file(
     count_language(b, &language, lang.label());
     push_fact_diagnostics(b, &file, &p.diagnostics, &language, lang, inputs.security);
     let facts = FileFacts {
+        source_digest: p.source_digest.clone(),
+        argument_sites: p.argument_sites,
+        argument_scan_complete: !p.diagnostics.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.code,
+                octocode_engine::graph::GraphFactCode::RecoveredParse
+                    | octocode_engine::graph::GraphFactCode::ParseError
+                    | octocode_engine::graph::GraphFactCode::ParseDeadline
+                    | octocode_engine::graph::GraphFactCode::TraversalDeadline
+            )
+        }),
         reference_counts: counts,
         language,
         test_lines: p.test_lines.clone(),

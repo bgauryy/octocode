@@ -9,8 +9,9 @@ pub(super) async fn anchor_diagnostics(
     client: &NativeLspClient,
     path: &str,
     cancel: &dyn CancellationCheck,
-) -> Result<Option<Value>, LspFailure> {
-    let report = if client.has_capability("diagnosticProvider".to_owned()) {
+    wait: bool,
+) -> Result<Option<(Value, bool)>, LspFailure> {
+    let report = if wait && client.has_capability("diagnosticProvider".to_owned()) {
         let wait = std::time::Duration::from_millis(ANCHOR_DIAGNOSTICS_WAIT_MS.into());
         cancellable(
             cancel,
@@ -22,13 +23,18 @@ pub(super) async fn anchor_diagnostics(
     } else {
         cancellable(
             cancel,
-            client.get_push_diagnostics(path.to_owned(), Some(ANCHOR_DIAGNOSTICS_WAIT_MS)),
+            client.get_push_diagnostics(
+                path.to_owned(),
+                Some(if wait { ANCHOR_DIAGNOSTICS_WAIT_MS } else { 0 }),
+            ),
         )
         .await?
         .ok()
         .flatten()
     };
-    Ok(report.map(|report| diagnostic_items(Some(report)).0))
+    Ok(report
+        .filter(|report| report.get("kind").and_then(Value::as_str) != Some("unchanged"))
+        .map(|report| diagnostic_items(Some(report))))
 }
 
 /// rust-analyzer codes for macros it did not expand. The engine starts it

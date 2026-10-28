@@ -51,6 +51,7 @@ pub(crate) enum ResponseError {
     StructuredContentMustBeObject,
     Unserializable,
     InvalidPage,
+    InvalidEvidence(String),
 }
 
 /// The page of `input` its options ask for: whole-row pages (`rows`), a
@@ -67,11 +68,11 @@ pub(crate) fn prepare(
         return Err(ResponseError::StructuredContentMustBeObject);
     };
     if input.options.paging {
-        let source = row_source(structured, &input)?;
+        let source = row_source(structured, &input, cancelled)?;
         if cancelled.is_cancelled() {
             return Err(ResponseError::Cancelled);
         }
-        return cut_rows(&source, &input);
+        return cut_rows(&source, &input, cancelled);
     }
     Ok(PreparedPage {
         value: Value::Object(structured),
@@ -93,7 +94,7 @@ pub(crate) fn prepare_saved(
     let source = match pages.source.get() {
         Some(source) => source,
         None => {
-            let built = saved_source(envelope, input)?;
+            let built = saved_source(envelope, input, cancelled)?;
             pages.source.get_or_init(|| built)
         }
     };
@@ -101,7 +102,7 @@ pub(crate) fn prepare_saved(
         return Err(ResponseError::Cancelled);
     }
     match source {
-        SavedSource::Rows(rows) => cut_rows(rows, input),
+        SavedSource::Rows(rows) => cut_rows(rows, input, cancelled),
     }
 }
 
@@ -110,6 +111,7 @@ pub(crate) fn prepare_saved(
 fn row_source(
     mut structured: Map<String, Value>,
     input: &ResponseInput,
+    cancelled: &CancellationToken,
 ) -> Result<RowSource, ResponseError> {
     // Row pages re-attach per-call provider facts to the row they came
     // from; the snapshot and page plan never see them.
@@ -119,25 +121,31 @@ fn row_source(
     // envelope size pages.
     let envelope = octocode_engine::digest::fingerprint_json(&structured)
         .ok_or(ResponseError::Unserializable)?;
-    Ok(RowSource::new(
+    RowSource::new(
         structured,
         &envelope,
         &input.options,
         volatile,
         crate::id::ToolId::from_name(&input.tool),
         &|pagination| pagination_block_chars(input, pagination),
-    ))
+        cancelled,
+    )
 }
 
 /// What a saved read's pages cut from, built from a copy of the saved
 /// envelope: its row plan, else its serialized bytes.
-fn saved_source(envelope: &Value, input: &ResponseInput) -> Result<SavedSource, ResponseError> {
+fn saved_source(
+    envelope: &Value,
+    input: &ResponseInput,
+    cancelled: &CancellationToken,
+) -> Result<SavedSource, ResponseError> {
     let Value::Object(structured) = envelope else {
         return Err(ResponseError::StructuredContentMustBeObject);
     };
     Ok(SavedSource::Rows(Box::new(row_source(
         structured.clone(),
         input,
+        cancelled,
     )?)))
 }
 

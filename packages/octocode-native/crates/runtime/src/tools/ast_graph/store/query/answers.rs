@@ -1,7 +1,10 @@
 //! Single-node answers: stats, find, node and symbols.
 use super::*;
 
-pub(super) fn stats(g: &Graph) -> GraphOutput {
+pub(super) fn stats(
+    g: &Graph,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<GraphOutput, GraphOutput> {
     // The rankings read production code: test edges are left out.
     let imports = EdgeFilter {
         kinds: vec![EdgeKind::Imports],
@@ -10,18 +13,14 @@ pub(super) fn stats(g: &Graph) -> GraphOutput {
     };
     let calls = EdgeFilter {
         kinds: vec![EdgeKind::Calls],
-        weakest: Confidence::Low,
+        weakest: Confidence::High,
         tests: false,
     };
-    let top = |filter: &EdgeFilter, kind: NodeKind| -> Vec<Value> {
-        hubs(g, filter, Some(kind), Direction::In)
-            .rows
-            .into_iter()
-            .take(5)
-            .collect()
+    let top = |filter: &EdgeFilter, kind: NodeKind| -> Result<Vec<Value>, GraphOutput> {
+        Ok(hubs(g, filter, Some(kind), Direction::In, 0..5, cancel)?.rows)
     };
     let m = &g.manifest;
-    GraphOutput::ok(json!({
+    Ok(GraphOutput::ok(json!({
         "graph": g.summary(),
         "op": "stats",
         "octocodeVersion": m["octocodeVersion"],
@@ -29,55 +28,58 @@ pub(super) fn stats(g: &Graph) -> GraphOutput {
         "counts": m["counts"],
         "imports": m["imports"],
         "calls": m["calls"],
+        "argumentCoverage": m["argumentCoverage"],
+        "linkage": m["linkage"],
+        "linkageByLanguage": m["linkageByLanguage"],
+        "extraction": m["extraction"],
         "languages": m["languages"],
         "diagnostics": m["diagnostics"],
-        "mostImportedFiles": top(&imports, NodeKind::File),
-        "mostImportedPackages": top(&imports, NodeKind::Package),
-        "mostCalledSymbols": top(&calls, NodeKind::Symbol),
+        "mostImportedFiles": top(&imports, NodeKind::File)?,
+        "mostImportedPackages": top(&imports, NodeKind::Package)?,
+        "mostCalledSymbols": top(&calls, NodeKind::Symbol)?,
+        "callConfidence": calls.weakest.as_str(),
         "testEdges": "excluded",
         "evidence": m["evidence"],
-    }))
+    })))
 }
 
-pub(super) fn find(g: &Graph, text: &str, kind: Option<NodeKind>) -> Page {
+pub(super) fn find(
+    g: &Graph,
+    text: &str,
+    kind: Option<NodeKind>,
+    range: std::ops::Range<usize>,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Page, GraphOutput> {
     let lower = text.to_lowercase();
-    let admit = |id: u32| kind.is_none_or(|k| g.t.nodes[id as usize].kind == k);
-    let mut seen = vec![false; g.t.nodes.len()];
-    let mut rows = Vec::new();
-    let mut emit = |id: u32, how: &str, rows: &mut Vec<Value>| {
-        if admit(id) && !seen[id as usize] {
-            seen[id as usize] = true;
-            let mut row = g.node_json(id);
-            row.insert("match".into(), json!(how));
-            rows.push(Value::Object(row));
-        }
-    };
-    let exact = g.name_range(&lower, false).collect::<Vec<_>>();
-    for id in exact {
-        emit(id, "exact", &mut rows);
-    }
-    let prefix = g.name_range(&lower, true).collect::<Vec<_>>();
-    for id in prefix {
-        emit(id, "prefix", &mut rows);
-    }
-    for id in 0..g.t.nodes.len() as u32 {
-        if g.t
-            .str(g.t.nodes[id as usize].name)
-            .to_lowercase()
-            .contains(&lower)
-        {
-            emit(id, "contains", &mut rows);
-        }
-    }
-    for id in 0..g.t.nodes.len() as u32 {
-        if g.key(id).to_lowercase().contains(&lower) {
-            emit(id, "path", &mut rows);
+    let mut window = Window::new(range);
+    for phase in ["exact", "prefix", "contains", "path"] {
+        let ids: Box<dyn Iterator<Item = u32> + '_> = match phase {
+            "exact" => Box::new(g.name_range(&lower, false)),
+            "prefix" => Box::new(g.name_range(&lower, true)),
+            _ => Box::new(0..g.t.nodes.len() as u32),
+        };
+        for id in ids {
+            check(cancel)?;
+            if kind.is_some_and(|kind| g.t.nodes[id as usize].kind != kind) {
+                continue;
+            }
+            let name = g.t.str(g.t.nodes[id as usize].name).to_lowercase();
+            let admits = match phase {
+                "exact" => true,
+                "prefix" => name != lower,
+                "contains" => name.contains(&lower) && !name.starts_with(&lower),
+                _ => !name.contains(&lower) && g.key(id).to_lowercase().contains(&lower),
+            };
+            if admits {
+                window.try_push(|| {
+                    let mut row = g.node_json(id, cancel)?;
+                    row.insert("match".into(), json!(phase));
+                    Ok(Value::Object(row))
+                })?;
+            }
         }
     }
-    Page {
-        total: rows.len(),
-        rows,
-    }
+    Ok(window.finish())
 }
 
 pub(super) fn degree_counts<'a>(
@@ -90,9 +92,14 @@ pub(super) fn degree_counts<'a>(
     counts
 }
 
-pub(super) fn node(g: &Graph, id: u32, options: &QueryOptions) -> GraphOutput {
+pub(super) fn node(
+    g: &Graph,
+    id: u32,
+    options: &QueryOptions,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<GraphOutput, GraphOutput> {
     let record = &g.t.nodes[id as usize];
-    let mut out = g.node_json(id);
+    let mut out = g.node_json(id, cancel)?;
     if record.kind == NodeKind::Symbol && record.parent != NONE {
         out.insert("parent".into(), json!(g.key(record.parent)));
     }
@@ -104,6 +111,7 @@ pub(super) fn node(g: &Graph, id: u32, options: &QueryOptions) -> GraphOutput {
             op: op.to_owned(),
             target: Some(g.key(id).to_owned()),
             workspace: options.workspace.clone(),
+            graph: options.graph.clone(),
             depth,
             ..QueryOptions::default()
         };
@@ -119,7 +127,9 @@ pub(super) fn node(g: &Graph, id: u32, options: &QueryOptions) -> GraphOutput {
         NodeKind::Package => vec![lead("dependents", None)],
     };
     out.insert("next".into(), json!(hints));
-    GraphOutput::ok(json!({"graph": g.summary(), "op": "node", "node": out}))
+    Ok(GraphOutput::ok(
+        json!({"graph": g.summary(), "op": "node", "node": out}),
+    ))
 }
 
 /// The symbols `id` directly contains, in edge order.
@@ -148,29 +158,31 @@ pub(super) fn descendants(g: &Graph, root: u32) -> Vec<u32> {
     out
 }
 
-pub(super) fn symbols(g: &Graph, root: u32) -> (Map<String, Value>, Page) {
-    let mut rows = Vec::new();
+pub(super) fn symbols(
+    g: &Graph,
+    root: u32,
+    range: std::ops::Range<usize>,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<(Map<String, Value>, Page), GraphOutput> {
+    let mut window = Window::new(range);
     let mut stack = vec![(root, 0u32)];
     while let Some((id, depth)) = stack.pop() {
+        check(cancel)?;
         let mut children = contained_symbols(g, id);
         children.sort_by_key(|child| (g.t.nodes[*child as usize].line, *child));
         for child in children.into_iter().rev() {
             stack.push((child, depth + 1));
         }
         if id != root {
-            let mut row = g.node_json(id);
-            row.remove("file");
-            row.insert("depth".into(), json!(depth));
-            rows.push(Value::Object(row));
+            window.try_push(|| {
+                let mut row = g.node_json(id, cancel)?;
+                row.remove("file");
+                row.insert("depth".into(), json!(depth));
+                Ok(Value::Object(row))
+            })?;
         }
     }
     let mut extra = Map::new();
-    extra.insert("target".into(), Value::Object(g.node_json(root)));
-    (
-        extra,
-        Page {
-            total: rows.len(),
-            rows,
-        },
-    )
+    extra.insert("target".into(), Value::Object(g.node_json(root, cancel)?));
+    Ok((extra, window.finish()))
 }

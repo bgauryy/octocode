@@ -1,6 +1,6 @@
-# Publishing `@octocodeai/octocode-native`
+# Publishing the native platform packages
 
-This package ships one artifact on every platform in `bin/platform.cjs` (`PLATFORMS`): the native binary (file `octocode`, `octocode.exe` on Windows; npm bin `octocode-native`, so the `octocode` command stays the launcher's). It runs the CLI commands and the stdio MCP server (`octocode mcp`), which the `octocode` and `octocode-mcp` launchers start.
+`@octocodeai/octocode-native` is a private workspace: it publishes one package per platform in `bin/platform.cjs` (`PLATFORMS`), `@octocodeai/octocode-native-<platform>`, each holding the native binary (file `octocode`, `octocode.exe` on Windows) and no npm bin. The binary runs the CLI commands and the stdio MCP server (`octocode mcp`); the `octocode` and `octocode-mcp` launchers pin every platform package in `optionalDependencies` and start it.
 
 The internal Rust crates compile into that binary; none is published to a Cargo registry. Release order, version bumps, and gates for the whole release line: [release guide](../../../skills-dev/octocode-dev/docs/RELEASE.md).
 
@@ -11,10 +11,13 @@ The internal Rust crates compile into that binary; none is published to a Cargo 
 | `darwin-arm64` | `aarch64-apple-darwin` |
 | `darwin-x64` | `x86_64-apple-darwin` |
 | `linux-arm64-gnu` | `aarch64-unknown-linux-gnu` |
+| `linux-arm64-musl` | `aarch64-unknown-linux-musl` |
 | `linux-x64-gnu` | `x86_64-unknown-linux-gnu` |
 | `linux-x64-musl` | `x86_64-unknown-linux-musl` |
 | `win32-arm64-msvc` | `aarch64-pc-windows-msvc` |
 | `win32-x64-msvc` | `x86_64-pc-windows-msvc` |
+
+`PLATFORMS` is the one list. To add or remove a platform, edit it and run `node scripts/platform-packages.cjs`: it writes each `npm/<platform>/package.json` (`os`, `cpu`, `libc`, `files`, `preferUnplugged`) and `README.md`, and both launchers' `optionalDependencies`. `test:scripts` runs it with `--check`. CI's `native-platforms` job reads the same map.
 
 ## Build
 
@@ -34,7 +37,7 @@ A cross-built artifact is not runtime proof. CI builds no native artifacts; on a
 
 ## Version
 
-The root package, the platform packages, and the Rust workspace (`workspace.package.version` in `Cargo.toml`) share one version, and the root pins each platform package exactly in `optionalDependencies`, so a mismatch fails to load instead of selecting another ABI. Bump and build in the order the [release guide](../../../skills-dev/octocode-dev/docs/RELEASE.md#before-row-2) gives: a binary built before the bump reports the old version.
+The platform packages, the launchers and the Rust workspace (`workspace.package.version` in `Cargo.toml`) share one version. After a version bump, `node scripts/platform-packages.cjs` rewrites the platform manifests and the launchers' exact pins, so a mismatch fails to install instead of selecting another binary. Bump and build in the order the [release guide](../../../skills-dev/octocode-dev/docs/RELEASE.md#before-row-2) gives: a binary built before the bump reports the old version.
 
 ## Preflight
 
@@ -43,31 +46,30 @@ From the repository root:
 ```sh
 node skills-dev/octocode-dev/scripts/prepublish.mjs
 yarn workspace @octocodeai/octocode-native verify
-npm pack --dry-run --workspace @octocodeai/octocode-native
+npm pack --dry-run --workspace @octocodeai/octocode-native-<platform>
 ```
 
-Before publishing, confirm that all 7 binaries (one per platform) exist, each staged binary prints the package version on its own platform, and the dry-run tarballs hold only release files. Platform packages have no `prepublishOnly` hook. The generated-contract provenance test needs a clean, current Core source receipt; never regenerate it to hide a dirty source tree.
+Before publishing, confirm that one binary per `PLATFORMS` entry exists, each staged binary prints the package version on its own platform, and the dry-run tarballs hold only release files. Platform packages have no `prepublishOnly` hook. The generated-contract provenance test needs a clean, current Core source receipt; never regenerate it to hide a dirty source tree.
 
 ## Canary and promotion
 
-Publish a prerelease under a dist-tag first: the platform packages, then the root at the same version, then the consumers.
+Publish a prerelease under a dist-tag first: the platform packages, then the launchers at the same version.
 
 ```sh
-for platform in darwin-arm64 darwin-x64 linux-arm64-gnu linux-x64-gnu linux-x64-musl win32-arm64-msvc win32-x64-msvc; do
+for platform in $(node -p "Object.keys(require('./packages/octocode-native/bin/platform.cjs').PLATFORMS).join(' ')"); do
   npm publish "packages/octocode-native/npm/$platform" --access public --tag next
 done
-npm publish packages/octocode-native --access public --tag next
 ```
 
 On every platform, install from the registry, not the workspace, and check:
 
 ```sh
-npx @octocodeai/octocode-native@next --version
-npx @octocodeai/octocode-native@next schema
+npx -y octocode@next --version
+npx -y octocode@next schema
 ```
 
-Also run the Node launcher and a real stdio MCP call. Then promote the platform packages, the root, and the consumers, in that order.
+Also run a real stdio MCP call through `npx -y octocode-mcp@next`. Then promote the platform packages, then the launchers.
 
 ## Rollback
 
-npm artifacts are immutable. Record the dist-tags before promotion. If a canary fails, leave `latest` unchanged and publish a corrected prerelease. If a promoted release fails, restore the consumers' dist-tags first, then the root and platform tags where the exact pins allow. Keep failed artifacts for reproduction.
+npm artifacts are immutable. Record the dist-tags before promotion. If a canary fails, leave `latest` unchanged and publish a corrected prerelease. If a promoted release fails, restore the launchers' dist-tags first, then the platform tags where the exact pins allow. Keep failed artifacts for reproduction.

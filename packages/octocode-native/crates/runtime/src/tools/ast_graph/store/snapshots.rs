@@ -77,7 +77,39 @@ pub(super) fn is_snapshot(dir: &Path) -> bool {
     read_manifest(dir).is_some()
 }
 
-/// Published snapshot ids, oldest first (ids start with a sortable time).
+/// Allocate after every surviving same-second id, including unpublished entries.
+/// Filling a pruned gap would make a new snapshot sort older than its predecessors.
+pub(super) fn next_snapshot_id(home: &Path, base: &str) -> Result<String, String> {
+    let prefix = format!("{base}-");
+    let last = std::fs::read_dir(home)
+        .map_err(|error| format!("cannot list graph snapshots: {error}"))?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            if name == base {
+                Some(1_u64)
+            } else {
+                name.strip_prefix(&prefix)?.parse::<u64>().ok()
+            }
+        })
+        .max();
+    match last {
+        None => Ok(base.to_owned()),
+        Some(last) => last
+            .checked_add(1)
+            .map(|next| format!("{base}-{next}"))
+            .ok_or_else(|| "graph snapshot sequence exhausted".to_owned()),
+    }
+}
+
+fn snapshot_order(id: &str) -> (&str, u64) {
+    id.rsplit_once('-')
+        .and_then(|(base, suffix)| suffix.parse().ok().map(|sequence| (base, sequence)))
+        .unwrap_or((id, 0))
+}
+
+/// Published snapshot ids, oldest first, with numeric same-second sequences.
 pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
     let mut ids = std::fs::read_dir(home)
         .into_iter()
@@ -87,7 +119,7 @@ pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .filter(|name| !name.starts_with('.') && is_snapshot(&home.join(name)))
         .collect::<Vec<_>>();
-    ids.sort();
+    ids.sort_by(|left, right| snapshot_order(left).cmp(&snapshot_order(right)));
     ids
 }
 

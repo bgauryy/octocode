@@ -95,9 +95,65 @@ fn query(value: Value) -> LspSearchQuery {
     serde_json::from_value(value).expect("query")
 }
 
+fn configured_rust(
+    query: &LspSearchQuery,
+    options: Value,
+) -> octocode_engine::lsp::types::LspLanguageServerConfig {
+    let mut config = octocode_engine::lsp::types::LspLanguageServerConfig {
+        command: "rust-analyzer".into(),
+        args: None,
+        workspace_root: "/repo".into(),
+        language_id: Some("rust".into()),
+        initialization_options: Some(options),
+        env: None,
+        max_memory_mb: None,
+        source: Default::default(),
+    };
+    super::super::receipt::apply_rust_context(&mut config, query).expect("Rust context");
+    config
+}
+
+fn annotate(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    language_id: Option<&str>,
+    server: Server<'_>,
+    scope: &Scope,
+) {
+    let config = configured_rust(
+        query,
+        octocode_engine::lsp::config::rust_analyzer_headless_options(),
+    );
+    super::annotate(
+        row,
+        query,
+        language_id,
+        server,
+        scope,
+        super::super::receipt::RustAnalysis::of(&config),
+    );
+}
+
 /// A Rust row of `symbol` in a package at `root/pkg` whose `src/lib.rs`
 /// is `lib`, after the server answered `answered` (files under `pkg/src`).
 async fn rust_row(root: &Path, lib: &str, query_fields: Value, answered: &[&str]) -> Value {
+    rust_row_configured(
+        root,
+        lib,
+        query_fields,
+        answered,
+        octocode_engine::lsp::config::rust_analyzer_headless_options(),
+    )
+    .await
+}
+
+async fn rust_row_configured(
+    root: &Path,
+    lib: &str,
+    query_fields: Value,
+    answered: &[&str],
+    options: Value,
+) -> Value {
     let package = root.join("pkg");
     std::fs::write(package.join("src/lib.rs"), lib).expect("lib");
     let lib_path = package.join("src/lib.rs").to_string_lossy().into_owned();
@@ -134,15 +190,18 @@ async fn rust_row(root: &Path, lib: &str, query_fields: Value, answered: &[&str]
         q["symbolQuery"] = name;
     }
     let mut row = json!({"kind":"references","matches":[{"path":"pkg/src/lib.rs"}]});
-    annotate(
+    let q = query(q);
+    let config = configured_rust(&q, options);
+    super::annotate(
         &mut row,
-        &query(q),
+        &q,
         Some("rust"),
         Server {
             anchor: &lib_path,
             root: &root_text,
         },
         &scope,
+        super::super::receipt::RustAnalysis::of(&config),
     );
     row
 }

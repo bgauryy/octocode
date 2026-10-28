@@ -1,10 +1,10 @@
 # octocode-native
 
-> **Package name:** `@octocodeai/octocode-native`  
+> **Package name:** `@octocodeai/octocode-native` (private workspace; publishes the `npm/<platform>` packages)  
 > **Directory:** `packages/octocode-native/`
 
-The Rust engine behind every Octocode tool, shipped as one npm distribution: the
-standalone `octocode` binary (no Node needed). It runs the CLI commands and the stdio
+The Rust engine behind every Octocode tool, shipped as one npm package per platform:
+the standalone `octocode` binary (no Node needed). It runs the CLI commands and the stdio
 MCP server (`octocode mcp`), which both protocol eras (2025-11-25 and 2026-07-28) reach
 from the same process.
 
@@ -37,11 +37,12 @@ delegates to it.
 ### npm (recommended)
 
 ```sh
-npx @octocodeai/octocode-native --version
+npx octocode --version        # the CLI
+npx octocode-mcp              # the stdio MCP server
 ```
 
-npm installs only the matching platform package through `optionalDependencies`
-(`os`/`cpu` guards):
+Both launchers pin one package per platform in `optionalDependencies`, and npm
+installs only the one whose `os`, `cpu` and `libc` match the machine:
 
 | Platform package | Target |
 |---|---|
@@ -50,18 +51,31 @@ npm installs only the matching platform package through `optionalDependencies`
 | `@octocodeai/octocode-native-linux-x64-gnu` | Linux x64 (glibc) |
 | `@octocodeai/octocode-native-linux-x64-musl` | Linux x64 musl (Alpine) |
 | `@octocodeai/octocode-native-linux-arm64-gnu` | Linux ARM64 (glibc) |
+| `@octocodeai/octocode-native-linux-arm64-musl` | Linux ARM64 musl (Alpine) |
 | `@octocodeai/octocode-native-win32-x64-msvc` | Windows x64 |
 | `@octocodeai/octocode-native-win32-arm64-msvc` | Windows ARM64 |
 
-On Linux x64 the launcher picks `linux-x64-musl` when `/usr/bin/ldd` names musl,
-or when Node reports no glibc runtime and `ldd --version` names musl. musl on
-ARM64 is unsupported.
+On Linux the launcher picks the musl package when `/usr/bin/ldd` names musl, or
+when Node reports no glibc runtime and `ldd --version` names musl.
+
+When npm skipped the platform package (`--omit=optional`, or a lockfile written
+on another platform), the launcher downloads that package once at the pinned
+version from the configured npm registry, checks the registry's sha512 integrity
+and that the binary reports the expected version, and keeps it under
+`~/.octocode/native/<version>/<platform>/` (`OCTOCODE_HOME` moves it). It runs
+at first launch rather than in an install script, so it also works where
+install scripts are disabled (pnpm 10, `--ignore-scripts`).
+
+`bin/platform.cjs` (`PLATFORMS`) is the one platform list.
+`node scripts/platform-packages.cjs` writes every `npm/<platform>/` manifest and
+README and both launchers' pins from it; `--check` (part of `test:scripts`)
+fails when one drifts.
 
 ### Homebrew (not available yet)
 
 The `bgauryy/octocode` tap still ships the old Node-based 2.0.0 formula, not this
 binary. Use npm until the native formula is published
-([release guide](../../skills-dev/octocode-dev/docs/RELEASE.md), row 8).
+([release guide](../../skills-dev/octocode-dev/docs/RELEASE.md), row 7).
 
 ### From source (requires Rust)
 
@@ -99,9 +113,9 @@ dependencies: [DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md).
 ```
 packages/octocode-native/
 ├─ crates/{engine,io,github,contract-types,runtime,cli}/
-├─ bin/         platform-selecting launcher (`octocode-native` bin)
+├─ bin/         platform map, binary resolver, registry fallback, signal-forwarding launcher (bundled into the launchers)
 ├─ npm/<p>/     one package per platform: the `octocode` binary
-└─ scripts/     build-native.cjs (build + atomic staging), stage-binary.cjs
+└─ scripts/     build-native.cjs (build + atomic staging), stage-binary.cjs, platform-packages.cjs (derived manifests)
 ```
 
 Cross-platform and release builds (`build:target <platform>`, `build:all`) and
@@ -205,8 +219,8 @@ The named limits are constants in
 [`crates/cli/src/cli/serve.rs`](crates/cli/src/cli/serve.rs), whose module
 documentation says how the server keeps these guarantees.
 
-`npx @octocodeai/octocode-native` runs this binary directly. `npx octocode` (the
-Node launcher) runs the same binary with unchanged arguments and inherited stdio.
+`npx octocode` (the Node launcher) runs this binary with unchanged arguments and
+inherited stdio.
 Native owns the interactive `install` picker, skill commands, and `config view`.
 
 ## Test
@@ -221,7 +235,7 @@ cargo dev-test -- <filter>                             # the test:rust selection
 `cargo dev-test` (an alias in `.cargo/config.toml`) is the local loop: it
 carries the `test:rust` packages and features, so it reuses that build instead
 of compiling another copy, and libtest runs each test binary in one process.
-`test:rust` stays on nextest; `scripts/test-rust-selections.cjs` says why.
+`test:rust` stays on nextest; `scripts/rust-tests.cjs` holds the selections and says why.
 
 ## Constraints
 

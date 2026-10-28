@@ -266,12 +266,15 @@ pub(crate) fn run(
             *roles.entry(role).or_default() += 1;
         }
     }
+    let health_started = std::time::Instant::now();
+    let health = health(&c.v);
+    timings.insert("health", health_started.elapsed().as_millis() as u64);
     let summary = json!({
         "findings": merged.len(),
         "byDetector": by_detector,
         "entrypoints": {"total": c.v.entries.len(), "byRule": entries},
         "fileRoles": roles,
-        "health": health(&c.v),
+        "health": health,
         "detectorMs": timings,
         "notes": c.notes,
         "method": "hypotheses ranked by severity × confidence × (0.5 + 0.5 × PageRank percentile); verify before acting",

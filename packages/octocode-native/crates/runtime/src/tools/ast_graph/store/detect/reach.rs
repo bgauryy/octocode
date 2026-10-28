@@ -223,7 +223,7 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         let used = t.incoming(id as u32).any(|e| {
             matches!(
                 e.kind,
-                EdgeKind::Uses | EdgeKind::Calls | EdgeKind::Inherits
+                EdgeKind::Uses | EdgeKind::Calls | EdgeKind::Inherits | EdgeKind::Passes
             ) && v.file_of[e.src as usize] != file
         });
         if used {

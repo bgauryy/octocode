@@ -3,6 +3,7 @@ use crate::tools::ast_graph::types::DiagnosticCode;
 
 mod cargo;
 mod linking;
+mod module_context;
 mod prune;
 mod resolution;
 

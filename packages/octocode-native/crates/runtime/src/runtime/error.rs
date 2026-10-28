@@ -35,7 +35,14 @@ pub fn tool_error_result(tool: &str, error: &RuntimeError) -> RejectedCall {
         envelope["errorCode"] = json!(error.code);
     }
     if error.code == ErrorCode::Timeout && envelope.get("details").is_none() {
-        envelope["details"] = json!([timeout_hint(tool)]);
+        if let Some(hint) = ToolId::from_name(tool)
+            .and_then(|id| crate::response::rows::error_code_hint(id, error.code, &Value::Null))
+            .filter(|hint| !hint.is_empty())
+        {
+            envelope["details"] = json!([hint]);
+        }
+    } else if let Some(id) = ToolId::from_name(tool) {
+        crate::response::rows::attach_error_hint(id, &mut envelope, &Value::Null);
     }
     let envelope = Sanitized::scrubbed(envelope);
     let code = envelope["errorCode"]
@@ -79,16 +86,6 @@ pub fn mcp_result(
     response.insert("structuredContent".into(), structured);
     response.insert("isError".into(), Value::Bool(is_error));
     Ok(Value::Object(response))
-}
-
-/// What to try after a timeout: the tool's own hint when it has one (lspSearch
-/// names the language server's cold start), else the generic narrowing advice.
-fn timeout_hint(tool: &str) -> &'static str {
-    ToolId::from_name(tool)
-        .and_then(|id| id.output().error_hint(ErrorCode::Timeout, &Value::Null))
-        .unwrap_or(
-            "Retry, or narrow the call: fewer queries, a smaller path or repository scope, or a tighter filter.",
-        )
 }
 
 /// An error envelope as one line, preserving the error, details and prose hints.
@@ -175,7 +172,8 @@ mod tests {
         );
         assert_eq!(
             result["structuredContent"],
-            json!({"error":"clasify pages by itself","errorCode":"invalidInput"})
+            json!({"error":"clasify pages by itself","errorCode":"invalidInput",
+                "hints":[crate::response::rows::error_code_hint(ToolId::Clasify, ErrorCode::InvalidInput, &Value::Null).expect("input recovery")]})
         );
     }
 
@@ -310,7 +308,7 @@ mod tests {
         for other in ["localSearch", "ghSearchCode", "artifactSearch"] {
             let result = tool_error_result(other, &timeout());
             assert!(
-                result.text.contains("Retry, or narrow"),
+                result.text.contains("Retry once with a smaller scope"),
                 "{other}: {}",
                 result.text
             );

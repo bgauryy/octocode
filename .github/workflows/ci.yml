@@ -199,7 +199,7 @@ jobs:
           -E 'test(/bounded_process::(held_pipe_tests|gated::tests)::/) | test(/discovery::containment_tests::/)'
 
   # The native package's TypeScript check and script tests (platform map,
-  # build/publication, lint floor, audit-native): plain Node, no Rust build.
+  # build/publication, platform packages, registry fallback): plain Node, no Rust build.
   native-scripts:
     name: Native scripts (Node)
     runs-on: ubuntu-latest
@@ -215,8 +215,6 @@ jobs:
         run: yarn workspace @octocodeai/octocode-native typecheck
       - name: Script tests
         run: yarn workspace @octocodeai/octocode-native test:scripts
-      - name: audit-native tests
-        run: node --test packages/octocode-native/tests/audit-native.test.mjs
 
   # End-to-end tool health (dev.mjs test:tools): every tool through the built CLI
   # and MCP server against hermetic fixtures and a loopback mock. It needs the

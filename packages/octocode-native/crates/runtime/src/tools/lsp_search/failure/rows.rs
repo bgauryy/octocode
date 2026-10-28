@@ -43,9 +43,19 @@ pub(in super::super) fn empty(
     // A workspaceRoot-only query has no file: the row names none.
     if let Some(path) = lsp_search_query::path(query) {
         row["path"] = json!(path);
+    }
+    row
+}
+
+pub(in super::super) fn annotate_empty_includes(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    build_scripts: bool,
+) {
+    if let Some(path) = lsp_search_query::path(query) {
         // Incoming rows get the evidence-based include disclosure instead
         // (see `server_coverage`).
-        if category == "noLocations"
+        if row["category"] == "noLocations"
             && path.ends_with(".rs")
             && !super::super::inferred_project::is_incoming(lsp_search_query::operation(query))
             && let Some(includes) =
@@ -55,14 +65,14 @@ pub(in super::super) fn empty(
             if !includes.outside.is_empty() {
                 tips.push(OUTSIDE_INCLUDE_TIP.to_owned());
             }
-            if !includes.generated.is_empty() && !runs_build_scripts(query) {
+            if !includes.generated.is_empty() && !build_scripts {
                 // With an outside include as well, the name may be defined
                 // there: the ~2 GB rerun is no repair to lead with, so the
                 // tip names it instead. Alone, the executable rerun is the
                 // lead, and the tip states what running it costs.
                 let rerun = includes.outside.is_empty();
                 if rerun {
-                    crate::response::result::attach_related(&mut row, build_scripts_rerun(query));
+                    crate::response::result::attach_related(row, build_scripts_rerun(query));
                 }
                 tips.push(build_script_tip(rerun));
             }
@@ -77,7 +87,6 @@ pub(in super::super) fn empty(
             }
         }
     }
-    row
 }
 
 /// What running a package's build scripts costs and risks: the one
@@ -130,11 +139,6 @@ pub(in super::super) fn same_query_rerun(query: &LspSearchQuery) -> Value {
     rerun
 }
 
-/// Whether the request already runs build scripts (`rustContext.buildScripts`).
-pub(in super::super) fn runs_build_scripts(query: &LspSearchQuery) -> bool {
-    lsp_search_query::rust_context(query).is_some_and(|context| context.build_scripts == Some(true))
-}
-
 /// An exact, executable `lspSearch` continuation.
 pub(in super::super) fn continuation(query: Value) -> Value {
     crate::response::result::Continuation::continued(ToolId::LspSearch, query).build()
@@ -183,8 +187,8 @@ pub(in super::super) const ANCHOR_LINE_ERROR: &str = "anchorLineError";
 
 /// Mark an empty row partial when an error-severity diagnostic (published
 /// shape, see `ops::diagnostic_items`) covers its one-based anchor `line`:
-/// the warning names the first such error and counts the rest, and
-/// `next.diagnostics` lists them all. Any other row is left as is.
+/// the warning names the first such error and counts the rest. The context
+/// assessment attaches a diagnostic follow-up preserving the effective query.
 pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &Value, line: u32) {
     if row.get("kind").and_then(Value::as_str) != Some("empty") {
         return;
@@ -227,14 +231,6 @@ pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &V
         "The language server reports an error on line {line}: {message}{source}{more}. Its analysis of this line is incomplete, so empty is not absence."
     );
     crate::response::paging::mark_partial(row, ANCHOR_LINE_ERROR, &[warning]);
-    if let Some(path) = row.get("path").and_then(Value::as_str) {
-        let call = crate::response::result::Continuation::related(
-            ToolId::LspSearch,
-            json!({"operation": "diagnostic", "path": path}),
-        )
-        .build();
-        crate::response::result::attach_related(row, call);
-    }
 }
 
 /// Flag a row as incomplete with a machine-readable reason, human warnings,

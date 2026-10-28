@@ -48,6 +48,9 @@ impl<'a> Reader<'a> {
         let mut value = 0u64;
         for shift in (0..70).step_by(7) {
             let byte = self.u8()?;
+            if shift == 63 && byte > 1 {
+                return Err(format!("graph section {} varint overflows", self.what));
+            }
             value |= u64::from(byte & 0x7f) << shift;
             if byte & 0x80 == 0 {
                 return Ok(value);
@@ -84,19 +87,32 @@ impl<'a> Reader<'a> {
 
 /// Decodes and fully validates a snapshot: magic, version, body digest, and
 /// every cross-reference, so queries can index without bounds panics.
+#[cfg(test)]
 pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
-    decode_with(bytes, true)
+    decode_with_cancel(bytes, &crate::execution::cancel::NeverCancel)
 }
 
-/// [`decode`] of what an unchanged-tree check reads: strings, nodes and the
+pub(crate) fn decode_with_cancel(
+    bytes: &[u8],
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<(GraphTables, String), String> {
+    decode_with(bytes, true, cancel)
+}
+
+/// Decodes what an unchanged-tree check reads: strings, nodes and the
 /// per-file tables (digests, stamps). Edges, adjacency and the lookup
 /// indexes are not decoded; the body digest is still verified, so a corrupt
 /// file is still rejected.
 pub(crate) fn decode_files(bytes: &[u8]) -> Result<(GraphTables, String), String> {
-    decode_with(bytes, false)
+    decode_with(bytes, false, &crate::execution::cancel::NeverCancel)
 }
 
-pub(super) fn decode_with(bytes: &[u8], full: bool) -> Result<(GraphTables, String), String> {
+pub(super) fn decode_with(
+    bytes: &[u8],
+    full: bool,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<(GraphTables, String), String> {
+    cancel.check()?;
     if bytes.len() < HEADER_LEN || &bytes[..8] != MAGIC {
         return Err("not an octocode graph (bad magic); re-run `octocode graph ingest`".into());
     }
@@ -128,6 +144,8 @@ pub(super) fn decode_with(bytes: &[u8], full: bool) -> Result<(GraphTables, Stri
         return Ok((tables, hex::encode(digest)));
     }
     read_edges(&mut sections.get(b"EDGE", "EDGE")?, &mut tables, strings)?;
+    super::sources::read(&sections, &mut tables, cancel)?;
+    super::evidence::read_evidence(&sections, &mut tables, strings)?;
     tables.index_adjacency();
     let node_count = tables.nodes.len();
     tables.key_index = sections.get(b"KEYX", "KEYX")?.var_vec()?;

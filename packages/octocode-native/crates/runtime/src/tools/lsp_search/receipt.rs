@@ -40,6 +40,46 @@ pub(super) fn required_capability(operation: &str) -> Option<&'static str> {
 /// analysis, so neither changes the server configuration.
 const RUST_ANALYZER_DEFAULT_CFGS: [&str; 2] = ["debug_assertions", "miri"];
 
+#[derive(Clone, Copy)]
+pub(super) struct RustAnalysis {
+    pub(super) build_scripts: bool,
+    pub(super) all_features: bool,
+    proc_macros: bool,
+}
+
+impl RustAnalysis {
+    pub(super) fn of(config: &LspLanguageServerConfig) -> Self {
+        Self::from_options(config.initialization_options.as_ref())
+    }
+
+    fn from_options(options: Option<&Value>) -> Self {
+        Self {
+            build_scripts: options
+                .and_then(|value| value.pointer("/cargo/buildScripts/enable"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            all_features: options
+                .and_then(|value| value.pointer("/cargo/features"))
+                .and_then(Value::as_str)
+                == Some("all"),
+            proc_macros: options
+                .and_then(|value| value.pointer("/procMacro/enable"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }
+    }
+
+    fn validate(self) -> Result<(), String> {
+        if self.proc_macros && !self.build_scripts {
+            return Err(
+                "Rust procMacros requires buildScripts:true; rust-analyzer builds procedural macros through Cargo."
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+}
+
 /// Overlay an explicit `rustContext` onto the resolved rust-analyzer options.
 /// The engine already merged its headless defaults (`cargo.buildScripts`,
 /// `procMacro`, `checkOnSave`, `cachePriming`, `cargo.targetDir`) into the
@@ -55,16 +95,13 @@ pub(super) fn apply_rust_context(
     query: &LspSearchQuery,
 ) -> Result<(), String> {
     let Some(context) = lsp_search_query::rust_context(query) else {
+        if config.language_id.as_deref() == Some("rust") {
+            RustAnalysis::of(config).validate()?;
+        }
         return Ok(());
     };
     if config.language_id.as_deref() != Some("rust") {
         return Err("rustContext requires a Rust language server.".into());
-    }
-    if context.proc_macros == Some(true) && context.build_scripts != Some(true) {
-        return Err(
-            "Rust procMacros requires buildScripts:true; rust-analyzer builds procedural macros through Cargo."
-                .into(),
-        );
     }
     let mut options = match config.initialization_options.clone() {
         Some(options @ Value::Object(_)) => options,
@@ -94,6 +131,7 @@ pub(super) fn apply_rust_context(
     if let Some(proc_macros) = context.proc_macros {
         set("/procMacro/enable", json!(proc_macros), json!(false));
     }
+    RustAnalysis::from_options(Some(&options)).validate()?;
     if !context.cfgs.is_empty() {
         let cfgs = context
             .cfgs

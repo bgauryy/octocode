@@ -31,9 +31,10 @@ pub(super) fn declaration_kind(kind: &str) -> Option<&'static str> {
         "mod_item" | "module_definition" => Some("module"),
         // C#: namespaces, records, properties, delegates. TypeScript
         // `namespace N {}` is an `internal_module`.
-        "namespace_declaration" | "file_scoped_namespace_declaration" | "internal_module" => {
-            Some("namespace")
-        }
+        "namespace_declaration"
+        | "namespace_definition"
+        | "file_scoped_namespace_declaration"
+        | "internal_module" => Some("namespace"),
         "record_declaration" | "record_struct_declaration" => Some("class"),
         "property_declaration" => Some("property"),
         "delegate_declaration" => Some("type"),
@@ -63,13 +64,22 @@ pub(in crate::signatures) fn declaration<'t>(
     node: Node<'t>,
     content: &str,
 ) -> Option<(&'static str, Node<'t>)> {
-    // A C# namespace is named by its whole dotted name (`Acme.Core`).
+    // A namespace keeps its whole qualified name. An unnamed C-family
+    // namespace selects its keyword; its display label is structural, not a binder.
     if matches!(
         node.kind(),
-        "namespace_declaration" | "file_scoped_namespace_declaration"
+        "namespace_declaration" | "file_scoped_namespace_declaration" | "namespace_definition"
     ) {
         return node
             .child_by_field_name("name")
+            .or_else(|| {
+                if node.kind() != "namespace_definition" {
+                    return None;
+                }
+                let mut cursor = node.walk();
+                node.children(&mut cursor)
+                    .find(|child| child.kind() == "namespace" && !child.is_missing())
+            })
             .map(|name| ("namespace", name));
     }
     // A Go `type` declaration only wraps its specs (`type X …` or a grouped
@@ -265,31 +275,4 @@ fn declarator_name(node: Node<'_>) -> Option<Node<'_>> {
                 .find(|child| child.kind() == "identifier")
         })
         .filter(|name| matches!(name.kind(), "identifier" | "field_identifier"))
-}
-
-pub(in crate::signatures) fn is_exported_declaration(
-    ext: &str,
-    node: Node<'_>,
-    content: &str,
-    name: &str,
-    parent: Option<&str>,
-) -> bool {
-    let text = node_text(node, content).unwrap_or("").trim_start();
-    match ext {
-        // Only plain `pub` leaves the crate: `pub(crate)`, `pub(super)`,
-        // `pub(self)` and `pub(in path)` stay inside it.
-        "rs" => text
-            .strip_prefix("pub")
-            .is_some_and(|rest| rest.starts_with(char::is_whitespace)),
-        "go" => name.chars().next().is_some_and(char::is_uppercase),
-        "py" => parent.is_none() && !name.starts_with('_'),
-        "java" | "cs" => text.starts_with("public ") || text.starts_with("export "),
-        ext if crate::signatures::languages::is_c_family_extension(ext) => {
-            parent.is_none() && !text.starts_with("static ")
-        }
-        // The generic grammar does not model `.global`/`.globl` visibility
-        // strongly enough to advertise labels as exported bindings.
-        "asm" => false,
-        _ => parent.is_none() && !name.starts_with('_'),
-    }
 }

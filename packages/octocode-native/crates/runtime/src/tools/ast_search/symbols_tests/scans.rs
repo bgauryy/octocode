@@ -7,11 +7,18 @@ use super::*;
 fn cut_page(resume: u32) -> serde_json::Value {
     let root = Fixture::new();
     let q = query(&root.0, json!({}));
-    let set: super::super::symbols::SymbolSet = serde_json::from_value(json!({"path":root.0.to_string_lossy(),"snapshot":"s","declarations":[],"diagnostics":[],"files_scanned":resume,"skipped":0,"truncated":true,"scan_resume":resume,"recovered":false,"directory":true}))
+    let set: super::super::symbols::SymbolSet = serde_json::from_value(json!({"path":root.0.to_string_lossy(),"snapshot":"s","declarations":[],"source_descriptors":{"snapshots":[],"representations":[],"units":[]},"diagnostics":[],"files_scanned":resume,"skipped":0,"truncated":true,"scan_resume":resume,"recovered":false,"directory":true}))
     .expect("symbol set");
     let (paths, _) = crate::tools::test_support::simple_policy(&root.0);
     let row_paths = super::super::RowPaths::new(&paths, &root.0, false);
-    super::super::symbols::render_page(&q, &set, row_paths, None)
+    super::super::symbols::render_page(
+        &q,
+        &set,
+        row_paths,
+        None,
+        &crate::execution::cancel::NeverCancel,
+    )
+    .expect("source evidence")
 }
 
 /// A time-budget cut resumes with `next.expandScan` only while the offset is

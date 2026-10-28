@@ -1,4 +1,5 @@
 use super::*;
+use tokio_util::sync::CancellationToken;
 
 #[test]
 fn section_pages_preserve_source_input_arrays() {
@@ -18,11 +19,16 @@ fn section_pages_preserve_source_input_arrays() {
         "status":"ready","source":source,"snapshot":"fixed","coordinateSpace":"source",
         "sections":sections
     }}}});
-    let plan = PreparedRows::new(vec![row], &[None], Some(crate::id::ToolId::Clasify)).plan(700);
+    let plan = PreparedRows::new(vec![row], &[None], Some(crate::id::ToolId::Clasify))
+        .plan(700, &CancellationToken::new())
+        .expect("valid plan");
     assert!(plan.total_pages > 1);
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
-        for row in plan.build_page(page, &[None], &[]) {
+        for row in plan
+            .build_page(page, &[None], &[], &CancellationToken::new())
+            .expect("valid build_page")
+        {
             let resource = &row["data"]["resources"]["picked"];
             assert_eq!(
                 resource["source"], source,

@@ -11,7 +11,8 @@ use crate::structural::octo::Found;
 use crate::structural::types::{
     FileMatches, StructuralDemand, StructuralDiagnostic, StructuralSearchDetailedFileResult,
 };
-use crate::text::{Decoding, Refusal, admit};
+use crate::text::Refusal;
+use crate::text::analysis::{AdmittedSource, MapBudget, MapLimits};
 
 /// How one candidate file counts toward the scan totals.
 pub(super) enum Tally {
@@ -87,19 +88,46 @@ impl FileScan<'_> {
             Some(Anchored::Hit(bytes)) => Ok(bytes),
             Some(Anchored::Large(len)) => Err(SourceSkip::Large(len)),
         };
-        let admitted = bytes.and_then(|bytes| {
-            let text = admit(&bytes, Decoding::Unicode).map_err(SourceSkip::Refused)?;
-            let (tally, file) =
-                self.match_source(path_string.clone(), &ext, entry.language_id, &text.text);
-            Ok((tally, file, crate::digest::sha256(&bytes)))
-        });
-        Ok(Some(match admitted {
-            Ok((tally, mut file, sha256)) => {
-                file.source_sha256 = Some(sha256);
-                (tally, file)
+        let bytes = match bytes {
+            Ok(bytes) => bytes,
+            Err(skip) => {
+                return Ok(Some(source_skipped(
+                    path_string,
+                    &skip,
+                    self.max_file_bytes,
+                )));
             }
-            Err(skip) => source_skipped(path_string, &skip, self.max_file_bytes),
-        }))
+        };
+        let mut budget = MapBudget::new(
+            MapLimits::default(),
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            self.stop,
+        );
+        let source = match AdmittedSource::from_bytes(&bytes, &path_string, &mut budget) {
+            Ok(source) => source,
+            Err(crate::text::analysis::SourceError::Refused(refusal)) => {
+                return Ok(Some(source_skipped(
+                    path_string,
+                    &SourceSkip::Refused(refusal),
+                    self.max_file_bytes,
+                )));
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let mut source_error = None;
+        let (tally, mut file) = self.match_source(
+            path_string,
+            &ext,
+            entry.language_id,
+            &source,
+            &mut source_error,
+            budget,
+        );
+        if let Some(error) = source_error {
+            return Err(error.into());
+        }
+        file.source_sha256 = Some(crate::digest::sha256(&bytes));
+        Ok(Some((tally, file)))
     }
 
     fn match_source(
@@ -107,8 +135,11 @@ impl FileScan<'_> {
         path_string: String,
         ext: &str,
         language_id: Option<&str>,
-        content: &str,
+        admitted: &AdmittedSource<'_>,
+        source_error: &mut Option<crate::text::analysis::SourceError>,
+        budget: MapBudget<'_>,
     ) -> (Tally, StructuralSearchDetailedFileResult) {
+        let content = admitted.text();
         let Some(compiled) = self.matchers.get(ext) else {
             return (
                 Tally::CompileFailure,
@@ -152,11 +183,31 @@ impl FileScan<'_> {
         };
 
         let mut found = Found::new(self.demand);
+        found.bind_source(crate::structural::SourceBinder::with_budget(
+            admitted, budget,
+        ));
         if let Err(error) = run(content, &mut found) {
             let diagnostic = error.diagnostic(&path_string);
             return (
                 Tally::None,
                 skipped_file(path_string, "truncated", "executionLimit", diagnostic),
+            );
+        }
+        if let Some(error) = found.source_error() {
+            *source_error = Some(error.clone());
+            return (
+                Tally::None,
+                skipped_file(
+                    path_string,
+                    "truncated",
+                    "sourceLimit",
+                    StructuralDiagnostic::new(
+                        "structural.source.failed",
+                        "error",
+                        "source",
+                        error.to_string(),
+                    ),
+                ),
             );
         }
         let recovered = found.recovered();

@@ -2,6 +2,7 @@ pub mod case_fold;
 pub(crate) mod clip;
 pub(crate) mod file_extension;
 mod source;
+pub use source::analysis;
 pub mod test_paths;
 pub(crate) mod utf8_offsets;
 

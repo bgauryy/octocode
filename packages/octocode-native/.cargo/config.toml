@@ -20,7 +20,7 @@
 #                             # copy of our crates (88% of debug/ here), keeps deps warm
 
 # ── One test selection, one build ─────────────────────────────────────────────
-# `cargo dev-test` is the first `test:rust` selection (package.json) under
+# `cargo dev-test` is the first Rust test selection (scripts/rust-tests.cjs) under
 # libtest: the same packages and features, so it reuses the crates `test:rust`
 # and `build:dev` compiled instead of forking another copy, and it runs each
 # test binary in one process (about 4× faster than nextest's process per test).
@@ -28,7 +28,7 @@
 # copy. Narrow a run with a libtest filter, which every binary applies:
 #   cargo dev-test -- runtime_github_history::      # an integration-test file
 #   cargo dev-test -- tools::local_search::         # a runtime unit-test module
-# tests/build-publication.test.cjs keeps this alias equal to `test:rust`.
+# tests/build-publication.test.cjs keeps this alias equal to that selection.
 [alias]
 dev-test = "test --locked -p octocode-native -p octocode-github -p octocode-io -p octocode-cli --features octocode-native/dev-unify"
 

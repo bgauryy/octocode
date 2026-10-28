@@ -71,18 +71,16 @@ pub(crate) struct TsPaths {
 }
 
 impl TsPaths {
-    /// Substituted, scan-root-relative candidates of the best-matching pattern
-    /// (exact match first, else the longest wildcard prefix — TypeScript's rule).
-    fn candidates(&self, spec: &str) -> Vec<String> {
+    /// Exact match first, else the longest matching wildcard prefix.
+    fn pattern(&self, spec: &str) -> Option<&PathPattern> {
         if let Some(exact) = self
             .patterns
             .iter()
             .find(|pattern| !pattern.wildcard && pattern.prefix == spec)
         {
-            return exact.targets.clone();
+            return Some(exact);
         }
-        let best = self
-            .patterns
+        self.patterns
             .iter()
             .filter(|pattern| {
                 pattern.wildcard
@@ -90,10 +88,17 @@ impl TsPaths {
                     && spec.starts_with(&pattern.prefix)
                     && spec.ends_with(&pattern.suffix)
             })
-            .max_by_key(|pattern| pattern.prefix.len());
-        let Some(best) = best else {
+            .max_by_key(|pattern| pattern.prefix.len())
+    }
+
+    /// Substituted, scan-root-relative candidates of the best-matching pattern.
+    fn candidates(&self, spec: &str) -> Vec<String> {
+        let Some(best) = self.pattern(spec) else {
             return Vec::new();
         };
+        if !best.wildcard {
+            return best.targets.clone();
+        }
         let matched = &spec[best.prefix.len()..spec.len() - best.suffix.len()];
         best.targets
             .iter()
@@ -101,17 +106,18 @@ impl TsPaths {
             .collect()
     }
 
-    /// Whether `spec` is claimed by a configured alias. A bare `*` pattern
-    /// (empty prefix) claims everything, so it does not mark a specifier
-    /// internal on its own.
-    fn claims(&self, spec: &str) -> bool {
-        self.patterns.iter().any(|pattern| {
-            if pattern.wildcard {
-                !pattern.prefix.is_empty() && spec.starts_with(&pattern.prefix)
-            } else {
-                pattern.prefix == spec
-            }
-        })
+    /// Explicit aliases are internal unless every target names node_modules.
+    /// A bare `*` fallback alone does not classify an import.
+    fn claims(&self, spec: &str) -> Option<bool> {
+        let pattern = self.pattern(spec)?;
+        if pattern.wildcard && pattern.prefix.is_empty() {
+            return None;
+        }
+        Some(pattern.targets.iter().any(|target| {
+            !target
+                .split('/')
+                .any(|component| component == "node_modules")
+        }))
     }
 }
 
@@ -267,13 +273,13 @@ impl ResolveContext {
     /// package, `#` import, `@/` or `~/` convention). Failing to link one is
     /// an internal coverage gap, never a third-party dependency.
     pub(crate) fn is_internal_bare_js(&self, spec: &str, importer: &str) -> bool {
-        if spec.starts_with('#') || spec.starts_with("@/") || spec.starts_with("~/") {
-            return true;
-        }
-        if self
+        if let Some(internal) = self
             .ts_config_for(importer)
-            .is_some_and(|config| config.claims(spec))
+            .and_then(|config| config.claims(spec))
         {
+            return internal;
+        }
+        if spec.starts_with('#') || spec.starts_with("@/") || spec.starts_with("~/") {
             return true;
         }
         split_package(spec).is_some_and(|(package, _)| self.packages.contains_key(package))

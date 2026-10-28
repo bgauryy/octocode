@@ -196,7 +196,8 @@ fn response_failure(error: ResponseError) -> ExecutionError {
         ResponseError::Cancelled => ExecutionError::Cancelled,
         ResponseError::StructuredContentMustBeObject
         | ResponseError::Unserializable
-        | ResponseError::InvalidPage => ExecutionError::WorkerFailed,
+        | ResponseError::InvalidPage
+        | ResponseError::InvalidEvidence(_) => ExecutionError::WorkerFailed,
     }
 }
 
@@ -213,6 +214,19 @@ pub(crate) fn isolate_output_rows(
         return Err(error);
     };
     *structured = patched;
+    // These errors are created here, after ordinary rows received their
+    // recovery guidance. Keep contract failures actionable as well.
+    if let Some(id) = ToolId::from_name(tool)
+        && let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut)
+    {
+        for row in rows {
+            if crate::id::error_code_of(&row["data"])
+                == Some(octocode_contract_types::ErrorCode::OutputContractViolation)
+            {
+                super::rows::attach_error_hint(id, &mut row["data"], &Value::Null);
+            }
+        }
+    }
     Ok(true)
 }
 

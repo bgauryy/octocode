@@ -111,7 +111,12 @@ fn serves_the_2025_era_over_stdio() {
     let result = &init["result"];
     assert_eq!(result["serverInfo"]["name"], "octocode-mcp");
     assert_eq!(result["capabilities"]["tools"]["listChanged"], false);
-    assert!(result["instructions"].as_str().unwrap().contains("<flow>"));
+    let instructions = octocode_native::contracts::cli_presentation()
+        .expect("embedded presentation")["instructions"]
+        .as_str()
+        .expect("canonical instructions");
+    assert!(!instructions.is_empty());
+    assert_eq!(result["instructions"], instructions);
     server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
 
     let list = server.request("tools/list", json!({}));

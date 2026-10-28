@@ -92,6 +92,8 @@ impl MatchWithKind {
 /// It also records whether the file parsed with recovered syntax that could
 /// hide a match ([`super::recovery`]).
 pub(in crate::structural) struct Found<'a> {
+    source: Option<crate::structural::SourceBinder<'a>>,
+    source_error: Option<crate::text::analysis::SourceError>,
     kept: Kept<'a>,
     recovered: bool,
 }
@@ -114,17 +116,51 @@ impl<'a> Found<'a> {
         };
         Self {
             kept,
+            source: None,
+            source_error: None,
             recovered: false,
         }
+    }
+
+    pub(in crate::structural) fn bind_source(
+        &mut self,
+        source: crate::structural::SourceBinder<'a>,
+    ) {
+        self.source = Some(source);
+    }
+    pub(in crate::structural) fn source_error(
+        &self,
+    ) -> Option<&crate::text::analysis::SourceError> {
+        self.source_error.as_ref()
     }
 
     /// One match of `node`; `build` makes it only when this demand keeps
     /// or prices it.
     pub(super) fn push(&mut self, node: Node<'_>, build: impl FnOnce() -> StructuralMatch) {
+        if self.source_error.is_some() {
+            return;
+        }
+        let build = || {
+            let mut matched = build();
+            if let Some(source) = &mut self.source {
+                source.bind_raw_match(&mut matched)?;
+            }
+            Ok::<_, crate::text::analysis::SourceError>(matched)
+        };
         match &mut self.kept {
-            Kept::Matches(matches) => matches.push(MatchWithKind::new(node, build())),
+            Kept::Matches(matches) => match build() {
+                Ok(matched) => matches.push(MatchWithKind::new(node, matched)),
+                Err(error) => self.source_error = Some(error),
+            },
             Kept::Priced(price, prices) => {
-                let found = MatchWithKind::new(node, build());
+                let matched = match build() {
+                    Ok(matched) => matched,
+                    Err(error) => {
+                        self.source_error = Some(error);
+                        return;
+                    }
+                };
+                let found = MatchWithKind::new(node, matched);
                 prices.push(price(&StructuralDetailedMatch::from_match(
                     found.matched,
                     found.node_kind,
@@ -247,7 +283,7 @@ impl CandidatePlan {
 
 /// Raw capture position: (start_row, start_byte_col, end_row, end_byte_col),
 /// tree-sitter native. Converted to 1-based line + char column at build time.
-pub(super) type RawRange = (u32, u32, u32, u32);
+pub(super) type RawRange = (u32, u32, u32, u32, u32, u32, usize);
 
 pub(super) fn raw_range(node: Node<'_>) -> RawRange {
     let start = node.start_position();
@@ -257,6 +293,9 @@ pub(super) fn raw_range(node: Node<'_>) -> RawRange {
         start.column as u32,
         end.row as u32,
         end.column as u32,
+        node.start_byte() as u32,
+        node.end_byte() as u32,
+        super::source_context::tree_id(node),
     )
 }
 

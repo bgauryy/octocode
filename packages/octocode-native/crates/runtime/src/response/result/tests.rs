@@ -2,6 +2,31 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn related_calls_keep_distinct_work_once_in_first_seen_order() {
+    let search = Continuation::related(
+        ToolId::LocalSearch,
+        json!({"path":"src","matchString":["exported"]}),
+    )
+    .build();
+    let broader = Continuation::related(
+        ToolId::LocalSearch,
+        json!({"path":"src","matchString":["exported"],"includeIgnored":true}),
+    )
+    .build();
+    let resume = Continuation::continued(ToolId::LocalFetch, json!({"path":"src/a.rs"})).build();
+    let mut row = json!({"content":"unchanged evidence","related":[search.clone()]});
+    attach_related(&mut row, search.clone());
+    attach_related(&mut row, broader.clone());
+    attach_calls(
+        &mut row,
+        json!({"anotherReason": search.clone(), "page": resume.clone()}),
+    );
+    assert_eq!(row["related"], json!([search, broader]));
+    assert_eq!(row["next"]["page"], resume);
+    assert_eq!(row["content"], "unchanged evidence");
+}
+
+#[test]
 fn restarts_remove_only_declared_private_progress_and_are_new_work() {
     let mut row = json!({"path":"src","operation":"tree","maxDepth":4});
     for field in crate::contracts::state_fields(ToolId::StructureSearch) {

@@ -52,6 +52,37 @@ pub(super) fn parse_text<'b>(
         })
 }
 
+pub(super) fn mapping_budget<'a>(
+    cancelled: &'a (dyn Fn() -> bool + Sync),
+) -> octocode_engine::text::analysis::MapBudget<'a> {
+    octocode_engine::text::analysis::MapBudget::new(
+        octocode_engine::text::analysis::MapLimits::default(),
+        std::time::Instant::now() + crate::execution::DEFAULT_TIMEOUT,
+        cancelled,
+    )
+}
+
+pub(super) fn admitted<'a>(
+    path: &std::path::Path,
+    bytes: &'a [u8],
+    budget: &mut octocode_engine::text::analysis::MapBudget<'_>,
+) -> Result<octocode_engine::text::analysis::AdmittedSource<'a>, ToolError> {
+    use octocode_engine::text::analysis::{AdmittedSource, SourceError};
+    AdmittedSource::from_bytes(bytes, &path.to_string_lossy(), budget).map_err(|error| {
+        if matches!(
+            error,
+            SourceError::Refused(octocode_engine::text::Refusal::Binary)
+        ) {
+            policy_error(PolicyError::new(
+                crate::policy::PolicyErrorCode::BinaryContent,
+                format!("{} is binary content, not source text.", display_name(path)),
+            ))
+        } else {
+            ToolError::source(error)
+        }
+    })
+}
+
 /// The terminal row of a source larger than [`MAX_PARSE_SOURCE_BYTES`]; a
 /// searched literal (a symbol name, a pattern without metavariables) leads
 /// to a text search of it in the same file.

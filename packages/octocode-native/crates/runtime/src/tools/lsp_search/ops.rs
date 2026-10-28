@@ -6,8 +6,7 @@ use super::anchor::Position;
 use super::cancellable;
 use super::failure::{
     ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, LspFailure, RequestFailures, empty,
-    mark_anchor_line_errors, mark_diagnostics_unpublished, partial_with_related_rerun, shown_paths,
-    text_search_lead,
+    mark_diagnostics_unpublished, partial_with_related_rerun, shown_paths, text_search_lead,
 };
 use super::heritage;
 use super::importers::{self, Importers, WindowRequest};
@@ -211,17 +210,26 @@ impl Operation<'_, '_> {
     /// not analyze is marked partial with that error (see
     /// `failure::mark_anchor_line_errors`).
     pub(super) async fn run(self) -> Result<Value, LspFailure> {
-        let (client, path, line, cancel) = (self.client, self.path, self.line, self.cancel);
+        let (client, path, line, cancel, query) =
+            (self.client, self.path, self.line, self.cancel, self.query);
         let anchored = !matches!(
             lsp_search_query::op(self.query),
             Op::DocumentSymbols | Op::WorkspaceSymbol | Op::Diagnostic
         );
         let mut row = self.answer().await?;
-        if anchored
-            && row.get("kind").and_then(Value::as_str) == Some("empty")
-            && let Some(diagnostics) = anchor_diagnostics(client, path, cancel).await?
-        {
-            mark_anchor_line_errors(&mut row, &diagnostics, line + 1);
+        if anchored {
+            let empty = row.get("kind").and_then(Value::as_str) == Some("empty");
+            let diagnostics = anchor_diagnostics(client, path, cancel, empty).await?;
+            if empty || diagnostics.is_some() {
+                super::analysis_context::annotate_diagnostics(
+                    &mut row,
+                    query,
+                    diagnostics
+                        .as_ref()
+                        .map(|(items, truncated)| (items, *truncated)),
+                    line + 1,
+                );
+            }
         }
         Ok(row)
     }

@@ -18,10 +18,13 @@ mod receiver;
 mod rust;
 mod rust_cfg;
 
+mod arguments;
 mod collect;
 mod imports;
 mod positions;
 mod references;
+mod test_adapter;
+mod validity;
 mod walk;
 
 use rust::rust_inner_unsupported;
@@ -53,6 +56,9 @@ fn note(code: GraphFactCode) -> GraphFactDiagnostic {
         GraphFactCode::RustCrateAttributes => {
             "unsupported Rust inner conditional or custom crate attributes"
         }
+        GraphFactCode::UnsupportedExportForwarding => {
+            "export-forwarding clause observed; its member binding is not assessed"
+        }
         // `js_oxc` states its parser's own errors.
         GraphFactCode::ParseError => "the parser reported a syntax error",
     };
@@ -70,6 +76,14 @@ struct GraphAccumulator {
     imports: Vec<GraphFactImport>,
     exports: Vec<GraphFactExport>,
     calls: Vec<GraphFactCall>,
+    argument_sites: Vec<crate::graph::GraphFactArgumentSite>,
+    call_adapter: Option<super::calls::CallAdapter>,
+    visibility_adapter: super::visibility::VisibilityAdapter,
+    export_forwarding_node: Option<&'static str>,
+    argument_adapter: Option<super::arguments::ArgumentAdapter>,
+    argument_bindings: Option<super::arguments::binding::Bindings>,
+    source_digest: String,
+    source_templates: crate::text::analysis::SourceTemplates,
     edges: Vec<GraphFactEdge>,
     diagnostics: Vec<GraphFactDiagnostic>,
     modules: Vec<GraphFactRustModule>,
@@ -80,6 +94,8 @@ struct GraphAccumulator {
     /// Start bytes of name tokens that are not value references: declaration
     /// names and the callee tokens of recorded calls (call edges).
     non_reference_tokens: std::collections::HashSet<usize>,
+    /// Named namespace occurrences whose public scope is transparent to children.
+    public_namespace_scopes: std::collections::HashSet<String>,
     /// Bodies of Rust item-level macro calls (`cfg_rt! { mod x; }`) with
     /// their enclosing module scope and declaration (an `impl` holding
     /// `cfg_io_util! { pub fn … }`), re-read as items after the main walk.
@@ -92,6 +108,7 @@ struct GraphAccumulator {
     /// Outline extraction: skip call facts, which an outline never reads and
     /// which are most of a large file's walk and facts.
     declarations_only: bool,
+    test_context: test_adapter::TestContext,
 }
 
 /// A token `count_name_references` reads: a name leaf, or (`format`) a Rust
@@ -112,15 +129,25 @@ impl GraphAccumulator {
             imports: Vec::new(),
             exports: Vec::new(),
             calls: Vec::new(),
+            argument_sites: Vec::new(),
+            call_adapter: None,
+            visibility_adapter: super::visibility::VisibilityAdapter::TopLevel,
+            export_forwarding_node: None,
+            argument_adapter: None,
+            argument_bindings: None,
+            source_digest: String::new(),
+            source_templates: Default::default(),
             edges: Vec::new(),
             modules: Vec::new(),
             paths: Vec::new(),
             test_lines: Vec::new(),
             non_reference_tokens: std::collections::HashSet::new(),
+            public_namespace_scopes: std::collections::HashSet::new(),
             macro_bodies: Vec::new(),
             declaration_spans: Vec::new(),
             name_tokens: None,
             declarations_only: false,
+            test_context: test_adapter::TestContext::default(),
             diagnostics: vec![note(GraphFactCode::SyntaxOnly)],
         }
     }
@@ -169,7 +196,11 @@ pub(super) fn extract_facts_before(
     deadline: std::time::Instant,
     declarations_only: bool,
 ) -> Option<super::GraphFactsExtraction> {
-    let entry = languages::find_entry(extension)?;
+    let entry = languages::find_entry(extension)?.admitted(if declarations_only {
+        crate::text::analysis::AnalysisOperation::Declarations
+    } else {
+        crate::text::analysis::AnalysisOperation::GraphFacts
+    })?;
     let tree = super::extractor::parse_before(content, &entry.language, deadline);
     facts_from_tree(
         content,
@@ -216,15 +247,39 @@ fn facts_from_tree(
     // One spelling per language for every dispatch below: `pyi` is `py`,
     // `hpp` is `cpp`, as the language registry lists them.
     let ext = canonical_extension(extension).to_owned();
-    let entry = languages::find_entry(&ext)?;
+    let entry = languages::find_entry(&ext)?.admitted(if declarations_only {
+        crate::text::analysis::AnalysisOperation::Declarations
+    } else {
+        crate::text::analysis::AnalysisOperation::GraphFacts
+    })?;
     let mut acc = GraphAccumulator::new(file_path, &ext);
     acc.declarations_only = declarations_only;
+    acc.argument_adapter = entry.argument_adapter;
+    acc.call_adapter = entry.call_adapter;
+    acc.visibility_adapter = entry.visibility_adapter;
+    acc.export_forwarding_node = entry.export_forwarding_node;
+    acc.source_digest = crate::digest::sha256(content.as_bytes());
+    acc.source_templates = crate::text::analysis::SourceTemplates::new(
+        content,
+        crate::text::analysis::Producer::new(format!("tree-sitter-facts:{ext}"), "6"),
+        if declarations_only {
+            crate::text::analysis::AnalysisOperation::Declarations
+        } else {
+            crate::text::analysis::AnalysisOperation::GraphFacts
+        },
+    )
+    .ok()?;
     let mut rust_root_unsupported = (ext == "rs").then_some(true);
     let mut reference_counts = Vec::new();
     let mut error_lines = Vec::new();
     if let Some(tree) = tree {
         let root = tree.root_node();
         let line_index = NodePositions::new(content);
+        if !declarations_only && let Some(adapter) = entry.argument_adapter {
+            acc.argument_bindings = Some(super::arguments::binding::Bindings::collect(
+                root, adapter, content, deadline,
+            ));
+        }
         rust_root_unsupported = (ext == "rs").then(|| rust_inner_unsupported(root, content));
         if rust_root_unsupported == Some(true) {
             acc.diagnostics
@@ -261,15 +316,18 @@ fn facts_from_tree(
     }
 
     let lines = content.lines().collect::<Vec<_>>();
+    arguments::join_bindings(&mut acc);
     for declaration in &mut acc.declarations {
         declaration.doc_line =
             super::leading_doc_line(&lines, declaration.range.start.line as usize, &ext);
     }
     let facts = GraphFactsDocument {
+        source_templates: acc.source_templates,
         declarations: acc.declarations,
         imports: acc.imports,
         exports: acc.exports,
         calls: acc.calls,
+        argument_sites: acc.argument_sites,
         edges: acc.edges,
         diagnostics: acc.diagnostics,
         error_lines,
@@ -283,7 +341,7 @@ fn facts_from_tree(
         },
         rust_root_unsupported,
         test_lines: acc.test_lines,
-        ..super::native_graph_facts(language_label(&ext, entry.language_id), file_path)
+        ..super::native_graph_facts(language_label(&ext, entry.language_id), file_path, content)
     };
     Some(super::GraphFactsExtraction {
         facts,

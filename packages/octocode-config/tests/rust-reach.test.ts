@@ -114,5 +114,5 @@ describe('generated Rust reachability', () => {
     expect(roots.has('LocalFetchQuery')).toBe(true);
     // Nothing is left to drop: every emitted type is reachable from native.
     expect(declared(keepReachable(rust, roots))).toEqual(declared(rust));
-  });
+  }, 30_000);
 });

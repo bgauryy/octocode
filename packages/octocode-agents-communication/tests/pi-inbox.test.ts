@@ -161,8 +161,8 @@ test('context outside the bound workspace cannot route peer data or tools',async
 for(const replacement of [false,true]) test(`${replacement?'replacement':'shutdown'} during native join closes the superseded identity`,async t=>{
  const f=fixture(t),marker=join(f.workspace,'joined.json'),release=join(f.workspace,'release'),wrapper=join(f.workspace,'delayed-native.mjs');
  writeFileSync(wrapper,`#!${process.execPath}
-import { execFileSync } from ${JSON.stringify(new URL('./helpers.ts', import.meta.url).href)};import {writeFileSync,existsSync} from 'node:fs';
-const out=execFileSync(${JSON.stringify(binary)},process.argv.slice(2),{encoding:'utf8'});if(process.argv[2]==='join'){writeFileSync(${JSON.stringify(marker)},out);while(!existsSync(${JSON.stringify(release)}))await new Promise(r=>setTimeout(r,5));}process.stdout.write(out);`);chmodSync(wrapper,0o700);
+import { execFileSync } from ${JSON.stringify(new URL('./helpers.ts', import.meta.url).href)};import {writeFileSync,renameSync,existsSync} from 'node:fs';
+const out=execFileSync(${JSON.stringify(binary)},process.argv.slice(2),{encoding:'utf8'});if(process.argv[2]==='join'){writeFileSync(${JSON.stringify(marker+'.tmp')},out);renameSync(${JSON.stringify(marker+'.tmp')},${JSON.stringify(marker)});while(!existsSync(${JSON.stringify(release)}))await new Promise(r=>setTimeout(r,5));}process.stdout.write(out);`);chmodSync(wrapper,0o700);
  const controller=registerPiInbox(f.pi,{binary:wrapper,database:f.database});const starting=f.fire('session_start');
  try {
    const deadline=Date.now()+5000;while(!existsSync(marker)){if(Date.now()>deadline)throw new Error('join did not reach barrier');await new Promise(r=>setTimeout(r,5));}

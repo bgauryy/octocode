@@ -53,12 +53,17 @@ function stageFile(source, destination, { executable = false } = {}) {
   }
 }
 
-function verifyBinaryRuns(binaryPath) {
+/** Run `binaryPath --version`; it must exit 0 and print exactly `octocode <version>`. */
+function verifyBinaryRuns(binaryPath, version) {
   const ran = spawnSync(binaryPath, ['--version'], { encoding: 'utf8', timeout: SMOKE_TIMEOUT_MS });
   if (ran.status !== 0) {
     throw new Error(
       `Binary smoke failed for ${binaryPath} (status ${ran.status}, signal ${ran.signal ?? 'none'}): ${ran.stderr || ran.stdout || ran.error?.message}`,
     );
+  }
+  const reported = ran.stdout.trim();
+  if (reported !== `octocode ${version}`) {
+    throw new Error(`Binary ${binaryPath} reports '${reported}', expected 'octocode ${version}': it was built before the version bump`);
   }
 }
 

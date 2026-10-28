@@ -115,3 +115,62 @@ fn integer_enum_and_constant_compare_the_normalized_input() {
         .expect("1.0 is the declared integer constant");
     assert_eq!(value.as_u64(), Some(1));
 }
+
+#[test]
+fn numeric_literals_and_nested_enum_values_use_json_schema_equality_without_rewriting_output() {
+    for (literal, actual, accepted) in [
+        (json!(0), json!(0.0), true),
+        (json!(0), json!(-0.0), true),
+        (json!(3), json!(3.0), true),
+        (json!(3.0), json!(3), true),
+        (json!(3), json!(3.5), false),
+        (json!(3), json!("3"), false),
+        (
+            json!(9007199254740993_u64),
+            json!(9007199254740992.0),
+            false,
+        ),
+        (json!(9007199254740992_u64), json!(9007199254740992.0), true),
+        (json!(u64::MAX), json!(u64::MAX as f64), false),
+        (json!(i64::MAX), json!(i64::MAX as f64), false),
+        (json!(i64::MIN), json!(i64::MIN as f64), true),
+        (
+            json!({"rows":[0,{"n":3}]}),
+            json!({"rows":[0.0,{"n":3.0}]}),
+            true,
+        ),
+        (json!([0, 3]), json!([3.0, 0.0]), false),
+    ] {
+        for schema in [json!({"const":literal}), json!({"enum":[literal]})] {
+            let mut value = actual.clone();
+            let before = serde_json::to_vec(&value).unwrap();
+            let result = validate_schema(&schema, &schema, &mut value, &mut Vec::new());
+            assert_eq!(
+                result.is_ok(),
+                accepted,
+                "{schema} versus {actual}: {result:?}"
+            );
+            assert_eq!(serde_json::to_vec(&value).unwrap(), before);
+        }
+    }
+}
+
+#[test]
+fn numeric_union_selectors_share_literal_equality() {
+    let schema = json!({"oneOf":[
+        {"type":"object","properties":{"kind":{"const":0},"value":{"type":"string"}},"required":["kind","value"],"additionalProperties":false},
+        {"type":"object","properties":{"kind":{"const":1},"count":{"type":"integer"}},"required":["kind","count"],"additionalProperties":false}
+    ]});
+    for (mut value, accepted) in [
+        (json!({"kind":0.0,"value":"ok"}), true),
+        (json!({"kind":1.0,"count":3}), true),
+        (json!({"kind":0.0,"count":3}), false),
+        (json!({"kind":0.25,"value":"no"}), false),
+    ] {
+        assert_eq!(
+            validate_schema(&schema, &schema, &mut value, &mut Vec::new()).is_ok(),
+            accepted,
+            "{value}"
+        );
+    }
+}

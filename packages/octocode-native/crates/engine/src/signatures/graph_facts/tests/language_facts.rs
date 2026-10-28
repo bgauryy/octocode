@@ -203,12 +203,16 @@ def helper():
 #[test]
 fn an_alias_extension_yields_the_facts_of_its_canonical_extension() {
     let python = "import os\nfrom pkg import thing\n\nclass Base:\n    pass\n\nclass Child(Base):\n    def run(self):\n        pass\n\ndef _private():\n    pass\n";
+    #[cfg(feature = "tree-sitter-cpp")]
     let cpp = "#include <vector>\nclass Shape {};\nclass Circle : public Shape {};\n";
-    for (canonical, alias, source) in [("a.py", "a.pyi", python), ("a.cpp", "a.hpp", cpp)] {
+    let assert_alias = |canonical: &str, alias: &str, source: &str| {
         // Only the file name (in the file field and every id) may differ.
         let spelled = |path: &str| facts(source, path).to_string().replace(path, "FILE");
         assert_eq!(spelled(canonical), spelled(alias), "facts of {alias}");
-    }
+    };
+    assert_alias("a.py", "a.pyi", python);
+    #[cfg(feature = "tree-sitter-cpp")]
+    assert_alias("a.cpp", "a.hpp", cpp);
     let exported = |graph: &Value, name: &str| {
         graph["declarations"]
             .as_array()

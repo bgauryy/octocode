@@ -1,3 +1,4 @@
+mod source_context;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -28,7 +29,7 @@ pub(super) use matching::INTERRUPT_NEXT_COMPILE_PARSE;
 use super::query::Prefilter;
 use crate::text::LineIndex;
 pub use error::COMPILE_FAILED;
-use line_index_support::{to_structural_match, to_structural_match_with_index};
+use line_index_support::{to_structural_match, to_structural_match_with_context};
 use macro_bodies::MacroBodies;
 use matching::{CandidateVisitor, CaptureEnv, collect_kind_matches, visit_named_expanding_macros};
 pub(super) use matching::{Found, MatchWithKind};
@@ -116,7 +117,7 @@ pub(super) fn compile_matcher(
                 }
                 // Built on the first match: most parsed files have none.
                 let line_index = std::cell::OnceCell::new();
-                let visit: &mut CandidateVisitor<'_> = &mut |candidate, _, _| {
+                let visit: &mut CandidateVisitor<'_> = &mut |candidate, _, _, source| {
                     if !compiled.matches_candidate(candidate) {
                         return Ok(());
                     }
@@ -124,7 +125,8 @@ pub(super) fn compile_matcher(
                     if compiled.matches(candidate, content, &mut captures, deadline)? {
                         found.push(candidate, || {
                             let (values, ranges) = captures.into_maps();
-                            to_structural_match_with_index(
+                            to_structural_match_with_context(
+                                source,
                                 candidate,
                                 content,
                                 line_index.get_or_init(|| LineIndex::tree_sitter(content)),
@@ -178,7 +180,7 @@ pub(super) fn compile_matcher(
                     &language,
                     macros.as_ref(),
                     deadline,
-                    &mut |candidate, ancestors, root| {
+                    &mut |candidate, ancestors, root, source| {
                         if !compiled.matches_candidate(candidate) {
                             return Ok(());
                         }
@@ -192,7 +194,8 @@ pub(super) fn compile_matcher(
                         if compiled.matches(candidate, Some(ancestors), &document, &mut captures)? {
                             found.push(candidate, || {
                                 let (values, ranges) = captures.into_maps();
-                                to_structural_match_with_index(
+                                to_structural_match_with_context(
+                                    source,
                                     candidate,
                                     content,
                                     &line_index,

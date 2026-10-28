@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Build helpers shared by the published Node packages (`octocode`,
-// `octocode-mcp`): the bundle's externals, the build-time check that every
-// external runtime import is a declared dependency, and the shared docs copy.
+// `octocode-mcp`): the launcher bundle options, the bundle's externals, the
+// build-time check that every external runtime import is a declared
+// dependency, and the shared docs copy.
 //
 //   node package-build.mjs docs <outDir>   copy repo docs/ to <cwd>/<outDir>/docs
 import { isMainModule } from './lib/entrypoint.mjs';
@@ -19,11 +20,46 @@ const nodeBuiltins = new Set([...builtinModules, ...builtinModules.map(name => `
  * published runtime dependencies, so consumers install those from the
  * manifest and the bundle stays an interface, not a partial copy of them.
  */
-export function packageExternals(pkg) {
+function packageExternals(pkg) {
   return [
     ...nodeBuiltins,
     ...Object.keys(pkg.dependencies ?? {}),
   ];
+}
+
+/**
+ * The esbuild options both Node launchers share. The target is the oldest Node
+ * `engines.node` admits, so the bundle runs on every Node the manifest allows.
+ * `__OCTOCODE_NATIVE_VERSION__` is the pinned platform package version the
+ * launcher fetches when npm skipped it. The bundled native scripts are
+ * CommonJS: the banner gives them `require`, resolved from the bundle, so they
+ * find the installed per-platform package.
+ */
+export function launcherBuildOptions(pkg) {
+  const node = /\d+/.exec(pkg.engines?.node ?? '')?.[0];
+  if (!node) throw new Error(`${pkg.name}: engines.node names no Node major`);
+  const nativeVersions = new Set(Object.values(pkg.optionalDependencies ?? {}));
+  if (nativeVersions.size !== 1) {
+    throw new Error(`${pkg.name}: optionalDependencies must pin one platform package version`);
+  }
+  return {
+    bundle: true,
+    platform: 'node',
+    target: `node${node}`,
+    format: 'esm',
+    minify: true,
+    treeShaking: true,
+    metafile: true,
+    external: packageExternals(pkg),
+    define: {
+      __OCTOCODE_BUNDLED__: 'true',
+      __OCTOCODE_NATIVE_VERSION__: JSON.stringify([...nativeVersions][0]),
+    },
+    banner: {
+      js: "#!/usr/bin/env node\nimport { createRequire as __octocodeRequire } from 'node:module';\nconst require = __octocodeRequire(import.meta.url);",
+    },
+    logLevel: 'info',
+  };
 }
 
 function packageName(specifier) {
@@ -52,7 +88,7 @@ function undeclaredExternalRuntimeImports(metafiles, dependencies = {}) {
     }
   }
 
-  return [...externalPackages].filter(name => !declared.has(name)).sort();
+  return [...externalPackages].filter(name => !declared.has(name)).toSorted((a, b) => a.localeCompare(b));
 }
 
 export function assertDeclaredRuntimeImports({

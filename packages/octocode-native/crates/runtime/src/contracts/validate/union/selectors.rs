@@ -1,4 +1,5 @@
 use super::super::ValidationIssue;
+use super::super::literals::equivalent;
 use super::branch_object;
 use serde_json::Value;
 
@@ -19,7 +20,9 @@ pub(super) fn sibling_selector_values(declaring: &[&Value], value: &Value) -> Op
             .iter()
             .filter_map(|(name, schema)| {
                 let literals = selector_literals(schema)?;
-                (!literals.contains(&value.get(name)?)).then_some((name, literals))
+                let actual = value.get(name)?;
+                (!literals.iter().any(|literal| equivalent(literal, actual)))
+                    .then_some((name, literals))
             })
             .collect::<Vec<_>>();
         match selectors.as_slice() {
@@ -33,7 +36,11 @@ pub(super) fn sibling_selector_values(declaring: &[&Value], value: &Value) -> Op
                         merged.len() - 1
                     });
                 for literal in literals {
-                    if !merged[index].1.contains(literal) {
+                    if !merged[index]
+                        .1
+                        .iter()
+                        .any(|known| equivalent(known, literal))
+                    {
                         merged[index].1.push((*literal).clone());
                     }
                 }
@@ -67,7 +74,9 @@ pub(super) fn selectors_accept(branch: &Value, value: &Value) -> bool {
         .flatten()
         .all(
             |(name, schema)| match (selector_literals(schema), value.get(name)) {
-                (Some(literals), Some(actual)) => literals.contains(&actual),
+                (Some(literals), Some(actual)) => {
+                    literals.iter().any(|literal| equivalent(literal, actual))
+                }
                 _ => true,
             },
         )
@@ -99,11 +108,13 @@ pub(super) fn render_selector<V: std::borrow::Borrow<Value>>(name: &str, literal
 }
 
 fn literal_accepts(schema: &Value, value: &Value) -> bool {
-    schema.get("const") == Some(value)
+    schema
+        .get("const")
+        .is_some_and(|constant| equivalent(constant, value))
         || schema
             .get("enum")
             .and_then(Value::as_array)
-            .is_some_and(|values| values.contains(value))
+            .is_some_and(|values| values.iter().any(|literal| equivalent(literal, value)))
 }
 
 pub(super) fn single_literal(schema: &Value) -> Option<&Value> {

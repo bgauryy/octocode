@@ -1,9 +1,13 @@
 //! Match rows and the diagnostics a scan reports.
 use super::query::MatchQuery;
+use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::response::result::ToolError;
+use crate::response::source_evidence::{self, ProjectionBudget, ProjectionLimits};
 use octocode_engine::structural::{StructuralDetailedMatch, StructuralDiagnostic};
+use octocode_engine::text::analysis::{ObservedSpan, OriginProjection, SourceDescriptors};
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 /// One match row, an object: `line`, `column` (1-based), `endLine` for a
 /// multi-line match, and `value` (source text or a marked, bounded prefix). With
@@ -12,6 +16,7 @@ use serde_json::{Value, json};
 /// without a range).
 pub(super) struct MatchRow {
     pub(super) value: Value,
+    pub(super) source_descriptors: Option<Arc<SourceDescriptors>>,
     /// The lean row withheld something `captureText:true` returns: a
     /// multi-line match cut to its header (signature) followed by `…`, or
     /// capture text the value does not show.
@@ -22,7 +27,7 @@ pub(super) struct MatchRow {
     pub(super) lines: (u64, u64),
 }
 
-pub(super) fn match_value(
+fn display_value(
     m: &StructuralDetailedMatch,
     capture_text: bool,
     content_length: usize,
@@ -55,6 +60,7 @@ pub(super) fn match_value(
             value["clipped"] = json!(true);
         }
         return MatchRow {
+            source_descriptors: None,
             value,
             withheld,
             shown_cut,
@@ -108,11 +114,104 @@ pub(super) fn match_value(
         value["metavarRanges"] = Value::Object(ranges);
     }
     MatchRow {
+        source_descriptors: None,
         value,
         withheld: false,
         shown_cut,
         lines,
     }
+}
+
+pub(super) fn match_value(
+    matched: &StructuralDetailedMatch,
+    capture_text: bool,
+    content_length: usize,
+    cancel: &dyn CancellationCheck,
+) -> Result<MatchRow, ToolError> {
+    let descriptors = matched
+        .source_descriptors
+        .as_ref()
+        .ok_or_else(missing_origin)?;
+    let mut budget = ProjectionBudget::new(ProjectionLimits::default());
+    let mut row = display_value(matched, capture_text, content_length);
+    put_span(
+        &mut row.value,
+        matched.source_span,
+        matched.source_origin.as_ref(),
+        descriptors,
+        ("sourceRange", "sourceOrigin"),
+        true,
+        &mut budget,
+        cancel,
+    )?;
+    if !capture_text && matched.header.is_some() {
+        let span = matched.header_span.ok_or_else(missing_origin)?;
+        put_span(
+            &mut row.value,
+            span,
+            matched.header_origin.as_ref(),
+            descriptors,
+            ("headerSourceRange", "headerOrigin"),
+            false,
+            &mut budget,
+            cancel,
+        )?;
+    }
+    if capture_text {
+        for (name, captures) in &matched.metavar_ranges {
+            for (index, capture) in captures.iter().enumerate() {
+                put_span(
+                    &mut row.value["metavarRanges"][name][index],
+                    capture.source_span,
+                    capture.source_origin.as_ref(),
+                    descriptors,
+                    ("sourceRange", "sourceOrigin"),
+                    true,
+                    &mut budget,
+                    cancel,
+                )?;
+            }
+        }
+    }
+    row.source_descriptors = Some(Arc::clone(descriptors));
+    Ok(row)
+}
+
+fn missing_origin() -> ToolError {
+    ToolError::new(
+        octocode_contract_types::ErrorCode::ExecutionFailed,
+        "Structural evidence was not bound to its admitted source bytes.",
+    )
+}
+
+fn put_span(
+    row: &mut Value,
+    span: ObservedSpan,
+    origin: Option<&OriginProjection>,
+    descriptors: &SourceDescriptors,
+    keys: (&str, &str),
+    digest: bool,
+    budget: &mut ProjectionBudget,
+    cancel: &dyn CancellationCheck,
+) -> Result<(), ToolError> {
+    let origin = origin.ok_or_else(missing_origin)?;
+    let projected = source_evidence::project_origin(origin, budget, cancel)?;
+    let encode = |error: serde_json::Error| {
+        ToolError::new(
+            octocode_contract_types::ErrorCode::ExecutionFailed,
+            error.to_string(),
+        )
+    };
+    row[keys.0] =
+        serde_json::to_value(source_evidence::project_range(span.range)?).map_err(encode)?;
+    row[keys.1] = serde_json::to_value(projected).map_err(encode)?;
+    if digest {
+        row["sourceDigest"] = json!(source_evidence::source_digest(
+            descriptors,
+            &origin.analysis_unit_id
+        )?);
+    }
+    Ok(())
 }
 
 /// Exact source text bounded to `limit` Unicode scalars

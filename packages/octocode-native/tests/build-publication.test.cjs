@@ -23,24 +23,25 @@ test('every native build script routes through build-native.cjs', () => {
   }
 });
 
-test('test:rust is nextest runs, and bacon test jobs use the same selections', () => {
-  const { testRustSelections } = require('../scripts/test-rust-selections.cjs');
-  const selections = testRustSelections();
-  assert.ok(selections.length > 0);
-  for (const selection of selections) assert.equal(selection[0], '--locked');
+test('test:rust and coverage:rust run the selections, and bacon test jobs repeat them', () => {
+  const { SELECTIONS } = require('../scripts/rust-tests.cjs');
+  const scripts = json(join(__dirname, '..', 'package.json')).scripts;
+  assert.equal(scripts['test:rust'], 'node scripts/rust-tests.cjs');
+  assert.equal(scripts['coverage:rust'], 'node scripts/rust-tests.cjs --coverage');
+  assert.ok(SELECTIONS.length > 0);
+  for (const selection of SELECTIONS) assert.equal(selection[0], '--locked');
   const bacon = readFileSync(join(__dirname, '..', 'bacon.toml'), 'utf8').replace(/,\s+/g, ', ');
-  for (const selection of selections) {
+  for (const selection of SELECTIONS) {
     assert.ok(bacon.includes(selection.map(arg => JSON.stringify(arg)).join(', ')), selection.join(' '));
   }
-  assert.throws(() => testRustSelections({ scripts: { 'test:rust': 'cargo test -p x' } }), /not "cargo nextest run/);
 });
 
-test('cargo dev-test is the first test:rust selection under libtest', () => {
-  const { testRustSelections } = require('../scripts/test-rust-selections.cjs');
+test('cargo dev-test is the first Rust test selection under libtest', () => {
+  const { SELECTIONS } = require('../scripts/rust-tests.cjs');
   const config = readFileSync(join(__dirname, '..', '.cargo', 'config.toml'), 'utf8');
   const alias = /^dev-test = "test (.+)"$/m.exec(config);
   assert.ok(alias, 'the dev-test alias is defined');
-  assert.deepEqual(alias[1].split(/\s+/), testRustSelections()[0]);
+  assert.deepEqual(alias[1].split(/\s+/), SELECTIONS[0]);
 });
 
 test('host build selects the CLI crate in one locked cargo invocation', () => {
@@ -108,6 +109,16 @@ test('stageFile keeps unchanged bytes on their existing inode', t => {
   assert.notEqual(statSync(destination).ino, first.ino);
   assert.deepEqual(readFileSync(destination), changed);
   assert.deepEqual(readdirSync(root).sort(), ['destination', 'source']);
+});
+
+test('verifyBinaryRuns requires the staged binary to report the package version', { skip: process.platform === 'win32' }, t => {
+  const { verifyBinaryRuns } = require('../scripts/stage-binary.cjs');
+  const root = mkdtempSync(join(tmpdir(), 'octocode-smoke-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bin = join(root, 'octocode');
+  writeFileSync(bin, '#!/bin/sh\necho "octocode 1.2.3"\n', { mode: 0o755 });
+  verifyBinaryRuns(bin, '1.2.3');
+  assert.throws(() => verifyBinaryRuns(bin, '1.3.0'), /reports 'octocode 1\.2\.3', expected 'octocode 1\.3\.0'/);
 });
 
 test('runForwardingSignals passes exit codes through and maps signal deaths to 128+N', async () => {

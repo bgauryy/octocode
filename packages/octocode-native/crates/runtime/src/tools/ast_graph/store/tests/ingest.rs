@@ -117,14 +117,16 @@ fn ingest_classifies_roles_entries_and_declared_dependencies() {
 }
 
 #[test]
-fn oversized_and_minified_files_stay_visible_without_noise() {
+fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
     let dir = fixture();
     let src = dir.0.as_path().join("app/src");
     // Over the 1 MB parse bound: kept as an `unparsed` file node.
     let big = format!("!function(){{{}}}();\n", "var a=1;".repeat(160_000));
     std::fs::write(src.join("huge.min.js"), &big).expect("huge");
-    // Under the bound but minified: parsed, symbols dropped.
-    let small = format!("{}\n", "function a(){return 1}var b=a();".repeat(200));
+    // Under the bound, minified source retains declarations and call sites.
+    let small = (0..200)
+        .map(|i| format!("function a{i}(){{return 1}}var b{i}=a{i}();"))
+        .collect::<String>();
     std::fs::write(src.join("small.min.js"), small).expect("small");
     std::fs::write(
         src.join("uses.ts"),
@@ -146,10 +148,20 @@ fn oversized_and_minified_files_stay_visible_without_noise() {
     );
     let outline = ask(dir.0.as_path(), "symbols", Some("src/small.min.js"), |_| {});
     assert_eq!(
-        outline.value["total"], 0,
-        "minified symbols are dropped: {}",
+        outline.value["total"], 400,
+        "admitted minified declarations must remain queryable: {}",
         outline.value
     );
+
+    let calls = ask(
+        dir.0.as_path(),
+        "witnesses",
+        Some("src/small.min.js"),
+        |o| {
+            o.edges = vec!["calls".into()];
+        },
+    );
+    assert_eq!(calls.value["total"], 200, "{}", calls.value);
 
     let issues = ask(dir.0.as_path(), "issues", None, |o| o.limit = Some(500));
     let subjects = issues.value["results"]

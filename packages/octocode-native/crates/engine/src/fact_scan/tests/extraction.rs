@@ -96,7 +96,7 @@ fn malformed_parser_glob_fails_before_scanning_files() {
     let error = scan_graph_facts(GraphFactsScanOptions {
         path: "/nonexistent".into(),
         language_globs: Some(vec![crate::types::GraphLanguageGlob {
-            language: "cpp".into(),
+            language: "c".into(),
             glob: "[".into(),
         }]),
         ..Default::default()

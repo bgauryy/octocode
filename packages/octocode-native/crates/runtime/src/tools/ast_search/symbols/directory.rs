@@ -69,7 +69,8 @@ pub(super) fn walk_directory(
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<DirectoryWalk, ToolError> {
-    let outlined = octocode_engine::signatures::graph_facts::graph_fact_extensions();
+    let outlined = octocode_engine::signatures::languages::RegistryView::installed()
+        .extensions(octocode_engine::text::analysis::AnalysisOperation::Declarations);
     let admission = crate::policy::discovery::WalkAdmission::new(
         paths.discovery_walk(),
         canonical,
@@ -134,7 +135,8 @@ fn unwalked_scopes(
     )
     .ok()?;
     let outlined: std::collections::BTreeSet<String> =
-        octocode_engine::signatures::graph_facts::graph_fact_extensions()
+        octocode_engine::signatures::languages::RegistryView::installed()
+            .extensions(octocode_engine::text::analysis::AnalysisOperation::Declarations)
             .into_iter()
             .collect();
     let candidate = |path: &std::path::Path| {
@@ -183,6 +185,7 @@ pub(super) fn outline_walked(
     let rooted = |relative: &str| {
         crate::tools::ast_search::rooted_display(canonical, std::path::Path::new(relative))
     };
+    let failure = std::sync::Mutex::new(None);
     let scan = octocode_engine::fact_scan::scan_walked_graph_facts(
         directory_scan_options(q, canonical),
         walk.files,
@@ -191,19 +194,57 @@ pub(super) fn outline_walked(
         }),
         &keep,
         &|view| {
-            let (rows, off_kind, notes) = reduce_document(q, filter.as_ref(), view.facts, || {
-                Some(view.content.to_owned())
-            });
-            (!rows.is_empty() || !off_kind.is_empty() || !notes.is_empty()).then(|| OutlineFile {
-                path: rooted(view.relative_path),
-                rows,
-                off_kind,
-                notes,
-            })
+            let project = || -> Result<Option<OutlineFile>, ToolError> {
+                let cancelled = || cancel.check().is_err();
+                let mut maps = super::super::source::mapping_budget(&cancelled);
+                let mut evidence =
+                    super::super::evidence::FileEvidence::new(view.source, &mut maps, cancel);
+                let (rows, off_kind, notes) = reduce_document(
+                    q,
+                    filter.as_ref(),
+                    view.facts,
+                    || Some(view.content.to_owned()),
+                    &mut evidence,
+                )?;
+                let source_descriptors = evidence.finish()?;
+                Ok(
+                    (!rows.is_empty() || !off_kind.is_empty() || !notes.is_empty()).then(|| {
+                        OutlineFile {
+                            path: rooted(view.relative_path),
+                            rows,
+                            off_kind,
+                            notes,
+                            source_descriptors,
+                        }
+                    }),
+                )
+            };
+            match project() {
+                Ok(file) => file,
+                Err(error) => {
+                    failure
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .get_or_insert(error);
+                    None
+                }
+            }
         },
-        &|| cancel.check().is_err(),
-    )
-    .map_err(|error| ToolError::graph_scan(&error, cancel))?;
+        &|| {
+            cancel.check().is_err()
+                || failure
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_some()
+        },
+    );
+    if let Some(error) = failure
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        return Err(error);
+    }
+    let scan = scan.map_err(|error| ToolError::graph_scan(&error, cancel))?;
     let diagnostics = scan
         .skipped
         .iter()

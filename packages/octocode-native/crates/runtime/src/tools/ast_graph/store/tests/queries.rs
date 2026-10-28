@@ -305,8 +305,7 @@ fn node_leads_and_verify_commands_are_pinned_to_the_snapshot() {
 }
 
 /// An ambiguous reference lists the first candidates, says how many match,
-/// and offers the `find` command that pages them all; `--kind` is offered
-/// only when it can narrow them.
+/// and continues the exact candidate set after the delivered preview.
 #[test]
 fn ambiguous_reference_pages_every_candidate() {
     let dir = Fixture::new();
@@ -334,7 +333,9 @@ fn ambiguous_reference_pages_every_candidate() {
     assert_eq!(out.value["truncated"], true);
     let next = out.value["next"].as_str().expect("next");
     assert!(
-        next.starts_with("octocode graph query find run ") && next.contains(&id),
+        next.starts_with("octocode graph query candidates run ")
+            && next.contains(&id)
+            && next.ends_with("--offset 20"),
         "{next}"
     );
     let error = out.value["error"].as_str().unwrap_or_default();
@@ -342,6 +343,18 @@ fn ambiguous_reference_pages_every_candidate() {
         !error.contains("--kind"),
         "every candidate is a symbol: {error}"
     );
+    let mut continued = out.next_query.clone().expect("structured continuation");
+    continued.graph = Some(id);
+    let rest = query(&continued, &workspace_policy(root));
+    assert_eq!(rest.value["results"].as_array().unwrap().len(), 5);
+    let union = out.value["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(rest.value["results"].as_array().unwrap())
+        .map(|row| row["id"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(union.len(), 25);
     let found = ask(root, "find", Some("run"), |o| o.limit = Some(100));
     assert_eq!(found.value["total"], 25, "{}", found.value);
 }

@@ -67,6 +67,7 @@ fn search_files_admits_sources_by_the_one_text_rule() {
         None,
         wide.source_sha256.as_deref().expect("digest"),
         1 << 20,
+        &|| false,
     )
     .expect("rebuilt");
     assert!(matches!(rebuilt, Rebuilt::Matches(matches) if matches.len() == 1));

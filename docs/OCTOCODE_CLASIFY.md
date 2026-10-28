@@ -78,7 +78,7 @@ Scores are out of 10, from evaluation runs against known answers.
 | Scouting (cutting what the agent reads) | 9.5 | 84–86% less output, with no relevant hits lost in the tests |
 | Large sources | 9.5 | A 200k-character log came back as about 1 KB of answers, 5/5 correct |
 | Confidence you can trust | 8 | Reliable for images; for text, only when the question names a specific thing |
-| Caching | 7 | Repeats cost nothing, but a file edit can get the old answer back |
+| Caching | not re-scored | Repeats over unchanged bytes cost nothing. The earlier 7 assumed a file edit could get the old answer back; a re-check found every edit re-judged: whole-file, ranged, sections, and a same-size edit with its modification time restored |
 | Ease of use | 7 | Strict limits, no image resizing, confusing errors when you pass unexpected arguments |
 
 Best at:
@@ -94,6 +94,5 @@ Weak at:
 - Counting, totals and finding the maximum: use a script
 - Pixel-level layout: use DOM measurements
 - Broad questions like "any bug?": ask one exact, named fact per question
-- Re-checking a file right after editing it: an identical query can replay the saved answer, so rephrase the question to re-judge
 
-Treat answers between 0.3 and 0.7 as unsure, and read the lines or image region behind a finding before acting on it. A sections hit is a candidate: confirm it at its target lines.
+Each call re-reads its source, so re-checking a file after an edit needs no rephrasing. Treat answers between 0.3 and 0.7 as unsure, and read the lines or image region behind a finding before acting on it. A sections hit is a candidate: confirm it at its target lines.

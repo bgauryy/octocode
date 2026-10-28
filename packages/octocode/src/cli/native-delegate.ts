@@ -1,7 +1,7 @@
 // The npm CLI only starts the native binary. The platform resolver and the
 // signal-forwarding launcher are the native package's own scripts, bundled
 // here at build time; the binary comes from the one per-platform package npm
-// installs (`optionalDependencies`, selected by its `os`/`cpu`). When npm
+// installs (`optionalDependencies`, selected by its `os`/`cpu`/`libc`). When npm
 // skipped that package, a bundled launcher downloads it once, at the exact
 // pinned version, into the Octocode home.
 import { existsSync } from 'node:fs';

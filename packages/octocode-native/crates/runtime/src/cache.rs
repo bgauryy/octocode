@@ -4,7 +4,7 @@
 //! pinned facts never expire while movable ones age out or revalidate.
 mod disk;
 pub mod evictions;
-use disk::Disk;
+pub(crate) use disk::Disk;
 
 use octocode_io::memo::{Memo, MemoLimits};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};

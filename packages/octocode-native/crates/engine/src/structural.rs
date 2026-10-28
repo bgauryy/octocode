@@ -70,9 +70,13 @@ pub(crate) fn search(
     }
     let query = StructuralQuery::new(pattern, rule)
         .map_err(|message| format!("[structural.query.invalid] {message}"))?;
-    let entry = languages::find_entry(ext).ok_or_else(|| {
-        format!("[structural.language.unsupported] structural search does not support .{ext} files")
-    })?;
+    let entry = languages::find_entry(ext)
+        .filter(|entry| entry.admits(crate::text::analysis::AnalysisOperation::StructuralSearch))
+        .ok_or_else(|| {
+            format!(
+                "[structural.language.unsupported] structural search does not support .{ext} files"
+            )
+        })?;
     let lang = AgLanguage::new(entry);
     let run = compile_matcher(&lang, &query).map_err(|error| error.to_string())?;
     // The non-detailed API returns bare StructuralMatch; node_kind is only
@@ -178,7 +182,9 @@ pub(crate) fn evaluate_source(
     };
 
     let query_explanation = query.explanation();
-    let Some(entry) = languages::find_entry(ext) else {
+    let Some(entry) = languages::find_entry(ext)
+        .filter(|entry| entry.admits(crate::text::analysis::AnalysisOperation::StructuralSearch))
+    else {
         let diagnostic = files::unsupported_language(file_path);
         return no_matches(
             file_path,
@@ -243,3 +249,6 @@ pub(crate) fn evaluate_source(
 
 #[cfg(test)]
 mod tests;
+
+mod source_binding;
+pub use source_binding::SourceBinder;

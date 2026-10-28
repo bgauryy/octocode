@@ -76,6 +76,23 @@ Execute `responsePagination.next` until the displayed response is complete, then
 
 `related[]` contains typed calls that start fresh work. Broader scope, a linked historical item or a new source read may help, but does not count as continuation of the initial claim. `hints[]` is prose only. Invalid input names the field to correct; it does not silently run a guessed repair.
 
+## Recover from errors
+
+Inspect every result row's `errorCode`, message, `hints` and recovery calls, even in a successful batch. Choose recovery by the cause:
+
+| Cause | Agent action |
+|---|---|
+| Invalid input | Correct the named field using the live schema; keep the intended scope. |
+| Unsupported AST grammar or declarations | Use the related document outline or text read. `localFetch` with `view:"symbols"` can outline document headings/keys; `localSearch` finds literal text. Set a parser override only for source actually written in that grammar. |
+| Missing LSP server or capability | Inspect related source/text candidates; report semantic verification as unavailable. Retry after server configuration changes, or use another advertised operation that answers the question. |
+| Missing path, identifier or revision | Verify the observed identity and access rights; use an emitted discovery call. Do not substitute a different revision as evidence. |
+| Timeout or transient provider failure | Follow the hint and retry at most once when retrying can help; respect `retryable:false`. Narrow only when the task permits it, and state the remaining scope. |
+| Authentication, permission or rate limit | Correct access or wait for the reported reset; repeating unchanged calls does not restore access. |
+| Stale or expired continuation | Use its restart call or repeat the original request. Never construct a cursor or keep stale coordinates. |
+| Tool/internal contract failure | Preserve the failing call and error code, use applicable recovery, and report the coverage gap. |
+
+A fallback starts a different evidence operation. Text matches do not prove callers, references, types or compilation; a document outline is not an AST. Preserve the original error and label the evidence obtained by recovery. Stop repeating a failure when its cause has not changed.
+
 ## Compact and symbol views
 
 Read source content for exact quotations. `view:"compact"` preserves useful source coordinates while transforming text; `view:"symbols"` outlines declarations. The live schema defines which selectors combine with each view. Matchers, ranges and context have the same typed forms on local and GitHub readers.

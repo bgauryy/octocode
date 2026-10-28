@@ -44,7 +44,10 @@ fn an_explicit_language_parses_a_file_whose_extension_selects_no_grammar() {
         )
         .expect("tree");
         assert_eq!(tree["isPartial"], false, "{tree}");
-        assert_eq!(tree["nodes"][1], "1 export_statement 1:1-1:46 ^0", "{tree}");
+        assert_eq!(
+            tree["nodes"][1]["node"], "1 export_statement 1:1-1:46 ^0",
+            "{tree}"
+        );
     }
 }
 

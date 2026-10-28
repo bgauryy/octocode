@@ -7,6 +7,7 @@ pub(super) fn annotate_rust(
     query: &LspSearchQuery,
     server_root: &str,
     scope: &Scope,
+    all_features: bool,
 ) {
     let context =
         lsp_search_query::rust_context(query).map_or_else(|| json!({}), |context| json!(context));
@@ -14,7 +15,7 @@ pub(super) fn annotate_rust(
     else {
         return;
     };
-    if context["features"] == "all" {
+    if all_features {
         let negated = gated_files_mentioning(scope, server_root, name, Gate::NegatedFeature);
         if negated.matches > 0 || negated.incomplete() {
             let warning = format!(

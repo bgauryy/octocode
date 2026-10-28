@@ -1,10 +1,14 @@
+use crate::text::analysis::{ObservedSpan, OriginProjection, SourceDescriptors, SourceTemplates};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Precise position of one captured metavariable node. Line is 1-based (usable
 /// as an `lspSearch` `line`); columns are 0-based UTF-16 code-unit
 /// offsets — the same convention as `StructuralMatch.start_col` and LSP.
 pub struct MetavarRange {
+    pub source_span: ObservedSpan,
+    pub source_origin: Option<OriginProjection>,
     pub text: String,
     pub line: u32,
     pub column: u32,
@@ -17,6 +21,12 @@ pub struct MetavarRange {
 /// code-unit offsets (converted from tree-sitter's native byte columns to match
 /// the resolver, signatures, and LSP layers).
 pub struct StructuralMatch {
+    pub source_span: ObservedSpan,
+    pub header_span: Option<ObservedSpan>,
+    pub source_templates: Arc<SourceTemplates>,
+    pub source_origin: Option<OriginProjection>,
+    pub header_origin: Option<OriginProjection>,
+    pub source_descriptors: Option<Arc<SourceDescriptors>>,
     pub start_line: u32,
     pub end_line: u32,
     pub start_col: u32,
@@ -56,6 +66,12 @@ pub struct StructuralQueryExplanation {
 /// A structural match plus the kind of the matched node, for the detailed
 /// APIs.
 pub struct StructuralDetailedMatch {
+    pub source_span: ObservedSpan,
+    pub header_span: Option<ObservedSpan>,
+    pub source_templates: Arc<SourceTemplates>,
+    pub source_origin: Option<OriginProjection>,
+    pub header_origin: Option<OriginProjection>,
+    pub source_descriptors: Option<Arc<SourceDescriptors>>,
     pub start_line: u32,
     pub end_line: u32,
     pub start_col: u32,
@@ -258,6 +274,12 @@ impl StructuralDiagnostic {
 impl StructuralDetailedMatch {
     pub(super) fn from_match(matched: StructuralMatch, node_kind: impl Into<String>) -> Self {
         Self {
+            source_span: matched.source_span,
+            header_span: matched.header_span,
+            source_templates: matched.source_templates,
+            source_origin: matched.source_origin,
+            header_origin: matched.header_origin,
+            source_descriptors: matched.source_descriptors,
             start_line: matched.start_line,
             end_line: matched.end_line,
             start_col: matched.start_col,

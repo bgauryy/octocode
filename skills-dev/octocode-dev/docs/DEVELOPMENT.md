@@ -156,7 +156,7 @@ Every tool's version, and the dated nightly the opt-in tools use, is pinned in `
 | Miri (nightly) | `$DEV miri`: the selected tests, deadline 1500 s | `miri` in `dev-tools.json` | after changing `unsafe`, offset or concurrency code they cover |
 | cargo-llvm-lines | `$DEV llvm-lines [package] [--timings]` | builds in `target/llvm-lines` (delete when done) | investigating compile time or binary size; not a gate |
 
-`scripts/test-rust-selections.cjs` reads the package and feature selections from `test:rust`; `coverage:rust` uses it, and a script test keeps the `bacon.toml` test jobs equal to them. Library crates set `doctest = false`: nextest runs no doctests, and `shear` fails if one appears.
+`scripts/rust-tests.cjs` holds the package and feature selections and runs them for `test:rust` and `coverage:rust`; a script test keeps the `bacon.toml` test jobs and the `cargo dev-test` alias equal to them. Library crates set `doctest = false`: nextest runs no doctests, and `shear` fails if one appears.
 
 #### Fuzzing, Miri and IR size
 

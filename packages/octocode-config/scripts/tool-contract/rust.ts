@@ -29,7 +29,7 @@ function requireTypify(): void {
 }
 
 /**
- * The bundle as native needs it. Two representation changes, applied here
+ * The bundle as native needs it. Representation changes, applied here
  * and never to the published bundle:
  * - the per-tool `*Output` roots are dropped: native checks outputs against
  *   the JSON schema, so the types typify would expand from them (most of the
@@ -39,6 +39,10 @@ function requireTypify(): void {
  *   enum (it flattens `anyOf` into a struct of optional subtypes). serde
  *   decodes such an enum by trying variants in order, so an input matching
  *   two branches still decodes; full validation stays with the JSON schema.
+ * - unconstrained string property names are implicit in JSON objects; omit
+ *   that redundant keyword because typify cannot merge it in object unions.
+ * - ref-site titles/descriptions are annotations, not validation. typify's
+ *   intersection merger rejects them; canonical definitions keep their names.
  */
 export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Json } {
   const defs = (bundle.$defs ?? {}) as { [key: string]: Json };
@@ -57,10 +61,7 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
     if (Array.isArray(value)) return value.map(enumUnions);
     if (value === null || typeof value !== 'object') return value;
     const walked = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, enumUnions(child)]));
-    // Timestamp text stays lossless on the wire. Native validates formats
-    // before decoding; typify's chrono conversion would change that text.
-    if (walked.type === 'string' && walked.format === 'date-time')
-      delete walked.format;
+    normalizeNativeKeywords(walked);
     const branches = walked.anyOf;
     if (Array.isArray(branches) && branches.length > 1 && branches.every((branch) => closed(branch))) {
       const { anyOf: _anyOf, ...rest } = walked;
@@ -76,6 +77,21 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
         .map(([name, schema]) => [name, enumUnions(schema)])
     ),
   };
+}
+
+function normalizeNativeKeywords(schema: { [key: string]: Json }): void {
+    if (typeof schema.$ref === 'string') {
+      delete schema.title;
+      delete schema.description;
+    }
+    // Timestamp text stays lossless on the wire. Native validates formats
+    // before decoding; typify's chrono conversion would change that text.
+    if (schema.type === 'string' && schema.format === 'date-time')
+      delete schema.format;
+    const names = schema.propertyNames;
+    if (schema.type === 'object' && names !== null && typeof names === 'object' && !Array.isArray(names)
+      && Object.keys(names).length === 1 && names.type === 'string')
+      delete schema.propertyNames;
 }
 
 /** The native crates whose sources name the generated types they use. */

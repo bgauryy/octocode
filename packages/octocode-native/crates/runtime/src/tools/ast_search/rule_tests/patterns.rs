@@ -89,10 +89,12 @@ fn patterns_without_metavariables_offer_no_capture_expansion() {
         json!({"operation":"match","path":source,"rule":{"pattern":"oldCall(one)"}}),
     )
     .expect("match");
-    assert_eq!(
-        out["files"][0]["matches"][0],
+    super::super::test_rows::assert_copied_row(
+        &out,
+        &out["files"][0]["matches"][0],
         json!({"line":1,"column":1,"value":"oldCall(one)"}),
-        "{out}"
+        0..12,
+        None,
     );
     assert!(
         out.get("next")
@@ -272,7 +274,7 @@ fn empty_match_leads_to_syntax_tree() {
     crate::contracts::validate_query("astSearch", row.clone()).expect("a valid syntaxTree row");
     let tree = run(&root.0, row.clone()).expect("syntax tree");
     assert!(
-        tree["nodes"][0]
+        tree["nodes"][0]["node"]
             .as_str()
             .is_some_and(|node| node.contains("expression_statement 4:")),
         "{tree}"

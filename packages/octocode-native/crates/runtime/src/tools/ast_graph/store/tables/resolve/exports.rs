@@ -1,8 +1,13 @@
 //! Export resolution through re-exports, and each file's import bindings.
 use super::*;
 
-/// Declarations a name resolves to, and whether a re-export hop was taken.
-type Resolved = (Vec<u32>, bool);
+/// A resolved binding retains unknown branches as well as observed targets.
+#[derive(Clone)]
+pub(crate) struct Resolved {
+    pub(crate) targets: Vec<u32>,
+    hopped: bool,
+    pub(crate) uncertain: bool,
+}
 
 pub(crate) struct ExportResolver<'a> {
     pub(crate) built: &'a BuiltGraph,
@@ -15,6 +20,11 @@ pub(crate) struct ExportResolver<'a> {
 
 impl ExportResolver<'_> {
     pub(crate) fn exported(&self, file: &str, name: &str) -> (Vec<u32>, bool) {
+        let resolved = self.resolved(file, name);
+        (resolved.targets, resolved.hopped)
+    }
+
+    pub(crate) fn resolved(&self, file: &str, name: &str) -> Resolved {
         if let Some(hit) = self
             .memo
             .borrow()
@@ -33,14 +43,16 @@ impl ExportResolver<'_> {
     }
 
     /// Declarations `file` exports under `name`, following named and star
-    /// re-exports up to [`MAX_REEXPORT_DEPTH`] hops.
-    fn exported_uncached(&self, file: &str, name: &str) -> (Vec<u32>, bool) {
+    /// re-exports. Visiting each (file, name) once bounds cycles without
+    /// silently dropping a target behind a long barrel chain.
+    fn exported_uncached(&self, file: &str, name: &str) -> Resolved {
         let mut pending = vec![(file.to_owned(), name.to_owned(), 0usize)];
         let mut seen = BTreeSet::new();
         let mut found = Vec::new();
         let mut hopped = false;
+        let mut uncertain = false;
         while let Some((file, name, depth)) = pending.pop() {
-            if depth > MAX_REEXPORT_DEPTH || !seen.insert((file.clone(), name.clone())) {
+            if !seen.insert((file.clone(), name.clone())) {
                 continue;
             }
             if let Some(ids) = self
@@ -53,28 +65,79 @@ impl ExportResolver<'_> {
                 continue;
             }
             if let Some(facts) = self.built.facts.get(&file) {
+                let rust = crate::tools::ast_graph::linking::Linker::of(&file)
+                    == crate::tools::ast_graph::linking::Linker::Rust;
+                if rust {
+                    let local = facts
+                        .declarations
+                        .iter()
+                        .filter(|decl| decl.name == name && decl.parent.is_none())
+                        .filter_map(|decl| {
+                            self.indexes
+                                .get(file.as_str())?
+                                .decl_nodes
+                                .get(decl.id.as_str())
+                                .copied()
+                        })
+                        .collect::<Vec<_>>();
+                    if !local.is_empty() {
+                        found.extend(local);
+                        hopped |= depth > 0;
+                        continue;
+                    }
+                }
+                let mut explicit = false;
                 for reexport in facts.reexports.iter().filter(|r| r.local_name == name) {
+                    explicit = true;
                     if let Some(target) = &reexport.target {
                         pending.push((target.clone(), reexport.imported_name.clone(), depth + 1));
+                    } else {
+                        uncertain = true;
                     }
+                }
+                // An explicit export owns the name, even if its target is
+                // outside the scan. Star exports cannot replace it.
+                if explicit {
+                    continue;
                 }
                 // A Rust `use` binds its names in the module, so `crate::a::f`
                 // reaches what `a`'s `use b::f;` (or `use b::*;`) names; that
                 // the path compiles is the proof the binding is visible.
-                if crate::tools::ast_graph::linking::Linker::of(&file)
-                    == crate::tools::ast_graph::linking::Linker::Rust
-                {
+                if rust {
+                    let named = facts
+                        .imports
+                        .iter()
+                        .filter(|import| {
+                            import.imported_name != "*"
+                                && import.local_name.as_deref() == Some(name.as_str())
+                        })
+                        .collect::<Vec<_>>();
+                    if !named.is_empty() {
+                        for import in named {
+                            if let Some(target) = &import.target {
+                                pending.push((
+                                    target.clone(),
+                                    import.imported_name.clone(),
+                                    depth + 1,
+                                ));
+                            } else {
+                                uncertain = true;
+                            }
+                        }
+                        continue;
+                    }
                     for import in &facts.imports {
-                        let Some(target) = &import.target else {
-                            continue;
-                        };
                         if import.imported_name == "*" {
-                            pending.push((target.clone(), name.clone(), depth + 1));
-                        } else if import.local_name.as_deref() == Some(name.as_str()) {
-                            pending.push((target.clone(), import.imported_name.clone(), depth + 1));
+                            if let Some(target) = &import.target {
+                                pending.push((target.clone(), name.clone(), depth + 1));
+                            } else {
+                                uncertain = true;
+                            }
                         }
                     }
                 }
+            } else {
+                uncertain = true;
             }
             if name != "default" {
                 for target in self.star_targets.get(file.as_str()).into_iter().flatten() {
@@ -84,7 +147,11 @@ impl ExportResolver<'_> {
         }
         found.sort_unstable();
         found.dedup();
-        (found, hopped)
+        Resolved {
+            targets: found,
+            hopped,
+            uncertain,
+        }
     }
 
     /// What `file` exports under `name` (following re-exports), else any
@@ -127,6 +194,9 @@ pub(crate) struct FileBindings<'a> {
     pub(crate) external: HashSet<String>,
     /// Files this file imports (scope for ambiguous names).
     pub(crate) imported_files: HashSet<&'a str>,
+    /// Rust glob imports bind names directly, unlike JS namespace imports.
+    pub(crate) wildcards: Vec<&'a str>,
+    pub(crate) unknown_wildcard: bool,
 }
 
 impl<'a> FileBindings<'a> {
@@ -134,6 +204,8 @@ impl<'a> FileBindings<'a> {
         let mut bindings = Self {
             named: HashMap::new(),
             modules: HashMap::new(),
+            wildcards: Vec::new(),
+            unknown_wildcard: false,
             external: ["std", "core", "alloc"]
                 .iter()
                 .map(|s| (*s).to_owned())
@@ -145,6 +217,13 @@ impl<'a> FileBindings<'a> {
                 .collect(),
         };
         for import in &facts.imports {
+            if language == "rust" && import.imported_name == "*" {
+                if let Some(target) = import.target.as_deref() {
+                    bindings.wildcards.push(target);
+                } else {
+                    bindings.unknown_wildcard = true;
+                }
+            }
             let module_binding = import
                 .local_name
                 .as_deref()

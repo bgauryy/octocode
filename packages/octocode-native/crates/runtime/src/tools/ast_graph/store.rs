@@ -12,6 +12,7 @@
 //!
 //! Snapshots are immutable. A build is written into a hidden temp directory
 //! and renamed into place, so a reader never observes a partial snapshot.
+mod argument_coverage;
 mod build_lock;
 pub(super) mod classify;
 mod detect;
@@ -27,7 +28,7 @@ pub(super) mod tables;
 pub(crate) mod tools;
 mod workspace;
 
-use super::graph::{GraphScan, build_graph};
+use super::graph::GraphScan;
 use super::types::ImportOutcome;
 use crate::response::exit::ExitClass;
 use crate::{
@@ -86,6 +87,8 @@ const INGEST_EXCLUDES: &[&str] = &[
 pub struct GraphOutput {
     pub value: Value,
     pub class: ExitClass,
+    /// Domain continuation intent; adapters never infer it from shell text.
+    pub(crate) next_query: Option<Box<QueryOptions>>,
 }
 
 impl GraphOutput {
@@ -93,12 +96,14 @@ impl GraphOutput {
         Self {
             value,
             class: ExitClass::Success,
+            next_query: None,
         }
     }
     pub(crate) fn empty(value: Value) -> Self {
         Self {
             value,
             class: ExitClass::Empty,
+            next_query: None,
         }
     }
     /// A failure with a declared `errorCodes` entry; its class decides the exit.
@@ -106,6 +111,7 @@ impl GraphOutput {
         Self {
             value: json!({"error": message.into(), "errorCode": code}),
             class: ExitClass::of(code),
+            next_query: None,
         }
     }
 }

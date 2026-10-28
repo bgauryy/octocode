@@ -85,7 +85,7 @@ pub(super) fn now_unix() -> u64 {
     crate::civil_date::unix_secs().unsigned_abs()
 }
 
-pub(super) struct Disk {
+pub(crate) struct Disk {
     dir: PathBuf,
     /// Writes by this process: pruning runs on the first and then every
     /// [`PRUNE_EVERY_WRITES`] writes instead of scanning per write.
@@ -93,7 +93,7 @@ pub(super) struct Disk {
 }
 
 impl Disk {
-    pub(super) fn new(dir: PathBuf) -> Self {
+    pub(crate) fn new(dir: PathBuf) -> Self {
         let _ = octocode_io::atomic::create_private_dir_all(&dir);
         Self {
             dir,
@@ -101,7 +101,7 @@ impl Disk {
         }
     }
 
-    pub(super) fn file(&self, key: &CacheKey) -> PathBuf {
+    pub(crate) fn file(&self, key: &CacheKey) -> PathBuf {
         let mut digest = Sha256::new();
         // Domain separation: files of an older layout are never read.
         // v2: bodies are base64 only (the number-array form was retired).
@@ -118,7 +118,7 @@ impl Disk {
         ))
     }
 
-    pub(super) fn read<V, C: DiskCodec<V>>(
+    pub(crate) fn read<V, C: DiskCodec<V>>(
         &self,
         key: &CacheKey,
         config: &CacheConfig,
@@ -168,16 +168,29 @@ impl Disk {
         class: CacheClass,
         config: &CacheConfig,
     ) -> bool {
+        let Some(value) = C::encode(value) else {
+            return false;
+        };
+        self.write_encoded(key, &value, class, config)
+    }
+
+    pub(crate) fn write_encoded(
+        &self,
+        key: &CacheKey,
+        value: &[u8],
+        class: CacheClass,
+        config: &CacheConfig,
+    ) -> bool {
         let path = self.file(key);
         let header = DiskHeader {
             class,
             stored_at_unix: now_unix(),
         };
-        let (Ok(mut bytes), Some(value)) = (serde_json::to_vec(&header), C::encode(value)) else {
+        let Ok(mut bytes) = serde_json::to_vec(&header) else {
             return false;
         };
         bytes.push(b'\n');
-        bytes.extend_from_slice(&value);
+        bytes.extend_from_slice(value);
         if bytes.len() > config.max_bytes {
             return false;
         }
@@ -215,7 +228,7 @@ impl Disk {
 
     /// Remove expired entries, then keep the directory within `budget`
     /// bytes, removing the least recently used files first.
-    pub(super) fn prune(&self, budget: u64) {
+    pub(crate) fn prune(&self, budget: u64) {
         let Ok(read_dir) = fs::read_dir(&self.dir) else {
             return;
         };

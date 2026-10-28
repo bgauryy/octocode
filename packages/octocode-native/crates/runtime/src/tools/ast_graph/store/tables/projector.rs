@@ -3,7 +3,11 @@ use super::*;
 
 impl<'a> Projector<'a> {
     /// File nodes, sorted by path.
-    pub(super) fn new(built: &'a BuiltGraph, workspace: &'a Workspace) -> Self {
+    pub(super) fn new(
+        built: &'a BuiltGraph,
+        workspace: &'a Workspace,
+        sources: sources::Sources,
+    ) -> Self {
         let languages = built
             .nodes
             .keys()
@@ -27,11 +31,15 @@ impl<'a> Projector<'a> {
             .map(|d| d.file.as_str())
             .collect::<BTreeSet<_>>();
         let mut projector = Self {
+            sources,
             built,
             workspace,
             strings: Interner::default(),
             nodes: Vec::new(),
             edges: Vec::new(),
+            witnesses: Vec::new(),
+            unresolved: Vec::new(),
+            declarations: Vec::new(),
             file_nodes: BTreeMap::new(),
             roles: HashMap::new(),
             languages,
@@ -94,7 +102,7 @@ impl<'a> Projector<'a> {
     ) {
         let test = self.test_evidence(src, line);
         let detail = self.strings.id(detail);
-        self.edges.push(EdgeRec {
+        let edge = EdgeRec {
             src,
             dst,
             kind,
@@ -102,7 +110,47 @@ impl<'a> Projector<'a> {
             detail,
             line,
             test,
+        };
+        // This ordinal distinguishes repeated sites on the same source line.
+        // Calls replace it with the extractor's source occurrence id below.
+        let occurrence = self
+            .strings
+            .id(&format!("projection:{}", self.witnesses.len()));
+        let provenance = self.provenance(src, None);
+        self.witnesses.push(WitnessRec {
+            argument: NONE,
+            edge,
+            occurrence,
+            provenance,
         });
+        self.edges.push(edge);
+    }
+
+    pub(super) fn provenance(
+        &mut self,
+        src: u32,
+        range: Option<&octocode_engine::text::analysis::ObservedSpan>,
+    ) -> ProvenanceRec {
+        let file = &self.nodes[self.nodes[src as usize].file as usize];
+        let path = &self.strings.strings[file.key as usize];
+        let source_origin = self.sources.origin(path, range.copied());
+        let digest = self.sources.digest(source_origin).unwrap_or_else(|| {
+            self.built
+                .facts
+                .get(path)
+                .map_or("", |facts| facts.source_digest.as_str())
+        });
+        ProvenanceRec {
+            source_digest: self.strings.id(digest),
+            source_start: range.map_or(NONE, |r| r.start_byte),
+            source_end: range.map_or(NONE, |r| r.end_byte),
+            source_origin,
+            derivation_version: self.strings.id(&format!(
+                "graph-analysis:{}/facts:{}",
+                super::super::manifest::ANALYSIS_VERSION,
+                octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION,
+            )),
+        }
     }
 
     /// Symbols, per file in source order; keys are `path#Qualified.name`
@@ -114,11 +162,6 @@ impl<'a> Projector<'a> {
             let Some(&file_id) = self.file_nodes.get(file.as_str()) else {
                 continue;
             };
-            // Minified bundles declare thousands of mangled names: keep the
-            // file and its imports, drop the symbols.
-            if self.has_role(file, ROLE_BUNDLED) {
-                continue;
-            }
             let index = self.file_symbols(file, facts, file_id, &mut symbols);
             symbols.indexes.insert(file.as_str(), index);
         }
@@ -180,7 +223,36 @@ impl<'a> Projector<'a> {
             });
             index.decl_nodes.insert(decl.id.as_str(), id);
             symbols.targets.resize(id as usize + 1, 0);
-            symbols.targets[id as usize] = target_bits(&decl.kind);
+            symbols.targets[id as usize] = if matches!(
+                decl.parse_assessment,
+                octocode_engine::graph::GraphParseAssessment::Recovered { .. }
+            ) {
+                0
+            } else {
+                target_bits(&decl.kind)
+            };
+            let source_origin = self.sources.origin(file, decl.source_range);
+            let source_digest = self
+                .sources
+                .digest(source_origin)
+                .unwrap_or(&facts.source_digest);
+            self.declarations.push(DeclarationRec {
+                test_identity: self
+                    .strings
+                    .id(&serde_json::json!(decl.test_identity).to_string()),
+                node: id,
+                occurrence: self.strings.id(&decl.id),
+                source_digest: self.strings.id(source_digest),
+                source_start: decl.source_range.as_ref().map_or(NONE, |r| r.start_byte),
+                source_end: decl.source_range.as_ref().map_or(NONE, |r| r.end_byte),
+                source_origin,
+                selection_start: decl.selection_byte_range.map_or(NONE, |r| r.start_byte),
+                selection_end: decl.selection_byte_range.map_or(NONE, |r| r.end_byte),
+                selection_origin: self.sources.origin(file, decl.selection_byte_range),
+                assessment: self
+                    .strings
+                    .id(&serde_json::json!(decl.parse_assessment).to_string()),
+            });
             index
                 .by_name
                 .entry(decl.name.as_str())

@@ -88,9 +88,45 @@ async function oneSurface(ctx, tool, surface, setup) {
   return checks;
 }
 
+async function partialFailurePaging(ctx, surface) {
+  const directory = path.join(ctx.cwd, 'advanced-selection', 'partial-page');
+  fs.mkdirSync(directory, { recursive: true });
+  for (const name of ['failed', 'selected-a', 'selected-b']) {
+    fs.writeFileSync(path.join(directory, `${name}.txt`), Array.from({ length: 8 }, (_, index) => `${marker(name)} ${index + 1}\n`).join(''));
+  }
+  const provider = providerSession(ctx, 'localSearch', surface);
+  provider.set(request => path.basename(request.state.path) === 'failed.txt'
+    ? { status: 401, body: { error: 'fixture refusal' } }
+    : { body: classificationAnswer(request, question => selectedAnswer(question, 'selected')) });
+  try {
+    const report = await ctx.explore('localSearch', { queries: [{ path: directory, matchString: ['classification_evidence'],
+      contextLines: { before: 0, after: 0 }, classification: { predicates: ['Keep partial-page evidence.'] } }], responseChars: 600 }, surface);
+    const responses = report.responses.filter(entry => entry.tool === 'localSearch');
+    const rows = responses.flatMap(entry => rowData(entry.result)).filter(row => row.selection);
+    const matches = evidence('localSearch', rows);
+    const failures = JSON.stringify(rows[0]?.selection.failures), models = JSON.stringify(rows[0]?.selection.usage?.models);
+    return [
+      ['selection.partial-pages.complete', report.failures.length === 0 && responses.some(entry => entry.result.json?.results?.some(row => row.rowPart?.of > 1)), report.failures],
+      ['selection.partial-pages.exact-evidence', matches.length === 16 && new Set(matches).size === 16
+        && matches.every(match => !match.includes('failed.txt')), matches],
+      ['selection.partial-pages.metadata', rows.length > 1 && rows.every(row => row.selection.failures?.length === 1
+        && JSON.stringify(row.selection.failures) === failures && row.selection.usage?.models?.length > 0
+        && JSON.stringify(row.selection.usage.models) === models), rows.map(row => row.selection)],
+      ['selection.partial-pages.no-reevaluation', provider.sent.length === 3, provider.sent.length],
+    ];
+  } finally {
+    provider.close();
+    fs.rmSync(directory, { recursive: true });
+  }
+}
+
 export async function inlineChecks(ctx, tool) {
   const setup = fixture(ctx, tool), checks = [];
-  for (const surface of ctx.surfaces) for (const [label, ok, detail] of await oneSurface(ctx, tool, surface, setup)) checks.push([`${surface}.${label}`, ok, JSON.stringify(detail)]);
+  for (const surface of ctx.surfaces) {
+    const results = await oneSurface(ctx, tool, surface, setup);
+    if (tool === 'localSearch') results.push(...await partialFailurePaging(ctx, surface));
+    for (const [label, ok, detail] of results) checks.push([`${surface}.${label}`, ok, JSON.stringify(detail)]);
+  }
   if (tool.startsWith('local')) fs.rmSync(path.join(ctx.cwd, 'advanced-selection'), { recursive: true });
   return checks;
 }

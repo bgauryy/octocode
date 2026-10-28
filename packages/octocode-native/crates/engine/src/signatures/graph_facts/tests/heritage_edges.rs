@@ -66,6 +66,7 @@ fn java_heritage_separates_extends_and_implements() {
     );
 }
 
+#[cfg(feature = "tree-sitter-cpp")]
 #[test]
 fn cpp_heritage_reads_the_base_class_clause() {
     let source = "class A : public Base, private ns::Mixin<int> {};\nstruct S : virtual Base {};\nclass Plain {};\n";
@@ -79,6 +80,7 @@ fn cpp_heritage_reads_the_base_class_clause() {
     );
 }
 
+#[cfg(feature = "tree-sitter-c-sharp")]
 #[test]
 fn csharp_heritage_treats_the_first_class_base_as_extends() {
     let source = "class A : Base, IDisposable, IList<int> {}\ninterface I : J, K {}\nstruct S : IEquatable<S> {}\nrecord R(int X) : Base(X);\n";

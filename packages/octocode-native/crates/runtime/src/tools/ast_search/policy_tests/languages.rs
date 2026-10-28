@@ -116,9 +116,11 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
         run(&root.0, json!({"operation":"syntaxTree","path":header})).expect(".h defaults to C");
     assert_eq!(default_tree["isPartial"], true, "{default_tree}");
     assert!(
-        tree["nodes"].as_array().is_some_and(|nodes| nodes
-            .iter()
-            .any(|node| node.as_str().and_then(|row| row.split(' ').nth(1))
+        tree["nodes"]
+            .as_array()
+            .is_some_and(|nodes| nodes.iter().any(|node| node["node"]
+                .as_str()
+                .and_then(|row| row.split(' ').nth(1))
                 == Some("class_specifier"))),
         "{tree}"
     );
@@ -164,12 +166,26 @@ fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page(
     let next_query = result["next"]["nextPage"]["input"]["queries"][0].clone();
     let next =
         crate::tools::ast_search::test_rows::run_window(&root.0, next_query, 1).expect("next page");
-    let names = [
-        outline_name(&result["files"][0]["symbols"][0]),
-        outline_name(&next["files"][0]["symbols"][0]),
-    ];
-    assert!(names.contains(&"Widget"), "{result} {next}");
-    assert!(names.contains(&"Plain"), "{result} {next}");
+    let files = [&result["files"][0], &next["files"][0]];
+    let cpp = files
+        .iter()
+        .find(|file| file["path"] == "include/widget.h")
+        .expect("C++ header retained across pages");
+    let c = files
+        .iter()
+        .find(|file| file["path"] == "legacy/plain.h")
+        .expect("default C header retained across pages");
+    assert_eq!(cpp["symbols"].as_array().map(Vec::len), Some(1));
+    let namespace = &cpp["symbols"][0];
+    assert_eq!(outline_name(namespace), "Space");
+    assert_eq!(namespace["kind"], "namespace");
+    assert_eq!(namespace["members"].as_array().map(Vec::len), Some(1));
+    assert_eq!(outline_name(&namespace["members"][0]), "Widget");
+    assert_eq!(namespace["members"][0]["kind"], "class");
+    assert_eq!(outline_name(&c["symbols"][0]), "Plain");
+    assert_eq!(c["symbols"][0]["kind"], "struct");
+    assert_eq!(result["snapshot"], next["snapshot"]);
+    assert_eq!(next["pagination"]["hasMore"], false);
 }
 
 #[test]

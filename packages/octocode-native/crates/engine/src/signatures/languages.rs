@@ -1,37 +1,81 @@
-/// The grammar inventory, built once.
-#[must_use]
-pub fn grammar_capabilities() -> &'static [crate::types::GrammarCapability] {
-    static CAPABILITIES: std::sync::LazyLock<Vec<crate::types::GrammarCapability>> =
-        std::sync::LazyLock::new(build_grammar_capabilities);
+pub fn analysis_capabilities() -> &'static crate::types::AnalysisCapabilities {
+    static CAPABILITIES: std::sync::LazyLock<crate::types::AnalysisCapabilities> =
+        std::sync::LazyLock::new(|| {
+            use crate::text::analysis::Encoding;
+            use crate::types::{
+                AnalysisCapabilities, SourceDecodingCapability, SourceEncodingCapability,
+            };
+            AnalysisCapabilities {
+                grammar_capabilities: build_grammar_capabilities(),
+                source_decoding: SourceDecodingCapability {
+                    encodings: vec![
+                        SourceEncodingCapability {
+                            encoding: Encoding::Utf8,
+                            bom: "optional",
+                        },
+                        SourceEncodingCapability {
+                            encoding: Encoding::Utf16Le,
+                            bom: "required",
+                        },
+                        SourceEncodingCapability {
+                            encoding: Encoding::Utf16Be,
+                            bom: "required",
+                        },
+                    ],
+                    malformed: "rejected",
+                    correspondence: "scalarBoundaries",
+                },
+            }
+        });
     &CAPABILITIES
 }
 
+/// The grammar inventory, built once.
+#[must_use]
+pub fn grammar_capabilities() -> &'static [crate::types::GrammarCapability] {
+    &analysis_capabilities().grammar_capabilities
+}
+
 fn build_grammar_capabilities() -> Vec<crate::types::GrammarCapability> {
-    all_entries()
-        .iter()
-        .map(|entry| crate::types::GrammarCapability {
-            language: entry.name.to_owned(),
-            language_id: entry.language_id.map(str::to_owned),
-            selector_aliases: entry
-                .selector_aliases
-                .iter()
-                .map(|alias| (*alias).to_owned())
-                .collect(),
-            extensions: entry
-                .extensions
-                .iter()
-                .map(|extension| (*extension).to_owned())
-                .collect(),
-            structural_search: true,
-            signature_outline: !entry.body_query.is_empty(),
-            graph_facts: !entry.body_query.is_empty(),
-        })
-        .collect()
+    RegistryView::installed().capabilities()
+}
+
+fn grammar_capability(entry: &LanguageEntry) -> crate::types::GrammarCapability {
+    crate::types::GrammarCapability {
+        language: entry.name.to_owned(),
+        language_id: entry.language_id.map(str::to_owned),
+        selector_aliases: entry
+            .selector_aliases
+            .iter()
+            .map(|alias| (*alias).to_owned())
+            .collect(),
+        extensions: entry
+            .extensions
+            .iter()
+            .map(|extension| (*extension).to_owned())
+            .collect(),
+        structural_search: entry.admits(crate::text::analysis::AnalysisOperation::StructuralSearch),
+        signature_outline: entry.admits(crate::text::analysis::AnalysisOperation::SignatureOutline),
+        graph_facts: entry.fact_capabilities.any(),
+        facts: entry.fact_capabilities,
+        semantic_binding: false,
+        syntax_tree: entry.admits(crate::text::analysis::AnalysisOperation::SyntaxTree),
+        region_adapters: entry.region_adapters(),
+        test_frameworks: entry
+            .test_frameworks
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect(),
+        argument_references: entry.argument_capabilities(),
+        value_flow: false,
+    }
 }
 
 use tree_sitter::Language;
 
+mod admission;
 mod registry;
+pub use admission::{FactExtractor, FactProvider, RegistryEntry, RegistryView};
 
 use registry::LANGUAGE_TABLE;
 
@@ -82,12 +126,74 @@ pub struct LanguageEntry {
     /// Pre-built `Language` handle. `Language` is `Clone + Send + Sync` but
     /// NOT `Copy` in tree-sitter 0.27 — always use `.clone()` at call sites.
     pub language: Language,
+    pub structural_operation: bool,
+    pub syntax_tree_operation: bool,
+    pub outline_operation: bool,
     /// Tree-sitter S-expression query whose `@body` captures are the nodes the
     /// signature extractor drops. Every first-class grammar has a body query;
     /// structural, signature, and graph capability inventories therefore agree.
     pub body_query: &'static str,
+    pub fact_capabilities: crate::types::GrammarFactCapabilities,
+    pub test_frameworks: &'static [&'static str],
+    pub(crate) call_adapter: Option<super::calls::CallAdapter>,
+    pub(crate) visibility_adapter: super::visibility::VisibilityAdapter,
+    pub(crate) export_forwarding_node: Option<&'static str>,
+    pub(crate) argument_adapter: Option<super::arguments::ArgumentAdapter>,
     pub(crate) pattern_syntax: PatternSyntax,
     pub comment_style: CommentStyle,
+}
+
+impl LanguageEntry {
+    pub fn admitted(&self, operation: crate::text::analysis::AnalysisOperation) -> Option<&Self> {
+        self.admits(operation).then_some(self)
+    }
+    pub fn admits(&self, operation: crate::text::analysis::AnalysisOperation) -> bool {
+        use crate::text::analysis::AnalysisOperation as Op;
+        match operation {
+            Op::StructuralSearch => self.structural_operation,
+            Op::SyntaxTree => self.syntax_tree_operation,
+            Op::SignatureOutline => self.outline_operation && !self.body_query.is_empty(),
+            Op::Declarations => self.fact_capabilities.declarations,
+            Op::GraphFacts => self.fact_capabilities.any(),
+        }
+    }
+
+    pub fn region_adapters(&self) -> Vec<crate::types::RegionAdapterCapability> {
+        use crate::text::analysis::AnalysisOperation as Op;
+        let mut adapters = Vec::new();
+        if self.pattern_syntax.function_context {
+            adapters.push(crate::types::RegionAdapterCapability {
+                id: "c-macro-body".into(),
+                version: "1".into(),
+                operations: vec![Op::StructuralSearch],
+            });
+        } else if self.language.id_for_node_kind("macro_invocation", true) != 0
+            && self.language.id_for_node_kind("token_tree", true) != 0
+        {
+            adapters.push(crate::types::RegionAdapterCapability {
+                id: "rust-macro-body".into(),
+                version: "1".into(),
+                operations: vec![Op::StructuralSearch],
+            });
+            adapters.push(crate::types::RegionAdapterCapability {
+                id: "rust-item-macro-body".into(),
+                version: "1".into(),
+                operations: vec![Op::Declarations, Op::GraphFacts, Op::SignatureOutline],
+            });
+        }
+        adapters
+    }
+
+    pub fn argument_capabilities(&self) -> crate::types::GrammarArgumentCapabilities {
+        self.argument_adapter.map_or_else(
+            || crate::types::GrammarArgumentCapabilities {
+                supported: false,
+                forms: Vec::new(),
+                unsupported_constructs: vec!["argument extraction unavailable".to_owned()],
+            },
+            super::arguments::ArgumentAdapter::capabilities,
+        )
+    }
 }
 
 /// The comment syntax an outline drops pure-comment lines by.
@@ -103,12 +209,6 @@ pub enum CommentStyle {
 
 pub fn find_entry(ext: &str) -> Option<&'static LanguageEntry> {
     LANGUAGE_TABLE.iter().find(|e| e.extensions.contains(&ext))
-}
-
-/// Whether `ext` is a C-family source (C, C++, CUDA): its grammar's language
-/// id is one the C-family server answers.
-pub(crate) fn is_c_family_extension(ext: &str) -> bool {
-    find_entry(ext).is_some_and(|entry| crate::lsp::family::is_c_family(entry.language_id))
 }
 
 /// Whether `entry` is the grammar `selector` names: its name, language id,
@@ -144,6 +244,7 @@ pub fn select(selector: &str) -> impl Iterator<Item = &'static LanguageEntry> {
 
 /// The one grammar `selector` names by name, language id or extension;
 /// `None` when it names none, or several.
+#[cfg(test)]
 pub(crate) fn select_one(selector: &str) -> Option<&'static LanguageEntry> {
     let selector = selector.trim();
     let mut named = LANGUAGE_TABLE.iter().filter(|entry| names(entry, selector));
@@ -250,3 +351,6 @@ pub(crate) fn supported_extensions() -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(any(test, feature = "test-hooks"))]
+pub mod conformance;

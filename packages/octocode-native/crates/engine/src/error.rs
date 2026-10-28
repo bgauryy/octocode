@@ -14,6 +14,7 @@ pub struct Error {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum ErrorKind {
+    SourceCorrespondence(Box<crate::text::analysis::SourceError>),
     /// No finer classification (the default for [`Error::new`]).
     Other,
     /// The peer answered a JSON-RPC request with an `error` object (boxed to
@@ -257,6 +258,13 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<crate::text::analysis::SourceError> for Error {
+    fn from(source: crate::text::analysis::SourceError) -> Self {
+        let reason = source.to_string();
+        Self::with_kind(ErrorKind::SourceCorrespondence(Box::new(source)), reason)
+    }
+}
 
 #[cfg(test)]
 mod tests {

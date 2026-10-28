@@ -80,7 +80,8 @@ for (const [lang, l] of Object.entries(L)) {
   res.kind = `${l.kind}=${kc}`;
   check(`${lang}: kind rule ${l.kind}`, kc > 0, k.text.slice(0, 80));
   const st = await call('astSearch', { operation: 'syntaxTree', path: file, namedOnly: true });
-  check(`${lang}: syntax tree contains source nodes`, !st.isError && !st.rowErrors && rowData(st)?.nodes?.some(node => typeof node === 'string' && node.includes(`1:1-${l.src.split('\n').length}:1`)), `${st.bytes}B`);
+  check(`${lang}: syntax tree contains source nodes`, !st.isError && !st.rowErrors && rowData(st)?.nodes?.some(row => row.node?.includes(`1:1-${l.src.split('\n').length}:1`)
+    && row.sourceRange?.startByte === 0 && row.sourceRange?.endByte === Buffer.byteLength(l.src)), `${st.bytes}B`);
   const f = await call('localFetch', { path: file, view: 'symbols' });
   check(`${lang}: localFetch symbols view names ${l.names.at(-1)}`, (rowData(f)?.content ?? '').includes(l.names.at(-1)), rowData(f)?.view);
   const g = await call('localSearch', { path: dir, matchString: [l.names.at(-1)], fileType: l.rg, view: 'files' });

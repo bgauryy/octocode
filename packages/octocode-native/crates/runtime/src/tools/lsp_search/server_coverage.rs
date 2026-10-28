@@ -21,7 +21,6 @@
 
 use super::failure::{
     BUILD_SCRIPTS_COST, FILE_LEVEL_REASONS, TEXT_CHECK, flag_partial, flagged_with,
-    runs_build_scripts,
 };
 use super::inferred_project::is_incoming;
 use super::scope::{Scope, imports_in_code};
@@ -71,6 +70,7 @@ pub(super) fn annotate(
     language_id: Option<&str>,
     server: Server<'_>,
     scope: &Scope,
+    rust: super::receipt::RustAnalysis,
 ) {
     if !is_incoming(lsp_search_query::operation(query))
         || !row.is_object()
@@ -88,9 +88,9 @@ pub(super) fn annotate(
             // A workspace symbol is a declaration the server found: no use
             // of it is missing.
             if lsp_search_query::op(query) != Op::WorkspaceSymbol {
-                annotate_includes(row, query, server.anchor, scope);
+                annotate_includes(row, query, server.anchor, scope, rust.build_scripts);
             }
-            annotate_rust(row, query, server.root, scope);
+            annotate_rust(row, query, server.root, scope, rust.all_features);
         }
         _ => {}
     }

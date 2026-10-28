@@ -4,7 +4,8 @@
 //! a cut emits `truncated` plus a paste-ready `next` command; paging is
 //! success, so the exit stays 0.
 use super::format::{
-    Confidence, EdgeKind, EdgeRec, FLAG_EXPORTED, GraphTables, NONE, NodeKind, decode,
+    Confidence, EdgeKind, EdgeRec, FLAG_EXPORTED, GraphTables, NONE, NodeKind, ProvenanceRec,
+    decode_with_cancel,
 };
 use super::{
     GRAPH_FILE, GraphOutput, LATEST_FILE, MANIFEST_FILE, graph_home, list_snapshots,
@@ -21,13 +22,18 @@ use std::path::{Path, PathBuf};
 
 mod answers;
 mod assess;
+mod coverage;
+mod evidence;
 mod flags;
 mod health;
 mod load;
 mod lookup;
 mod paging;
+mod references;
+mod sources;
 mod traverse;
 mod walks;
+mod window;
 use answers::*;
 use flags::*;
 use health::*;
@@ -35,6 +41,7 @@ use load::*;
 use lookup::*;
 use paging::*;
 use walks::*;
+use window::*;
 
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 1000;
@@ -44,13 +51,13 @@ const MAX_DEPTH: u32 = 20;
 const DEFAULT_IMPACT_DEPTH: u32 = 3;
 /// `issues` hides findings below this tier unless `--min-tier` says otherwise.
 const DEFAULT_MIN_TIER: u8 = 90;
-const MAX_VISITED: usize = 200_000;
 const MAX_CANDIDATES: usize = 20;
 const MAX_CYCLE_MEMBERS: usize = 50;
 
 pub const OPS: &[&str] = &[
     "stats",
     "find",
+    "candidates",
     "node",
     "symbols",
     "deps",
@@ -62,6 +69,8 @@ pub const OPS: &[&str] = &[
     "cycles",
     "hubs",
     "diagnostics",
+    "witnesses",
+    "unresolved",
     "stale",
     "issues",
     "impact",
@@ -110,10 +119,13 @@ pub struct QueryOptions {
     pub entries: Vec<String>,
 }
 
+#[derive(Default)]
 struct Graph {
+    explicit_path: Option<PathBuf>,
     id: String,
     manifest: Value,
     t: GraphTables,
+    source_budget: std::cell::RefCell<crate::response::source_evidence::ProjectionBudget>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -131,12 +143,27 @@ fn fail(code: ErrorCode, message: impl Into<String>) -> Failure {
 
 /// Runs one query against a published snapshot.
 pub fn query(options: &QueryOptions, paths: &PathPolicy) -> GraphOutput {
-    match run(options, paths) {
+    query_cancellable(options, paths, &crate::execution::cancel::NeverCancel)
+}
+
+pub(super) fn query_cancellable(
+    options: &QueryOptions,
+    paths: &PathPolicy,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> GraphOutput {
+    match run(options, paths, cancel) {
         Ok(output) | Err(output) => output,
     }
 }
 
-fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
+fn run(
+    options: &QueryOptions,
+    paths: &PathPolicy,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<GraphOutput, GraphOutput> {
+    cancel
+        .check()
+        .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
     if !OPS.contains(&options.op.as_str()) {
         return Err(GraphOutput::error(
             ErrorCode::InvalidInput,
@@ -148,20 +175,33 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
         ));
     }
     let flags = Flags::parse(options)?;
-    let graph = load(options, paths).map_err(|failure| *failure)?;
+    let graph = load(options, paths, cancel).map_err(|failure| *failure)?;
+    let mut pinned = options.clone();
+    if let Some(path) = &graph.explicit_path {
+        pinned.graph = Some(path.to_string_lossy().into_owned());
+    }
+    let options = &pinned;
+    cancel
+        .check()
+        .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
     let query = Query {
         options,
         g: &graph,
         flags,
+        cancel,
     };
     let g = &graph;
     let freshness = options.check_freshness.then(|| {
         let root = Path::new(graph.manifest["root"].as_str().unwrap_or_default());
         let checked = super::snapshot_changes(paths, root, &graph.t, &graph.manifest, true);
-        json!({"fresh": checked.changes.is_empty() && checked.added_checked, "addedChecked": checked.added_checked})
+        let analysis_current = super::analysis_current(&graph.manifest);
+        json!({"fresh": checked.changes.is_empty() && checked.added_checked && analysis_current,
+            "addedChecked": checked.added_checked, "analysisCurrent": analysis_current})
     });
-    let mut output = match options.op.as_str() {
-        "stats" => Ok(stats(g)),
+    let result = (|| match options.op.as_str() {
+        "stats" => stats(g, cancel),
+        "candidates" => query.candidates(),
+        "witnesses" | "unresolved" => query.evidence(),
         "find" => {
             let text = options.target.as_deref().ok_or_else(|| {
                 GraphOutput::error(ErrorCode::InvalidInput, "`find` needs search text")
@@ -170,13 +210,13 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
                 options,
                 g,
                 Map::new(),
-                find(g, text, query.flags.kind),
+                find(g, text, query.flags.kind, query.window(), cancel)?,
             ))
         }
-        "node" => Ok(node(g, query.target("a node reference")?, options)),
+        "node" => node(g, query.target("a node reference")?, options, cancel),
         "symbols" => {
             let root = query.target("a file or symbol")?;
-            let (extra, page) = symbols(g, root);
+            let (extra, page) = symbols(g, root, query.window(), cancel)?;
             Ok(run_page(options, g, extra, page))
         }
         "deps" | "dependents" | "callers" | "callees" | "walk" => query.traversal(),
@@ -210,10 +250,24 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
             Ok(out)
         }
         _ => Err(GraphOutput::error(ErrorCode::InvalidInput, "unknown op")),
-    }?;
+    })();
+    let (mut output, failed) = match result {
+        Ok(output) => (output, false),
+        Err(output) => (output, true),
+    };
+    graph.close_sources(&mut output, cancel)?;
+    if failed {
+        return Err(output);
+    }
+    if options.edges.iter().any(|edge| edge == "passes") {
+        output.value["argumentCoverage"] = graph.manifest["argumentCoverage"].clone();
+    }
     if let Some(freshness) = freshness {
         output.value["freshness"] = freshness;
     }
+    cancel
+        .check()
+        .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
     Ok(output)
 }
 
@@ -224,6 +278,9 @@ fn edges_extra(filter: &EdgeFilter) -> Map<String, Value> {
         "edges".into(),
         json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
     );
+    if filter.kinds.contains(&EdgeKind::Calls) {
+        extra.insert("confidence".into(), json!(filter.weakest.as_str()));
+    }
     if !filter.tests {
         extra.insert("testEdges".into(), json!("excluded"));
     }
@@ -235,7 +292,13 @@ struct Query<'q> {
     options: &'q QueryOptions,
     g: &'q Graph,
     flags: Flags,
+    cancel: &'q dyn crate::execution::cancel::CancellationCheck,
 }
 
 #[cfg(test)]
 mod evidence_list_tests;
+#[cfg(test)]
+mod traversal_limits_tests;
+
+#[cfg(test)]
+mod window_tests;

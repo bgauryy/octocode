@@ -101,7 +101,13 @@ struct S {
 
 void plain() {}
 ";
-    for path in ["a.cu", "a.cpp"] {
+    let paths: &[&str] = &[
+        #[cfg(feature = "tree-sitter-cuda")]
+        "a.cu",
+        #[cfg(feature = "tree-sitter-cpp")]
+        "a.cpp",
+    ];
+    for &path in paths {
         let found = extents(template, path);
         let of = |name: &str| found.iter().find(|d| d.0 == name).expect(name).clone();
         let k = of("k");

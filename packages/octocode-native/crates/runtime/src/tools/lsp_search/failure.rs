@@ -23,9 +23,9 @@ pub(super) use paging::{
 };
 use rows::attach_text_search;
 pub(super) use rows::{
-    BUILD_SCRIPTS_COST, build_scripts_rerun, continuation, empty, mark_anchor_line_errors,
-    mark_diagnostics_unpublished, partial_with_related_rerun, runs_build_scripts, same_query_rerun,
-    stamp_coverage,
+    BUILD_SCRIPTS_COST, annotate_empty_includes, build_scripts_rerun, continuation, empty,
+    mark_anchor_line_errors, mark_diagnostics_unpublished, partial_with_related_rerun,
+    same_query_rerun, stamp_coverage,
 };
 
 /// A request-level failure `execute` could not render as a row. The

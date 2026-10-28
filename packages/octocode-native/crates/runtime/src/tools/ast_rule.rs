@@ -248,16 +248,6 @@ pub(crate) fn choose_grammar(
     }
 }
 
-/// The grammar and extensions a file's own extension selects.
-pub(crate) fn file_grammar(path: &std::path::Path) -> Option<(String, BTreeSet<String>)> {
-    let extension = octocode_engine::text::extension_of(&path.to_string_lossy(), true, "");
-    let entry = languages::find_entry(&extension)?;
-    let label = languages::label(entry);
-    let extensions =
-        languages::family_extensions(&label).unwrap_or_else(|| BTreeSet::from([extension]));
-    Some((label, extensions))
-}
-
 #[cfg(test)]
 thread_local! {
     static PRESENT_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

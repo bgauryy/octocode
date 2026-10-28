@@ -12,7 +12,7 @@ mod calls;
 mod declarations;
 
 pub(super) use calls::{call_callee, is_call_node, is_name_leaf, last_name_leaf};
-pub(super) use declarations::{declaration, declaration_extent, is_exported_declaration};
+pub(super) use declarations::{declaration, declaration_extent};
 
 pub(super) fn name_node(node: Node<'_>) -> Option<Node<'_>> {
     for field in ["name", "type", "path"] {
@@ -26,6 +26,16 @@ pub(super) fn name_node(node: Node<'_>) -> Option<Node<'_>> {
         }
     }
     first_name_descendant(node, 4)
+}
+
+/// The declaration's source name, or an explicit label for an unnamed syntax
+/// container. The anonymous label cannot be a source-written qualified name.
+pub(super) fn declaration_label(node: Node<'_>, name: Node<'_>, content: &str) -> Option<String> {
+    if node.kind() == "namespace_definition" && node.child_by_field_name("name").is_none() {
+        Some("(anonymous namespace)".to_owned())
+    } else {
+        node_text(name, content).and_then(compact_identifier)
+    }
 }
 
 pub(super) fn declaration_name(node: Node<'_>, content: &str) -> Option<String> {

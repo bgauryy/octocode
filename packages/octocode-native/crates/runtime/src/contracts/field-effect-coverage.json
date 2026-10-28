@@ -1440,6 +1440,7 @@
     },
     "lspSearch": {
       "evidence": [
+        "src/tools/lsp_search/analysis_context/tests.rs",
         "src/tools/lsp_search/tests/call_counts.rs",
         "src/tools/lsp_search/tests/call_rows.rs",
         "src/tools/lsp_search/tests/caller_pages.rs",
@@ -1551,6 +1552,12 @@
     },
     "graphQuery": {
       "evidence": [
+        "src/tools/ast_graph/store/query/window_tests.rs",
+        "src/tools/ast_graph/store/tools/tests/candidates.rs",
+        "src/tools/ast_graph/store/tools/tests/constructors.rs",
+        "src/tools/ast_graph/store/tests/arguments.rs",
+        "src/tools/ast_graph/store/tests/evidence.rs",
+        "src/tools/ast_graph/store/tests/incremental.rs",
         "src/tools/ast_graph/store/tools/tests.rs",
         "src/tools/ast_graph/store/tests/queries.rs",
         "src/tools/ast_graph/store/tests/impact.rs",
@@ -1588,6 +1595,9 @@
           "filter"
         ],
         "limit": [
+          "view"
+        ],
+        "offset": [
           "view"
         ],
         "changed": [

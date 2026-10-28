@@ -22,11 +22,16 @@ pub(super) fn push_call(
         "call"
     };
     calls.push(GraphFactCall {
+        binding: crate::graph::GraphCallBinding::SyntaxLookup,
         id: format!("{id_prefix}:{owner}:{callee}:{line}"),
         caller: owner.to_string(),
         caller_id: None,
         callee,
         line,
+        source_range: Some(crate::text::analysis::ObservedSpan::root(
+            span.start, span.end,
+        )),
+        parse_assessment: crate::graph::GraphParseAssessment::parsed(range.clone()),
         range,
         kind: kind.to_owned(),
         receiver_type,
@@ -175,6 +180,7 @@ fn expression_name(expr: &Expression) -> Option<String> {
     match expr {
         Expression::Identifier(identifier) => Some(identifier.name.as_str().to_string()),
         Expression::ThisExpression(_) => Some("this".to_string()),
+        Expression::Super(_) => Some("super".to_string()),
         _ => None,
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use tokio_util::sync::CancellationToken;
 
 #[test]
 fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() {
@@ -32,13 +33,17 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
         &[None],
         Some(crate::id::ToolId::Clasify),
     )
-    .plan(1_800);
+    .plan(1_800, &CancellationToken::new())
+    .expect("valid plan");
     assert!(plan.total_pages > 1);
     let mut seen = std::collections::BTreeMap::new();
     let mut definitions = 0;
     let mut next_calls = 0;
     for page in 0..plan.total_pages {
-        for row in plan.build_page(page, &[None], &[]) {
+        for row in plan
+            .build_page(page, &[None], &[], &CancellationToken::new())
+            .expect("valid build_page")
+        {
             definitions += usize::from(row["data"].get("questions").is_some());
             next_calls += usize::from(row["data"]["next"].get("nextSectionPage").is_some());
             if row["data"]["next"].get("nextSectionPage").is_some() {
@@ -88,9 +93,12 @@ fn declared_collections_leave_a_single_oversized_answer_whole() {
         &[None],
         Some(crate::id::ToolId::Clasify),
     )
-    .plan(500);
+    .plan(500, &CancellationToken::new())
+    .expect("valid plan");
     assert_eq!(plan.total_pages, 1);
-    let rows = plan.build_page(0, &[None], &[]);
+    let rows = plan
+        .build_page(0, &[None], &[], &CancellationToken::new())
+        .expect("valid build_page");
     assert_eq!(
         rows[0]["data"]["resources"]["r"]["sections"][0]["answers"]["q"],
         answer
@@ -117,9 +125,12 @@ fn large_resource_identity_does_not_force_one_page_per_small_answer() {
         &[None],
         Some(crate::id::ToolId::Clasify),
     )
-    .plan(500);
+    .plan(500, &CancellationToken::new())
+    .expect("valid plan");
     assert_eq!(plan.total_pages, 1);
-    let rows = plan.build_page(0, &[None], &[]);
+    let rows = plan
+        .build_page(0, &[None], &[], &CancellationToken::new())
+        .expect("valid build_page");
     assert_eq!(
         rows[0]["data"]["resources"]["r"]["sections"][0]["answers"],
         json!(answers)
@@ -145,12 +156,16 @@ fn answer_fragments_continue_their_only_section() {
         &[None],
         Some(crate::id::ToolId::Clasify),
     )
-    .plan(600);
+    .plan(600, &CancellationToken::new())
+    .expect("valid plan");
     assert!(plan.total_pages > 1);
     let mut seen = Map::new();
     let mut fragments = 0;
     for page in 0..plan.total_pages {
-        for row in plan.build_page(page, &[None], &[]) {
+        for row in plan
+            .build_page(page, &[None], &[], &CancellationToken::new())
+            .expect("valid build_page")
+        {
             if fragments > 0 {
                 assert_eq!(
                     row["rowPart"]["continues"],

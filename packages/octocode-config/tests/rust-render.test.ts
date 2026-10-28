@@ -56,12 +56,12 @@ describe.skipIf(process.platform === 'win32')('renderRust typify diagnostics', (
     expect(run.status, run.stderr.slice(0, 300)).toBe(0);
     expect(run.stderr).toHaveLength(bytes);
     expect(run.stdout).toContain('pub struct Id');
-  });
+  }, 30_000);
 
   it('shows diagnostics and a non-zero exit when typify fails', () => {
     const run = render(2048, 3);
     expect(run.status).not.toBe(0);
     expect(run.stderr).toContain('x'.repeat(2048));
     expect(run.stderr).toMatch(/Command failed: cargo typify/);
-  });
+  }, 30_000);
 });

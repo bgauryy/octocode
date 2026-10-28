@@ -89,6 +89,10 @@ fn routes_scala_to_metals_without_spurious_stdio_arguments() {
 
 #[test]
 fn detects_protocol_language_ids_with_grammar_fallback() {
+    #[cfg(not(feature = "tree-sitter-asm"))]
+    for file_name in ["demo.asm", "demo.assembly", "demo.S"] {
+        assert_eq!(detect_language_id(file_name), None, "{file_name}");
+    }
     let cases = [
         ("demo.ts", "typescript"),
         ("demo.tsx", "typescriptreact"),
@@ -103,8 +107,11 @@ fn detects_protocol_language_ids_with_grammar_fallback() {
         ("demo.cpp", "cpp"),
         ("demo.cu", "cuda"),
         ("demo.cuh", "cuda"),
+        #[cfg(feature = "tree-sitter-asm")]
         ("demo.asm", "asm"),
+        #[cfg(feature = "tree-sitter-asm")]
         ("demo.assembly", "asm"),
+        #[cfg(feature = "tree-sitter-asm")]
         ("demo.S", "asm"),
         ("demo.cs", "csharp"),
         ("demo.scala", "scala"),

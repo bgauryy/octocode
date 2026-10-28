@@ -4,7 +4,8 @@ mod recovery;
 use crate::id::ToolId;
 pub use envelope::envelope;
 pub(crate) use recovery::{
-    CANCELLED_HINT, GITHUB_AUTH_RECOVERY_HINT, attach_diagnostics, error_code_hint,
+    CANCELLED_HINT, GITHUB_AUTH_RECOVERY_HINT, attach_diagnostics, attach_error_hint,
+    error_code_hint,
 };
 use serde_json::{Value, json};
 

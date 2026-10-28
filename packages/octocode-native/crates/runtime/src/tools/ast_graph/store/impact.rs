@@ -211,13 +211,13 @@ impl<'t> Propagation<'t> {
                 && node.kind == NodeKind::Symbol
                 && !matches!(
                     edge.kind,
-                    EdgeKind::Calls | EdgeKind::Uses | EdgeKind::Inherits
+                    EdgeKind::Calls | EdgeKind::Uses | EdgeKind::Inherits | EdgeKind::Passes
                 )
             {
                 continue;
             }
             let admit = match edge.kind {
-                EdgeKind::Calls | EdgeKind::Uses | EdgeKind::Inherits => true,
+                EdgeKind::Calls | EdgeKind::Uses | EdgeKind::Inherits | EdgeKind::Passes => true,
                 EdgeKind::Imports => {
                     node.kind == NodeKind::File
                         && (self.whole[id as usize] || !self.binds(edge.src, id, edge.line))

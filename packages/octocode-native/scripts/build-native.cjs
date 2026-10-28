@@ -22,6 +22,7 @@
 const { spawn } = require('child_process');
 const { mkdirSync } = require('fs');
 const { availableParallelism, totalmem } = require('os');
+const { parseArgs } = require('util');
 const { join, relative } = require('path');
 const { PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
 const { stageFile, verifyBinaryRuns } = require('./stage-binary.cjs');
@@ -37,24 +38,30 @@ function usage(message) {
   process.exit(2);
 }
 
-function parseArgs(argv) {
-  const options = { release: false, check: false, targets: [], all: false, jobs: null };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const value = () => (i + 1 < argv.length ? argv[++i] : usage(`${arg} needs a value`));
-    if (arg === '--release') options.release = true;
-    else if (arg === '--check') options.check = true;
-    else if (arg === '--all') options.all = true;
-    else if (arg === '--target') options.targets.push(value());
-    else if (arg === '--jobs') options.jobs = Number(value());
-    else usage(`unknown argument ${arg}`);
+function parseOptions(argv) {
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args: argv,
+      options: {
+        release: { type: 'boolean', default: false },
+        check: { type: 'boolean', default: false },
+        all: { type: 'boolean', default: false },
+        target: { type: 'string', multiple: true, default: [] },
+        jobs: { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    usage(error.message);
   }
-  if (options.all && options.targets.length) usage('--all and --target are exclusive');
-  if (options.check && options.release) usage('--check and --release are exclusive');
-  if (options.all) options.targets = Object.keys(PLATFORMS);
-  for (const target of options.targets) if (!PLATFORMS[target]) usage(`unknown platform ${target}`);
-  if (options.jobs !== null && !(Number.isInteger(options.jobs) && options.jobs > 0)) usage('--jobs must be a positive integer');
-  return options;
+  const { release, check, all, target, jobs } = values;
+  if (all && target.length) usage('--all and --target are exclusive');
+  if (check && release) usage('--check and --release are exclusive');
+  const targets = all ? Object.keys(PLATFORMS) : target;
+  for (const platform of targets) if (!PLATFORMS[platform]) usage(`unknown platform ${platform}`);
+  const jobCount = jobs === undefined ? null : Number(jobs);
+  if (jobCount !== null && !(Number.isInteger(jobCount) && jobCount > 0)) usage('--jobs must be a positive integer');
+  return { release, check, targets, jobs: jobCount };
 }
 
 const hostPlatform = getPlatformSuffix();
@@ -162,7 +169,8 @@ function stageBinary(platform, explicitTarget, release, dir) {
 
 function verifyStaged(platform, staged) {
   if (platform !== hostPlatform) return;
-  for (const artifact of staged) verifyBinaryRuns(artifact);
+  const { version } = require(join(ROOT, 'npm', platform, 'package.json'));
+  for (const artifact of staged) verifyBinaryRuns(artifact, version);
 }
 
 async function buildPlatform(platform, explicitTarget, options) {
@@ -178,15 +186,21 @@ async function buildPlatform(platform, explicitTarget, options) {
   for (const artifact of staged) console.log(`[${label}] staged ${relative(ROOT, artifact)}`);
 }
 
-/** A release link per platform peaks at a few GB. */
+/**
+ * Concurrent platform builds. Each one ends in serial work (the engine's
+ * codegen-units = 1, then thin LTO), so most cores idle under one build; memory
+ * bounds them, at a few GB peak per release link. Measured 2026-10-25 on 12
+ * cores / 32 GB, 8 platforms: 3 jobs 751 s (31% CPU), 4 jobs 521 s (45% CPU),
+ * peak RSS 2.9-3.9 GB, no swap-outs.
+ */
 function defaultJobs(count) {
-  const byCpu = Math.max(1, Math.floor(availableParallelism() / 4));
+  const byCpu = Math.max(1, Math.floor(availableParallelism() / 2));
   const byMemory = Math.max(1, Math.floor(totalmem() / (8 * 1024 ** 3)));
   return Math.min(count, byCpu, byMemory);
 }
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const options = parseOptions(process.argv.slice(2));
   if (!hostPlatform && !options.targets.length) usage(`unsupported host ${process.platform}-${process.arch}`);
   const started = Date.now();
   const onSignal = signal => {

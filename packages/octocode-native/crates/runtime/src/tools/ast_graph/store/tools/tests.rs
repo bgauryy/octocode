@@ -27,6 +27,65 @@ fn call(dir: &Path, tool: ToolId, row: Value) -> Value {
 }
 
 #[test]
+fn argument_evidence_variants_and_continuations_match_the_generated_contract() {
+    let dir = Fixture::new();
+    dir.write("app/args.ts", "function handler(){} export function run(){ sink(handler, handler); sink(...items); } function shadow(handler:unknown){ sink(handler); }");
+    dir.write("app/macros.rs", "fn main(){ consume!(handler); }");
+    dir.write(
+        "app/dynamic.js",
+        "function handler(){} function run(){ eval(source); consume(handler); }",
+    );
+    dir.write(
+        "app/recovered.js",
+        "function handler(){} function broken(){ const missing; consume(handler); }",
+    );
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    assert_eq!(
+        built["argumentCoverage"]["population"],
+        "syntax-argument-slots"
+    );
+    let mut reasons = BTreeSet::new();
+    for operation in ["witnesses", "unresolved"] {
+        let mut input = json!({"operation":operation,"path":"app","edges":["passes"],"limit":1});
+        let mut ids = BTreeSet::new();
+        loop {
+            let page = call(&dir.0, ToolId::GraphQuery, input);
+            assert_eq!(page["argumentCoverage"], built["argumentCoverage"]);
+            for row in page["results"].as_array().expect("results") {
+                assert_eq!(row["edge"], "passes");
+                assert!(ids.insert(row["id"].as_str().expect("id").to_owned()));
+                if let Some(reason) = row["reason"].as_str() {
+                    reasons.insert(reason.to_owned());
+                }
+            }
+            match page.pointer("/next/page/input/queries/0") {
+                Some(next) => {
+                    assert_eq!(next["edges"], json!(["passes"]));
+                    input = next.clone();
+                }
+                None => {
+                    assert_eq!(ids.len() as u64, page["total"]);
+                    break;
+                }
+            }
+        }
+        assert!(!ids.is_empty());
+    }
+    for expected in [
+        "binding-unrepresented",
+        "unsupported-argument-form",
+        "unsupported-argument-group",
+        "scope-not-assessed",
+        "recovered-occurrence",
+    ] {
+        assert!(
+            reasons.contains(expected),
+            "missing {expected}: {reasons:?}"
+        );
+    }
+}
+
+#[test]
 fn build_reuse_pages_and_freshness_are_workspace_scoped() {
     let dir = Fixture::new();
     dir.write(
@@ -51,6 +110,16 @@ fn build_reuse_pages_and_freshness_are_workspace_scoped() {
         built["related"][0]["input"]["queries"][0].clone(),
     );
     assert_eq!(stats["graph"]["id"], built["id"]);
+    let callers = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"callers", "path":"app", "target":"a.ts#first"}),
+    );
+    assert_eq!(
+        callers["confidence"], "high",
+        "the core contract supplies the default"
+    );
+    assert_eq!(callers["results"][0]["id"], "a.ts#final");
     call(&dir.0, ToolId::GraphBuild, json!({"path":"other"}));
     let mut row = json!({"operation":"find", "path":"app", "target":"f", "limit":1});
     let mut keys = BTreeSet::new();
@@ -198,3 +267,7 @@ fn build_lock_symlink_cannot_create_an_outside_file() {
     assert!(out["errorCode"].is_string());
     assert!(!target.exists());
 }
+
+mod candidates;
+
+mod constructors;

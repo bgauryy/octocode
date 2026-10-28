@@ -3,7 +3,7 @@
 use super::*;
 
 /// The declarations-only extraction (outlines, enclosing names) skips
-/// call facts, reference counts and import uses, and keeps every other
+/// calls, argument observations, reference counts and import uses, and keeps every other
 /// fact identical to the full graph extraction, in every grammar.
 /// A `language` override outlines declarations only: the same
 /// declarations as the full facts under that grammar, and no call facts.
@@ -50,10 +50,24 @@ fn an_override_outlines_declarations_without_call_facts() {
     assert_eq!(lean["declarations"], full["declarations"]);
     assert!(!full["calls"].as_array().expect("calls").is_empty());
     assert!(lean["calls"].as_array().is_none_or(Vec::is_empty), "{lean}");
+    assert!(
+        !full["argumentSites"]
+            .as_array()
+            .expect("argument sites")
+            .is_empty(),
+        "{full}"
+    );
+    assert!(
+        lean["argumentSites"]
+            .as_array()
+            .expect("argument sites")
+            .is_empty(),
+        "{lean}"
+    );
 }
 
 #[test]
-fn declaration_facts_equal_the_graph_facts_without_calls() {
+fn declaration_facts_equal_the_graph_facts_without_call_or_argument_observations() {
     let cases = [
         (
             "src/lib.rs",
@@ -94,10 +108,33 @@ fn declaration_facts_equal_the_graph_facts_without_calls() {
         let lean = tree_sitter_declarations(source, path).expect(path);
         assert!(!lean.declarations.is_empty(), "{path}");
         assert!(lean.calls.is_empty(), "{path}");
+        assert!(lean.argument_sites.is_empty(), "{path}");
+        assert!(!full.calls.is_empty(), "{path}");
+        assert!(!full.argument_sites.is_empty(), "{path}");
+        use crate::text::analysis::AnalysisOperation;
+        assert!(
+            full.source_templates
+                .units
+                .iter()
+                .all(|unit| unit.operation == AnalysisOperation::GraphFacts),
+            "{path}"
+        );
+        assert!(
+            lean.source_templates
+                .units
+                .iter()
+                .all(|unit| unit.operation == AnalysisOperation::Declarations),
+            "{path}"
+        );
         let json =
             |value: &crate::graph::GraphFactsDocument| serde_json::to_value(value).expect("json");
-        let mut expected = json(&full);
+        let mut declaration_coordinates = full.clone();
+        for unit in &mut declaration_coordinates.source_templates.units {
+            unit.operation = AnalysisOperation::Declarations;
+        }
+        let mut expected = json(&declaration_coordinates);
         expected["calls"] = serde_json::json!([]);
+        expected["argumentSites"] = serde_json::json!([]);
         expected.as_object_mut().map(|facts| facts.remove("paths"));
         if let Some(edges) = expected["edges"].as_array_mut() {
             edges.retain(|edge| edge["relation"] != "calls");

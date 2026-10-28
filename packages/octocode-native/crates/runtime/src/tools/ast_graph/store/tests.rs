@@ -4,16 +4,26 @@ use crate::tools::test_support::{Fixture, workspace_policy};
 use crate::execution::cancel::NeverCancel;
 use crate::tools::ast_graph::test_support::write_under;
 
+mod argument_controls;
+mod arguments;
 mod detectors;
+mod evidence;
+mod evidence_coverage;
 mod impact;
 mod impact_since;
+mod incremental;
 mod ingest;
 mod issues;
 mod linking;
+mod pagination;
 mod queries;
+mod recursive_calls;
+mod reexports;
+mod resolution_round2;
 mod rust_paths;
 mod rust_test_code;
 mod snapshots;
+mod source_correspondence;
 mod stale;
 
 fn fixture() -> Fixture {

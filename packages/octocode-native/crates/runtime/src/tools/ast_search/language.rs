@@ -32,10 +32,26 @@ pub(super) fn parser_override(path: &std::path::Path, selector: Option<&str>) ->
         return Some(parser);
     }
     let language = selector?;
-    if crate::tools::ast_rule::file_grammar(path).is_some() {
+    if registered(path).is_some() {
         return None;
     }
-    crate::tools::ast_rule::primary_extension(language)
+    crate::tools::ast_rule::primary_extension(language).or_else(|| {
+        octocode_engine::signatures::languages::RegistryView::installed()
+            .select_one(language)
+            .and_then(|entry| {
+                entry
+                    .extensions()
+                    .first()
+                    .map(|extension| (*extension).to_owned())
+            })
+    })
+}
+
+pub(super) fn registered(
+    path: &std::path::Path,
+) -> Option<octocode_engine::signatures::languages::RegistryEntry<'static>> {
+    let extension = octocode_engine::text::extension_of(&path.to_string_lossy(), true, "");
+    octocode_engine::signatures::languages::RegistryView::installed().find(&extension)
 }
 
 /// A file's extension as a message names it: `.ts`, or `no extension`.
@@ -49,7 +65,38 @@ pub(super) fn extension_label(path: &std::path::Path) -> String {
 pub(super) fn validate_file_language(
     path: &std::path::Path,
     selector: Option<&str>,
+    operation: octocode_engine::text::analysis::AnalysisOperation,
 ) -> Result<(), ToolError> {
+    validate_registered_language(
+        path,
+        selector,
+        operation,
+        octocode_engine::signatures::languages::RegistryView::installed(),
+    )
+}
+
+fn validate_registered_language(
+    path: &std::path::Path,
+    selector: Option<&str>,
+    operation: octocode_engine::text::analysis::AnalysisOperation,
+    registry: octocode_engine::signatures::languages::RegistryView<'_>,
+) -> Result<(), ToolError> {
+    let registered = || {
+        registry.find(&octocode_engine::text::extension_of(
+            &path.to_string_lossy(),
+            true,
+            "",
+        ))
+    };
+    let operation_name = match operation {
+        octocode_engine::text::analysis::AnalysisOperation::StructuralSearch => "structural search",
+        octocode_engine::text::analysis::AnalysisOperation::SyntaxTree => "syntax trees",
+        octocode_engine::text::analysis::AnalysisOperation::SignatureOutline => {
+            "signature outlines"
+        }
+        octocode_engine::text::analysis::AnalysisOperation::Declarations => "declarations",
+        octocode_engine::text::analysis::AnalysisOperation::GraphFacts => "graph facts",
+    };
     if let Some(language) = selector {
         if language.trim().is_empty() || matches!(language, ".") {
             return Err(ToolError::new(
@@ -57,27 +104,53 @@ pub(super) fn validate_file_language(
                 "language must name a registered grammar.",
             ));
         }
-        if octocode_engine::signatures::languages::family_extensions(language).is_none() {
+        let provider = registry.select_one(language);
+        if !registry
+            .select(language)
+            .any(|entry| entry.admits(operation))
+            && !provider.is_some_and(|entry| entry.admits(operation))
+        {
             return Err(ToolError::new(
-                ErrorCode::LanguageUnsupported,
-                format!("language \"{language}\" is not a supported structural grammar."),
+                if provider.is_some() {
+                    ErrorCode::CapabilityUnavailable
+                } else {
+                    ErrorCode::LanguageUnsupported
+                },
+                format!("language \"{language}\" has no registered provider for {operation_name}."),
             ));
         }
         // Only an extension of another grammar contradicts `parser`; one
         // that selects no grammar is parsed as `parser`, and any spelling
         // of the file's own grammar (`.cc` for a `.hpp`) reads it.
         if !octocode_engine::signatures::languages::parses_path(language, &path.to_string_lossy())
-            && let Some((grammar, _)) = crate::tools::ast_rule::file_grammar(path)
+            && let Some(entry) = registered()
+            && !provider.is_some_and(|selected| selected.extensions() == entry.extensions())
         {
+            let grammar = match entry {
+                octocode_engine::signatures::languages::RegistryEntry::Grammar(entry) => {
+                    entry.name.to_ascii_lowercase()
+                }
+                octocode_engine::signatures::languages::RegistryEntry::Facts(entry) => {
+                    entry.name.to_owned()
+                }
+            };
             return Err(ToolError::new(
                 ErrorCode::LanguageMismatch,
                 format!(
-                    "{} has the {grammar} extension {}, not {language}; omit language or set it to {grammar}.",
+                    "{} has the {grammar} extension {}, not {language}; omit parser or set it to {grammar}.",
                     display_name(path),
                     extension_label(path)
                 ),
             ));
         }
+    } else if registered().is_some_and(|entry| !entry.admits(operation)) {
+        return Err(ToolError::new(
+            ErrorCode::CapabilityUnavailable,
+            format!(
+                "No registered {operation_name} provider supports {}.",
+                display_name(path)
+            ),
+        ));
     }
     Ok(())
 }
@@ -139,4 +212,64 @@ fn cpp_keyword_names_rule() -> serde_json::Value {
         "any": [{"kind": "type_identifier"}, {"kind": "identifier"}],
         "regex": "^(class|namespace|template|typename|virtual|public|private|protected|operator|using)$"
     })
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+    use octocode_engine::signatures::languages::{FactProvider, RegistryView};
+    use octocode_engine::text::analysis::AnalysisOperation;
+    #[test]
+    fn a_known_provider_without_the_requested_operation_is_distinct_from_an_unknown_language() {
+        let providers = [FactProvider {
+            id: "heldout-declarations",
+            version: "1",
+            name: "declfixture",
+            extensions: &["declfixture"],
+            capabilities: octocode_engine::types::GrammarFactCapabilities {
+                declarations: true,
+                calls: false,
+                imports: false,
+                exports: false,
+                heritage: false,
+            },
+            extract: |_, _, _| Ok(None),
+        }];
+        let registry = RegistryView::new(&[], &providers).expect("registry");
+        let path = std::path::Path::new("example.declfixture");
+        for selector in [None, Some("declfixture")] {
+            assert!(
+                validate_registered_language(
+                    path,
+                    selector,
+                    AnalysisOperation::Declarations,
+                    registry
+                )
+                .is_ok()
+            );
+            for operation in [
+                AnalysisOperation::SyntaxTree,
+                AnalysisOperation::StructuralSearch,
+                AnalysisOperation::SignatureOutline,
+            ] {
+                assert_eq!(
+                    validate_registered_language(path, selector, operation, registry)
+                        .expect_err("unsupported operation")
+                        .code,
+                    ErrorCode::CapabilityUnavailable
+                );
+            }
+        }
+        assert_eq!(
+            validate_registered_language(
+                path,
+                Some("missing"),
+                AnalysisOperation::Declarations,
+                registry
+            )
+            .expect_err("unknown provider")
+            .code,
+            ErrorCode::LanguageUnsupported
+        );
+    }
 }

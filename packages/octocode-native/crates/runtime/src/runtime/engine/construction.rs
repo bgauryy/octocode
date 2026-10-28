@@ -114,6 +114,18 @@ impl ToolRuntime {
         limits: RuntimeLimits,
         lsp_pool: Option<Arc<octocode_engine::lsp::pool::LspClientPool>>,
     ) -> Result<Self, RuntimeError> {
+        let analysis_capabilities = serde_json::to_value(
+            octocode_engine::signatures::languages::analysis_capabilities(),
+        )
+        .and_then(serde_json::from_value)
+        .map_err(|error| {
+            RuntimeError::new(
+                ErrorCode::ExecutionFailed,
+                format!(
+                    "Runtime analysis capabilities do not match the embedded contract: {error}"
+                ),
+            )
+        })?;
         let config = Arc::new(config::resolve_config(&input));
         let local = &config.resolved.local;
         let octocode_home = config.home.clone();
@@ -212,6 +224,7 @@ impl ToolRuntime {
             requests,
             input,
             config,
+            analysis_capabilities,
             limits,
             classification,
             availability,

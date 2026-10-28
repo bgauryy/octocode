@@ -11,13 +11,19 @@ impl ChannelRun {
     /// continuations.
     pub(super) fn shape_rows(
         &self,
-        rejected: Vec<(usize, Value)>,
+        mut rejected: Vec<(usize, Value)>,
         context: &ExecutionContext,
     ) -> Result<ShapedRows, ExecutionError> {
         let EvaluatedRows { mut rows, failure } = self.evaluate_rows(context)?;
         let rejected_at: Vec<usize> = rejected.iter().map(|(index, _)| *index).collect();
-        for (row, index) in rows.iter_mut().zip(&self.row_indices) {
+        for ((row, index), query) in rows.iter_mut().zip(&self.row_indices).zip(&self.queries) {
+            if row["status"] == "error" {
+                rows::attach_error_hint(self.id, &mut row["data"], query);
+            }
             row["index"] = json!(index);
+        }
+        for (_, row) in &mut rejected {
+            rows::attach_error_hint(self.id, &mut row["data"], &Value::Null);
         }
         rows.extend(rejected.into_iter().map(|(_, row)| row));
         rows.sort_by_key(|row| row["index"].as_u64());

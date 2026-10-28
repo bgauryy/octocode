@@ -32,6 +32,14 @@ pub(super) fn select(
         walk_errors,
     } = outline;
     files.sort_by(|a, b| a.path.cmp(&b.path));
+    let mut projection = crate::response::source_evidence::ProjectionBudget::new(
+        crate::response::source_evidence::ProjectionLimits::default(),
+    );
+    let source_descriptors = crate::response::source_evidence::merge_descriptors(
+        files.iter().map(|file| &file.source_descriptors),
+        &mut projection,
+        cancel,
+    )?;
     // A directory query writes each row's file; a single file hoists `path`.
     let per_row_path = !canonical.is_file();
     let candidates = kind_candidates(files);
@@ -128,6 +136,7 @@ pub(super) fn select(
         path: canonical.to_string_lossy().into_owned(),
         snapshot,
         declarations,
+        source_descriptors,
         diagnostics,
         files_scanned: scanned,
         skipped,
@@ -288,6 +297,7 @@ pub(crate) struct SymbolSet {
     pub(super) path: String,
     pub(super) snapshot: String,
     pub(super) declarations: Vec<Value>,
+    pub(super) source_descriptors: octocode_engine::text::analysis::SourceDescriptors,
     pub(super) diagnostics: Vec<Value>,
     pub(super) files_scanned: usize,
     pub(super) skipped: u32,

@@ -5,12 +5,11 @@
 //! (`local`, `import`, `namespace`, `unique-name`) and a confidence, so a
 //! consumer never mistakes a name match for proven symbol identity.
 use super::classify::{
-    ROLE_BUNDLED, ROLE_DECLARATION, ROLE_ENTRY, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED,
-    file_roles,
+    ROLE_DECLARATION, ROLE_ENTRY, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, file_roles,
 };
 use super::format::{
-    Confidence, DiagRec, EdgeKind, EdgeRec, FLAG_EXPORTED, FLAG_LOCAL_USE, FLAG_TEST, GraphTables,
-    NONE, NodeKind, NodeRec,
+    Confidence, DeclarationRec, DiagRec, EdgeKind, EdgeRec, FLAG_EXPORTED, FLAG_LOCAL_USE,
+    FLAG_TEST, GraphTables, NONE, NodeKind, NodeRec, ProvenanceRec, UnresolvedRec, WitnessRec,
 };
 use super::workspace::{Declared, Workspace};
 use crate::tools::ast_graph::edges::Load;
@@ -18,10 +17,13 @@ use crate::tools::ast_graph::types::{BuiltGraph, Declaration, DiagnosticCode, Fi
 use octocode_engine::signatures::TYPE_DECLARATION_KINDS;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+mod argument_bindings;
+mod arguments;
 mod assemble;
 mod names;
 mod naming;
 mod projector;
+mod sources;
 mod stats;
 mod test_code;
 use names::*;
@@ -63,8 +65,13 @@ struct FileIndex<'a> {
     exports: HashMap<&'a str, Vec<u32>>,
 }
 
-pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
-    let mut projector = Projector::new(built, workspace);
+pub(crate) fn project(
+    built: &BuiltGraph,
+    workspace: &Workspace,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Projection, crate::response::result::ToolError> {
+    let sources = sources::Sources::capture(built, cancel)?;
+    let mut projector = Projector::new(built, workspace, sources);
     let symbols = projector.symbols();
     let (externals, package_nodes) = projector.externals();
     projector.contains_edges();
@@ -89,7 +96,7 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
             line,
         );
     }
-    projector.finish(&relinked, calls)
+    Ok(projector.finish(&relinked, calls))
 }
 
 /// Symbol lookups the edge passes share.
@@ -97,7 +104,7 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
 struct Symbols<'a> {
     indexes: BTreeMap<&'a str, FileIndex<'a>>,
     global_names: HashMap<&'a str, Vec<u32>>,
-    /// [`CALL_TARGET`]/[`TYPE_TARGET`] bits by node id (none past the end).
+    /// Call/type eligibility and method classification by node id (none past the end).
     targets: Vec<u8>,
     /// Symbol node → name of its containing declaration (`Box` for `Box.open`).
     container_names: HashMap<u32, &'a str>,
@@ -107,6 +114,10 @@ struct Symbols<'a> {
 const CALL_TARGET: u8 = 1;
 /// A symbol a base-type clause can target.
 const TYPE_TARGET: u8 = 2;
+/// A member declared in a type body, rather than a free or nested function.
+const METHOD_TARGET: u8 = 4;
+const REFERENCE_TARGET: u8 = 8;
+const LEXICAL_SCOPE: u8 = 16;
 
 fn target_bits(kind: &str) -> u8 {
     let call = if NON_CALLABLE.contains(&kind) {
@@ -119,7 +130,13 @@ fn target_bits(kind: &str) -> u8 {
     } else {
         0
     };
-    call | ty
+    let method = if kind == "method" { METHOD_TARGET } else { 0 };
+    let lexical = if matches!(kind, "function" | "method" | "module" | "namespace") {
+        LEXICAL_SCOPE
+    } else {
+        0
+    };
+    call | ty | method | REFERENCE_TARGET | lexical
 }
 
 /// `(src, dst, line)` links to unparsed files, and the `(file, line)`
@@ -136,11 +153,15 @@ struct External<'f> {
 
 /// Projection state: the interned strings, nodes and edges built so far.
 struct Projector<'a> {
+    sources: sources::Sources,
     built: &'a BuiltGraph,
     workspace: &'a Workspace,
     strings: Interner,
     nodes: Vec<NodeRec>,
     edges: Vec<EdgeRec>,
+    witnesses: Vec<WitnessRec>,
+    unresolved: Vec<UnresolvedRec>,
+    declarations: Vec<DeclarationRec>,
     file_nodes: BTreeMap<&'a str, u32>,
     roles: HashMap<&'a str, u8>,
     languages: HashMap<&'a str, String>,

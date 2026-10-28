@@ -3,6 +3,22 @@
 use super::*;
 
 #[test]
+fn preserves_super_receiver_identity() {
+    let facts = graph(
+        "class Child extends Base { run() { this.transaction(); super.transaction(); super['transaction'](); } }",
+        "receivers.ts",
+    );
+    let callees = calls_of_kind(&facts, "calls")
+        .into_iter()
+        .map(|(_, callee, _)| callee)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        callees,
+        vec!["this.transaction", "super.transaction", "super.transaction"]
+    );
+}
+
+#[test]
 fn extracts_calls_nested_in_return_binary_and_args() {
     let src = "export function run(x: number) {\n  return helper(x) + other(x);\n}\nfunction helper(n: number) { return n; }\nfunction other(n: number) { return n; }\n";
     let v = graph(src, "nested.ts");

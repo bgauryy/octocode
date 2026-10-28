@@ -8,7 +8,8 @@ use tree_sitter::{Language, Node, Tree};
 use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, ParseFailure, parse_with_deadline};
 use crate::structural::octo::macro_bodies::{MAX_MACRO_DEPTH, MacroBodies};
 
-use crate::structural::octo::line_index_support::to_structural_match_with_index;
+use crate::structural::octo::line_index_support::to_structural_match_with_context;
+use crate::structural::octo::source_context::SourceContext;
 use crate::text::LineIndex;
 
 use super::{ExecutionError, Found, PARSE_INTERRUPTED};
@@ -78,8 +79,8 @@ pub(in crate::structural::octo) fn visit_named<'tree>(
 
 /// A candidate callback that works on the file tree and on every re-parsed
 /// macro body: `(candidate, ancestors root-first, root of candidate's tree)`.
-pub(in crate::structural::octo) type CandidateVisitor<'f> =
-    dyn for<'n> FnMut(Node<'n>, &[Node<'n>], Node<'n>) -> Result<(), ExecutionError> + 'f;
+pub(in crate::structural::octo) type CandidateVisitor<'f> = dyn for<'n> FnMut(Node<'n>, &[Node<'n>], Node<'n>, &SourceContext) -> Result<(), ExecutionError>
+    + 'f;
 
 /// [`visit_named`] that also hands each named node its ancestor chain (the
 /// cursor path: O(1) per step, not an O(depth) `Node::parent()` search) and
@@ -94,7 +95,9 @@ pub(in crate::structural::octo) fn visit_named_expanding_macros(
     deadline: Instant,
     f: &mut CandidateVisitor<'_>,
 ) -> Result<(), ExecutionError> {
+    let source = SourceContext::root(root, content);
     walk_expanding(
+        &source,
         root,
         &[],
         None,
@@ -113,6 +116,7 @@ pub(in crate::structural::octo) fn visit_named_expanding_macros(
     reason = "the recursive walk threads the macro-body frame and the file context flat, like the matcher (see clippy.toml)"
 )]
 fn walk_expanding<'tree>(
+    source: &SourceContext,
     root: Node<'tree>,
     prefix: &[Node<'tree>],
     body: Option<&tree_sitter::Range>,
@@ -134,7 +138,7 @@ fn walk_expanding<'tree>(
             _ => true,
         };
         if current.is_named() && candidate {
-            f(current, &ancestors, root)?;
+            f(current, &ancestors, root, source)?;
         }
         let mut descend = true;
         if let Some(macros) = macros
@@ -146,7 +150,9 @@ fn walk_expanding<'tree>(
                 let mut chain: Vec<Node<'_>> = ancestors.clone();
                 chain.push(current);
                 let body_strings = crate::structural::octo::macro_bodies::string_literals(current);
+                let nested_source = source.region(tree.root_node(), range, macros.terminator())?;
                 walk_expanding(
+                    &nested_source,
                     tree.root_node(),
                     &chain,
                     Some(&range),
@@ -217,10 +223,11 @@ pub(in crate::structural::octo) fn collect_kind_matches(
         language,
         macros,
         deadline,
-        &mut |candidate, _, _| {
+        &mut |candidate, _, _, source| {
             if candidate.kind() == kind {
                 found.push(candidate, || {
-                    to_structural_match_with_index(
+                    to_structural_match_with_context(
+                        source,
                         candidate,
                         content,
                         &line_index,

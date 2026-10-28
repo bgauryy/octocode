@@ -112,7 +112,7 @@ async fn every_column_is_one_based() {
     .await;
     // `function_item` spans line 1 from character 1 to the end (exclusive 10).
     assert_eq!(
-        tree.data()["nodes"][1],
+        tree.data()["nodes"][1]["node"],
         "1 function_item 1:1-1:10 ^0",
         "{}",
         tree.structured_content

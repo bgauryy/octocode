@@ -3,11 +3,17 @@
 //! planned into fragments by size; only the requested page is built.
 
 mod arena;
+mod collections;
+mod evidence;
 mod plan;
 mod shares;
 mod skeleton;
 mod slicer;
 use arena::{Fragment, FragmentArena, Planned, mark_continuations};
+use collections::{
+    collection_pointer, drop_empty_declared_siblings, empty_declared_siblings,
+    lean_declared_skeleton,
+};
 use octocode_engine::digest::JsonFingerprint;
 use plan::{PreparedRows, RowPlan};
 #[cfg(test)]
@@ -15,11 +21,11 @@ use serde_json::json;
 use serde_json::{Map, Value};
 pub(crate) use shares::fair_shares;
 use shares::{PartShare, keep_row_next, row_next_chars, row_part_chars};
-use skeleton::{
-    collection_pointer, continues_chars, drop_emptied_lists, empty_secondary_lists,
-    enclosing_element, lean_elements, lean_skeleton, take_largest_array, volatile_reserve,
-};
+use skeleton::{continues_chars, enclosing_element, lean_elements, volatile_reserve};
+#[cfg(test)]
+use skeleton::{drop_emptied_lists, empty_secondary_lists, lean_skeleton, take_largest_array};
 use slicer::{Open, Slicer};
+use tokio_util::sync::CancellationToken;
 
 use super::page_model::{ResponsePageOptions, ResponsePagination};
 use super::result::Remaining;
@@ -78,9 +84,19 @@ pub(super) fn paginate_rows(
     tool: Option<crate::id::ToolId>,
 ) -> (Map<String, Value>, ResponsePagination) {
     let envelope = octocode_engine::digest::fingerprint_json(&structured).expect("envelope");
-    RowSource::new(structured, &envelope, options, volatile, tool, &|_| 0)
-        .page(options, remaining, &|_| 0)
-        .expect("valid page")
+    let cancelled = CancellationToken::new();
+    RowSource::new(
+        structured,
+        &envelope,
+        options,
+        volatile,
+        tool,
+        &|_| 0,
+        &cancelled,
+    )
+    .expect("valid source")
+    .page(options, remaining, &|_| 0, &cancelled)
+    .expect("valid page")
 }
 
 /// Row-aware pages: the plan that packs whole rows (or fragments of
@@ -122,7 +138,8 @@ impl RowSource {
         mut volatile: Vec<Option<Map<String, Value>>>,
         tool: Option<crate::id::ToolId>,
         block: &dyn Fn(&ResponsePagination) -> usize,
-    ) -> Self {
+        cancelled: &CancellationToken,
+    ) -> Result<Self, super::pager::ResponseError> {
         let budget = options.response_chars.unwrap_or(1).max(1);
         let rows_key = tool.map_or("results", |tool| tool.output().rows_key());
         let rows = match structured.remove(rows_key) {
@@ -156,15 +173,18 @@ impl RowSource {
         // splits, so every page of the plan carries the block of a page
         // with more behind it.
         let one_page = total + finished <= budget && prepared.size() <= row_budget(finished);
-        let plan = prepared.plan(row_budget(if one_page { finished } else { widest }));
-        Self {
+        let plan = prepared.plan(
+            row_budget(if one_page { finished } else { widest }),
+            cancelled,
+        )?;
+        Ok(Self {
             skeleton: structured,
             rows_key,
             plan,
             volatile,
             budget,
             snapshot,
-        }
+        })
     }
 
     /// The page `options` asks for (its cursor's offset), or a restart page
@@ -174,6 +194,7 @@ impl RowSource {
         options: &ResponsePageOptions,
         remaining: &[Vec<Remaining>],
         block: &dyn Fn(&ResponsePagination) -> usize,
+        cancelled: &CancellationToken,
     ) -> Result<(Map<String, Value>, ResponsePagination), super::pager::ResponseError> {
         let Self { plan, rows_key, .. } = self;
         let rows_key = *rows_key;
@@ -183,7 +204,7 @@ impl RowSource {
         if requested > 0 && (changed || requested >= plan.total_pages) {
             return Err(super::pager::ResponseError::InvalidPage);
         }
-        let selected = plan.build_page(requested, &self.volatile, remaining);
+        let selected = plan.build_page(requested, &self.volatile, remaining, cancelled)?;
         let later = plan.rows_after(requested);
         structured.insert(rows_key.into(), Value::Array(selected));
         if later > 0 {
@@ -229,3 +250,12 @@ mod lazy_page_tests;
 
 #[cfg(test)]
 mod banner_tests;
+
+impl From<evidence::DependencyError> for super::pager::ResponseError {
+    fn from(error: evidence::DependencyError) -> Self {
+        match error {
+            evidence::DependencyError::Cancelled => Self::Cancelled,
+            error => Self::InvalidEvidence(error.to_string()),
+        }
+    }
+}

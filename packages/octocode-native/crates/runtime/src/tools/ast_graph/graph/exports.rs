@@ -63,6 +63,7 @@ impl FileLink<'_, '_> {
                     &self.facts.imports,
                     self.inputs.known,
                     self.inputs.cargo_crates,
+                    self.inputs.rust_modules,
                 )
             })
             .flatten();
@@ -72,6 +73,10 @@ impl FileLink<'_, '_> {
             self.edge(t, super::super::edges::RUST_PATH, c.line);
         }
         self.facts.calls.push(Call {
+            id: c.id,
+            binding: c.binding,
+            source_range: c.source_range,
+            parse_assessment: c.parse_assessment,
             caller_id: c.caller_id,
             callee: c.callee,
             line: c.line,
@@ -96,6 +101,7 @@ impl FileLink<'_, '_> {
                 &self.facts.imports,
                 self.inputs.known,
                 self.inputs.cargo_crates,
+                self.inputs.rust_modules,
             ),
         };
         match &target {

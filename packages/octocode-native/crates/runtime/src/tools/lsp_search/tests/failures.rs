@@ -12,8 +12,8 @@ fn tip(failure: &LspFailure, query: &serde_json::Value) -> &'static str {
 }
 
 /// An empty answer on a line the server itself failed to analyze is not
-/// absence: the row is partial and names that error. Errors on other lines,
-/// warnings, and answers with results are left alone.
+/// absence: the row is partial and names that error. Other document errors
+/// remain evidence of degraded coverage without discarding returned results.
 #[test]
 fn an_empty_row_names_the_server_error_on_its_anchor_line() {
     let q = query(serde_json::json!({
@@ -36,7 +36,12 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
         "definitionProvider returned no locations",
         true,
     );
-    mark_anchor_line_errors(&mut row, &diagnostics, 7);
+    super::super::analysis_context::annotate_diagnostics(
+        &mut row,
+        &q,
+        Some((&diagnostics, false)),
+        7,
+    );
     assert_eq!(row["isPartial"], true, "{row}");
     assert_eq!(
         row["partialReasons"],
@@ -69,27 +74,40 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
         serde_json::json!({"operation": "diagnostic", "path": "/repo/k.cu"}),
         "{row}"
     );
-    // `next.diagnostics` is not a kind the contract declares yet (a core
-    // rename to `viewDiagnostics` is pending), so the published-row name
-    // check is not run here.
     crate::contracts::validate_output("lspSearch", &public_row(&row))
         .expect("the marked empty row satisfies the output contract");
 
-    // No error on the anchor line: the row is untouched.
+    // Errors elsewhere can still make an empty semantic answer incomplete.
     let mut clean = empty(
         &q,
         "noLocations",
         "definitionProvider returned no locations",
         true,
     );
-    let before = clean.clone();
-    mark_anchor_line_errors(&mut clean, &diagnostics, 4);
-    assert_eq!(clean, before);
-    // A row with results is never marked.
+    super::super::analysis_context::annotate_diagnostics(
+        &mut clean,
+        &q,
+        Some((&diagnostics, false)),
+        4,
+    );
+    assert_eq!(
+        clean["partialReasons"],
+        serde_json::json!(["documentAnalysisErrors"])
+    );
+    // Returned evidence remains available with its degraded coverage.
     let mut found = serde_json::json!({"kind": "definition", "matches": [{"path": "/repo/k.cu"}]});
-    let before = found.clone();
-    mark_anchor_line_errors(&mut found, &diagnostics, 7);
-    assert_eq!(found, before);
+    let before = found["matches"].clone();
+    super::super::analysis_context::annotate_diagnostics(
+        &mut found,
+        &q,
+        Some((&diagnostics, false)),
+        7,
+    );
+    assert_eq!(found["matches"], before);
+    assert_eq!(
+        found["partialReasons"],
+        serde_json::json!(["documentAnalysisErrors"])
+    );
 }
 
 #[test]
@@ -283,10 +301,12 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
             "code": code, "message": message
         }))))
     };
-    let generic = crate::id::ToolId::LspSearch
-        .output()
-        .error_hint(ErrorCode::ExecutionFailed, &serde_json::Value::Null)
-        .expect("generic tip");
+    let generic = crate::response::rows::error_code_hint(
+        crate::id::ToolId::LspSearch,
+        ErrorCode::ExecutionFailed,
+        &serde_json::Value::Null,
+    )
+    .expect("shared execution failure tip");
     let failures = [
         LspFailure::invalid_query("lspSearch requires path or workspaceRoot"),
         LspFailure::unestablished("base type unresolved"),

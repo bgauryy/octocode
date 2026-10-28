@@ -13,7 +13,7 @@
 const { createHash } = require('crypto');
 const { execFileSync } = require('child_process');
 const { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } = require('fs');
-const { join } = require('path');
+const nodePath = require('node:path');
 const { gunzipSync } = require('zlib');
 const { PLATFORMS, executableName, platformPackageName } = require('./platform.cjs');
 
@@ -103,8 +103,8 @@ async function fetchNativeBinary({
   if (!target) throw new Error(`no platform package for '${suffix}'`);
   const name = platformPackageName(suffix);
   const file = executableName('octocode', target.os);
-  const dir = join(home, 'native', version, suffix);
-  const destination = join(dir, file);
+  const dir = nodePath.join(home, 'native', version, suffix);
+  const destination = nodePath.join(dir, file);
   if (existsSync(destination)) return destination;
 
   const metadataUrl = `${registryFor(name, env)}${name.replace('/', '%2f')}/${encodeURIComponent(version)}`;
@@ -119,7 +119,7 @@ async function fetchNativeBinary({
   if (!binary) throw new Error(`${tarballUrl} holds no package/${file}`);
 
   mkdirSync(dir, { recursive: true });
-  const staged = join(dir, `.${file}.${process.pid}.${Date.now()}.tmp`);
+  const staged = nodePath.join(dir, `.${file}.${process.pid}.${Date.now()}.tmp`);
   try {
     writeFileSync(staged, binary, { mode: 0o755 });
     const reported = run(staged).trim();

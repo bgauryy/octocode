@@ -106,7 +106,7 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
         kind: text(row, "kind"),
         direction: text(row, "direction"),
         depth: row["depth"].as_u64().map(|n| n as u32),
-        confidence: Some(text(row, "confidence").unwrap_or_else(|| "high".into())),
+        confidence: text(row, "confidence"),
         limit: row["limit"].as_u64().map(|n| n as usize),
         offset: row["offset"].as_u64().map(|n| n as usize),
         list: text(row, "list"),
@@ -170,13 +170,13 @@ pub(crate) fn execute(
         build(row, paths, security, context, cargo)
     } else {
         match options(row, paths) {
-            Ok(options) => query(&options, paths),
+            Ok(options) => super::query::query_cancellable(&options, paths, context),
             Err(error) => error,
         }
     };
     context.check()?;
     if tool == ToolId::GraphQuery {
-        pages::convert(&mut out.value, row);
+        pages::convert(&mut out.value, row, out.next_query.as_deref());
     }
     let status = match out.class {
         ExitClass::Success => None,

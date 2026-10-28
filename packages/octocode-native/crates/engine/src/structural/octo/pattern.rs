@@ -3,13 +3,14 @@ use std::time::Instant;
 
 use tree_sitter::{Language, Node, Tree};
 
-use super::line_index_support::to_structural_match_with_index;
+use super::line_index_support::to_structural_match_with_context;
 use super::matching::{
     CandidatePlan, CaptureEnv, ExecutionError, Found, named_children, node_text,
     parse_tree_with_deadline, raw_range, visit_named,
 };
 use super::metavars::meta_from_node;
 use super::recovery::Recovery;
+use super::source_context::SourceContext;
 use crate::structural::language::Expando;
 use crate::text::LineIndex;
 
@@ -127,6 +128,7 @@ impl CompiledPattern {
         // One match per node span.
         let mut seen = HashSet::new();
         let line_index = LineIndex::tree_sitter(content);
+        let source = SourceContext::root(tree.root_node(), content);
         visit_named(tree.root_node(), deadline, &mut |candidate| {
             if !self.matches_candidate(candidate) {
                 return Ok(());
@@ -138,7 +140,8 @@ impl CompiledPattern {
             {
                 found.push(candidate, || {
                     let (metavars, metavar_ranges_raw) = captures.into_maps();
-                    to_structural_match_with_index(
+                    to_structural_match_with_context(
+                        &source,
                         candidate,
                         content,
                         &line_index,

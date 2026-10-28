@@ -52,6 +52,7 @@ pub(super) fn native_error(error: octocode_engine::error::Error) -> ToolError {
         ErrorKind::InvalidInput => ErrorCode::InvalidInput,
         ErrorKind::Timeout => ErrorCode::Timeout,
         ErrorKind::Cancelled => ErrorCode::Cancelled,
+        ErrorKind::SourceCorrespondence(error) => return ToolError::source(*error.clone()),
         _ => ErrorCode::ExecutionFailed,
     };
     ToolError::new(code, message)

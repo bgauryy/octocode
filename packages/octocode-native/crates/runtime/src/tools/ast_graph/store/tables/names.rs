@@ -1,8 +1,5 @@
-//! Name rules for call linking: re-export depth, unique-name length, and the
+//! Name rules for call linking: unique-name length and the
 //! callee names never linked by name alone.
-
-/// How many re-export hops a call target may traverse.
-pub(super) const MAX_REEXPORT_DEPTH: usize = 8;
 
 /// Shorter names are too generic for a graph-wide unique-name match.
 pub(super) const MIN_UNIQUE_NAME_LEN: usize = 3;

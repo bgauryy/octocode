@@ -1,7 +1,11 @@
+/// Bump when response planning changes page boundaries. Replay storage and
+/// issued handles share this version so a new binary cannot reinterpret offsets.
+pub(crate) const ROW_PLAN_VERSION: u32 = 8;
+
 /// The content snapshot of a row plan at `budget` chars per page, of an
 /// envelope whose compact rendering has the hex SHA-256 `digest`.
 pub(crate) fn rows_snapshot(budget: usize, digest: &str) -> String {
-    format!("response-rows-v7:{budget}:{digest}")
+    format!("response-rows-v{ROW_PLAN_VERSION}:{budget}:{digest}")
 }
 
 /// One page of one saved response.

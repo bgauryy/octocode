@@ -7,13 +7,16 @@ use std::path::PathBuf;
 
 /// `octocode graph --help`: the whole agent workflow on one screen.
 pub(super) const GRAPH_HELP: &str = "\
-Persisted code graph: parse a repository once, then answer structural questions in milliseconds.
+Persisted code graph: build a snapshot, then query its recorded syntax evidence.
 
 WORKFLOW
-  octocode graph ingest .                  build a snapshot (about 1k-3k files/s; unchanged tree = reused)
+  octocode graph ingest .                  build a snapshot; reuse an unchanged tree
   octocode graph query stats               size, languages, most-imported files, gaps
   octocode graph query find <name>         locate a node id
+  octocode graph query candidates <ref>    page the exact matches for an ambiguous reference
   octocode graph query callers <id>        who calls a symbol (dependents: who imports a file)
+  octocode graph query witnesses <id>      source occurrences supporting relationships
+  octocode graph query unresolved <id>     retained call and argument-reference gaps
   octocode graph query impact <id>         blast radius: affected files by depth, tests to run
   octocode graph query impact --since main blast radius of a branch diff
   octocode graph query issues              ranked possible problems (cycles, dead code, ...)
@@ -24,12 +27,14 @@ NODE IDS
   src/a.ts               file (root-relative; absolute paths are accepted too)
   src/a.ts#Class.method  symbol (an @<line> suffix appears only when a name repeats)
   pkg:react              external package
-  A bare name or Class.method also resolves; ambiguity exits 2 and lists candidates.
+  A bare name or Class.method also resolves; ambiguity exits 2 and pages its candidates.
 
 EVIDENCE
   Syntax-derived. Imports are module-resolved (tsconfig paths, workspaces, cargo, go.mod, python
   roots). Calls carry via (local|import|namespace|unique-name) and confidence (high|medium|low).
-  Call answers carry coverage.callInternalRecall (below 0.9 they add a warning: a lower bound).
+  Check coverage.callExtraction, coverage.linkage and argumentCoverage. Linkage measures
+  extracted syntax sites, not semantic recall. A passes edge observes an argument reference,
+  not its later invocation. Inspect witnesses and unresolved sites before absence claims.
   issues findings carry a tier (100/90/60, see --min-tier); the default view hides tier 60.
   Treat results as leads: confirm identity with lspSearch before deleting or renaming.
 
@@ -44,7 +49,8 @@ STORAGE
   names the newest. --graph takes an id, a scope, or a substring of exactly one id (several:
   exit 2). The workspace is --workspace, else the nearest .git ancestor of the current directory
   inside the allowed roots (WORKSPACE_ROOT, else the current directory).
-  Files over 1 MB stay as unparsed nodes; minified bundles keep their imports but no symbols.";
+  Oversized or unreadable files stay as unparsed nodes with scan gaps. Bundled source retains
+  extracted symbols and relationships; role-based analysis exclusions remain explicit.";
 
 #[derive(Subcommand)]
 pub(super) enum GraphCommand {
@@ -59,17 +65,18 @@ pub(super) enum GraphCommand {
     Ingest(Box<IngestArgs>),
     /// Answer one bounded question from a snapshot (default: the workspace's latest).
     ///
-    /// LOOKUP     stats · find <text> · node <ref> · symbols <file|symbol>
+    /// LOOKUP     stats · find <text> · candidates <ref> · node <ref> · symbols <file|symbol>
     /// NEIGHBORS  deps <ref> · dependents <ref> · callers <ref> · callees <ref>
     /// TRAVERSE   path <from> <to> · walk <ref> [--direction out|in|both] [--edge ..] [--depth n]
     /// STRUCTURE  cycles · hubs [--direction in|out] · diagnostics [code|path] · stale
+    /// EVIDENCE   witnesses [ref] · unresolved [ref]
     /// ANALYSIS   issues [--detector a,b] [--min-score x] [--baseline <snapshot>] [--entry a,b]
     ///            impact <ref> | --changed a,b | --since <git-rev>
     ///            drift --baseline <snapshot>
     ///
     /// deps/dependents follow imports for files and calls for symbols (a file's dependents also
     /// use its exports through a re-exporting module); override with --edge
-    /// (contains, imports, uses, calls, inherits). A file's dependents list bare-path imports
+    /// (contains, imports, uses, calls, inherits, passes). A file's dependents list bare-path imports
     /// of it that no tsconfig or workspace links in summary.unlinkedPathImports. `issues` findings are ranked hypotheses with
     /// evidence and verify commands; `impact` rows carry depth, risk, confidence and typesOnly,
     /// and the summary lists affected entrypoints and tests to run.
@@ -129,7 +136,7 @@ pub(super) struct QueryArgs {
     /// Workspace whose .octocode/graph holds the snapshots.
     #[arg(long)]
     workspace: Option<PathBuf>,
-    /// Edge kinds to follow: contains, imports, uses, calls, inherits (comma-separated).
+    /// Edge kinds to follow: contains, imports, uses, calls, inherits, passes (comma-separated).
     #[arg(long, value_delimiter = ',')]
     edge: Vec<String>,
     /// Node kind filter: file, symbol, or package.
@@ -141,7 +148,7 @@ pub(super) struct QueryArgs {
     /// Traversal depth (1-20).
     #[arg(long)]
     depth: Option<u32>,
-    /// Weakest call-edge confidence to follow: high, medium, or low (default low).
+    /// Weakest call-edge confidence to follow: high, medium, or low (default high).
     #[arg(long)]
     confidence: Option<String>,
     /// Rows per page (default 50, max 1000).

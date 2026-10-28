@@ -83,6 +83,7 @@ fn type_text_is_stripped_to_the_named_type() {
     assert_eq!(super::python_type_text("A | B"), None);
 }
 
+#[cfg(any(feature = "tree-sitter-c-sharp", feature = "tree-sitter-cpp"))]
 mod csharp_cpp;
 mod java_go;
 mod rust_python;

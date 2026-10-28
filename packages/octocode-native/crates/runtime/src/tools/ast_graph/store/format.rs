@@ -24,13 +24,20 @@
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
+pub(crate) mod arguments;
+mod evidence;
+mod indexes;
+mod limits;
 mod reader;
 mod sections;
+pub(crate) mod sources;
 mod writer;
 use reader::*;
-pub(crate) use reader::{decode, decode_files};
+pub(crate) use reader::{decode_files, decode_with_cancel};
 use sections::*;
-pub(crate) use writer::encode;
+pub(crate) use writer::encode_for_publish;
+#[cfg(test)]
+pub(crate) use {reader::decode, writer::encode};
 
 pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// v3: every file `imports` edge carries the line of its own kind's evidence.
@@ -39,7 +46,12 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// v5: a diagnostic names the file node it is about (`target`), so
 /// `dependents` finds the unlinked path imports of a file.
 /// v6: an edge records whether its evidence is test code (`test`).
-pub(crate) const FORMAT_VERSION: u32 = 6;
+/// v7: occurrence witnesses, unresolved sites and declaration evidence.
+/// v8: occurrence byte spans and decoded-source derivation provenance.
+/// v9: typed named-argument observations, separate from invocation.
+/// v10: captured raw-source correspondence and per-span analysis units.
+/// v11: bounded typed source catalogs and compact numeric-reference origin pools.
+pub(crate) const FORMAT_VERSION: u32 = 11;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;
@@ -97,15 +109,18 @@ pub(crate) enum EdgeKind {
     Uses = 3,
     /// symbol → symbol: `extends` / `implements` (detail).
     Inherits = 4,
+    /// Source owner passes a named value; this does not invoke it.
+    Passes = 5,
 }
 
 impl EdgeKind {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Contains,
         Self::Imports,
         Self::Calls,
         Self::Uses,
         Self::Inherits,
+        Self::Passes,
     ];
     pub(crate) fn as_str(self) -> &'static str {
         match self {
@@ -114,6 +129,7 @@ impl EdgeKind {
             Self::Calls => "calls",
             Self::Uses => "uses",
             Self::Inherits => "inherits",
+            Self::Passes => "passes",
         }
     }
     fn from_u8(value: u8) -> Option<Self> {
@@ -123,6 +139,7 @@ impl EdgeKind {
             2 => Self::Calls,
             3 => Self::Uses,
             4 => Self::Inherits,
+            5 => Self::Passes,
             _ => return None,
         })
     }
@@ -133,6 +150,7 @@ impl EdgeKind {
             "calls" => Self::Calls,
             "uses" => Self::Uses,
             "inherits" => Self::Inherits,
+            "passes" => Self::Passes,
             _ => return None,
         })
     }
@@ -215,15 +233,68 @@ pub(crate) struct DiagRec {
     pub target: u32,
 }
 
+/// Every occurrence supporting topology, before adjacency deduplication.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct WitnessRec {
+    pub edge: EdgeRec,
+    pub provenance: ProvenanceRec,
+    pub argument: u32,
+    /// Occurrence identity within this source snapshot (interned string).
+    pub occurrence: u32,
+}
+
+/// A source call site whose target could not be established by this model.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct UnresolvedRec {
+    pub provenance: ProvenanceRec,
+    pub argument: u32,
+    pub relation: EdgeKind,
+    pub src: u32,
+    pub occurrence: u32,
+    pub callee: u32,
+    pub line: u32,
+    pub reason: u32,
+}
+
+/// Parser-input identity and half-open byte coordinates; `NONE` means unavailable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ProvenanceRec {
+    pub source_digest: u32,
+    pub source_start: u32,
+    pub source_end: u32,
+    pub source_origin: u32,
+    pub derivation_version: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DeclarationRec {
+    pub test_identity: u32,
+    pub node: u32,
+    pub occurrence: u32,
+    pub source_digest: u32,
+    pub source_start: u32,
+    pub source_end: u32,
+    pub source_origin: u32,
+    pub selection_start: u32,
+    pub selection_end: u32,
+    pub selection_origin: u32,
+    /// Serialized typed parse assessment; only enums and source positions.
+    pub assessment: u32,
+}
+
 /// The decoded snapshot. Edges are sorted by `(src, kind, dst)`, then
 /// production evidence before test evidence, then `line`;
 /// `out_offsets[n]..out_offsets[n + 1]` are node `n`'s outgoing edges and
 /// `in_edges[in_offsets[n]..in_offsets[n + 1]]` index its incoming ones.
 #[derive(Debug, Default)]
 pub(crate) struct GraphTables {
+    pub sources: sources::SourceTable,
     pub strings: Vec<String>,
     pub nodes: Vec<NodeRec>,
     pub edges: Vec<EdgeRec>,
+    pub witnesses: Vec<WitnessRec>,
+    pub unresolved: Vec<UnresolvedRec>,
+    pub declarations: Vec<DeclarationRec>,
     pub out_offsets: Vec<u32>,
     pub in_offsets: Vec<u32>,
     pub in_edges: Vec<u32>,
@@ -244,86 +315,7 @@ pub(crate) struct GraphTables {
     pub entries: Vec<(u32, u32)>,
 }
 
-impl GraphTables {
-    pub(crate) fn str(&self, id: u32) -> &str {
-        self.strings.get(id as usize).map_or("", String::as_str)
-    }
-
-    /// Recorded source stamps by file node.
-    pub(crate) fn stamps_by_node(&self) -> HashMap<u32, octocode_engine::stamp::SourceStamp> {
-        self.stamps.iter().copied().collect()
-    }
-
-    /// Computes both CSR directions and both lookup indexes. Call once after
-    /// `edges` are sorted; the writer persists the lookup indexes.
-    pub(crate) fn index(&mut self) {
-        self.index_adjacency();
-        self.index_lookups();
-    }
-
-    /// Both CSR directions from `edges` (sorted by source), in O(V + E).
-    pub(crate) fn index_adjacency(&mut self) {
-        let n = self.nodes.len();
-        self.out_offsets = vec![0; n + 1];
-        self.in_offsets = vec![0; n + 1];
-        for edge in &self.edges {
-            self.out_offsets[edge.src as usize + 1] += 1;
-            self.in_offsets[edge.dst as usize + 1] += 1;
-        }
-        for i in 0..n {
-            self.out_offsets[i + 1] += self.out_offsets[i];
-            self.in_offsets[i + 1] += self.in_offsets[i];
-        }
-        let mut cursor = self.in_offsets.clone();
-        self.in_edges = vec![0; self.edges.len()];
-        // Edges are sorted by src, so each node's incoming list is sorted by
-        // (src, kind) as well: deterministic without a second sort.
-        for (index, edge) in self.edges.iter().enumerate() {
-            let slot = &mut cursor[edge.dst as usize];
-            self.in_edges[*slot as usize] = index as u32;
-            *slot += 1;
-        }
-    }
-
-    fn index_lookups(&mut self) {
-        let n = self.nodes.len();
-        let mut keys = (0..n as u32).collect::<Vec<_>>();
-        keys.sort_by(|a, b| {
-            self.str(self.nodes[*a as usize].key)
-                .cmp(self.str(self.nodes[*b as usize].key))
-        });
-        self.key_index = keys;
-        let lower = self
-            .nodes
-            .iter()
-            .map(|node| self.str(node.name).to_lowercase())
-            .collect::<Vec<_>>();
-        let mut names = (0..n as u32).collect::<Vec<_>>();
-        names.sort_by(|a, b| lower[*a as usize].cmp(&lower[*b as usize]).then(a.cmp(b)));
-        self.name_index = names;
-    }
-
-    pub(crate) fn out(&self, node: u32) -> &[EdgeRec] {
-        let start = self.out_offsets[node as usize] as usize;
-        let end = self.out_offsets[node as usize + 1] as usize;
-        &self.edges[start..end]
-    }
-
-    pub(crate) fn incoming(&self, node: u32) -> impl Iterator<Item = &EdgeRec> {
-        let start = self.in_offsets[node as usize] as usize;
-        let end = self.in_offsets[node as usize + 1] as usize;
-        self.in_edges[start..end]
-            .iter()
-            .map(|index| &self.edges[*index as usize])
-    }
-
-    pub(crate) fn by_key(&self, key: &str) -> Option<u32> {
-        self.key_index
-            .binary_search_by(|id| self.str(self.nodes[*id as usize].key).cmp(key))
-            .ok()
-            .map(|at| self.key_index[at])
-    }
-}
-
+#[cfg(test)]
+pub(crate) mod evidence_tests;
 #[cfg(test)]
 mod tests;

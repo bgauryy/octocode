@@ -11,6 +11,7 @@ use std::{
 #[derive(Default)]
 pub(super) struct CargoCrates {
     packages: BTreeMap<String, BTreeMap<String, String>>,
+    pub(super) roots: BTreeSet<String>,
     /// The scan root's module path when the root lies inside a crate whose
     /// root (`src/lib.rs`, `src/main.rs`) is above it: `crate::a::b::x`
     /// written under root `src/a/b` names `x` inside the scan.
@@ -18,6 +19,9 @@ pub(super) struct CargoCrates {
 }
 
 impl CargoCrates {
+    pub(super) fn scan_is_submodule(&self) -> bool {
+        self.enclosing_module.is_some()
+    }
     /// These crates, with the scan `root`'s module path inside the crate
     /// that encloses it ([`enclosing_module`]).
     pub(super) fn within(mut self, root: &Path) -> Self {
@@ -132,6 +136,13 @@ fn parse_cargo_crates(root: &Path, value: &serde_json::Value) -> CargoCrates {
         .collect::<Libraries>();
     let mut crates = CargoCrates::default();
     for package in packages {
+        for target in package["targets"].as_array().into_iter().flatten() {
+            if let Some(source) = target["src_path"].as_str()
+                && let Ok(relative) = Path::new(source).strip_prefix(&root)
+            {
+                crates.roots.insert(normalize(&relative.to_string_lossy()));
+            }
+        }
         let Some(directory) = package_dir(package) else {
             continue;
         };

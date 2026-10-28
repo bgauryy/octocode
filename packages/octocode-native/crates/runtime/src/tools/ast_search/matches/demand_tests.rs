@@ -102,6 +102,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                             None,
                             &digest,
                             super::super::source::MAX_PARSE_SOURCE_BYTES as u64,
+                            &|| false,
                         )
                         .expect("rebuild")
                         {
@@ -124,7 +125,9 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                 budget,
                 row_paths,
                 &Inapplicable::default(),
+                &NeverCancel,
             )
+            .expect("grouped")
             .groups,
             budget,
         );
@@ -145,8 +148,18 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                     budget,
                     row_paths,
                     &Inapplicable::default(),
-                );
-                let expected = group_files(q, &held, budget, row_paths, &Inapplicable::default());
+                    &NeverCancel,
+                )
+                .expect("grouped");
+                let expected = group_files(
+                    q,
+                    &held,
+                    budget,
+                    row_paths,
+                    &Inapplicable::default(),
+                    &NeverCancel,
+                )
+                .expect("grouped");
                 let window = file_page(q, &from_prices.groups, budget).window;
                 assert_eq!(window, file_page(q, &expected.groups, budget).window);
                 assert!(
@@ -157,6 +170,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                         &mut from_prices.groups[window.clone()],
                         budget,
                         row_paths,
+                        &NeverCancel,
                     )
                     .is_ok_and(|incomplete| incomplete.is_empty())
                 );
@@ -198,11 +212,30 @@ fn a_priced_file_edited_after_its_scan_rebuilds_no_page() {
     let (scope, scan) = scan_of(q, &paths);
     let budget = 100_000;
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
-    let mut grouped = group_files(q, &scan.files, budget, row_paths, &Inapplicable::default());
+    let mut grouped = group_files(
+        q,
+        &scan.files,
+        budget,
+        row_paths,
+        &Inapplicable::default(),
+        &NeverCancel,
+    )
+    .expect("grouped");
     let window = file_page(q, &grouped.groups, budget).window;
     std::fs::write(root.0.join("src/f0.rs"), "fn z() {}\n").expect("edit");
     let groups = &mut grouped.groups[window];
-    assert!(rebuild_page(q, &scope, &scan.files, groups, budget, row_paths).is_err());
+    assert!(
+        rebuild_page(
+            q,
+            &scope,
+            &scan.files,
+            groups,
+            budget,
+            row_paths,
+            &NeverCancel
+        )
+        .is_err()
+    );
 }
 
 /// A shown priced file whose unchanged bytes do not finish matching on its
@@ -218,13 +251,33 @@ fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
         typed(json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"parser":"rust"}));
     let q = matched(&query);
     let (scope, mut scan) = scan_of(q, &paths);
-    let budget = 100_000;
+    // Fit two complete files including their source correspondence; this test
+    // exercises rebuilding an unevaluated file beside a healthy sibling.
+    let budget = scan
+        .files
+        .iter()
+        .take(2)
+        .map(|file| match &file.matches {
+            octocode_engine::structural::FileMatches::Priced(prices) => {
+                prices.iter().map(|price| *price as usize).sum::<usize>() + 4096
+            }
+            _ => panic!("fixture must use priced matching"),
+        })
+        .sum();
     let (source, digest) = scan.files[0].source.clone().expect("scanned source");
     let renamed = source.with_extension("unparsed");
     std::fs::copy(&source, &renamed).expect("same bytes");
     scan.files[0].source = Some((renamed, digest));
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
-    let mut grouped = group_files(q, &scan.files, budget, row_paths, &Inapplicable::default());
+    let mut grouped = group_files(
+        q,
+        &scan.files,
+        budget,
+        row_paths,
+        &Inapplicable::default(),
+        &NeverCancel,
+    )
+    .expect("grouped");
     let window = file_page(q, &grouped.groups, budget).window;
     assert!(window.contains(&0) && window.len() > 1, "{window:?}");
     let Ok(incomplete) = rebuild_page(
@@ -234,6 +287,7 @@ fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
         &mut grouped.groups[window.clone()],
         budget,
         row_paths,
+        &NeverCancel,
     ) else {
         panic!("unchanged bytes are not a changed file");
     };

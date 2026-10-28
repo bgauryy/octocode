@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { statusClass } from '../driver.mjs';
+import { canon } from '../calls.mjs';
 
 export const fixturePath = suffix => `advanced-local/${suffix}`;
 export const sourceText = (ctx, suffix) => fs.readFileSync(path.join(ctx.cwd, fixturePath(suffix)), 'utf8');
 export const sourcePairs = text => text.split('\n').flatMap((line, index, lines) => index === lines.length - 1 && line === '' ? [] : [[index + 1, line]]);
-const compare = (a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b));
+const compare = (a, b) => canon(a).localeCompare(canon(b));
 
 /** Compare source-derived values, preserving multiplicity so duplicate pages fail. */
 export function equal(checks, label, actual, expected) {
@@ -13,12 +14,12 @@ export function equal(checks, label, actual, expected) {
 }
 
 export function orderedEqual(checks, label, actual, expected) {
-  checks.push([label, JSON.stringify(actual) === JSON.stringify(expected), JSON.stringify({ expected, actual })]);
+  checks.push([label, canon(actual) === canon(expected), JSON.stringify({ expected, actual })]);
 }
 
 /** Reuse the shared schema-driven continuation walker and actual process transport. */
-export async function scenario(ctx, tool, surface, { label, query, checks, responseChars = 20000 }) {
-  const report = await ctx.explore(tool, { queries: [query], responseChars }, surface);
+export async function scenario(ctx, tool, surface, { label, query, checks, responseChars = 20000, maxPages }) {
+  const report = await ctx.explore(tool, { queries: [query], responseChars }, surface, maxPages === undefined ? {} : { maxPages });
   const status = statusClass(report.root.json);
   const errors = [report.root.json, ...(report.root.json?.results ?? []).map(row => row.data)]
     .filter(data => data?.errorCode || data?.error)

@@ -2,6 +2,95 @@
 use super::*;
 
 #[test]
+fn rust_bare_calls_do_not_resolve_same_named_methods() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/helpers.rs", "pub fn route() -> u8 { 1 }\n"),
+        (
+            "src/lib.rs",
+            "mod helpers;\nuse helpers::route;\npub struct Query;\nimpl Query {\n    pub fn route(&self) -> u8 { route() }\n    pub fn receiver(&self) -> u8 { self.route() }\n    pub fn qualified(&self) -> u8 { Self::route(self) }\n    pub fn named(&self) -> u8 { Query::route(self) }\n    pub fn nested(&self) -> u8 { fn inside() -> u8 { 2 } inside() }\n}\n",
+        ),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let root = dir.0.as_path();
+    let bare = ask(root, "callees", Some("src/lib.rs#Query.route"), |o| {
+        o.confidence = Some("high".into());
+    });
+    assert_eq!(ids(&bare), vec!["src/helpers.rs#route"], "{}", bare.value);
+    assert_eq!(bare.value["results"][0]["via"], "import");
+    assert_eq!(bare.value["results"][0]["edgeLine"], 5);
+    for caller in [
+        "src/lib.rs#Query.receiver",
+        "src/lib.rs#Query.qualified",
+        "src/lib.rs#Query.named",
+    ] {
+        let qualified = ask(root, "callees", Some(caller), |o| {
+            o.confidence = Some("high".into());
+        });
+        assert_eq!(
+            ids(&qualified),
+            vec!["src/lib.rs#Query.route"],
+            "{caller}: {}",
+            qualified.value
+        );
+    }
+    let nested = ask(root, "callees", Some("src/lib.rs#Query.nested"), |o| {
+        o.confidence = Some("high".into());
+    });
+    assert_eq!(
+        ids(&nested),
+        vec!["src/lib.rs#Query.nested.inside"],
+        "{}",
+        nested.value
+    );
+    let cycles = ask(root, "cycles", None, |o| {
+        o.edges = vec!["calls".into()];
+        o.confidence = Some("high".into());
+    });
+    assert_eq!(cycles.value["total"], 0, "{}", cycles.value);
+}
+
+#[test]
+fn implicit_receiver_languages_keep_bare_method_calls() {
+    let dir = git_app(&[
+        (
+            "Query.java",
+            "class Query { int route() { return work(); } int work() { return 1; } }\n",
+        ),
+        (
+            "query.cpp",
+            "struct Query { int route() { return work(); } int work() { return 1; } };\n",
+        ),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    for file in ["Query.java", "query.cpp"] {
+        let out = ask(
+            dir.0.as_path(),
+            "callees",
+            Some(&format!("{file}#Query.route")),
+            |o| {
+                o.confidence = Some("high".into());
+            },
+        );
+        assert_eq!(
+            ids(&out),
+            vec![format!("{file}#Query.work")],
+            "{}",
+            out.value
+        );
+    }
+}
+
+#[test]
 fn plan_3_rust_module_path_calls_link() {
     let dir = git_app(&[
         (

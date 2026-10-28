@@ -46,10 +46,12 @@ runtime and exits; the launcher exits with the same code.
 ## Distribution
 
 The package ships the bundled launcher (`dist/index.js`), `dist/docs/`, the
-manifests and the logo. Its `optionalDependencies` pin the seven
-`@octocodeai/octocode-native-<platform>` packages at the release version, so
-`npx octocode-mcp` installs the one binary for the machine. Publish the
-native platform packages before `octocode-mcp`.
+manifests and the logo. Its `optionalDependencies` pin every
+`@octocodeai/octocode-native-<platform>` package in `PLATFORMS` at the release
+version, so `npx octocode-mcp` installs the one binary for the machine; when
+npm skipped it, the shared launcher code fetches it once from the registry
+(see the `octocode` package's ARCHITECTURE.md). Publish the native platform
+packages before `octocode-mcp`.
 
 `package.json` defines the build and verification entry points. Checks:
 

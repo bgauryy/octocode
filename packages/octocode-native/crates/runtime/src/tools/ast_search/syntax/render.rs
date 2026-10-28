@@ -11,10 +11,9 @@ use serde_json::json;
 pub(super) fn render_tree_page(
     q: &AstSearchQuerySyntaxTree,
     display_path: &str,
-    TreePage { r, more, facts }: TreePage,
+    TreePage { r, more, facts }: &TreePage,
     snapshot: &str,
 ) -> serde_json::Value {
-    let byte_ranges = r.nodes.iter().map(node_byte_range).collect::<Vec<_>>();
     let nodes = r.nodes.iter().map(node_page_row).collect::<Vec<_>>();
     let codes = r
         .diagnostics
@@ -26,16 +25,16 @@ pub(super) fn render_tree_page(
     let first_page = ast_search_query_syntax_tree::page(q) == 1;
     let diagnostics = r
         .diagnostics
-        .into_iter()
+        .iter()
         .filter(|d| {
             r.status == "error"
                 || if is_walk_cut(&d.code) {
-                    !more
+                    !*more
                 } else {
                     first_page
                 }
         })
-        .map(|d| crate::tools::ast_rule::diagnostic_row(&d, None))
+        .map(|d| crate::tools::ast_rule::diagnostic_row(d, None))
         .collect::<Vec<_>>();
     // A failed inspection is an error row that states its error once: the
     // declared code and message of the engine's first diagnostic. It has no
@@ -51,17 +50,24 @@ pub(super) fn render_tree_page(
         let message = first
             .and_then(|diagnostic| diagnostic["message"].as_str())
             .unwrap_or("The syntax tree could not be built.");
-        return json!({"operation":"syntaxTree","path":display_path,"status":"error","errorCode":code,"error":message});
+        let mut out = json!({"operation":"syntaxTree","path":display_path,"status":"error","errorCode":code,"error":message});
+        if code == ErrorCode::LanguageUnsupported {
+            crate::response::result::attach_related(
+                &mut out,
+                super::super::output::unsupported_read(q.path.as_str()),
+            );
+        }
+        return out;
     }
     let page = ast_search_query_syntax_tree::page(q);
-    let complete = r.status == "ok" && !more;
+    let complete = r.status == "ok" && !*more;
     let pagination = facts.to_value();
-    let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"byteRanges":byte_ranges,"snapshot":snapshot,"isPartial":!complete,
+    let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"snapshot":snapshot,"isPartial":!complete,
         "pagination":pagination});
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
     }
-    if more {
+    if *more {
         if let Some(lead) = crate::response::paging::next_page_call(
             &mut out,
             ToolId::AstSearch,
@@ -105,23 +111,15 @@ fn walk_cuts(codes: &[String]) -> Vec<&'static str> {
     }
 }
 
-fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
-    node_row(
+pub(super) fn node_page_row(n: &octocode_engine::structural::SyntaxTreeNode) -> serde_json::Value {
+    let node = node_row(
         n.id,
         (n.field.as_deref(), &n.kind),
         n.named,
         [n.start_line, n.start_column, n.end_line, n.end_column],
         n.parent_id,
-    )
-}
-
-fn node_byte_range(n: &octocode_engine::structural::SyntaxTreeNode) -> String {
-    format!("{}-{}", n.start_byte, n.end_byte)
-}
-
-/// Characters a node adds to both arrays, including quotes and separators.
-pub(super) fn node_page_chars(n: &octocode_engine::structural::SyntaxTreeNode) -> usize {
-    octocode_engine::json_size::string_body_units(&node_page_row(n)) + node_byte_range(n).len() + 6
+    );
+    json!({"node": node, "sourceRange": {"startByte": n.source_span.start_byte, "endByte": n.source_span.end_byte}})
 }
 
 /// One node as `"<id> [<field>:]<kind> <startLine>:<startColumn>-<endLine>:<endColumn>

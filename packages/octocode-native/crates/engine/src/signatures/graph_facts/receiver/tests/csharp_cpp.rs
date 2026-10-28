@@ -2,6 +2,7 @@
 
 use super::*;
 
+#[cfg(feature = "tree-sitter-c-sharp")]
 #[test]
 fn csharp_receiver_types_come_from_locals_params_fields_and_properties() {
     let source = r#"
@@ -45,6 +46,7 @@ class Svc {
     );
 }
 
+#[cfg(feature = "tree-sitter-cpp")]
 #[test]
 fn cpp_receiver_types_come_from_locals_params_and_members() {
     let source = r#"

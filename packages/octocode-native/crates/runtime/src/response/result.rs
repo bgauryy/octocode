@@ -243,7 +243,9 @@ pub(crate) fn attach_related(data: &mut Value, call: Value) {
     if data.get("related").is_none() {
         data["related"] = serde_json::json!([]);
     }
-    if let Some(related) = data.get_mut("related").and_then(Value::as_array_mut) {
+    if let Some(related) = data.get_mut("related").and_then(Value::as_array_mut)
+        && !related.contains(&call)
+    {
         related.push(call);
     }
 }

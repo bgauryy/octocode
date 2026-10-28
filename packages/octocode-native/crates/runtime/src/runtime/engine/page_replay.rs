@@ -4,7 +4,7 @@
 
 use super::RuntimeError;
 use crate::config::{self, ConfigOutput};
-use crate::response::cursor::Cursor;
+use crate::response::cursor::{Cursor, ROW_PLAN_VERSION};
 use crate::response::pager::SavedPages;
 use crate::response::result::FailureKind;
 use crate::security::{CheckedQuery, Sanitized};
@@ -51,15 +51,7 @@ impl PageReplayMemo {
 
     pub(super) fn new(config: &ConfigOutput, cwd: &std::path::Path) -> Self {
         let persistent = config::is_persistent_storage_enabled(&config.resolved);
-        let policy = octocode_engine::digest::sha256(
-            format!(
-                "{}:{}:{}",
-                config.identity_digest(),
-                cwd.display(),
-                octocode_contract_types::TOOL_TYPES_CONTRACT_FINGERPRINT
-            )
-            .as_bytes(),
-        );
+        let policy = replay_policy(config, cwd, ROW_PLAN_VERSION);
         Self {
             store: crate::cache::Store::new(
                 Self::cache_config(),
@@ -101,6 +93,21 @@ impl PageReplayMemo {
         )
     }
 }
+
+fn replay_policy(config: &ConfigOutput, cwd: &std::path::Path, plan_version: u32) -> String {
+    octocode_engine::digest::sha256(
+        format!(
+            "{}:{}:{}:{plan_version}",
+            config.identity_digest(),
+            cwd.display(),
+            octocode_contract_types::TOOL_TYPES_CONTRACT_FINGERPRINT
+        )
+        .as_bytes(),
+    )
+}
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn page_expiry() -> String {
     crate::civil_date::iso8601_millis_after(PAGE_REPLAY_TTL)

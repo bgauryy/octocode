@@ -31,14 +31,6 @@ use rows::parse_rows;
 /// clasify's output facts: rows are keyed query results with their own shape.
 pub(crate) struct Output;
 impl crate::response::output::ToolOutput for Output {
-    fn collection_paths(&self) -> Option<&'static [&'static str]> {
-        Some(&[
-            "/data/resources",
-            "/data/resources/*/sections",
-            "/data/resources/*/sections/*/answers",
-            "/data/answers",
-        ])
-    }
     fn first_fragment_fields(&self) -> &'static [&'static str] {
         &["/data/questions"]
     }

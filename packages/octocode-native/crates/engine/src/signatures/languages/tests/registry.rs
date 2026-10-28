@@ -3,6 +3,37 @@
 use super::*;
 
 #[test]
+fn capability_inventory_separates_syntax_families_from_unimplemented_semantics() {
+    for (entry, capability) in all_entries().iter().zip(grammar_capabilities()) {
+        assert_eq!(capability.graph_facts, entry.fact_capabilities.any());
+        assert_eq!(capability.facts.calls, entry.fact_capabilities.calls);
+        assert_eq!(entry.fact_capabilities.calls, entry.call_adapter.is_some());
+        if let Some(kind) = entry.export_forwarding_node {
+            assert!(entry.fact_capabilities.exports);
+            assert_ne!(entry.language.id_for_node_kind(kind, true), 0);
+        }
+        assert_eq!(capability.test_frameworks, entry.test_frameworks);
+        assert!(!capability.semantic_binding);
+        assert_eq!(
+            capability.syntax_tree,
+            entry.admits(crate::text::analysis::AnalysisOperation::SyntaxTree)
+        );
+        assert!(!capability.value_flow);
+    }
+    let references_only = crate::types::GrammarFactCapabilities {
+        declarations: false,
+        calls: false,
+        imports: true,
+        exports: false,
+        heritage: false,
+    };
+    assert!(
+        references_only.any(),
+        "graph facts need no class or callable model"
+    );
+}
+
+#[test]
 fn excluded_grammars_report_unsupported_across_native_capabilities() {
     for ext in [
         "sh", "bash", "zsh", "vue", "svelte", "astro", "dart", "less", "ml", "mli", "jl", "r",
@@ -26,6 +57,77 @@ fn excluded_grammars_report_unsupported_across_native_capabilities() {
             result.diagnostics[0].code,
             "structural.language.unsupported"
         );
+    }
+}
+
+#[test]
+fn optional_grammar_features_control_admission_and_absence_explicitly() {
+    let capabilities = grammar_capabilities();
+    for (enabled, extensions) in [
+        (
+            cfg!(feature = "tree-sitter-asm"),
+            &["asm", "assembly", "s"][..],
+        ),
+        (
+            cfg!(feature = "tree-sitter-cpp"),
+            &["cc", "cpp", "cxx", "hh", "hpp", "hxx"][..],
+        ),
+        (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
+        (cfg!(feature = "tree-sitter-cuda"), &["cu", "cuh"][..]),
+        (
+            cfg!(feature = "tree-sitter-scala"),
+            &["sbt", "sc", "scala"][..],
+        ),
+    ] {
+        for &ext in extensions {
+            let file = format!("fixture.{ext}");
+            assert_eq!(find_entry(ext).is_some(), enabled, ".{ext}");
+            assert_eq!(select_one(ext).is_some(), enabled, ".{ext}");
+            assert_eq!(
+                RegistryView::installed().select_one(ext).is_some(),
+                enabled,
+                ".{ext}"
+            );
+            assert_eq!(
+                crate::lsp::grammar::grammar_for_file(&file).is_some(),
+                enabled,
+                ".{ext}"
+            );
+            assert_eq!(
+                capabilities
+                    .iter()
+                    .any(|item| item.extensions.iter().any(|item| item == ext)),
+                enabled,
+                ".{ext}"
+            );
+            if !enabled {
+                assert!(
+                    crate::signatures::extract_signatures_inner("target(value);", &file).is_err(),
+                    ".{ext}"
+                );
+                assert!(
+                    crate::signatures::extract_declarations_document("target(value);", &file)
+                        .is_none(),
+                    ".{ext}"
+                );
+                assert!(
+                    crate::signatures::extract_graph_facts("target(value);", &file).is_none(),
+                    ".{ext}"
+                );
+                let result = crate::structural::evaluate_source(
+                    "target(value);",
+                    &file,
+                    ext,
+                    Some("target($ARG)"),
+                    None,
+                );
+                assert_eq!(result.status, "unsupported", ".{ext}");
+                assert_eq!(
+                    result.diagnostics[0].code, "structural.language.unsupported",
+                    ".{ext}"
+                );
+            }
+        }
     }
 }
 
@@ -170,6 +272,14 @@ fn js_ts_dispatch_extensions_are_the_registry_javascript_and_typescript_entries(
 
 #[test]
 fn c_family_extensions_are_the_enabled_c_cpp_and_cuda_grammars() {
+    let is_c_family_extension = |extension| {
+        find_entry(extension).is_some_and(|entry| {
+            matches!(
+                entry.visibility_adapter,
+                crate::signatures::visibility::VisibilityAdapter::CFamily
+            )
+        })
+    };
     for extension in ["c", "h"] {
         assert!(is_c_family_extension(extension), ".{extension}");
     }

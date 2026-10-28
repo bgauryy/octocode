@@ -69,6 +69,7 @@ pub struct ToolRuntime {
     pub requests: RequestRuntime,
     input: ConfigInput,
     config: Arc<ConfigOutput>,
+    analysis_capabilities: octocode_contract_types::AnalysisCapabilities,
     /// Internal limits: code constants ([`RuntimeLimits::DEFAULT`]), never
     /// configuration.
     limits: RuntimeLimits,
@@ -207,9 +208,10 @@ impl ToolRuntime {
     }
 
     /// Runtime truth only: tool names, availability, grammar capabilities, and
-    /// the enforcement contract fingerprint. Presentation and MCP instructions
-    /// are delivered to agents by the JS layers from `@octocodeai/octocode-core`.
+    /// the enforcement contract fingerprint. Native CLI and MCP surfaces render
+    /// the core-generated presentation and instructions.
     pub fn catalog(&self) -> Value {
+        let analysis = &self.analysis_capabilities;
         // Generated constants only: the catalog never parses the contract.
         let tools = ToolId::ALL
             .into_iter()
@@ -231,7 +233,8 @@ impl ToolRuntime {
             .collect::<Vec<_>>();
         json!({
             "fingerprint": octocode_contract_types::TOOL_TYPES_CONTRACT_FINGERPRINT,
-            "grammarCapabilities": octocode_engine::signatures::languages::grammar_capabilities(),
+            "grammarCapabilities": analysis.grammar_capabilities,
+            "sourceDecoding": analysis.source_decoding,
             // Languages whose lspSearch server resolves here (resolution only);
             // hosts render it into the lspSearch description.
             "lspServers": self.lsp_server_languages(),

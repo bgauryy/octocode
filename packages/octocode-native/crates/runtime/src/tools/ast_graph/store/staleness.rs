@@ -39,6 +39,7 @@ pub(super) fn reuse_current(
     options: &IngestOptions,
     max_files: u32,
     paths: &PathPolicy,
+    registry_identity: &str,
 ) -> Option<Value> {
     let root_text = root.to_string_lossy();
     let (id, manifest) = list_snapshots(home).into_iter().rev().find_map(|id| {
@@ -46,7 +47,8 @@ pub(super) fn reuse_current(
         (manifest["root"] == root_text.as_ref()).then_some((id, manifest))
     })?;
     let same_options = manifest["formatVersion"] == format::FORMAT_VERSION
-        && manifest["octocodeVersion"] == env!("CARGO_PKG_VERSION")
+        && analysis_current(&manifest)
+        && manifest["registryIdentity"] == registry_identity
         && manifest["scan"]["maxFiles"] == max_files
         && manifest["scan"]["excludeDir"] == json!(options.exclude_dir)
         && manifest["scan"]["languageGlobs"] == language_globs_json(&options.language_globs)
@@ -76,7 +78,9 @@ pub(super) fn reuse_current(
         "sha256": manifest["graph"]["sha256"],
         "counts": manifest["counts"],
         "calls": manifest["calls"],
-        "callInternalRecall": manifest["callInternalRecall"],
+        "argumentCoverage": manifest["argumentCoverage"],
+        "extraction": {"parsedFiles":0,"reusedFiles":manifest["scan"]["filesScanned"]},
+        "linkage": manifest["linkage"],
         "scan": manifest["scan"],
         "next": format!("octocode graph query stats --graph {id} --workspace {}", octocode_io::shell::quote(&home.parent()?.parent()?.to_string_lossy())),
     }))
@@ -108,13 +112,21 @@ pub(super) fn scope_files(
     root: &Path,
     exclude_dir: &[String],
     language_globs: &BTreeMap<String, Vec<String>>,
+    extensions: &[String],
 ) -> BTreeSet<String> {
-    let extensions = octocode_engine::signatures::graph_facts::graph_fact_extensions();
-    let globs = crate::tools::ast_rule::GlobParsers::compile(
-        root,
-        (!language_globs.is_empty()).then_some(language_globs),
-    )
-    .unwrap_or_default();
+    let globs = language_globs
+        .values()
+        .flatten()
+        .filter_map(|pattern| {
+            octocode_engine::search::glob::set(
+                root,
+                [pattern.as_str()].into_iter(),
+                "languageGlobs",
+            )
+            .ok()
+            .flatten()
+        })
+        .collect::<Vec<_>>();
     let excluded = INGEST_EXCLUDES
         .iter()
         .map(|name| (*name).to_owned())
@@ -126,7 +138,11 @@ pub(super) fn scope_files(
         }
         let path = entry.path();
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
-        if !ext.is_some_and(|ext| extensions.contains(&ext)) && !globs.names(path) {
+        if !ext.is_some_and(|ext| extensions.contains(&ext))
+            && !globs
+                .iter()
+                .any(|matcher| octocode_engine::search::glob::matches(matcher, path, false))
+        {
             continue;
         }
         if let Ok(rel) = path.strip_prefix(root) {
@@ -207,7 +223,14 @@ pub(crate) fn snapshot_changes(
             manifest["scan"]["languageGlobs"].clone(),
         )
         .unwrap_or_default();
-        let current = scope_files(root, &excludes, &globs);
+        let extensions = manifest["registryExtensions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let current = scope_files(root, &excludes, &globs, &extensions);
         let reported = changes
             .iter()
             .map(|change| change.file.clone())

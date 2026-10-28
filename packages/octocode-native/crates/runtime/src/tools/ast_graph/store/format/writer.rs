@@ -1,5 +1,7 @@
 //! Encoding: varint writers and the deterministic, sectioned snapshot writer.
 use super::*;
+use crate::execution::cancel::CancellationCheck;
+use crate::response::result::ToolError;
 
 // ── Encoding ────────────────────────────────────────────────────────────────
 
@@ -47,8 +49,43 @@ pub(super) fn varints(values: &[u32]) -> Vec<u8> {
 
 /// Serializes the snapshot. Returns `(bytes, body SHA-256 hex)`; identical
 /// tables always produce identical bytes.
+#[cfg(test)]
 pub(crate) fn encode(tables: &GraphTables) -> (Vec<u8>, String) {
     let encoder = Encoder::new(tables);
+    encode_with(&encoder, &crate::execution::cancel::NeverCancel)
+        .expect("fixture graph source correspondence encodes")
+}
+
+/// Publication must not create a snapshot that this format's reader rejects for size.
+pub(crate) fn encode_for_publish(
+    tables: &GraphTables,
+    cancel: &dyn CancellationCheck,
+) -> Result<(Vec<u8>, String), ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
+    let encoder = Encoder::new(tables);
+    tables
+        .sources
+        .validate_with_cancel(cancel)
+        .map_err(ToolError::source)?;
+    tables
+        .sources
+        .validate_records(tables, cancel)
+        .map_err(|error| {
+            cancel.check().map_or_else(ToolError::cancelled, |()| {
+                ToolError::new(octocode_contract_types::ErrorCode::ScopeTooBroad, error)
+            })
+        })?;
+    limits::validate(&encoder).map_err(|error| {
+        ToolError::new(octocode_contract_types::ErrorCode::ScopeTooBroad, error)
+    })?;
+    encode_with(&encoder, cancel)
+}
+
+fn encode_with(
+    encoder: &Encoder<'_>,
+    cancel: &dyn CancellationCheck,
+) -> Result<(Vec<u8>, String), ToolError> {
+    let tables = encoder.tables;
     let (t, sid) = (tables, |old: u32| encoder.sid(old));
     let mut sections = vec![
         Section {
@@ -74,6 +111,22 @@ pub(crate) fn encode(tables: &GraphTables) -> (Vec<u8>, String) {
         Section {
             tag: *b"DIAG",
             bytes: encoder.diagnostics(),
+        },
+        Section {
+            tag: *b"WITN",
+            bytes: encoder.witnesses(),
+        },
+        Section {
+            tag: *b"UNRS",
+            bytes: encoder.unresolved(),
+        },
+        Section {
+            tag: *b"SRCE",
+            bytes: sources::encode(&t.sources, cancel).map_err(ToolError::source)?,
+        },
+        Section {
+            tag: *b"DECL",
+            bytes: encoder.declarations(),
         },
     ];
     let digests = t
@@ -111,7 +164,7 @@ pub(crate) fn encode(tables: &GraphTables) -> (Vec<u8>, String) {
             bytes: stamp_section(&t.stamps),
         });
     }
-    assemble(sections)
+    Ok(assemble(sections))
 }
 
 /// Count, then per file: node, size, modified, changed and inode varints.
@@ -148,6 +201,33 @@ impl<'t> Encoder<'t> {
             texts.push(tables.str(node.detail));
         }
         texts.extend(tables.edges.iter().map(|edge| tables.str(edge.detail)));
+        for witness in &tables.witnesses {
+            texts.extend([
+                tables.str(witness.edge.detail),
+                tables.str(witness.occurrence),
+                tables.str(witness.argument),
+                tables.str(witness.provenance.source_digest),
+                tables.str(witness.provenance.derivation_version),
+            ]);
+        }
+        for site in &tables.unresolved {
+            texts.extend([
+                tables.str(site.occurrence),
+                tables.str(site.argument),
+                tables.str(site.callee),
+                tables.str(site.reason),
+                tables.str(site.provenance.source_digest),
+                tables.str(site.provenance.derivation_version),
+            ]);
+        }
+        for decl in &tables.declarations {
+            texts.extend([
+                tables.str(decl.occurrence),
+                tables.str(decl.source_digest),
+                tables.str(decl.test_identity),
+                tables.str(decl.assessment),
+            ]);
+        }
         for diag in &tables.diagnostics {
             texts.extend([
                 tables.str(diag.file),

@@ -13,29 +13,6 @@ impl Query<'_> {
         self.resolve(reference, self.flags.kind)
     }
 
-    /// [`Graph::resolve`]; an ambiguous reference with more candidates than
-    /// it lists offers `next`, the `find` command that pages them all.
-    pub(super) fn resolve(
-        &self,
-        reference: &str,
-        kind: Option<NodeKind>,
-    ) -> Result<u32, GraphOutput> {
-        self.g.resolve(reference, kind).map_err(|failure| {
-            let mut out = *failure;
-            if out.value["truncated"] == true {
-                let find = QueryOptions {
-                    op: "find".into(),
-                    target: Some(reference.to_owned()),
-                    workspace: self.options.workspace.clone(),
-                    kind: kind.map(|kind| kind.as_str().to_owned()),
-                    ..QueryOptions::default()
-                };
-                out.value["next"] = json!(command(&find, &self.g.id));
-            }
-            out
-        })
-    }
-
     pub(super) fn filter(&self, default: &[EdgeKind]) -> EdgeFilter {
         EdgeFilter {
             kinds: if self.flags.edge_kinds.is_empty() {
@@ -77,6 +54,8 @@ impl Query<'_> {
         // edges.
         let reexports =
             op == "dependents" && node_kind == NodeKind::File && self.flags.edge_kinds.is_empty();
+        let offset = self.options.offset.unwrap_or(0);
+        let limit = self.options.limit.unwrap_or(DEFAULT_LIMIT);
         let page = walk(
             g,
             &seeds,
@@ -85,11 +64,17 @@ impl Query<'_> {
                 filter: &filter,
                 depth: self.flags.depth.unwrap_or(default_depth),
                 kind: self.flags.kind,
+                include_seeds: matches!(op, "callers" | "callees"),
                 reexports,
+                window: offset..offset.saturating_add(limit),
             },
-        );
+            self.cancel,
+        )?;
         let mut extra = Map::new();
-        extra.insert("target".into(), Value::Object(g.node_json(root)));
+        extra.insert(
+            "target".into(),
+            Value::Object(g.node_json(root, self.cancel)?),
+        );
         extra.extend(edges_extra(&filter));
         if op == "dependents" && filter.kinds.contains(&EdgeKind::Imports) {
             let unlinked = unlinked_path_imports(g, root);
@@ -122,8 +107,10 @@ impl Query<'_> {
         };
         let filter = self.filter(&default);
         let direction = self.flags.direction.unwrap_or(Direction::Out);
-        let mut out = path(g, from, to, direction, &filter);
+        let mut out = path(g, from, to, direction, &filter, self.cancel)?;
+        out.value["interpretation"] = json!({"kind":"candidate","conditionCompatibility":"notAssessed","execution":"notObserved"});
         if filter.kinds.contains(&EdgeKind::Calls) {
+            out.value["confidence"] = json!(filter.weakest.as_str());
             out.value["coverage"] = g.coverage(from);
         }
         Ok(out)
@@ -132,7 +119,14 @@ impl Query<'_> {
     pub(super) fn hubs(&self) -> Result<GraphOutput, GraphOutput> {
         let filter = self.filter(&[EdgeKind::Imports]).production();
         let rank_by = self.flags.direction.unwrap_or(Direction::In);
-        let page = hubs(self.g, &filter, self.flags.kind, rank_by);
+        let page = hubs(
+            self.g,
+            &filter,
+            self.flags.kind,
+            rank_by,
+            self.window(),
+            self.cancel,
+        )?;
         let mut extra = edges_extra(&filter);
         extra.insert(
             "rankBy".into(),

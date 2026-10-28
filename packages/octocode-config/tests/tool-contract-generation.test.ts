@@ -34,6 +34,78 @@ it('keeps Unicode schema patterns in generated typed decoders', () => {
   expect(generated).not.toMatch(/Regex\s*::\s*new\s*\(/);
 });
 
+it('omits only tautological property names from the native representation', () => {
+  const unrestricted = { type: 'object', propertyNames: { type: 'string' }, additionalProperties: {} };
+  const constrained = { type: 'object', propertyNames: { type: 'string', pattern: '^safe_' }, additionalProperties: {} };
+  const bundle = { $defs: { Unrestricted: unrestricted, Constrained: constrained } };
+  const defs = rustBundle(bundle).$defs as Record<string, any>;
+  expect(defs.Unrestricted.propertyNames).toBeUndefined();
+  expect(defs.Constrained.propertyNames).toEqual(constrained.propertyNames);
+  expect(bundle.$defs.Unrestricted.propertyNames).toEqual({ type: 'string' });
+  const namedField = { $defs: { Query: { type: 'object', properties: { propertyNames: { type: 'string' } } } } };
+  expect(rustBundle(namedField)).toEqual(namedField);
+});
+
+it('normalizes ref-site annotations without dropping intersection constraints', () => {
+  const bundle = { $defs: {
+    Range: { title: 'Range', description: 'Canonical range', type: 'integer', minimum: 0 },
+    Paired: { allOf: [
+      { type: 'object', properties: { range: { $ref: '#/$defs/Range', description: 'Observed range', maximum: 10 } } },
+      { type: 'object', required: ['range'] },
+    ] as Parameters<typeof rustBundle>[0][],
+    },
+  } };
+  const normalized = rustBundle(bundle);
+  const defs = normalized.$defs as Record<string, any>;
+  expect(defs.Range).toEqual(bundle.$defs.Range);
+  expect(defs.Paired.allOf[0].properties.range).toEqual({ $ref: '#/$defs/Range', maximum: 10 });
+  expect((bundle.$defs.Paired.allOf[0]!.properties as Record<string, any>).range.description).toBe('Observed range');
+  const ajv = new Ajv2020({ strict: false });
+  const original = ajv.compile({ ...bundle, $ref: '#/$defs/Paired' });
+  const projected = new Ajv2020({ strict: false }).compile({ ...normalized, $ref: '#/$defs/Paired' });
+  for (const value of [{ range: 0 }, { range: 10 }, { range: -1 }, { range: 11 }, { range: '0' }, {}]) {
+    expect(projected(value)).toBe(original(value));
+  }
+});
+
+it('retains typed literal fields when the enforcement IR omits implied types', () => {
+  const defs = buildToolTypesBundle(buildEnforcementContractIr()).bundle.$defs as Record<string, any>;
+  expect(defs.AstParser.type).toBe('string');
+  const filters = defs.GhSearchRepoQuerySearch.properties.filters;
+  expect(filters.properties.isSponsorable).toMatchObject({ type: 'boolean', const: true });
+  const stopBy = defs.AstSearchRule.properties.stopBy.anyOf;
+  expect(stopBy.find((branch: any) => branch.enum)).toMatchObject({
+    type: 'string', enum: ['neighbor', 'end'],
+  });
+}, 30_000);
+
+it('generates the fingerprinted analysis capabilities through the shared bundle', () => {
+  const ir = buildEnforcementContractIr();
+  const { bundle, fingerprint } = buildToolTypesBundle(ir);
+  const defs = bundle.$defs as Record<string, any>;
+  expect(fingerprint).toBe(ir.fingerprint);
+  expect(defs.AnalysisCapabilities).toMatchObject({
+    type: 'object',
+    additionalProperties: false,
+    required: ['sourceDecoding', 'grammarCapabilities'],
+  });
+  expect(defs.AnalysisCapabilities.properties.sourceDecoding).toBeDefined();
+  expect(defs.AnalysisCapabilities.properties.grammarCapabilities).toBeDefined();
+  expect(defs.AnalysisCapabilities.$ref).toBeUndefined();
+  const ajv = new Ajv2020({ strict: false, validateFormats: false });
+  const validate = ajv.compile({ ...bundle, $ref: '#/$defs/AnalysisCapabilities' });
+  const capability = {
+    sourceDecoding: {
+      encodings: [{ encoding: 'utf8', bom: 'optional' }],
+      malformed: 'rejected', correspondence: 'scalarBoundaries',
+    },
+    grammarCapabilities: [],
+  };
+  expect(validate(capability)).toBe(true);
+  expect(validate({ ...capability, sourceMappings: true })).toBe(false);
+  expect(validate({ ...capability, sourceDecoding: { ...capability.sourceDecoding, malformed: 'replaced' } })).toBe(false);
+}, 30_000);
+
 // Full-contract generation is an integration check, not a five-second latency assertion.
 describe('generated tool types', () => {
   it('are current with the core Zod contract (embed, fixtures, TS, bundle, Rust header)', async () => {
@@ -115,7 +187,7 @@ describe('generated tool types', () => {
       visit(defs[`${base}Input`]);
       expect(rows, name).toBeGreaterThan(0);
     }
-  });
+  }, 30_000);
 
   it('preserves branch acceptance when bundling every canonical input', () => {
     const ir = buildEnforcementContractIr();
@@ -131,7 +203,7 @@ describe('generated tool types', () => {
         expect(bundled(fixture.input), JSON.stringify(fixture.input)).toBe(original(fixture.input));
       }
     }
-  });
+  }, 30_000);
 
   it('keeps overlapping closed unions inclusive in the canonical bundle', () => {
     const schema = {type:'object',additionalProperties:false,properties:{value:{type:'string'}}};
@@ -153,7 +225,7 @@ describe('generated tool types', () => {
     expect(() =>
       buildToolTypesBundle({ ...ir, tools: [unnamed] } as unknown as typeof ir)
     ).toThrow(/unnamed recursive schema/);
-  });
+  }, 30_000);
 
 });
 

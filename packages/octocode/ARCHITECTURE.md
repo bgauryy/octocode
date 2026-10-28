@@ -17,7 +17,9 @@ Rust owns Clap parsing, catalog presentation, validation, config and authenticat
 ## Build and packaging
 
 - `build.mjs` bundles `src/index.ts` to `out/octocode.js` as an ESM launcher.
-- `octocode` directly declares the native platform packages in `optionalDependencies`; npm selects the matching executable. The shared resolver and launcher from `@octocodeai/octocode-native` are bundled at build time.
+- `octocode` declares every native platform package in `optionalDependencies` (written from `PLATFORMS` by `packages/octocode-native/scripts/platform-packages.cjs`); npm installs the one matching `os`/`cpu`/`libc`. The resolver, the registry fallback and the signal-forwarding launcher from `packages/octocode-native/bin/` are bundled at build time.
+- When npm skipped the platform package, the bundled launcher fetches it once at the pinned version (`__OCTOCODE_NATIVE_VERSION__`) into `~/.octocode/native/` (`OCTOCODE_HOME`), verifying the registry's sha512 and the binary's `--version`. Unbundled source runs never download.
+- The bundle targets Node 22 (`engines.node` `>=22`); the repository's own toolchain stays on Node 24.
 - `@typescript/native-preview` supplies the packaged `tsgo` language server used by native `lspSearch`; it is not a CLI parser.
 - The private `@octocodeai/config` root export is bundled for the development-override policy. The launcher does not import public tool contracts or instructions.
 - `scripts/stage-skills.mjs` stages canonical public skills for the npm package and native build. The native binary embeds the same publishable skill directories.

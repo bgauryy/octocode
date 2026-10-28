@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod delivered_page_tests;
 mod errors;
+mod evidence;
 #[cfg(test)]
 mod execute_tests;
 #[cfg(test)]
@@ -96,7 +97,7 @@ impl<'a> RowPaths<'a> {
 pub fn execute_ast(
     query: &AstSearchQuery,
     paths: &crate::policy::path::PathPolicy,
-    security: &crate::security::ContentSecurity,
+    _security: &crate::security::ContentSecurity,
     cancellation: &dyn crate::execution::cancel::CancellationCheck,
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
@@ -106,8 +107,22 @@ pub fn execute_ast(
         AstSearchQuery::MatchView(query) => query.path.as_str(),
         AstSearchQuery::SyntaxTree(query) => query.path.as_str(),
     };
-    run_ast(query, paths, security, cancellation, response_window)
-        .map_err(|error| missing_path_recovery(error, requested, paths))
+    run_ast(query, paths, cancellation, response_window).map_err(|mut error| {
+        if matches!(
+            error.code,
+            ErrorCode::LanguageUnsupported
+                | ErrorCode::SymbolsUnsupported
+                | ErrorCode::CapabilityUnavailable
+        ) && error.calls.is_none()
+            && let Ok(path) = paths.validate_read(requested)
+            && path.canonical.is_file()
+        {
+            error.calls = Some(Box::new(serde_json::json!({
+                "read": output::unsupported_read(&path.canonical.to_string_lossy())
+            })));
+        }
+        missing_path_recovery(error, requested, paths)
+    })
 }
 
 /// A `pathNotFound` for the query's path leads to the tree of its nearest
@@ -130,7 +145,6 @@ fn missing_path_recovery(
 fn run_ast(
     query: &AstSearchQuery,
     paths: &crate::policy::path::PathPolicy,
-    security: &crate::security::ContentSecurity,
     cancellation: &dyn crate::execution::cancel::CancellationCheck,
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
@@ -151,7 +165,7 @@ fn run_ast(
             response_window,
         ),
         AstSearchQuery::SyntaxTree(query) => {
-            execute_syntax(query, paths, security, cancellation, response_window)
+            execute_syntax(query, paths, cancellation, response_window)
         }
     }
 }

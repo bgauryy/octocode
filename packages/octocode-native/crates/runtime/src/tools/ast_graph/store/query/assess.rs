@@ -102,6 +102,7 @@ impl Query<'_> {
                 Page {
                     total: 0,
                     rows: Vec::new(),
+                    start: 0,
                 },
             ));
         }
@@ -131,6 +132,7 @@ impl Query<'_> {
             Page {
                 total: rows.len(),
                 rows,
+                start: 0,
             },
         ))
     }
@@ -212,6 +214,7 @@ impl Query<'_> {
             Page {
                 total: rows.len(),
                 rows,
+                start: 0,
             },
         ))
     }
@@ -229,7 +232,7 @@ impl Query<'_> {
             workspace: self.options.workspace.clone(),
             ..Default::default()
         };
-        let base_graph = load(&base_options, paths).map_err(|failure| *failure)?;
+        let base_graph = load(&base_options, paths, self.cancel).map_err(|failure| *failure)?;
         let drift = super::super::drift::diff(&base_graph.t, &self.g.t);
         let mut extra = Map::new();
         extra.insert("baseline".into(), base_graph.summary());
@@ -242,6 +245,7 @@ impl Query<'_> {
             Page {
                 total: rows.len(),
                 rows,
+                start: 0,
             },
         ))
     }
@@ -262,7 +266,7 @@ impl Query<'_> {
             workspace: self.options.workspace.clone(),
             ..Default::default()
         };
-        let base_graph = load(&base_options, paths).map_err(|failure| *failure)?;
+        let base_graph = load(&base_options, paths, self.cancel).map_err(|failure| *failure)?;
         let base_root = PathBuf::from(base_graph.manifest["root"].as_str().unwrap_or_default());
         let before = super::super::detect::run(
             &base_graph.t,

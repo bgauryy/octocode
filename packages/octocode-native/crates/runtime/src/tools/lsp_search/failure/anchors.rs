@@ -95,6 +95,8 @@ pub(in super::super) fn attach_recovery_next(value: &mut Value, query: &LspSearc
         read["matchString"] = json!([symbol]);
         read["caseMode"] = json!("sensitive");
         read["contextLines"] = json!({"before":3,"after":3});
+    } else if lsp_search_query::operation(query) == "documentSymbols" {
+        read["view"] = json!("symbols");
     }
     crate::response::result::attach_related(
         value,

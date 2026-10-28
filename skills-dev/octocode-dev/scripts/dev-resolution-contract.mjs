@@ -11,7 +11,7 @@ const { PLATFORMS, platformPackageName } = createRequire(import.meta.url)(
 );
 
 /** The per-platform binary packages, from the one platform list. */
-export function nativePlatformPackages() {
+function nativePlatformPackages() {
   return Object.keys(PLATFORMS).map(platformPackageName);
 }
 

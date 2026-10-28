@@ -118,7 +118,7 @@ fn rule_scan(query: &Value, paths: &PathPolicy, cancel: &dyn CancellationCheck) 
     let rule_query = MatchQuery::Content(&rule_query);
     let rule_scope = resolve_scope(rule_query, paths, cancel).ok()?;
     if rule_scope.is_file {
-        scan_file(rule_query, &rule_scope)
+        scan_file(rule_query, &rule_scope, cancel)
     } else {
         scan_directory(rule_query, &rule_scope, paths, cancel)
     }

@@ -45,6 +45,8 @@ pub(super) fn scan_key(q: MatchQuery<'_>, paths: &PathPolicy) -> String {
 
 /// Rough heap bytes of a stored scan, its memo weight.
 fn scan_bytes(scan: &Scan) -> usize {
+    let mut templates = std::collections::HashSet::new();
+    let mut catalogs = std::collections::HashSet::new();
     let diagnostic =
         |d: &StructuralDiagnostic| 64 + d.message.len() + d.path.as_ref().map_or(0, String::len);
     scan.files
@@ -63,7 +65,29 @@ fn scan_bytes(scan: &Scan) -> usize {
                     .held()
                     .iter()
                     .map(|m| {
-                        128 + m.text.len()
+                        let template_bytes =
+                            if templates.insert(std::sync::Arc::as_ptr(&m.source_templates)) {
+                                m.source_templates.heap_bytes()
+                            } else {
+                                0
+                            };
+                        let catalog_bytes = m.source_descriptors.as_ref().map_or(0, |catalog| {
+                            if catalogs.insert(std::sync::Arc::as_ptr(catalog)) {
+                                catalog.owned_bytes()
+                            } else {
+                                0
+                            }
+                        });
+                        template_bytes
+                            + catalog_bytes
+                            + m.source_origin
+                                .as_ref()
+                                .map_or(0, octocode_engine::text::analysis::OriginProjection::owned_bytes)
+                            + m.header_origin
+                                .as_ref()
+                                .map_or(0, octocode_engine::text::analysis::OriginProjection::owned_bytes)
+                            + 128
+                            + m.text.len()
                             + m.header.as_ref().map_or(0, String::len)
                             + m.metavars
                                 .values()
@@ -73,7 +97,13 @@ fn scan_bytes(scan: &Scan) -> usize {
                             + m.metavar_ranges
                                 .values()
                                 .flatten()
-                                .map(|range| 48 + range.text.len())
+                                .map(|range| {
+                                    48 + range.text.len()
+                                        + range
+                                            .source_origin
+                                            .as_ref()
+                                            .map_or(0, octocode_engine::text::analysis::OriginProjection::owned_bytes)
+                                })
                                 .sum::<usize>()
                     })
                     .sum::<usize>()
@@ -127,7 +157,7 @@ pub(super) fn shared_scan(
     }
     let started = octocode_engine::stamp::settle_clock();
     let mut scan = if scope.is_file {
-        scan_file(q, scope)?
+        scan_file(q, scope, cancel)?
     } else {
         scan_directory(q, scope, paths, cancel)?
     };

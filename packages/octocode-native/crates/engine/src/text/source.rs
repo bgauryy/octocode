@@ -15,6 +15,8 @@ use std::borrow::Cow;
 use std::io::Read;
 use std::path::Path;
 
+pub mod analysis;
+
 /// Why [`read_source`] refused a path.
 #[derive(Debug)]
 pub enum ReadError {

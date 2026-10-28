@@ -179,6 +179,22 @@ pub(super) fn compact_declarations(raw: &[Value]) -> Vec<Value> {
         .map(|(d, &(name, line, character))| {
             let kind = d["kind"].as_str().unwrap_or("");
             let mut row = json!({"name":name,"kind":kind,"line":line});
+            if let Some(id) = d.get("occurrenceId").or_else(|| d.get("id")) {
+                row["occurrenceId"] = id.clone();
+            }
+            for key in [
+                "sourceDigest",
+                "sourceRange",
+                "sourceOrigin",
+                "selectionByteRange",
+                "selectionOrigin",
+                "parseAssessment",
+                "testIdentity",
+            ] {
+                if let Some(value) = d.get(key) {
+                    row[key] = value.clone();
+                }
+            }
             if d.get("implements").is_some() {
                 row["typeName"] = d["name"].clone();
             }

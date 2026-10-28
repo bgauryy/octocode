@@ -104,21 +104,28 @@ fn multi_capture_preserves_argument_separators() {
 #[test]
 fn capture_env_rollback_restores_inserts_and_replacements() {
     let mut env = CaptureEnv::default();
-    assert!(env.capture_one("A", "a", (0, 0, 0, 1)));
-    env.capture_replace(SECONDARY_CAPTURE, "first".to_owned(), (0, 0, 0, 5));
+    assert!(env.capture_one("A", "a", (0, 0, 0, 1, 0, 0, 0)));
+    env.capture_replace(SECONDARY_CAPTURE, "first".to_owned(), (0, 0, 0, 5, 0, 0, 0));
     let checkpoint = env.checkpoint();
-    assert!(env.capture_one("B", "b", (1, 0, 1, 1)));
-    assert!(env.capture_many("C", ["c1", "c2"].into_iter(), || vec![(2, 0, 2, 1); 2]));
-    env.capture_replace(SECONDARY_CAPTURE, "second".to_owned(), (3, 0, 3, 6));
+    assert!(env.capture_one("B", "b", (1, 0, 1, 1, 0, 0, 0)));
+    assert!(env.capture_many("C", ["c1", "c2"].into_iter(), || vec![
+        (2, 0, 2, 1, 0, 0, 0);
+        2
+    ]));
+    env.capture_replace(
+        SECONDARY_CAPTURE,
+        "second".to_owned(),
+        (3, 0, 3, 6, 0, 0, 0),
+    );
     // A backreference check that fails binds nothing.
-    assert!(!env.capture_one("A", "other", (4, 0, 4, 5)));
+    assert!(!env.capture_one("A", "other", (4, 0, 4, 5, 0, 0, 0)));
     assert_eq!(env.undo_len(), 5);
     env.rollback(checkpoint);
     assert_eq!(env.undo_len(), 2);
-    assert!(env.capture_one("A", "a", (0, 0, 0, 1)), "A kept");
+    assert!(env.capture_one("A", "a", (0, 0, 0, 1, 0, 0, 0)), "A kept");
     let (values, ranges) = env.into_maps();
     assert_eq!(values.keys().collect::<Vec<_>>(), ["A"]);
-    assert_eq!(ranges["A"], vec![(0, 0, 0, 1)]);
+    assert_eq!(ranges["A"], vec![(0, 0, 0, 1, 0, 0, 0)]);
 }
 
 #[test]
@@ -179,5 +186,18 @@ fn unparsed_pattern_names_the_unplaced_token() {
             error.contains("pattern parsed with syntax errors near `$$$BODY`"),
             "{ext}: {error}"
         );
+    }
+}
+
+#[test]
+fn special_patterns_share_their_source_template() {
+    let source = "const tree = <main><Box /><Box /><Box /></main>;";
+    let found = run_pattern(source, "tsx", "<$TAG>");
+    assert!(found.len() >= 3);
+    for matched in &found[1..] {
+        assert!(std::sync::Arc::ptr_eq(
+            &found[0].source_templates,
+            &matched.source_templates
+        ));
     }
 }

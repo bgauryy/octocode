@@ -181,3 +181,70 @@ pub(super) fn skipped_call(out: &serde_json::Value) -> Option<&serde_json::Value
                     || row["defaultExcludes"] == false)
         })
 }
+
+/// Exact UTF-8 fixture correspondence, including the retained snapshot and descriptor closure.
+pub(super) fn assert_copied_row(
+    output: &Value,
+    row: &Value,
+    mut expected: Value,
+    range: std::ops::Range<usize>,
+    header: Option<std::ops::Range<usize>>,
+) {
+    let catalog = &output["sourceEvidence"];
+    let unit_id = row["sourceOrigin"]["analysisUnitId"]
+        .as_str()
+        .expect("unit identity");
+    let unit = catalog["units"]
+        .as_array()
+        .expect("units")
+        .iter()
+        .find(|unit| unit["id"] == unit_id)
+        .expect("closed unit");
+    let representation = catalog["representations"]
+        .as_array()
+        .expect("representations")
+        .iter()
+        .find(|representation| representation["id"] == unit["representationId"])
+        .expect("closed representation");
+    assert_eq!(
+        representation["sourceIds"]
+            .as_array()
+            .expect("sources")
+            .len(),
+        1
+    );
+    let source_id = &representation["sourceIds"][0];
+    let source = catalog["snapshots"]
+        .as_array()
+        .expect("snapshots")
+        .iter()
+        .find(|source| source["id"] == *source_id)
+        .expect("closed snapshot");
+    let raw = std::fs::read(source["path"].as_str().expect("source path")).expect("fixture bytes");
+    let digest = octocode_engine::digest::sha256(&raw);
+    assert_eq!(source["digest"], digest);
+    assert_eq!(source["encoding"], "utf8");
+    assert_eq!(representation["sourceDigest"], digest);
+    let origin = |range: &std::ops::Range<usize>| {
+        let span = json!({"startByte":range.start,"endByte":range.end});
+        (
+            span.clone(),
+            json!({"analysisUnitId":unit_id,"segments":[{
+                "sourceRange":span,"analysis":"included","branches":[{
+                    "kind":"copied","origin":{"sourceId":source_id,"rawRange":span}
+                }]
+            }]}),
+        )
+    };
+    let (span, projected) = origin(&range);
+    expected["sourceRange"] = span;
+    expected["sourceOrigin"] = projected;
+    expected["sourceDigest"] = json!(digest);
+    if let Some(header) = header {
+        assert!(range.start <= header.start && header.end <= range.end);
+        let (span, projected) = origin(&header);
+        expected["headerSourceRange"] = span;
+        expected["headerOrigin"] = projected;
+    }
+    assert_eq!(*row, expected);
+}

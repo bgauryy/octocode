@@ -59,7 +59,7 @@ fn instructions_are_the_one_core_string_without_cli_notes() {
         .instructions;
     assert_eq!(text, presentation()["instructions"].as_str().expect("text"));
     assert!(
-        text.contains("<local>") && text.contains("<github>"),
+        text.contains("Local:") && text.contains("GitHub:"),
         "{text}"
     );
     assert!(!text.contains("<cli>"), "{text}");

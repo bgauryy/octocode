@@ -113,6 +113,8 @@ pub(super) fn annotate(
     let language_id = target.config.language_id.as_deref();
     inferred_project::annotate(result, query, language_id, &target.path, scope);
     inferred_project::annotate_compile_database(result, query, language_id, &target.path, scope);
+    let rust = receipt::RustAnalysis::of(&session.config);
+    failure::annotate_empty_includes(result, query, rust.build_scripts);
     server_coverage::annotate(
         result,
         query,
@@ -122,6 +124,7 @@ pub(super) fn annotate(
             root: &target.config.workspace_root,
         },
         scope,
+        rust,
     );
     receipt::attach_provider_context(
         result,

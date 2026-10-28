@@ -1,6 +1,21 @@
 use super::*;
 use serde_json::json;
 
+fn annotated_empty(
+    query: &LspSearchQuery,
+    category: &str,
+    message: &str,
+    available: bool,
+) -> serde_json::Value {
+    let config = super::server_context::rust_server_config(
+        lsp_search_query::rust_context(query)
+            .map_or(serde_json::Value::Null, |context| json!(context)),
+    );
+    let mut row = empty(query, category, message, available);
+    annotate_empty_includes(&mut row, query, RustAnalysis::of(&config).build_scripts);
+    row
+}
+
 #[test]
 fn empty_and_failed_rows_keep_acquisition_separate_from_retry() {
     let q =
@@ -61,7 +76,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     )
     .expect("manifest");
     std::fs::write(package.path().join("build.rs"), "fn main() {}\n").expect("build.rs");
-    let unused_script = super::super::failure::empty(
+    let unused_script = annotated_empty(
         &requery(
             &query,
             serde_json::json!({"path": package.path().join("src/lib.rs").to_string_lossy()}),
@@ -85,7 +100,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     );
     // The executable rerun carries the call; one tip states its risk
     // (it runs repository code) without restating the call.
-    let tipped = super::super::failure::empty(&scripted, "noLocations", "none", true);
+    let tipped = annotated_empty(&scripted, "noLocations", "none", true);
     assert_eq!(
         tipped["hints"].as_array().map(Vec::len),
         Some(1),
@@ -107,8 +122,35 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         &scripted,
         serde_json::json!({"rustContext": {"buildScripts": true}}),
     );
-    let built = super::super::failure::empty(&built, "noLocations", "none", true);
+    let built = annotated_empty(&built, "noLocations", "none", true);
     assert!(built.get("hints").is_none(), "{built}");
+    let configured =
+        super::server_context::rust_server_config(json!({"buildScripts":true,"procMacros":true}));
+    let mut inherited = super::super::failure::empty(&scripted, "noLocations", "none", true);
+    annotate_empty_includes(
+        &mut inherited,
+        &scripted,
+        RustAnalysis::of(&configured).build_scripts,
+    );
+    assert!(inherited.get("hints").is_none(), "{inherited}");
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&inherited, "lspSearch", |_| true)
+            .is_none(),
+        "{inherited}"
+    );
+    let mut unavailable = failure(
+        &scripted,
+        "",
+        ErrorCode::ServerUnavailable,
+        "provider unavailable",
+        false,
+    );
+    let before = unavailable.clone();
+    annotate_empty_includes(&mut unavailable, &scripted, false);
+    assert_eq!(
+        unavailable, before,
+        "unavailable providers cannot report an empty semantic result or a build-script repair"
+    );
     // Source included from outside the package never loads: its own tip,
     // and no rerun.
     std::fs::write(
@@ -116,7 +158,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         "include!(\"../../elsewhere/types.rs\");\n",
     )
     .expect("lib");
-    let outside = super::super::failure::empty(&scripted, "noLocations", "none", true);
+    let outside = annotated_empty(&scripted, "noLocations", "none", true);
     assert!(
         outside["hints"][0]
             .as_str()
@@ -144,7 +186,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\ninclude!(\"../../elsewhere/types.rs\");\n",
     )
     .expect("lib");
-    let both = super::super::failure::empty(&scripted, "noLocations", "none", true);
+    let both = annotated_empty(&scripted, "noLocations", "none", true);
     assert_eq!(both["hints"].as_array().map(Vec::len), Some(2), "{both}");
     assert!(
         both["hints"][1]

@@ -64,12 +64,19 @@ fn module_level_calls_cover_go_rust_and_c() {
         )
         .contains(&("module".to_owned(), "lazy_static".to_owned()))
     );
-    assert!(
-        callers("int f(void);\nint x = f();\n", "a.cpp")
-            .contains(&("module".to_owned(), "f".to_owned()))
-    );
+    let c_family_call = |path: &str| {
+        assert!(
+            callers("int f(void);\nint x = f();\n", path)
+                .contains(&("module".to_owned(), "f".to_owned())),
+            "{path}"
+        );
+    };
+    c_family_call("a.c");
+    #[cfg(feature = "tree-sitter-cpp")]
+    c_family_call("a.cpp");
 }
 
+#[cfg(feature = "tree-sitter-c-sharp")]
 #[test]
 fn csharp_using_directives_are_imports() {
     let source = "using System.Text;\nusing static System.Math;\nglobal using System;\nusing Json = Newtonsoft.Json.JsonConvert;\nnamespace App { using Inner.Pkg; class A { void M() { using (var x = Open()) {} } } }\n";

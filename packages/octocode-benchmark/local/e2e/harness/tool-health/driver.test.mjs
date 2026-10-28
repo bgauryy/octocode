@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDriver, leadsIn, statusClass } from './driver.mjs';
 import { contractValidators } from '../contract.mjs';
+import { CASES } from './cases.mjs';
 
 const callSchema = { properties: { kind: {}, tool: {}, input: {} } };
 const schema = { properties: {
@@ -27,6 +28,10 @@ function surface(script) {
 }
 const rows = (_tool, key) => key === 'remaining' ? data => data.items ?? [] : undefined;
 const indexedItems = (index, items, next) => ({ index, data: { items, ...(next && { next: { remaining: continuation(next) } }) } });
+const outlineMember = (name, id) => ({ symbolName: name, kind: 'method', line: 2, occurrenceId: id, sourceDigest: 'digest' });
+const outlineParent = members => ({ symbolName: 'Worker', kind: 'class', line: 1, sourceDigest: 'digest', sourceRange: { startByte: 0, endByte: 50 }, members });
+const outlineEvidence = members => ({ ...outlineParent(members), occurrenceId: 'parent', sourceDigest: 'digest' });
+const outlineResult = (symbol, part) => ({ results: [{ index: 0, data: { files: [{ path: 'source.ts', symbols: [symbol] }] }, ...(part > 1 && { rowPart: { part, of: 2, continues: { array: '/data/files', index: 0 } } }) }], ...(part === 1 && { responsePagination: { next: continuation('rest') } }) });
 
 // Same shape at an arbitrary evidence position must never become executable.
 test('only schema-declared typed calls execute, including named resource reads', async () => {
@@ -122,6 +127,108 @@ test('duplicate evidence and repeated cursor handles fail the walk', async () =>
     assert.ok(report.failures.some(f => f.check === 'page.exactlyOnce'));
     assert.equal(report.failures.some(f => f.check === 'lead.repeat'), mode === 'cursor');
   }
+});
+
+test('duplicate new evidence in a resumed page fails exactly-once validation', async () => {
+  const s = surface((_tool, input) => input.cursor
+    ? ok({ items: ['second', 'second'] })
+    : ok({ items: ['first'], next: { remaining: continuation('rest') } }));
+  const report = await driver().explore('t', { queries: [{}] }, { surface: 'cli', call: s.call, rows });
+  assert.deepEqual(report.chains[0].rows, ['first', 'second', 'second']);
+  assert.ok(report.failures.some(failure => failure.check === 'page.exactlyOnce'));
+});
+
+test('AST page oracle distinguishes parent context while rejecting repeated or missing occurrences', async () => {
+  const mapper = CASES.astSearch.happy.rows;
+  const expected = ['parent', 'first', 'second'];
+  for (const mode of ['complete', 'duplicate', 'missingParent', 'missingMember', 'changedDigest', 'changedRange', 'newMetadata']) {
+    const first = mode === 'missingParent' ? outlineParent([outlineMember('first', 'first')]) : outlineEvidence([outlineMember('first', 'first')]);
+    const last = mode === 'duplicate' ? outlineEvidence([outlineMember('second', 'second')]) : outlineParent(mode === 'missingMember' ? [] : [outlineMember('second', 'second')]);
+    if (mode === 'changedDigest') last.sourceDigest = 'changed';
+    if (mode === 'changedRange') last.sourceRange.startByte = 1;
+    if (mode === 'newMetadata') last.provenance = { unknown: true };
+    const s = surface((_tool, input) => outlineResult(input.cursor ? last : first, input.cursor ? 2 : 1));
+    const report = await driver().explore('t', { queries: [{}] }, { surface: 'cli', call: s.call, rows: () => mapper });
+    const chain = report.chains[0];
+    const missing = expected.filter(id => !chain.seenRows.has(id));
+    const extra = chain.rows.filter(id => !expected.includes(id));
+    if (mode === 'complete') {
+      assert.deepEqual(report.failures, []);
+      assert.deepEqual(chain.rows, expected);
+    } else if (mode === 'duplicate') assert.ok(report.failures.some(f => f.check === 'page.exactlyOnce'));
+    else assert.ok(missing.length || extra.length, `${mode} must fail the unpaged/paged union check`);
+  }
+});
+
+const codeFile = (matches, lines) => ({ owner: 'octo', repo: 'demo', path: 'source.ts', commitSha: 'revision', matchCount: 2, matches, lines });
+const codeResult = (file, part) => ({ results: [{ index: 0, data: { files: [file] }, ...(part > 1 && { rowPart: { part, of: 2, continues: { array: '/data/files', index: 0 } } }) }], ...(part === 1 && { responsePagination: { next: continuation('rest') } }) });
+function codeTail(mode, firstMatch, secondMatch) {
+  const last = codeFile(mode === 'missingMatch' ? [] : [mode === 'duplicateMatch' ? firstMatch : secondMatch], mode === 'missingLine' ? [] : [mode === 'duplicateLine' ? '1\tfirst' : '2\tsecond']);
+  if (mode === 'changedContext') last.commitSha = 'changed';
+  if (mode === 'omittedRevision') delete last.commitSha;
+  if (mode === 'newContext') last.provenance = { revision: 'new' };
+  if (mode === 'duplicateNewMatch') last.matches.push(secondMatch);
+  if (mode === 'duplicateNewLine') last.lines.push('2\tsecond');
+  return last;
+}
+
+test('code page oracle preserves metadata, matches and lines while rejecting altered context or evidence', async () => {
+  const mapper = CASES.ghSearchCode.page.rows;
+  const firstMatch = { value: 'first', matchIndices: [{ start: 0, end: 2 }] };
+  const secondMatch = { value: 'second', matchIndices: [{ start: 1, end: 3 }] };
+  const whole = codeResult(codeFile([firstMatch, secondMatch], ['1\tfirst', '2\tsecond']), 0);
+  const expected = mapper(whole.results[0].data, whole);
+  assert.equal(expected.length, 5, 'one metadata row, two matches and two source lines');
+  for (const mode of ['complete', 'omittedRevision', 'duplicateMatch', 'duplicateLine', 'duplicateNewMatch', 'duplicateNewLine', 'missingMatch', 'missingLine', 'changedContext', 'newContext', 'unmarkedContext']) {
+    const first = codeFile([firstMatch], ['1\tfirst']);
+    const last = codeTail(mode, firstMatch, secondMatch);
+    const s = surface((_tool, input) => codeResult(input.cursor ? last : first, input.cursor ? (mode === 'unmarkedContext' ? 0 : 2) : 1));
+    const report = await driver().explore('t', { queries: [{}] }, { surface: 'cli', call: s.call, rows: () => mapper });
+    const actual = report.chains[0].rows;
+    if (mode === 'complete' || mode === 'omittedRevision') {
+      assert.deepEqual(report.failures, []);
+      assert.deepEqual(actual.toSorted(), expected.toSorted());
+      for (const collection of ['match:', 'line:']) {
+        assert.deepEqual(actual.filter(row => row.startsWith(collection)), expected.filter(row => row.startsWith(collection)));
+      }
+    } else {
+      assert.ok(report.failures.length || JSON.stringify(actual.toSorted()) !== JSON.stringify(expected.toSorted()), `${mode} must fail full evidence comparison`);
+      if (mode.startsWith('duplicate')) assert.ok(report.failures.some(failure => failure.check === 'page.exactlyOnce'), mode);
+    }
+  }
+});
+
+test('code evidence identities distinguish revisions and retain orphan context', () => {
+  const mapper = CASES.ghSearchCode.page.rows;
+  const original = codeResult(codeFile([{ value: 'same' }], ['1\tsame']), 0);
+  const revised = structuredClone(original);
+  revised.results[0].data.files[0].commitSha = 'other-revision';
+  const before = mapper(original.results[0].data, original);
+  const after = mapper(revised.results[0].data, revised);
+  assert.equal(before.length, 3);
+  assert.equal(after.length, 3);
+  assert.ok(after.every(row => !before.includes(row)));
+  const orphan = codeResult(codeFile([{ value: 'same' }], ['1\tsame']), 2);
+  assert.deepEqual(mapper(orphan.results[0].data, orphan), before);
+});
+
+test('row context is private to each continuation chain and query index', async () => {
+  const states = [];
+  const mapper = (data, _json, state) => {
+    states.push(state);
+    const prior = state.get(data.id);
+    state.set(data.id, true);
+    return [prior ? `${data.id}:continued` : `${data.id}:first`];
+  };
+  const s = surface((_tool, input) => input.cursor
+    ? { results: [{ index: Number(input.cursor), data: { id: 'same' } }] }
+    : { results: [0, 1].map(index => ({ index, data: { id: 'same', next: { remaining: continuation(String(index)) } } })) });
+  const report = await driver().explore('t', { queries: [{}, {}] }, { surface: 'cli', call: s.call, rows: () => mapper });
+  assert.deepEqual(report.failures, []);
+  assert.notEqual(states[0], states[1]);
+  assert.equal(states[0], states[2]);
+  assert.equal(states[1], states[3]);
+  assert.deepEqual(report.chains.map(chain => chain.rows), [['same:first', 'same:continued'], ['same:first', 'same:continued']]);
 });
 
 test('display fragments reuse a completed captured read without executing it twice', async () => {

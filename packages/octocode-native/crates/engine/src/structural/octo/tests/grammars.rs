@@ -163,6 +163,7 @@ fn shared_pattern_context_accepts_bare_calls_in_c_family_rust_and_go() {
         ("rs", "fn run() { target(value); other(value); }"),
         ("c", "void run(void) { target(value); other(value); }"),
         ("h", "void run(void) { target(value); other(value); }"),
+        #[cfg(feature = "tree-sitter-cpp")]
         ("cpp", "void run() { target(value); other(value); }"),
         (
             "go",
@@ -294,6 +295,7 @@ fn class_shaped_pattern_still_matches_in_csharp_despite_synthetic_wrap() {
     );
 }
 
+#[cfg(feature = "tree-sitter-c-sharp")]
 #[test]
 fn csharp_statement_and_expression_patterns_match_inside_methods() {
     let source = "class W {\n  int Area() { return Helper(LIMIT); }\n  static int Run() { var s = \"😀\"; Log(s); return Helper(s.Length); }\n}\n";

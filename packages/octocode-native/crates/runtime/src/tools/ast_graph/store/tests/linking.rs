@@ -23,7 +23,7 @@ fn plan_1_call_answers_report_coverage() {
         |_| {},
     );
     let coverage = &out.value["coverage"];
-    let recall = coverage["callInternalRecall"].as_f64().expect("recall");
+    let recall = coverage["linkage"]["ratio"].as_f64().expect("recall");
     assert!(recall < 1.0, "{}", out.value);
     assert!(
         coverage["warning"].as_str().is_some_and(|w| !w.is_empty()),
@@ -37,7 +37,7 @@ fn plan_1_call_answers_report_coverage() {
         |_| {},
     );
     assert!(
-        impact.value["coverage"]["callInternalRecall"].is_number(),
+        impact.value["coverage"]["linkage"]["ratio"].is_number(),
         "{}",
         impact.value
     );
@@ -164,7 +164,25 @@ fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
         dir.0.as_path(),
         "callees",
         Some("com/shop/Checkout.java#Checkout.run"),
-        |_| {},
+        |o| o.confidence = Some("medium".into()),
+    );
+    assert!(
+        callees.value["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["confidence"] == "medium")
+    );
+    let strong = ask(
+        dir.0.as_path(),
+        "callees",
+        Some("com/shop/Checkout.java#Checkout.run"),
+        |o| o.confidence = Some("high".into()),
+    );
+    assert_eq!(
+        strong.value["total"], 0,
+        "same-package bindings remain candidates: {}",
+        strong.value
     );
     let got = ids(&callees);
     assert!(
