@@ -187,23 +187,6 @@ async fn clear_during_health_invalidates_waiters_and_shutdown_stops_all() {
 }
 
 #[tokio::test]
-async fn stop_on_drop_outside_a_runtime_thread_still_stops_the_client() {
-    let client = FakeClient::new(1);
-    let check = client.clone();
-    let guard = StopOnDrop::new(client);
-    std::thread::spawn(move || drop(guard))
-        .join()
-        .expect("drop on a non-runtime thread");
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while check.stops.load(Ordering::SeqCst) == 0 {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("cleanup must use the handle captured at construction");
-}
-
-#[tokio::test]
 async fn start_cancellation_guard_dropped_off_runtime_releases_inflight() {
     let pool = pool(4, 60_000);
     let client = FakeClient::new(1);

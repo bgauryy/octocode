@@ -22,9 +22,9 @@ mod snippets;
 mod status;
 mod stderr;
 mod sync;
-mod watched;
 #[cfg(test)]
 mod tests;
+mod watched;
 
 use open_documents::{MAX_OPEN_DOCUMENTS, OpenDocuments};
 pub use requests::LocationRequest;

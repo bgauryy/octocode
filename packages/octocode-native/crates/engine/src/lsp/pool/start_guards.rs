@@ -83,35 +83,6 @@ impl<C: PoolClient> Drop for StartCancellationGuard<C> {
     }
 }
 
-pub(super) struct StopOnDrop<C: PoolClient> {
-    pub(super) client: Option<C>,
-    pub(super) runtime: Option<Handle>,
-}
-
-impl<C: PoolClient> StopOnDrop<C> {
-    pub(super) fn new(client: C) -> Self {
-        Self {
-            client: Some(client),
-            runtime: Handle::try_current().ok(),
-        }
-    }
-
-    pub(super) fn disarm(&mut self) {
-        self.client = None;
-    }
-}
-
-impl<C: PoolClient> Drop for StopOnDrop<C> {
-    fn drop(&mut self) {
-        let Some(client) = self.client.take() else {
-            return;
-        };
-        spawn_cleanup(self.runtime.as_ref(), async move {
-            client.stop().await;
-        });
-    }
-}
-
 pub(super) async fn run_cancellation_safe_start<C, T, Fut>(
     client: C,
     future: Fut,

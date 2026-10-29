@@ -7,6 +7,11 @@ use serde_json::Value;
 use std::sync::{Arc, atomic::Ordering};
 use tokio::time::Duration;
 
+/// Longest a later acquire re-waits for a server whose first readiness wait
+/// timed out: long enough to catch an index that is about to finish, short
+/// enough that a call does not pay a language's whole budget again.
+pub(crate) const RESUME_REWAIT_MS: u32 = 15_000;
+
 impl NativeLspClient {
     /// Wait for the server to finish any post-`initialized` indexing, returning
     /// a readiness descriptor so JS can tell a confirmed-idle server apart from
@@ -115,19 +120,26 @@ impl NativeLspClient {
         self.inner.config.language_id.as_deref()
     }
 
-    /// A pooled client whose last readiness wait ended in `timeout` waits
-    /// again, up to `timeout_ms`, before it is handed out: the server kept
-    /// indexing since, so the next call can see it finish instead of failing
-    /// on the stored `timeout`. Any other readiness returns at once. The
-    /// re-wait never pays the silent-server settle again: a `timeout` means
-    /// the server already reported progress. The wait holds a lease, so idle
-    /// expiry cannot stop the server under it.
+    /// The readiness wait a pooled client owes before it is handed out: the
+    /// whole `timeout_ms` for a client that never waited (just started), and
+    /// up to [`RESUME_REWAIT_MS`] again for one whose last wait ended in
+    /// `timeout` (the server kept indexing since, so the next call can see
+    /// it finish instead of failing on the stored `timeout`, without paying
+    /// the whole budget on every call). Any other readiness returns at
+    /// once. A re-wait never pays the silent-server settle again: a
+    /// `timeout` means the server already reported progress. The wait holds
+    /// a lease, so idle expiry cannot stop the server under it.
     pub(crate) async fn resume_timed_out_readiness(&self, timeout_ms: u32) {
-        if !self.readiness_is(Readiness::Timeout) {
+        let never_waited = self.inner.readiness.lock().is_ok_and(|slot| slot.is_none());
+        let budget = if never_waited {
+            timeout_ms
+        } else if self.readiness_is(Readiness::Timeout) {
+            timeout_ms.min(RESUME_REWAIT_MS)
+        } else {
             return;
-        }
+        };
         let _activity = self.lease();
-        let _ = self.wait_for_ready(Some(timeout_ms)).await;
+        let _ = self.wait_for_ready(Some(budget)).await;
     }
 
     /// Mark this client busy for as long as the returned guard lives. Hold

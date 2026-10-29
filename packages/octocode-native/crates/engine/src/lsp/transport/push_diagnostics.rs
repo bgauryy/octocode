@@ -200,7 +200,11 @@ mod tests {
             "diagnostics": [{ "message": "stale" }]
         }));
 
-        assert!(store.report("file:///workspace/a.ts", Some(3), false).is_none());
+        assert!(
+            store
+                .report("file:///workspace/a.ts", Some(3), false)
+                .is_none()
+        );
         assert_eq!(
             store
                 .report("file:///workspace/a.ts", Some(2), false)

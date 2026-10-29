@@ -9,7 +9,7 @@ use crate::lsp::client::{LspLease, NativeLspClient};
 use crate::lsp::types::LspLanguageServerConfig;
 use acquire::GenericPool;
 use serde_json::Value;
-use start_guards::{StopOnDrop, run_cancellation_safe_start};
+use start_guards::run_cancellation_safe_start;
 use state::{SharedResult, shared_error};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -45,31 +45,24 @@ impl Default for LspPoolOptions {
     }
 }
 
-/// Start and (for languages that need it) wait for readiness of one pooled
-/// client; the pool's factory for both acquire flavors. A readiness wait
-/// that ends in `timeout` still installs the started server (it keeps
-/// indexing); the next acquire waits again through [`pool_client::PoolClient::resume`]
-/// instead of failing on the stored `timeout`.
+/// Start one pooled client; the pool's factory for both acquire flavors.
+/// The readiness wait (the server's project load, for languages that need
+/// it) happens after the client is installed, through
+/// [`pool_client::PoolClient::resume`]: a caller cancelled during that wait
+/// leaves a started, indexing server in the pool for the next request
+/// instead of throwing its index away, and a wait that ends in `timeout`
+/// is resumed by the next acquire instead of failing it.
 async fn start_client(
     config: LspLanguageServerConfig,
     options: super::client::LspClientOptions,
 ) -> SharedResult<NativeLspClient> {
-    let client = NativeLspClient::with_options(config.clone(), options);
+    let client = NativeLspClient::with_options(config, options);
     let starting_client = client.clone();
     let start =
         run_cancellation_safe_start(client.clone(), async move { starting_client.start().await })
             .await
             .map_err(|error| shared_error(format!("LSP client startup task failed: {error}")))?;
     start.map_err(Arc::new)?;
-    let mut cleanup = StopOnDrop::new(client.clone());
-    if let Some(timeout_ms) = readiness_timeout(config.language_id.as_deref())
-        && let Err(error) = client.wait_for_ready(Some(timeout_ms)).await
-    {
-        let _ = client.stop().await;
-        cleanup.disarm();
-        return Err(Arc::new(error));
-    }
-    cleanup.disarm();
     Ok(Some(client))
 }
 

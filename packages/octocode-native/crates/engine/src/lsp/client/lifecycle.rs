@@ -247,8 +247,10 @@ async fn server_command(
     config: &LspLanguageServerConfig,
     memory_cap: Option<u64>,
 ) -> Result<tokio::process::Command> {
-    let validated_command =
-        crate::lsp::validation::validate_lsp_server_path(config.command.clone())?;
+    let validated_command = crate::lsp::validation::validate_lsp_server_path(
+        config.command.clone(),
+        Some(std::path::Path::new(&config.workspace_root)),
+    )?;
     let mut command_args = config.args.clone().unwrap_or_default();
     let command_program = lsp_spawn_program(&validated_command, &mut command_args).await?;
     let mut command = tokio::process::Command::new(&command_program);

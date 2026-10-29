@@ -7,7 +7,7 @@ use super::pool_client::PoolClient;
 use super::start_guards::StartCancellationGuard;
 use super::state::{
     InFlight, Retirement, SharedError, SharedResult, State, evict_overflow, inflight_is_current,
-    remove_lru, touch_entry,
+    remove_lru, shared_error, touch_entry,
 };
 use std::future::Future;
 use std::sync::Arc;
@@ -247,10 +247,18 @@ impl<C: PoolClient> GenericPool<C> {
                 .entries
                 .get(&key)
                 .is_some_and(|entry| entry.client.same(&client));
-            if pooled || attempt == LEASE_ATTEMPTS {
+            if pooled {
                 let held = lease(&client);
                 drop(state);
                 return Ok(Some((client, held)));
+            }
+            drop(state);
+            if attempt == LEASE_ATTEMPTS {
+                // Never hand out an entry the pool no longer holds: its idle
+                // timer is gone and a request on it would fail unexplained.
+                return Err(shared_error(
+                    "the pooled language server was replaced repeatedly while being leased; retry",
+                ));
             }
         }
         Ok(None)

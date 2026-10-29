@@ -256,6 +256,9 @@ mod tests {
     #[test]
     fn call_sites_and_enclosing_callables() {
         assert!(is_call_at("  return stage (1);", 0, 14));
+        // UTF-16 column after a non-BMP character before the site.
+        assert!(is_call_at("const 😀 = 1; needle(1)", 0, 20));
+        assert!(!is_call_at("const 😀 = 1; needle(1)", 0, 19));
         assert!(!is_call_at("const { stage } = x;", 0, 13));
         let tree = json!([{
             "name": "run", "kind": 12,

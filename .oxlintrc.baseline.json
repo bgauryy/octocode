@@ -103,7 +103,6 @@
     {"files":["packages/octocode-benchmark/local/e2e/harness/tool-health/mock-server.mjs"],"rules":{"no-console":"off"}},
     {"files":["packages/octocode-benchmark/local/e2e/harness/version-compare.mjs"],"rules":{"complexity":["error",{"max":19}],"max-depth":["error",{"max":5}],"no-console":"off","no-empty":"off","typescript/require-array-sort-compare":"off","unicorn/consistent-function-scoping":"off","unicorn/no-array-sort":"off"}},
     {"files":["packages/octocode-benchmark/scripts/classification_proxy.mjs"],"rules":{"complexity":["error",{"max":28}],"max-lines-per-function":["error",{"max":102,"skipBlankLines":false,"skipComments":false}],"unicorn/no-useless-spread":"off"}},
-    {"files":["packages/octocode-benchmark/scripts/jev_proposal_poc_summary.mjs"],"rules":{"unicorn/no-array-sort":"off"}},
     {"files":["packages/octocode-benchmark/scripts/pi-bash-allow.ts"],"rules":{"complexity":["error",{"max":25}],"typescript/no-base-to-string":"off"}},
     {"files":["packages/octocode-chrome-devtools/src/adapter.ts"],"rules":{"complexity":["error",{"max":16}],"no-shadow":"off","typescript/no-unnecessary-type-assertion":"off"}},
     {"files":["packages/octocode-chrome-devtools/src/engine/artifact-query.mts"],"rules":{"max-depth":["error",{"max":6}],"no-console":"off"}},

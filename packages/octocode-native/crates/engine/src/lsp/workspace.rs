@@ -56,7 +56,7 @@ pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
 /// root.
 fn multi_module_root_above(file_path: &str, root: &Path) -> Option<PathBuf> {
     let extension = Path::new(file_path).extension()?.to_str()?;
-    let parents = root.parent().into_iter().flat_map(Path::ancestors);
+    let mut parents = root.parent().into_iter().flat_map(Path::ancestors);
     match extension {
         "go" => parents
             .find(|dir| dir.join("go.work").is_file())
@@ -83,7 +83,10 @@ fn multi_module_root_above(file_path: &str, root: &Path) -> Option<PathBuf> {
 fn pyproject_declares_root(dir: &Path) -> bool {
     std::fs::read_to_string(dir.join("pyproject.toml")).is_ok_and(|text| {
         text.lines().map(str::trim).any(|line| {
-            matches!(line, "[tool.pyright]" | "[tool.uv.workspace]" | "[tool.basedpyright]")
+            matches!(
+                line,
+                "[tool.pyright]" | "[tool.uv.workspace]" | "[tool.basedpyright]"
+            )
         })
     })
 }

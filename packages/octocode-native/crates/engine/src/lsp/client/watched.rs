@@ -30,7 +30,10 @@ impl NativeLspClient {
     /// for every created, changed or deleted file. `None` when there was no
     /// snapshot to compare with (the first request of this process).
     #[must_use]
-    pub fn watched_files_diff(&self, current: &BTreeMap<String, String>) -> Option<Vec<(String, u8)>> {
+    pub fn watched_files_diff(
+        &self,
+        current: &BTreeMap<String, String>,
+    ) -> Option<Vec<(String, u8)>> {
         let mut slot = self
             .inner
             .watched_files
@@ -106,7 +109,9 @@ mod tests {
             ("a.go".to_owned(), "2".to_owned()),
             ("c.go".to_owned(), "1".to_owned()),
         ]);
-        let mut changes = client.watched_files_diff(&second).expect("a snapshot to compare with");
+        let mut changes = client
+            .watched_files_diff(&second)
+            .expect("a snapshot to compare with");
         changes.sort();
         assert_eq!(
             changes,

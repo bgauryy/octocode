@@ -3,6 +3,7 @@ mod defaults;
 mod invocation;
 mod probe;
 mod types;
+mod user_config;
 mod workspace_root;
 
 #[cfg(all(test, unix))]

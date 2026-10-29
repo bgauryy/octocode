@@ -5,7 +5,7 @@ mod reuse;
 mod starts;
 
 use super::pool_client::{ClientFuture, PoolClient};
-use super::start_guards::{StartCancellationGuard, StopOnDrop};
+use super::start_guards::StartCancellationGuard;
 use super::state::*;
 use super::*;
 use std::collections::HashMap;

@@ -72,6 +72,10 @@ impl<C: PoolClient> GenericPool<C> {
                     stale.stop().await;
                 }
                 if installed {
+                    // The readiness wait runs on the installed client: a
+                    // caller cancelled here leaves the server pooled and
+                    // indexing, and the next acquire resumes the wait.
+                    client.resume().await;
                     Ok(Some(client))
                 } else {
                     client.stop().await;

@@ -47,14 +47,20 @@ pub(in super::super) async fn verified_anchors(
             ..Importers::default()
         });
     }
-    let mut skip = known_files.clone();
-    skip.insert(canonical(anchor_path));
-    // The whole text-scan list is cut into windows and digested: the
-    // server's answer (which varies with what it has loaded) and the reach
-    // check only exclude files from verification, so a later window names
-    // the same files from any process.
-    let Some(candidates) =
-        candidate_files(scope, symbol, &HashSet::new(), sources.policy(), cancel).await?
+    // The list cut into windows and digested is the text scan less the
+    // anchor and the files whose imports cannot reach its module: both
+    // follow from the sources alone. The server's own answer (which varies
+    // with what it has loaded) only excludes files from verification, so a
+    // later window names the same files from any process.
+    let anchor_file = canonical(anchor_path);
+    let Some(candidates) = candidate_files(
+        scope,
+        symbol,
+        &HashSet::from([anchor_file]),
+        sources.policy(),
+        cancel,
+    )
+    .await?
     else {
         return Ok(Importers {
             failed: true,
@@ -63,17 +69,8 @@ pub(in super::super) async fn verified_anchors(
         });
     };
     let module = anchor_module(sources, anchor_path, symbol).await;
-    let (_, unreached) = split_reachable(
-        candidates
-            .iter()
-            .filter(|file| !skip.contains(*file))
-            .cloned()
-            .collect(),
-        module.clone(),
-        sources.policy(),
-        cancel,
-    )
-    .await?;
+    let (candidates, unreached) =
+        split_reachable(candidates, module.clone(), sources.policy(), cancel).await?;
     let mut window = match Window::cut(candidates, request) {
         Cut::Window(window) => window,
         Cut::Stale => {
@@ -83,7 +80,12 @@ pub(in super::super) async fn verified_anchors(
             });
         }
     };
-    window.exclude(skip.iter().chain(&unreached).cloned().collect());
+    window.exclude(known_files.clone());
+    let skip = known_files
+        .iter()
+        .cloned()
+        .chain(std::iter::once(canonical(anchor_path)))
+        .collect::<HashSet<_>>();
     let mut ignored = scope
         .ignored_text_files(symbol, &skip, sources.policy(), cancel)
         .await?;
@@ -113,15 +115,21 @@ pub(in super::super) async fn verified_anchors(
             ..Importers::default()
         });
     };
-    let mut window = window;
     let started = std::time::Instant::now();
     let mut anchors = Vec::new();
     let mut rejected = unreached;
     let mut unverified = Vec::new();
     let mut elsewhere = HashSet::new();
     loop {
-        let (opened, open_failed) =
-            open_candidates(client, sources, cancel, anchor_path, &window.files(), symbol).await?;
+        let (opened, open_failed) = open_candidates(
+            client,
+            sources,
+            cancel,
+            anchor_path,
+            &window.files(),
+            symbol,
+        )
+        .await?;
         let verified = verify_occurrences(
             client,
             sources,

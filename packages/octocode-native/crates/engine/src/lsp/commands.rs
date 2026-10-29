@@ -10,6 +10,9 @@ pub(crate) fn has_path_separator(command: &str) -> bool {
     command.contains('/') || command.contains('\\')
 }
 
+/// A guard against a shell wrapper written by mistake (`sh -c …` as the
+/// server), not a security boundary: a trusted configuration can name any
+/// executable, and an untrusted one launches nothing.
 pub(crate) fn is_rejected_shell(command: &str) -> bool {
     let name = Path::new(command)
         .file_name()

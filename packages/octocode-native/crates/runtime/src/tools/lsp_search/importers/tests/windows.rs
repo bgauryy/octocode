@@ -25,7 +25,7 @@ fn importer_windows_cover_every_candidate_exactly_once() {
                 "own and foreign windows partition the list"
             );
             for file in window.files() {
-                assert_eq!(window.owner(file), page, "{file} belongs to its window");
+                assert_eq!(window.owner(&file), page, "{file} belongs to its window");
             }
             assert_eq!(window.owner("/elsewhere.ts"), page, "non-candidates stay");
             reached.extend(window.files().iter().cloned());

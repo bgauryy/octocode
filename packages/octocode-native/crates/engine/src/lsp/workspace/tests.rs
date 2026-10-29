@@ -290,8 +290,8 @@ fn multi_module_projects_root_at_their_top() {
     fs::write(svc.join("go.mod"), b"module example.com/svc\n").expect("go.mod");
     let go_file = svc.join("main.go");
     fs::write(&go_file, b"package main\n").expect("main.go");
-    let resolved = resolve_workspace_root_for_file(go_file.to_string_lossy().into_owned())
-        .expect("resolve");
+    let resolved =
+        resolve_workspace_root_for_file(go_file.to_string_lossy().into_owned()).expect("resolve");
     assert_eq!(PathBuf::from(resolved), top.0);
 
     let maven = TmpDir::new();
@@ -305,8 +305,8 @@ fn multi_module_projects_root_at_their_top() {
     fs::write(core.join("pom.xml"), b"<project/>").expect("module pom");
     let java_file = core.join("src").join("App.java");
     fs::write(&java_file, b"class App {}").expect("App.java");
-    let resolved = resolve_workspace_root_for_file(java_file.to_string_lossy().into_owned())
-        .expect("resolve");
+    let resolved =
+        resolve_workspace_root_for_file(java_file.to_string_lossy().into_owned()).expect("resolve");
     assert_eq!(PathBuf::from(resolved), maven.0);
     // A module the parent does not list keeps its own root.
     let other = maven.join("other");
@@ -325,7 +325,7 @@ fn multi_module_projects_root_at_their_top() {
     fs::write(pkg.join("pyproject.toml"), b"[project]\nname = \"lib\"\n").expect("pyproject");
     let py_file = pkg.join("mod.py");
     fs::write(&py_file, b"x = 1\n").expect("mod.py");
-    let resolved = resolve_workspace_root_for_file(py_file.to_string_lossy().into_owned())
-        .expect("resolve");
+    let resolved =
+        resolve_workspace_root_for_file(py_file.to_string_lossy().into_owned()).expect("resolve");
     assert_eq!(PathBuf::from(resolved), python.0);
 }

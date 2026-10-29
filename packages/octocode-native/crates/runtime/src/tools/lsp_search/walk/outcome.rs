@@ -121,15 +121,29 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
         .sum::<usize>();
     row["clipped"] = json!(true);
     let last_page = row.pointer("/next/nextPage").is_none();
+    // Each parent resumes on its own: one that cannot be re-anchored (no
+    // name or range) is a terminal limit for itself alone.
     let queries = resumes
         .iter()
         .map(|resume| resume_query(query, resume))
-        .collect::<Option<Vec<_>>>();
+        .collect::<Vec<Option<Value>>>();
+    let unanchored = queries.iter().filter(|query| query.is_none()).count();
+    let queries =
+        (unanchored < queries.len()).then(|| queries.into_iter().flatten().collect::<Vec<_>>());
     let listed = match (last_page, queries.is_some()) {
         (false, _) => "(listed on the last page)",
         (true, true) => "(unexpandedParents, continueWalk*)",
         (true, false) => "(unexpandedParents)",
     };
+    if last_page && unanchored > 0 && queries.is_some() {
+        crate::response::paging::terminal_limit(
+            row,
+            "hierarchyParentUnanchored",
+            &[format!(
+                "{unanchored} unexpanded parent(s) have no name to re-anchor on and cannot be resumed; the rest can."
+            )],
+        );
+    }
     let limits = limit_warnings(walks, resumes.len(), fan_out_capped, listed);
     if last_page {
         // Every unexpanded or capped parent is listed and resumable.

@@ -8,6 +8,9 @@ async fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() 
         .await
         .expect("install")
         .expect("client");
+    // The install itself resumed once: the readiness wait runs on the
+    // pooled client, so a caller cancelled during it leaves the server.
+    assert_eq!(first.resumes.load(Ordering::SeqCst), 1);
     let (release, wait) = oneshot::channel();
     *first.resume_gate.lock().await = Some(wait);
     let next = pool.acquire("k".into(), || async {
@@ -22,7 +25,7 @@ async fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() 
         std::task::Poll::Ready(())
     })
     .await;
-    assert_eq!(first.resumes.load(Ordering::SeqCst), 1);
+    assert_eq!(first.resumes.load(Ordering::SeqCst), 2);
     release.send(()).expect("release readiness");
     let second = next.await.expect("reuse").expect("client");
     assert!(
@@ -30,7 +33,7 @@ async fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() 
         "resumption preserves the exact pooled client"
     );
     assert_eq!(first.stops.load(Ordering::SeqCst), 0);
-    assert_eq!(first.resumes.load(Ordering::SeqCst), 1);
+    assert_eq!(first.resumes.load(Ordering::SeqCst), 2);
 }
 
 #[test]

@@ -3,7 +3,13 @@ use crate::lsp::commands::{has_path_separator, is_executable_path, is_rejected_s
 use crate::lsp::config::install_hint;
 use std::path::Path;
 
-pub fn validate_lsp_server_path(command: String) -> Result<String> {
+/// The launchable form of a configured server command: a shell wrapper is
+/// refused; an absolute command, or a relative one with a path separator
+/// (`./node_modules/.bin/foo`) resolved against `base` (the
+/// workspace root) when it is not found from the process directory: an
+/// `lsp-servers.json` entry then launches the same program from the CLI in
+/// the repository and from an MCP server started elsewhere.
+pub fn validate_lsp_server_path(command: String, base: Option<&Path>) -> Result<String> {
     if command.trim().is_empty() {
         return Err(Error::new("Language server command is required"));
     }
@@ -15,6 +21,10 @@ pub fn validate_lsp_server_path(command: String) -> Result<String> {
 
     let command_path = Path::new(&command);
     if command_path.is_absolute() || has_path_separator(&command) {
+        let rebased = base
+            .filter(|_| command_path.is_relative() && !command_path.exists())
+            .map(|base| base.join(command_path));
+        let command_path = rebased.as_deref().unwrap_or(command_path);
         if !command_path.exists() {
             return Err(Error::new(format!(
                 "Language server path does not exist: {command}"
@@ -125,14 +135,14 @@ mod tests {
 
     #[test]
     fn validate_lsp_server_path_rejects_empty_string() {
-        assert!(validate_lsp_server_path(String::new()).is_err());
-        assert!(validate_lsp_server_path("   ".to_owned()).is_err());
+        assert!(validate_lsp_server_path(String::new(), None).is_err());
+        assert!(validate_lsp_server_path("   ".to_owned(), None).is_err());
     }
 
     #[test]
     fn validate_lsp_server_path_rejects_shell_wrappers() {
         for shell in ["sh", "bash", "zsh", "fish", "cmd", "powershell", "pwsh"] {
-            let result = validate_lsp_server_path(shell.to_owned());
+            let result = validate_lsp_server_path(shell.to_owned(), None);
             assert!(
                 result.is_err(),
                 "shell '{shell}' must be rejected but was accepted"
@@ -143,7 +153,7 @@ mod tests {
     #[test]
     fn validate_lsp_server_path_rejects_nonexistent_absolute_path() {
         let path = temp_path("nonexistent_server");
-        let result = validate_lsp_server_path(path.to_string_lossy().into_owned());
+        let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
         assert!(result.is_err());
     }
 
@@ -154,7 +164,7 @@ mod tests {
         let path = temp_path("nonexec");
         fs::write(&path, b"#!/bin/sh").expect("write");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod");
-        let result = validate_lsp_server_path(path.to_string_lossy().into_owned());
+        let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
         let _ = fs::remove_file(&path);
         assert!(result.is_err());
         assert!(
@@ -172,7 +182,7 @@ mod tests {
         let path = temp_path("server_exec");
         fs::write(&path, b"#!/bin/sh\necho ok\n").expect("write");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
-        let result = validate_lsp_server_path(path.to_string_lossy().into_owned());
+        let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
         let _ = fs::remove_file(&path);
         // The command that runs is the given absolute path itself.
         let accepted = result.expect("an executable file is accepted");
@@ -199,7 +209,7 @@ mod tests {
         let link = temp_path("rust-analyzer");
         symlink(&target, &link).expect("symlink");
 
-        let result = validate_lsp_server_path(link.to_string_lossy().into_owned());
+        let result = validate_lsp_server_path(link.to_string_lossy().into_owned(), None);
         let _ = fs::remove_file(&target);
         let _ = fs::remove_file(&link);
 
@@ -209,5 +219,28 @@ mod tests {
             link.file_name(),
             "expected the symlink's own name to be preserved, got: {resolved}"
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod base_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// A relative command with a separator resolves against the workspace
+    /// root when the process directory has none: the same entry works from
+    /// the CLI in the repository and from an MCP server started elsewhere.
+    #[test]
+    fn a_relative_command_resolves_against_the_base() {
+        let root = crate::test_support::TmpDir::new();
+        let bin = root.join("node_modules").join(".bin");
+        std::fs::create_dir_all(&bin).expect("bin");
+        let server = bin.join("fake-ls");
+        std::fs::write(&server, "#!/bin/sh\n").expect("server");
+        std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let command = "./node_modules/.bin/fake-ls".to_owned();
+        assert!(validate_lsp_server_path(command.clone(), None).is_err());
+        let resolved = validate_lsp_server_path(command, Some(&root)).expect("rebased");
+        assert_eq!(std::path::PathBuf::from(resolved), server);
     }
 }

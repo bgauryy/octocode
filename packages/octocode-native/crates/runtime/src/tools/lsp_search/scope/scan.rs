@@ -163,30 +163,30 @@ pub(super) fn fingerprint(
         },
     )
     .build_parallel()
-        .run(|| {
-            Box::new(|entry| {
-                if abandoned.load(Ordering::Relaxed) {
-                    return ignore::WalkState::Quit;
-                }
-                if stopped() || started.elapsed() > budget {
-                    abandoned.store(true, Ordering::Relaxed);
-                    return ignore::WalkState::Quit;
-                }
-                let Some(line) = entry.ok().and_then(line) else {
-                    return ignore::WalkState::Continue;
-                };
-                let Ok(mut entries) = entries.lock() else {
-                    abandoned.store(true, Ordering::Relaxed);
-                    return ignore::WalkState::Quit;
-                };
-                entries.push(line);
-                if entries.len() > FINGERPRINT_MAX_FILES {
-                    abandoned.store(true, Ordering::Relaxed);
-                    return ignore::WalkState::Quit;
-                }
-                ignore::WalkState::Continue
-            })
-        });
+    .run(|| {
+        Box::new(|entry| {
+            if abandoned.load(Ordering::Relaxed) {
+                return ignore::WalkState::Quit;
+            }
+            if stopped() || started.elapsed() > budget {
+                abandoned.store(true, Ordering::Relaxed);
+                return ignore::WalkState::Quit;
+            }
+            let Some(line) = entry.ok().and_then(line) else {
+                return ignore::WalkState::Continue;
+            };
+            let Ok(mut entries) = entries.lock() else {
+                abandoned.store(true, Ordering::Relaxed);
+                return ignore::WalkState::Quit;
+            };
+            entries.push(line);
+            if entries.len() > FINGERPRINT_MAX_FILES {
+                abandoned.store(true, Ordering::Relaxed);
+                return ignore::WalkState::Quit;
+            }
+            ignore::WalkState::Continue
+        })
+    });
     if abandoned.load(Ordering::Relaxed) {
         return None;
     }
