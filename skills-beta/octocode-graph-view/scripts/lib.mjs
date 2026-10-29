@@ -1,8 +1,36 @@
 // Shared helpers: flag parsing, async octocode CLI calls, a small worker pool.
 import { execFile, execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { cropScale } from './png.mjs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+
+// Directories a graph ingest never reads; a size measure skips the same ones.
+export const SKIPPED_DIRS = ['target', 'node_modules', '.git', 'dist', 'build', '.octocode'];
+
+// Bytes and count of the files under `root` that a graph ingest could read: hidden entries,
+// SKIPPED_DIRS, `exclude` and files over 1 MB (binaries, archives; the same bound as the frozen
+// copy) are left out, so build output and staged binaries never inflate the source measure.
+export const MAX_SOURCE_FILE = 1 << 20;
+export function sourceSize(root, exclude = []) {
+  const skip = new Set([...SKIPPED_DIRS, ...exclude]);
+  let bytes = 0;
+  let files = 0;
+  (function walk(dir) {
+    for (const d of readdirSync(dir, { withFileTypes: true })) {
+      if (d.name.startsWith('.')) continue;
+      const p = join(dir, d.name);
+      if (d.isDirectory()) {
+        if (!skip.has(d.name)) walk(p);
+      } else if (d.isFile()) {
+        const size = statSync(p).size;
+        if (size > MAX_SOURCE_FILE) continue;
+        bytes += size;
+        files++;
+      }
+    }
+  })(root);
+  return { bytes, files };
+}
 
 export function flags(argv, spec) {
   const out = {};

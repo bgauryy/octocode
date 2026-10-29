@@ -5,7 +5,10 @@ use octocode_engine::graph::FileGraphNode;
 /// The file graph the stored tables hold, over the files `keep` admits:
 /// each production `imports` edge between them under its kind, and each
 /// Rust `mod` declaration (a `contains` edge) as a module-tree edge — the
-/// input of the one cycle engine ([`Cycles`]). Test edges close no cycle.
+/// input of the one cycle engine ([`Cycles`]). Test edges close no cycle,
+/// and neither do `use` edges within one Rust module tree (`use super::x`
+/// from a child, `use child::y` from its parent): the `mod` edge already
+/// draws that tree once, downward.
 pub(crate) fn file_graph(
     t: &GraphTables,
     keep: &dyn Fn(u32) -> bool,
@@ -23,10 +26,9 @@ pub(crate) fn file_graph(
                 continue;
             }
             let kind = match edge.kind {
+                EdgeKind::Imports if rust_lineage(t, id, edge.dst) => continue,
                 EdgeKind::Imports => t.str(edge.detail),
-                EdgeKind::Contains if t.str(edge.detail) == super::super::tables::MODULE_DETAIL => {
-                    RUST_MODULE
-                }
+                EdgeKind::Contains if t.str(edge.detail) == MODULE_DETAIL => RUST_MODULE,
                 _ => continue,
             };
             entry
@@ -177,7 +179,7 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
         for target in &v.out[*file as usize] {
             if let Some(&to) = dirs.get(dirname(v.key(*target)))
                 && from != to
-                && !rust_module_lineage(v, *file, *target)
+                && !rust_lineage(v.t, *file, *target)
             {
                 adj[from as usize].entry(to).or_insert((*file, *target));
             }
@@ -231,21 +233,4 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
             },
         );
     }
-}
-
-/// Whether one of two Rust files is a module declared below the other
-/// (`tree.rs` or `tree/mod.rs` and `tree/child.rs`; a crate root and any
-/// module of its crate): one module tree, which is no directory coupling.
-fn rust_module_lineage(v: &View, a: u32, b: u32) -> bool {
-    let below = |parent: &str, child: &str| {
-        let dir = rust_module_child_dir(parent);
-        dir == "."
-            || child
-                .strip_prefix(dir.as_str())
-                .is_some_and(|rest| rest.starts_with('/'))
-    };
-    let (a_key, b_key) = (v.key(a), v.key(b));
-    v.language(a) == "rust"
-        && v.language(b) == "rust"
-        && (below(a_key, b_key) || below(b_key, a_key))
 }

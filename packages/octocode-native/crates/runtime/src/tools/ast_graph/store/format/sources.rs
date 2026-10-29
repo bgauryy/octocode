@@ -325,4 +325,3 @@ impl SourceTable {
             .map_err(|error| format!("graph source correspondence is invalid: {error}"))
     }
 }
-

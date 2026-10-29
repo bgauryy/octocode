@@ -55,6 +55,37 @@ pub(super) fn rust_internal_specifier(spec: &str) -> bool {
     matches!(first, "crate" | "self" | "super")
 }
 
+/// Diagnostic prefix of a relative import that climbs above the snapshot
+/// root; `detect_unresolved` reads it back.
+pub(crate) const OUTSIDE_ROOT: &str = "Import points outside the snapshot root:";
+
+/// Whether a relative specifier climbs above the snapshot root from the
+/// directory of `file` (`../../x` from a file one directory deep): the
+/// target may well exist, but the scan never held it.
+pub(super) fn escapes_root(file: &str, spec: &str) -> bool {
+    let path = spec.split(['?', '#']).next().unwrap_or(spec);
+    if !path.starts_with("./") && !path.starts_with("../") {
+        return false;
+    }
+    let mut depth = dirname(file)
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .count() as i64;
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                depth -= 1;
+                if depth < 0 {
+                    return true;
+                }
+            }
+            _ => depth += 1,
+        }
+    }
+    false
+}
+
 /// A path specifier naming data, style, or asset content (`./package.json`,
 /// `./app.css`, `./logo.svg?url`). Such imports are bundler/loader concerns,
 /// never code-graph edges, so failing to link them is not a coverage gap.
@@ -112,14 +143,16 @@ pub(super) fn record_resolution(
         || internal_bare
     {
         b.count_import(ImportOutcome::UnresolvedInternal, file, line, spec);
+        let message = if escapes_root(file, spec) {
+            format!("{OUTSIDE_ROOT} {spec:?} (unresolvedInternal).")
+        } else {
+            format!("Cannot link import {spec:?} (unresolvedInternal).")
+        };
         b.diagnostics.push(Diagnostic::new(
             file,
             Some(line),
             DiagnosticCode::UnresolvedInternal,
-            sanitize(
-                security,
-                &format!("Cannot link import {spec:?} (unresolvedInternal)."),
-            ),
+            sanitize(security, &message),
         ));
     } else {
         b.count_import(ImportOutcome::External, file, line, spec);

@@ -40,7 +40,6 @@ pub(in super::super) fn read_catalog(
     })
 }
 
-
 /// Sorted, unique descriptor ids and a valid catalog.
 fn check_catalog(
     descriptors: &SourceDescriptors,
@@ -63,7 +62,10 @@ fn check_catalog(
     Ok(())
 }
 #[cfg(test)]
-pub(in super::super) fn decode(bytes: &[u8], cancel: &dyn CancellationCheck) -> Result<SourceTable, SourceError> {
+pub(in super::super) fn decode(
+    bytes: &[u8],
+    cancel: &dyn CancellationCheck,
+) -> Result<SourceTable, SourceError> {
     decode_with_budget(bytes, &mut budget::Budget::new(cancel, &LIMITS))
 }
 #[cfg(test)]

@@ -33,6 +33,7 @@ pub(crate) mod scope;
 use link::*;
 pub(crate) use paths::normalize;
 pub(super) use paths::{climb, dirname, join, join_within_root, parent};
+pub(super) use resolve::OUTSIDE_ROOT;
 use resolve::*;
 pub(super) use rust::rust_module_child_dir;
 use rust::*;

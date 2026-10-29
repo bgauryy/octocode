@@ -205,3 +205,153 @@ fn missing_graph_names_the_workspace_and_the_way_out() {
     assert!(message.contains("--workspace"), "{}", out.value);
     assert!(message.contains("octocode graph ingest"), "{}", out.value);
 }
+
+/// `use` edges within one Rust module tree (`tree.rs` and `tree/child.rs`)
+/// are the tree, not coupling: the pair is no cycle, no hub and no misplaced
+/// file. Sibling modules that import each other (`a/x.rs`, `b/y.rs`) still
+/// form a cycle.
+#[test]
+fn rust_module_tree_edges_are_no_structural_coupling() {
+    let dir = crate_with_test_code();
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let issues = ask(root, "issues", None, |o| {
+        o.limit = Some(200);
+        o.min_tier = Some(0);
+    });
+    let cycles = detector(&issues, "cycle")
+        .iter()
+        .map(|row| row["evidence"]["members"].to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        cycles.iter().all(|m| !m.contains("src/tree.rs")),
+        "a module and its child are no cycle: {cycles:?}"
+    );
+    assert!(
+        cycles
+            .iter()
+            .any(|m| m.contains("src/a/x.rs") && m.contains("src/b/y.rs")),
+        "siblings importing each other still cycle: {cycles:?}"
+    );
+    for name in ["god-file", "misplaced-file", "single-point-of-failure"] {
+        let subjects = detector(&issues, name)
+            .iter()
+            .map(|row| row["subject"].to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            subjects.iter().all(|s| !s.contains("src/tree.rs")),
+            "{name}: {subjects:?}"
+        );
+    }
+    let cycles = ask(root, "cycles", None, |_| {});
+    assert!(
+        !cycles.value.to_string().contains("src/tree.rs"),
+        "`graph query cycles` agrees: {}",
+        cycles.value
+    );
+}
+
+/// A crate whose `hub.rs` is imported by five siblings and imports five
+/// others: hub-like by fan-in and fan-out. With only `mod` declarations
+/// and `pub use` lines of its own it is a module root (a barrel), so no
+/// god-file; with declarations of its own it is one.
+fn crate_with_hub(own_items: bool) -> Fixture {
+    let mut files = vec![
+        (
+            "Cargo.toml".to_owned(),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n".to_owned(),
+        ),
+        (
+            "src/lib.rs".to_owned(),
+            "pub mod hub;\npub mod s1;\npub mod s2;\npub mod s3;\npub mod s4;\npub mod s5;\npub mod u1;\npub mod u2;\npub mod u3;\npub mod u4;\npub mod u5;\n".to_owned(),
+        ),
+        (
+            "src/hub.rs".to_owned(),
+            format!(
+                "pub mod a;\npub mod b;\npub mod c;\npub use a::A;\nuse crate::u1::U1;\nuse crate::u2::U2;\nuse crate::u3::U3;\nuse crate::u4::U4;\nuse crate::u5::U5;\npub fn all() -> (U1, U2, U3, U4, U5) {{ (U1, U2, U3, U4, U5) }}\n{}",
+                if own_items {
+                    "pub struct Own1;\npub struct Own2;\n"
+                } else {
+                    ""
+                }
+            ),
+        ),
+        ("src/hub/a.rs".to_owned(), "pub struct A;\n".to_owned()),
+        ("src/hub/b.rs".to_owned(), "pub struct B;\n".to_owned()),
+        ("src/hub/c.rs".to_owned(), "pub struct C;\n".to_owned()),
+    ];
+    for n in 1..=5 {
+        files.push((
+            format!("src/s{n}.rs"),
+            "use crate::hub::A;\npub fn f() -> A { A }\n".to_owned(),
+        ));
+        files.push((format!("src/u{n}.rs"), format!("pub struct U{n};\n")));
+    }
+    let borrowed = files
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect::<Vec<_>>();
+    git_app(&borrowed)
+}
+
+#[test]
+fn rust_module_roots_are_barrels_not_god_files() {
+    for (own_items, expected) in [(false, 0), (true, 1)] {
+        let dir = crate_with_hub(own_items);
+        let root = dir.0.as_path();
+        assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+        let issues = ask(root, "issues", None, |o| {
+            o.detectors = vec!["god-file".into()];
+            o.min_tier = Some(0);
+        });
+        let hubs = detector(&issues, "god-file")
+            .iter()
+            .filter(|row| row["subject"] == "src/hub.rs")
+            .count();
+        assert_eq!(hubs, expected, "own items {own_items}: {}", issues.value);
+    }
+}
+
+/// A relative import that climbs above the snapshot root is reported apart
+/// from a broken one: its target may exist beyond the scan.
+#[test]
+fn imports_past_the_snapshot_root_are_reported_as_outside() {
+    let dir = git_app(&[
+        (
+            "src/a.ts",
+            "import { x } from '../../../shared/x';\nexport const a = x;\n",
+        ),
+        (
+            "src/b.ts",
+            "import { y } from './missing';\nexport const b = y;\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let issues = ask(root, "issues", None, |o| {
+        o.detectors = vec!["unresolved-import".into()];
+        o.min_tier = Some(0);
+    });
+    let rows = detector(&issues, "unresolved-import");
+    let titled = |subject: &str| {
+        rows.iter()
+            .find(|row| row["subject"] == subject)
+            .map(|row| {
+                (
+                    row["title"].as_str().unwrap_or_default().to_owned(),
+                    row["evidence"]["outsideRoot"].as_bool().unwrap_or(false),
+                )
+            })
+            .unwrap_or_else(|| panic!("no finding for {subject}: {}", issues.value))
+    };
+    let (title, outside) = titled("src/a.ts");
+    assert!(
+        outside && title.contains("outside the snapshot root"),
+        "{title}"
+    );
+    let (title, outside) = titled("src/b.ts");
+    assert!(
+        !outside && title.contains("could not be resolved"),
+        "{title}"
+    );
+}

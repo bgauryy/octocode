@@ -9,7 +9,8 @@ pub(super) struct View<'a> {
     /// Node → owning file node.
     pub(super) file_of: Vec<u32>,
     /// Runtime import adjacency between authored files, production edges
-    /// only (sorted, distinct).
+    /// only (sorted, distinct). Edges within one Rust module tree are left
+    /// out ([`rust_lineage`]): they draw the tree, not a dependency.
     pub(super) out: Vec<Vec<u32>>,
     pub(super) inc: Vec<Vec<u32>>,
     /// First importing line per runtime edge.
@@ -49,6 +50,12 @@ impl<'a> View<'a> {
             // Type-only and deferred (dynamic, on-call) imports are no
             // evidence of a structural violation.
             if matches!(load(t.str(edge.detail)), Load::TypeOnly | Load::Deferred) {
+                continue;
+            }
+            // A Rust module and the modules below it are one module tree:
+            // `use super::x` and `use child::y` between them are no
+            // structural coupling (hubs, cycles, placement).
+            if rust_lineage(t, edge.src, edge.dst) {
                 continue;
             }
             out[edge.src as usize].push(edge.dst);
@@ -194,7 +201,8 @@ impl<'a> View<'a> {
         out
     }
 
-    /// Files transitively depending on `file` through runtime imports.
+    /// Files transitively depending on `file` through runtime imports
+    /// (modules of one Rust module tree excluded, as everywhere in the view).
     pub(super) fn dependents(&self, file: u32) -> usize {
         let mut seen = BTreeSet::from([file]);
         let mut queue = VecDeque::from([file]);
@@ -236,4 +244,24 @@ impl<'a> View<'a> {
         }
         seen
     }
+}
+
+/// Whether `a` and `b` are Rust files of one module tree: one is a module
+/// declared below the other (`tree.rs` or `tree/mod.rs` and `tree/child.rs`;
+/// a crate root and any module of its crate). Their `use` edges are the
+/// module tree, not coupling: no hub, cycle or placement evidence.
+pub(super) fn rust_lineage(t: &GraphTables, a: u32, b: u32) -> bool {
+    let (na, nb) = (&t.nodes[a as usize], &t.nodes[b as usize]);
+    if t.str(na.detail) != "rust" || t.str(nb.detail) != "rust" {
+        return false;
+    }
+    let below = |parent: &str, child: &str| {
+        let dir = rust_module_child_dir(parent);
+        dir == "."
+            || child
+                .strip_prefix(dir.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+    };
+    let (ka, kb) = (t.str(na.key), t.str(nb.key));
+    below(ka, kb) || below(kb, ka)
 }

@@ -11,6 +11,11 @@
 //! Test code (test files, Rust `#[cfg(test)]` items and the modules they
 //! mount) is never production evidence: its edges carry `test`.
 //!
+//! A Rust module tree is one unit: `use` edges between a module and the
+//! modules declared below it ([`rust_lineage`]) are left out of the file
+//! view and the cycle graph, so a parent with children is no hub, no cycle
+//! and no misplaced file by construction.
+//!
 //! Generated, bundled, vendored, and declaration files are never subjects.
 use super::super::classify::{
     ROLE_CONFIG, ROLE_DECLARATION, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, role_names,
@@ -18,9 +23,10 @@ use super::super::classify::{
 use super::format::{
     EdgeKind, FLAG_EXPORTED, FLAG_LOCAL_USE, FLAG_TEST, GraphTables, NONE, NodeKind,
 };
+use super::tables::MODULE_DETAIL;
 use crate::tools::ast_graph::algorithms::Cycles;
 use crate::tools::ast_graph::edges::{Load, RUST_MODULE, load};
-use crate::tools::ast_graph::graph::{dirname, rust_module_child_dir};
+use crate::tools::ast_graph::graph::{OUTSIDE_ROOT, dirname, rust_module_child_dir};
 use crate::tools::ast_graph::types::DiagnosticCode;
 use octocode_io::shell::quote;
 use serde_json::{Value, json};

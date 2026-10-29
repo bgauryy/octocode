@@ -7,7 +7,7 @@ Each layer answers a different question and fails differently; a verdict needs a
 | Layer | Answers | Fails when |
 |---|---|---|
 | Graph (`octocode graph`) | Cycles, hubs, upward imports, ranked findings | Syntax-only linkage: calls are leads, not proof |
-| AST (`astSearch`) | Is every graph edge a parsed import statement or an inline qualified path | Languages outside the kind table fall back to text |
+| AST (`astSearch`) | Is every graph edge a parsed import statement or an inline qualified path (expression or type); a target is matched by its file stem or, for a Rust crate root, its Cargo package name | Languages outside the kind table fall back to text |
 | Usage | Are the imported names used after the import (also in Rust child modules that inherit imports with `use super::*`), and call-like | Misses method calls through a value of an imported type, macros, re-exports; a `conflict` verdict is the cue to read the file |
 | Clasify | Named facts about a file: type-only vs runtime, unrelated owners | Generic questions score near 0.65 for any file; name things from the graph |
 | Image review | Crop around each lead edge: is it drawn, are both labels readable | Dense areas: treat as a doubt flag |

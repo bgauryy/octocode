@@ -9,20 +9,35 @@ pub(super) fn median(mut values: Vec<usize>) -> usize {
     values[values.len() / 2]
 }
 
+/// A file that only forwards: three or more re-exports, or a Rust module
+/// root that mounts three or more child modules (`mod a; mod b; mod c;`,
+/// `pub use` lines), with at most one declaration of its own. A `mod`
+/// declaration is a module symbol, not an own declaration.
 pub(super) fn is_barrel(v: &View, file: u32) -> bool {
-    let reexports =
-        v.t.out(file)
-            .iter()
-            .filter(|e| e.kind == EdgeKind::Imports && v.t.str(e.detail).contains("reexport"))
-            .count();
-    let declarations =
-        v.t.out(file)
-            .iter()
-            .filter(|e| {
-                e.kind == EdgeKind::Contains && v.t.nodes[e.dst as usize].kind == NodeKind::Symbol
-            })
-            .count();
-    reexports >= 3 && declarations <= 1
+    let t = v.t;
+    let out = t.out(file);
+    let reexports = out
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Imports && t.str(e.detail).contains("reexport"))
+        .count();
+    let modules = out
+        .iter()
+        .filter(|e| {
+            e.kind == EdgeKind::Contains
+                && t.nodes[e.dst as usize].kind == NodeKind::File
+                && t.str(e.detail) == MODULE_DETAIL
+        })
+        .count();
+    let declarations = out
+        .iter()
+        .filter(|e| {
+            let node = &t.nodes[e.dst as usize];
+            e.kind == EdgeKind::Contains
+                && node.kind == NodeKind::Symbol
+                && t.str(node.detail) != MODULE_DETAIL
+        })
+        .count();
+    (reexports >= 3 || modules >= 3) && declarations <= 1
 }
 
 pub(super) fn detect_hubs(c: &mut Ctx) {
@@ -77,7 +92,8 @@ pub(super) fn detect_hubs(c: &mut Ctx) {
                 evidence: json!({"fanIn": i, "fanOut": o, "medianFanIn": mid_in, "medianFanOut": mid_out, "transitiveDependents": dependents}),
                 controls: vec![
                     "Arcan hub-like thresholds (fan-in/out above median, balanced)",
-                    "barrels excluded",
+                    "barrels and rust module roots excluded",
+                    "edges within one rust module tree not counted",
                 ],
                 verify: vec![format!(
                     "octocode graph query symbols {}",

@@ -152,11 +152,15 @@ pub(super) fn detect_misplaced(c: &mut Ctx) {
             continue;
         }
         let home = dirname(key);
+        let package = v.component.get(file).map(|(dir, _, _)| *dir);
         let mut by_dir = BTreeMap::<&str, usize>::new();
         let mut neighbors = v.out[*file as usize].clone();
         neighbors.extend(&v.inc[*file as usize]);
         neighbors.sort_unstable();
         neighbors.dedup();
+        // A file moves within its package: neighbours in another package
+        // are a layering question, not a placement one.
+        neighbors.retain(|other| v.component.get(other).map(|(dir, _, _)| *dir) == package);
         for other in &neighbors {
             *by_dir.entry(dirname(v.key(*other))).or_default() += 1;
         }
@@ -169,6 +173,9 @@ pub(super) fn detect_misplaced(c: &mut Ctx) {
             && *count >= 3
             && *count * 10 >= total * 6
             && same < *count
+            // A Rust module's place is its `mod` declaration: depending on
+            // the modules above it is the tree's normal direction.
+            && !(v.language(*file) == "rust" && ancestor_dir(dir, home))
         {
             pending.push((*file, (*dir).to_owned(), *count, same, total));
         }
@@ -185,11 +192,24 @@ pub(super) fn detect_misplaced(c: &mut Ctx) {
                 confidence: 0.5,
                 impact: c.v.impact(file),
                 evidence: json!({"suggestedDir": dir, "edgesToSuggested": count, "edgesToOwnDir": same, "edges": total}),
-                controls: vec!["index/mod/__init__, entries and barrels excluded"],
+                controls: vec![
+                    "index/mod/__init__, entries and barrels excluded",
+                    "neighbours in other packages ignored",
+                    "rust modules are not moved up their own module tree",
+                ],
                 verify: Vec::new(),
             },
         );
     }
+}
+
+/// Whether `dir` is `of` or a directory above it (`.` is above every path).
+fn ancestor_dir(dir: &str, of: &str) -> bool {
+    dir == "."
+        || dir == of
+        || of
+            .strip_prefix(dir)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// Lakos cumulative component dependency, normalized against a balanced

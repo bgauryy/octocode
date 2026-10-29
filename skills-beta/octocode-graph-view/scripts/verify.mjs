@@ -10,6 +10,7 @@ import { analyzeHistory } from './history.mjs';
 import { selectLeads } from './leads.mjs';
 import { HINTS } from './hints.mjs';
 import { childUsage, countUsage } from './usage.mjs';
+import { stemsOf, usedName } from './names.mjs';
 import { edgeVerdict, fileVerdict } from './verdict.mjs';
 import { resolveModel } from './model.mjs';
 
@@ -80,14 +81,13 @@ const on = (l) => layers[l] === 'ok';
 
 // ---- AST layer: every graph import edge against the parsed import statements ----------------------
 const IMPORT_KINDS = { '.rs': ['use_declaration'], '.ts': ['import_statement'], '.tsx': ['import_statement'], '.js': ['import_statement'], '.jsx': ['import_statement'], '.mjs': ['import_statement'], '.cjs': ['import_statement'], '.py': ['import_statement', 'import_from_statement'], '.go': ['import_declaration'], '.java': ['import_declaration'] };
-const stemOf = (id) => {
-  const b = basename(id, extname(id));
-  return ['index', 'mod', 'lib', 'main', '__init__'].includes(b) && dirname(id) !== '.' ? basename(dirname(id)) : b;
-};
 const re = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const mentions = (text, stem) => new RegExp(`\\b${re(stem)}\\b`).test(text);
+// A target is named by its stem or, for a Rust crate root, its crate name (`octocode_contract_types::X`).
+const targetNames = (id) => stemsOf(id, abs(id));
+const mentions = (text, id) => targetNames(id).some((stem) => new RegExp(`\\b${re(stem)}\\b`).test(text));
 const statements = new Map();
-const INLINE_KINDS = { '.rs': ['scoped_identifier'], '.py': ['attribute'], '.ts': ['call_expression'], '.tsx': ['call_expression'], '.js': ['call_expression'], '.jsx': ['call_expression'], '.mjs': ['call_expression'], '.cjs': ['call_expression'], '.go': ['selector_expression'] };
+// Rust qualified paths: `a::b::f(...)` in expressions, `a::b::T` in types.
+const INLINE_KINDS = { '.rs': ['scoped_identifier', 'scoped_type_identifier'], '.py': ['attribute'], '.ts': ['call_expression'], '.tsx': ['call_expression'], '.js': ['call_expression'], '.jsx': ['call_expression'], '.mjs': ['call_expression'], '.cjs': ['call_expression'], '.go': ['selector_expression'] };
 const forms = new Map();
 const RELATIVE = /(^|[^\w])(super|self)\b|^\s*(import|from)\s+\.|from\s+['"]\.{1,2}\//;
 const connections = { checked: 0, confirmed: 0, viaImport: 0, viaPath: 0, na: 0, unconfirmed: [], mutual: [] };
@@ -105,7 +105,7 @@ async function astLayer() {
     for (const e of bySource.get(id)) {
       connections.checked++;
       const s = statements.get(id)?.find((m) => m.line <= e.line && e.line < m.line + m.value.split('\n').length);
-      if (s && (mentions(s.value, stemOf(e.target)) || RELATIVE.test(s.value))) { connections.viaImport++; forms.set(`${e.source}>${e.target}`, 'import'); }
+      if (s && (mentions(s.value, e.target) || RELATIVE.test(s.value))) { connections.viaImport++; forms.set(`${e.source}>${e.target}`, 'import'); }
       else pending.push(e);
     }
   }
@@ -113,12 +113,12 @@ async function astLayer() {
   const inline = Map.groupBy(pending.filter((e) => INLINE_KINDS[extname(e.source)]), (e) => e.source);
   const found = new Map();
   await Promise.all(chunk([...inline.keys()], 5).map(async (b) => {
-    const r = await octocode(['astSearch', '--json', JSON.stringify({ queries: b.map((id) => ({ operation: 'match', path: abs(id), rule: { all: [{ any: INLINE_KINDS[extname(id)].map((kind) => ({ kind })) }, { regex: `\\b(${[...new Set(inline.get(id).map((e) => re(stemOf(e.target)))), 'super', 'self'].join('|')})\\b` }] } })) })]);
+    const r = await octocode(['astSearch', '--json', JSON.stringify({ queries: b.map((id) => ({ operation: 'match', path: abs(id), rule: { all: [{ any: INLINE_KINDS[extname(id)].map((kind) => ({ kind })) }, { regex: `\\b(${[...new Set(inline.get(id).flatMap((e) => targetNames(e.target).map(re))), 'super', 'self'].join('|')})\\b` }] } })) })]);
     r.results.forEach((x, i) => found.set(b[i], x.data?.files?.[0]?.matches ?? []));
   }));
   for (const e of pending) {
     const at = found.get(e.source)?.filter((m) => m.line === e.line) ?? [];
-    const hit = at.some((m) => mentions(m.value, stemOf(e.target))) ? 'path' : at.some((m) => RELATIVE.test(m.value)) ? 'relative-path' : null;
+    const hit = at.some((m) => mentions(m.value, e.target)) ? 'path' : at.some((m) => RELATIVE.test(m.value)) ? 'relative-path' : null;
     if (hit) { connections.viaPath++; forms.set(`${e.source}>${e.target}`, hit); }
     else connections.unconfirmed.push({ source: e.source, target: e.target, line: e.line });
   }
@@ -146,12 +146,13 @@ function namesOf(stmt, stem) {
   return ids.length ? [...new Set(ids)] : [stem];
 }
 function sourceSignals(l) {
-  const stem = stemOf(l.target);
   let lines;
   try { lines = readFileSync(abs(l.file), 'utf8').split('\n'); } catch (e) { return { ast: 'n/a', textOk: false, snippet: `unreadable: ${e.code ?? e.message}` }; }
   const snippet = (lines[l.line - 1] ?? '').trim().slice(0, 160);
   const match = statements.get(l.file)?.find((m) => m.line <= l.line && l.line < m.line + m.value.split('\n').length);
-  const textOk = mentions(lines.slice(Math.max(0, l.line - 3), l.line + 6).join('\n'), stem);
+  const window = lines.slice(Math.max(0, l.line - 3), l.line + 6).join('\n');
+  const textOk = mentions(window, l.target);
+  const stem = usedName(targetNames(l.target), window);
   const form = forms.get(`${l.file}>${l.target}`);
   const ast = form ? 'confirmed' : statements.has(l.file) ? 'absent' : 'n/a';
   if (form === 'path' || form === 'relative-path') {
@@ -184,7 +185,7 @@ const UNRELATED = { unrelated: 'Does this file define two or more unrelated resp
 const fileQuestions = { 'god-file': UNRELATED, 'critical-file': UNRELATED, 'single-point-of-failure': UNRELATED, hub: UNRELATED, ...(f.questions ? JSON.parse(readFileSync(resolve(f.questions), 'utf8')) : {}) };
 function questionsFor(l) {
   if (l.kind === 'edge') {
-    const s = stemOf(l.target);
+    const s = targetNames(l.target).at(-1);
     return {
       typeOnly: `Is ${s} used in this file only as a type, constant, trait or callback registration, never called as a function at runtime?`,
       runtimeCall: `Does code in this file call a function or method defined in ${s} at runtime, beyond importing it?`,

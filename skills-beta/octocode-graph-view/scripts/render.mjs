@@ -40,14 +40,16 @@ const cycNote = (c) => (c.top?.length && c.top.every((x) => x.nodes.every((n) =>
 const brief = [
   D.mode === 'overview'
     ? `OVERVIEW ${D.section}${D.area ? ` (area ${D.area})` : ''}: ${D.snapshot.counts.nodesByKind.file} files split into ${D.files.length} chunks, ${D.imports.length} links between chunks`
-    : `SECTION ${D.section}: ${D.snapshot.counts.nodesByKind.file} files analysed (${D.snapshot.counts.nodes} graph nodes, ${D.snapshot.counts.edges} edges). VIEW: the ${D.files.length} busiest connected files with ${D.imports.length} imports, ${D.symbols.length} functions and ${D.calls.length} calls drawn. Paths below are relative to the section.`,
+    : `SECTION ${D.section}: ${D.snapshot.counts.nodesByKind.file} files scanned (${D.snapshot.counts.nodes} graph nodes, ${D.snapshot.counts.edges} edges). VIEW: the ${D.files.length} busiest connected files with ${D.imports.length} imports, ${D.symbols.length} functions and ${D.calls.length} calls drawn. Paths below are relative to the section.`,
   ...(D.chunks ?? []).slice(0, 14).map((c) => `CHUNK ${c.path} files=${c.files} ${c.built ? `built findings=${Object.entries(c.findings ?? {}).map(([k, v]) => `${k}:${v}`).join(',')}` : 'not built'}`),
   ...D.synth.map((x) => `INSIGHT [${x.level}] ${x.text} [${x.layers.join('+')}]`),
   ...(D.mode === 'overview' ? [] : [
-  `SECTION-WIDE health: ${I.health?.filesInCycles} files sit in import cycles; average reach ${I.health?.averageReach} files (files a change can touch)`,
+  I.health?.files
+    ? `SECTION-WIDE health over ${I.health.files} production source files (the count above is every scanned file: docs, manifests and tests included): ${I.health.filesInCycles} sit in import cycles; average reach ${I.health.averageReach} files (files a change can touch)`
+    : 'SECTION-WIDE health: not computed (no production source files in the snapshot)',
   `HUBS (importers/imports): ${I.hubs.map((h) => `${h.id} ${h.fanIn}/${h.fanOut}`).join('; ')}`,
   `CYCLES (section-wide) ${I.cycles.total}${cycNote(I.cycles)}; largest: ${I.cycles.top.slice(0, 3).map((c) => `${c.size} files (${c.nodes.slice(0, 2).join(', ')}${c.size > 2 ? `, +${c.size - 2} more in data.json` : ''})`).join('; ')}`,
-  `FINDINGS (section-wide, detector=count) ${Object.entries(I.findings).map(([k, v]) => `${k}=${v}`).join(' ')}`,
+  `FINDINGS (section-wide, detector=count; all ${I.issues.length} ranked findings are in data.json insights.issues) ${Object.entries(I.findings).map(([k, v]) => `${k}=${v}`).join(' ')}`,
   `TOP ranked findings: ${I.issues.slice(0, 6).map((x) => `${x.detector} ${x.subject}`).join('; ')}`,
   `TOP-LEVEL FOLDERS ${I.mutualGroups.length ? `import each other: ${I.mutualGroups.map((p) => p.join(' <-> ')).join(', ')}` : 'none import each other in view'}`
   ]),

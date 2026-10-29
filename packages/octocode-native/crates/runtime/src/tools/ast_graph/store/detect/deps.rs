@@ -170,25 +170,55 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
             }
         }
     }
-    let pending = by_file
-        .into_iter()
-        .map(|(file, sites)| (file.to_owned(), sites))
-        .collect::<Vec<_>>();
-    for (file, sites) in pending {
+    // An import that climbs above the snapshot root is a scope gap, not a
+    // broken import: its target may exist, unscanned.
+    let outside = |site: &Value| {
+        site["message"]
+            .as_str()
+            .is_some_and(|m| m.starts_with(OUTSIDE_ROOT))
+    };
+    let mut pending = Vec::new();
+    for (file, sites) in by_file {
+        let (out, broken): (Vec<Value>, Vec<Value>) = sites.into_iter().partition(outside);
+        if !broken.is_empty() {
+            pending.push((file.to_owned(), broken, false));
+        }
+        if !out.is_empty() {
+            pending.push((file.to_owned(), out, true));
+        }
+    }
+    for (file, sites, outside) in pending {
+        let (title, confidence, controls, id_parts): (_, _, _, &[&str]) = if outside {
+            (
+                format!("{} import(s) point outside the snapshot root", sites.len()),
+                0.5,
+                vec!["the target lies beyond the scanned root: widen the scan to link it"],
+                &["outside-root"],
+            )
+        } else {
+            (
+                format!("{} internal import(s) could not be resolved", sites.len()),
+                0.8,
+                vec!["relative/crate-internal specifiers only; packages are never unresolved"],
+                &[],
+            )
+        };
         push(
             &mut c.findings,
             Draft {
                 detector: "unresolved-import",
                 subject: file.clone(),
-                id_parts: &[],
-                title: format!("{} internal import(s) could not be resolved", sites.len()),
-                severity: 0.5 * magnitude(sites.len()),
-                confidence: 0.8,
+                id_parts,
+                title,
+                severity: if outside {
+                    0.2
+                } else {
+                    0.5 * magnitude(sites.len())
+                },
+                confidence,
                 impact: 0.5,
-                evidence: json!({"count": sites.len(), "sites": sites}),
-                controls: vec![
-                    "relative/crate-internal specifiers only; packages are never unresolved",
-                ],
+                evidence: json!({"count": sites.len(), "sites": sites, "outsideRoot": outside}),
+                controls,
                 verify: vec![format!("octocode graph query diagnostics {}", quote(&file))],
             },
         );

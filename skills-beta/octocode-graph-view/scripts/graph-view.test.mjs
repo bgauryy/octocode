@@ -22,7 +22,7 @@ const data = {
   calls: [],
   fnFiles: [],
   legends: { files: ['Files: 3', 'Imports: 3'], functions: ['Files: 0', 'Functions: 0', 'Calls: 0'] },
-  insights: { hubs: [], health: {}, findings: {}, issues: [], cycles: { total: 1, top: [] }, groups: [], mutualGroups: [] },
+  insights: { hubs: [], health: { files: 2, filesInCycles: 2, averageReach: 1.5 }, findings: {}, issues: [], cycles: { total: 1, top: [] }, groups: [], mutualGroups: [] },
   hubFiles: [],
   tokens: { sourceBytes: 4000, sourceFiles: 3 },
 };
@@ -98,7 +98,9 @@ test('puts evidence layers, leads and layout facts into the brief', () => {
   assert.match(short, /brief-full\.txt/);
   assert.ok(short.length < brief.length);
   assert.match(brief, /LAYERS witness=ok clasify=ok ocr=skipped: Ollama unreachable lsp=off \(opt-in\)/);
-  assert.match(brief, /SECTION \/repo: 3 files analysed/);
+  assert.match(brief, /SECTION \/repo: 3 files scanned/);
+  assert.match(brief, /SECTION-WIDE health over 2 production source files \(the count above is every scanned file/);
+  assert.match(brief, /all 0 ranked findings are in data\.json insights\.issues/);
   assert.match(brief, /TERMS importers = files that import it/);
   assert.match(brief, /LEAD \[corroborated\] cycle-edge core\/svc\.ts > data\/db\.ts:5 :: agree \(typeOnly 0\.1, runtimeCall 0\.9\)/);
   assert.equal(embedded.tokens.clasifyInput, 1234);
@@ -283,4 +285,31 @@ test('history analysis counts churn, small-commit co-change and section-wide top
   assert.deepEqual(h.top[0], { id: 'a.ts', commits: 4 });
   assert.equal(h.files['a.ts'].recent90, 3);
   assert.equal(h.hotspots[0].id, 'a.ts');
+});
+
+test('a rust crate root is named by its crate name as well as its stem', async () => {
+  const { stemsOf, stemOf } = await import('./names.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'gv-crate-'));
+  const crate = join(dir, 'crates', 'contract-types');
+  execFileSync('mkdir', ['-p', join(crate, 'src')]);
+  writeFileSync(join(crate, 'Cargo.toml'), '[package]\nname = "octocode-contract-types"\nversion = "1.0.0"\n\n[dependencies]\nserde = "1"\n');
+  writeFileSync(join(crate, 'src', 'lib.rs'), 'pub struct ErrorCode;\n');
+  assert.equal(stemOf('crates/contract-types/src/lib.rs'), 'contract-types');
+  assert.deepEqual(stemsOf('crates/contract-types/src/lib.rs', join(crate, 'src', 'lib.rs')), ['contract-types', 'contract_types', 'octocode_contract_types']);
+  assert.deepEqual(stemsOf('crates/runtime/src/id.rs', join(dir, 'crates/runtime/src/id.rs')), ['id']);
+  assert.deepEqual(stemsOf('src/app.ts', join(dir, 'src/app.ts')), ['app']);
+});
+
+test('source size skips build output and excluded directories', async () => {
+  const { sourceSize } = await import('./lib.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'gv-size-'));
+  for (const d of ['src', 'target/debug', 'node_modules/x', 'fuzz', '.hidden']) execFileSync('mkdir', ['-p', join(dir, d)]);
+  writeFileSync(join(dir, 'src', 'a.rs'), 'fn a() {}\n');
+  writeFileSync(join(dir, 'target', 'debug', 'big.bin'), 'x'.repeat(10_000));
+  writeFileSync(join(dir, 'node_modules', 'x', 'i.js'), 'x'.repeat(500));
+  writeFileSync(join(dir, 'fuzz', 'corpus'), 'x'.repeat(700));
+  writeFileSync(join(dir, '.hidden', 'h'), 'x'.repeat(300));
+  writeFileSync(join(dir, 'src', 'staged.bin'), Buffer.alloc((1 << 20) + 1));
+  assert.deepEqual(sourceSize(dir), { bytes: 10 + 700, files: 2 });
+  assert.deepEqual(sourceSize(dir, ['fuzz']), { bytes: 10, files: 1 });
 });

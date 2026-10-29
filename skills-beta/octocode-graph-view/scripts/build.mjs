@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Section of a repo -> data.json: files, functions, imports, calls and graph insights.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { flags, octocode, pool } from './lib.mjs';
+import { SKIPPED_DIRS, flags, octocode, pool, sourceSize } from './lib.mjs';
 
 const USAGE = `usage: build.mjs <section-dir> [--out <dir>] [--max-files 30] [--hub-files 8] [--symbols 10] [--probe 16] [--jobs 8] [--calls graph|both] [--lsp-timeout 120] [--exclude <dir>]
   Ingests the section with \`octocode graph\` (a frozen copy when the tree changes mid-ingest),
@@ -32,7 +32,7 @@ const octocodeHome = join(homedir(), '.octocode');
 function freeze(dir) {
   const dst = join(octocodeHome, 'tmp', 'materialize', 'v3', `${basename(resolve(dir))}-frozen`);
   mkdirSync(dst, { recursive: true });
-  const skip = ['target', 'node_modules', '.git', 'dist', 'build', '.octocode'].flatMap((d) => ['--exclude', d]);
+  const skip = SKIPPED_DIRS.flatMap((d) => ['--exclude', d]);
   execFileSync('rsync', ['-a', '--delete', '--max-size=1m', ...skip, `${resolve(dir)}/`, `${dst}/`]);
   return dst;
 }
@@ -84,7 +84,8 @@ const fileIds = new Set(files.map((n) => n.id));
 const isolated = ranked.length - files.length;
 
 // Functions: probe each hub file's functions and methods for callees, keep the busiest callers.
-const [cyc, iss] = await Promise.all([q('cycles', '--limit', '100'), q('issues', '--limit', '12')]);
+// Every ranked finding is kept (data.json is the record; the brief shows the top of it).
+const [cyc, iss] = await Promise.all([q('cycles', '--limit', '100'), q('issues', '--limit', '1000')]);
 // Expand the busiest files and the files that ranked findings name, so questions can name their owners.
 const flagged = iss.results.filter((r) => ['god-file', 'critical-file', 'single-point-of-failure', 'misplaced-file'].includes(r.detector)).map((r) => files.find((n) => n.id === r.subject)).filter(Boolean).slice(0, 4);
 const hubs = [...new Set([...[...files].sort((a, b) => b.fanIn - a.fanIn).slice(0, hubFiles), ...flagged])];
@@ -183,19 +184,7 @@ const insights = {
   mutualGroups: groups.filter((c) => c.from < c.to && groups.some((d) => d.from === c.to && d.to === c.from)).map((c) => [c.from, c.to]),
 };
 
-let sourceBytes = 0;
-let sourceFiles = 0;
-(function walk(dir) {
-  for (const d of readdirSync(dir, { withFileTypes: true })) {
-    if (d.name.startsWith('.')) continue;
-    const p = join(dir, d.name);
-    if (d.isDirectory()) walk(p);
-    else if (d.isFile()) {
-      sourceBytes += statSync(p).size;
-      sourceFiles++;
-    }
-  }
-})(snap.root);
+const { bytes: sourceBytes, files: sourceFiles } = sourceSize(snap.root, f.exclude.split(',').filter(Boolean));
 
 const legends = {
   files: [`Files: ${files.length}`, `Imports: ${imports.length}`],
